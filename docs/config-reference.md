@@ -148,13 +148,13 @@ Derived, per car (Mirage / Bullseye / Bastion):
 | Derived | From | Mirage | Bullseye | Bastion |
 |---|---|---|---|---|
 | `hpOf` | hp × `COMBAT_CONFIG.hpPerRating` | 700 | 650 | 900 |
-| `forwardMaxSpeedOf` | `baseMaxSpeed` + speed × `speedPerRating` | 267 u/s | 223 u/s | 190 u/s |
-| `reverseMaxSpeedOf` | forward × `reverseSpeedRatio` | 173.6 | 145 | 123.5 |
+| `forwardMaxSpeedOf` | `baseMaxSpeed` + speed × `speedPerRating` | 189.03 u/s | 158.67 u/s | 135.9 u/s |
+| `reverseMaxSpeedOf` | forward × `reverseSpeedRatio` | 122.9 | 103.1 | 88.3 |
 | `accelOf` | `baseAccel` + accel × `accelPerRating` | 179 | 123 | 88 |
 | `reverseAccelOf` | `accelOf` × `reverseAccelFactor` | 107.4 | 73.8 | 52.8 |
 | `turnRateOf` | `baseTurnRate` + handling × `turnRatePerRating` | 8.19 | 7.11 | 6.3 |
 | `turnRateAtStopOf` | `turnRateOf` × `stopTurnRatio` | 4.095 | 3.555 | 3.15 |
-| **turn radius** | `forwardMaxSpeedOf / turnRateOf` — derived, never typed | **32.6 u** | 31.4 u | 30.2 u |
+| **turn radius** | `forwardMaxSpeedOf / turnRateOf` — derived, never typed | **23.1 u** | 22.3 u | 21.6 u |
 | time to top | `forwardMaxSpeedOf / accelOf` | 1.49 s | 1.81 s | 2.16 s |
 | `ramAttackOf` | `CarDef.ramAttack`, the raw 0-100 rating — no scale | 55 | 45 | 70 |
 | `ramDefenceOf` | `CarDef.ramDefence`, the raw 0-100 rating — no scale | 50 | 30 | 90 |
@@ -419,8 +419,8 @@ different knob entirely: `usesAimAssist` per weapon in `WEAPON_TABLE`.
 
 | Knob | Value |
 |---|---|
-| `baseMaxSpeed` | 80 (was 135 — see the 2026-09-06 heavy-car pass below) |
-| `speedPerRating` | 2.2 (was 3.7 — cut alongside `baseMaxSpeed`) |
+| `baseMaxSpeed` | 60 (was 80 — see the 2026-09-16 cut below) |
+| `speedPerRating` | 1.518 (was 2.2 — cut alongside `baseMaxSpeed`) |
 | `steeringGrip` | 1.0 (how completely velocity tracks heading while steering; 1 = "on rails") |
 | `impactGripDecel` | 250 (u/s² — how fast ram-imposed sideways velocity bleeds off; unrelated to steering) |
 | `baseTurnRate` | 3.6 (was 2.4 — see the 1.5x raise below) |
@@ -491,6 +491,22 @@ stage 3 of the same rework deleted `RAM_REFERENCE` outright along with `mass`, s
 from the roster's top speed on the ram side any more. This pass also moved `coastHalfLifeSeconds` and
 `brakeDecel` off this table entirely, onto `CarDef` — see below.
 
+**Cut again on 2026-09-16**: `baseMaxSpeed` 80 -> 60 and `speedPerRating` 2.2 -> 1.518, taking the
+roster to Mirage 189.03 / Bullseye 158.67 / Bastion 135.9 u/s — a further ~29% off every top speed.
+Three things about this pass are worth reading before tuning against it:
+
+- **It is NOT a uniform pair scale.** `baseMaxSpeed` fell to 0.75x and `speedPerRating` to 0.69x, so
+  the flat part grew relative to the per-rating part and a point of `speed` buys slightly less than
+  it did. The roster's top-speed spread narrowed from 77 u/s to 53.
+- **Accel was left alone**, so time-to-top-speed FELL with the ceiling rather than rising with it:
+  Mirage 1.49 -> 1.06 s, Bullseye 1.81 -> 1.29, Bastion 2.16 -> 1.54. A car is slower but reaches its
+  (lower) maximum sooner, which is the opposite of what the 2026-09-06 pass did and reads as less
+  heavy, not more.
+- **Turn rate untouched for a third consecutive pass**, so every radius fell with its own top speed:
+  Bastion 21.6 / Bullseye 22.3 / Mirage 23.1 u. That is a 1.5 u band across the whole roster — under
+  a tenth of a car length. Radius is no longer a legible axis of the type triangle; see
+  [`turn-tuning.md`](turn-tuning.md#current-values).
+
 `reverseAccelFactor: 0.6` says a car pulls away harder in its forward gear than in reverse. **It was
 1.41 until 2026-09-07**, which said the opposite, and that was a surviving artefact rather than a
 choice: it yielded 1099.8 at rating 50 against the 1100 that shipped, back when `accelOf(50)` was
@@ -532,7 +548,8 @@ per chassis, not for "the fastest car". Each chassis's `CarDef.brakeDecel` must 
 coasting (`coastHalfLifeSeconds`, resolved to `coastPerTick`), measured at that car's own top speed
 where proportional coast-off is strongest, or the brake button is pointless — the old global
 `DRIVE_CONFIG.brakeDecel`/`drag` pair this replaced no longer exists. `CAMERA_CONFIG.freeRoamSpeed`
-(340) must exceed the fastest car (267) — both couplings are asserted in `config.test.ts`.
+(340) must exceed the fastest car (189.03 as of the 2026-09-16 cut, so the margin is now 1.8x rather
+than the 1.27x it was authored at) — both couplings are asserted in `config.test.ts`.
 `baseMaxSpeed` and `speedPerRating` scale together on purpose: their ratio decides how much the
 per-car `speed` rating matters, so moving only one re-balances the roster. `baseTurnRate`/
 `turnRatePerRating` and `baseAccel`/`accelPerRating` pair the same way.
@@ -871,12 +888,12 @@ display would see meaningfully less road ahead (the "75... against 31" this line
 corresponds to a speed near 810 u/s and was already wrong before this branch touched it). `smoothFollow`
 compounds it per elapsed millisecond instead, matching `panFreeCam`.
 
-At `zoom` 1 the visible world is the full 1280x720 units, so the fastest car (mirage, 267 u/s as of
-the 2026-09-06 heavy-car pass — this read 2.4 seconds at the pre-rework 449.5 u/s) crosses it in 4.8
-seconds. The camera's trailing offset from `smoothFollow`'s steady-state formula
-(`speed / (fps × camLerp)`) is about 3.9% of the half-view at that speed, and was about 6.5% even at
-the old 449.5 — the "12%" this line previously claimed predates this branch and was already wrong
-before the heavy-car pass touched it, not a figure this rework moved.
+At `zoom` 1 the visible world is the full 1280x720 units, so the fastest car (mirage, 189.03 u/s as
+of the 2026-09-16 cut — 267 after the 2026-09-06 heavy-car pass, and 449.5 before the rework) crosses
+it in 6.8 seconds, against 4.8 and 2.4 at those two earlier figures. The camera's trailing offset
+from `smoothFollow`'s steady-state formula (`speed / (fps × camLerp)`) is about 2.7% of the half-view
+at that speed, and was about 6.5% even at the old 449.5 — the "12%" this line once claimed was
+already wrong before the heavy-car pass touched it, not a figure any of these reworks moved.
 
 ## FLOW_CONFIG
 
@@ -1038,7 +1055,7 @@ for the pipeline; this table is the values.
 |---|---|---|
 | `damage` | 80 | Flat, per trigger, never scaled by `scaleDamage` or `corroded`. Between a Thumper shell (60) and a Roadblock (100) — nine touches kill a Bullseye (650 hp), twelve a Bastion (900 hp) |
 | `depth` | 20 | How far a strip protrudes from its wall, in world units. Geometry, not balance — must match the strips `ARENA_01` authors, and `arena.test.ts` fails if it drifts |
-| `triggerSpeed` | 25 | Speed INTO the surface, in units/s, below which nothing happens. Deliberately low against roster top speeds of 190–267: the line between "resting against a wall" and "moving into it," not a difficulty dial. **Measured consequence:** at `DRIVE_CONFIG.restitution` 0.15 a car holding throttle into a wall settles at ~5 u/s inward, so a self-driven car pays on arrival and never again — only an externally shoved one keeps paying. Lower this if grinding along a wall should cost the driver something |
+| `triggerSpeed` | 25 | Speed INTO the surface, in units/s, below which nothing happens. Deliberately low against roster top speeds of 135.9–189.03 (190–267 before the 2026-09-16 cut): the line between "resting against a wall" and "moving into it," not a difficulty dial. The cut moved the roster toward this threshold without moving the threshold, so a shove now has to be proportionally harder to draw blood. **Measured consequence:** at `DRIVE_CONFIG.restitution` 0.15 a car holding throttle into a wall settles at ~5 u/s inward, so a self-driven car pays on arrival and never again — only an externally shoved one keeps paying. Lower this if grinding along a wall should cost the driver something |
 | `retriggerMs` | 750 | Immunity window after a hit. ~107 HP/s while pinned — roughly six seconds of sustained pressure kills a Bullseye. Without it a shoved car takes `damage` every tick, thirty times a second. Expected to move after playtest |
 | `shoverCreditMs` | 4000 | How long after being rammed or slammed a car's spike death still credits the pusher. Past it, a spike death credits nobody but the victim |
 | `contactPad` | 2 | Contact slack for the overlap test, matching the scale of `RAM_CONFIG.contactPad` |

@@ -785,19 +785,27 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
       // real knock, but enough to make the OLD `!== 0` comparison call this ordinary driving an
       // externally-imposed knock forever, coasting a silent player's queue that client prediction
       // never runs. `hasKnock` must compare against `DRIVE_CONFIG.stopEpsilon`, not exact zero.
-      // Dead centre of the arena, not the CORRIDOR_Y spot the rest of this file uses: 200 ticks of
-      // continuous turning traces the full ~32.6u circle repeatedly (as of the 2026-09-06 heavy-car
-      // pass), and from the corridor spot at y=100 that circle now clips arena-01's top wall and its
-      // spike strip (landed 2026-09-11) — this test is about float residue, not collision, so it
-      // needs a spot far enough from every wall and every spike that the loop truly never touches
-      // anything. The arena centre clears the nearest wall by roughly 286 units on the short axis.
+      // Dead centre of the arena, not the CORRIDOR_Y spot the rest of this file uses: 150 ticks of
+      // continuous turning traces the full ~23.1u circle many times over (as of the 2026-09-16 speed
+      // cut; it was ~32.6u after the 2026-09-06 heavy-car pass), and from the corridor spot at y=100
+      // that circle now clips arena-01's top wall and its spike strip (landed 2026-09-11) — this test
+      // is about float residue, not collision, so it needs a spot far enough from every wall and every
+      // spike that the loop truly never touches anything. The arena centre clears the nearest wall by
+      // roughly 286 units on the short axis.
+      //
+      // The TICK COUNT is empirical and fragile by nature: whether the sin/cos round-trip lands a
+      // nonzero residue at all depends on the exact trajectory, so a speed or turn-rate retune can
+      // make a given count come back bit-exactly 0 and gut the `not.toBe(0)` assertion below. 200 did
+      // exactly that under the 2026-09-16 cut; 150 lands 8.88e-16. If this line ever reads "expected
+      // +0 not to be +0" again, re-probe the count rather than relaxing the assertion — a zero
+      // residue means this regression is no longer being exercised, not that it is fixed.
       const player = makePlayer("v", ARENA_CENTRE_X, ARENA_CENTRE_Y, 0);
       const state = stateWith(player);
       let seq = 1;
       const turning = (steer: number): InputMessage[] => [
         { seq: seq++, steer, throttle: 1, fireSlots: 0 },
       ];
-      for (let i = 0; i < 200; i++) {
+      for (let i = 0; i < 150; i++) {
         serverTick(state, new Map([["v", turning(1)]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
       }
 

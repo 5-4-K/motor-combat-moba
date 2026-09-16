@@ -17,10 +17,13 @@ import { ENVIRONMENT_FX } from "./environment.js";
 describe("ENVIRONMENT_FX", () => {
   it("carries the shipped grade and vignette", () => {
     expect(ENVIRONMENT_FX.grade).toEqual({
-      saturate: -0.22,
+      // As tuned 2026-09-16: `saturate` -0.22 -> 0 (Phaser's parameter is a DELTA, so 0 is the
+      // identity matrix and colours come through ungraded) and `brightness` 0.96 -> 1.5. The warm
+      // R/B split is untouched, so the arena keeps its cast — it is just brighter and unmuted.
+      saturate: 0,
       warmR: 1.07,
       warmB: 0.92,
-      brightness: 0.96,
+      brightness: 1.5,
     });
     expect(ENVIRONMENT_FX.vignette).toEqual({ x: 0.5, y: 0.5, radius: 0.78, strength: 0 });
   });

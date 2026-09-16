@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TICK_RATE_HZ, hpOf, slotsOf, weaponDefOf } from "@motor-combat-moba/shared";
+import { TICK_RATE_HZ, forwardMaxSpeedOf, hpOf, slotsOf, weaponDefOf } from "@motor-combat-moba/shared";
 import { makeRng } from "../rng.js";
 import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import type { BotCarView, BotSlotView, BotView } from "../types.js";
@@ -17,7 +17,7 @@ function view(tick: number, over: Partial<BotView> = {}): BotView {
   return {
     tick,
     self: {
-      sessionId: "me", carId: "bullseye", team: 0, x: 200, y: 360, angle: 0, vx: 200, vy: 0,
+      sessionId: "me", carId: "bullseye", team: 0, x: 200, y: 360, angle: 0, vx: forwardMaxSpeedOf("bullseye"), vy: 0,
       hp: 65, maxHp: 65, alive: true, statuses: [], slots: slotsFor("bullseye"),
       switchLockUntilTick: 0, lockTargetSessionId: "", maneuver: 0, maneuverTicksLeft: 0,
     },
@@ -28,7 +28,7 @@ function view(tick: number, over: Partial<BotView> = {}): BotView {
 }
 
 const enemy: BotCarView = {
-  sessionId: "them", carId: "mirage", team: 0, x: 700, y: 360, angle: Math.PI, vx: -400, vy: 0,
+  sessionId: "them", carId: "mirage", team: 0, x: 700, y: 360, angle: Math.PI, vx: -forwardMaxSpeedOf("mirage"), vy: 0,
   hp: 70, maxHp: 70, alive: true, phased: false, statuses: [], maneuver: 0,
 };
 

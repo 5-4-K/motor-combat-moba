@@ -206,7 +206,7 @@ export interface EnvironmentFx {
 // (a plain assignment is silently a no-op in non-strict mode, which is worse: the mutation would look
 // like it worked) instead of quietly corrupting the shipped table for every later reader.
 export const ENVIRONMENT_FX: EnvironmentFx = {
-  grade: Object.freeze({ saturate: -0.22, warmR: 1.07, warmB: 0.92, brightness: 0.96 }),
+  grade: Object.freeze({ saturate: 0, warmR: 1.07, warmB: 0.92, brightness: 1.5 }),
   vignette: Object.freeze({ x: 0.5, y: 0.5, radius: 0.78, strength: 0 }),
   shake: Object.freeze({
     max: 0.02,
@@ -284,15 +284,15 @@ export const ENVIRONMENT_FX: EnvironmentFx = {
   // make a car look MADE of something, not to turn the arena into a diorama.
   carLook: Object.freeze({
     lightAngle: -180,
-    shadowOffset: 5,
-    shadowAlpha: 0,
+    shadowOffset: 16.5,
+    shadowAlpha: 0.2,
     shadowSpread: 0.5,
     shadowBands: 5,
     shadowColor: 0x0a0908,
     footprint: 0.86,
     contactAlpha: 0.16,
     contactScale: 0.7,
-    litStrength: 1,
+    litStrength: 0,
     shadeStrength: 0.2,
     rimAlpha: 0.55,
     rimColor: 0xfff1d6,

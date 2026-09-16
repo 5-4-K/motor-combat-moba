@@ -71,8 +71,12 @@ describe("stepSim", () => {
       angVel: 0,
     };
 
-    const unobstructed = drive(start, EMPTY_ARENA, 60);
-    const blocked = drive(start, { ...EMPTY_ARENA, obstacles: [obstacle] }, 60);
+    // 90 ticks (3 s), not 60: the point of the case is that the UNOBSTRUCTED run ends up past the
+    // obstacle, and how far a car gets in a fixed time is a balance number. The 2026-09-16 speed cut
+    // left Mirage 281 u short of the 300 it needs over 2 s, so the run was lengthened rather than the
+    // 400 u obstacle moved — the obstacle's position is what the blocked assertion measures against.
+    const unobstructed = drive(start, EMPTY_ARENA, 90);
+    const blocked = drive(start, { ...EMPTY_ARENA, obstacles: [obstacle] }, 90);
 
     // Without the obstacle the car is well past it; with it, the hull never crosses the near face.
     expect(unobstructed.x).toBeGreaterThan(obstacle.x);

@@ -331,9 +331,16 @@ describe("predicting an observed car, against an independent ground truth", () =
     return Math.hypot(guess.x - actual.x, guess.y - actual.y);
   };
 
-  // Mirage's resolved drive numbers, so the two extreme rows below are the chassis's REAL caps
-  // rather than round numbers near them. `maxSpeed` is 449.5 and `reverseMaxSpeed` is 292.175 at
-  // today's `DRIVE_CONFIG`; derived rather than typed so a speed retune moves the scene with it.
+  // Mirage's resolved drive numbers, so the rows below are FRACTIONS OF the chassis's real caps
+  // rather than round numbers that happen to sit near them. `maxSpeed` is 189.03 and
+  // `reverseMaxSpeed` is 122.8695 as of the 2026-09-16 speed cut (449.5 / 292.175 when this table
+  // was written, 267 / 173.55 after the 2026-09-06 heavy-car pass).
+  //
+  // The middle rows became cap-relative on 2026-09-16 for the reason the two extremes always were:
+  // typed as 150 and 250 they described a "crawling" car at 79% of the cap and a "mid speed" car
+  // 32% ABOVE it — an observation the sim cannot produce, silently measuring the rollout's clamp
+  // instead of the scene each label names. The fractions reproduce what those figures meant against
+  // the 449.5 cap they were authored for (150/449.5 ~= 1/3, 250/449.5 ~= 5/9, -150/292.175 ~= 0.51).
   const MIRAGE = driveOf("mirage");
 
   // Every scene a bot actually faces, not just the one the model reproduces by construction -- the
@@ -352,14 +359,14 @@ describe("predicting an observed car, against an independent ground truth", () =
   const SCENES: readonly { speed: number; steer: -1 | 0 | 1; label: string }[] = [
     { speed: -MIRAGE.reverseMaxSpeed, steer: 0, label: "reversing at the cap, straight" },
     { speed: -MIRAGE.reverseMaxSpeed, steer: 1, label: "reversing at the cap, wheel over" },
-    { speed: -150, steer: 0, label: "reversing, straight" },
-    { speed: -150, steer: 1, label: "reversing, wheel over" },
+    { speed: -MIRAGE.reverseMaxSpeed * 0.51, steer: 0, label: "reversing, straight" },
+    { speed: -MIRAGE.reverseMaxSpeed * 0.51, steer: 1, label: "reversing, wheel over" },
     { speed: 0, steer: 0, label: "stunned, wheel straight" },
     { speed: 0, steer: 1, label: "stunned, wheel over" },
-    { speed: 150, steer: 0, label: "crawling, straight" },
-    { speed: 150, steer: 1, label: "crawling, full lock" },
-    { speed: 250, steer: 0, label: "mid speed, straight" },
-    { speed: 250, steer: 1, label: "mid speed, full lock" },
+    { speed: MIRAGE.maxSpeed / 3, steer: 0, label: "crawling, straight" },
+    { speed: MIRAGE.maxSpeed / 3, steer: 1, label: "crawling, full lock" },
+    { speed: (MIRAGE.maxSpeed * 5) / 9, steer: 0, label: "mid speed, straight" },
+    { speed: (MIRAGE.maxSpeed * 5) / 9, steer: 1, label: "mid speed, full lock" },
     // The chassis MAXIMUM, not a round number below it (fix round 2, finding B). This row exists to
     // pin the one case an engine-on rollout gets right by accident, and that is only true AT the
     // cap: at 400 an engine-on rollout is still 32 units out at 20 ticks. It was 400 while
@@ -491,8 +498,15 @@ describe("predicting an observed car, against an independent ground truth", () =
     // — an engine-off-only rollout still decays a reversing car to a dead stop while the truth keeps
     // reversing — but the heavy-car pass cut Mirage's reverse cap from 292.2 to 173.55 u/s, so the
     // gap that opens over the horizon scales with it: 493 units where it used to be 876.
+    //
+    // DERIVED since 2026-09-16, not re-pinned a third time. The bound is a fraction of the distance
+    // a car held at the observed reverse actually covers over the horizon, because that is the whole
+    // claim — the engine-off-only rollout parks while the truth keeps going, so the error IS very
+    // nearly that distance. 90% leaves room for the few ticks it spends braking. A typed number here
+    // has now gone stale at two consecutive speed retunes (800 -> 400 -> would have been 300).
+    const capTravel = Math.abs(capStraight.speed) * (LONGEST / TICK_RATE_HZ);
     expect(errorAt(truthPath(capStraight.speed, 0, "mirage", LONGEST), stopped[LONGEST - 1]!, LONGEST))
-      .toBeGreaterThan(400);
+      .toBeGreaterThan(capTravel * 0.9);
   });
 
   it("beats a straight line wherever the target turns, and never loses where it does not", () => {
@@ -712,13 +726,21 @@ describe("state estimation noise (P20)", () => {
     //   AFTER:  +25% +168.56, +50% +337.13, -25% -168.56
     // At 250 u/s the pair was already symmetric at +-93.75 either way, which is what said the defect
     // was the CLAMP and not the noise.
-    const car = carAt({ speed: driveOf("mirage").maxSpeed });
+    //
+    // The `over` bound is DERIVED since 2026-09-16 rather than the typed 100 it was: a sigma-0.25
+    // over-read at the cap displaces the prediction by exactly `maxSpeed * 0.25 * horizonSeconds`
+    // WHEN NOTHING CLAMPS IT, which is the property under test, so the clean statement is that it
+    // lands on that figure rather than that it clears some round number below it. The typed 100 was
+    // 0.1% under the value it was guarding at the time it was written, and the 2026-09-16 speed cut
+    // (267 -> 189.03) took the true figure to 70.89 and failed it.
+    const cap = driveOf("mirage").maxSpeed;
+    const car = carAt({ speed: cap });
     const dx = (sigma: number, draw: number) =>
       physicsPredictor(car, 0, 45, sigma, rngGiving(draw))(45).x
         - physicsPredictor(car, 0, 45, 0, rngGiving(draw))(45).x;
     const over = dx(0.25, 1);
     const under = dx(0.25, -1);
-    expect(over).toBeGreaterThan(100); // it was 0.00
+    expect(over).toBeCloseTo(cap * 0.25 * (45 / TICK_RATE_HZ), 6); // it was 0.00
     expect(over).toBeCloseTo(-under, 6);
     // And it keeps scaling past the cap rather than saturating at it.
     expect(dx(0.5, 1)).toBeCloseTo(over * 2, 6);

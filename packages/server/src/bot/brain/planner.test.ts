@@ -153,9 +153,19 @@ describe("plan", () => {
     // identical CURRENT pose, so the ALL_ACTIONS tie-break would decide the same action regardless
     // of the scene -- an open field and a car jammed against a wall would come out identical. R-P6
     // floors the roll at one tick even at K=0, so these two must differ.
+    //
+    // The jammed scene is the CORNER since 2026-09-16, not the left edge at (30, 360). One tick is
+    // all a K=0 plan rolls, and how far that tick carries the car is a balance number: the speed cut
+    // shortened it enough that the edge pose and the open-field pose came out as the same action, on
+    // a `wallPenalty` term worth 0.23 against a `myEv` of 300. `boundsPenalty` squares its per-plane
+    // overrun precisely so a corner dominates an edge, so the corner is the scene that actually
+    // states "jammed against a wall" — and it is the pose the comment above always described.
     const openField = plan({ ...base, self: selfAt(300, 360, Math.PI), horizonTicks: 0 });
-    const nearWall = plan({ ...base, self: selfAt(30, 360, Math.PI), horizonTicks: 0 });
-    expect(nearWall.action).not.toEqual(openField.action);
+    const cornered = plan({ ...base, self: selfAt(30, 30, Math.PI), horizonTicks: 0 });
+    expect(cornered.action).not.toEqual(openField.action);
+    // And neither is the bare tie-break, which is what a rolled-nothing K=0 would hand back for both.
+    expect(openField.action).not.toEqual(ALL_ACTIONS[0]);
+    expect(cornered.action).not.toEqual(ALL_ACTIONS[0]);
   });
 
   it("does not steer into a wall it is about to hit, even at horizon 0 (P29, R-P6)", () => {
