@@ -1,15 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ACTIVE_ARENA_ID,
+  ARENA_IDS,
   BOT_SESSION_ID,
+  PLAYGROUND_SEAT_IDS,
   PlayerState,
   PlaygroundState,
   RoomPhase,
   WEAPON_TABLE,
+  defaultPlaygroundSetup,
   hpOf,
+  pairKey,
+  slotsOf,
   type BotDifficulty,
   type CombatEvents,
   type FiredEvent,
   type InputMessage,
+  type PlaygroundSetup,
 } from "@motor-combat-moba/shared";
 import { BOT_PROFILES } from "../config/bot-profiles.js";
 import { HumanController, ViewRing, type BotView } from "../bot/index.js";
@@ -19,10 +26,12 @@ import {
   PLAYGROUND_LEVEL,
   PlaygroundRoom,
   loadoutOrChassisChanged,
-  otherPlaygroundId,
+  seatIndexOf,
   shouldRefusePlayground,
 } from "./PlaygroundRoom.js";
 import { shouldRejectSecondArena } from "./singleton-arena.js";
+import type { CombatMemory } from "../sim/combat-bridge.js";
+import type { ContactMemory } from "../sim/ram-bridge.js";
 
 describe("shouldRefusePlayground", () => {
   it("opens when nothing else is running", () => {
@@ -79,14 +88,17 @@ describe("PLAYGROUND_LEVEL", () => {
   });
 });
 
-describe("otherPlaygroundId", () => {
-  it("flips the human session to the bot and back", () => {
-    expect(otherPlaygroundId("abc", "abc")).toBe(BOT_SESSION_ID);
-    expect(otherPlaygroundId(BOT_SESSION_ID, "abc")).toBe("abc");
+describe("seatIndexOf (PG57)", () => {
+  it("maps each seat id to its index", () => {
+    PLAYGROUND_SEAT_IDS.forEach((id, i) => expect(seatIndexOf(id)).toBe(i));
   });
 
-  it("resolves anything else to the human — an unset control field is not a third car", () => {
-    expect(otherPlaygroundId("", "abc")).toBe("abc");
+  it("returns -1 for anything that is not a seat", () => {
+    // A client session id, the practice room's bot id, and junk all land here: this room's cars are
+    // its seats and nothing else.
+    expect(seatIndexOf("")).toBe(-1);
+    expect(seatIndexOf(BOT_SESSION_ID)).toBe(-1);
+    expect(seatIndexOf("aBcDeF123")).toBe(-1);
   });
 });
 
@@ -138,20 +150,28 @@ describe("loadoutOrChassisChanged (PG32)", () => {
  * The Task 8 host wiring, mirrored from `practice-room.test.ts` — see that file's own describe block
  * for the full rationale (every piece threads through optional parameters, so a regression here
  * compiles clean and passes every other suite). Kept here too because `PlaygroundRoom` wires the
- * identical ring/events machinery independently, through its own `tick`/`enqueueOpponentInput`/`ctx`,
- * and nothing before this block named `botRing`, `observedFires`, or `stalenessTicks` here either.
+ * identical ring/events machinery independently, through its own `tick`/`enqueueAiInputs`/`ctx`, and
+ * nothing before this block named `botRing`, `observedFires`, or `stalenessTicks` here either.
+ *
+ * Re-keyed onto seats (post-PG57 ruling): this block tests the view ring and the fired-events sink,
+ * not the identity of the two cars, so seat 0 (driven) and seat 1 (bot) preserve exactly what it was
+ * written to measure — `state.controlledSessionId` is what names the driven car now, and
+ * `enqueueAiInputs` iterates `PLAYGROUND_SEAT_IDS` only, so a car keyed on anything else would
+ * receive no input and go quiet rather than fail loudly.
  *
  * `readyPlaygroundRoom` skips `onCreate` (its matchmaker queries) and `applySetup` (chassis/loadout
- * wiring this file does not need) — it sets exactly what `tick()` and `enqueueOpponentInput()` read.
+ * wiring this file does not need) — it sets exactly what `tick()` and `enqueueAiInputs()` read.
  */
 describe("Task 8: the view ring and the fired sink actually run outside the harness", () => {
+  const DRIVEN = PLAYGROUND_SEAT_IDS[0]!;
+  const BOT_SEAT = PLAYGROUND_SEAT_IDS[1]!;
+
   interface PlaygroundRoomHarness {
     state: PlaygroundState;
-    humanSessionId: string;
     inputQueues: Map<string, InputMessage[]>;
     botEvents: CombatEvents;
     setState(state: PlaygroundState): void;
-    addCar(sessionId: string, name: string, usedColorIds: number[], team: number): PlayerState;
+    addCar(sessionId: string, name: string, colorId: number, team: number): PlayerState;
     tick(): void;
   }
 
@@ -162,11 +182,10 @@ describe("Task 8: the view ring and the fired sink actually run outside the harn
     room.state.phase = RoomPhase.MATCH;
     room.state.botEnabled = true;
     room.state.botDifficulty = difficulty;
-    room.humanSessionId = "human";
-    room.state.controlledSessionId = "human"; // so `otherPlaygroundId` resolves the opponent to the bot
+    room.state.controlledSessionId = DRIVEN; // so `enqueueAiInputs` drives every other seat as a bot
 
-    const human = room.addCar("human", "Player", [], 0);
-    const bot = room.addCar(BOT_SESSION_ID, "Bot", [human.colorId], 1);
+    const human = room.addCar(DRIVEN, "Player", 0, 0);
+    const bot = room.addCar(BOT_SEAT, "Bot", 1, 1);
     // `addCar` never sets `carId` here — the real room does that through `applySetup`, which this
     // harness skips (it also grants spawn-protected `phased`, which would complicate the staleness/
     // firing scenarios below for no benefit). hp likewise defaults to 0 and is set directly.
@@ -234,7 +253,7 @@ describe("Task 8: the view ring and the fired sink actually run outside the harn
       return { steer: 0, throttle: 0, fireSlots: 0 };
     });
 
-    const human = room.state.players.get("human")!;
+    const human = room.state.players.get(DRIVEN)!;
     const totalTicks = staleness + 6;
     for (let t = 1; t <= totalTicks; t++) {
       human.x = t * 10; // a fact only the LIVE world knows on tick t
@@ -244,7 +263,7 @@ describe("Task 8: the view ring and the fired sink actually run outside the harn
 
     const lastView = seenViews.at(-1)!;
     expect(lastView.tick).toBe(totalTicks);
-    const seenHuman = lastView.others.find((car) => car.sessionId === "human");
+    const seenHuman = lastView.others.find((car) => car.sessionId === DRIVEN);
     expect(seenHuman).toBeDefined();
     expect(seenHuman!.x).toBe((totalTicks - staleness) * 10);
     expect(seenHuman!.x).not.toBe(human.x);
@@ -265,7 +284,7 @@ describe("Task 8: the view ring and the fired sink actually run outside the harn
 
     // A REAL press through the ordinary input queue, exactly as `practice-room.test.ts` forces one —
     // see that test's comment for why this does not depend on the bot's own AI ever choosing to fire.
-    room.inputQueues.get("human")?.push({ seq: 1, steer: 0, throttle: 0, fireSlots: 0b111 });
+    room.inputQueues.get(DRIVEN)?.push({ seq: 1, steer: 0, throttle: 0, fireSlots: 0b111 });
     room.tick(); // tick 1: the press resolves, a FiredEvent lands in botEvents, then gets drained.
     room.tick(); // tick 2: the bot's own decide() call should now see it.
     decideSpy.mockRestore();
@@ -274,7 +293,7 @@ describe("Task 8: the view ring and the fired sink actually run outside the harn
     expect(tick2View).toBeDefined();
     expect(tick2View!.observedFires.length).toBeGreaterThan(0);
     const shot = tick2View!.observedFires.find(
-      (fire: FiredEvent) => fire.shooterSessionId === "human",
+      (fire: FiredEvent) => fire.shooterSessionId === DRIVEN,
     );
     expect(shot).toBeDefined();
     expect(shot!.tick).toBe(1);
@@ -284,11 +303,243 @@ describe("Task 8: the view ring and the fired sink actually run outside the harn
     const room = readyPlaygroundRoom("medium");
 
     for (let t = 1; t <= 200; t++) {
-      room.inputQueues.get("human")?.push({ seq: t, steer: 0, throttle: 0, fireSlots: 0b111 });
+      room.inputQueues.get(DRIVEN)?.push({ seq: t, steer: 0, throttle: 0, fireSlots: 0b111 });
       room.tick();
       expect(room.botEvents.fired.length).toBe(0);
       expect(room.botEvents.damaged.length).toBe(0);
       expect(room.botEvents.killed.length).toBe(0);
     }
+  });
+});
+
+describe("seat lifecycle (PG66/PG67/PG68)", () => {
+  interface SetupHarness {
+    state: PlaygroundState;
+    combat: CombatMemory;
+    ram: ContactMemory;
+    inputQueues: Map<string, InputMessage[]>;
+    prevFireMasks: Map<string, number>;
+    matchRoster: Set<string>;
+    phaseCaps: Map<string, number>;
+    setState(state: PlaygroundState): void;
+    applySetup(setup: PlaygroundSetup): void;
+  }
+
+  function readyRoom(): SetupHarness {
+    const room = new PlaygroundRoom() as unknown as SetupHarness;
+    room.setState(new PlaygroundState());
+    room.state.phase = RoomPhase.MATCH;
+    room.state.arenaId = ACTIVE_ARENA_ID;
+    return room;
+  }
+
+  /** The default setup with `mutate` applied — a fresh, legal six-seat blob every call. */
+  function setupWith(mutate: (s: PlaygroundSetup) => PlaygroundSetup): PlaygroundSetup {
+    return mutate(defaultPlaygroundSetup());
+  }
+
+  const enable = (s: PlaygroundSetup, ...seats: number[]): PlaygroundSetup => ({
+    ...s,
+    cars: s.cars.map((c, i) => ({ ...c, enabled: seats.includes(i) })),
+    drivenSeat: seats[0]!,
+  });
+
+  it("opens the default setup with exactly two cars on the field", () => {
+    const room = readyRoom();
+    room.applySetup(defaultPlaygroundSetup());
+    expect([...room.state.players.keys()]).toEqual([PLAYGROUND_SEAT_IDS[0], PLAYGROUND_SEAT_IDS[1]]);
+    expect(room.state.controlledSessionId).toBe(PLAYGROUND_SEAT_IDS[0]);
+  });
+
+  it("adds a car when a seat is enabled", () => {
+    const room = readyRoom();
+    room.applySetup(defaultPlaygroundSetup());
+    room.applySetup(setupWith((s) => enable(s, 0, 1, 4)));
+
+    const added = room.state.players.get(PLAYGROUND_SEAT_IDS[4]!);
+    expect(added).toBeDefined();
+    expect(added!.alive).toBe(true);
+    expect(added!.hp).toBe(hpOf(added!.carId));
+    expect(room.matchRoster.has(PLAYGROUND_SEAT_IDS[4]!)).toBe(true);
+    expect(room.inputQueues.has(PLAYGROUND_SEAT_IDS[4]!)).toBe(true);
+  });
+
+  it("removes a car, and every map entry with it, when a seat is disabled (PG67)", () => {
+    const room = readyRoom();
+    room.applySetup(setupWith((s) => enable(s, 0, 1, 2)));
+    const gone = PLAYGROUND_SEAT_IDS[2]!;
+    // State the removal has to clear, planted where the sim would have left it.
+    room.ram.contacts.add(pairKey(gone, PLAYGROUND_SEAT_IDS[0]!));
+    room.ram.falloff.set(gone, { count: 2, expiresAtTick: 99 });
+
+    room.applySetup(setupWith((s) => enable(s, 0, 1)));
+
+    expect(room.state.players.has(gone)).toBe(false);
+    expect(room.inputQueues.has(gone)).toBe(false);
+    expect(room.prevFireMasks.has(gone)).toBe(false);
+    expect(room.matchRoster.has(gone)).toBe(false);
+    expect(room.phaseCaps.has(gone)).toBe(false);
+    expect(room.combat.loadouts.has(gone)).toBe(false);
+    expect(room.combat.fireStates.has(gone)).toBe(false);
+    expect(room.ram.falloff.has(gone)).toBe(false);
+    expect(room.ram.contacts.size).toBe(0);
+  });
+
+  it("respawns a car whose chassis changed, and NOT one whose colour changed (PG68/PG32)", () => {
+    const room = readyRoom();
+    room.applySetup(defaultPlaygroundSetup());
+    const seat0 = room.state.players.get(PLAYGROUND_SEAT_IDS[0]!)!;
+    const seat1 = room.state.players.get(PLAYGROUND_SEAT_IDS[1]!)!;
+    seat0.x = 123;
+    seat0.y = 456;
+    seat1.x = 700;
+    seat1.y = 400;
+    seat1.hp = 5;
+
+    room.applySetup(
+      setupWith((s) => ({
+        ...s,
+        cars: s.cars.map((c, i) =>
+          i === 0 ? { ...c, carId: "bastion", weapons: slotsOf("bastion") as typeof c.weapons } : i === 1 ? { ...c, colorId: 4 } : c,
+        ),
+      })),
+    );
+
+    // Seat 0 changed chassis: moved off its planted pose and given fresh hp.
+    expect(room.state.players.get(PLAYGROUND_SEAT_IDS[0]!)!.x).not.toBe(123);
+    expect(room.state.players.get(PLAYGROUND_SEAT_IDS[0]!)!.hp).toBe(hpOf("bastion"));
+    // Seat 1 changed only its colour: repainted in place, hp and pose untouched.
+    expect(room.state.players.get(PLAYGROUND_SEAT_IDS[1]!)!.colorId).toBe(4);
+    expect(room.state.players.get(PLAYGROUND_SEAT_IDS[1]!)!.x).toBe(700);
+    expect(room.state.players.get(PLAYGROUND_SEAT_IDS[1]!)!.hp).toBe(5);
+  });
+
+  it("respawns every enabled car on an arena change", () => {
+    const room = readyRoom();
+    room.applySetup(setupWith((s) => enable(s, 0, 1, 3)));
+    for (const seat of [0, 1, 3]) {
+      room.state.players.get(PLAYGROUND_SEAT_IDS[seat]!)!.x = 11;
+    }
+
+    const other = ARENA_IDS.find((id) => id !== room.state.arenaId)!;
+    room.applySetup(setupWith((s) => ({ ...enable(s, 0, 1, 3), arenaId: other })));
+
+    for (const seat of [0, 1, 3]) {
+      expect(room.state.players.get(PLAYGROUND_SEAT_IDS[seat]!)!.x).not.toBe(11);
+    }
+  });
+
+  it("points controlledSessionId at the driven seat", () => {
+    const room = readyRoom();
+    room.applySetup(setupWith((s) => enable(s, 2, 5)));
+    expect(room.state.controlledSessionId).toBe(PLAYGROUND_SEAT_IDS[2]);
+  });
+});
+
+describe("enqueueAiInputs (PG70/PG71)", () => {
+  interface AiHarness {
+    state: PlaygroundState;
+    inputQueues: Map<string, InputMessage[]>;
+    bots: Map<string, unknown>;
+    setState(state: PlaygroundState): void;
+    applySetup(setup: PlaygroundSetup): void;
+    enqueueAiInputs(): void;
+  }
+
+  function readyAiRoom(botEnabled: boolean, seats: number[]): AiHarness {
+    const room = new PlaygroundRoom() as unknown as AiHarness;
+    room.setState(new PlaygroundState());
+    room.state.phase = RoomPhase.MATCH;
+    room.state.arenaId = ACTIVE_ARENA_ID;
+    const base = defaultPlaygroundSetup();
+    room.applySetup({
+      ...base,
+      botEnabled,
+      cars: base.cars.map((c, i) => ({ ...c, enabled: seats.includes(i) })),
+      drivenSeat: seats[0]!,
+    });
+    return room;
+  }
+
+  it("queues nothing for the driven seat — that queue is the human's", () => {
+    const room = readyAiRoom(false, [0, 1, 2]);
+    room.enqueueAiInputs();
+    expect(room.inputQueues.get(PLAYGROUND_SEAT_IDS[0]!)).toHaveLength(0);
+  });
+
+  it("queues a neutral input for every other enabled seat when the bot is off (PG71)", () => {
+    const room = readyAiRoom(false, [0, 1, 2]);
+    room.enqueueAiInputs();
+    for (const seat of [1, 2]) {
+      const queue = room.inputQueues.get(PLAYGROUND_SEAT_IDS[seat]!)!;
+      expect(queue).toHaveLength(1);
+      expect(queue[0]).toMatchObject({ steer: 0, throttle: 0, fireSlots: 0 });
+    }
+    expect(room.bots.size).toBe(0);
+  });
+
+  it("builds one bot per non-driven enabled seat when the bot is on (PG69)", () => {
+    const room = readyAiRoom(true, [0, 1, 2, 3]);
+    room.enqueueAiInputs();
+    expect([...room.bots.keys()].sort()).toEqual(
+      [PLAYGROUND_SEAT_IDS[1]!, PLAYGROUND_SEAT_IDS[2]!, PLAYGROUND_SEAT_IDS[3]!].sort(),
+    );
+  });
+
+  it("queues nothing at all for a disabled seat", () => {
+    const room = readyAiRoom(true, [0, 1]);
+    room.enqueueAiInputs();
+    expect(room.inputQueues.has(PLAYGROUND_SEAT_IDS[4]!)).toBe(false);
+  });
+
+  it("gives each seat a distinct input seq on one tick", () => {
+    const room = readyAiRoom(false, [0, 1, 2, 3]);
+    room.enqueueAiInputs();
+    const seqs = [1, 2, 3].map((s) => room.inputQueues.get(PLAYGROUND_SEAT_IDS[s]!)![0]!.seq);
+    expect(new Set(seqs).size).toBe(3);
+  });
+});
+
+describe("debugBot (PG72)", () => {
+  interface DebugHarness {
+    state: PlaygroundState;
+    bots: Map<string, { currentTargetSessionId: string | undefined }>;
+    setState(state: PlaygroundState): void;
+    debugBot(): unknown;
+  }
+
+  function roomWithBots(targets: Record<number, string | undefined>): DebugHarness {
+    const room = new PlaygroundRoom() as unknown as DebugHarness;
+    room.setState(new PlaygroundState());
+    room.state.controlledSessionId = PLAYGROUND_SEAT_IDS[0]!;
+    for (const [seat, target] of Object.entries(targets)) {
+      const bot = new HumanController("medium");
+      // `currentTargetSessionId` is a getter over a private field; the brain sets it on its first
+      // `decide`. Stubbing the getter is what keeps this test about the PICK rather than about the
+      // planner.
+      Object.defineProperty(bot, "currentTargetSessionId", { get: () => target });
+      room.bots.set(PLAYGROUND_SEAT_IDS[Number(seat)]!, bot as never);
+    }
+    return room;
+  }
+
+  it("picks the bot targeting the driven car", () => {
+    const room = roomWithBots({ 1: "pg-3", 2: "pg-0", 3: "pg-2" });
+    expect(room.debugBot()).toBe(room.bots.get(PLAYGROUND_SEAT_IDS[2]!));
+  });
+
+  it("picks the lowest such seat when two are targeting the driven car", () => {
+    const room = roomWithBots({ 1: "pg-0", 4: "pg-0" });
+    expect(room.debugBot()).toBe(room.bots.get(PLAYGROUND_SEAT_IDS[1]!));
+  });
+
+  it("falls back to the first bot seat when nobody is targeting the driven car", () => {
+    const room = roomWithBots({ 2: "pg-5", 5: "pg-2" });
+    expect(room.debugBot()).toBe(room.bots.get(PLAYGROUND_SEAT_IDS[2]!));
+  });
+
+  it("returns undefined with no bots at all", () => {
+    const room = roomWithBots({});
+    expect(room.debugBot()).toBeUndefined();
   });
 });

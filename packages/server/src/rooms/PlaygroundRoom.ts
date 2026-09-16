@@ -1,14 +1,14 @@
 import { Room, ServerError, matchMaker, type Client } from "@colyseus/core";
 import {
-  BOT_SESSION_ID,
   DEFAULT_PATCH_RATE_HZ,
   INPUT_MESSAGE,
   MSG_PLAYGROUND_BOT_DEBUG,
   MSG_PLAYGROUND_PAUSE,
   MSG_PLAYGROUND_SETUP,
-  MSG_PLAYGROUND_SWITCH,
   MSG_PLAYGROUND_TUNING,
   PLAYGROUND_ROOM_NAME,
+  PLAYGROUND_SEATS,
+  PLAYGROUND_SEAT_IDS,
   PRACTICE_ROOM_NAME,
   PlayerState,
   PlayerStatus,
@@ -19,7 +19,6 @@ import {
   isBotDifficulty,
   isPlaygroundSetup,
   newCombatEvents,
-  pickColor,
   setTuning,
   validateTuning,
   type CombatEvents,
@@ -30,8 +29,8 @@ import {
 } from "@motor-combat-moba/shared";
 import { getTickRateHz } from "../mode.js";
 import { isInputMessage } from "../net/input-message.js";
-import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
-import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
+import { forgetCombatPlayer, newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
+import { forgetContactPlayer, newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
 import {
   buildBotView,
   botRingCapacity,
@@ -42,6 +41,7 @@ import {
   HumanController,
   ViewRing,
   type BotController,
+  type Rng,
 } from "../bot/index.js";
 import { shouldRejectSecondArena } from "./singleton-arena.js";
 import { beginCountdown, countdownSweep } from "./countdown.js";
@@ -99,12 +99,15 @@ export function shouldRefusePlayground(
 }
 
 /**
- * The other of the playground's two cars. There are exactly two — the human's session and the bot's
- * reserved id — so anything that is not the human resolves to the bot and vice versa; an empty or
- * unrecognised id lands on the human rather than inventing a third car.
+ * Which seat is this session id, or -1 (spec PG57).
+ *
+ * Every car in this room is a seat and nothing else is: a client's Colyseus session id owns no car
+ * here, which is what makes handing the wheel to another car a single write to
+ * `controlledSessionId`. `indexOf` over six frozen strings rather than a parsed suffix, so
+ * `"pg-99"` and `"pg-0x1"` are simply not seats instead of being clamped into one.
  */
-export function otherPlaygroundId(sessionId: string, humanSessionId: string): string {
-  return sessionId === humanSessionId ? BOT_SESSION_ID : humanSessionId;
+export function seatIndexOf(sessionId: string): number {
+  return PLAYGROUND_SEAT_IDS.indexOf(sessionId);
 }
 
 /**
@@ -150,23 +153,28 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
   /** This tick's view of "what the bot just saw fired" — last tick's fires, sliced off the drained
    * bag before it was cleared. */
   private previousTickFires: readonly FiredEvent[] = [];
-  /** The human's session id, fixed for the room's life. Control routes; identity does not. */
-  private humanSessionId = "";
   /**
-   * The un-driven car's input `seq`. Monotonic across the room rather than per car, which is all
+   * The un-driven cars' input `seq`. Monotonic across the room rather than per car, which is all
    * `serverTick` needs — it sorts a batch by seq and acks the highest, and never compares one
    * player's seq to another's.
    */
   private opponentSeq = 0;
   /**
-   * The bot, as an instance (B10). Rebuilt when the difficulty changes, because a profile is
-   * constructor state — and rebuilding also drops the held intent, which is exactly what the three
-   * old `heldBotIntent = undefined` resets were doing by hand.
+   * One bot per seat (B10, spec PG69). Rebuilt when the difficulty changes — a profile is
+   * constructor state — and dropped wholesale whenever a setup arrives, the bot is switched off or
+   * the wheel moves, which is the three-case staleness rule (PG29) applied per seat.
    */
-  private bot: BotController | undefined;
-  /** The playground is interactive, so the seed is a constant — it exists to satisfy the contract,
-   * not to make the playground reproducible. */
-  private readonly botRng = makeRng(deriveSeed(1, "playground-bot"));
+  private bots = new Map<string, BotController>();
+  /**
+   * A distinct, seeded stream per seat rather than one shared stream: two seats sharing an RNG would
+   * make each bot's draw depend on the other's turn order, which is not what "seat 3's bot" means.
+   * The same reasoning `packages/server/balance/match.ts` already runs six seats on. The BASE seed is
+   * a constant because the playground is interactive — the streams exist to be independent, not to
+   * make the sandbox reproducible.
+   */
+  private readonly botRngs = new Map<string, Rng>(
+    PLAYGROUND_SEAT_IDS.map((id, seat) => [id, makeRng(deriveSeed(1, "playground-seat", seat))]),
+  );
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -206,18 +214,6 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
       this.state.paused = !this.state.paused;
     });
 
-    this.onMessage(MSG_PLAYGROUND_SWITCH, () => {
-      this.state.controlledSessionId = otherPlaygroundId(
-        this.state.controlledSessionId,
-        this.humanSessionId,
-      );
-      // Switching flips which car `enqueueOpponentInput` drives as the bot (PG29's third staleness
-      // case, missed by the original pass): a held intent was computed from the OLD bot car's pose,
-      // and re-enqueuing it against the newly-bot-driven car for the rest of the reaction window
-      // would fire it from a pose that car was never in.
-      this.bot = undefined;
-    });
-
     this.onMessage(MSG_PLAYGROUND_TUNING, (_client, msg: unknown) => {
       const result = validateTuning(msg);
       // Reject-whole (PG13): one bad path discards the blob rather than applying the good half, so
@@ -236,24 +232,15 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     });
   }
 
-  onJoin(client: Client, options?: { name?: unknown }): void {
-    this.humanSessionId = client.sessionId;
-    const name = typeof options?.name === "string" && options.name.trim() ? options.name.trim() : "Dev";
-
-    // Two colours drawn from the same table the lobby uses, so the pair reads as two distinct cars.
-    // Teams 0 and 1 are visual only: the mode is FFA, so `canDamage` never consults them.
-    const human = this.addCar(client.sessionId, name, [], 0);
-    this.addCar(BOT_SESSION_ID, "Bot", [human.colorId], 1);
-
-    this.state.controlledSessionId = client.sessionId;
-    // Opens the sandbox on the default chassis for both cars, which is also what spawns them: every
-    // car/loadout/arena change goes through the one apply path, first one included. The client
-    // replays its own stored setup right after joining (PG20), which simply overwrites this.
+  onJoin(_client: Client, _options?: { name?: unknown }): void {
+    // No car is created here. `applySetup` is the one path that adds, removes and configures cars
+    // (PG66), and it runs below with whatever this browser last saved replayed over it moments later
+    // by `PlaygroundScene` (PG20). The human's session id names no car at all (PG57).
     this.applySetup(defaultPlaygroundSetup());
     // After the cars are spawned, so the 3-2-1 counts the player's own three seconds rather than
     // ticks the room burned before they connected. Deliberately NOT re-stamped by `applySetup`
-    // itself: this is a MATCH-start countdown, and re-running it every time a weapon is swapped in
-    // the settings panel would put a three-second freeze between the tester and every edit.
+    // itself: this is a MATCH-start countdown, and re-running it on every weapon swap would put a
+    // three-second freeze between the tester and every edit.
     beginCountdown(this.state);
   }
 
@@ -268,64 +255,57 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     setTuning(null);
   }
 
-  /** One car: the human's or the bot's. Both are schema-ordinary — the client renders them alike. */
-  private addCar(sessionId: string, name: string, usedColorIds: number[], team: number): PlayerState {
-    const player = new PlayerState();
-    player.sessionId = sessionId;
-    player.name = name;
-    player.colorId = pickColor(usedColorIds, Math.random);
-    player.team = team;
-    player.joinedAtTick = this.state.tick;
-    // In the match from the first tick: there is no lobby, no car select and no countdown to pass
-    // through, and `isOnField` gates the mover on exactly this pair of fields.
-    player.status = PlayerStatus.IN_MATCH;
-    player.alive = true;
-    player.level = PLAYGROUND_LEVEL;
-    this.state.players.set(sessionId, player);
-    this.inputQueues.set(sessionId, []);
-    this.prevFireMasks.set(sessionId, 0);
-    this.matchRoster.add(sessionId);
-    return player;
-  }
-
   /**
-   * Apply a validated setup blob (PG16).
+   * Apply a validated setup blob (PG16/PG66) — the one path that adds, removes and configures cars.
    *
-   * `me` is ALWAYS the human's session and `opponent` ALWAYS the bot's — identity, not control. The
-   * human keeps configuring the same car after a switch, which is what makes "drive the other one
-   * for a minute" a view change rather than an edit.
+   * A seat is identified by its index, never by who is driving it: the human keeps configuring seat
+   * 3 after taking the wheel of seat 5, which is what makes "drive that one for a minute" a view
+   * change rather than an edit.
    *
-   * A car whose chassis or loadout actually changed is respawned, and so are both cars on an arena
-   * change; a car that changed nothing keeps its pose, hp and cooldowns. Stat overrides never come
-   * through here — they hot-apply on their own message and disturb nothing.
+   * A car whose chassis or loadout actually changed is respawned, and so is every enabled car on an
+   * arena change; a car that changed nothing keeps its pose, hp and cooldowns. A COLOUR change never
+   * respawns (PG32). Stat overrides never come through here — they hot-apply on their own message.
    */
   private applySetup(setup: PlaygroundSetup): void {
     this.state.botEnabled = setup.botEnabled;
     this.state.botDifficulty = setup.botDifficulty;
     // Any setup change can invalidate a held intent — a new chassis drives differently, a new
-    // difficulty has a different cadence, and the bot may have just been switched off (PG29).
-    this.bot = undefined;
+    // difficulty has a different cadence, the wheel may have moved, and a bot may have just been
+    // switched off (PG29). Dropping every controller is the whole of that rule.
+    this.bots.clear();
+    this.state.controlledSessionId = PLAYGROUND_SEAT_IDS[setup.drivenSeat]!;
     const arenaChanged = this.state.arenaId !== setup.arenaId;
     if (arenaChanged) this.state.arenaId = setup.arenaId;
 
     const respawn: string[] = [];
-    if (this.applyCarSetup(this.humanSessionId, setup.me) || arenaChanged) {
-      respawn.push(this.humanSessionId);
-    }
-    if (this.applyCarSetup(BOT_SESSION_ID, setup.opponent) || arenaChanged) {
-      respawn.push(BOT_SESSION_ID);
+    for (let seat = 0; seat < PLAYGROUND_SEATS; seat++) {
+      const id = PLAYGROUND_SEAT_IDS[seat]!;
+      const car = setup.cars[seat]!;
+      const existing = this.state.players.get(id);
+
+      if (!car.enabled) {
+        if (existing) this.removeSeat(id);
+        continue;
+      }
+      if (!existing) {
+        this.addCar(id, `Car ${seat + 1}`, car.colorId, seat % 2);
+        this.applyCarSetup(id, car);
+        respawn.push(id);
+        continue;
+      }
+      if (this.applyCarSetup(id, car) || arenaChanged) respawn.push(id);
     }
 
     for (const id of respawn) {
       const player = this.state.players.get(id);
       // `respawnPlayer` is the whole of "this car is new": fresh hp for the chassis, a fire state
-      // built from the loadout written just above, a spawn away from the other car, spawn
+      // built from the loadout written just above, a spawn away from the other cars, spawn
       // protection, and every knock and debuff cleared.
       if (player) respawnPlayer(this.ctx(), player);
     }
   }
 
-  /** Writes one car's chassis, loadout and colour, and reports whether a RESPAWN is owed. Colour is
+  /** Writes one seat's chassis, loadout and colour, and reports whether a RESPAWN is owed. Colour is
    * always written and never owes one (PG32). */
   private applyCarSetup(sessionId: string, setup: PlaygroundCarSetup): boolean {
     const player = this.state.players.get(sessionId);
@@ -342,6 +322,48 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     return true;
   }
 
+  /**
+   * Take one seat off the field (PG67).
+   *
+   * Every per-session map, not merely `state.players`: a seat switched back on later must arrive as
+   * a NEW car, never inheriting a stale target lock, a half-finished maneuver, a ram-falloff stack
+   * or a contact pair from its previous life. The two `forget*` helpers own the memory bags; the
+   * four maps here are this room's own.
+   */
+  private removeSeat(sessionId: string): void {
+    this.state.players.delete(sessionId);
+    this.inputQueues.delete(sessionId);
+    this.prevFireMasks.delete(sessionId);
+    this.matchRoster.delete(sessionId);
+    this.phaseCaps.delete(sessionId);
+    this.bots.delete(sessionId);
+    forgetCombatPlayer(this.combat, sessionId);
+    forgetContactPlayer(this.ram, sessionId);
+  }
+
+  /** One seat's car. Schema-ordinary — the client renders every seat alike. */
+  private addCar(sessionId: string, name: string, colorId: number, team: number): PlayerState {
+    const player = new PlayerState();
+    player.sessionId = sessionId;
+    player.name = name;
+    // Straight from the setup (PG73). The old `pickColor(used, Math.random)` draw was overwritten by
+    // `applyCarSetup` on the same pass, so it was never observed — and it was the one `Math.random`
+    // call in a room that otherwise runs off seeded streams.
+    player.colorId = colorId;
+    player.team = team;
+    player.joinedAtTick = this.state.tick;
+    // In the match from the first tick: there is no lobby, no car select and no countdown to pass
+    // through, and `isOnField` gates the mover on exactly this pair of fields.
+    player.status = PlayerStatus.IN_MATCH;
+    player.alive = true;
+    player.level = PLAYGROUND_LEVEL;
+    this.state.players.set(sessionId, player);
+    this.inputQueues.set(sessionId, []);
+    this.prevFireMasks.set(sessionId, 0);
+    this.matchRoster.add(sessionId);
+    return player;
+  }
+
   private tick(): void {
     // Before the increment, so a paused sim freezes coherently (PG7): cooldowns, statuses, respawn
     // timers and shot lifetimes all key off this counter, and none of them may advance alone.
@@ -354,11 +376,11 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     // Before the bot decides, not after: `buildBotView` reads `this.botRing.at(tick - staleness)`
     // for THIS tick, so this tick's world has to already be in the ring by the time the bot asks.
     this.botRing.push(snapshotWorld(this.state, this.combat));
-    this.enqueueOpponentInput();
+    this.enqueueAiInputs();
 
     // Every 6 ticks (5 Hz): a debug read-out that updates 30 times a second is unreadable, and this
     // is a dev-only room, so the bandwidth is not the reason for the throttle.
-    const debug = this.bot instanceof HumanController ? this.bot.debug() : undefined;
+    const debug = this.debugBot()?.debug();
     if (debug && this.state.tick % 6 === 0) {
       this.broadcast(MSG_PLAYGROUND_BOT_DEBUG, {
         tick: debug.tick,
@@ -401,59 +423,88 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
   }
 
   /**
-   * One input per tick for whichever car the human is NOT driving — the bot's intent with the bot on,
-   * a neutral input with it off. Either way it goes through the ordinary input queue, so the "clients
-   * send inputs, never state" invariant holds: the bot is a client, just an in-process one.
+   * One input per tick for every enabled seat the human is NOT driving — that seat's bot intent with
+   * the bot on, a neutral input with it off. Either way it goes through the ordinary input queue, so
+   * the "clients send inputs, never state" invariant holds: a bot is a client, just an in-process one.
    */
-  private enqueueOpponentInput(): void {
-    const opponentId = otherPlaygroundId(this.state.controlledSessionId, this.humanSessionId);
-    const queue = this.inputQueues.get(opponentId);
-    if (!queue) return;
-
-    this.opponentSeq += 1;
-    const seq = this.opponentSeq;
-
-    // Alone mode (PG11) sends a NEUTRAL input, not silence. `serverTick` leaves an input-less player
-    // unstepped unless it is carrying a knock, so a dummy handed no input freezes exactly where the
-    // bot was switched off — and it keeps the velocity it was carrying, which `serverTick` reports as
-    // that car's `approachVelocities` on every subsequent tick. `resolveRam` reads that as the
-    // drive-in term, so a parked target dummy scores as an attacker at its last driving speed in every
-    // contact, forever. Coasting it on zeros runs it through the ordinary drive model instead: it
-    // decelerates and its speed reaches 0, the way letting go of the throttle does.
-    if (!this.state.botEnabled) {
-      // Dropping the controller is what stops switching the bot back on from replaying an intent
-      // computed against a pose from minutes ago (PG29).
-      this.bot = undefined;
-      queue.push({ seq, steer: 0, throttle: 0, fireSlots: 0 });
-      return;
-    }
-
+  private enqueueAiInputs(): void {
+    const driven = this.state.controlledSessionId;
     const difficulty = isBotDifficulty(this.state.botDifficulty) ? this.state.botDifficulty : "medium";
-    if (this.bot?.profileId !== difficulty) {
-      this.bot = new HumanController(difficulty, { targetSessionId: this.state.controlledSessionId });
+
+    for (const id of PLAYGROUND_SEAT_IDS) {
+      if (id === driven) continue;
+      const queue = this.inputQueues.get(id);
+      // No queue means the seat is off the field. Nothing to drive.
+      if (!queue) continue;
+
+      // A fresh `seq` every tick, held intent or not: `serverTick` wants one input per tick per car,
+      // and reusing a sequence number reads as a duplicate rather than a repeat. Monotonic across the
+      // room rather than per seat, which is all `serverTick` needs — it sorts a batch by seq and acks
+      // the highest, and never compares one player's seq to another's.
+      this.opponentSeq += 1;
+      const seq = this.opponentSeq;
+
+      // Alone mode (PG11/PG71) sends a NEUTRAL input, not silence. `serverTick` leaves an input-less
+      // player unstepped unless it is carrying a knock, so a dummy handed no input freezes exactly
+      // where the bot was switched off — and it KEEPS the velocity it was carrying, which
+      // `serverTick` reports as that car's `approachVelocities` on every subsequent tick.
+      // `resolveRam` reads that as the drive-in term, so a parked dummy scores as an attacker at its
+      // last driving speed in every contact, forever. Coasting it on zeros runs it through the
+      // ordinary drive model instead.
+      if (!this.state.botEnabled) {
+        this.bots.delete(id);
+        queue.push({ seq, steer: 0, throttle: 0, fireSlots: 0 });
+        continue;
+      }
+
+      // `!bot ||` rather than `bot?.profileId !==`: the optional-chain form is equivalent at
+      // runtime but leaves `bot` typed `BotController | undefined` after the block, so
+      // `bot.decide(view)` below would not compile. Assigning in the `!bot` branch is what narrows it.
+      let bot = this.bots.get(id);
+      if (!bot || bot.profileId !== difficulty) {
+        // No `targetSessionId` (PG70): each bot resolves its own target through `pickTarget` against
+        // everything it can see, so a six-car brawl is a brawl rather than five cars queueing to
+        // chase the human.
+        bot = new HumanController(difficulty);
+        this.bots.set(id, bot);
+      }
+
+      const view = buildBotView({
+        state: this.state,
+        selfSessionId: id,
+        combat: this.combat,
+        rng: this.botRngs.get(id)!,
+        observedFires: this.previousTickFires,
+        stalenessTicks: BOT_PROFILES[difficulty].viewStalenessTicks,
+        ring: this.botRing,
+      });
+      // No car for this seat: push NOTHING. An input queued for a session that is not in
+      // `state.players` is never consumed by `serverTick`, and would be read as a stale intent if
+      // that seat were re-added.
+      if (!view) continue;
+
+      queue.push({ seq, ...bot.decide(view) });
     }
-    // The playground can re-point the camera at the other car mid-session, which changes who the
-    // bot is fighting; the target is re-stated every tick rather than only at construction.
-    (this.bot as HumanController).setTarget(this.state.controlledSessionId);
+  }
 
-    const view = buildBotView({
-      state: this.state,
-      selfSessionId: opponentId,
-      combat: this.combat,
-      rng: this.botRng,
-      observedFires: this.previousTickFires,
-      stalenessTicks: BOT_PROFILES[difficulty].viewStalenessTicks,
-      ring: this.botRing,
-    });
-    // No car for the bot's seat: push NOTHING, exactly as the pre-migration
-    // `if (!self || !queue) return;` did. An input queued for a session that is not in
-    // `state.players` is never consumed by `serverTick`, and would be read as a stale intent if
-    // that seat were ever re-added.
-    if (!view) return;
-
-    // A fresh `seq` every tick, held intent or not: `serverTick` wants one input per tick per car,
-    // and reusing a sequence number reads as a duplicate rather than a repeat.
-    queue.push({ seq, ...this.bot.decide(view) });
+  /**
+   * Whose thoughts the debug read-out prints (spec PG72).
+   *
+   * H12's read-out is ONE bot's, and five stacked two-line entries over the arena would be
+   * unreadable — so: the first seat, in seat order, whose bot is currently targeting the car the
+   * human is driving; failing that, the first bot seat there is. Recomputed at every broadcast
+   * window and never held, or a controller held across its seat being switched off would keep
+   * broadcasting a dead bot's last thought.
+   */
+  private debugBot(): HumanController | undefined {
+    let fallback: HumanController | undefined;
+    for (const id of PLAYGROUND_SEAT_IDS) {
+      const bot = this.bots.get(id);
+      if (!(bot instanceof HumanController)) continue;
+      fallback ??= bot;
+      if (bot.currentTargetSessionId === this.state.controlledSessionId) return bot;
+    }
+    return fallback;
   }
 
   /**
