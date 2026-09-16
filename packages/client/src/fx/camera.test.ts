@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SPIKE_CONFIG } from "@motor-combat-moba/shared";
-import { ramShake, shakeFor, shouldStartShake, type ActiveShake } from "./camera.js";
+import { isSelfImpact, ramShake, shakeFor, shouldStartShake, type ActiveShake } from "./camera.js";
 import { ENVIRONMENT_FX } from "./environment.js";
 
 describe("shakeFor", () => {
@@ -25,13 +25,9 @@ describe("shakeFor", () => {
     expect(shakeFor({ kind: "shotFired", weaponId: "pepperbox", x: 0, y: 0, angle: 0 })).toBeUndefined();
   });
 
-  it("shakes for an explosion ending but not for a beam ending", () => {
-    expect(shakeFor({ kind: "shotEnded", weaponId: "magmablast", x: 0, y: 0, angle: 0 })).toBeDefined();
+  it("never shakes for a shot ending, not even an explosion — only the damage it deals counts", () => {
+    expect(shakeFor({ kind: "shotEnded", weaponId: "magmablast", x: 0, y: 0, angle: 0 })).toBeUndefined();
     expect(shakeFor({ kind: "shotEnded", weaponId: "lance", x: 0, y: 0, angle: 0 })).toBeUndefined();
-  });
-
-  it("does not shake for predator ending — it is a homing missile, not an explosive", () => {
-    expect(shakeFor({ kind: "shotEnded", weaponId: "predator", x: 0, y: 0, angle: 0 })).toBeUndefined();
   });
 
   // AS25's spike damage rides the same `damaged` FX event every other weapon uses (Task 9's damage
@@ -64,11 +60,33 @@ describe("ramShake", () => {
     expect(ramShake(0).intensity).toBeCloseTo(0.006, 6);
   });
 
-  it("caps below an explosion and a kill, so a ram never out-shakes either", () => {
+  it("caps below a kill, so a ram never out-shakes one", () => {
     const ram = ramShake(100_000).intensity;
     expect(ram).toBeCloseTo(0.012, 6);
-    expect(ram).toBeLessThan(shakeFor({ kind: "shotEnded", weaponId: "magmablast", x: 0, y: 0, angle: 0 })!.intensity);
     expect(ram).toBeLessThan(shakeFor({ kind: "died", sessionId: "a", x: 0, y: 0 })!.intensity);
+  });
+});
+
+describe("isSelfImpact", () => {
+  const self = "me";
+
+  it("counts a hit and a death on your own car", () => {
+    expect(isSelfImpact({ kind: "damaged", sessionId: self, x: 0, y: 0, amount: 20 }, self)).toBe(true);
+    expect(isSelfImpact({ kind: "died", sessionId: self, x: 0, y: 0 }, self)).toBe(true);
+  });
+
+  it("ignores a hit or death on any other car — six cars fighting must not shake every camera", () => {
+    expect(isSelfImpact({ kind: "damaged", sessionId: "enemy", x: 0, y: 0, amount: 20 }, self)).toBe(false);
+    expect(isSelfImpact({ kind: "died", sessionId: "enemy", x: 0, y: 0 }, self)).toBe(false);
+  });
+
+  it("ignores shots firing and ending, explosions included", () => {
+    expect(isSelfImpact({ kind: "shotFired", weaponId: "pepperbox", x: 0, y: 0, angle: 0 }, self)).toBe(false);
+    expect(isSelfImpact({ kind: "shotEnded", weaponId: "magmablast", x: 0, y: 0, angle: 0 }, self)).toBe(false);
+  });
+
+  it("ignores everything for a client driving no car", () => {
+    expect(isSelfImpact({ kind: "damaged", sessionId: "enemy", x: 0, y: 0, amount: 20 }, "")).toBe(false);
   });
 });
 

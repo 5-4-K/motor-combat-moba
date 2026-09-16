@@ -36,8 +36,6 @@ describe("ENVIRONMENT_FX", () => {
       damagedBase: 0.0015,
       damagedPerHp: 0.00018,
       damagedCap: 0.6,
-      explosionMs: 200,
-      explosionCap: 0.75,
       ramMs: 120,
       ramFloor: 0.006,
       ramPerSpeed: 0.00002,
