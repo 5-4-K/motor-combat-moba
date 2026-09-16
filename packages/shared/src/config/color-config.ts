@@ -4,7 +4,7 @@ export const COLOR_TABLE = [
   { colorId: 0, name: "Crimson", hex: "#BF1402" },
   { colorId: 1, name: "Azure", hex: "#3498DB" },
   { colorId: 2, name: "Emerald", hex: "#2ECC71" },
-  { colorId: 3, name: "Gold", hex: "#F1C40F" },
+  { colorId: 3, name: "Indigo", hex: "#635BD7" },
   { colorId: 4, name: "Violet", hex: "#B700FF" },
   { colorId: 5, name: "Orange", hex: "#DB6C09" },
 ] as const satisfies readonly ColorDef[];

@@ -194,7 +194,7 @@ that consumes it.
 | 0 | Crimson | `#BF1402` |
 | 1 | Azure | `#3498DB` |
 | 2 | Emerald | `#2ECC71` |
-| 3 | Gold | `#F1C40F` |
+| 3 | Indigo | `#635BD7` |
 | 4 | Violet | `#9B59B6` |
 | 5 | Orange | `#DB6C09` |
 

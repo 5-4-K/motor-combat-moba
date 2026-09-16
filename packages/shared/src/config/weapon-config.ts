@@ -132,7 +132,7 @@ export const WEAPON_TABLE = {
     name: "Afterburner",
     // The MIDDLE of the three flame colours sampled from its icon (#FF6000 edge, this, #FFC000
     // core), because a weapon's table colour is its body and on a flame the body is one layer in.
-    // Clear of `COLOR_TABLE` -- the `Gold` player colour is the only one it sits near.
+    // Clear of `COLOR_TABLE` -- the `Orange` player colour is the only one it sits near.
     color: "#FF9000",
     unlocksAt: 1,
     damage: 49, // per pulse
