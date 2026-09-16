@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { termLine } from "./overlay.js";
+import { pauseKeyAction } from "./ui-model.js";
 
 describe("termLine (R-C4)", () => {
   it("prints a sentinel for an empty map rather than nothing at all", () => {
@@ -16,5 +17,18 @@ describe("termLine (R-C4)", () => {
     // edit to the overlay. A seventh key proves the function never consults a fixed list.
     expect(termLine({ myEv: 12, theirEv: -3.5, seventhTerm: 0 }))
       .toBe("myEv 12  theirEv -3.5  seventhTerm 0");
+  });
+});
+
+describe("pauseKeyAction over the Car select panel (PG74)", () => {
+  it("backs Car select out to the menu without touching pause", () => {
+    expect(pauseKeyAction("cars", "DIV")).toBe("back-to-menu");
+  });
+
+  it("still ignores P while focus is in one of its many form controls", () => {
+    // Six seats means six chassis selects and eighteen weapon selects: picking "Pepperbox" with the
+    // keyboard must never toggle pause out from under the user.
+    expect(pauseKeyAction("cars", "SELECT")).toBe("ignore");
+    expect(pauseKeyAction("cars", "INPUT")).toBe("ignore");
   });
 });

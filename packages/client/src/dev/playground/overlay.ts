@@ -1,6 +1,5 @@
 import type { Room } from "colyseus.js";
 import type {
-  CarId,
   PlaygroundCarSetup,
   PlaygroundSetup,
   PlaygroundState,
@@ -8,7 +7,6 @@ import type {
   TunableField,
   TuningOverrides,
   TuningValue,
-  WeaponId,
 } from "@motor-combat-moba/shared";
 import { setFxOverrides } from "../../fx/override-store.js";
 import type { EmitterSpec } from "../../fx/emitters.js";
@@ -21,20 +19,17 @@ import {
 } from "../../fx/tuning.js";
 import { envTableSource, type EnvOverrides } from "../../fx/env-tuning.js";
 import { bumpEnvVersion, setEnvOverrides } from "../../fx/env-store.js";
-import { carTintOverrides, setCarTintOverrides, type CarTintOverrides } from "../../fx/car-tint.js";
-import { carFillOf } from "../../scenes/car-visual.js";
+import { setCarTintOverrides, type CarTintOverrides } from "../../fx/car-tint.js";
 import type { FxChannel } from "../../fx/table.js";
 import { buildVfxPanel as buildVfxPanelDom } from "./vfx-panel.js";
 import { buildEnvPanel as buildEnvPanelDom, LAVA_REGENERATE_FIELDS } from "./env-panel.js";
+import { buildCarPanel, type CarPanel } from "./car-panel.js";
 import {
-  BOT_SESSION_ID,
-  CAR_TABLE,
-  COLOR_TABLE,
   MSG_PLAYGROUND_BOT_DEBUG,
   MSG_PLAYGROUND_PAUSE,
   MSG_PLAYGROUND_SETUP,
-  MSG_PLAYGROUND_SWITCH,
   MSG_PLAYGROUND_TUNING,
+  PLAYGROUND_SEAT_IDS,
   defaultPlaygroundSetup,
   isArenaId,
   isBotDebugPayload,
@@ -49,16 +44,12 @@ import { loadStored, saveStored } from "./storage.js";
 import { stepperPair } from "./steppers.js";
 import { setShowHitboxes, showHitboxes } from "../../config/view-options.js";
 import {
-  arenaOptions,
   canStep,
-  carOptions,
   isAtShipped,
   isLoadoutLegal,
   pauseKeyAction,
-  shippedLoadoutOf,
   statsTabs,
   steppedValue,
-  weaponOptions,
   type OverlayView,
   type StatsTabKey,
 } from "./ui-model.js";
@@ -402,25 +393,67 @@ const CSS = `
   font-size: 12px;
   background: #2b2f36;
 }
+/* A seat section's header: the on/off box, the collapsing title button, the drive radio. */
+.pg-seat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  background: #23262b;
+  border-radius: 4px;
+}
+.pg-seat-head .pg-fx-head { flex: 1; min-width: 0; }
+.pg-seat-head label { font-size: 11px; color: #aaa; white-space: nowrap; }
+/* A seat that is off is still configurable -- it is parked, not gone -- so it is dimmed rather than
+   disabled (PG62). */
+.pg-seat-off .pg-fx-head { opacity: 0.55; }
+.pg-seat-body { padding: 4px 8px 8px; }
 `;
 
-/** Best-effort read of the currently-live setup off the room's schema, for seeding the settings
- * panel's controls when it opens. Falls back to `defaultPlaygroundSetup()` piece by piece when a
- * player row is not yet populated (a fresh join, mid-flight to the server) rather than crashing on
- * an empty `carId` or a short weapons array. */
+/**
+ * The setup the Car select panel opens on (PG83): per seat, the live row if there is one, else
+ * whatever this browser last saved for that seat, else the default.
+ *
+ * The stored middle step is load-bearing rather than belt-and-braces. A DISABLED seat has no row
+ * in `state.players` — that is what disabled means — so seeding it from the defaults would
+ * silently discard the configuration the user typed into it before unchecking it, every time the
+ * panel was reopened. PG62 says a parked seat keeps its configuration, and storage is the only
+ * thing in a live session that remembers one: `PlaygroundScene` replays the stored blob into the
+ * room on join and never again. Live state still wins wherever it exists, so an enabled seat can
+ * never show a stale stored value.
+ */
 function setupFromState(room: Room<PlaygroundState>): PlaygroundSetup {
   const fallback = defaultPlaygroundSetup();
+  const stored = loadStored().setup;
+  const cars = PLAYGROUND_SEAT_IDS.map((id, seat) => {
+    const player = room.state.players.get(id);
+    const parked = stored.cars[seat] ?? fallback.cars[seat]!;
+    if (!player) return { ...parked, enabled: false };
+    return { ...carSetupFromPlayer(player, parked), enabled: true };
+  });
+  // Mid-flight to the server (a fresh join, before the first patch) `state.players` is empty and
+  // NO seat is enabled, which is not a setup the wire would accept. Force seat 0 on rather than
+  // letting `drivenSeat` come back -1 and every later send be silently rejected.
+  if (!cars.some((car) => car.enabled)) cars[0] = { ...cars[0]!, enabled: true };
+
+  const driven = PLAYGROUND_SEAT_IDS.indexOf(room.state.controlledSessionId);
   return {
     botEnabled: room.state.botEnabled,
     botDifficulty: isBotDifficulty(room.state.botDifficulty)
       ? room.state.botDifficulty
       : fallback.botDifficulty,
     arenaId: isArenaId(room.state.arenaId) ? room.state.arenaId : fallback.arenaId,
-    me: carSetupFromPlayer(room.state.players.get(room.sessionId), fallback.me),
-    opponent: carSetupFromPlayer(room.state.players.get(BOT_SESSION_ID), fallback.opponent),
+    cars,
+    // Fall back to the lowest seat that IS on the field rather than to 0, which may not be one.
+    drivenSeat: cars[driven]?.enabled ? driven : cars.findIndex((car) => car.enabled),
   };
 }
 
+/** One seat's chassis, colour and loadout off its live `PlayerState`, field by field, falling back
+ * to `fallback` for anything a row is missing or has made illegal rather than crashing the panel on
+ * an empty `carId` or a short weapons array. `enabled` rides through from the fallback and is the
+ * CALLER's to set: whether a seat is on the field is a fact about `state.players`, not about the
+ * row this reads. */
 function carSetupFromPlayer(
   player: PlayerState | undefined,
   fallback: PlaygroundCarSetup,
@@ -430,9 +463,9 @@ function carSetupFromPlayer(
   const colorId = isColorId(player!.colorId) ? player!.colorId : fallback.colorId;
   const weapons = player!.weapons.map((slot) => slot.weaponId);
   if (weapons.every(isWeaponId) && isLoadoutLegal(weapons)) {
-    return { carId, colorId, weapons };
+    return { ...fallback, carId, colorId, weapons };
   }
-  return { carId, colorId, weapons: fallback.weapons };
+  return { ...fallback, carId, colorId, weapons: fallback.weapons };
 }
 
 /** Best-effort read of the currently-active tuning off `PlaygroundState.tuningJson` (empty string
@@ -460,23 +493,6 @@ function selectFor(
     options.map((o) => h("option", { value: o.id }, [o.name])),
   );
   select.value = value;
-  return select;
-}
-
-/** `0xRRGGBB` as the `#rrggbb` string an `<input type="color">` reads and writes. Padded, because
- * the element silently rejects a short value and falls back to `#000000`. */
-function hexOf(value: number): string {
-  return `#${value.toString(16).padStart(6, "0")}`;
-}
-
-/** The six player colours, by name, for a car's colour select (PG31). Both cars may pick the same
- * one — there is deliberately no guard here or on the wire. */
-function colorSelect(value: number): HTMLSelectElement {
-  const select = selectFor(
-    COLOR_TABLE.map((color) => ({ id: String(color.colorId), name: color.name })),
-    String(value),
-  );
-  select.classList.add("pg-color");
   return select;
 }
 
@@ -569,7 +585,7 @@ export function mountPlaygroundOverlay(
       `terms  ${termLine(payload.terms)}`;
   });
 
-  let subView: "menu" | "physics" | "vfx" | "env" = "menu";
+  let subView: "menu" | "cars" | "physics" | "vfx" | "env" = "menu";
   /** The live VFX override map, shared with the fx store so an edit reaches the next burst (PG46).
    * Loaded once per mount and mutated in place by the panel. */
   const vfxOverrides: FxOverrides = { ...loadStored().vfx };
@@ -577,30 +593,53 @@ export function mountPlaygroundOverlay(
 
   /** The live environment override map (EV32), mutated in place by `env-panel.ts` exactly as the
    * physics and VFX panels mutate their own maps — there must be exactly one of it in this scope,
-   * or the panel and `persistEnv()` would each hold their own copy and an edit would silently fail
+   * or the panel and `saveAll()` would each hold their own copy and an edit would silently fail
    * to reach localStorage. Named `envOverridesMap` rather than `envOverrides` because
    * `fx/env-store.ts` exports a function named `envOverrides()` — the same reason the sibling above
    * is `vfxOverrides` and not `fxOverrides` (`override-store.ts` exports `fxOverrides()`). */
   const envOverridesMap: EnvOverrides = { ...loadStored().env };
   setEnvOverrides(envOverridesMap);
 
-  /** The live per-car tint map, mutated in place by the settings panel's colour pickers and read
+  /** The live per-car tint map, mutated in place by the Car select panel's colour pickers and read
    * straight back by `carFillFor` at draw time. One object in this scope for the same reason the two
-   * above are: a copy here would leave every edit stranded from the renderer AND from localStorage. */
+   * above are: a copy here would leave every edit stranded from the renderer AND from localStorage.
+   * Keyed by SEAT id since PG84, which is what lets a tint survive a reconnect. */
   const carTintMap: CarTintOverrides = { ...loadStored().carTint };
   setCarTintOverrides(carTintMap);
 
-  /** Saves the VFX section without disturbing the physics panel's own save path, which reads its
-   * live DOM controls and is not available outside `buildSettings`. */
-  function persistVfx(): void {
-    const stored = loadStored();
-    saveStored({ ...stored, vfx: { ...vfxOverrides } });
+  /** The setup last known good, so a save from a panel that does not own the setup controls still
+   * writes a coherent blob rather than clobbering it with defaults. It and the room can only
+   * disagree if the user never opens Car select, and they cannot: `PlaygroundScene` sends the stored
+   * setup to the room on join, so the two start equal and `persistSetup` keeps them so. */
+  let lastSetup: PlaygroundSetup = loadStored().setup;
+
+  /** The physics panel's overrides map, by REFERENCE once that panel has been built: `fieldRow`
+   * mutates it in place, and `saveAll` has to see those mutations without being re-wired on every
+   * edit. Seeded from storage so a save that happens before the panel is ever opened still writes
+   * back what was there rather than an empty map. */
+  let lastOverrides: TuningOverrides = loadStored().overrides;
+
+  /** The one writer of the stored blob. Every section is read from the mount-scope state that owns
+   * it, so any panel can save without reaching into another panel's live DOM — which is what the
+   * old `persist()` did, and why it could only live inside `buildSettings`. */
+  function saveAll(): void {
+    saveStored({
+      setup: lastSetup,
+      overrides: { ...lastOverrides },
+      view: { showHitbox: showHitboxes() },
+      vfx: { ...vfxOverrides },
+      env: { ...envOverridesMap },
+      carTint: { ...carTintMap },
+    });
   }
 
-  /** Saves the environment section, mirroring `persistVfx` above. */
-  function persistEnv(): void {
-    const stored = loadStored();
-    saveStored({ ...stored, env: { ...envOverridesMap } });
+  function persistSetup(setup: PlaygroundSetup): void {
+    lastSetup = setup;
+    saveAll();
+  }
+
+  function persistView(): void {
+    saveAll();
   }
 
   /** Clipboard with the same guarded fallback the physics panel has always used: no Clipboard API
@@ -665,16 +704,17 @@ export function mountPlaygroundOverlay(
   let lastSentArenaId = isArenaId(room.state.arenaId)
     ? room.state.arenaId
     : defaultPlaygroundSetup().arenaId;
-  /** Mirrors `backBtn.disabled` (set alongside it in `buildSettings`'s `evaluate`) so the P-key
-   * "back-to-menu" action honours the same disabled-Back guard as the mouse: an illegal loadout must
-   * trap the user in settings either way, not just when they're not reaching for the keyboard. */
-  let settingsIllegal = false;
+  /** The Car select panel currently on screen, or `undefined` while another view is. Held so the
+   * P-key "back-to-menu" action can consult the panel's own illegal-loadout guard (PG81): an
+   * illegal loadout must trap the user in Car select either way, not just when they are not
+   * reaching for the keyboard. */
+  let carsPanel: CarPanel | undefined;
   /** Reassigned every `buildSettings()` call so it closes over that settings session's own overrides
-   * map -- the single exit point for "leaving the settings view" (spec PG13/PG16), reached from both
-   * the Back button's click and the P-key's "back-to-menu" action, so the tuning blob is sent exactly
-   * once per exit rather than once per input event. The default here is never reached in practice
-   * (`pauseKeyAction` returns "back-to-menu" for both settings views, and the physics one requires
-   * `buildSettings` to have already run and reassigned this), but keeps the binding safely typed. */
+   * map -- the single exit point for "leaving the physics settings view" (spec PG13/PG16), reached
+   * from both the Back button's click and the P-key's "back-to-menu" action, so the tuning blob is
+   * sent exactly once per exit rather than once per input event. It is also what `onKeyDown` falls
+   * through to for the environment panel, which has no exit of its own; the default below covers the
+   * case where that happens before `buildSettings` has ever run. */
   let leaveSettings: () => void = () => {
     subView = "menu";
     render();
@@ -686,9 +726,14 @@ export function mountPlaygroundOverlay(
 
   function render(): void {
     root.replaceChildren();
+    // Dropped before the rebuild rather than on leaving a view, so this can never name a panel that
+    // is no longer on screen; `buildCarsPanel` re-seats it when the Car select view is the one being
+    // built.
+    carsPanel = undefined;
     const view = effectiveView();
     root.style.display = view === "hidden" ? "none" : "flex";
     if (view === "menu") root.appendChild(buildMenu());
+    else if (view === "cars") root.appendChild(buildCarsPanel());
     else if (view === "physics") root.appendChild(buildSettings());
     else if (view === "vfx") root.appendChild(buildVfxPanel());
     else if (view === "env") root.appendChild(buildEnvPanel());
@@ -698,7 +743,10 @@ export function mountPlaygroundOverlay(
     return h("div", { class: "pg-panel" }, [
       h("h2", {}, ["Paused"]),
       button({}, ["Resume"], () => room.send(MSG_PLAYGROUND_PAUSE)),
-      button({}, ["Switch car"], () => room.send(MSG_PLAYGROUND_SWITCH)),
+      button({}, ["Car select"], () => {
+        subView = "cars";
+        render();
+      }),
       button({}, ["Physics settings"], () => {
         subView = "physics";
         render();
@@ -712,6 +760,39 @@ export function mountPlaygroundOverlay(
         render();
       }),
     ]);
+  }
+
+  /**
+   * The Car select panel (spec PG74). Its own module; this wires it to the room, to storage and to
+   * the two client-side things it touches — the hitbox toggle and the live tint map, which it
+   * mutates in place exactly as the VFX and environment panels mutate their own.
+   */
+  function buildCarsPanel(): HTMLElement {
+    const panel = buildCarPanel({
+      initial: setupFromState(room),
+      tints: carTintMap,
+      showHitboxes,
+      setShowHitboxes: (on) => {
+        setShowHitboxes(on);
+        persistView();
+      },
+      onSetup: (setup) => {
+        const arenaChanged = setup.arenaId !== lastSentArenaId;
+        room.send(MSG_PLAYGROUND_SETUP, setup);
+        if (arenaChanged) {
+          lastSentArenaId = setup.arenaId;
+          onArenaChanged();
+        }
+      },
+      persist: (setup) => persistSetup(setup),
+      onBack: () => {
+        if (panel.isIllegal()) return;
+        subView = "menu";
+        render();
+      },
+    });
+    carsPanel = panel;
+    return panel.el;
   }
 
   /**
@@ -740,7 +821,7 @@ export function mountPlaygroundOverlay(
 
     return buildVfxPanelDom({
       overrides: vfxOverrides,
-      persist: persistVfx,
+      persist: saveAll,
       preview,
       onBack: () => {
         stopReplay();
@@ -763,7 +844,7 @@ export function mountPlaygroundOverlay(
   function buildEnvPanel(): HTMLElement {
     return buildEnvPanelDom({
       overrides: envOverridesMap,
-      persist: persistEnv,
+      persist: saveAll,
       onEdit: (section, field) => {
         // The store caches on this counter, so an in-place mutation is invisible without it (EV19).
         bumpEnvVersion();
@@ -793,234 +874,17 @@ export function mountPlaygroundOverlay(
   }
 
   function buildSettings(): HTMLElement {
-    const initial = setupFromState(room);
-
-    const modeAlone = h("input", {
-      type: "radio",
-      name: "pg-mode",
-      value: "alone",
-      checked: !initial.botEnabled,
-    });
-    const modeBot = h("input", {
-      type: "radio",
-      name: "pg-mode",
-      value: "bot",
-      checked: initial.botEnabled,
-    });
-
-    const arenaOpts = arenaOptions().map((id) => ({ id, name: id }));
-    const arenaSelect = selectFor(arenaOpts, initial.arenaId);
-
-    const cars = carOptions();
-    const meCarSelect = selectFor(cars, initial.me.carId);
-    const oppCarSelect = selectFor(cars, initial.opponent.carId);
-    meCarSelect.classList.add("pg-car");
-    oppCarSelect.classList.add("pg-car");
-
-    const meColorSelect = colorSelect(initial.me.colorId);
-    const oppColorSelect = colorSelect(initial.opponent.colorId);
-
-    /**
-     * A free tint for ONE car: the browser's own colour picker, plus the hex it landed on and a
-     * button back to the palette.
-     *
-     * Deliberately NOT added to `controls` below. Those wire `change` to `evaluate(true)`, which
-     * sends `MSG_PLAYGROUND_SETUP` and respawns any car whose chassis or loadout moved — a colour is
-     * a client-side render override that the server has no opinion about, so routing it through
-     * there would respawn both cars on every drag of the picker AND accomplish nothing, since
-     * `PlaygroundSetup` carries a `colorId` and has nowhere to put a free colour.
-     *
-     * The hex is shown as text because the native picker hides it the moment it closes, and reading
-     * it off is the whole point: a colour that survives this panel gets typed into `COLOR_TABLE` by
-     * hand.
-     */
-    function tintPicker(sessionId: string, colorSel: HTMLSelectElement): HTMLElement {
-      const toggle = h("input", { type: "checkbox", class: "pg-tint-on" }) as HTMLInputElement;
-      const input = h("input", { type: "color", class: "pg-tint" }) as HTMLInputElement;
-      const readout = h("span", { class: "pg-tint-hex" }, []);
-
-      /**
-       * Paint both sides from the map, and mark whichever one is NOT driving the car.
-       *
-       * Exactly one of the palette dropdown and this picker paints a car, and a control that
-       * silently does nothing is worse than one that says why — the rule `env-panel.ts` already
-       * applies to `floor.*`/`floorArt.*`. So the inert side is dimmed and titled, in whichever
-       * direction the toggle currently points.
-       *
-       * With no tint yet the picker OPENS on the slot colour, so a first pick starts from what the
-       * car is actually wearing rather than from black.
-       */
-      function sync(): void {
-        const tint = carTintMap[sessionId];
-        const on = tint?.on === true;
-        const shown = tint?.hex ?? carFillOf(Number(colorSel.value));
-        toggle.checked = on;
-        input.value = hexOf(shown);
-        readout.textContent = hexOf(shown).toUpperCase();
-        readout.classList.toggle("pg-tint-off", !on);
-        input.classList.toggle("pg-tint-off", !on);
-        colorSel.classList.toggle("pg-tint-off", on);
-        colorSel.title = on ? "inert — this car is painted by its tint" : "";
-        const inertTint = "inert — this car is painted by its palette colour";
-        input.title = on ? "" : inertTint;
-        readout.title = on ? "" : inertTint;
-      }
-
-      /** Write the tint, keeping the colour whatever the toggle does: switching OFF must not discard
-       * a candidate, or comparing one against the palette would mean retyping the hex every time. */
-      function write(hex: number, on: boolean): void {
-        carTintMap[sessionId] = { hex, on };
-        sync();
-        persist();
-      }
-
-      toggle.addEventListener("change", () =>
-        write(Number.parseInt(input.value.slice(1), 16), toggle.checked),
-      );
-      // Picking a colour switches the tint on: reaching for the picker IS asking for it to paint the
-      // car, and making that a second click would be a control that does nothing on first use.
-      input.addEventListener("input", () => write(Number.parseInt(input.value.slice(1), 16), true));
-      // Following the slot select matters only while the tint is off: the readout would otherwise
-      // keep offering the colour of a slot this car no longer wears as its starting point.
-      colorSel.addEventListener("change", sync);
-      sync();
-      return h("div", { class: "pg-tint-row" }, [toggle, input, readout]);
-    }
-
-    const meTint = tintPicker(room.sessionId, meColorSelect);
-    const oppTint = tintPicker(BOT_SESSION_ID, oppColorSelect);
-
-    const difficultySelect = selectFor(
-      [
-        { id: "easy", name: "Easy" },
-        { id: "medium", name: "Medium" },
-        { id: "hard", name: "Hard" },
-      ],
-      initial.botDifficulty,
-    );
-    difficultySelect.classList.add("pg-difficulty");
-    // Meaningless while the other car is a target dummy, and saying so with the control itself is
-    // clearer than leaving a live select that changes nothing.
-    const syncDifficultyEnabled = (): void => {
-      difficultySelect.disabled = !modeBot.checked;
-    };
-    syncDifficultyEnabled();
-    for (const el of [modeAlone, modeBot]) {
-      el.addEventListener("change", syncDifficultyEnabled);
-    }
-
-    /**
-     * Outline what the sim actually collides with: each car's OBB, and every live weapon
-     * instance's own hitbox.
-     *
-     * Applied on the spot rather than on leaving settings, unlike every control above it. Those
-     * send a setup or a tuning override to the server, which is why they batch until `leaveSettings`
-     * — this one changes nothing but what this browser paints, so making it wait would be a delay
-     * with no reason behind it. It reads back from `showHitboxes()` rather than from storage so the
-     * checkbox always shows what the arena is actually doing.
-     */
-    const hitboxToggle = h("input", {
-      type: "checkbox",
-      checked: showHitboxes(),
-    }) as HTMLInputElement;
-    hitboxToggle.addEventListener("change", () => {
-      setShowHitboxes(hitboxToggle.checked);
-      persist();
-    });
-
-    const weapons = weaponOptions();
-    const meWeaponSelects = initial.me.weapons.map((w) => selectFor(weapons, w));
-    const oppWeaponSelects = initial.opponent.weapons.map((w) => selectFor(weapons, w));
-
-    const meLoadoutRow = h("div", { class: "pg-loadout" }, meWeaponSelects);
-    const oppLoadoutRow = h("div", { class: "pg-loadout" }, oppWeaponSelects);
-
     /** This settings session's own overrides map (spec PG13/PG14/PG20) -- holds ONLY entries that
      * differ from shipped, seeded from whatever tuning is currently live on the room. A slider drag
      * mutates this in place and re-saves to localStorage; nothing is sent to the server until the
      * user leaves the settings view (`leaveSettings` below), matching the session ruling that tuning
      * hot-applies on resume, not on every drag tick. */
     const overrides: Record<string, TuningValue> = { ...overridesFromState(room) };
+    // By REFERENCE, not a copy: `fieldRow` mutates `overrides` in place, and `saveAll` has to see
+    // those mutations without being re-wired on every edit.
+    lastOverrides = overrides;
 
     const backBtn = button({}, ["Back"], () => leaveSettings());
-
-    /** Rebuilt from the live control values every single time, never from a cached draft — the
-     * DOM the panel is currently showing IS the source of truth for what gets sent. */
-    function readSetup(): PlaygroundSetup {
-      return {
-        botEnabled: modeBot.checked,
-        botDifficulty: isBotDifficulty(difficultySelect.value) ? difficultySelect.value : "medium",
-        arenaId: arenaSelect.value,
-        me: {
-          carId: meCarSelect.value as CarId,
-          colorId: Number(meColorSelect.value),
-          weapons: meWeaponSelects.map((s) => s.value) as [WeaponId, WeaponId, WeaponId],
-        },
-        opponent: {
-          carId: oppCarSelect.value as CarId,
-          colorId: Number(oppColorSelect.value),
-          weapons: oppWeaponSelects.map((s) => s.value) as [WeaponId, WeaponId, WeaponId],
-        },
-      };
-    }
-
-    /** Every change -- setup or overrides alike -- saves to localStorage (spec PG19), keyed off
-     * whatever the controls currently show plus the current overrides map. */
-    function persist(): void {
-      saveStored({
-        setup: readSetup(),
-        overrides: { ...overrides },
-        view: { showHitbox: hitboxToggle.checked },
-        vfx: { ...vfxOverrides },
-        env: { ...envOverridesMap },
-        carTint: { ...carTintMap },
-      });
-    }
-
-    /** Re-evaluates legality (always) — toggling both loadout rows' `pg-illegal` class and
-     * `illegalHint`'s visibility to match, and disabling `backBtn` while either is illegal — and,
-     * when `send` is true and both loadouts are legal, ships the rebuilt setup and fires
-     * `onArenaChanged` on top of an arena move. An illegal loadout never reaches `room.send` —
-     * `isPlaygroundSetup` would reject it server-side anyway, silently. */
-    function evaluate(send: boolean): void {
-      const setup = readSetup();
-      const meLegal = isLoadoutLegal(setup.me.weapons);
-      const oppLegal = isLoadoutLegal(setup.opponent.weapons);
-      meLoadoutRow.classList.toggle("pg-illegal", !meLegal);
-      oppLoadoutRow.classList.toggle("pg-illegal", !oppLegal);
-      backBtn.disabled = !meLegal || !oppLegal;
-      settingsIllegal = backBtn.disabled;
-      illegalHint.hidden = !backBtn.disabled;
-      if (!send || !meLegal || !oppLegal) return;
-
-      const arenaChanged = setup.arenaId !== lastSentArenaId;
-      room.send(MSG_PLAYGROUND_SETUP, setup);
-      persist();
-      if (arenaChanged) {
-        lastSentArenaId = setup.arenaId;
-        onArenaChanged();
-      }
-    }
-
-    const controls: (HTMLInputElement | HTMLSelectElement)[] = [
-      modeAlone,
-      modeBot,
-      arenaSelect,
-      meCarSelect,
-      oppCarSelect,
-      meColorSelect,
-      oppColorSelect,
-      difficultySelect,
-      ...meWeaponSelects,
-      ...oppWeaponSelects,
-    ];
-    for (const el of controls) el.addEventListener("change", () => evaluate(true));
-
-    // The car/weapon selects also decide which sections `statsTabs` draws (spec PG13) -- rebuild
-    // the Stats area on exactly those, on top of the `evaluate(true)` every control already gets above.
-    for (const el of [meCarSelect, oppCarSelect, ...meWeaponSelects, ...oppWeaponSelects]) {
-      el.addEventListener("change", () => renderStats());
-    }
 
     const statsContainer = h("div", { class: "pg-stats" });
 
@@ -1096,7 +960,7 @@ export function mountPlaygroundOverlay(
           overrides[path] = value;
           valueSpan.textContent = String(value);
         }
-        persist();
+        saveAll();
       }
       control.addEventListener(field.kind === "number" ? "input" : "change", onEdit);
 
@@ -1115,7 +979,7 @@ export function mountPlaygroundOverlay(
 
       const resetBtn = button({ class: "pg-reset", title: "Reset to shipped" }, ["↺"], () => {
         snapToShipped();
-        persist();
+        saveAll();
       });
 
       return h("div", { class: "pg-row pg-stat-row" }, [
@@ -1128,12 +992,12 @@ export function mountPlaygroundOverlay(
       ]);
     }
 
-    /** Rebuilds the tab bar and the active tab's rows from `statsTabs(readSetup())` — the sections
-     * depend on which cars/weapons are selected (PG13/PG35), so this runs once up front and again
-     * whenever a car or weapon select changes. Never called mid-drag of a range input: that would
-     * tear down the element the pointer has captured. */
+    /** Rebuilds the tab bar and the active tab's rows from `statsTabs(lastSetup)` — the sections
+     * follow the seats the Car select panel last sent (PG82), which is the setup this panel no
+     * longer has a control over, so it is read once per render rather than watched. Never called
+     * mid-drag of a range input: that would tear down the element the pointer has captured. */
     function renderStats(): void {
-      const tabs = statsTabs(readSetup());
+      const tabs = statsTabs(lastSetup);
 
       tabBar.replaceChildren();
       for (const tab of tabs) {
@@ -1161,42 +1025,9 @@ export function mountPlaygroundOverlay(
     }
     renderStats();
 
-    /** Writes a chassis's shipped kit into one car's three weapon selects (PG34), then runs the
-     * ordinary edit path so the send, the persistence and the stats sections all follow. Disabled
-     * for a chassis whose kit is not three distinct weapons, so it can never build a loadout the
-     * validator would reject. */
-    function restoreButton(
-      carSelect: HTMLSelectElement,
-      weaponSelects: HTMLSelectElement[],
-    ): HTMLButtonElement {
-      const btn = button({ class: "pg-restore" }, ["↺"], () => {
-        const kit = shippedLoadoutOf(carSelect.value as CarId);
-        if (!kit) return;
-        weaponSelects.forEach((select, i) => {
-          select.value = kit[i]!;
-        });
-        evaluate(true);
-        renderStats();
-      });
-      const sync = (): void => {
-        const carId = carSelect.value as CarId;
-        const kit = shippedLoadoutOf(carId);
-        btn.disabled = kit === undefined;
-        btn.title = kit
-          ? `Restore ${CAR_TABLE[carId].name}'s shipped loadout`
-          : "This chassis has no three-weapon kit";
-      };
-      sync();
-      carSelect.addEventListener("change", sync);
-      return btn;
-    }
-
-    const meRestoreBtn = restoreButton(meCarSelect, meWeaponSelects);
-    const oppRestoreBtn = restoreButton(oppCarSelect, oppWeaponSelects);
-
     const resetAllBtn = button({}, ["Reset all"], () => {
       for (const path of Object.keys(overrides)) delete overrides[path];
-      persist();
+      saveAll();
       renderStats();
     });
 
@@ -1206,54 +1037,18 @@ export function mountPlaygroundOverlay(
 
     /** The single exit point for leaving the physics settings view (spec PG13/PG16): sends the current
      * overrides map exactly once (an empty map is a deliberate, valid reset-to-shipped send), saves
-     * one last time, and returns to the menu. Guarded the same way the disabled Back button already
-     * was -- an illegal loadout traps the user in settings regardless of how they tried to leave. */
+     * one last time, and returns to the menu. Unguarded since PG81 moved the loadout selects to the
+     * Car select panel: this panel has no control left that can make a setup illegal, so a guard
+     * here could only ever be always-false. */
     leaveSettings = () => {
-      if (settingsIllegal) return;
       room.send(MSG_PLAYGROUND_TUNING, { ...overrides });
-      persist();
+      saveAll();
       subView = "menu";
       render();
     };
 
-    const row = (label: string, control: Node): HTMLElement =>
-      h("div", { class: "pg-row" }, [h("label", {}, [label]), control]);
-
-    const illegalHint = h("span", { class: "pg-illegal-hint" }, ["duplicate weapon in a loadout"]);
-    illegalHint.hidden = true; // avoid a flash before the first `evaluate` paints its real state
-
-    // Deferred to here (rather than sitting where the controls are wired, above) because `evaluate`
-    // now touches `illegalHint`: calling it any earlier -- before this `const` has run -- would read
-    // the binding in its temporal dead zone and throw every time the panel opens.
-    evaluate(false); // initial legality paint only -- opening the panel must not itself send
-
-    const carRow = (
-      label: string,
-      carSelect: HTMLSelectElement,
-      colorSel: HTMLSelectElement,
-      restoreBtn: HTMLButtonElement,
-      tint: HTMLElement,
-    ): HTMLElement =>
-      h("div", { class: "pg-row" }, [
-        h("label", {}, [label]),
-        h("div", { class: "pg-car-row" }, [carSelect, colorSel, restoreBtn, tint]),
-      ]);
-
     return h("div", { class: "pg-panel pg-settings" }, [
-      h("div", { class: "pg-settings-header" }, [h("h2", {}, ["Physics settings"]), illegalHint, backBtn]),
-      h("div", { class: "pg-row pg-mode" }, [
-        h("label", {}, [modeAlone, " Play alone"]),
-        h("label", {}, [modeBot, " Vs bot"]),
-        difficultySelect,
-      ]),
-      row("Arena", arenaSelect),
-      carRow("My car", meCarSelect, meColorSelect, meRestoreBtn, meTint),
-      row("My loadout", meLoadoutRow),
-      carRow("Opponent car", oppCarSelect, oppColorSelect, oppRestoreBtn, oppTint),
-      row("Opponent loadout", oppLoadoutRow),
-      h("div", { class: "pg-row pg-view" }, [
-        h("label", {}, [hitboxToggle, " Show hitboxes"]),
-      ]),
+      h("div", { class: "pg-settings-header" }, [h("h2", {}, ["Physics settings"]), backBtn]),
       h("div", { class: "pg-stats-toolbar" }, [resetAllBtn, copyBtn]),
       tabBar,
       statsContainer,
@@ -1268,15 +1063,23 @@ export function mountPlaygroundOverlay(
     if (action === "toggle") {
       room.send(MSG_PLAYGROUND_PAUSE);
     } else if (action === "back-to-menu") {
+      if (effectiveView() === "cars") {
+        // Same guard the panel's own Back button carries (PG81), asked of the panel rather than
+        // mirrored into a flag here: P is not a side door out of Car select while a loadout is
+        // illegal.
+        if (carsPanel?.isIllegal() === true) return;
+        subView = "menu";
+        render();
+        return;
+      }
       if (effectiveView() === "vfx") {
         stopReplay();
         subView = "menu";
         render();
         return;
       }
-      // Same exit point the Back button's click uses -- `leaveSettings` itself re-checks
-      // `settingsIllegal` (see its own comment), so P is not a side door out of settings while a
-      // loadout is illegal, and the tuning blob is sent exactly once either way.
+      // Same exit point the Back button's click uses, so the tuning blob is sent exactly once
+      // either way.
       leaveSettings();
     }
   }
