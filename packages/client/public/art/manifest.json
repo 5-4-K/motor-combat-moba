@@ -76,6 +76,9 @@
     },
     "car.skorpios": {
       "file": "cars/skorpios.png"
+    },
+    "car.caprico": {
+      "file": "cars/caprico.png"
     }
   }
 }
