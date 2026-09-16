@@ -24,8 +24,19 @@ export interface CarPanelProps {
   readonly setShowHitboxes: (on: boolean) => void;
   /** Ship the rebuilt setup. Called on every control change that produces a LEGAL setup. */
   readonly onSetup: (setup: PlaygroundSetup) => void;
-  /** Save to localStorage. Called after every edit, tint edits included. */
+  /** Save to localStorage, and remember this setup as the last one the panel produced. Called on
+   * every edit that produces a LEGAL setup. */
   readonly persist: (setup: PlaygroundSetup) => void;
+  /**
+   * Save to localStorage WITHOUT offering a setup — the tint map's own save path.
+   *
+   * A tint edit has to persist, because that map is the only record of the colour. But the picker
+   * is reachable while a loadout is illegal, and `persist` would then hand that illegal setup on to
+   * be stored AND remembered as last-known-good. `decodeStored` validates the setup section whole,
+   * so one duplicate weapon would cost the developer all six seats, the arena, the mode and the
+   * wheel on the next reload — three times the loss it was at two cars.
+   */
+  readonly persistTint: () => void;
   readonly onBack: () => void;
 }
 
@@ -183,16 +194,26 @@ export function buildCarPanel(props: CarPanelProps): CarPanel {
   function evaluate(send: boolean): void {
     const setup = readSetup();
     illegal = false;
+    let opened = false;
     setup.cars.forEach((car, seat) => {
       const bad = !isLoadoutLegal(car.weapons);
       rows[seat]!.loadoutRow.classList.toggle("pg-illegal", bad);
       // A parked seat's illegal loadout still blocks the send, so open its section rather than
       // hiding the thing the user has to fix behind a collapsed header.
-      if (bad && !car.enabled) open.add(seat);
+      if (bad && !car.enabled && !open.has(seat)) {
+        open.add(seat);
+        opened = true;
+      }
       illegal ||= bad;
     });
     backBtn.disabled = illegal;
     illegalHint.hidden = !illegal;
+    // `open` is only READ by `syncSeats`, so widening it above changes nothing on screen by itself —
+    // and every caller that repaints does so BEFORE this runs. Without this the outlined row would
+    // stay collapsed and Back would be disabled with nothing visible to fix. Guarded on `opened` so
+    // the ordinary edit does not repaint six sections it did not touch; `syncSeats` never calls back
+    // into here, so there is no re-entrancy to worry about.
+    if (opened) syncSeats();
     if (!send || illegal) return;
     props.onSetup(setup);
     props.persist(setup);
@@ -228,8 +249,8 @@ export function buildCarPanel(props: CarPanelProps): CarPanel {
    * whose chassis or loadout moved — a colour is a client-side render override that the server has
    * no opinion about, so routing it through there would respawn cars on every drag of the picker
    * AND accomplish nothing, since `PlaygroundSetup` carries a `colorId` and has nowhere to put a
-   * free colour. It saves, because the map is persisted; `ArenaScene` re-reads the map at draw
-   * time, so an edit needs no other announcement.
+   * free colour. It saves through `persistTint` rather than `persist` (see that prop's comment);
+   * `ArenaScene` re-reads the map at draw time, so an edit needs no other announcement.
    *
    * Keyed by SEAT id (PG84), not by a Colyseus session id: a seat outlives a connection, which is
    * what lets a tint survive a page reload at all.
@@ -278,7 +299,7 @@ export function buildCarPanel(props: CarPanelProps): CarPanel {
     function write(hex: number, on: boolean): void {
       props.tints[seatId] = { hex, on };
       sync();
-      props.persist(readSetup());
+      props.persistTint();
     }
 
     toggle.addEventListener("change", () =>

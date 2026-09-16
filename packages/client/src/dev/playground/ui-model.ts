@@ -67,9 +67,16 @@ export function canDisableSeat(setup: PlaygroundSetup, seat: number): boolean {
  * unchecking the car you are driving has to hand the wheel somewhere rather than leaving it dangling
  * for the validator to reject. Disabling any OTHER seat leaves the wheel alone.
  *
- * `disabled` is read as "about to be switched off", so this is called BEFORE the flag flips. When
- * nothing else is enabled the wheel stays put — `canDisableSeat` refuses that case upstream, and
- * returning the seat unchanged is the honest answer rather than a -1 the caller must special-case.
+ * The answer does not depend on whether `disabled`'s own flag has flipped yet, which is why the
+ * panel's checkbox listener may call this from a `change` handler — i.e. AFTER the flip, reading a
+ * setup in which that seat is already off. A seat that is not the driven one returns early either
+ * way; a seat that IS returns the lowest enabled seat excluding itself, and that explicit
+ * `!== disabled` filter is exactly what makes the already-flipped reading agree with the
+ * not-yet-flipped one.
+ *
+ * When nothing else is enabled the wheel stays put — `canDisableSeat` refuses that case upstream,
+ * and returning the seat unchanged is the honest answer rather than a -1 the caller must
+ * special-case.
  */
 export function nextDrivenSeat(setup: PlaygroundSetup, disabled: number): number {
   if (setup.drivenSeat !== disabled) return setup.drivenSeat;

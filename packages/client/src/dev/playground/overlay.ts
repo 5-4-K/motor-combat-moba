@@ -608,9 +608,14 @@ export function mountPlaygroundOverlay(
   setCarTintOverrides(carTintMap);
 
   /** The setup last known good, so a save from a panel that does not own the setup controls still
-   * writes a coherent blob rather than clobbering it with defaults. It and the room can only
-   * disagree if the user never opens Car select, and they cannot: `PlaygroundScene` sends the stored
-   * setup to the room on join, so the two start equal and `persistSetup` keeps them so. */
+   * writes a coherent blob rather than clobbering it with defaults.
+   *
+   * It is only ever assigned a setup that was ALSO sent to the room on the same edit: `buildCarsPanel`
+   * hands `onSetup` and `persist` the same object, and the Car select panel calls both only once a
+   * setup is legal. The two therefore cannot drift, and they start equal because `PlaygroundScene`
+   * sends the stored setup to the room on join. That is exactly why a tint edit saves through
+   * `saveAll` rather than `persistSetup` — the picker is reachable while a loadout is illegal, and an
+   * illegal setup must never become the last known good. */
   let lastSetup: PlaygroundSetup = loadStored().setup;
 
   /** The physics panel's overrides map, by REFERENCE once that panel has been built: `fieldRow`
@@ -785,6 +790,9 @@ export function mountPlaygroundOverlay(
         }
       },
       persist: (setup) => persistSetup(setup),
+      // A tint saves the map without offering a setup, so a colour picked while a loadout is illegal
+      // cannot replace the stored one with a blob `decodeStored` throws away whole.
+      persistTint: saveAll,
       onBack: () => {
         if (panel.isIllegal()) return;
         subView = "menu";
