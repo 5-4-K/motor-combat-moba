@@ -95,22 +95,29 @@ and the panel's "Car lighting" and "Floor art" sections tune all of it live.
 
 **A car's paint is `carFillFor(sessionId, colorId)`, not `carFillOf` directly.** It is `carFillOf`
 byte for byte unless the PLAYGROUND has a tint switched ON for that one car — a free colour picked in
-the physics settings panel, so a developer can judge a candidate palette against a real floor before
-anything is typed into `COLOR_TABLE`. **The picker and the palette dropdown both paint the same car,
-so a per-car checkbox says which one is live** and the panel dims and titles the other; an entry is
-`{hex, on}` rather than a bare number so switching the tint off RESTORES the dropdown without
-discarding the candidate colour. Precedence by mere presence was the first cut and was wrong: the
-dropdown went silently dead the moment a colour was picked, which is exactly the failure
-`env-panel.ts` names for `floor.*`/`floorArt.*` — a control that quietly does nothing is worse than
-one that says why. It is keyed by **session id, not `colorId`**, because both
-cars are allowed to sit on the same colour (PG31, and there is a test named for it), so overriding a
-slot would repaint both cars from one picker. Client-only and never sent anywhere, like the VFX and
-environment maps beside it in `fx/car-tint.ts`; only the playground overlay ever seeds it (and
-`PlaygroundScene.onShutdown` clears it, exactly as it does the other two), so a shipped arena or a
-practice room paints `COLOR_TABLE` no matter what is saved in that browser. All four fill
-sites — the per-frame body tint, the container build, the dash ghost and the roster swatch — go
-through it, which is what keeps the swatch's own claim (that the panel can never disagree with the
-field about who is who) true.
+the **Car select** panel (`packages/client/src/dev/playground/car-panel.ts`), alongside that seat's
+chassis, colour and loadout controls, so a developer can judge a candidate palette against a real
+floor before anything is typed into `COLOR_TABLE`. Physics settings is stats-only now. **The picker
+and the palette dropdown both paint the same car, so a per-car checkbox says which one is live** and
+the panel dims and titles the other; an entry is `{hex, on}` rather than a bare number so switching
+the tint off RESTORES the dropdown without discarding the candidate colour. Precedence by mere
+presence was the first cut and was wrong: the dropdown went silently dead the moment a colour was
+picked, which is exactly the failure `env-panel.ts` names for `floor.*`/`floorArt.*` — a control that
+quietly does nothing is worse than one that says why. It is keyed by **seat id
+(`PLAYGROUND_SEAT_IDS[n]`, `"pg-0"`…`"pg-5"`), not `colorId`**, because any of the six seats are
+allowed to sit on the same colour (PG31, and there is a test named for it), so overriding a slot
+would repaint every seat sharing that colour from one picker. Seat id specifically, rather than the
+Colyseus session id that used to be the only other candidate, because a seat outlives a connection —
+that is what lets a tint survive a page reload at all. Under the old session-id keying the human's
+own tint was silently discarded on every reconnect, since the key was fresh on every connection,
+while the bot's — keyed on the constant `"bot"` — persisted; see `migrateTintKeys` in
+`packages/client/src/dev/playground/storage.ts`, which migrates the one old key (the bot's) that can
+still be identified. Client-only and never sent anywhere, like the VFX and environment maps beside it
+in `fx/car-tint.ts`; only the playground overlay ever seeds it (and `PlaygroundScene.onShutdown`
+clears it, exactly as it does the other two), so a shipped arena or a practice room paints
+`COLOR_TABLE` no matter what is saved in that browser. All four fill sites — the per-frame body tint,
+the container build, the dash ghost and the roster swatch — go through it, which is what keeps the
+swatch's own claim (that the panel can never disagree with the field about who is who) true.
 
 `?debug=1` draws the car OBB hitbox.
 
