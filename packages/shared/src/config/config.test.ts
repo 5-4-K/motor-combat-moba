@@ -27,8 +27,17 @@ import { RAM_CONFIG } from "./ram-config.js";
 import { damageFor } from "../sim/damage.js";
 
 describe("CAR_TABLE", () => {
-  it("has exactly mirage, bullseye, bastion", () => {
-    expect(Object.keys(CAR_TABLE).sort()).toEqual(["bastion", "bullseye", "mirage"]);
+  it("has exactly the three shipped chassis plus the five unreleased prototypes", () => {
+    expect(Object.keys(CAR_TABLE).sort()).toEqual([
+      "anvil",
+      "bastion",
+      "bullseye",
+      "cleaver",
+      "mirage",
+      "prowler",
+      "skorpios",
+      "taurus",
+    ]);
   });
 
   it("matches the locked ratings", () => {
@@ -102,7 +111,10 @@ describe("isCarId", () => {
 });
 
 describe("isActive", () => {
-  it("ships every current car active, and at least one car is always active", () => {
+  it("publishes the three shipped chassis and none of the prototypes", () => {
+    // The list is the publish gate, not a roster census: taurus, anvil, prowler, cleaver and
+    // skorpios sit in `CAR_TABLE` with `isActive: false` and must stay out of every player-facing
+    // path until someone flips their flag.
     expect(activeCarIds()).toEqual(["mirage", "bullseye", "bastion"]);
   });
   it("keeps DEFAULT_CAR_ID active, so every fallback path resolves to a selectable car", () => {

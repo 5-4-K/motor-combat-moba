@@ -6,6 +6,9 @@ import type { CarDef, CarId } from "./types.js";
 /**
  * The roster. Every rating is an integer 0-100 with 50 as average.
  *
+ * **Three chassis ship; five more are authored below with `isActive: false`.** Only the shipped
+ * three carry an identity — everything this comment says about the triangle is about them.
+ *
  * The three types (T1): **Mirage** is the all-round speedster — highest speed AND handling, the
  * lightest-armoured glass cannon on offense but middling hp. **Bullseye** is the light, precise
  * skirmisher — the roster's lowest hp and `ramDefence`, and mid-pack on both speed and handling.
@@ -58,6 +61,25 @@ export const CAR_TABLE = {
   mirage: { id: "mirage", name: "Mirage", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, coastHalfLifeSeconds: 1.2, brakeDecel: 500, weapons: ["magmablast", "thunderclap", "afterburner"], isActive: true },
   bullseye: { id: "bullseye", name: "Bullseye", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30, coastHalfLifeSeconds: 1.0, brakeDecel: 520, weapons: ["predator", "pepperbox", "lance"], isActive: true },
   bastion: { id: "bastion", name: "Bastion", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, coastHalfLifeSeconds: 1.5, brakeDecel: 430, weapons: ["thumper", "roadblock", "wildcharge"], isActive: true },
+
+  // --- Unreleased prototypes (`isActive: false`) ------------------------------------------------
+  //
+  // Five chassis authored so their art and their handling can be driven in the playground before
+  // any of them is published. Every one of them is a STAT CLONE of a shipped car — taurus and anvil
+  // of Bastion, prowler and cleaver of Mirage, skorpios of Bullseye — which is a placeholder, not a
+  // design: the identity each is meant to carry has not been chosen yet, and a clone is the one
+  // starting point that says "this has not been tuned" out loud rather than inventing a triangle
+  // nobody agreed to. Retune them one at a time; `docs/turn-tuning.md` has a column for each.
+  //
+  // `weapons: []` is deliberate and legal for an inactive row (see "Adding an inactive chassis" in
+  // `docs/config-reference.md`): the at-least-one-weapon floor in `weapon-slots.test.ts` applies to
+  // active cars only, and weapon exclusivity (L1) is unconditional, so a prototype may not borrow a
+  // shipped kit — it gets its own `WEAPON_TABLE` rows when someone authors them.
+  taurus: { id: "taurus", name: "Taurus", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, coastHalfLifeSeconds: 1.5, brakeDecel: 430, weapons: [], isActive: false },
+  anvil: { id: "anvil", name: "Anvil", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, coastHalfLifeSeconds: 1.5, brakeDecel: 430, weapons: [], isActive: false },
+  prowler: { id: "prowler", name: "Prowler", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, coastHalfLifeSeconds: 1.2, brakeDecel: 500, weapons: [], isActive: false },
+  cleaver: { id: "cleaver", name: "Cleaver", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, coastHalfLifeSeconds: 1.2, brakeDecel: 500, weapons: [], isActive: false },
+  skorpios: { id: "skorpios", name: "Skorpios", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30, coastHalfLifeSeconds: 1.0, brakeDecel: 520, weapons: [], isActive: false },
 } as const satisfies Record<CarId, CarDef>;
 
 /**

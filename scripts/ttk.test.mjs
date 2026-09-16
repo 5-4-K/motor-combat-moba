@@ -10,9 +10,20 @@ import {
   slotsOf,
   weaponTicksOf,
 } from "../packages/shared/dist/index.js";
-import { pressPlan, simulateTtk, TTK_LIMIT_SECONDS } from "./ttk.mjs";
+import { armedCarIds, pressPlan, simulateTtk, TTK_LIMIT_SECONDS } from "./ttk.mjs";
 
+/**
+ * The DEFENDER axis: every chassis in the table, unreleased prototypes included — they all have a
+ * hull to shoot at.
+ */
 const CARS = Object.keys(CAR_TABLE);
+
+/**
+ * The ATTACKER axis: only chassis that can fire. An inactive chassis may legally carry no weapons
+ * (`docs/config-reference.md`, "Adding an inactive chassis"), and asserting that a car with no guns
+ * kills anything would fail on the authoring of a prototype rather than on a real regression.
+ */
+const ARMED = armedCarIds();
 
 describe("pressPlan", () => {
   it("scales every hit through damageFor rather than the total once", () => {
@@ -90,7 +101,8 @@ describe("simulateTtk", () => {
     // The real point of this assertion is that a kit CAN finish. A balance edit that leaves one
     // unable to — or a scheduler regression that drops its damage — shows up here rather than as a
     // quietly wrong number in a report nobody re-derives.
-    for (const attacker of CARS) {
+    assert.ok(ARMED.length > 0, "no chassis carries a kit — the matrix would assert nothing");
+    for (const attacker of ARMED) {
       for (const defender of CARS) {
         const result = simulateTtk(attacker, defender);
         assert.ok(result.killed, `${attacker} cannot kill ${defender} within ${TTK_LIMIT_SECONDS}s`);
@@ -101,7 +113,7 @@ describe("simulateTtk", () => {
 
   it("never spends more total damage than the defender's hull, give or take one press", () => {
     // Catches a scheduler that keeps firing after the kill, which would understate every TTK.
-    for (const attacker of CARS) {
+    for (const attacker of ARMED) {
       const result = simulateTtk(attacker, "bastion");
       const dealt = [...result.presses].reduce(
         (sum, entry) => sum + pressPlan(attacker, entry[0]).total * entry[1],
@@ -118,7 +130,7 @@ describe("simulateTtk", () => {
   it("makes the status riders help rather than hinder", () => {
     // corroded amplifies and spiked bleeds, so switching them on can only shorten a kill. If this
     // ever inverts, the debuff bookkeeping is wrong somewhere.
-    for (const attacker of CARS) {
+    for (const attacker of ARMED) {
       for (const defender of CARS) {
         const withStatuses = simulateTtk(attacker, defender, { debuffs: true });
         const without = simulateTtk(attacker, defender, { debuffs: false });

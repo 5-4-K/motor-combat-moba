@@ -47,7 +47,13 @@ and the ram pair list. Outside Deathmatch no car is ever `phased`, so the two pr
 everywhere else in the game; a phased car is the one case where they must disagree, and nothing else
 may let them.
 
-**The three chassis are `bullseye`, `mirage` and `bastion`** — a type triangle, not three shapes.
+**The three SHIPPED chassis are `bullseye`, `mirage` and `bastion`** — a type triangle, not three
+shapes. `CAR_TABLE` also carries five unreleased prototypes as of 2026-09-16 — `taurus`, `anvil`,
+`prowler`, `cleaver`, `skorpios` — each `isActive: false`, each with `weapons: []`, and each a
+placeholder stat clone of a shipped chassis (Taurus/Anvil of Bastion, Prowler/Cleaver of Mirage,
+Skorpios of Bullseye). They exist so art and handling can be driven before publication; **none of
+them carries an identity yet**, so do not read their ratings as a design or balance them against the
+triangle. Everything below about the roster's shape is about the three.
 Their ratings (`speed`, `accel`, `handling`, `attack`, `hp`, `ramAttack`, `ramDefence`) are **seven**
 independent 0-100 values; `accel` and `handling` landed on 2026-08-30 so cars could differ in how they
 launch and how they corner, and `ramAttack`/`ramDefence` replaced the single `mass` rating in stage 3
@@ -56,7 +62,7 @@ of the 2026-09-06 car-physics rework (see below) — **there is no `mass` on `Ca
 units/s², not 0-100 ratings.) **`handling` is turn RATE, not turn radius.** Radius is
 `speed / turnRate`.
 
-**A fourth chassis can be authored without shipping it: `CarDef.isActive` (PG18) is the roster's
+**A further chassis can be authored without shipping it: `CarDef.isActive` (PG18) is the roster's
 publish gate**, and as of 2026-09-16 it is one everywhere rather than only in car select. Car select,
 `MSG_SELECT_CAR`/`MSG_PREVIEW_CAR`, the practice opponent roll and practice join options already
 filtered to `activeCarIds()`; the players' guide and the balance harness did not. The guide now
@@ -71,9 +77,12 @@ chassis, active or not, so a prototype cannot borrow a shipped kit and `isActive
 one-field change rather than an edit that fails the suite for unrelated reasons. A `WEAPON_TABLE` row
 carried by nobody is legal (`tremor` is one); the whitelist that used to pin an exact carried-row
 count is gone, and the per-chassis kit assertions are what still catch a weapon silently dropped from
-a shipped loadout. `npm run ttk` and `npm run check:art` deliberately cover the whole table — the
-first is pure arithmetic, the second marks an unreleased row `(inactive)` rather than skipping it,
-because missing art is something to learn before release. See
+a shipped loadout. `npm run check:art` deliberately covers the whole table, marking an unreleased row
+`(inactive)` rather than skipping it, because missing art is something to learn before release.
+`npm run ttk` covers the whole table on its **defender** axis only — an unreleased hull is exactly
+the one you want to check "can anything kill this" against — while its **attacker** axis is
+`armedCarIds()`, since a chassis with no kit books a guaranteed "never" row that measures nothing,
+the same reason balance skips an empty kit. The matrix names the chassis it left off. See
 [`docs/config-reference.md`](docs/config-reference.md#adding-an-inactive-chassis).
 
 Until **2026-09-02**, `speed` and `handling` traded off per car — Bastion carried the roster's
