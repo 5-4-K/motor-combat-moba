@@ -78,7 +78,7 @@ describe("preferredRangeOf", () => {
     // falling — so the maximum is a plateau whose NEAR edge is always `minEngageUnits`. Keeping the
     // first sample to beat a running best would return 70 for every chassis at every tier and the
     // solver-derived range would be a no-op with an expensive loop in front of it. Bullseye at hard
-    // is the loudest case: 470 units, nearly seven times the floor.
+    // is the loudest case: 570 units at the 72x48 hull (470 at 48x32), over eight times the floor.
     expect(preferredRangeOf(self("bullseye"), BOT_PROFILES.hard, ones, 0)).toBeGreaterThan(300);
   });
 
@@ -107,6 +107,13 @@ describe("preferredRangeOf", () => {
     // narrowness is what a tuner needs. Sweeping `rollPersonality`'s own 0.5-1.5 draw over all
     // three chassis at all three tiers, exactly one cell returns more than one standoff.
     //
+    // RE-PINNED 2026-09-16 (bigger cars, 48x32 -> 72x48): now TWO cells of nine. `proxyValue`'s
+    // subtense is `atan2(carHeight / 2, distance)`, so the taller hull keeps hit chance saturated
+    // further out and every plateau edge moved outward. Measured by this sweep: at 48x32 it still
+    // reads only `mirage/hard` (220 / 386.7); at 72x48 `mirage/medium` joins it (220 / 253.3 / 270)
+    // and `mirage/hard` is unchanged (220 / 386.7). Neutral standoffs moved to bullseye
+    // 120 / 270 / 570, mirage 136.7 / 220 / 220, bastion 132.5 / 132.5 / 132.5.
+    //
     // THIS TEST IS ALLOWED TO FAIL ON AN IMPROVEMENT. If a roster change, a new chassis or a
     // `proxyValue` correction moves the count either way, the right response is to update this
     // number AND the two prose claims that quote it (`preferredRangeOf`'s doc comment, and
@@ -125,7 +132,7 @@ describe("preferredRangeOf", () => {
         if (seen.size > 1) live.push(`${carId}/${tier}`);
       }
     }
-    expect(live).toEqual(["mirage/hard"]);
+    expect(live).toEqual(["mirage/medium", "mirage/hard"]);
   });
 
   it("gives different chassis different distances, because their kits differ (P31)", () => {

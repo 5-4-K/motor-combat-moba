@@ -67,6 +67,13 @@ export function isUlt(slot: BotSlotView): boolean {
  * the accepted-loss note on `proxyValue` in `solution.ts`, which records that fixing it takes the
  * sweep to 0 of 9 and why it was reverted anyway.
  *
+ * TWO CELLS OF NINE SINCE THE HULL GREW (2026-09-16, 48x32 -> 72x48). `proxyValue`'s subtense reads
+ * `DRIVE_CONFIG.carHeight`, so a taller target keeps hit chance saturated further out and moves
+ * every plateau edge outward. The same sweep now returns more than one standoff for Mirage at
+ * medium too (220 / 253.3 / 270) beside Mirage at hard (220 / 386.7, unchanged). The figures in
+ * the paragraphs above (470, 420, the 0-of-9 reading) were measured at 48x32; at 72x48 a neutral
+ * hard Bullseye stands at 570.
+ *
  * IT TAKES TWO PASSES OVER THE SAMPLES, but only ONE evaluation of each (M7, fix wave 3,
  * 2026-09-07). The two-pass STRUCTURE is forced: the bar is a fraction of the maximum, so the
  * maximum has to be known before any range can be tested against it, and a running best has not

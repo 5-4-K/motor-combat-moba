@@ -223,28 +223,32 @@ capped at `awarenessRadiusUnits`.
 
 So the per-tier ladder those fractions used to encode now falls out of `aimErrorSigmaRad` on its
 own: shakier hands make the kit's value curve peak closer in, because the shots stop paying sooner.
-Measured at neutral slot weights (chassis, easy / medium / hard): bullseye 70 / 170 / 470, mirage
-86.7 / 186.7 / 220, bastion 90.8 / 132.5 / 132.5. Bastion's medium/hard tie is a property of its kit
+Measured at neutral slot weights (chassis, easy / medium / hard) on the 72x48 hull (2026-09-16):
+bullseye 120 / 270 / 570, mirage 136.7 / 220 / 220, bastion 132.5 / 132.5 / 132.5. (At 48x32 they
+were 70 / 170 / 470, 86.7 / 186.7 / 220 and 90.8 / 132.5 / 132.5: `proxyValue`'s subtense reads the
+car's height, so a bigger target keeps the kit paying further out.) Bastion's medium/hard tie is a property of its kit
 (a 150 u `wildcharge` beside a 400/500 u pair), not of the sampling grid.
 
 The personality's `slotWeights` reach this function, which is why the plateau bar is a fraction
 rather than an exact tie: under an exact tie the answer was provably a veto by the shortest-reaching
 ready slot, and the weights could not move the standoff at all.
 
-**They reach it in one chassis-by-tier cell of nine, and that is a documented limitation rather than
+**They reach it in two chassis-by-tier cells of nine, and that is a documented limitation rather than
 a repair.** A 5x5x5 sweep of `rollPersonality`'s own 0.5-1.5 draw over all nine cells returns more
-than one standoff for exactly one of them - Mirage at hard, 386.7 with the long pair heavy against
-220 with `afterburner` heavy. Everywhere else the shortest ready slot's cliff is too large a share
+than one standoff for exactly two of them - Mirage at hard, 386.7 with the long pair heavy against
+220 with `afterburner` heavy, and (since the 2026-09-16 hull growth to 72x48; it was one cell of nine
+at 48x32) Mirage at medium, 220 / 253.3 / 270 depending on the roll. Everywhere else the shortest ready slot's cliff is too large a share
 of the kit's peak for any weighting in that range to hold the total over 0.95 of it, so the answer is
 the same whatever the personality rolled. Two consequences for a tuner:
 
-- **Do not reach for `slotWeights` to change where a bot stands.** In eight of nine cells it does
+- **Do not reach for `slotWeights` to change where a bot stands.** In seven of nine cells it does
   nothing. Its live job is ranking which gun gets pressed - `chooseSlot` multiplies the solver's
   value by it - which is where "it never uses its second weapon" is tuned.
-- **That one live cell rests on a known valuation error**, and would go away if the error were
+- **Mirage/hard's live cell rests on a known valuation error**, and would go away if the error were
   fixed. `proxyValue` scores a ticking beam's `damage` as a press rather than a pulse, so
   `afterburner` reads 3.8 EV/s instead of ~18.8; at its true value its 220 u cliff is too large for
-  any weighting to clear and the sweep reads 0 of 9. That was implemented, measured and reverted on
+  any weighting to clear and the sweep read 0 of 9 (measured at 48x32, before Mirage/medium came
+  alive; not re-measured at 72x48). That was implemented, measured and reverted on
   a red `balance/` fixture - see the accepted-loss note on `proxyValue` in
   `bot/brain/solution.ts` for the numbers. Lowering `preferredRangePlateauFraction` is not the
   alternative lever: 0.92 and 0.90 were swept and bought no extra live cell, and 0.90 broke a

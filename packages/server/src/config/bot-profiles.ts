@@ -781,7 +781,9 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // one. A minor bump: `BOT_PROFILES` did not move, but a bot that used to drive into a chamfer or
 // grind on a spike strip no longer does, so a `--baseline` balance comparison across this change
 // would silently compare two different pilots without it.
-export const BOT_BRAIN_VERSION = "4.6.0";
+// 4.7.0 (2026-09-16): the car hull grew 48x32 -> 72x48; every hull-derived margin in
+// perceive/move/plan/solution grew with it, with BOT_PROFILES unchanged.
+export const BOT_BRAIN_VERSION = "4.7.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency

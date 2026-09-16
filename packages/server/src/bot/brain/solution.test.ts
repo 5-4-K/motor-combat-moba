@@ -313,12 +313,15 @@ describe("solver ground truth (P48)", () => {
     // reason worth re-deriving. y=300 keeps the geometry identical and drops that footnote.
     //
     // The offsets below mix the original coarse sweep (0, 10, ... 60 -- clearly-hits or
-    // clearly-misses) with a fine pass across the actual hull boundary: the target's hull is 48x32
-    // (half-height 16) and predator's hitbox adds another 6 units of `radiusAcross`, so a shot stops
-    // connecting somewhere around offset 22. Sampling every 2 units through that band is what makes
+    // clearly-misses) with a fine pass across the actual hull boundary: the target's hull is 72x48
+    // (half-height 24) and predator's hitbox adds another 6 units of `radiusAcross`, so a shot stops
+    // connecting somewhere around offset 30. Sampling every 2 units through that band is what makes
     // a wrong hull, wrong hitbox, or wrong smear direction show up as a flipped verdict instead of
     // being swallowed by two samples that were never close enough to disagree.
-    const offsets = [0, 10, 12, 14, 16, 18, 20, 22, 30, 40, 50, 60];
+    // The fine pass moved 12-22 -> 20-32 with the 2026-09-16 hull growth (48x32 -> 72x48): a 1-unit
+    // probe put the last connecting offset at 29 and the first miss at 30, and the old 12-22 pass
+    // then sat entirely on the hit side, bracketing the edge only by the coarse 22/30 pair.
+    const offsets = [0, 10, 20, 22, 24, 26, 28, 30, 32, 40, 50, 60];
     for (const offset of offsets) {
       const target = targetAt(400, 300 + offset);
       const claimed = solve({

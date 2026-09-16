@@ -375,7 +375,19 @@ describe("plan", () => {
     // for this scene under the new physics. This assertion only names the winner so the two
     // `sticky` assertions below have something to compare against; R-P16's actual subject is that
     // a commit bonus toward `clearlyWorse` cannot latch the planner onto it, and that is untouched.
-    expect(neutral.action).toEqual({ steer: -1, throttle: -1 });
+    //
+    // RE-PINNED 2026-09-16 (bigger cars, 48x32 -> 72x48): the winner is now `{ steer: -1,
+    // throttle: 1 }`, a tight forward U-turn off the wall rather than a reverse. At 48x32 the
+    // reverse-while-steering pair beat the forward-while-steering pair by 0.02 points (-15.47 against
+    // -15.49), and all of that edge was `wallPenalty`: `boundsPenalty` normalises the overshoot by a
+    // margin of `max(carWidth, carHeight)`, which grew 48 -> 72 with the hull (spec BC15), so the
+    // same world-unit difference between the two arcs' overshoots now costs less while the U-turn's
+    // better `rangeError` toward the waypoint is unchanged. Measured at 72x48: -14.21 against -14.27.
+    // Not a placement artifact: sweeping the start x over 0-36 at 48x32, reverse won only for
+    // x <= 10, and at 72x48 it wins at none of them. Both halves of the pair turn OFF the wall and
+    // neither is the out-of-arena outlier, so the scene's R-P16 premise is intact — the two
+    // `sticky` assertions below still pass with the gap measured there.
+    expect(neutral.action).toEqual({ steer: -1, throttle: 1 });
 
     // A SANE candidate that is nonetheless clearly worse than the winner — reversed hard while
     // steering, not the wall-crashing outlier. Under the old `max - min` normalisation the outlier
@@ -397,6 +409,9 @@ describe("plan", () => {
     // is 1.78. It is still a SANE candidate rather than the out-of-arena outlier the scene is built
     // around — that is `{ steer: 0, throttle: 1 }`, 203 points down, and using it would test the
     // easy case instead of R-P16's real one.
+    // At the 72x48 hull (2026-09-16) the gap is ~49.6 points against a `max - median` of 0.62, so
+    // hard's shipped 0.18 buys a bonus of ~0.11: still nowhere near covering it. The outlier is
+    // ~59 points down.
     const clearlyWorse = { steer: 0, throttle: 0 } as const;
     expect(clearlyWorse).not.toEqual(neutral.action);
 
@@ -497,7 +512,7 @@ describe("plan", () => {
   describe("wallPenalty on a polygon arena", () => {
     const bare = { width: ARENA_01.width, height: ARENA_01.height, obstacles: [] };
     const octagon = { ...bare, planes: boundsOf(ARENA_01).planes };
-    // Inside the top-left chamfer and clear of every rect edge by more than the 48-unit margin:
+    // Inside the top-left chamfer and clear of every rect edge by more than the 72-unit margin:
     // x=120 and y=100 are both far from 0, and from 1280/720.
     const nearChamfer = selfAt(120, 100, 0);
 
