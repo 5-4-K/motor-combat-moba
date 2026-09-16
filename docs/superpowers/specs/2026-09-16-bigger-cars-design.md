@@ -137,8 +137,12 @@ car and is kept.
 **BC16.** Because behaviour changes without `BOT_PROFILES` moving, **`BOT_BRAIN_VERSION` is bumped**
 (4.6.0 → 4.7.0), per root `CLAUDE.md`.
 
-**BC17.** Five server bot tests failed in the dry run and are category-3 suspects until shown
-otherwise:
+**BC17.** Six server tests driven by bot behaviour failed in the dry run, and each is a category-3
+suspect until shown otherwise:
+- `balance/match.test.ts` "shortening matchSeconds still lets the deathmatch clock fire, so a winner
+  can appear" — seed 98 produced no winner in 30 s. Its comment documents the procedure for this
+  (sweep seeds 1–150, prefer one already in a known-good set). The procedure is followed, and the
+  test is not weakened.
 - `tiers.test.ts` "the ladder holds (P50) › hits more often as the tier rises" — hard 0.63 was not
   above medium 0.86.
 - `tiers.test.ts` "(P49) › hard kills a stationary target inside twice its kit's theoretical floor" —
@@ -193,8 +197,23 @@ with no blockers.
 
 ## 8. Client
 
-**BC25.** No client logic changes. Comments that state the hull as a fact are updated to 72 × 48
-(or reworded to reference `DRIVE_CONFIG`):
+**BC25.** Three typed world-space client constants were sized around the 48 × 32 hull without
+deriving from it. They scale by the same 1.5x, so each overlay keeps its current proportion to the
+car:
+
+| Constant | File | Now | New | Why |
+|---|---|---|---|---|
+| `LOCK_BRACKET_HALF` | `scenes/combat-visual.ts` | 34 | **51** | must exceed the half-diagonal, now 43.3 (its test already derives this and fails today) |
+| `LOCK_BRACKET_ARM` | `scenes/combat-visual.ts` | 11 | **16** | proportion to the bracket; still under half the side |
+| `ARROW_GAP_PX` | `scenes/countdown-arrow.ts` | 38 | **57** | apex at the bottom of the bob must clear the 43.3 half-diagonal (52 > 43.3) |
+| `HP_BAR_GEOMETRY.length` | `scenes/ArenaScene.ts` | 44 | **66** | the bar lies across the car's tail; keeps its width relative to the 48-unit (was 32) tail |
+
+`HP_BAR_GEOMETRY.offset` already derives from `carWidth` and stays as written; `thickness` stays 5.
+`countdown-arrow.test.ts`'s hardcoded `Math.hypot(48, 32)` is replaced by `DRIVE_CONFIG`, which is
+what makes that test catch this class of drift from now on.
+
+No other client logic changes. Comments that state the hull as a fact are updated to 72 × 48 (or
+reworded to reference `DRIVE_CONFIG`):
 - `fx/environment.ts`, `fx/occlusion.ts` (its "107 x 93 units against a 48 x 32 hull" figure is
   recomputed), `scenes/car-lighting.ts`
 - `scenes/combat-visual.ts` (both mentions), `scenes/countdown-arrow.ts` and its test (the
