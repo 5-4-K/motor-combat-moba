@@ -222,7 +222,8 @@ describe("golden: resolveWorld against the vector-drive rework", () => {
   // The obstacle case is genuinely off-axis, and this is the one case in the block that needs its
   // `lateral` argument spelled out rather than defaulting to 0:
   //   - "separates from an obstacle": the MTV here is a single contact along world -x (n = (-1, 0),
-  //     matching the unchanged push that put x at 291.663842667), while the car's heading is 0.4
+  //     matching the unchanged push that put x at 287.4957640004885 — 291.663842667 before the
+  //     2026-09-16 hull resize, see below), while the car's heading is 0.4
   //     rad — off-axis from the wall normal. vx = 180cos(0.4) = 165.7909789205193,
   //     vy = 180sin(0.4) = 70.09530161555709. Only vx reflects (n has no y component):
   //     vx' = -0.15 * vx = -24.868646838077897, vy' = vy UNCHANGED. Re-projected onto the car's
@@ -257,9 +258,14 @@ describe("golden: resolveWorld against the vector-drive rework", () => {
   // off both walls at a corner"), both unchanged in `forward` since the reflection algebra never
   // touches geometry. The car case ("separates from another car") scaled its 30-unit centre gap to
   // 45, so depth `72 - 45 = 27` is 1.5x the old 18, and `x' = 500 - 27 * 0.6428571428571429`. The
-  // obstacle case ("separates from an obstacle") was RE-MEASURED rather than derived: the wider hull
-  // changes which OBB face the MTV resolves against, so its pose (including `y` and `forward`,
-  // which moved off their old values too) was read from a failing run and re-pinned wholesale.
+  // obstacle case ("separates from an obstacle") was RESCALED, not re-measured: its obstacle scaled
+  // 1.5x about the car's centre, `{ x: 320, y: 290, w: 60, h: 60 }` -> `{ x: 330, y: 285, w: 90,
+  // h: 90 }`, so the MTV still resolves along world -x against the same face and the off-axis
+  // reflection above is untouched — forward 4.390855582568385 and lateral 74.24635540810061 are the
+  // pre-resize values exactly, and only `x` moved (291.663842667 -> 287.4957640004885, depth 1.5x).
+  // An earlier re-pin on this branch read the pose off a failing run of the UN-scaled obstacle
+  // instead, which the wider hull had turned into a dead-on hit (forward -27, lateral 0) that a
+  // scalar bounce would also pass; that lost the one off-axis case this block exists to guard.
   it("bounces off the left wall", () => {
     const out = resolveWorld(bodyAt(10, 400, Math.PI, 200), [], [], bounds, FILLER_RAM_DEFENCE);
     expectPose(out, 36, 400, Math.PI, -30);
@@ -283,9 +289,9 @@ describe("golden: resolveWorld against the vector-drive rework", () => {
   });
 
   it("separates from an obstacle", () => {
-    const obstacle = { x: 320, y: 290, w: 60, h: 60 };
+    const obstacle = { x: 330, y: 285, w: 90, h: 90 };
     const out = resolveWorld(bodyAt(300, 300, 0.4, 180), [], [obstacle], bounds, FILLER_RAM_DEFENCE);
-    expectPose(out, 280.2220908548701, 291.6380341326196, 0.4, -26.999999999999996, 0);
+    expectPose(out, 287.4957640004885, 300, 0.4, 4.390855582568385, 74.24635540810061);
   });
 
   it("leaves a free body untouched", () => {
