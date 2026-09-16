@@ -370,7 +370,7 @@ describe("the carTint section (per-car playground tint)", () => {
       view: defaultStoredView(),
       vfx: {},
       env: {},
-      carTint: { abc: 0xff2200 },
+      carTint: { abc: { hex: 0xff2200, on: true } },
     };
     expect(decodeStored(encodeStored(stored))).toEqual(stored);
   });
@@ -382,9 +382,12 @@ describe("the carTint section (per-car playground tint)", () => {
 
   it("drops a junk entry without costing the good one beside it", () => {
     const decoded = decodeStored(
-      JSON.stringify({ setup: defaultPlaygroundSetup(), carTint: { a: "#fff", b: 0x123456 } }),
+      JSON.stringify({
+        setup: defaultPlaygroundSetup(),
+        carTint: { a: "#fff", b: { hex: 0x123456, on: false } },
+      }),
     );
-    expect(decoded.carTint).toEqual({ b: 0x123456 });
+    expect(decoded.carTint).toEqual({ b: { hex: 0x123456, on: false } });
   });
 
   it("does not let a malformed carTint invalidate the setup beside it", () => {

@@ -187,13 +187,15 @@ const CSS = `
   font-size: 11px;
   width: 58px;
 }
-/* Dimmed while this car has no override, so the readout reads as "what the slot gives you" rather
-   than as a colour someone chose. */
-.pg-tint-hex.pg-tint-shipped {
-  opacity: 0.45;
+.pg-tint-row input[type="checkbox"].pg-tint-on {
+  margin: 0;
+  cursor: pointer;
 }
-.pg-car-row button.pg-tint-reset {
-  padding: 4px 7px;
+/* The inert half of the pair — the palette select while the tint drives, the swatch and hex while it
+   does not. Marked rather than disabled: the dropdown still sets the colorId the tint falls back to,
+   and the swatch still opens so a candidate can be picked before switching it on. */
+.pg-tint-off {
+  opacity: 0.4;
 }
 .pg-difficulty {
   margin-left: 10px;
@@ -833,35 +835,56 @@ export function mountPlaygroundOverlay(
      * hand.
      */
     function tintPicker(sessionId: string, colorSel: HTMLSelectElement): HTMLElement {
+      const toggle = h("input", { type: "checkbox", class: "pg-tint-on" }) as HTMLInputElement;
       const input = h("input", { type: "color", class: "pg-tint" }) as HTMLInputElement;
       const readout = h("span", { class: "pg-tint-hex" }, []);
-      const resetBtn = button({ class: "pg-tint-reset", title: "Back to the palette colour" }, ["\u21ba"], () => {
-        delete carTintMap[sessionId];
-        sync();
-        persist();
-      });
 
-      /** Paint the control from the map. With no override it shows — and opens on — the slot colour,
-       * so the picker starts from what the car is actually wearing rather than from black. */
+      /**
+       * Paint both sides from the map, and mark whichever one is NOT driving the car.
+       *
+       * Exactly one of the palette dropdown and this picker paints a car, and a control that
+       * silently does nothing is worse than one that says why — the rule `env-panel.ts` already
+       * applies to `floor.*`/`floorArt.*`. So the inert side is dimmed and titled, in whichever
+       * direction the toggle currently points.
+       *
+       * With no tint yet the picker OPENS on the slot colour, so a first pick starts from what the
+       * car is actually wearing rather than from black.
+       */
       function sync(): void {
-        const override = carTintMap[sessionId];
-        const shown = override ?? carFillOf(Number(colorSel.value));
+        const tint = carTintMap[sessionId];
+        const on = tint?.on === true;
+        const shown = tint?.hex ?? carFillOf(Number(colorSel.value));
+        toggle.checked = on;
         input.value = hexOf(shown);
         readout.textContent = hexOf(shown).toUpperCase();
-        readout.classList.toggle("pg-tint-shipped", override === undefined);
-        resetBtn.disabled = override === undefined;
+        readout.classList.toggle("pg-tint-off", !on);
+        input.classList.toggle("pg-tint-off", !on);
+        colorSel.classList.toggle("pg-tint-off", on);
+        colorSel.title = on ? "inert — this car is painted by its tint" : "";
+        const inertTint = "inert — this car is painted by its palette colour";
+        input.title = on ? "" : inertTint;
+        readout.title = on ? "" : inertTint;
       }
 
-      input.addEventListener("input", () => {
-        carTintMap[sessionId] = Number.parseInt(input.value.slice(1), 16);
+      /** Write the tint, keeping the colour whatever the toggle does: switching OFF must not discard
+       * a candidate, or comparing one against the palette would mean retyping the hex every time. */
+      function write(hex: number, on: boolean): void {
+        carTintMap[sessionId] = { hex, on };
         sync();
         persist();
-      });
-      // Following the slot select matters only while there is no override: the readout would
-      // otherwise keep showing the colour of a slot this car no longer wears.
+      }
+
+      toggle.addEventListener("change", () =>
+        write(Number.parseInt(input.value.slice(1), 16), toggle.checked),
+      );
+      // Picking a colour switches the tint on: reaching for the picker IS asking for it to paint the
+      // car, and making that a second click would be a control that does nothing on first use.
+      input.addEventListener("input", () => write(Number.parseInt(input.value.slice(1), 16), true));
+      // Following the slot select matters only while the tint is off: the readout would otherwise
+      // keep offering the colour of a slot this car no longer wears as its starting point.
       colorSel.addEventListener("change", sync);
       sync();
-      return h("div", { class: "pg-tint-row" }, [input, readout, resetBtn]);
+      return h("div", { class: "pg-tint-row" }, [toggle, input, readout]);
     }
 
     const meTint = tintPicker(room.sessionId, meColorSelect);

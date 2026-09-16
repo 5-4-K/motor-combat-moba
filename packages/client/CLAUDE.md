@@ -94,9 +94,15 @@ exactly, and `floorArt.darken: 0` with a white tint multiplies by one, which is 
 and the panel's "Car lighting" and "Floor art" sections tune all of it live.
 
 **A car's paint is `carFillFor(sessionId, colorId)`, not `carFillOf` directly.** It is `carFillOf`
-byte for byte unless the PLAYGROUND is overriding that one car's tint — a free colour picked in the
-physics settings panel, so a developer can judge a candidate palette against a real floor before
-anything is typed into `COLOR_TABLE`. It is keyed by **session id, not `colorId`**, because both
+byte for byte unless the PLAYGROUND has a tint switched ON for that one car — a free colour picked in
+the physics settings panel, so a developer can judge a candidate palette against a real floor before
+anything is typed into `COLOR_TABLE`. **The picker and the palette dropdown both paint the same car,
+so a per-car checkbox says which one is live** and the panel dims and titles the other; an entry is
+`{hex, on}` rather than a bare number so switching the tint off RESTORES the dropdown without
+discarding the candidate colour. Precedence by mere presence was the first cut and was wrong: the
+dropdown went silently dead the moment a colour was picked, which is exactly the failure
+`env-panel.ts` names for `floor.*`/`floorArt.*` — a control that quietly does nothing is worse than
+one that says why. It is keyed by **session id, not `colorId`**, because both
 cars are allowed to sit on the same colour (PG31, and there is a test named for it), so overriding a
 slot would repaint both cars from one picker. Client-only and never sent anywhere, like the VFX and
 environment maps beside it in `fx/car-tint.ts`; only the playground overlay ever seeds it (and

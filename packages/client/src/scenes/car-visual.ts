@@ -37,8 +37,8 @@ export function carFillOf(colorId: number): number {
 }
 
 /**
- * The colour to actually paint THIS car, which is `carFillOf` unless the playground is overriding
- * this one car's tint.
+ * The colour to actually paint THIS car, which is `carFillOf` unless the playground has a tint
+ * switched ON for this one car.
  *
  * Every `carFillOf` caller in `ArenaScene` goes through here instead, so the body, the dash ghost
  * and the roster swatch cannot disagree about who is who — the property the swatch's own comment
@@ -47,8 +47,8 @@ export function carFillOf(colorId: number): number {
  * Keyed by session id rather than `colorId` on purpose; `fx/car-tint.ts` says why.
  */
 export function carFillFor(sessionId: string, colorId: number): number {
-  const override = carTintOverrides()[sessionId];
-  return override ?? carFillOf(colorId);
+  const tint = carTintOverrides()[sessionId];
+  return tint?.on ? tint.hex : carFillOf(colorId);
 }
 
 /**

@@ -151,17 +151,22 @@ describe("ellipsePoints", () => {
 describe("carFillFor (playground per-car tint)", () => {
   beforeEach(() => setCarTintOverrides(null));
 
-  it("is carFillOf when this car has no override, which is every shipped room", () => {
+  it("is carFillOf when this car has no tint at all, which is every shipped room", () => {
     expect(carFillFor("abc", 2)).toBe(carFillOf(2));
   });
 
-  it("returns the override instead of the slot colour", () => {
-    setCarTintOverrides({ abc: 0xff2200 });
+  it("returns the tint instead of the slot colour when it is switched ON", () => {
+    setCarTintOverrides({ abc: { hex: 0xff2200, on: true } });
     expect(carFillFor("abc", 0)).toBe(0xff2200);
   });
 
-  it("overrides one car without touching the other on the SAME colorId (PG31)", () => {
-    setCarTintOverrides({ mine: 0xff2200 });
+  it("falls back to the slot colour when the tint is switched OFF, so the dropdown drives again", () => {
+    setCarTintOverrides({ abc: { hex: 0xff2200, on: false } });
+    expect(carFillFor("abc", 2)).toBe(carFillOf(2));
+  });
+
+  it("tints one car without touching the other on the SAME colorId (PG31)", () => {
+    setCarTintOverrides({ mine: { hex: 0xff2200, on: true } });
     expect(carFillFor("mine", 0)).toBe(0xff2200);
     expect(carFillFor("theirs", 0)).toBe(carFillOf(0));
   });
