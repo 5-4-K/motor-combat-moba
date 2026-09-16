@@ -1,11 +1,19 @@
 /**
- * The playground's per-CAR tint: a free colour for one car, keyed by its session id.
+ * The playground's per-CAR tint: a free colour for one car, keyed by its seat id.
  *
- * **Why session id and not `colorId`.** The obvious cheap version of this feature overrides a
+ * **Why seat id and not `colorId`.** The obvious cheap version of this feature overrides a
  * `COLOR_TABLE` slot and lets whoever wears it pick the new paint up. That is wrong here, because
- * `isPlaygroundSetup` deliberately allows BOTH cars to sit on the same `colorId` (PG31 — there is a
- * test named for it). Keying on the slot would repaint both cars from one picker, so the key is the
- * thing that is actually unique per car.
+ * `isPlaygroundSetup` deliberately allows any of the six seats to sit on the same `colorId` (PG31 —
+ * there is a test named for it). Keying on the slot would repaint every seat wearing that colour from
+ * one picker, so the key is the thing that is actually unique per car.
+ *
+ * **Why seat id and not the Colyseus session id it used to be.** A seat outlives a connection, which
+ * is what lets a tint survive a page reload at all. Session id was the only other candidate before
+ * the six-car widening, and it was wrong for the human specifically: their `client.sessionId` is
+ * fresh on every connection, so keying on it discarded their own tint on every reload while the
+ * bot's — keyed on the constant `"bot"` — persisted across the same reload. `migrateTintKeys` in
+ * `packages/client/src/dev/playground/storage.ts` migrates that one old key (the bot's) that can
+ * still be identified; a stored human key cannot be, and is simply left to expire unread.
  *
  * **Why an entry carries `on` rather than being present-or-absent.** The palette dropdown and this
  * picker both want to paint the same car, and exactly one of them can win. Presence alone would make
@@ -32,7 +40,7 @@ export interface CarTint {
   readonly on: boolean;
 }
 
-/** Session id -> the picked tint. No entry means this car has never been given one. */
+/** Seat id -> the picked tint. No entry means this car has never been given one. */
 export type CarTintOverrides = Record<string, CarTint>;
 
 let current: CarTintOverrides = {};
@@ -54,7 +62,7 @@ export function setCarTintOverrides(next: CarTintOverrides | null): void {
  * A stored blob, entry by entry, dropping anything that is not a tint.
  *
  * Lenient per entry in the same way `sanitizeStoredEnv` is, and for the same reason: a hand-edited
- * blob or a stale session id must cost that one car its tint, never the whole tuning session. A
+ * blob or a stale seat id must cost that one car its tint, never the whole tuning session. A
  * fractional or out-of-range hex is DROPPED rather than rounded or clamped — a repair nobody asked
  * for would hide the fact that something wrote a non-colour here.
  *

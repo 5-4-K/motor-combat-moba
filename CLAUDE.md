@@ -207,15 +207,18 @@ tints. The panel marks whichever one is inert rather than letting it silently do
 `markings.*` apply on edit, but through a texture rebuild and a redraw rather than a plain read —
 see EV27, EV28 and EV30.
 
-**The playground seats six cars, and a seat is not a connection.** As of 2026-09-16 the sandbox runs
-six fixed seats with stable session ids (`pg-0`…`pg-5`) rather than "the human's car plus `"bot"`";
-the human's own `client.sessionId` names no car at all, and `controlledSessionId` alone says which
-one they drive. `PlaygroundSetup` carries a six-entry `cars` list — each with its own chassis,
-colour, loadout and `enabled` flag — plus a `drivenSeat` index, and **six is structural rather than a
-counted cap**: there are six seats, so nothing anywhere refuses a seventh car. A disabled seat keeps
-its configuration (that is what makes a duel and a six-way two clicks apart), and the Car select
-panel seeds one from localStorage rather than from the defaults, because a parked seat has no row in
-`state.players` to read. `BOT_SESSION_ID` still exists and is `PracticeRoom`'s alone.
+**The playground seats six cars, and a seat is not a connection.** As of 2026-09-16 the sandbox
+runs six fixed seats with stable session ids (`pg-0`…`pg-5`) rather than "the human's car plus
+`"bot"`"; the human's own `client.sessionId` names no car at all, and `controlledSessionId`
+alone says which one they drive. `PlaygroundSetup` carries a six-entry `cars` list — each with
+its own chassis, colour, loadout and `enabled` flag — plus a `drivenSeat` index
+(`MSG_PLAYGROUND_SWITCH` is gone: who drives is now a per-seat radio in the Car select panel,
+not a message that flipped between two cars), and **six is structural rather than a counted
+cap**: there are six seats, so nothing anywhere refuses a seventh car. A disabled seat keeps
+its configuration (that is what makes a duel and a six-way two clicks apart), and the Car
+select panel seeds one from localStorage rather than from the defaults, because a parked seat
+has no row in `state.players` to read. `BOT_SESSION_ID` still exists and is `PracticeRoom`'s
+alone.
 See [`docs/superpowers/specs/2026-09-16-playground-six-car-select-design.md`](docs/superpowers/specs/2026-09-16-playground-six-car-select-design.md).
 
 **`arena-01` is no longer one open rectangle.** As of the 2026-09-11 arena-sprite-and-spike-hazard
