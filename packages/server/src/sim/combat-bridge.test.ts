@@ -18,6 +18,7 @@ import { respawnPlayer } from "../rooms/tick-pipeline.js";
 import {
   applyCombatResult,
   clearInstances,
+  forgetCombatPlayer,
   loadoutFor,
   newCombatMemory,
   toCombatPlayers,
@@ -677,5 +678,39 @@ describe("kill booking", () => {
     );
     expect(state.players.get("a")!.kills).toBe(0);
     expect(state.players.get("a")!.deaths).toBe(1);
+  });
+});
+
+describe("forgetCombatPlayer (PG67)", () => {
+  it("drops every session-keyed map entry for one player and leaves the others", () => {
+    const memory = newCombatMemory();
+    for (const id of ["pg-0", "pg-1"]) {
+      memory.fireStates.set(id, newFireState("mirage", 3));
+      memory.locks.set(id, { targetSessionId: "x", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 });
+      memory.maneuverWeapons.set(id, "thunderclap");
+      memory.maneuverPressIds.set(id, `${id}-press`);
+      memory.lastDamagers.set(id, "someone");
+      memory.loadouts.set(id, ["magmablast", "thunderclap", "afterburner"]);
+    }
+
+    forgetCombatPlayer(memory, "pg-0");
+
+    expect(memory.fireStates.has("pg-0")).toBe(false);
+    expect(memory.locks.has("pg-0")).toBe(false);
+    expect(memory.maneuverWeapons.has("pg-0")).toBe(false);
+    expect(memory.maneuverPressIds.has("pg-0")).toBe(false);
+    expect(memory.lastDamagers.has("pg-0")).toBe(false);
+    expect(memory.loadouts.has("pg-0")).toBe(false);
+
+    // The other seat is untouched: removing one car must not reset the rest of the field.
+    expect(memory.fireStates.has("pg-1")).toBe(true);
+    expect(memory.loadouts.get("pg-1")).toEqual(["magmablast", "thunderclap", "afterburner"]);
+  });
+
+  it("is a no-op for a session it has never seen", () => {
+    const memory = newCombatMemory();
+    memory.loadouts.set("pg-1", ["predator", "pepperbox", "lance"]);
+    expect(() => forgetCombatPlayer(memory, "pg-4")).not.toThrow();
+    expect(memory.loadouts.size).toBe(1);
   });
 });

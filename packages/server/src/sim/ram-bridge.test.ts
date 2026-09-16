@@ -12,6 +12,7 @@ import {
   applyStatus,
   forwardMaxSpeedOf,
   forwardOf,
+  pairKey,
   ramAttackOf,
   ramDefenceOf,
   type Modifiers,
@@ -19,6 +20,7 @@ import {
 } from "@motor-combat-moba/shared";
 import {
   clearKnock,
+  forgetContactPlayer,
   newContactMemory,
   newFalloffStack,
   nextFalloff,
@@ -968,5 +970,48 @@ describe("ram falloff", () => {
     nextFalloff(stack, VICTIM, 0);
     sweepFalloff(stack, 10_000);
     expect(stack.size).toBe(0);
+  });
+});
+
+describe("forgetContactPlayer (PG67)", () => {
+  it("drops the seat's slam, falloff and spike state", () => {
+    const memory = newContactMemory();
+    memory.slammed.set("pg-0", {
+      bySessionId: "pg-1",
+      wallStunUntilTick: 40,
+      immuneUntilTick: 60,
+      wallStunTicks: 15,
+    });
+    memory.falloff.set("pg-0", { count: 3, expiresAtTick: 90 });
+    memory.spikes.lastShover.set("pg-0", { id: "pg-1", tick: 10 });
+    memory.spikes.immuneUntil.set("pg-0", 50);
+
+    forgetContactPlayer(memory, "pg-0");
+
+    expect(memory.slammed.has("pg-0")).toBe(false);
+    expect(memory.falloff.has("pg-0")).toBe(false);
+    expect(memory.spikes.lastShover.has("pg-0")).toBe(false);
+    expect(memory.spikes.immuneUntil.has("pg-0")).toBe(false);
+  });
+
+  it("purges every contact pair naming the seat, and keeps the pairs that do not", () => {
+    // The subtle one: `contacts` is what makes a ram fire on ENTRY rather than every tick. A pair
+    // key left behind would make the next genuine contact between those two read as a continuing
+    // one and land no ram at all.
+    const memory = newContactMemory();
+    memory.contacts.add(pairKey("pg-0", "pg-1"));
+    memory.contacts.add(pairKey("pg-2", "pg-0"));
+    memory.contacts.add(pairKey("pg-1", "pg-2"));
+
+    forgetContactPlayer(memory, "pg-0");
+
+    expect([...memory.contacts]).toEqual([pairKey("pg-1", "pg-2")]);
+  });
+
+  it("is a no-op for a session it has never seen", () => {
+    const memory = newContactMemory();
+    memory.contacts.add(pairKey("pg-1", "pg-2"));
+    expect(() => forgetContactPlayer(memory, "pg-5")).not.toThrow();
+    expect(memory.contacts.size).toBe(1);
   });
 });

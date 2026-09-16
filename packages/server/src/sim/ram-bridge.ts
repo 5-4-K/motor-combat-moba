@@ -30,7 +30,13 @@ import {
   type WeaponId,
 } from "@motor-combat-moba/shared";
 import { modifiersFor, readStatuses, writeStatuses } from "./status-bridge.js";
-import { newSpikeMemory, recordShove, resolveSpikeHits, type SpikeMemory } from "./spike-bridge.js";
+import {
+  forgetSpikeState,
+  newSpikeMemory,
+  recordShove,
+  resolveSpikeHits,
+  type SpikeMemory,
+} from "./spike-bridge.js";
 // Re-exported so a room can clean up a leaver's spike state alongside the rest of `ContactMemory`
 // without importing a second bridge module for one function.
 export { clearShover, forgetSpikeState } from "./spike-bridge.js";
@@ -619,4 +625,23 @@ export function contactTick(
   const spikeHits = resolveSpikeHits(events.spikeContacts, memory.spikes, tick);
 
   return { contactHits, statusRequests, spikeHits };
+}
+
+/**
+ * Drop one session's contact memory entirely (spec PG67).
+ *
+ * The three maps are ordinary per-victim state. `contacts` is the one worth naming: it holds pair
+ * keys so a ram fires on ENTRY rather than on every tick of an overlap, so a key left behind after a
+ * car is removed would make the NEXT genuine contact between those two cars read as a continuing one
+ * and land no ram at all. Deleting from a `Set` while iterating it is well-defined in JS — an entry
+ * removed at or before the cursor is simply not revisited.
+ */
+export function forgetContactPlayer(memory: ContactMemory, sessionId: string): void {
+  memory.slammed.delete(sessionId);
+  memory.falloff.delete(sessionId);
+  forgetSpikeState(memory.spikes, sessionId);
+  for (const key of memory.contacts) {
+    const [a, b] = key.split("|");
+    if (a === sessionId || b === sessionId) memory.contacts.delete(key);
+  }
 }

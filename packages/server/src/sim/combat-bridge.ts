@@ -334,4 +334,25 @@ export function clearInstances(state: ArenaState, memory: CombatMemory): void {
   });
 }
 
+/**
+ * Drop one session's combat memory entirely (spec PG67).
+ *
+ * A real match never needs this — a car leaves only when the room does — but the playground removes
+ * a seat mid-session and re-adds it later, and a seat that came back carrying its old target lock or
+ * a half-finished maneuver would be the previous car wearing a new chassis.
+ *
+ * Deliberately does NOT sweep `instances` owned by this session. A weapon instance is detached from
+ * its owner the moment it is in flight and `runCombat` resolves an ownerless one without incident —
+ * the same situation a car dying mid-flight already produces — so cancelling them here would delete
+ * shots the world has already seen leave the muzzle.
+ */
+export function forgetCombatPlayer(memory: CombatMemory, sessionId: string): void {
+  memory.fireStates.delete(sessionId);
+  memory.locks.delete(sessionId);
+  memory.maneuverWeapons.delete(sessionId);
+  memory.maneuverPressIds.delete(sessionId);
+  memory.lastDamagers.delete(sessionId);
+  memory.loadouts.delete(sessionId);
+}
+
 export { runCombat };
