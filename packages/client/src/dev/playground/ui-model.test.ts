@@ -4,17 +4,21 @@ import type { CarId, PlaygroundSetup, TunableField, WeaponId } from "@motor-comb
 import { CAR_EVENT_IDS } from "../../fx/table.js";
 import {
   arenaOptions,
+  canDisableSeat,
   canStep,
   carOptions,
+  enabledSeats,
   fxSubjectOptions,
   isAtShipped,
   isLoadoutLegal,
+  nextDrivenSeat,
   pauseKeyAction,
   shippedLoadoutOf,
   statsTabs,
   stepInRange,
   steppedValue,
   weaponOptions,
+  type StatsTabKey,
 } from "./ui-model.js";
 
 describe("pauseKeyAction", () => {
@@ -98,12 +102,19 @@ describe("isLoadoutLegal", () => {
 });
 
 describe("statsTabs (PG35)", () => {
-  /** Both cars on different chassis with their own shipped kits — the ordinary case. */
+  /** Both enabled seats on different chassis with their own shipped kits — the ordinary case. */
   function twoCarSetup(): PlaygroundSetup {
+    const base = defaultPlaygroundSetup();
     return {
-      ...defaultPlaygroundSetup(),
-      me: { carId: "bastion" as CarId, colorId: 0, weapons: ["thumper", "roadblock", "wildcharge"] as [WeaponId, WeaponId, WeaponId] },
-      opponent: { carId: "mirage" as CarId, colorId: 1, weapons: ["predator", "thunderclap", "afterburner"] as [WeaponId, WeaponId, WeaponId] },
+      ...base,
+      cars: base.cars.map((c, i) =>
+        i === 0
+          ? { ...c, carId: "bastion" as CarId, weapons: ["thumper", "roadblock", "wildcharge"] as [WeaponId, WeaponId, WeaponId], enabled: true }
+          : i === 1
+            ? { ...c, carId: "mirage" as CarId, weapons: ["predator", "thunderclap", "afterburner"] as [WeaponId, WeaponId, WeaponId], enabled: true }
+            : { ...c, enabled: false },
+      ),
+      drivenSeat: 0,
     };
   }
 
@@ -331,5 +342,122 @@ describe("fxSubjectOptions (EV20)", () => {
     // Derived from CAR_EVENT_IDS rather than repeating its literals here, so a renamed or added car
     // event id fails this test by way of the ID list, not by way of a second hard-coded copy of it.
     expect(options.slice(-CAR_EVENT_IDS.length).map((o) => o.id)).toEqual([...CAR_EVENT_IDS]);
+  });
+});
+
+describe("seat helpers (PG78/PG79)", () => {
+  const withSeats = (...seats: number[]): PlaygroundSetup => {
+    const base = defaultPlaygroundSetup();
+    return {
+      ...base,
+      cars: base.cars.map((c, i) => ({ ...c, enabled: seats.includes(i) })),
+      drivenSeat: seats[0]!,
+    };
+  };
+
+  it("lists enabled seats in seat order", () => {
+    expect(enabledSeats(withSeats(4, 1, 0))).toEqual([0, 1, 4]);
+  });
+
+  it("allows disabling a seat while another is enabled", () => {
+    expect(canDisableSeat(withSeats(0, 3), 0)).toBe(true);
+    expect(canDisableSeat(withSeats(0, 3), 3)).toBe(true);
+  });
+
+  it("refuses to disable the LAST enabled seat (PG79)", () => {
+    // A room with no cars has nothing to drive, and the wire rejects such a payload anyway — a
+    // control that silently produces a rejected send is worse than one that says why.
+    expect(canDisableSeat(withSeats(2), 2)).toBe(false);
+  });
+
+  it("treats disabling an already-disabled seat as allowed (it is a no-op)", () => {
+    expect(canDisableSeat(withSeats(0, 1), 5)).toBe(true);
+  });
+
+  it("hands the wheel to the lowest remaining enabled seat (PG78)", () => {
+    const setup = { ...withSeats(1, 3, 5), drivenSeat: 3 };
+    expect(nextDrivenSeat(setup, 3)).toBe(1);
+  });
+
+  it("keeps the wheel where it is when a seat OTHER than the driven one is disabled", () => {
+    const setup = { ...withSeats(1, 3, 5), drivenSeat: 3 };
+    expect(nextDrivenSeat(setup, 5)).toBe(3);
+  });
+
+  it("keeps the wheel on the last seat rather than moving it nowhere", () => {
+    const setup = withSeats(4);
+    expect(nextDrivenSeat(setup, 4)).toBe(4);
+  });
+});
+
+describe("statsTabs over seats (PG82)", () => {
+  const seated = (
+    picks: { seat: number; carId: CarId; weapons: [WeaponId, WeaponId, WeaponId] }[],
+  ): PlaygroundSetup => {
+    const base = defaultPlaygroundSetup();
+    const bySeat = new Map(picks.map((p) => [p.seat, p]));
+    return {
+      ...base,
+      cars: base.cars.map((c, i) => {
+        const pick = bySeat.get(i);
+        return pick ? { ...c, carId: pick.carId, weapons: pick.weapons, enabled: true } : { ...c, enabled: false };
+      }),
+      drivenSeat: picks[0]!.seat,
+    };
+  };
+
+  const titles = (setup: PlaygroundSetup, key: StatsTabKey): string[] =>
+    statsTabs(setup).find((t) => t.key === key)!.groups.map((g) => g.title);
+
+  it("lists one car group for a single enabled seat", () => {
+    const setup = seated([{ seat: 0, carId: "mirage", weapons: ["magmablast", "thunderclap", "afterburner"] }]);
+    expect(titles(setup, "cars")).toEqual([CAR_TABLE.mirage.name]);
+  });
+
+  it("de-duplicates two seats on the same chassis", () => {
+    const kit: [WeaponId, WeaponId, WeaponId] = ["magmablast", "thunderclap", "afterburner"];
+    const setup = seated([
+      { seat: 0, carId: "mirage", weapons: kit },
+      { seat: 1, carId: "mirage", weapons: kit },
+    ]);
+    expect(titles(setup, "cars")).toEqual([CAR_TABLE.mirage.name]);
+  });
+
+  it("lists every distinct chassis across six enabled seats", () => {
+    const setup = seated([
+      { seat: 0, carId: "mirage", weapons: ["magmablast", "thunderclap", "afterburner"] },
+      { seat: 1, carId: "bullseye", weapons: ["predator", "pepperbox", "lance"] },
+      { seat: 2, carId: "bastion", weapons: ["thumper", "roadblock", "wildcharge"] },
+      { seat: 3, carId: "mirage", weapons: ["predator", "pepperbox", "lance"] },
+      { seat: 4, carId: "bullseye", weapons: ["thumper", "roadblock", "wildcharge"] },
+      { seat: 5, carId: "bastion", weapons: ["magmablast", "thunderclap", "afterburner"] },
+    ]);
+    expect(titles(setup, "cars").sort()).toEqual(
+      [CAR_TABLE.mirage.name, CAR_TABLE.bullseye.name, CAR_TABLE.bastion.name].sort(),
+    );
+    expect(titles(setup, "weapons")).toHaveLength(9);
+  });
+
+  it("ignores a DISABLED seat's chassis and weapons", () => {
+    const base = defaultPlaygroundSetup();
+    const setup: PlaygroundSetup = {
+      ...base,
+      cars: base.cars.map((c, i) =>
+        i === 0
+          ? { ...c, carId: "mirage", weapons: ["magmablast", "thunderclap", "afterburner"], enabled: true }
+          : i === 1
+            ? { ...c, carId: "bastion", weapons: ["thumper", "roadblock", "wildcharge"], enabled: false }
+            : { ...c, enabled: false },
+      ),
+      drivenSeat: 0,
+    };
+    // Tuning a chassis that is not on the field changes nothing observable (PG13), so it is not listed.
+    expect(titles(setup, "cars")).toEqual([CAR_TABLE.mirage.name]);
+    expect(titles(setup, "weapons")).not.toContain(WEAPON_TABLE.thumper.name);
+  });
+
+  it("still returns all three tabs in order even when one is empty", () => {
+    const setup = seated([{ seat: 0, carId: "taurus", weapons: ["magmablast", "thunderclap", "afterburner"] }]);
+    expect(statsTabs(setup).map((t) => t.key)).toEqual(["global", "cars", "weapons"]);
   });
 });

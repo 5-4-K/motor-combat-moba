@@ -9,11 +9,11 @@ import { CAR_EVENT_IDS, type CarEventId } from "../../fx/table.js";
  */
 
 /**
- * `"hidden"` while the sim is unpaused; the other four are the paused sub-screens (spec PG41 —
- * `"physics"` is what was called `"settings"` before the VFX panel joined it; `"env"` is the
- * environment settings panel, EV31).
+ * `"hidden"` while the sim is unpaused; the rest are the paused sub-screens. `"cars"` is the Car
+ * select panel (PG74) — the six seats plus the mode, arena and hitbox controls that used to sit at
+ * the top of `"physics"`.
  */
-export type OverlayView = "hidden" | "menu" | "physics" | "vfx" | "env";
+export type OverlayView = "hidden" | "menu" | "cars" | "physics" | "vfx" | "env";
 
 /** Tag names that mean "the user is typing/selecting", where P must not be treated as the pause key. */
 const FORM_CONTROL_TAGS: ReadonlySet<string> = new Set(["INPUT", "SELECT", "TEXTAREA"]);
@@ -34,8 +34,47 @@ export function pauseKeyAction(
 ): "toggle" | "back-to-menu" | "ignore" {
   if (FORM_CONTROL_TAGS.has(targetTag.toUpperCase())) return "ignore";
   // Any settings panel backs out to the menu without touching pause; the sim stays frozen.
-  if (view === "physics" || view === "vfx" || view === "env") return "back-to-menu";
+  if (view === "cars" || view === "physics" || view === "vfx" || view === "env") return "back-to-menu";
   return "toggle";
+}
+
+/** Which seats are on the field, in seat order (PG82). */
+export function enabledSeats(setup: PlaygroundSetup): number[] {
+  const seats: number[] = [];
+  setup.cars.forEach((car, seat) => {
+    if (car.enabled) seats.push(seat);
+  });
+  return seats;
+}
+
+/**
+ * May this seat be switched off (PG79)?
+ *
+ * No, when it is the only one left on the field: `isPlaygroundSetup` rejects a payload with no
+ * enabled seat, so the panel would be offering a control whose only effect is a silently-dropped
+ * send — the failure `env-panel.ts` already names for `floor.*`/`floorArt.*`. Disabling an
+ * already-disabled seat is trivially allowed, because it is a no-op rather than a change.
+ */
+export function canDisableSeat(setup: PlaygroundSetup, seat: number): boolean {
+  if (!setup.cars[seat]?.enabled) return true;
+  return enabledSeats(setup).length > 1;
+}
+
+/**
+ * Where the wheel goes when `disabled` is switched off (PG78).
+ *
+ * Down to the lowest still-enabled seat, never off: `drivenSeat` may never name a disabled seat, so
+ * unchecking the car you are driving has to hand the wheel somewhere rather than leaving it dangling
+ * for the validator to reject. Disabling any OTHER seat leaves the wheel alone.
+ *
+ * `disabled` is read as "about to be switched off", so this is called BEFORE the flag flips. When
+ * nothing else is enabled the wheel stays put — `canDisableSeat` refuses that case upstream, and
+ * returning the seat unchanged is the honest answer rather than a -1 the caller must special-case.
+ */
+export function nextDrivenSeat(setup: PlaygroundSetup, disabled: number): number {
+  if (setup.drivenSeat !== disabled) return setup.drivenSeat;
+  const next = enabledSeats(setup).find((seat) => seat !== disabled);
+  return next ?? disabled;
 }
 
 /** All cars, active or not — the playground can drive a retired/unreleased chassis (PG18/PG20). */
@@ -97,9 +136,10 @@ export interface StatsTab {
 /**
  * The Stats area's three tabs (PG35), replacing the single flat scroll the panel used to render.
  *
- * The FILTER is unchanged from spec PG13: only what is actually on the field is tunable — the one
- * or two selected chassis, the up-to-six selected weapons, and the global drive/ram/combat rows.
- * Tuning a chassis that is not spawned changes nothing observable, so widening this would only
+ * The FILTER is unchanged from spec PG13: only what is actually on the field is tunable — the
+ * up-to-six enabled chassis and the up-to-eighteen weapons they carry, and the global drive/ram/
+ * combat rows. It reads the ENABLED seats only — a seat parked off the field is not tunable, because
+ * tuning a chassis that is not spawned changes nothing observable, so widening this would only
  * lengthen the scroll.
  *
  * All three tabs are ALWAYS returned, in this order, even when a tab's group list is empty: the tab
@@ -109,14 +149,15 @@ export interface StatsTab {
 export function statsTabs(setup: PlaygroundSetup): StatsTab[] {
   const fields = tunableFields();
 
-  const carIds = [...new Set([setup.me.carId, setup.opponent.carId])];
+  const seats = enabledSeats(setup).map((seat) => setup.cars[seat]!);
+  const carIds = [...new Set(seats.map((car) => car.carId))];
   const carGroups: StatsGroup[] = [];
   for (const carId of carIds) {
     const carFields = fields.filter((f) => f.group === "car" && f.ownerId === carId);
     if (carFields.length > 0) carGroups.push({ title: CAR_TABLE[carId].name, fields: carFields });
   }
 
-  const weaponIds = [...new Set([...setup.me.weapons, ...setup.opponent.weapons])];
+  const weaponIds = [...new Set(seats.flatMap((car) => car.weapons))];
   const weaponGroups: StatsGroup[] = [];
   for (const weaponId of weaponIds) {
     const weaponFields = fields.filter((f) => f.group === "weapon" && f.ownerId === weaponId);
