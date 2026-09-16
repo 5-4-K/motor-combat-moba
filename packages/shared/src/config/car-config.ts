@@ -6,7 +6,7 @@ import type { CarDef, CarId } from "./types.js";
 /**
  * The roster. Every rating is an integer 0-100 with 50 as average.
  *
- * **Three chassis ship; five more are authored below with `isActive: false`.** Only the shipped
+ * **Three chassis ship; six more are authored below with `isActive: false`.** Only the shipped
  * three carry an identity — everything this comment says about the triangle is about them.
  *
  * The three types (T1): **Mirage** is the all-round speedster — highest speed AND handling, the
@@ -64,9 +64,9 @@ export const CAR_TABLE = {
 
   // --- Unreleased prototypes (`isActive: false`) ------------------------------------------------
   //
-  // Five chassis authored so their art and their handling can be driven in the playground before
-  // any of them is published. Every one of them is a STAT CLONE of a shipped car — taurus and anvil
-  // of Bastion, prowler and cleaver of Mirage, skorpios of Bullseye — which is a placeholder, not a
+  // Six chassis authored so their art and their handling can be driven in the playground before
+  // any of them is published. Every one of them is a STAT CLONE of a shipped car — taurus, anvil and
+  // caprico of Bastion, prowler and cleaver of Mirage, skorpios of Bullseye — a placeholder, not a
   // design: the identity each is meant to carry has not been chosen yet, and a clone is the one
   // starting point that says "this has not been tuned" out loud rather than inventing a triangle
   // nobody agreed to. Retune them one at a time; `docs/turn-tuning.md` has a column for each.
@@ -80,6 +80,7 @@ export const CAR_TABLE = {
   prowler: { id: "prowler", name: "Prowler", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, coastHalfLifeSeconds: 1.2, brakeDecel: 500, weapons: [], isActive: false },
   cleaver: { id: "cleaver", name: "Cleaver", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, coastHalfLifeSeconds: 1.2, brakeDecel: 500, weapons: [], isActive: false },
   skorpios: { id: "skorpios", name: "Skorpios", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30, coastHalfLifeSeconds: 1.0, brakeDecel: 520, weapons: [], isActive: false },
+  caprico: { id: "caprico", name: "Caprico", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, coastHalfLifeSeconds: 1.5, brakeDecel: 430, weapons: [], isActive: false },
 } as const satisfies Record<CarId, CarDef>;
 
 /**

@@ -48,10 +48,10 @@ everywhere else in the game; a phased car is the one case where they must disagr
 may let them.
 
 **The three SHIPPED chassis are `bullseye`, `mirage` and `bastion`** — a type triangle, not three
-shapes. `CAR_TABLE` also carries five unreleased prototypes as of 2026-09-16 — `taurus`, `anvil`,
-`prowler`, `cleaver`, `skorpios` — each `isActive: false`, each with `weapons: []`, and each a
-placeholder stat clone of a shipped chassis (Taurus/Anvil of Bastion, Prowler/Cleaver of Mirage,
-Skorpios of Bullseye). They exist so art and handling can be driven before publication; **none of
+shapes. `CAR_TABLE` also carries six unreleased prototypes as of 2026-09-16 — `taurus`, `anvil`,
+`caprico`, `prowler`, `cleaver`, `skorpios` — each `isActive: false`, each with `weapons: []`, and
+each a placeholder stat clone of a shipped chassis (Taurus/Anvil/Caprico of Bastion, Prowler/Cleaver
+of Mirage, Skorpios of Bullseye). They exist so art and handling can be driven before publication; **none of
 them carries an identity yet**, so do not read their ratings as a design or balance them against the
 triangle. Everything below about the roster's shape is about the three.
 Their ratings (`speed`, `accel`, `handling`, `attack`, `hp`, `ramAttack`, `ramDefence`) are **seven**

@@ -3,7 +3,7 @@ import type { WeaponId } from "./weapon-types.js";
 
 /**
  * Every chassis the code knows, shipped or not. `isActive` on the row below is what decides which
- * of these a player can actually select — five of these eight are unreleased prototypes.
+ * of these a player can actually select — six of these nine are unreleased prototypes.
  */
 export type CarId =
   | "bullseye"
@@ -13,7 +13,8 @@ export type CarId =
   | "anvil"
   | "prowler"
   | "cleaver"
-  | "skorpios";
+  | "skorpios"
+  | "caprico";
 export interface CarDef {
   id: CarId;
   name: string;

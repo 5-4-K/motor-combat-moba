@@ -49,17 +49,18 @@ Build with `npm run build:release -- --port <n>` to bake in a different one. See
 | `prowler` | Prowler | 85 | 85 | 85 | 63 | 70 | 55 | 50 | `[]` |
 | `cleaver` | Cleaver | 85 | 85 | 85 | 63 | 70 | 55 | 50 | `[]` |
 | `skorpios` | Skorpios | 65 | 45 | 65 | 55 | 65 | 45 | 30 | `[]` |
+| `caprico` | Caprico | 50 | 20 | 50 | 42 | 90 | 70 | 90 | `[]` |
 
-**The bottom five rows are unreleased prototypes** (`isActive: false`), authored so their art and
+**The bottom six rows are unreleased prototypes** (`isActive: false`), authored so their art and
 their handling can be driven in the playground before any of them is published. Every one of them is
-a placeholder STAT CLONE of a shipped chassis — Taurus and Anvil of Bastion, Prowler and Cleaver of
-Mirage, Skorpios of Bullseye — carried across field for field including `coastHalfLifeSeconds` and
+a placeholder STAT CLONE of a shipped chassis — Taurus, Anvil and Caprico of Bastion, Prowler and
+Cleaver of Mirage, Skorpios of Bullseye — carried across field for field including `coastHalfLifeSeconds` and
 `brakeDecel`. Nothing about those numbers is a design: a clone says "not tuned yet" out loud, where
 inventing ratings would quietly assert a triangle nobody agreed to. Retune them one at a time, and
 give each its own `WEAPON_TABLE` rows before flipping its flag — exclusivity (L1) means a prototype
 may not borrow a shipped kit.
 
-`isActive` is a seventh field on `CarDef`, not a rating. The three shipped cars are `true`; the five
+`isActive` is a seventh field on `CarDef`, not a rating. The three shipped cars are `true`; the six
 prototypes above are `false`.
 `CarSelectScene`'s grid and `ArenaRoom`'s `MSG_SELECT_CAR`/`MSG_PREVIEW_CAR` guard both filter to
 `activeCarIds()`, so an inactive car is unreachable from a real match on either side of the wire; the

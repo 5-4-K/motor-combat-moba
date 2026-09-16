@@ -16,13 +16,14 @@ const SHAPE_BY_CAR = {
   mirage: "rect",
   bullseye: "ellipse",
   bastion: "hex",
-  // The five unreleased prototypes each borrow the silhouette of the chassis they were cloned from,
+  // The six unreleased prototypes each borrow the silhouette of the chassis they were cloned from,
   // so a playground driver reads the class at a glance while their own sprites are still missing.
   taurus: "hex",
   anvil: "hex",
   prowler: "rect",
   cleaver: "rect",
   skorpios: "ellipse",
+  caprico: "hex",
 } as const satisfies Record<CarId, CarShape>;
 
 /**

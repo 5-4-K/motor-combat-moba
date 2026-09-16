@@ -56,27 +56,27 @@ edit — it decides whether you are moving one chassis or all three.
 
 **Per-car ratings** — `CAR_TABLE`, one value per chassis:
 
-| Rating | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios |
-|---|---|---|---|---|---|---|---|---|
-| `handling` (turn rate) | 65 | 85 | 50 | 50 | 50 | 85 | 85 | 65 |
-| `speed` (the other half of radius) | 65 | 85 | 50 | 50 | 50 | 85 | 85 | 65 |
+| Rating | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
+|---|---|---|---|---|---|---|---|---|---|
+| `handling` (turn rate) | 65 | 85 | 50 | 50 | 50 | 85 | 85 | 65 | 50 |
+| `speed` (the other half of radius) | 65 | 85 | 50 | 50 | 50 | 85 | 85 | 65 | 50 |
 
-**The last five columns are unreleased prototypes** (`isActive: false`, no kit yet), and every one of
-them is a placeholder STAT CLONE of a shipped chassis — Taurus and Anvil of Bastion, Prowler and
-Cleaver of Mirage, Skorpios of Bullseye. They are on this page because
+**The last six columns are unreleased prototypes** (`isActive: false`, no kit yet), and every one of
+them is a placeholder STAT CLONE of a shipped chassis — Taurus, Anvil and Caprico of Bastion, Prowler
+and Cleaver of Mirage, Skorpios of Bullseye. They are on this page because
 `scripts/turn-tuning-doc.test.mjs` reads `CAR_TABLE` whole, and because the day one of them is
 actually tuned is the day its column stops being a duplicate. Read the three shipped columns for the
-roster's shape; the other five say nothing yet.
+roster's shape; the other six say nothing yet.
 
 **Per-car direct values** — also `CAR_TABLE`, one value per chassis, but neither is a 0-100 rating and
 neither feeds a turn-rate or radius cell below; they're here because they shape the same chassis feel
 this page is about, and because changing either now obliges an edit to this page (see
 [Keeping this page honest](#keeping-this-page-honest)):
 
-| Value | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios |
-|---|---|---|---|---|---|---|---|---|
-| `coastHalfLifeSeconds` — coast half-life (s) | 1.0 | 1.2 | 1.5 | 1.5 | 1.5 | 1.2 | 1.2 | 1.0 |
-| `brakeDecel` — brake deceleration (u/s²) | 520 | 500 | 430 | 430 | 430 | 500 | 500 | 520 |
+| Value | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
+|---|---|---|---|---|---|---|---|---|---|
+| `coastHalfLifeSeconds` — coast half-life (s) | 1.0 | 1.2 | 1.5 | 1.5 | 1.5 | 1.2 | 1.2 | 1.0 | 1.5 |
+| `brakeDecel` — brake deceleration (u/s²) | 520 | 500 | 430 | 430 | 430 | 500 | 500 | 520 | 430 |
 
 **Global** — one value, applied to the whole roster:
 
@@ -132,22 +132,22 @@ Nothing here is typed anywhere — all of it is computed from the ratings and gl
 The direct-values table (coast half-life, brake deceleration) feeds none of it: neither term appears
 in a turn-rate or radius formula.
 
-| Stat | Formula | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios |
-|---|---|---|---|---|---|---|---|---|---|
-| **Turn rate** | `baseTurnRate + handling × turnRatePerRating` | 7.11 rad/s | **8.19 rad/s** | 6.3 rad/s | 6.3 rad/s | 6.3 rad/s | 8.19 rad/s | 8.19 rad/s | 7.11 rad/s |
-| — in degrees | × 180/π | 407.4°/s | 469.3°/s | 361.0°/s | 361.0°/s | 361.0°/s | 469.3°/s | 469.3°/s | 407.4°/s |
-| — per tick | ÷ `TICK_RATE_HZ` (30) | 0.237 rad | 0.273 rad | 0.21 rad | 0.21 rad | 0.21 rad | 0.273 rad | 0.273 rad | 0.237 rad |
-| — degrees per tick | ″ | 13.58° | 15.64° | 12.03° | 12.03° | 12.03° | 15.64° | 15.64° | 13.58° |
-| **Turn rate at rest** | `turnRate × stopTurnRatio` | 3.555 rad/s | 4.095 rad/s | 3.15 rad/s | 3.15 rad/s | 3.15 rad/s | 4.095 rad/s | 4.095 rad/s | 3.555 rad/s |
-| — in degrees | ″ | 203.7°/s | 234.6°/s | 180.5°/s | 180.5°/s | 180.5°/s | 234.6°/s | 234.6°/s | 203.7°/s |
-| Top speed | `baseMaxSpeed + speed × speedPerRating` | 158.67 u/s | **189.03 u/s** | 135.9 u/s | 135.9 u/s | 135.9 u/s | 189.03 u/s | 189.03 u/s | 158.67 u/s |
-| Reverse top speed | `× reverseSpeedRatio` | 103.1 u/s | 122.9 u/s | 88.3 u/s | 88.3 u/s | 88.3 u/s | 122.9 u/s | 122.9 u/s | 103.1 u/s |
-| **Turn radius** | `topSpeed / turnRate` | 22.3 u | 23.1 u | **21.6 u** | 21.6 u | 21.6 u | 23.1 u | 23.1 u | 22.3 u |
-| Reverse turn radius | `reverseSpeed / turnRate` | 14.5 u | 15 u | 14 u | 14 u | 14 u | 15 u | 15 u | 14.5 u |
-| 180° while moving | `π / turnRate` | 0.44 s | 0.38 s | 0.5 s | 0.5 s | 0.5 s | 0.38 s | 0.38 s | 0.44 s |
-| 360° while moving | `2π / turnRate` | 0.88 s | 0.77 s | 1 s | 1 s | 1 s | 0.77 s | 0.77 s | 0.88 s |
-| 180° from standstill | `π / turnRateAtStop` | 0.88 s | 0.77 s | 1 s | 1 s | 1 s | 0.77 s | 0.77 s | 0.88 s |
-| Rate while reeling | `turnRate × reeling.turnRate (0.4)` | 2.844 rad/s | 3.276 rad/s | 2.52 rad/s | 2.52 rad/s | 2.52 rad/s | 3.276 rad/s | 3.276 rad/s | 2.844 rad/s |
+| Stat | Formula | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Turn rate** | `baseTurnRate + handling × turnRatePerRating` | 7.11 rad/s | **8.19 rad/s** | 6.3 rad/s | 6.3 rad/s | 6.3 rad/s | 8.19 rad/s | 8.19 rad/s | 7.11 rad/s | 6.3 rad/s |
+| — in degrees | × 180/π | 407.4°/s | 469.3°/s | 361.0°/s | 361.0°/s | 361.0°/s | 469.3°/s | 469.3°/s | 407.4°/s | 361.0°/s |
+| — per tick | ÷ `TICK_RATE_HZ` (30) | 0.237 rad | 0.273 rad | 0.21 rad | 0.21 rad | 0.21 rad | 0.273 rad | 0.273 rad | 0.237 rad | 0.21 rad |
+| — degrees per tick | ″ | 13.58° | 15.64° | 12.03° | 12.03° | 12.03° | 15.64° | 15.64° | 13.58° | 12.03° |
+| **Turn rate at rest** | `turnRate × stopTurnRatio` | 3.555 rad/s | 4.095 rad/s | 3.15 rad/s | 3.15 rad/s | 3.15 rad/s | 4.095 rad/s | 4.095 rad/s | 3.555 rad/s | 3.15 rad/s |
+| — in degrees | ″ | 203.7°/s | 234.6°/s | 180.5°/s | 180.5°/s | 180.5°/s | 234.6°/s | 234.6°/s | 203.7°/s | 180.5°/s |
+| Top speed | `baseMaxSpeed + speed × speedPerRating` | 158.67 u/s | **189.03 u/s** | 135.9 u/s | 135.9 u/s | 135.9 u/s | 189.03 u/s | 189.03 u/s | 158.67 u/s | 135.9 u/s |
+| Reverse top speed | `× reverseSpeedRatio` | 103.1 u/s | 122.9 u/s | 88.3 u/s | 88.3 u/s | 88.3 u/s | 122.9 u/s | 122.9 u/s | 103.1 u/s | 88.3 u/s |
+| **Turn radius** | `topSpeed / turnRate` | 22.3 u | 23.1 u | **21.6 u** | 21.6 u | 21.6 u | 23.1 u | 23.1 u | 22.3 u | 21.6 u |
+| Reverse turn radius | `reverseSpeed / turnRate` | 14.5 u | 15 u | 14 u | 14 u | 14 u | 15 u | 15 u | 14.5 u | 14 u |
+| 180° while moving | `π / turnRate` | 0.44 s | 0.38 s | 0.5 s | 0.5 s | 0.5 s | 0.38 s | 0.38 s | 0.44 s | 0.5 s |
+| 360° while moving | `2π / turnRate` | 0.88 s | 0.77 s | 1 s | 1 s | 1 s | 0.77 s | 0.77 s | 0.88 s | 1 s |
+| 180° from standstill | `π / turnRateAtStop` | 0.88 s | 0.77 s | 1 s | 1 s | 1 s | 0.77 s | 0.77 s | 0.88 s | 1 s |
+| Rate while reeling | `turnRate × reeling.turnRate (0.4)` | 2.844 rad/s | 3.276 rad/s | 2.52 rad/s | 2.52 rad/s | 2.52 rad/s | 3.276 rad/s | 3.276 rad/s | 2.844 rad/s | 2.52 rad/s |
 
 **The last row replaces the "Rate at ram authority floor" row this table used to close on.** That row
 read `RAM_CONFIG.authorityFloor`, which stopped meaning anything at the 2026-09-06 vector-drive
