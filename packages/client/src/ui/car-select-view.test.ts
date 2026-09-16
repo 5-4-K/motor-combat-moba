@@ -106,15 +106,23 @@ describe("fullStatsFor", () => {
     // `predator`/`magmablast` shipped in their place by the 2026-09-01 roster cutover (O17); the
     // 2026-09-02 loadout swap then traded those two between Mirage and Bullseye (bastion's opener,
     // `thumper`, is unchanged throughout).
-    const expected: Record<keyof typeof CAR_TABLE, { label: string; value: string }> = {
+    //
+    // Keyed by ACTIVE car, not by `CAR_TABLE` whole: the panel this covers is the car-select screen,
+    // which draws `activeCarIds()`, and an unreleased prototype carries no kit to pin an opener for.
+    const expected: Partial<Record<CarId, { label: string; value: string }>> = {
       mirage: { label: "Magma Blast damage", value: "57" },
       bullseye: { label: "Predator damage", value: "32" },
       bastion: { label: "Thumper damage", value: "55" },
     };
-    for (const id of Object.keys(CAR_TABLE) as (keyof typeof CAR_TABLE)[]) {
-      const row = fullStatsFor(id).find((r) => r.label === expected[id].label);
+    for (const id of activeCarIds()) {
+      // `Partial` plus this assertion, rather than a full `Record<CarId, …>`: the map may not cover
+      // the unreleased prototypes (they carry no kit), but it MUST cover everything car select
+      // draws, so publishing a chassis without pinning its opener fails right here.
+      const want = expected[id];
+      expect(want, `no opener pinned for active chassis "${id}"`).toBeDefined();
+      const row = fullStatsFor(id).find((r) => r.label === want!.label);
       expect(row).toBeDefined();
-      expect(row!.value).toBe(expected[id].value);
+      expect(row!.value).toBe(want!.value);
     }
   });
 
@@ -123,7 +131,7 @@ describe("fullStatsFor", () => {
     // move with it. It does not, on its own, prove today's panel isn't hard-coded — the literal
     // test above covers that. Matched by exact label (not a "damage" suffix) so a future
     // multi-weapon chassis pairs each row with its own weapon rather than always the first.
-    for (const id of Object.keys(CAR_TABLE) as (keyof typeof CAR_TABLE)[]) {
+    for (const id of activeCarIds()) {
       const rows = fullStatsFor(id);
       for (const weaponId of CAR_TABLE[id].weapons) {
         const row = rows.find((r) => r.label === `${weaponDefOf(weaponId).name} damage`);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CAR_TABLE, WEAPON_TABLE, ARENAS, defaultPlaygroundSetup } from "@motor-combat-moba/shared";
+import { CAR_TABLE, WEAPON_TABLE, ARENAS, activeCarIds, defaultPlaygroundSetup } from "@motor-combat-moba/shared";
 import type { CarId, PlaygroundSetup, TunableField, WeaponId } from "@motor-combat-moba/shared";
 import { CAR_EVENT_IDS } from "../../fx/table.js";
 import {
@@ -250,12 +250,22 @@ describe("shippedLoadoutOf (PG34)", () => {
     expect(shippedLoadoutOf("bastion" as CarId)).toEqual(CAR_TABLE.bastion.weapons);
   });
 
-  it("returns a three-weapon kit for every chassis on today's roster", () => {
-    // The `undefined` branch has no chassis to exercise today; it is what stops a FUTURE chassis
-    // with a short or duplicated kit from producing a loadout the validator rejects.
-    for (const carId of Object.keys(CAR_TABLE) as CarId[]) {
+  it("returns a three-weapon kit for every SHIPPED chassis", () => {
+    for (const carId of activeCarIds()) {
       expect(shippedLoadoutOf(carId)).toHaveLength(3);
     }
+  });
+
+  it("returns undefined for an unreleased chassis with no kit yet", () => {
+    // The `undefined` branch stopped being hypothetical the day five weaponless prototypes landed
+    // in `CAR_TABLE`. The playground lists the table whole (PG20), so "restore loadout" has to
+    // disable itself for a chassis whose kit is not three distinct weapons rather than writing a
+    // short loadout `isPlaygroundSetup` would reject.
+    for (const carId of Object.keys(CAR_TABLE) as CarId[]) {
+      if (CAR_TABLE[carId].weapons.length === 3) continue;
+      expect(shippedLoadoutOf(carId)).toBeUndefined();
+    }
+    expect(shippedLoadoutOf("taurus" as CarId)).toBeUndefined();
   });
 });
 

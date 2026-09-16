@@ -208,27 +208,50 @@ export function simulateTtk(attacker, defender, options = {}) {
 
 // ------------------------------------------------------------------------------- the CLI shell
 
+/**
+ * Every chassis in the table, shipped or not. This is the DEFENDER axis: an unreleased prototype
+ * still has a hull, and "can anything actually kill this thing" is exactly the question you want
+ * answered while tuning its hp — which is why this matrix covers `CAR_TABLE` whole where the
+ * player-facing guide covers `activeCarIds()`.
+ */
 const carIds = () => Object.keys(CAR_TABLE);
+
+/**
+ * Chassis that can actually fire. This is the ATTACKER axis, and the two are deliberately not the
+ * same list: an inactive chassis may legally carry no weapons at all (see "Adding an inactive
+ * chassis" in `docs/config-reference.md`), and a weaponless attacker books a guaranteed "never" row
+ * that measures nothing — the same reason the balance harness skips an empty kit on its own side.
+ * A prototype joins this axis the moment someone authors it a kit, with no edit here.
+ */
+export const armedCarIds = () => carIds().filter((id) => slotsOf(id).length > 0);
+
 const nameOf = (id) => CAR_TABLE[id].name;
 const cell = (result) => (result.killed ? `${result.seconds.toFixed(1)}s` : "never");
 
 function matrix(label, options) {
-  const cars = carIds();
+  const defenders = carIds();
   const lines = [`\n${label}`];
   lines.push(
     "attacker \\ defender".padEnd(20) +
-      cars.map((d) => `${nameOf(d)} (${hpOf(d)}hp)`.padStart(20)).join(""),
+      defenders.map((d) => `${nameOf(d)} (${hpOf(d)}hp)`.padStart(20)).join(""),
   );
-  for (const attacker of cars) {
-    const row = cars.map((d) => cell(simulateTtk(attacker, d, options)).padStart(20));
+  for (const attacker of armedCarIds()) {
+    const row = defenders.map((d) => cell(simulateTtk(attacker, d, options)).padStart(20));
     lines.push(nameOf(attacker).padEnd(20) + row.join(""));
+  }
+  const unarmed = carIds().filter((id) => slotsOf(id).length === 0);
+  if (unarmed.length > 0) {
+    lines.push(
+      `  (no attacker row for ${unarmed.map(nameOf).join(", ")} — no kit authored yet, so they ` +
+        `appear as targets only)`,
+    );
   }
   return lines.join("\n");
 }
 
 function inputs() {
   const lines = ["\nWhat ONE press of each weapon puts on a single target"];
-  for (const attacker of carIds()) {
+  for (const attacker of armedCarIds()) {
     const scale =
       1 + (CAR_TABLE[attacker].attack - COMBAT_CONFIG.attackBaseline) * COMBAT_CONFIG.damagePerAttack;
     lines.push(`\n  ${nameOf(attacker)} — attack ${CAR_TABLE[attacker].attack} (x${scale.toFixed(2)})`);
@@ -248,7 +271,7 @@ function inputs() {
 
 function breakdown() {
   const lines = ["\nPresses spent, against the tankiest target"];
-  for (const attacker of carIds()) {
+  for (const attacker of armedCarIds()) {
     const result = simulateTtk(attacker, "bastion");
     const spent = [...result.presses].map((entry) => `${entry[0]} x${entry[1]}`).join(", ");
     lines.push(`  ${nameOf(attacker).padEnd(10)}${cell(result).padStart(7)}   ${spent}`);

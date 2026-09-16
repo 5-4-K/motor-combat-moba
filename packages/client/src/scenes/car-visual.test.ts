@@ -1,6 +1,6 @@
 import { DEATH_FADE_MS, TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { beforeEach, describe, expect, it } from "vitest";
-import { CAR_TABLE, COLOR_TABLE, DEFAULT_CAR_ID, DRIVE_CONFIG } from "@motor-combat-moba/shared";
+import { CAR_TABLE, COLOR_TABLE, DEFAULT_CAR_ID, DRIVE_CONFIG, activeCarIds } from "@motor-combat-moba/shared";
 import { setCarTintOverrides } from "../fx/car-tint.js";
 import {
   carFillFor,
@@ -13,10 +13,25 @@ import {
 } from "./car-visual.js";
 
 describe("carShapeOf", () => {
-  it("gives every CAR_TABLE id its own silhouette", () => {
-    const shapes = Object.keys(CAR_TABLE).map((id) => carShapeOf(id));
+  it("gives every SHIPPED chassis its own silhouette", () => {
+    // Uniqueness is a property of what players can select, not of `CAR_TABLE` whole: the five
+    // unreleased prototypes deliberately borrow the outline of the chassis they were cloned from,
+    // so a playground driver reads the class before their own sprites exist.
+    const shapes = activeCarIds().map((id) => carShapeOf(id));
     expect(shapes).toEqual(["rect", "ellipse", "hex"]);
-    expect(new Set(shapes).size).toBe(Object.keys(CAR_TABLE).length);
+    expect(new Set(shapes).size).toBe(activeCarIds().length);
+  });
+
+  it("resolves a real silhouette for every CAR_TABLE id, prototypes included", () => {
+    // The map is `satisfies Record<CarId, CarShape>`, so this cannot fail without the compiler
+    // failing first — except through `carShapeOf`'s own `isCarId` fallback, which is what would
+    // silently redraw a new chassis as the default one.
+    for (const id of Object.keys(CAR_TABLE)) {
+      expect(["rect", "ellipse", "hex"]).toContain(carShapeOf(id));
+    }
+    expect(carShapeOf("taurus")).toBe("hex");
+    expect(carShapeOf("skorpios")).toBe("ellipse");
+    expect(carShapeOf("prowler")).toBe("rect");
   });
 
   it("draws the default chassis for an unset or unknown carId", () => {

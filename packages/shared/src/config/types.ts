@@ -1,7 +1,19 @@
 import type { GameMode } from "../constants.js";
 import type { WeaponId } from "./weapon-types.js";
 
-export type CarId = "bullseye" | "mirage" | "bastion";
+/**
+ * Every chassis the code knows, shipped or not. `isActive` on the row below is what decides which
+ * of these a player can actually select — five of these eight are unreleased prototypes.
+ */
+export type CarId =
+  | "bullseye"
+  | "mirage"
+  | "bastion"
+  | "taurus"
+  | "anvil"
+  | "prowler"
+  | "cleaver"
+  | "skorpios";
 export interface CarDef {
   id: CarId;
   name: string;
