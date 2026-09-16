@@ -47,7 +47,9 @@ describe("RAM_CONFIG", () => {
     // instead of deriving them is that a future edit here should not be able to sail through quietly.
     expect(RAM_CONFIG.defencePushScale).toBe(35);
     expect(RAM_CONFIG.globalScale).toBe(0.4);
-    expect(RAM_CONFIG.spinScale).toBe(10);
+    // 10 -> 15 on 2026-09-16 (bigger cars, spec BC7): the hull grew 1.5x, so the maximum lever arm
+    // grew 1.5x and `inertiaCoefficient` 2.25x; 1.5 * 1.5 / 2.25 = 1 keeps every ram's spin identical.
+    expect(RAM_CONFIG.spinScale).toBe(15);
   });
 
   it("orders the side bonuses front < flank < rear, which is the whole positional read", () => {
@@ -56,7 +58,7 @@ describe("RAM_CONFIG", () => {
   });
 
   it("derives inertiaCoefficient from the hull, never typed", () => {
-    expect(RAM_CONFIG.inertiaCoefficient).toBeCloseTo((48 ** 2 + 32 ** 2) / 12, 9);
+    expect(RAM_CONFIG.inertiaCoefficient).toBeCloseTo((72 ** 2 + 48 ** 2) / 12, 9);
   });
 
   it("keeps the roster's hardest possible ram strictly under spinMaxRate", () => {
@@ -73,24 +75,26 @@ describe("RAM_CONFIG", () => {
     // `applyImpulse`) rather than re-derived by hand, to also catch a regression in the code path
     // itself, not only in the constants.
     //
-    // Geometry: attacker (Bastion) at (24, -30) facing +y, driving straight at its own top speed
+    // Geometry: attacker (Bastion) at (36, -45) facing +y, driving straight at its own top speed
     // toward a stationary victim (Bullseye) at the origin facing +x. `contactPointOn` clamps the
-    // recovered contact point to the victim's local (24, -16) — x at the hull half-length (24, the
-    // attacker's own x sits exactly on that boundary), y at the half-width (16, since the attacker's
-    // y offset of 30 exceeds it) — the same maximal-lever geometry `spinScale`'s table measured.
+    // recovered contact point to the victim's local (36, -24) — x at the hull's half-length, 36 u
+    // (the attacker's own x sits exactly on that boundary), y at the half-width, 24 u (since the
+    // attacker's y offset of 45 exceeds it) — the same maximal-lever geometry `spinScale`'s table
+    // measured. The 2026-09-16 hull resize scaled this geometry 1.5x and moved `spinScale` to 15,
+    // which is why the figure did not move.
     //
     // Hand-derived, cross-checked against the pipeline output below (ramAttack/ramDefence: bastion
     // 70/90, bullseye 45/30; RAM_CONFIG: defencePushScale 35, bonusFlank 1.0, globalScale 0.4,
-    // inertiaCoefficient (48^2+32^2)/12 = 3328/12):
+    // inertiaCoefficient (72^2+48^2)/12 = 7488/12):
     //   attackerPush = 70*135.9 + 90*35 = 12663       victimPush = 30*35 = 1050
     //   share = attackerPush/(attackerPush+victimPush) = 12663/13713 ~= 0.92343
     //   impulse.speed = attackerPush * share * bonusFlank * globalScale / ramDefence(bullseye)
     //                 = 12663 * 0.92343 * 1.0 * 0.4 / 30 ~= 155.912 u/s
-    //   torque = rx*fy - ry*fx = 24*155.912 - (-16)*0 ~= 3741.887
-    //   inertia = ramDefence(bullseye) * inertiaCoefficient = 30 * 3328/12 ~= 8320
-    //   spin = torque/inertia * spinScale = (3741.887/8320) * 10 ~= 4.4975 rad/s
+    //   torque = rx*fy - ry*fx = 36*155.912 - (-24)*0 ~= 5612.83
+    //   inertia = ramDefence(bullseye) * inertiaCoefficient = 30 * 7488/12 = 18720
+    //   spin = torque/inertia * spinScale = (5612.83/18720) * 15 ~= 4.4975 rad/s
     const attacker: RamCar = {
-      sessionId: "a", team: 0, x: 24, y: -30, angle: Math.PI / 2,
+      sessionId: "a", team: 0, x: 36, y: -45, angle: Math.PI / 2,
       vx: 0, vy: forwardMaxSpeedOf("bastion"), carId: "bastion" as CarId, defenceMult: 1,
     };
     const victim: RamCar = {

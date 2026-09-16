@@ -141,8 +141,8 @@ export const DRIVE_CONFIG = {
    * sim branches, so it lives here rather than as a literal in `drive.ts`.
    */
   stopEpsilon: 1e-3,
-  carWidth: 48,
-  carHeight: 32,
+  carWidth: 72,
+  carHeight: 48,
   /**
    * Max world units a DASH may translate between collision checks. Half the car's SHORT axis.
    *

@@ -241,7 +241,7 @@ describe("resolveRam", () => {
     // which is not a band worth pinning. The approach speed is now a realistic **267 u/s — Mirage's
     // own shipped top speed** — so this measures what a full-speed ordinary flank ram actually does,
     // and the value that falls out is the same 1.028 rad/s the composed-pipeline sweep behind
-    // `RAM_CONFIG.spinScale`'s table measured independently for a 12 u lever arm. Two derivations,
+    // `RAM_CONFIG.spinScale`'s table measured independently for a 18 u lever arm. Two derivations,
     // one by hand and one through `serverTick` -> `contactTick`, agreeing to three decimals is what
     // makes this a re-derivation rather than a paste of whatever the code now emits.
     //
@@ -250,10 +250,10 @@ describe("resolveRam", () => {
     // while the hand-derivation kept claiming the old answer. Frozen fixture, deliberately.
     //
     // Hand-derivation (both cars are mirage: ramAttack 55, ramDefence 50; from `RAM_CONFIG`,
-    // defencePushScale 35, globalScale 0.4, bonusFlank 1.0, spinScale 10; inertiaCoefficient =
-    // (carWidth^2 + carHeight^2)/12 = (48^2+32^2)/12 = 3328/12):
+    // defencePushScale 35, globalScale 0.4, bonusFlank 1.0, spinScale 15; inertiaCoefficient =
+    // (carWidth^2 + carHeight^2)/12 = (72^2+48^2)/12 = 7488/12):
     //
-    //   Geometry: attacker at (12,-30) facing +y (angle pi/2) closes on the stationary victim at
+    //   Geometry: attacker at (18,-45) facing +y (angle pi/2) closes on the stationary victim at
     //   (0,0) facing +x (angle 0). The two hulls' axes are world-axis-aligned (attacker rotated
     //   exactly 90 deg), the overlap is shallower along y than x, and the attacker sits on the -y
     //   side, so the contact normal (pointing victim -> attacker) is (0,-1); the victim is pushed
@@ -269,19 +269,19 @@ describe("resolveRam", () => {
     //                 = 16435 * (16435/18185) * 1.0 * 0.4 / 50 ~= 118.8272 u/s
     //
     //   The recovered contact point clamps the attacker's offset into the victim's hull half-extents
-    //   (24 long, 16 wide): local (12, -30) clamps to (12, -16) — the y lever arm is capped at the
+    //   (36 long, 24 wide): local (18, -45) clamps to (18, -24) — the y lever arm is capped at the
     //   hull's half-width. The push is (0, impulse.speed) in the victim's own (unrotated, angle 0)
     //   frame, so:
-    //     torque = rx*fy - ry*fx = 12 * impulse.speed - (-16) * 0 = 12 * 118.8272 ~= 1425.926
-    //     inertia = ramDefence * inertiaCoefficient = 50 * 3328/12 = 41600/3 ~= 13866.667
+    //     torque = rx*fy - ry*fx = 18 * impulse.speed - (-24) * 0 = 18 * 118.8272 ~= 2138.890
+    //     inertia = ramDefence * inertiaCoefficient = 50 * 7488/12 = 31200
     //     spin (unclamped) = torque / inertia * spinScale
-    //                      = (1425.926 / 13866.667) * 10 ~= 1.0283 rad/s
+    //                      = (2138.890 / 31200) * 15 ~= 1.0283 rad/s
     //
     //   Well inside spinMaxRate (6.0), with headroom on both sides that the band below converts into
-    //   a real guard: reverting `spinScale` toward 100 pushes this past 10 and into the clamp, and
-    //   halving `globalScale` drops it to 0.51 — both fail. Note it is sensitive to BOTH re-pitched
-    //   constants, which is the property the round-1 version lost by sitting on the clamp.
-    const attacker = car({ sessionId: "a", x: 12, y: -30, angle: Math.PI / 2, ...velocityAt(267, Math.PI / 2) });
+    //   a real guard: reverting `spinScale` toward 150 (10x) pushes this past 10 and into the clamp,
+    //   and halving `globalScale` drops it to 0.51 — both fail. Note it is sensitive to BOTH
+    //   re-pitched constants, which is the property the round-1 version lost by sitting on the clamp.
+    const attacker = car({ sessionId: "a", x: 18, y: -45, angle: Math.PI / 2, ...velocityAt(267, Math.PI / 2) });
     const victim = car({ sessionId: "b", x: 0, y: 0, angle: 0 });
     const hit = resolveRam(attacker, victim, "ffa")!;
     expect(hit.side).toBe("flank");
@@ -593,9 +593,11 @@ describe("applyRams", () => {
   it("keeps only the hardest impulse when one car is hit by two others in a tick", () => {
     // Both attackers hit the SAME side (flank, bonus 1.0 either way) so which one is "hardest" is
     // decided by speed and chassis alone, not by the front/rear bonus table.
-    const soft = car({ sessionId: "a", x: 12, y: -30, angle: Math.PI / 2, ...velocityAt(200, Math.PI / 2) });
+    // y = ±45, not ±30: at the 72x48 hull the two attackers (72 long along y) must stay clear of EACH
+    // OTHER, or they ram one another and a second impulse appears for a reason unrelated to this test.
+    const soft = car({ sessionId: "a", x: 18, y: -45, angle: Math.PI / 2, ...velocityAt(200, Math.PI / 2) });
     const hard = car({
-      sessionId: "c", x: 12, y: 30, angle: -Math.PI / 2, carId: "bastion" as CarId,
+      sessionId: "c", x: 18, y: 45, angle: -Math.PI / 2, carId: "bastion" as CarId,
       ...velocityAt(540, -Math.PI / 2),
     });
     const middle = car({ sessionId: "b", x: 0, y: 0, angle: 0 });

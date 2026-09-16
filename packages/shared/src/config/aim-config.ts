@@ -65,7 +65,7 @@ export const AIM_CONFIG = {
    * The distance term's weight, **per world unit** (A5).
    *
    * The unit matters more than the digit. This game has no metres -- the world is in units and cars
-   * are 48 x 32 -- so a coefficient written as 0.4 "per metre" scores a target at 400 units at 160,
+   * are 72 x 48 -- so a coefficient written as 0.4 "per metre" scores a target at 400 units at 160,
    * against an angle term that maxes at 20. The angle becomes noise and the result is "always
    * nearest target", not a scoring system. 0.04 makes the two terms comparable across `lockRange`.
    * This is the lever for how close-range the game feels.
