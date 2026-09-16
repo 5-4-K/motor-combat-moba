@@ -779,3 +779,10 @@ worth more than "minor" and are recorded above instead — the `refresh`/`Math.m
   following any step in either.
 - **The plan documents are not the source of truth; this file and the code are.** Where a plan and
   the shipped code disagree, the code won and the disagreement is recorded rather than erased.
+
+## Outside changes since the last stage
+
+- **2026-09-16, bigger cars (not part of this rework):** the hull grew 48×32 → 72×48 and
+  `RAM_CONFIG.spinScale` moved 10 → 15 to hold every ram's spin constant (1.5x lever / 2.25x
+  inertia). Stage 5's re-pitch starts from 15. `globalScale` did not move — push never read the hull.
+  See `docs/superpowers/specs/2026-09-16-bigger-cars-design.md` (BC6–BC9).

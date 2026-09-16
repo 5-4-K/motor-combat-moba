@@ -248,9 +248,12 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     expect(victim.vy).toBe(0);
 
     // A second attacker rams the victim from a DIFFERENT axis (approaching along y, the same
-    // touching margin the dash test above uses: 31 = 16+16-1) on a later tick, so its knock is
-    // geometrically independent of the first one and there is no directional ambiguity about which
-    // car is the attacker. Its knock is simply added on top of whatever the victim still carries.
+    // touching margin the dash test above uses: 31, comfortably inside the 47 = 24+24-1 margin the
+    // hull's 48-unit height allows — no longer the tightest possible margin the way 31 = 16+16-1
+    // was against the old 32-unit height, but still a genuine, fresh touch) on a later tick, so its
+    // knock is geometrically independent of the first one and there is no directional ambiguity
+    // about which car is the attacker. Its knock is simply added on top of whatever the victim still
+    // carries.
     addPlayer(state, "second", { x: 47, y: 431, angle: -Math.PI / 2, vy: -(RAM_CONFIG.minApproachSpeed + 200) });
     contactTick(
       state, new Set(["strong", "b", "second"]), memory, "ffa", NO_EFFECTS, approachVelocities(state),

@@ -433,8 +433,8 @@ different knob entirely: `usesAimAssist` per weapon in `WEAPON_TABLE`.
 | `reverseAccelFactor` | 0.6 (reverse push as a fraction of forward; under 1, see below) |
 | `reverseHoldTicks` | 2 (66ms at `TICK_RATE_HZ` 30) |
 | `stopEpsilon` | 1e-3 (below this \|speed\| the car counts as stopped) |
-| `carWidth` | 48 |
-| `carHeight` | 32 |
+| `carWidth` | 72 |
+| `carHeight` | 48 |
 | `restitution` | 0.15 (was 0.35 — cut on 2026-09-06, stage 2 of the car-physics rework, so walls and other cars deflect rather than nearly stopping the car dead. See [`combat-model.md`](combat-model.md#ramming)) |
 
 **The four flat constants `accel`, `reverseAccel`, `turnRate` and `turnRateAtStop` are gone**, split
@@ -581,9 +581,9 @@ The steering penalty they described is back as the **`reeling`** status: severit
 | `globalScale` | 0.4 | Converts a contest result into a Δv (spec R5). **Measured, not derived**, through the composed `serverTick` → `contactTick` order across 24 sub-tick phases — see the doc comment in `ram-config.ts` for the full table. At 0.4 a full-speed Bastion flank ram throws a parked Bullseye 206.2 u/s (92% of its own top speed) and costs the Bastion 0.1 u/s; the roster maximum any ram writes is 268.0 u/s |
 | `bonusFront` / `bonusFlank` / `bonusRear` | 0.3 / 1.0 / 1.3 | Multiplies the impact by the struck face — **your own** face, not the other car's (spec R6), which is what makes a head-on far gentler than a T-bone at the same closing speed. The most important balance lever in the feature |
 | `knockMaxSpeed` **[INERT]** | 260 | Was the peak shove at severity 1.0, before a victim mass factor. Reads nothing since stage 3 replaced the severity grade with the contest. Kept only because `ram-config.test.ts` pins it and it is not on the interfaces ledger's deletion list; its doc comment carries the historical measurement of the 5× recoil error stage 3 exists to fix |
-| `spinScale` | 10 | Calibration multiplier on the torque-derived spin rate. **Re-pitched 100 → 10 by measurement in stage 3** (spec P25b), because `nextSpin`'s inertia denominator became `ramDefence` (30-90) instead of `mass` (300-900) while the impulse feeding the torque shrank — two changes pulling opposite ways, so neither ratio predicts the answer |
+| `spinScale` | 15 | Calibration multiplier on the torque-derived spin rate. **Re-pitched 100 → 10 by measurement in stage 3** (spec P25b), because `nextSpin`'s inertia denominator became `ramDefence` (30-90) instead of `mass` (300-900) while the impulse feeding the torque shrank — two changes pulling opposite ways, so neither ratio predicts the answer. **Moved 10 → 15 on 2026-09-16** by derivation, not measurement: the hull resize to 72×48 grew the maximum lever arm 1.5x and `inertiaCoefficient` 2.25x, so 15 holds every ram's spin exactly where it was. |
 | `spinMaxRate` | 6.0 | rad/s ceiling on injected spin. Deliberately unchanged by that re-pitch: it is the target `spinScale` was solved against. The hardest ram the roster can produce measures 5.95 rad/s — 99% of the ceiling without clipping. It still binds because `nextSpin` ACCUMULATES onto existing `angVel`, so a car rammed twice goes over |
-| `inertiaCoefficient` | 277.33 **[D]** | `(DRIVE_CONFIG.carWidth² + carHeight²) / 12` — derived from the hull, never typed, so it cannot drift out of step with `carHullOf` |
+| `inertiaCoefficient` | 624 **[D]** | `(DRIVE_CONFIG.carWidth² + carHeight²) / 12` — derived from the hull, never typed, so it cannot drift out of step with `carHullOf` |
 | `spinHalfLifeSeconds` | 0.35 | |
 | `counterSteerHalfLifeSeconds` | 0.15 | Spin decay while the player steers against it — shorter than `spinHalfLifeSeconds` on purpose, so countersteering shortens recovery instead of only offsetting it |
 | `spinEpsilon` | 0.01 | Below this magnitude a knock snaps to exact rest, as `stopEpsilon` does for the drive model |
@@ -597,10 +597,10 @@ The steering penalty they described is back as the **`reeling`** status: severit
 **`spinScale` is a calibration multiplier and has never been 1.0**, whatever an early draft of the
 design spec's Numbers table said: at 1.0 the spin channel is structurally inert against the 6.0
 `spinMaxRate` ceiling and the 0.01 rad/s rest threshold. It was 100 while `nextSpin` divided by
-`mass`; it is 10 now that it divides by `ramDefence`. Measured victim spin at 10, by lever arm (the
-offset of the hit from the victim's centre, clamped at the 24 u hull half-length): an ordinary
-Mirage-on-Mirage flank ram spans 0.34 rad/s at 4 u to 2.06 at the clamp, and the hardest ram in the
-game — Bastion flanking a Bullseye at the clamp — reaches 5.95.
+`mass`; it was 10 once it divided by `ramDefence`, and 15 since the 2026-09-16 hull resize. Measured
+victim spin at 10, by lever arm (the offset of the hit from the victim's centre, clamped at the 36 u
+hull half-length): an ordinary Mirage-on-Mirage flank ram spans 0.34 rad/s at 6 u to 2.06 at the
+clamp, and the hardest ram in the game — Bastion flanking a Bullseye at the clamp — reaches 5.95.
 
 **Decays are authored as half-lives in seconds, not as per-tick multipliers.** `halfLifeToPerTick`
 converts each once, at module load, into the per-tick multiplier stored on `RAM_DECAY`:
@@ -629,7 +629,7 @@ normalises. An anchor is a clamp wearing a different name.
 no scale — see [`CAR_TABLE`](#car_table).
 
 The hull half-extents the spin lever arm is clamped into are `DRIVE_CONFIG.carWidth / 2` and
-`DRIVE_CONFIG.carHeight / 2` (24 and 16 today) — read from `DRIVE_CONFIG`, not hardcoded, for the
+`DRIVE_CONFIG.carHeight / 2` (36 and 24 today) — read from `DRIVE_CONFIG`, not hardcoded, for the
 same reason `inertiaCoefficient` is derived above: both must move with `carHullOf` in lockstep, or
 the torque lever and the inertia it divides by could silently disagree about the hull a ram actually
 collided against.

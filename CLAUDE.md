@@ -128,6 +128,23 @@ re-pitch inherits a spin budget that is a quarter unspent, and `globalScale`/`sp
 measured against the old ceiling-hugging case. See
 [`docs/turn-tuning.md`](docs/turn-tuning.md#current-values).
 
+**The 2026-09-16 hull resize made every car 1.5x bigger — for real, not just in the drawing.**
+`DRIVE_CONFIG.carWidth`/`carHeight` went 48 × 32 → **72 × 48**; the arenas did not grow, so the field
+is relatively more crowded. Every reader derives from the hull, so the logic edits were small, and
+three of them are worth knowing: `RAM_CONFIG.spinScale` went 10 → **15** by derivation (a 1.5x lever
+over a 2.25x `inertiaCoefficient`), which keeps every ram's spin exactly where it was — stage 5 of the
+car-physics rework re-pitches from 15, not 10; both arenas' FFA spawn rows moved inward (arena-01
+y 180/540, arena-02 y 187/543) to clear the spikes by a car diagonal; and the client's lock bracket,
+countdown arrow and hp bar length scaled 1.5x with the car. Weapon balance was deliberately **not**
+touched: a bigger target is easier to hit, so hit rates rose, and that is for the balance harness to
+measure. `BOT_BRAIN_VERSION` went to 4.7.0, so balance reports across this change are not comparable.
+All nine car sprites were re-imported at 144 px. Three bot tests were already failing before this
+resize (the 2026-09-16 top-speed cut) and still need a `BOT_PROFILES` retune, now measured at the new
+hull: `controller.test.ts`'s OFF-AXIS case got worse under the resize (0.24 → 0.69), because the hard
+bot's preferred standoff grew from 470 to 570, and `tiers.test.ts`'s two hit-rate cases (P49, P50)
+remain red for the same underlying reason. See
+[`docs/superpowers/specs/2026-09-16-bigger-cars-design.md`](docs/superpowers/specs/2026-09-16-bigger-cars-design.md).
+
 Turn rates themselves were last touched on **2026-08-31, when the whole roster's turn rate was raised
 1.5x** — `DRIVE_CONFIG.baseTurnRate` and `turnRatePerRating` scaled together, speeds untouched at the
 time — because driving and aiming read as too heavy; neither the 2026-09-02 rebalance nor the

@@ -250,7 +250,7 @@ describe("spike contacts", () => {
   const bounds = { width: 1280, height: 720 };
 
   it("reports a car driving into a spike strip", () => {
-    // x:100,y:150 overlaps the strip's AABB (x:[74,94], y:[105,200]) once the car's 48x32 hull is
+    // x:100,y:150 overlaps the strip's AABB (x:[74,94], y:[105,200]) once the car's 72x48 hull is
     // applied; vx:-100 drives it further left, into the strip's face.
     const driving = car({ x: 100, y: 150, vx: -100, vy: 0 });
     const { events } = resolveContacts([driving], new Set(), "ffa", 1, new Map(), [strip], bounds);
@@ -279,7 +279,7 @@ describe("spike contacts", () => {
     // A car parked on the seam between two vertically-stacked strips (the shape of an octagon
     // corner in ARENA_01, where two strips meet at an angle but both still overlap one hull). `strip`
     // covers y:[105,200]; `stripBelow` picks up immediately at y:200 and runs on. A car centred on
-    // y:200 with the standard 32-unit-tall hull overlaps both by half its height.
+    // y:200 with the standard 48-unit-tall hull overlaps both by half its height.
     const stripBelow = { x: strip.x, y: strip.y + strip.h, w: strip.w, h: strip.h, kind: "spike" as const };
     const straddling = car({ x: 100, y: strip.y + strip.h, vx: -100, vy: 0 });
     const { events } = resolveContacts(
