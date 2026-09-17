@@ -1,8 +1,19 @@
-import type { CarId } from "./types.js";
 import type { StatusId } from "./status-types.js";
 
-/** Every ABILITY weapon in the game. Add an id here and a row in `WEAPON_TABLE`. */
-export type AbilityWeaponId =
+/**
+ * Every weapon in the game. Add an id here and a row in `WEAPON_TABLE`.
+ *
+ * **One flat list on purpose.** A weapon is not an ability or a basic attack by virtue of its id —
+ * it is whichever the chassis carrying it makes it. `CarDef.weapons` is the three-slot ability kit
+ * and `CarDef.basicAttack` is the basic-attack slot; any id below may sit in either, and a chassis
+ * may point `basicAttack` at a weapon another chassis carries as an ability. Code that needs to
+ * know which weapons are somebody's basic attack derives it from `CAR_TABLE` (see
+ * `basicAttackIds()`), never from the id.
+ *
+ * The nine ids after `tremor` are the seed names the nine chassis were handed when the slot
+ * shipped. They are names, nothing more.
+ */
+export type WeaponId =
   | "magmablast"
   | "pepperbox"
   | "lance"
@@ -12,24 +23,16 @@ export type AbilityWeaponId =
   | "thumper"
   | "roadblock"
   | "wildcharge"
-  | "tremor";
-
-/**
- * Every chassis's basic attack (BA1) — the fourth weapon every car carries, fired from its own
- * input and never drawn in the HUD slot bar.
- *
- * Derived from `CarId` rather than listed, so `Record<WeaponId, WeaponDef>` refuses to compile the
- * day a tenth chassis is authored without one. Nine ids rather than one shared row because they are
- * expected to diverge per chassis later; until then every row spreads one base (`BASIC_ATTACK_BASE`)
- * and `weapon-config.test.ts` holds them identical.
- *
- * The `import type { CarId }` above closes a TYPE-ONLY cycle with `types.ts` (which imports
- * `WeaponId` from here). Both are erased at compile time, so no runtime import is emitted and there
- * is no module cycle to resolve.
- */
-export type BasicAttackId = `basic-attack-${CarId}`;
-
-export type WeaponId = AbilityWeaponId | BasicAttackId;
+  | "tremor"
+  | "basic-attack-bullseye"
+  | "basic-attack-mirage"
+  | "basic-attack-bastion"
+  | "basic-attack-taurus"
+  | "basic-attack-anvil"
+  | "basic-attack-prowler"
+  | "basic-attack-cleaver"
+  | "basic-attack-skorpios"
+  | "basic-attack-caprico";
 
 /**
  * Optional charge system. Absent means single-stock, which is exactly the pre-weapon-system

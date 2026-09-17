@@ -141,7 +141,7 @@ warning and never fails the suite. Every weapon but `tremor` carries an icon tod
 Three tables own how a shot looks, split by what the weapon's hitbox is, and each returns `[]` for a
 weapon it does not own so the flat `weaponFillOf` fill stays the fallback: `WEAPON_GLOW_STYLES`
 (circles, nested by radius) holds ten rows — `magmablast`'s explosion disc plus all nine
-`basic-attack-<carId>` rows, each given a lit core so a flat near-black disc reads as a sphere
+basic-attack rows, each given a lit core so a flat near-black disc reads as a sphere
 rather than a hole on this game's light floors (BA8) — and every round projectile with no entry
 still draws the flat fallback fill. `WEAPON_BEAM_STYLES` (beams, nested by extent and cross-section) styles `afterburner`, `lance` and `tremor`
 (`bulwark` retired with the cutover). `WEAPON_PROJECTILE_STYLES` (the ellipse and capsule projectiles)

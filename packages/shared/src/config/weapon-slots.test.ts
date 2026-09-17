@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CAR_TABLE, basicAttackOf } from "./car-config.js";
+import { CAR_TABLE, basicAttackIds, basicAttackOf } from "./car-config.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
 import { WEAPON_SLOT_CONFIG, slotsOf, slotsFrom, fireSlotsOf } from "./weapon-slots.js";
 
@@ -84,19 +84,33 @@ describe("loadouts", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it("gives every chassis a basic attack named after it, shipped or not (BA2, BA9)", () => {
+  it("gives every chassis a basic attack that is a real weapon, shipped or not (BA2, BA9)", () => {
+    // What the field must be is a `WEAPON_TABLE` row — any row. Deliberately NOT a check on the
+    // id's shape: which weapon a chassis carries here is a free choice, and two chassis sharing
+    // one, or a chassis pointing at a weapon another carries as an ability, are both legal.
     for (const car of Object.values(CAR_TABLE)) {
-      expect(basicAttackOf(car.id), car.id).toBe(`basic-attack-${car.id}`);
       expect(WEAPON_TABLE, car.id).toHaveProperty(basicAttackOf(car.id));
     }
   });
 
+  it("collects every chassis's basic attack, and only those (BA9)", () => {
+    // The set readers use in place of pattern-matching an id. It is deduplicated by construction,
+    // so two chassis sharing one weapon contribute one entry — which is the case that makes an
+    // id-shaped test wrong and this one right.
+    const basics = basicAttackIds();
+    for (const car of Object.values(CAR_TABLE)) expect(basics.has(car.basicAttack), car.id).toBe(true);
+    expect(basics.size).toBe(new Set(Object.values(CAR_TABLE).map((car) => car.basicAttack)).size);
+  });
+
   it("keeps the basic attack out of the chassis's own kit (BA10)", () => {
-    // `weapons` means the three ABILITY slots and nothing else. A basic attack leaking into it
-    // would double-arm the car and put a fourth box in the HUD.
+    // `weapons` means the three ABILITY slots and nothing else. A chassis's OWN basic attack
+    // leaking into it would double-arm the car and put a fourth box in the HUD.
+    //
+    // Only its own: another chassis's basic attack appearing in this kit is not a defect. The two
+    // slots hold weapons, and the same weapon may legally be one car's ability and another's basic
+    // attack — the old roster-wide ban on that was a consequence of the id format, not a rule.
     for (const car of Object.values(CAR_TABLE)) {
       expect(car.weapons, car.id).not.toContain(basicAttackOf(car.id));
-      for (const weaponId of car.weapons) expect(weaponId.startsWith("basic-attack-"), car.id).toBe(false);
     }
   });
 

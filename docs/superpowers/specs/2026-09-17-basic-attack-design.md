@@ -2,7 +2,20 @@
 
 **Date:** 2026-09-17
 **Status:** approved
+**Revision:** 2 (2026-09-18) — see Changelog
 **Clauses:** BA1–BA38
+
+## Changelog
+
+**Revision 2 (2026-09-18). The id format is not a rule, and never was meant to be one.**
+Revision 1 derived the nine ids from `CarId` with a template-literal type, which turned the
+spelling into a compile-time requirement and made three test suites and the playground's loadout
+picker answer "is this a basic attack?" by pattern-matching a string. That was an accident of how
+the nine seed names were generated, not a design decision: a basic attack is a weapon wired into a
+second slot, any `WEAPON_TABLE` row may occupy that slot, and naming is free. BA1 and BA34 are
+restated below; the nine current ids are kept as names. What BA1 was reaching for — "a chassis
+cannot be authored without a basic attack" — is delivered by BA9's required field on its own, and
+always was.
 
 ## 1. What this adds
 
@@ -31,16 +44,21 @@ exist.
 
 ## 2. The weapon
 
-**BA1. Nine ids, one per chassis, named after the chassis.** `WeaponId` gains a template-literal
-arm:
+**BA1. Nine seed rows, listed in one flat `WeaponId` union** *(restated, revision 2)*. The nine
+current ids — `basic-attack-mirage` … `basic-attack-caprico` — are written out beside the ten
+ability ids in a single list. There is no `BasicAttackId` type and no derivation from `CarId`: a
+weapon is a basic attack because some chassis carries it in that slot, never because of how its id
+is spelled, and any row in the union may be slotted there by any chassis. Readers that need the set
+call `basicAttackIds()`, which reads `CAR_TABLE`.
 
-```ts
-type BasicAttackId = `basic-attack-${CarId}`;
-```
+The flat list also drops the type-only import cycle between `types.ts` and `weapon-types.ts` that
+existed solely to feed the template literal.
 
-so `basic-attack-mirage` … `basic-attack-caprico` are weapon ids the compiler enumerates from
-`CarId`. Adding a tenth chassis makes `Record<WeaponId, WeaponDef>` demand its basic-attack row,
-which is the failure we want: a car cannot be authored without one.
+*Superseded:* revision 1 wrote the union as the ability ids plus a template-literal arm derived from
+`CarId`, so `Record<WeaponId, WeaponDef>` demanded a dedicated row per chassis. Its stated purpose —
+a car cannot be authored without a basic attack — is already met by BA9's required
+`CarDef.basicAttack`, which rejects the `CAR_TABLE` row itself. The only thing the derivation added
+on top was the part being removed: that the row must be that car's own, spelled after it.
 
 **BA2. Every prototype gets one too.** All nine chassis — the three shipped and the six unreleased —
 carry a basic attack. A prototype is driven in the playground to judge its handling, and a chassis
@@ -283,11 +301,16 @@ and nothing else is edited silently.
 **BA34. New and changed config assertions.**
 
 - `weapon-config.test.ts`: the roster count goes ten → nineteen; colour uniqueness splits per BA7;
-  a new rule that every `basic-attack-*` row is a `kind: "projectile"` carrying no `applies`,
+  a new rule that each of the nine seed rows is a `kind: "projectile"` carrying no `applies`,
   `impulse` or `explosion`, so the "identical, boring, no mechanics" promise is enforced rather than
-  merely written here.
+  merely written here. *(Revision 2: those three assertions select the nine rows from a list written
+  out in the test, not by matching an id prefix and not from `CAR_TABLE`. They are claims about what
+  these nine WEAPONS are; slotting some other weapon as a chassis's basic attack must not drag it in
+  and demand it be a plain bolt too.)*
 - `weapon-slots.test.ts`: a new rule that a car's `basicAttack` never appears in its own `weapons`,
-  and that `basicAttackOf(carId)` is the row whose id ends in that `carId`. Exclusivity (L1) holds by
+  and that it names a real `WEAPON_TABLE` row. *(Revision 2: the id's shape is not asserted, and the
+  ban covers a car's OWN basic attack only — the same weapon being one car's ability and another's
+  basic attack is legal.)* Exclusivity (L1) holds by
   construction, and the existing unconditional-exclusivity test now also covers the nine new ids
   through `fireSlotsOf`.
 - `fire.test.ts`: a car's fire state carries four slots; a mask of `1 << 3` fires the basic attack;
@@ -305,7 +328,10 @@ slot constants), `docs/schema-reference.md` (four `WeaponSlotState` rows), and t
 without a filter a tester could seat `basic-attack-bastion` in Mirage's slot 1 — a car with two basic
 attacks, one of them another chassis's — and nine entries all reading "Basic Attack" would be
 unusable anyway. The pickers list ability weapons only. This is the same distinction as BA12 wearing
-a UI hat: the dropdown is choosing a KIT.
+a UI hat: the dropdown is choosing a KIT. *(Revision 2: the excluded set is `basicAttackIds()`, read
+from `CAR_TABLE`. Which weapons are basic attacks is a fact about the roster's slots, so the roster
+answers it — and the consequence is the point: slotting an existing ability as some chassis's basic
+attack takes it out of these dropdowns.)*
 
 **BA38. The playground's tuning panel gains them per seat, titled by id.** `statsTabs` builds its
 weapons tab from the ENABLED SEATS' own loadouts (`seats.flatMap((car) => car.weapons)`), not from
