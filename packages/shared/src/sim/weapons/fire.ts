@@ -1,4 +1,4 @@
-import { isCarId } from "../../config/car-config.js";
+import { basicAttackOf, isCarId } from "../../config/car-config.js";
 import type { CarId } from "../../config/types.js";
 import { weaponDefOf } from "../../config/weapon-config.js";
 import { WEAPON_SLOT_CONFIG, slotsFrom, slotsOf } from "../../config/weapon-slots.js";
@@ -103,7 +103,11 @@ export interface FireState {
  * It still runs through `slotsFrom` so the 3-slot cap holds exactly as it does for a roster loadout.
  */
 export function newFireState(carId: CarId | "", level: number, weaponIds?: readonly WeaponId[]): FireState {
-  const weapons = weaponIds ? slotsFrom(carId, weaponIds) : isCarId(carId) ? slotsOf(carId) : [];
+  // The KIT, then the basic attack (BA12/BA14). An explicit playground loadout overrides the three
+  // ability slots and nothing else: the basic attack is a property of the chassis, not of the
+  // loadout, so it is appended either way and the settings panel never offers it.
+  const kit = weaponIds ? slotsFrom(carId, weaponIds) : isCarId(carId) ? slotsOf(carId) : [];
+  const weapons = isCarId(carId) ? [...kit, basicAttackOf(carId)] : kit;
   return {
     slots: weapons.map((weaponId) => ({
       weaponId,
@@ -243,7 +247,7 @@ export function beginFire(
   if (state.pending) return state;
   if (mask <= 0) return state;
 
-  const usable = Math.min(state.slots.length, WEAPON_SLOT_CONFIG.maxAbilitySlots);
+  const usable = Math.min(state.slots.length, WEAPON_SLOT_CONFIG.maxFireSlots);
   for (let index = 0; index < usable; index++) {
     if ((mask & (1 << index)) === 0) continue;
 

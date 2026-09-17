@@ -14,11 +14,14 @@ import type { WeaponId } from "./weapon-types.js";
  * It is what the wire mask is masked to and what the client's key table runs to. Derived, never
  * typed, so the two can never disagree.
  */
+/** The ability-slot count, hoisted so the two counts below are expressions rather than a promise. */
+const MAX_ABILITY_SLOTS = 3;
+
 export const WEAPON_SLOT_CONFIG = {
-  maxAbilitySlots: 3,
-  maxFireSlots: 4,
+  maxAbilitySlots: MAX_ABILITY_SLOTS,
+  maxFireSlots: MAX_ABILITY_SLOTS + 1,
   /** The basic attack is always last, so the three ability indices never move (BA13). */
-  basicAttackSlotIndex: 3,
+  basicAttackSlotIndex: MAX_ABILITY_SLOTS,
 } as const;
 
 /** Cars already warned about, so an over-long loadout logs once rather than once per tick. */
