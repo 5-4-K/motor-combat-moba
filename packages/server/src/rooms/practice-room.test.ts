@@ -108,9 +108,12 @@ describe("every chassis practice can seat is armed at the default level", () => 
   const defaultLevel = new PlayerState().level;
 
   it("has hp and a shipped kit with no loadout written", () => {
+    // 4, not 3: every chassis carries three loadout abilities plus its own basic attack
+    // (`CarDef.basicAttack`), and `newFireState` builds one slot per entry `fireSlotsOf` returns —
+    // the kit, then the basic attack. Four is the fourth slot existing, not a kit that grew.
     for (const carId of activeCarIds()) {
       const slots = newFireState(carId, defaultLevel).slots.length;
-      expect(`${carId}:${hpOf(carId) > 0}:${slots}`).toBe(`${carId}:true:3`);
+      expect(`${carId}:${hpOf(carId) > 0}:${slots}`).toBe(`${carId}:true:4`);
     }
   });
 });
