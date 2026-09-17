@@ -551,9 +551,15 @@ describe("serverTick fire mask reporting", () => {
     expect(masks.get("p1")).toBe(0b001);
   });
 
-  it("masks off bits beyond maxAbilitySlots", () => {
+  it("masks off bits beyond maxFireSlots", () => {
     const masks = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1, 0b1111_1111)]);
-    expect(masks.get("p1")).toBe(0b111); // maxAbilitySlots = 3
+    expect(masks.get("p1")).toBe(0b1111); // three ability slots plus the basic attack (BA15)
+  });
+
+  it("lets a press through on the basic attack's bit, and still strips everything above it (BA15)", () => {
+    // Hand-rolled wire data: bit 3 is a real slot now, bit 4 never is.
+    const masks = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1, (1 << 3) | (1 << 4))]);
+    expect(masks.get("p1")).toBe(1 << 3);
   });
 
   it("ors the masks of every input simulated this tick", () => {
