@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="mc-balance-stamp" content="faf91d752541bad5">
+<meta name="mc-balance-stamp" content="4969528524c2466a">
 <title>Motor Combat — Cars &amp; Weapons</title>
 <style>/* latin */
 @font-face {
@@ -59,184 +59,147 @@
 
 :root {
   --ink: #E8EDF4; --dim: #97A3B4; --faint: #66707E;
-  --bg: #0D1016; --panel: #151A22; --line: #262E3A;
+  --bg: #0D1016; --panel: #151A22; --panel2: #1B212B; --line: #262E3A;
   --display: "Oswald", "Liberation Sans Narrow", "DejaVu Sans", sans-serif;
-  --body: "Barlow", "Liberation Sans", "DejaVu Sans", sans-serif;
+  --text: "Barlow", "DejaVu Sans", system-ui, sans-serif;
 }
-* { box-sizing: border-box; margin: 0; padding: 0; }
-@page { size: A4; margin: 0; }
-html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-body { font-family: var(--body); color: var(--ink); background: var(--bg); font-size: 10pt; line-height: 1.5; }
-.page { width: 210mm; height: 297mm; padding: 15mm 16mm; position: relative; overflow: hidden;
-        page-break-after: always; background: var(--bg); display: flex; flex-direction: column; }
-.page:last-child { page-break-after: auto; }
-.chassis { justify-content: space-between; }
-h1, h2, h3, .kicker, .pnum, .owner, .bl, th { font-family: var(--display); font-weight: 700;
-        text-transform: uppercase; letter-spacing: .06em; }
-code { font-family: "DejaVu Sans Mono", monospace; font-size: .85em; color: var(--dim); }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--text); font-size: 15px; line-height: 1.45;
+  -webkit-text-size-adjust: 100%;
+}
+h1, h2, h3, h4 { font-family: var(--display); margin: 0; letter-spacing: .02em; }
+a { color: inherit; }
 
-/* ---- shared page header ---- */
-.phead { display: flex; align-items: baseline; justify-content: space-between; gap: 6mm;
-         border-bottom: 1.5pt solid var(--line); padding-bottom: 2.5mm; margin-bottom: 7mm; }
-.phead h2 { font-size: 17pt; letter-spacing: .04em; }
-.phead h2 em { color: var(--faint); font-style: normal; font-weight: 500; }
-.pnum, .owner { font-size: 8.5pt; color: var(--faint); letter-spacing: .18em; font-weight: 500; }
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 10px 20px; background: #0A0D12; border-bottom: 1px solid var(--line);
+}
+.topbar b { font-family: var(--display); font-size: 17px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.topbar b span { color: var(--faint); font-weight: 500; margin-left: 8px; }
+.topbar nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.topbar a, .topbar button {
+  font: inherit; font-size: 13px; color: var(--dim); text-decoration: none;
+  background: var(--panel2); border: 1px solid var(--line); border-radius: 4px;
+  padding: 5px 10px; cursor: pointer;
+}
+.topbar a:hover, .topbar button:hover { color: var(--ink); border-color: #3A465A; }
 
-/* ---- cover ---- */
-.cover { justify-content: flex-start; padding-top: 26mm; }
-.cover-rule { height: 3pt; width: 34mm; background: #E8590C; margin-bottom: 8mm; }
-.cover .kicker { font-size: 9pt; color: var(--faint); letter-spacing: .3em; margin-bottom: 5mm; }
-.cover h1 { font-size: 54pt; line-height: .95; letter-spacing: .01em; }
-.cover h2 { font-size: 22pt; color: var(--dim); font-weight: 500; letter-spacing: .3em; margin-top: 2mm; }
-.cover .blurb { font-size: 12pt; color: var(--dim); max-width: 118mm; margin-top: 9mm; line-height: 1.6; }
-.cover-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7mm 6mm; margin-top: auto; margin-bottom: 8mm; }
-.cover-grid figure { background: var(--panel); border: 1pt solid var(--line); border-radius: 2mm;
-        padding: 5mm 3mm 3.5mm; text-align: center; }
-.cover-grid img, .cover-grid .icon-fallback { width: 18mm; height: 18mm; }
-.cover-grid figcaption { font-family: var(--display); font-size: 9.5pt; text-transform: uppercase;
-        letter-spacing: .1em; margin-top: 2.5mm; }
-.cover-foot { font-size: 8.5pt; color: var(--faint); border-top: 1pt solid var(--line); padding-top: 3mm; }
+.jump {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  max-width: 1180px; margin: 0 auto; padding: 18px 20px 0;
+}
+.jump a {
+  font-family: var(--display); font-size: 13px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--dim); text-decoration: none;
+  border: 1px solid var(--line); border-radius: 999px; padding: 4px 14px;
+}
+.jump a:hover { color: var(--ink); border-color: #3A465A; }
 
-/* ---- legend ---- */
-.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10mm; }
-.two-col h3 { font-size: 11pt; color: #E8590C; letter-spacing: .12em; margin-bottom: 3mm; }
-.two-col h3 + * { margin-bottom: 8mm; }
-.defs dt { font-family: var(--display); font-size: 10pt; text-transform: uppercase; letter-spacing: .08em; margin-top: 3.5mm; }
-.defs dd { color: var(--dim); font-size: 9.5pt; }
-.roles { list-style: none; }
-.roles li { border-left: 2pt solid var(--line); padding: 1mm 0 1mm 4mm; margin-bottom: 3mm; }
-.roles b { font-family: var(--display); text-transform: uppercase; letter-spacing: .08em; display: block; font-size: 10pt; }
-.roles span { color: var(--dim); font-size: 9.5pt; }
-.callout { background: var(--panel); border-left: 2.5pt solid #E8590C; padding: 4mm 5mm;
-        font-size: 9.5pt; color: var(--dim); margin-top: 4mm; }
-.callout b { color: var(--ink); }
+main { max-width: 1180px; margin: 0 auto; padding: 8px 20px 80px; }
+main > section > h2 {
+  font-size: 28px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  margin: 40px 0 6px; padding-bottom: 8px; border-bottom: 2px solid var(--line);
+}
+.secnote { color: var(--faint); font-size: 13px; margin: 0 0 20px; max-width: 70ch; }
 
-/* ---- chassis ---- */
-.chassis-hero { display: grid; grid-template-columns: 46mm 1fr; gap: 8mm; align-items: center; margin-bottom: 8mm; }
-.carshot { width: 46mm; filter: brightness(1.25) contrast(1.05); }
-.theme { font-family: var(--display); font-size: 14pt; letter-spacing: .04em; color: #E8590C; margin-bottom: 3mm; }
-.body { color: var(--dim); font-size: 10.5pt; }
-.ratings { list-style: none; margin-bottom: 7mm; }
-.ratings li, .bars li { display: grid; grid-template-columns: 24mm 1fr 10mm auto; align-items: center;
-        gap: 3mm; padding: 1.6mm 0; border-bottom: 1pt solid var(--line); }
-.bl { font-size: 8.5pt; color: var(--dim); letter-spacing: .14em; font-weight: 500; }
-.bt { height: 3.4mm; background: #1D2430; border-radius: 1pt; overflow: hidden; }
-.bt i { display: block; height: 100%; background: var(--acc, #E8590C); }
-.bv { font-family: var(--display); font-size: 11pt; text-align: right; }
-.bn { font-size: 8.5pt; color: var(--faint); text-align: right; min-width: 40mm; }
-.matchup { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; margin-bottom: 8mm; }
-.matchup p { background: var(--panel); padding: 4mm; font-size: 9.5pt; color: var(--dim); border-radius: 1.5mm; }
-.matchup b { display: block; font-family: var(--display); text-transform: uppercase; letter-spacing: .12em;
-        font-size: 9pt; color: var(--ink); margin-bottom: 1mm; }
-.kit-head { font-size: 11pt; color: var(--faint); letter-spacing: .18em; margin-bottom: 3mm; }
-.kit-head em { font-style: normal; font-weight: 500; letter-spacing: .1em; text-transform: none; }
-.kit { list-style: none; display: grid; gap: 4mm; }
-.kit li { display: grid; grid-template-columns: 16mm 1fr 62mm; align-items: center; gap: 5mm;
-        background: var(--panel); border-left: 2.5pt solid var(--acc); padding: 4.5mm 5mm; border-radius: 0 1.5mm 1.5mm 0; }
-.kstats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2mm; text-align: right; }
-.kstats dt { font-family: var(--display); font-size: 7pt; text-transform: uppercase;
-        letter-spacing: .1em; color: var(--faint); }
-.kstats dd { font-family: var(--display); font-size: 12pt; color: var(--ink); }
-.kit img, .kit .icon-fallback { width: 14mm; height: 14mm; }
-.kit b { font-family: var(--display); font-size: 13pt; text-transform: uppercase; letter-spacing: .06em;
-        color: var(--acc); display: block; }
-.kit span { font-size: 8.5pt; color: var(--faint); letter-spacing: .1em; text-transform: uppercase; }
-.kit p { font-size: 10pt; color: var(--dim); font-style: italic; }
+/* ---- a chassis ---- */
+.car { margin: 28px 0 0; padding-top: 22px; border-top: 1px solid var(--line); }
+.car:first-of-type { border-top: 0; }
+.carhead { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; }
+.carhead img { width: 132px; height: auto; flex: 0 0 auto; }
+.carhead h3 { font-size: 30px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.carhead p { margin: 4px 0 0; color: var(--dim); max-width: 62ch; }
 
-/* ---- weapon ---- */
-.wpn { display: flex; flex-direction: column; height: 100%; }
-.hero { display: grid; grid-template-columns: 30mm 1fr; gap: 7mm; align-items: center; margin-bottom: 6mm; }
-.hero img, .hero .icon-fallback { width: 30mm; height: 30mm; }
-.icon-fallback { border-radius: 1.5mm; border: 1pt solid var(--line); }
-.hero h1 { font-size: 34pt; line-height: 1; color: var(--acc); letter-spacing: .02em; }
-.shape { font-size: 8.5pt; color: var(--faint); letter-spacing: .16em; text-transform: uppercase; margin-top: 2mm; }
-.tagline { font-size: 13pt; color: var(--dim); font-style: italic; margin-top: 3mm; }
-.bars { list-style: none; margin-bottom: 6mm; }
-.bars li { grid-template-columns: 24mm 1fr auto; }
-.wbody { display: grid; grid-template-columns: 1fr 68mm; gap: 8mm; flex: 1; }
-.prose p { font-size: 10.5pt; color: var(--dim); margin-bottom: 4mm; }
-.tip { background: var(--panel); border-left: 2.5pt solid var(--acc); padding: 4.5mm 5mm; margin-top: 2mm; }
-.tip b { font-family: var(--display); text-transform: uppercase; letter-spacing: .14em; font-size: 9pt;
-        color: var(--acc); display: block; margin-bottom: 1.5mm; }
-.tip p { margin: 0; font-size: 10pt; color: var(--ink); }
-.specs { background: var(--panel); border: 1pt solid var(--line); border-radius: 2mm; padding: 3.5mm 5mm; align-self: start; }
-.spec { display: grid; grid-template-columns: 25mm 1fr; gap: 2mm; padding: 1.6mm 0; border-bottom: 1pt solid var(--line); }
-.spec:last-child { border-bottom: 0; }
-.spec dt { font-family: var(--display); font-size: 8.5pt; text-transform: uppercase; letter-spacing: .1em;
-        color: var(--faint); padding-top: .6mm; }
-.spec dd { font-family: var(--display); font-size: 11pt; text-align: right; letter-spacing: .02em; white-space: nowrap; }
-.spec dd span { display: block; font-family: var(--body); font-size: 8pt; font-weight: 400; color: var(--faint);
-        text-transform: none; letter-spacing: 0; line-height: 1.35; white-space: normal; }
-.wfoot { margin-top: 6mm; padding-top: 3mm; border-top: 1pt solid var(--line); font-size: 8.5pt;
-        color: var(--faint); display: flex; align-items: center; gap: 3mm; }
-.swatch { width: 6mm; height: 6mm; border-radius: 1pt; display: inline-block; flex: none; }
+.ratings { list-style: none; margin: 0 0 20px; padding: 0; display: grid; gap: 5px; }
+.ratings li {
+  display: grid; grid-template-columns: 116px minmax(90px, 220px) 30px 1fr;
+  gap: 10px; align-items: center;
+}
+.bl { font-family: var(--display); font-size: 12px; letter-spacing: .09em; text-transform: uppercase; color: var(--dim); }
+.bt { height: 7px; background: var(--panel2); border-radius: 4px; overflow: hidden; }
+.bt i { display: block; height: 100%; background: linear-gradient(90deg, #4A6EA8, #7FA8E0); }
+.bv { font-family: var(--display); font-size: 14px; font-weight: 700; text-align: right; }
+.bn { font-size: 12.5px; color: var(--faint); }
 
-/* ---- counter triangle ---- */
-.triangle { margin-top: auto; border-top: 1pt solid var(--line); padding-top: 6mm; }
-.triangle h3 { font-size: 11pt; color: #E8590C; letter-spacing: .12em; margin-bottom: 4mm; }
-.tri { display: flex; align-items: center; gap: 4mm; }
-.tri > div { flex: 1; background: var(--panel); border: 1pt solid var(--line); border-radius: 2mm;
-        padding: 4mm 4mm 4.5mm; text-align: center; }
-.tri img { width: 26mm; filter: brightness(1.25); margin-bottom: 2mm; }
-.tri b { font-family: var(--display); font-size: 12pt; text-transform: uppercase; letter-spacing: .08em; display: block; }
-.tri span { font-size: 8.5pt; color: var(--faint); text-transform: uppercase; letter-spacing: .14em; }
-.tri p { font-size: 9pt; color: var(--dim); font-style: italic; margin-top: 2.5mm; }
-.arrow { color: #E8590C; font-size: 12pt; font-style: normal; flex: none; }
+/* ---- a weapon ---- */
+/* "start", not the grid default "stretch": a three-weapon row where one card carries twice the
+   rows of another would otherwise pad the short ones to match, which reads as missing content. */
+.weapons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: start; }
+.weapon {
+  background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--acc);
+  border-radius: 5px; padding: 14px 15px 16px;
+}
+.weapon header { display: flex; align-items: center; gap: 11px; }
+.weapon header img, .icon-fallback { width: 42px; height: 42px; flex: 0 0 auto; border-radius: 4px; }
+.weapon h4 { font-size: 19px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--acc); }
+.slot { font-family: var(--display); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+.line { margin: 10px 0 12px; font-size: 13.5px; color: var(--dim); }
 
-/* ---- compare ---- */
-.sub { font-family: var(--display); font-size: 11pt; color: #E8590C; letter-spacing: .12em;
-        text-transform: uppercase; margin: 6mm 0 3mm; }
-.grid th span { display: block; font-family: var(--body); font-size: 7.5pt; letter-spacing: 0;
-        text-transform: none; color: var(--faint); font-weight: 400; }
-.tight td { padding: 1.7mm 2mm; }
-.grid { width: 100%; border-collapse: collapse; font-size: 9pt; }
-.grid th { font-size: 8pt; color: var(--faint); letter-spacing: .1em; text-align: left;
-        border-bottom: 1.5pt solid var(--line); padding: 0 2mm 2mm; font-weight: 500; }
-.grid td { padding: 2.4mm 2mm; border-bottom: 1pt solid var(--line); color: var(--dim); }
-.grid .n { text-align: right; font-family: var(--display); font-size: 10pt; color: var(--ink); }
-.grid .nm { color: var(--ink); font-family: var(--display); text-transform: uppercase;
-        letter-spacing: .05em; font-size: 10pt; white-space: nowrap; }
-.dot { width: 2.6mm; height: 2.6mm; border-radius: 50%; display: inline-block; margin-right: 2mm; }
-.note { font-size: 8.5pt; color: var(--faint); margin-top: 4mm; }
-.rank { list-style: none; }
-.rank li { display: grid; grid-template-columns: 30mm 1fr 12mm 26mm; align-items: center; gap: 3mm;
-        padding: 0.9mm 0; }
-.rn { font-family: var(--display); font-size: 9.5pt; text-transform: uppercase; letter-spacing: .06em; }
-.rt { height: 3.2mm; background: #1D2430; border-radius: 1pt; overflow: hidden; }
-.rt i { display: block; height: 100%; }
-.rv { font-family: var(--display); font-size: 11pt; text-align: right; }
-.rp { font-size: 8.5pt; color: var(--faint); text-align: right; }
-.palette { margin-top: auto; border-top: 1pt solid var(--line); padding-top: 5mm; }
-.ceilings .sub:first-of-type { margin-top: 0; }
-.palette h3 { font-size: 11pt; color: #E8590C; letter-spacing: .12em; margin-bottom: 3.5mm; }
-.swatches { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5mm; }
-.swatches > div > b { font-family: var(--display); font-size: 9pt; text-transform: uppercase;
-        letter-spacing: .12em; color: var(--faint); display: block; margin-bottom: 2mm; }
-.swatches span { display: flex; align-items: center; gap: 2.5mm; font-size: 9pt; color: var(--dim); padding: .5mm 0; }
-.swatches i { width: 4mm; height: 4mm; border-radius: 1pt; flex: none; }
+.stats { margin: 0; }
+.row { display: grid; grid-template-columns: 92px 1fr; gap: 8px; padding: 5px 0; border-top: 1px solid var(--line); }
+.row dt { font-family: var(--display); font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); padding-top: 2px; }
+.row dd { margin: 0; font-size: 13.5px; }
+.row dd .sub { display: block; color: var(--faint); font-size: 12px; }
 
-/* ---- on a screen: the same pages, stacked as a scrolling document ---- */
-.topbar { display: none; }
-@media screen {
-  body { background: #07090D; padding-bottom: 12mm; }
-  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 6mm;
-        position: sticky; top: 0; z-index: 5; padding: 3.5mm 6mm;
-        background: rgba(13, 16, 22, .94); border-bottom: 1pt solid var(--line);
-        backdrop-filter: blur(6px); }
-  .topbar b { font-family: var(--display); font-size: 11pt; text-transform: uppercase;
-        letter-spacing: .14em; font-weight: 700; }
-  .topbar b span { color: var(--faint); font-weight: 500; }
-  .topbar nav { display: flex; gap: 3mm; }
-  .topbar a, .topbar button { font-family: var(--display); font-size: 9.5pt; text-transform: uppercase;
-        letter-spacing: .12em; color: var(--ink); text-decoration: none; cursor: pointer;
-        background: transparent; border: 1pt solid var(--line); border-radius: 1.5mm;
-        padding: 2mm 4mm; }
-  .topbar a:hover, .topbar button:hover { border-color: #E8590C; color: #E8590C; }
-  .page { margin: 6mm auto; box-shadow: 0 2mm 9mm rgba(0, 0, 0, .55); border-radius: 1.5mm; }
-  /* Pages are a fixed A4 wide, so a narrow window scales the whole document down rather than
-     scrolling sideways through it. */
-  @media (max-width: 880px) { body { zoom: .58; } }
-  @media (max-width: 520px) { body { zoom: .40; } }
+.fxrow { display: flex; flex-wrap: wrap; gap: 5px; }
+.fx {
+  display: inline-flex; align-items: baseline; gap: 5px; text-decoration: none;
+  font-size: 12.5px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--panel2);
+}
+.fx:hover { border-color: #4A5870; }
+.fx b { font-weight: 600; color: var(--dim); }
+.fx i { font-style: normal; color: var(--faint); font-size: 11.5px; }
+.fx-debuff { color: #FF9B7A; }
+.fx-buff { color: #8EC6FF; }
+
+.props { list-style: none; margin: 0; padding: 0; }
+.props li { font-size: 12.5px; color: var(--dim); padding-left: 13px; position: relative; }
+.props li::before { content: "▸"; position: absolute; left: 0; color: var(--faint); font-size: 10px; }
+
+/* ---- effects ---- */
+.effectgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; align-items: start; }
+.effect {
+  background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--acc);
+  border-radius: 5px; padding: 12px 15px 13px; scroll-margin-top: 70px;
+}
+.effect:target { border-color: var(--acc); background: var(--panel2); }
+.effect h4 { font-size: 18px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--acc); }
+.effect .kind { font-family: var(--text); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); margin-left: 6px; }
+.effect .does { margin: 5px 0 8px; font-size: 13.5px; }
+.effect .from { margin: 0; font-size: 12.5px; color: var(--faint); }
+.effect .from span { font-family: var(--display); letter-spacing: .08em; text-transform: uppercase; font-size: 11px; margin-right: 5px; }
+
+@media (max-width: 1000px) {
+  .weapons { grid-template-columns: 1fr; }
+  .effectgrid { grid-template-columns: 1fr; }
+}
+@media (max-width: 620px) {
+  /* The subtitle is the first thing to go: it wraps the title onto two lines and pushes the two
+     buttons into a stack, which costs a third of the first screen to a bar nobody reads twice. */
+  .topbar { padding: 8px 14px; }
+  .topbar b span { display: none; }
+  .topbar nav { flex-wrap: nowrap; }
+  .jump, main { padding-left: 14px; padding-right: 14px; }
+  .carhead { align-items: flex-start; }
+  .carhead img { width: 84px; }
+  .carhead h3 { font-size: 24px; }
+  .ratings li { grid-template-columns: 104px 1fr 28px; }
+  .bn { grid-column: 1 / -1; padding-left: 104px; margin-top: -3px; }
+  .row { grid-template-columns: 1fr; gap: 1px; }
+}
+
+@media print {
+  .topbar, .jump { display: none; }
+  body { background: #fff; color: #111; }
+  .weapon, .effect { background: #fff; border-color: #bbb; break-inside: avoid; }
+  .car { break-inside: avoid-page; }
+  .bl, .bn, .row dt, .props li, .effect .from { color: #555; }
+  .bt { background: #eee; }
 }
 </style></head><body><div class="topbar">
     <b>Motor Combat <span>Cars &amp; Weapons</span></b>
@@ -245,734 +208,169 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: .85em; color: var(
       <button type="button" onclick="window.print()">Print</button>
     </nav>
   </div>
-<section class="page cover"><div class="cover-rule"></div>
-     <p class="kicker">Field Manual · 9 weapons · 3 chassis</p>
-     <h1>Motor Combat</h1>
-     <h2>Cars &amp; Weapons</h2>
-     <p class="blurb">nine weapons. three chassis. No sharing. Pick a car and you have picked all three of your guns — this is what each one of them does, and what it is for.</p>
-     <div class="cover-grid"><figure><img src="art/weapon-icons/magmablast.png" alt=""><figcaption style="color:#ffa36b">Magma Blast</figcaption></figure><figure><img src="art/weapon-icons/thunderclap.png" alt=""><figcaption style="color:#8fe4fc">Thunderclap</figcaption></figure><figure><img src="art/weapon-icons/afterburner.png" alt=""><figcaption style="color:#ffbf6b">Afterburner</figcaption></figure><figure><img src="art/weapon-icons/predator.png" alt=""><figcaption style="color:#a3a3a3">Predator</figcaption></figure><figure><img src="art/weapon-icons/pepperbox.png" alt=""><figcaption style="color:#da9579">Pepperbox</figcaption></figure><figure><img src="art/weapon-icons/lance.png" alt=""><figcaption style="color:#f6ff6b">Lance</figcaption></figure><figure><img src="art/weapon-icons/thumper.png" alt=""><figcaption style="color:#ffe86b">Thumper</figcaption></figure><figure><img src="art/weapon-icons/roadblock.png" alt=""><figcaption style="color:#e8bf6b">Roadblock</figcaption></figure><figure><img src="art/weapon-icons/wildcharge.png" alt=""><figcaption style="color:#f6a36b">Wild Charge</figcaption></figure></div>
-     <p class="cover-foot">All figures read straight from the shipping balance tables.
-       Damage shown at an average chassis unless a chassis is named.</p></section>
-<section class="page legend"><header class="phead"><span class="pnum">How to read this</span><h2>The five bars, and the words next to them</h2></header>
-     <div class="two-col">
-       <div>
-         <h3>The bars</h3>
-         <dl class="defs">
-           <dt>Damage</dt><dd>Everything one press can put into a single car if all of it connects. For a shotgun that is every pellet; for a burning cone that is every tick of it.</dd>
-           <dt>Rate</dt><dd>How often you get to press. Counts the wind-up and the burst, not just the recharge.</dd>
-           <dt>Reach</dt><dd>How far the shot travels, or how far the beam grows. The arena is 1132 units wide and a car is 48 long.</dd>
-           <dt>Area</dt><dd>How much room the hitbox covers. Big area forgives bad aim.</dd>
-           <dt>Commitment</dt><dd>Wind-up plus recovery plus recharge — how long the press owns you.</dd>
-         </dl>
-         <h3>Slots</h3>
-         <ol class="roles"><li><b>1. Go-to</b><span>Fills every gap. Never gates anything else you carry.</span></li><li><b>2. Mid</b><span>A real burst, with a real aiming or positioning condition.</span></li><li><b>3. Ultimate</b><span>A commitment. Used properly, it wins the fight.</span></li></ol>
-       </div>
-       <div>
-         <h3>Terms</h3>
-         <dl class="defs">
-           <dt>Lock-on</dt><dd>Some weapons fire at whatever the car has locked instead of straight down the nose. The lock reaches 400 units and aims where the target <i>is</i>, with no lead — so it helps most up close. 5 of the 9 weapons do not use it at all.</dd>
-           <dt>Wind-up</dt><dd>Delay between the press and the shot. You keep driving, but you cannot take the press back.</dd>
-           <dt>Recovery</dt><dd>Lockout on your <i>other</i> two slots after a press.</dd>
-           <dt>Recharge</dt><dd>Time before this weapon is ready again. It starts at the last shot of the press, not the first.</dd>
-           <dt>Stock</dt><dd>Shots you can bank. No weapon carries them right now.</dd>
-           <dt>Pierce</dt><dd>Cars a shot carries on through after the first one it hits.</dd>
-           <dt>Attack scale</dt><dd>Your chassis multiplies every weapon's damage. Mirage 1.1×, Bullseye 1.1×, Bastion 0.9×.</dd>
-         </dl>
-         <div class="callout">
-           <b>The yardstick.</b> An average car has 500 hull HP. Every “% of a car” in this
-           book is measured against that, before your chassis's attack scale is applied. The sim runs
-           at 30 ticks a second, so every duration here is rounded up to a whole tick in play.
-         </div>
-       </div>
-     </div>
-     <div class="triangle">
-       <h3>Three chassis, one triangle</h3>
-       <div class="tri"><div>
-           <img src="art/cars/mirage.png" alt="">
-           <b>Mirage</b>
-           <span>The Runner</span>
-           <p>Your driving is your aim.</p>
-         </div><i class="arrow">&#9654;</i><div>
-           <img src="art/cars/bullseye.png" alt="">
-           <b>Bullseye</b>
-           <span>The Gunner</span>
-           <p>Reach and precision, punished hard when caught.</p>
-         </div><i class="arrow">&#9654;</i><div>
-           <img src="art/cars/bastion.png" alt="">
-           <b>Bastion</b>
-           <span>The Anvil</span>
-           <p>It cannot chase — so it makes you come to it.</p>
-         </div></div>
-       <p class="note">Mirage catches Bullseye · Bullseye kites Bastion · Bastion punishes Mirage.
-         Nobody is safe from everybody — and the kit is most of the reason why.</p>
-     </div></section>
-<section class="page chassis"><header class="phead"><span class="pnum">Chassis</span><h2>Mirage <em>— The Runner</em></h2></header>
-     <div class="chassis-hero">
-       <img class="carshot" src="art/cars/mirage.png" alt="">
-       <div>
-         <p class="theme">“Your driving is your aim.”</p>
-         <p class="body">The fastest thing on the map, and the one that turns a few seconds of contact into most of a car's HP — but only for as long as it is beside you. Two of its three weapons hug the chassis, so Mirage has to pick a moment, arrive, and finish. It has the hull of a car that never planned to stay.</p>
-       </div>
-     </div>
-     <ul class="ratings"><li><span class="bl">Speed</span><span class="bt"><i style="width:85%"></i></span><span class="bv">85</span><span class="bn">189 u/s top</span></li><li><span class="bl">Accel</span><span class="bt"><i style="width:85%"></i></span><span class="bv">85</span><span class="bn">179 u/s² · 1.06s to top</span></li><li><span class="bl">Handling</span><span class="bt"><i style="width:85%"></i></span><span class="bv">85</span><span class="bn">8.19 rad/s · 23u turn radius</span></li><li><span class="bl">Attack</span><span class="bt"><i style="width:63%"></i></span><span class="bv">63</span><span class="bn">1.13× damage</span></li><li><span class="bl">Hull</span><span class="bt"><i style="width:70%"></i></span><span class="bv">70</span><span class="bn">700 HP</span></li><li><span class="bl">Ram power</span><span class="bt"><i style="width:55%"></i></span><span class="bv">55</span><span class="bn">how hard it hits</span></li><li><span class="bl">Ram resistance</span><span class="bt"><i style="width:50%"></i></span><span class="bv">50</span><span class="bn">how hard it is to shift</span></li></ul>
-     <div class="matchup">
-       <p><b>Beats</b> Closes on Bullseye before its wind-ups can resolve.</p>
-       <p><b>Loses to</b> Bastion. Mirage must come close to use its kit, and close is where Bastion lives.</p>
-     </div>
-     <h3 class="kit-head">The kit <em>— one page each, overleaf</em></h3>
-     <ul class="kit"><li style="--acc:#ffa36b">
-        <img src="art/weapon-icons/magmablast.png" alt="">
-        <div class="kn"><b>Magma Blast</b><span>Slot 1 — Go-to</span>
-          <p>It doesn't stop working when it lands.</p></div>
-        <dl class="kstats">
-          <div><dt>Damage</dt><dd>57</dd></div>
-          <div><dt>Recharge</dt><dd>1.6s</dd></div>
-          <div><dt>Reach</dt><dd>900</dd></div>
-          <div><dt>Lock</dt><dd>Yes</dd></div>
-        </dl>
-      </li><li style="--acc:#8fe4fc">
-        <img src="art/weapon-icons/thunderclap.png" alt="">
-        <div class="kn"><b>Thunderclap</b><span>Slot 2 — Mid</span>
-          <p>A lunge that ends the fight where it lands.</p></div>
-        <dl class="kstats">
-          <div><dt>Damage</dt><dd>102</dd></div>
-          <div><dt>Recharge</dt><dd>5s</dd></div>
-          <div><dt>Reach</dt><dd>400</dd></div>
-          <div><dt>Lock</dt><dd>Yes</dd></div>
-        </dl>
-      </li><li style="--acc:#ffbf6b">
-        <img src="art/weapon-icons/afterburner.png" alt="">
-        <div class="kn"><b>Afterburner</b><span>Slot 3 — Ultimate</span>
-          <p>The same flame, now pouring from both ends.</p></div>
-        <dl class="kstats">
-          <div><dt>Damage</dt><dd>275</dd></div>
-          <div><dt>Recharge</dt><dd>13s</dd></div>
-          <div><dt>Reach</dt><dd>220</dd></div>
-          <div><dt>Lock</dt><dd>No</dd></div>
-        </dl>
-      </li></ul></section>
-<section class="page weapon"><div class="wpn" style="--acc:#ffa36b;--raw:#FF6000">
-       <header class="phead"><span class="pnum">01 / 09</span>
-         <span class="owner">Mirage · Slot 1 — Go-to</span></header>
-       <div class="hero">
-         <img src="art/weapon-icons/magmablast.png" alt="">
-         <div>
-           <h1>Magma Blast</h1>
-           <p class="shape">Explosive bolt · locks on</p>
-           <p class="tagline">It doesn't stop working when it lands.</p>
-         </div>
-       </div>
-       <ul class="bars"><li><span class="bl">Damage</span><span class="bt"><i style="width:20%"></i></span><span class="bn">50 full connect</span></li><li><span class="bl">Rate</span><span class="bt"><i style="width:62.5%"></i></span><span class="bn">0.63 presses/s</span></li><li><span class="bl">Reach</span><span class="bt"><i style="width:50%"></i></span><span class="bn">900 units</span></li><li><span class="bl">Area</span><span class="bt"><i style="width:8.1%"></i></span><span class="bn">Circle, 24 across</span></li><li><span class="bl">Commitment</span><span class="bt"><i style="width:7.9%"></i></span><span class="bn">1.6s locked in</span></li></ul>
-       <div class="wbody">
-         <div class="prose">
-           <p>A fast, straight bolt, and Mirage's bread and butter — except it no longer stops at the hit. Whatever kills the shot, a car, a wall, the arena edge, or its own reach running out, leaves a 60-unit lava field that stays for two seconds — long enough to drive into and out of — and corrodes anyone it catches for two full seconds, 30% more damage taken from everything that follows. A direct hit takes the impact and the field both.</p>
-           <p>This is the round every other weapon on this chassis gets read against: it arrives quickly, often, and exactly where the assist points it, so sustained fire from close range adds up fast without asking much of you. The corrode is the real payoff — it does little on its own, but it makes whatever Thunderclap or Afterburner lands next hit harder. And because the blast has no straight-line hitbox, it reaches through a wall a target thinks is cover.</p>
-           <div class="tip"><b>Used properly</b><p>Never stop pressing it. Magma Blast has no recovery, so firing it never locks out Thunderclap or Afterburner afterward. It cannot fire through their wind-up either way, though — a press in flight on any slot blocks every slot, Magma Blast included, until it resolves.</p></div>
-         </div>
-         <dl class="specs"><div class="spec"><dt>Damage</dt><dd>50<span>10% of an average car</span></dd></div><div class="spec"><dt>On Mirage</dt><dd>57<span>1.1× attack scale</span></dd></div><div class="spec"><dt>Recharge</dt><dd>1.6s<span>single stock</span></dd></div><div class="spec"><dt>Sustained</dt><dd>31 dps<span>if every press connects</span></dd></div><div class="spec"><dt>Reach</dt><dd>900<span>80% of the arena · 18.8 car lengths</span></dd></div><div class="spec"><dt>Speed</dt><dd>600 u/s<span>crosses its range in 1500ms</span></dd></div><div class="spec"><dt>Hitbox</dt><dd>24 across<span>circle</span></dd></div><div class="spec"><dt>Recovery</dt><dd>none<span>gates nothing else</span></dd></div><div class="spec"><dt>Lock-on</dt><dd>Yes<span>assists inside 400 units</span></dd></div></dl>
-       </div>
-       <footer class="wfoot">
-         <span class="swatch" style="background:#FF6000"></span>
-         Incoming Magma Blast draws in this colour — <code>#FF6000</code>. Every car firing it fires the same shade.
-       </footer>
-     </div></section>
-<section class="page weapon"><div class="wpn" style="--acc:#8fe4fc;--raw:#3ED1FA">
-       <header class="phead"><span class="pnum">02 / 09</span>
-         <span class="owner">Mirage · Slot 2 — Mid</span></header>
-       <div class="hero">
-         <img src="art/weapon-icons/thunderclap.png" alt="">
-         <div>
-           <h1>Thunderclap</h1>
-           <p class="shape">Dash · hits the first car it touches · locks on</p>
-           <p class="tagline">A lunge that ends the fight where it lands.</p>
-         </div>
-       </div>
-       <ul class="bars"><li><span class="bl">Damage</span><span class="bt"><i style="width:36%"></i></span><span class="bn">90 full connect</span></li><li><span class="bl">Rate</span><span class="bt"><i style="width:20%"></i></span><span class="bn">0.2 presses/s</span></li><li><span class="bl">Reach</span><span class="bt"><i style="width:22.2%"></i></span><span class="bn">400 units</span></li><li><span class="bl">Area</span><span class="bt"><i style="width:14.9%"></i></span><span class="bn">Dash, car hull</span></li><li><span class="bl">Commitment</span><span class="bt"><i style="width:25.7%"></i></span><span class="bn">5.2s locked in</span></li></ul>
-       <div class="wbody">
-         <div class="prose">
-           <p>A 400-unit lunge toward the lock, covering the distance in well under a second. The first enemy hull it touches takes the hit and stops dead — a one-second stun — and the dash ends right there, on top of them. A wall ends it just as hard, with nothing to show for it.</p>
-           <p>Only the first car it touches matters: a dash that clips two cars in the same tick still only hits one. That is the whole trade of a maneuver weapon — no instance to dodge, no travel time to react to, just whether you are still there when it lands.</p>
-           <div class="tip"><b>Used properly</b><p>Use it to close, not to open from range — it is not a ranged threat, it is the last few metres. Landing it stuns them right as you arrive, which is exactly when Afterburner wants them held still.</p></div>
-         </div>
-         <dl class="specs"><div class="spec"><dt>Damage</dt><dd>90<span>18% of an average car</span></dd></div><div class="spec"><dt>On Mirage</dt><dd>102<span>1.1× attack scale</span></dd></div><div class="spec"><dt>Recharge</dt><dd>5s<span>single stock</span></dd></div><div class="spec"><dt>Sustained</dt><dd>18 dps<span>if every press connects</span></dd></div><div class="spec"><dt>Reach</dt><dd>400<span>35% of the arena · 8.3 car lengths</span></dd></div><div class="spec"><dt>Speed</dt><dd>1600 u/s<span>crosses its range in 250ms</span></dd></div><div class="spec"><dt>Hitbox</dt><dd>car hull<span>dash</span></dd></div><div class="spec"><dt>Recovery</dt><dd>200ms<span>other slots locked</span></dd></div><div class="spec"><dt>Lock-on</dt><dd>Yes<span>assists inside 400 units</span></dd></div><div class="spec"><dt>Inflicts</dt><dd>Stunned<span>1s · total stop · no control</span></dd></div></dl>
-       </div>
-       <footer class="wfoot">
-         <span class="swatch" style="background:#3ED1FA"></span>
-         Incoming Thunderclap draws in this colour — <code>#3ED1FA</code>. Every car firing it fires the same shade.
-       </footer>
-     </div></section>
-<section class="page weapon"><div class="wpn" style="--acc:#ffbf6b;--raw:#FF9000">
-       <header class="phead"><span class="pnum">03 / 09</span>
-         <span class="owner">Mirage · Slot 3 — Ultimate</span></header>
-       <div class="hero">
-         <img src="art/weapon-icons/afterburner.png" alt="">
-         <div>
-           <h1>Afterburner</h1>
-           <p class="shape">Flame cone · welded to your nose and tail · ticks</p>
-           <p class="tagline">The same flame, now pouring from both ends.</p>
-         </div>
-       </div>
-       <ul class="bars"><li><span class="bl">Damage</span><span class="bt"><i style="width:98%"></i></span><span class="bn">245 full connect</span></li><li><span class="bl">Rate</span><span class="bt"><i style="width:7.7%"></i></span><span class="bn">0.08 presses/s</span></li><li><span class="bl">Reach</span><span class="bt"><i style="width:12.2%"></i></span><span class="bn">220 units</span></li><li><span class="bl">Area</span><span class="bt"><i style="width:58%"></i></span><span class="bn">Cone, 55° × 220</span></li><li><span class="bl">Commitment</span><span class="bt"><i style="width:65.3%"></i></span><span class="bn">13.2s locked in</span></li></ul>
-       <div class="wbody">
-         <div class="prose">
-           <p>Two mirrored cones, one off the nose and one off the tail, burning everything inside either of them two times a second for 2.2 seconds. It sweeps as you steer, and both cones die the instant you do.</p>
-           <p>The per-cone numbers are unchanged from a single flame; the ceiling only doubles against a target somehow held in both cones at once, which in practice means someone chasing you through your own exhaust. Recovery is tiny on purpose — the beam lives on its own once spawned, so you stay free to keep firing Magma Blast into a target that is already burning.</p>
-           <div class="tip"><b>Used properly</b><p>Press it when you are on somebody's bumper, or when somebody is on yours. No other chassis can catch a fleeing car, and now nothing catches Mirage either — the tail cone overheats whoever tries.</p></div>
-         </div>
-         <dl class="specs"><div class="spec"><dt>Damage</dt><dd>49 × 5<span>per tick</span></dd></div><div class="spec"><dt>Full connect</dt><dd>245<span>49% of an average car</span></dd></div><div class="spec"><dt>On Mirage</dt><dd>55 × 5 = 275<span>1.1× attack scale</span></dd></div><div class="spec"><dt>Recharge</dt><dd>13s<span>single stock</span></dd></div><div class="spec"><dt>Sustained</dt><dd>19 dps<span>if every press connects</span></dd></div><div class="spec"><dt>Reach</dt><dd>220<span>19% of the arena · 4.6 car lengths</span></dd></div><div class="spec"><dt>Speed</dt><dd>1100 u/s<span>full extent in 200ms</span></dd></div><div class="spec"><dt>Hitbox</dt><dd>55° × 220<span>cone</span></dd></div><div class="spec"><dt>Lifetime</dt><dd>2.2s<span>rides your car</span></dd></div><div class="spec"><dt>Recovery</dt><dd>200ms<span>other slots locked</span></dd></div><div class="spec"><dt>Lock-on</dt><dd>No<span>fires down your nose</span></dd></div><div class="spec"><dt>Inflicts</dt><dd>Overheated<span>1.5s · 8 hp per 0.4s</span></dd></div></dl>
-       </div>
-       <footer class="wfoot">
-         <span class="swatch" style="background:#FF9000"></span>
-         Incoming Afterburner draws in this colour — <code>#FF9000</code>. Every car firing it fires the same shade.
-       </footer>
-     </div></section>
-<section class="page chassis"><header class="phead"><span class="pnum">Chassis</span><h2>Bullseye <em>— The Gunner</em></h2></header>
-     <div class="chassis-hero">
-       <img class="carshot" src="art/cars/bullseye.png" alt="">
-       <div>
-         <p class="theme">“Reach and precision, punished hard when caught.”</p>
-         <p class="body">A glass cannon that wants never to be touched. It carries the longest straight-line reach in the game and two mid-range answers underneath it, though only its opener takes the lock — the other two ask you to aim yourself. It has the thinnest hull on the grid to pay for it.</p>
-       </div>
-     </div>
-     <ul class="ratings"><li><span class="bl">Speed</span><span class="bt"><i style="width:65%"></i></span><span class="bv">65</span><span class="bn">159 u/s top</span></li><li><span class="bl">Accel</span><span class="bt"><i style="width:45%"></i></span><span class="bv">45</span><span class="bn">123 u/s² · 1.29s to top</span></li><li><span class="bl">Handling</span><span class="bt"><i style="width:65%"></i></span><span class="bv">65</span><span class="bn">7.11 rad/s · 22u turn radius</span></li><li><span class="bl">Attack</span><span class="bt"><i style="width:55%"></i></span><span class="bv">55</span><span class="bn">1.05× damage</span></li><li><span class="bl">Hull</span><span class="bt"><i style="width:65%"></i></span><span class="bv">65</span><span class="bn">650 HP</span></li><li><span class="bl">Ram power</span><span class="bt"><i style="width:45%"></i></span><span class="bv">45</span><span class="bn">how hard it hits</span></li><li><span class="bl">Ram resistance</span><span class="bt"><i style="width:30%"></i></span><span class="bv">30</span><span class="bn">how hard it is to shift</span></li></ul>
-     <div class="matchup">
-       <p><b>Beats</b> Kites Bastion forever; it can never close the speed gap.</p>
-       <p><b>Loses to</b> Mirage, which arrives before you have finished winding up.</p>
-     </div>
-     <h3 class="kit-head">The kit <em>— one page each, overleaf</em></h3>
-     <ul class="kit"><li style="--acc:#a3a3a3">
-        <img src="art/weapon-icons/predator.png" alt="">
-        <div class="kn"><b>Predator</b><span>Slot 1 — Go-to</span>
-          <p>It picks its target after it's already in the air.</p></div>
-        <dl class="kstats">
-          <div><dt>Damage</dt><dd>32</dd></div>
-          <div><dt>Recharge</dt><dd>1s</dd></div>
-          <div><dt>Reach</dt><dd>1800</dd></div>
-          <div><dt>Lock</dt><dd>Yes</dd></div>
-        </dl>
-      </li><li style="--acc:#da9579">
-        <img src="art/weapon-icons/pepperbox.png" alt="">
-        <div class="kn"><b>Pepperbox</b><span>Slot 2 — Mid</span>
-          <p>twelve darts, one press.</p></div>
-        <dl class="kstats">
-          <div><dt>Damage</dt><dd>141</dd></div>
-          <div><dt>Recharge</dt><dd>1.8s</dd></div>
-          <div><dt>Reach</dt><dd>600</dd></div>
-          <div><dt>Lock</dt><dd>No</dd></div>
-        </dl>
-      </li><li style="--acc:#f6ff6b">
-        <img src="art/weapon-icons/lance.png" alt="">
-        <div class="kn"><b>Lance</b><span>Slot 3 — Ultimate</span>
-          <p>Stand still, then sweep the line.</p></div>
-        <dl class="kstats">
-          <div><dt>Damage</dt><dd>180</dd></div>
-          <div><dt>Recharge</dt><dd>16s</dd></div>
-          <div><dt>Reach</dt><dd>1200</dd></div>
-          <div><dt>Lock</dt><dd>No</dd></div>
-        </dl>
-      </li></ul></section>
-<section class="page weapon"><div class="wpn" style="--acc:#a3a3a3;--raw:#606060">
-       <header class="phead"><span class="pnum">04 / 09</span>
-         <span class="owner">Bullseye · Slot 1 — Go-to</span></header>
-       <div class="hero">
-         <img src="art/weapon-icons/predator.png" alt="">
-         <div>
-           <h1>Predator</h1>
-           <p class="shape">Proximity-seeking missile · locks on</p>
-           <p class="tagline">It picks its target after it's already in the air.</p>
-         </div>
-       </div>
-       <ul class="bars"><li><span class="bl">Damage</span><span class="bt"><i style="width:12%"></i></span><span class="bn">30 full connect</span></li><li><span class="bl">Rate</span><span class="bt"><i style="width:100%"></i></span><span class="bn">1 presses/s</span></li><li><span class="bl">Reach</span><span class="bt"><i style="width:100%"></i></span><span class="bn">1800 units</span></li><li><span class="bl">Area</span><span class="bt"><i style="width:7.8%"></i></span><span class="bn">Capsule, 38 × 12, flat tail</span></li><li><span class="bl">Commitment</span><span class="bt"><i style="width:5%"></i></span><span class="bn">1s locked in</span></li></ul>
-       <div class="wbody">
-         <div class="prose">
-           <p>It leaves the muzzle with no target at all — fired at your lock like anything else in this slot, but blind to who is actually out there once it's away. The instant an enemy car drifts within 200 units of the shot itself, it locks onto them and won't let go for the rest of its two-second life, curling a tight turn to stay on their line. A hit is a hit — nothing rides along with the damage.</p>
-           <p>A 1-second recharge against a two-second flight time means up to two of these can be in the air from one car at once, each one hunting on its own. It carries no real range, only a life span, so a shot that finds nobody simply runs out rather than travelling on.</p>
-           <div class="tip"><b>Used properly</b><p>Fire into a group rather than at one target — whichever car wanders inside 200 units of any shot already in flight is the one that eats it. One press will not close out a fight on its own; follow it with Pepperbox or Lance rather than expecting it to do the work alone.</p></div>
-         </div>
-         <dl class="specs"><div class="spec"><dt>Damage</dt><dd>30<span>6% of an average car</span></dd></div><div class="spec"><dt>On Bullseye</dt><dd>32<span>1.1× attack scale</span></dd></div><div class="spec"><dt>Recharge</dt><dd>1s<span>single stock</span></dd></div><div class="spec"><dt>Sustained</dt><dd>30 dps<span>if every press connects</span></dd></div><div class="spec"><dt>Reach</dt><dd>1800<span>159% of the arena · 37.5 car lengths</span></dd></div><div class="spec"><dt>Speed</dt><dd>900 u/s<span>crosses its range in 2000ms</span></dd></div><div class="spec"><dt>Hitbox</dt><dd>38 × 12, flat tail<span>capsule</span></dd></div><div class="spec"><dt>Recovery</dt><dd>none<span>gates nothing else</span></dd></div><div class="spec"><dt>Lock-on</dt><dd>Yes<span>assists inside 400 units</span></dd></div></dl>
-       </div>
-       <footer class="wfoot">
-         <span class="swatch" style="background:#606060"></span>
-         Incoming Predator draws in this colour — <code>#606060</code>. Every car firing it fires the same shade.
-       </footer>
-     </div></section>
-<section class="page weapon"><div class="wpn" style="--acc:#da9579;--raw:#C04818">
-       <header class="phead"><span class="pnum">05 / 09</span>
-         <span class="owner">Bullseye · Slot 2 — Mid</span></header>
-       <div class="hero">
-         <img src="art/weapon-icons/pepperbox.png" alt="">
-         <div>
-           <h1>Pepperbox</h1>
-           <p class="shape">Four-way spray · no lock</p>
-           <p class="tagline">twelve darts, one press.</p>
-         </div>
-       </div>
-       <ul class="bars"><li><span class="bl">Damage</span><span class="bt"><i style="width:54%"></i></span><span class="bn">135 full connect</span></li><li><span class="bl">Rate</span><span class="bt"><i style="width:55.6%"></i></span><span class="bn">0.56 presses/s</span></li><li><span class="bl">Reach</span><span class="bt"><i style="width:33.3%"></i></span><span class="bn">600 units</span></li><li><span class="bl">Area</span><span class="bt"><i style="width:3.5%"></i></span><span class="bn">Ellipse, 18 × 6</span></li><li><span class="bl">Commitment</span><span class="bt"><i style="width:9.9%"></i></span><span class="bn">2s locked in</span></li></ul>
-       <div class="wbody">
-         <div class="prose">
-           <p>One press, 12 darts: a three-dart, 12° fan fires from the nose, the tail, and both flanks at once. The panic button that punishes anyone who closes in — or the drive-by that clips everyone around you as you pass.</p>
-           <p>Per-target reality is one fan: the four muzzles are 90 degrees apart, so at most one lines up with any single car, and that fan is still 135 damage if all three darts land. No lock steers a spray firing in four directions at once — where your nose points at the press is where all four fans go.</p>
-           <div class="tip"><b>Used properly</b><p>Fire it when someone is already on top of you, or when you are threading a pass through a crowd. It punishes proximity from any direction, which is exactly what a lock-on weapon cannot do.</p></div>
-         </div>
-         <dl class="specs"><div class="spec"><dt>Damage</dt><dd>45 × 3<span>per shot</span></dd></div><div class="spec"><dt>Full connect</dt><dd>135<span>27% of an average car</span></dd></div><div class="spec"><dt>On Bullseye</dt><dd>47 × 3 = 141<span>1.1× attack scale</span></dd></div><div class="spec"><dt>Recharge</dt><dd>1.8s<span>single stock</span></dd></div><div class="spec"><dt>Sustained</dt><dd>75 dps<span>if every press connects</span></dd></div><div class="spec"><dt>Reach</dt><dd>600<span>53% of the arena · 12.5 car lengths</span></dd></div><div class="spec"><dt>Speed</dt><dd>800 u/s<span>crosses its range in 750ms</span></dd></div><div class="spec"><dt>Hitbox</dt><dd>18 × 6<span>ellipse</span></dd></div><div class="spec"><dt>Volley</dt><dd>1 × 3<span>0ms apart · 12° fan</span></dd></div><div class="spec"><dt>Recovery</dt><dd>200ms<span>other slots locked</span></dd></div><div class="spec"><dt>Lock-on</dt><dd>No<span>fires down your nose</span></dd></div></dl>
-       </div>
-       <footer class="wfoot">
-         <span class="swatch" style="background:#C04818"></span>
-         Incoming Pepperbox draws in this colour — <code>#C04818</code>. Every car firing it fires the same shade.
-       </footer>
-     </div></section>
-<section class="page weapon"><div class="wpn" style="--acc:#f6ff6b;--raw:#F0FF00">
-       <header class="phead"><span class="pnum">06 / 09</span>
-         <span class="owner">Bullseye · Slot 3 — Ultimate</span></header>
-       <div class="hero">
-         <img src="art/weapon-icons/lance.png" alt="">
-         <div>
-           <h1>Lance</h1>
-           <p class="shape">Held beam · steer while it fires · ticks · no lock</p>
-           <p class="tagline">Stand still, then sweep the line.</p>
-         </div>
-       </div>
-       <ul class="bars"><li><span class="bl">Damage</span><span class="bt"><i style="width:68.8%"></i></span><span class="bn">172 full connect</span></li><li><span class="bl">Rate</span><span class="bt"><i style="width:6%"></i></span><span class="bn">0.06 presses/s</span></li><li><span class="bl">Reach</span><span class="bt"><i style="width:66.7%"></i></span><span class="bn">1200 units</span></li><li><span class="bl">Area</span><span class="bt"><i style="width:100%"></i></span><span class="bn">Beam, 57.5 × 1200</span></li><li><span class="bl">Commitment</span><span class="bt"><i style="width:87.6%"></i></span><span class="bn">17.7s locked in</span></li></ul>
-       <div class="wbody">
-         <div class="prose">
-           <p>700 milliseconds standing still and visible, then a beam that grows to full extent almost instantly and lingers 1.5 seconds — all of it steerable, because the car is held rather than stopped. The wheel still works; the beam sweeps wherever you turn it. It burns rather than stamps: whoever is inside the line is bitten two times a second, so what it costs them is however long you hold it on them.</p>
-           <p>The old aim-assist argument no longer applies: a lock could once steer a stamped beam, but this one sweeps live under your own hands while the car is held, which is a strictly stronger form of aim. Windup plus growth plus linger is 2.4 seconds committed end to end, before the one-second recovery after — the roster's biggest single-press risk, paid up front, during, and after all at once.</p>
-           <div class="tip"><b>Used properly</b><p>Fire it at somebody who cannot spend the next 2.4 seconds finding cover — cornered, mid-commitment, or lined up with a second car so the sweep catches both. A whiff on this hull is close to a death sentence — and so, nearly, is a graze, which now costs them a single bite instead of the whole bolt.</p></div>
-         </div>
-         <dl class="specs"><div class="spec"><dt>Damage</dt><dd>43 × 4<span>per tick</span></dd></div><div class="spec"><dt>Full connect</dt><dd>172<span>34% of an average car</span></dd></div><div class="spec"><dt>On Bullseye</dt><dd>45 × 4 = 180<span>1.1× attack scale</span></dd></div><div class="spec"><dt>Recharge</dt><dd>16s<span>single stock</span></dd></div><div class="spec"><dt>Sustained</dt><dd>10 dps<span>if every press connects</span></dd></div><div class="spec"><dt>Reach</dt><dd>1200<span>106% of the arena · 25 car lengths</span></dd></div><div class="spec"><dt>Speed</dt><dd>6000 u/s<span>full extent in 200ms</span></dd></div><div class="spec"><dt>Hitbox</dt><dd>57.5 × 1200<span>beam</span></dd></div><div class="spec"><dt>Lifetime</dt><dd>1.7s<span>rides your car</span></dd></div><div class="spec"><dt>Wind-up</dt><dd>700ms<span>21 ticks — you are visible</span></dd></div><div class="spec"><dt>Recovery</dt><dd>1000ms<span>other slots locked</span></dd></div><div class="spec"><dt>Lock-on</dt><dd>No<span>fires down your nose</span></dd></div></dl>
-       </div>
-       <footer class="wfoot">
-         <span class="swatch" style="background:#F0FF00"></span>
-         Incoming Lance draws in this colour — <code>#F0FF00</code>. Every car firing it fires the same shade.
-       </footer>
-     </div></section>
-<section class="page chassis"><header class="phead"><span class="pnum">Chassis</span><h2>Bastion <em>— The Anvil</em></h2></header>
-     <div class="chassis-hero">
-       <img class="carshot" src="art/cars/bastion.png" alt="">
-       <div>
-         <p class="theme">“It cannot chase — so it makes you come to it.”</p>
-         <p class="body">The slowest chassis and the biggest hull, built around stopping people rather than catching them — two of its three weapons stun or slam a car to a dead stop. Bastion does not catch anybody: it stops them, slams them, and denies the ground they wanted. That is the only currency a car that cannot reposition has.</p>
-       </div>
-     </div>
-     <ul class="ratings"><li><span class="bl">Speed</span><span class="bt"><i style="width:50%"></i></span><span class="bv">50</span><span class="bn">136 u/s top</span></li><li><span class="bl">Accel</span><span class="bt"><i style="width:20%"></i></span><span class="bv">20</span><span class="bn">88 u/s² · 1.54s to top</span></li><li><span class="bl">Handling</span><span class="bt"><i style="width:50%"></i></span><span class="bv">50</span><span class="bn">6.3 rad/s · 22u turn radius</span></li><li><span class="bl">Attack</span><span class="bt"><i style="width:42%"></i></span><span class="bv">42</span><span class="bn">0.92× damage</span></li><li><span class="bl">Hull</span><span class="bt"><i style="width:90%"></i></span><span class="bv">90</span><span class="bn">900 HP</span></li><li><span class="bl">Ram power</span><span class="bt"><i style="width:70%"></i></span><span class="bv">70</span><span class="bn">how hard it hits</span></li><li><span class="bl">Ram resistance</span><span class="bt"><i style="width:90%"></i></span><span class="bv">90</span><span class="bn">how hard it is to shift</span></li></ul>
-     <div class="matchup">
-       <p><b>Beats</b> Mirage, the moment it commits to contact range.</p>
-       <p><b>Loses to</b> Bullseye, which simply refuses to come within reach.</p>
-     </div>
-     <h3 class="kit-head">The kit <em>— one page each, overleaf</em></h3>
-     <ul class="kit"><li style="--acc:#ffe86b">
-        <img src="art/weapon-icons/thumper.png" alt="">
-        <div class="kn"><b>Thumper</b><span>Slot 1 — Go-to</span>
-          <p>It doesn't stop at the wall any more.</p></div>
-        <dl class="kstats">
-          <div><dt>Damage</dt><dd>55</dd></div>
-          <div><dt>Recharge</dt><dd>3s</dd></div>
-          <div><dt>Reach</dt><dd>1305</dd></div>
-          <div><dt>Lock</dt><dd>Yes</dd></div>
-        </dl>
-      </li><li style="--acc:#e8bf6b">
-        <img src="art/weapon-icons/roadblock.png" alt="">
-        <div class="kn"><b>Roadblock</b><span>Slot 2 — Mid</span>
-          <p>A wall on the move.</p></div>
-        <dl class="kstats">
-          <div><dt>Damage</dt><dd>92</dd></div>
-          <div><dt>Recharge</dt><dd>6s</dd></div>
-          <div><dt>Reach</dt><dd>500</dd></div>
-          <div><dt>Lock</dt><dd>No</dd></div>
-        </dl>
-      </li><li style="--acc:#f6a36b">
-        <img src="art/weapon-icons/wildcharge.png" alt="">
-        <div class="kn"><b>Wild Charge</b><span>Slot 3 — Ultimate</span>
-          <p>ten seconds of armor — 30% less damage taken — and intent.</p></div>
-        <dl class="kstats">
-          <div><dt>Damage</dt><dd>230</dd></div>
-          <div><dt>Recharge</dt><dd>20s</dd></div>
-          <div><dt>Reach</dt><dd>—</dd></div>
-          <div><dt>Lock</dt><dd>No</dd></div>
-        </dl>
-      </li></ul></section>
-<section class="page weapon"><div class="wpn" style="--acc:#ffe86b;--raw:#FFD800">
-       <header class="phead"><span class="pnum">07 / 09</span>
-         <span class="owner">Bastion · Slot 1 — Go-to</span></header>
-       <div class="hero">
-         <img src="art/weapon-icons/thumper.png" alt="">
-         <div>
-           <h1>Thumper</h1>
-           <p class="shape">Bouncing slug · biggest projectile in the game · locks on</p>
-           <p class="tagline">It doesn't stop at the wall any more.</p>
-         </div>
-       </div>
-       <ul class="bars"><li><span class="bl">Damage</span><span class="bt"><i style="width:24%"></i></span><span class="bn">60 full connect</span></li><li><span class="bl">Rate</span><span class="bt"><i style="width:33.3%"></i></span><span class="bn">0.33 presses/s</span></li><li><span class="bl">Reach</span><span class="bt"><i style="width:72.5%"></i></span><span class="bn">1305 units</span></li><li><span class="bl">Area</span><span class="bt"><i style="width:13.4%"></i></span><span class="bn">Capsule, 48 × 30, flat tail</span></li><li><span class="bl">Commitment</span><span class="bt"><i style="width:14.9%"></i></span><span class="bn">3s locked in</span></li></ul>
-       <div class="wbody">
-         <div class="prose">
-           <p>The largest projectile hitbox in the game, and it no longer dies against level geometry — it bounces off walls until it finds someone or its 2.9-second flight clock runs out. Whatever it finds, it spikes: 40% slower for three seconds, with no bleed.</p>
-           <p>Hard CC has moved on to Roadblock; this is the bouncing pressure shot instead. Bastion is slower than everything else on the map, and a target it spikes cannot simply drive away from that fact — the slow keeps them inside the fight rather than taking it away from them outright.</p>
-           <div class="tip"><b>Used properly</b><p>Bounce it down a corridor or off an angled wall to reach someone hiding from a straight line. It buys time to close, not a kill on its own — spend the window it opens.</p></div>
-         </div>
-         <dl class="specs"><div class="spec"><dt>Damage</dt><dd>60<span>12% of an average car</span></dd></div><div class="spec"><dt>On Bastion</dt><dd>55<span>0.9× attack scale</span></dd></div><div class="spec"><dt>Recharge</dt><dd>3s<span>single stock</span></dd></div><div class="spec"><dt>Sustained</dt><dd>20 dps<span>if every press connects</span></dd></div><div class="spec"><dt>Reach</dt><dd>1305<span>115% of the arena · 27.2 car lengths</span></dd></div><div class="spec"><dt>Speed</dt><dd>450 u/s<span>crosses its range in 2900ms</span></dd></div><div class="spec"><dt>Hitbox</dt><dd>48 × 30, flat tail<span>capsule</span></dd></div><div class="spec"><dt>Recovery</dt><dd>none<span>gates nothing else</span></dd></div><div class="spec"><dt>Lock-on</dt><dd>Yes<span>assists inside 400 units</span></dd></div><div class="spec"><dt>Inflicts</dt><dd>Spiked<span>3s · top speed −40%</span></dd></div></dl>
-       </div>
-       <footer class="wfoot">
-         <span class="swatch" style="background:#FFD800"></span>
-         Incoming Thumper draws in this colour — <code>#FFD800</code>. Every car firing it fires the same shade.
-       </footer>
-     </div></section>
-<section class="page weapon"><div class="wpn" style="--acc:#e8bf6b;--raw:#D89000">
-       <header class="phead"><span class="pnum">08 / 09</span>
-         <span class="owner">Bastion · Slot 2 — Mid</span></header>
-       <div class="hero">
-         <img src="art/weapon-icons/roadblock.png" alt="">
-         <div>
-           <h1>Roadblock</h1>
-           <p class="shape">Piercing bar · 120 units wide · no lock</p>
-           <p class="tagline">A wall on the move.</p>
-         </div>
-       </div>
-       <ul class="bars"><li><span class="bl">Damage</span><span class="bt"><i style="width:40%"></i></span><span class="bn">100 full connect</span></li><li><span class="bl">Rate</span><span class="bt"><i style="width:16.7%"></i></span><span class="bn">0.17 presses/s</span></li><li><span class="bl">Reach</span><span class="bt"><i style="width:27.8%"></i></span><span class="bn">500 units</span></li><li><span class="bl">Area</span><span class="bt"><i style="width:14.4%"></i></span><span class="bn">Bar, 120 × 12</span></li><li><span class="bl">Commitment</span><span class="bt"><i style="width:30.7%"></i></span><span class="bn">6.2s locked in</span></li></ul>
-       <div class="wbody">
-         <div class="prose">
-           <p>A 120-unit-wide bar that travels along its short axis and pierces everything in its path — up to five cars, every other player in the match, and the walls themselves: level geometry does not stop it. Everything it touches takes the hit and stops dead for a one-second stun.</p>
-           <p>Aim assist would be wasted here: a 120-unit face aims itself, wide enough to answer the same 'help the slowest chassis hit something' problem a lock used to solve, just by covering more ground. Line up two or three opponents and the whole line stops together — the roster's only hard CC that hits more than one car at once.</p>
-           <div class="tip"><b>Used properly</b><p>Fire it across a chokepoint or a doorway rather than at a single target — its width is the point. A crowd caught in it stops as one, which is exactly the moment Bastion's own slow chassis stops mattering. And nobody is safe behind cover: it stuns the camper through the wall they are hiding behind.</p></div>
-         </div>
-         <dl class="specs"><div class="spec"><dt>Damage</dt><dd>100<span>20% of an average car</span></dd></div><div class="spec"><dt>On Bastion</dt><dd>92<span>0.9× attack scale</span></dd></div><div class="spec"><dt>Recharge</dt><dd>6s<span>single stock</span></dd></div><div class="spec"><dt>Sustained</dt><dd>17 dps<span>if every press connects</span></dd></div><div class="spec"><dt>Reach</dt><dd>500<span>44% of the arena · 10.4 car lengths</span></dd></div><div class="spec"><dt>Speed</dt><dd>600 u/s<span>crosses its range in 833ms</span></dd></div><div class="spec"><dt>Hitbox</dt><dd>120 × 12<span>bar</span></dd></div><div class="spec"><dt>Pierce</dt><dd>5 cars<span>keeps going after the first</span></dd></div><div class="spec"><dt>Recovery</dt><dd>200ms<span>other slots locked</span></dd></div><div class="spec"><dt>Lock-on</dt><dd>No<span>fires down your nose</span></dd></div><div class="spec"><dt>Inflicts</dt><dd>Stunned<span>1s · total stop · no control</span></dd></div></dl>
-       </div>
-       <footer class="wfoot">
-         <span class="swatch" style="background:#D89000"></span>
-         Incoming Roadblock draws in this colour — <code>#D89000</code>. Every car firing it fires the same shade.
-       </footer>
-     </div></section>
-<section class="page weapon"><div class="wpn" style="--acc:#f6a36b;--raw:#F06000">
-       <header class="phead"><span class="pnum">09 / 09</span>
-         <span class="owner">Bastion · Slot 3 — Ultimate</span></header>
-       <div class="hero">
-         <img src="art/weapon-icons/wildcharge.png" alt="">
-         <div>
-           <h1>Wild Charge</h1>
-           <p class="shape">Charge · one hit ends it · no lock</p>
-           <p class="tagline">ten seconds of armor — 30% less damage taken — and intent.</p>
-         </div>
-       </div>
-       <ul class="bars"><li><span class="bl">Damage</span><span class="bt"><i style="width:100%"></i></span><span class="bn">250 full connect</span></li><li><span class="bl">Rate</span><span class="bt"><i style="width:5%"></i></span><span class="bn">0.05 presses/s</span></li><li><span class="bl">Reach</span><span class="bt"><i style="width:2%"></i></span><span class="bn">—</span></li><li><span class="bl">Area</span><span class="bt"><i style="width:14.9%"></i></span><span class="bn">Charge, car hull</span></li><li><span class="bl">Commitment</span><span class="bt"><i style="width:100%"></i></span><span class="bn">20.2s locked in</span></li></ul>
-       <div class="wbody">
-         <div class="prose">
-           <p>One press opens a ten-second window: you take 30% less damage for its length, and the car wears the charge outline the whole time. The first enemy hull you touch is hard-slammed for a fixed impulse plus 250 damage, and the window closes right there — one hit, then it is over.</p>
-           <p>It is the roster's only exemption from the stun interrupt: a stun still stops the car dead, but the armor and the charge state hold through it, because a state that cannot chain into anything else is safe to protect. Armor cuts what gets through, it does not stop it — this buys you a fight, not a free pass through one. Speed and range are both zero — a charge dashes nowhere, it only waits for the first car foolish enough to get close.</p>
-           <div class="tip"><b>Used properly</b><p>Press it before a fight, not during one — the ten seconds have to still be running when you make contact. Whoever you catch takes the hit, the slam, and loses the exchange before it starts; everyone else just watches you stand there, armored, until you find someone.</p></div>
-         </div>
-         <dl class="specs"><div class="spec"><dt>Damage</dt><dd>250<span>50% of an average car</span></dd></div><div class="spec"><dt>On Bastion</dt><dd>230<span>0.9× attack scale</span></dd></div><div class="spec"><dt>Recharge</dt><dd>20s<span>single stock</span></dd></div><div class="spec"><dt>Sustained</dt><dd>13 dps<span>if every press connects</span></dd></div><div class="spec"><dt>Reach</dt><dd>—<span>a charge dashes nowhere</span></dd></div><div class="spec"><dt>Speed</dt><dd>0 u/s<span>a charge dashes nowhere</span></dd></div><div class="spec"><dt>Hitbox</dt><dd>car hull<span>charge</span></dd></div><div class="spec"><dt>Recovery</dt><dd>200ms<span>other slots locked</span></dd></div><div class="spec"><dt>Lock-on</dt><dd>No<span>fires down your nose</span></dd></div><div class="spec"><dt>Grants you</dt><dd>Fortified<span>10s · damage taken −30%</span></dd></div></dl>
-       </div>
-       <footer class="wfoot">
-         <span class="swatch" style="background:#F06000"></span>
-         Incoming Wild Charge draws in this colour — <code>#F06000</code>. Every car firing it fires the same shade.
-       </footer>
-     </div></section>
-<section class="page compare"><header class="phead"><span class="pnum">At a glance</span><h2>All nine, side by side</h2></header>
-     <table class="grid">
-       <thead><tr>
-         <th>Weapon</th><th>Chassis</th><th>Slot</th><th>Type</th><th>Damage</th>
-         <th>Full connect</th><th>% of a car</th><th>Recharge</th><th>Reach</th><th>DPS</th><th>Lock</th>
-       </tr></thead>
-       <tbody><tr>
-      <td class="nm"><span class="dot" style="background:#FF6000"></span>Magma Blast</td>
-      <td>Mirage</td>
-      <td>1</td>
-      <td>Shot</td>
-      <td class="n">50</td>
-      <td class="n">50</td>
-      <td class="n">10%</td>
-      <td class="n">1.6s</td>
-      <td class="n">900</td>
-      <td class="n">31</td>
-      <td>Yes</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#3ED1FA"></span>Thunderclap</td>
-      <td>Mirage</td>
-      <td>2</td>
-      <td>Dash</td>
-      <td class="n">90</td>
-      <td class="n">90</td>
-      <td class="n">18%</td>
-      <td class="n">5s</td>
-      <td class="n">400</td>
-      <td class="n">18</td>
-      <td>Yes</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#FF9000"></span>Afterburner</td>
-      <td>Mirage</td>
-      <td>3</td>
-      <td>Beam</td>
-      <td class="n">49×5</td>
-      <td class="n">245</td>
-      <td class="n">49%</td>
-      <td class="n">13s</td>
-      <td class="n">220</td>
-      <td class="n">19</td>
-      <td>—</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#606060"></span>Predator</td>
-      <td>Bullseye</td>
-      <td>1</td>
-      <td>Shot</td>
-      <td class="n">30</td>
-      <td class="n">30</td>
-      <td class="n">6%</td>
-      <td class="n">1s</td>
-      <td class="n">1800</td>
-      <td class="n">30</td>
-      <td>Yes</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#C04818"></span>Pepperbox</td>
-      <td>Bullseye</td>
-      <td>2</td>
-      <td>Shot</td>
-      <td class="n">45×3</td>
-      <td class="n">135</td>
-      <td class="n">27%</td>
-      <td class="n">1.8s</td>
-      <td class="n">600</td>
-      <td class="n">75</td>
-      <td>—</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#F0FF00"></span>Lance</td>
-      <td>Bullseye</td>
-      <td>3</td>
-      <td>Beam</td>
-      <td class="n">43×4</td>
-      <td class="n">172</td>
-      <td class="n">34%</td>
-      <td class="n">16s</td>
-      <td class="n">1200</td>
-      <td class="n">10</td>
-      <td>—</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#FFD800"></span>Thumper</td>
-      <td>Bastion</td>
-      <td>1</td>
-      <td>Shot</td>
-      <td class="n">60</td>
-      <td class="n">60</td>
-      <td class="n">12%</td>
-      <td class="n">3s</td>
-      <td class="n">1305</td>
-      <td class="n">20</td>
-      <td>Yes</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#D89000"></span>Roadblock</td>
-      <td>Bastion</td>
-      <td>2</td>
-      <td>Shot</td>
-      <td class="n">100</td>
-      <td class="n">100</td>
-      <td class="n">20%</td>
-      <td class="n">6s</td>
-      <td class="n">500</td>
-      <td class="n">17</td>
-      <td>—</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#F06000"></span>Wild Charge</td>
-      <td>Bastion</td>
-      <td>3</td>
-      <td>Charge</td>
-      <td class="n">250</td>
-      <td class="n">250</td>
-      <td class="n">50%</td>
-      <td class="n">20s</td>
-      <td class="n">—</td>
-      <td class="n">13</td>
-      <td>—</td>
-    </tr></tbody>
-     </table>
-     <p class="note">“Full connect” is everything one press can land on a single car. “% of a car” is
-       that figure against an average 500 HP hull, before your chassis's attack scale. “DPS”
-       assumes every press connects in full and counts wind-up, burst and recharge.</p>
-     <h3 class="sub">Damage per press, ranked</h3>
-     <ul class="rank"><li>
-           <span class="rn">Wild Charge</span>
-           <span class="rt"><i style="width:100%;background:#f38033"></i></span>
-           <span class="rv">250</span>
-           <span class="rp">50% of a car</span>
-         </li><li>
-           <span class="rn">Afterburner</span>
-           <span class="rt"><i style="width:98%;background:#ffa633"></i></span>
-           <span class="rv">245</span>
-           <span class="rp">49% of a car</span>
-         </li><li>
-           <span class="rn">Lance</span>
-           <span class="rt"><i style="width:68.8%;background:#f3ff33"></i></span>
-           <span class="rv">172</span>
-           <span class="rp">34% of a car</span>
-         </li><li>
-           <span class="rn">Pepperbox</span>
-           <span class="rt"><i style="width:54%;background:#cd6d46"></i></span>
-           <span class="rv">135</span>
-           <span class="rp">27% of a car</span>
-         </li><li>
-           <span class="rn">Roadblock</span>
-           <span class="rt"><i style="width:40%;background:#e0a633"></i></span>
-           <span class="rv">100</span>
-           <span class="rp">20% of a car</span>
-         </li><li>
-           <span class="rn">Thunderclap</span>
-           <span class="rt"><i style="width:36%;background:#65dafb"></i></span>
-           <span class="rv">90</span>
-           <span class="rp">18% of a car</span>
-         </li><li>
-           <span class="rn">Thumper</span>
-           <span class="rt"><i style="width:24%;background:#ffe033"></i></span>
-           <span class="rv">60</span>
-           <span class="rp">12% of a car</span>
-         </li><li>
-           <span class="rn">Magma Blast</span>
-           <span class="rt"><i style="width:20%;background:#ff8033"></i></span>
-           <span class="rv">50</span>
-           <span class="rp">10% of a car</span>
-         </li><li>
-           <span class="rn">Predator</span>
-           <span class="rt"><i style="width:12%;background:#808080"></i></span>
-           <span class="rv">30</span>
-           <span class="rp">6% of a car</span>
-         </li></ul>
-     <p class="note">Full connect, before any chassis's attack scale. The top three bars are the
-       three ultimates — and also the three longest waits.</p>
-     <div class="palette">
-       <h3>Read the colour, know the shot</h3>
-       <div class="swatches"><div><b>Mirage</b><span><i style="background:#FF6000"></i>Magma Blast <code>#FF6000</code></span><span><i style="background:#3ED1FA"></i>Thunderclap <code>#3ED1FA</code></span><span><i style="background:#FF9000"></i>Afterburner <code>#FF9000</code></span></div><div><b>Bullseye</b><span><i style="background:#606060"></i>Predator <code>#606060</code></span><span><i style="background:#C04818"></i>Pepperbox <code>#C04818</code></span><span><i style="background:#F0FF00"></i>Lance <code>#F0FF00</code></span></div><div><b>Bastion</b><span><i style="background:#FFD800"></i>Thumper <code>#FFD800</code></span><span><i style="background:#D89000"></i>Roadblock <code>#D89000</code></span><span><i style="background:#F06000"></i>Wild Charge <code>#F06000</code></span></div></div>
-       <p class="note">Shot colour is per weapon, never per player — the car wearing your enemy's
-         colour is the thing on screen. Colour answers <i>who is shooting</i>; shape answers
-         <i>what is coming</i>.</p>
-     </div></section>
-<section class="page ceilings"><header class="phead"><span class="pnum">At a glance</span><h2>Ceilings and costs</h2></header>
-     <h3 class="sub">Presses to wreck</h3>
-     <table class="grid tight">
-       <thead><tr><th>Weapon</th><th class="n">vs Mirage<span>700 HP</span></th><th class="n">vs Bullseye<span>650 HP</span></th><th class="n">vs Bastion<span>900 HP</span></th><th class="n">Per press</th><th>Firing from</th></tr></thead>
-       <tbody><tr>
-      <td class="nm"><span class="dot" style="background:#FF6000"></span>Magma Blast</td>
-      <td class="n">13</td><td class="n">12</td><td class="n">16</td>
-      <td class="n">57</td>
-      <td>Mirage</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#3ED1FA"></span>Thunderclap</td>
-      <td class="n">7</td><td class="n">7</td><td class="n">9</td>
-      <td class="n">102</td>
-      <td>Mirage</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#FF9000"></span>Afterburner</td>
-      <td class="n">3</td><td class="n">3</td><td class="n">4</td>
-      <td class="n">275</td>
-      <td>Mirage</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#606060"></span>Predator</td>
-      <td class="n">22</td><td class="n">21</td><td class="n">29</td>
-      <td class="n">32</td>
-      <td>Bullseye</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#C04818"></span>Pepperbox</td>
-      <td class="n">5</td><td class="n">5</td><td class="n">7</td>
-      <td class="n">141</td>
-      <td>Bullseye</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#F0FF00"></span>Lance</td>
-      <td class="n">4</td><td class="n">4</td><td class="n">5</td>
-      <td class="n">180</td>
-      <td>Bullseye</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#FFD800"></span>Thumper</td>
-      <td class="n">13</td><td class="n">12</td><td class="n">17</td>
-      <td class="n">55</td>
-      <td>Bastion</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#D89000"></span>Roadblock</td>
-      <td class="n">8</td><td class="n">8</td><td class="n">10</td>
-      <td class="n">92</td>
-      <td>Bastion</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#F06000"></span>Wild Charge</td>
-      <td class="n">4</td><td class="n">3</td><td class="n">4</td>
-      <td class="n">230</td>
-      <td>Bastion</td>
-    </tr></tbody>
-     </table>
-     <p class="note">Presses needed if every one of them connects in full, at the damage its own
-       chassis actually deals. A real fight is never this tidy — treat these as the ceiling, not the plan.</p>
-     <h3 class="sub">What a press costs you</h3>
-     <table class="grid tight">
-       <thead><tr>
-         <th>Weapon</th><th class="n">Wind-up</th><th class="n">Burst</th><th class="n">Recovery</th>
-         <th class="n">Recharge</th><th class="n">Full cycle</th><th>Stock</th>
-       </tr></thead>
-       <tbody><tr>
-      <td class="nm"><span class="dot" style="background:#FF6000"></span>Magma Blast</td>
-      <td class="n">—</td>
-      <td class="n">—</td>
-      <td class="n">—</td>
-      <td class="n">1.6s</td>
-      <td class="n">1.6s</td>
-      <td>—</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#3ED1FA"></span>Thunderclap</td>
-      <td class="n">—</td>
-      <td class="n">—</td>
-      <td class="n">200ms</td>
-      <td class="n">5s</td>
-      <td class="n">5s</td>
-      <td>—</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#FF9000"></span>Afterburner</td>
-      <td class="n">—</td>
-      <td class="n">—</td>
-      <td class="n">200ms</td>
-      <td class="n">13s</td>
-      <td class="n">13s</td>
-      <td>—</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#606060"></span>Predator</td>
-      <td class="n">—</td>
-      <td class="n">—</td>
-      <td class="n">—</td>
-      <td class="n">1s</td>
-      <td class="n">1s</td>
-      <td>—</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#C04818"></span>Pepperbox</td>
-      <td class="n">—</td>
-      <td class="n">—</td>
-      <td class="n">200ms</td>
-      <td class="n">1.8s</td>
-      <td class="n">1.8s</td>
-      <td>—</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#F0FF00"></span>Lance</td>
-      <td class="n">700ms</td>
-      <td class="n">—</td>
-      <td class="n">1000ms</td>
-      <td class="n">16s</td>
-      <td class="n">16.7s</td>
-      <td>—</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#FFD800"></span>Thumper</td>
-      <td class="n">—</td>
-      <td class="n">—</td>
-      <td class="n">—</td>
-      <td class="n">3s</td>
-      <td class="n">3s</td>
-      <td>—</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#D89000"></span>Roadblock</td>
-      <td class="n">—</td>
-      <td class="n">—</td>
-      <td class="n">200ms</td>
-      <td class="n">6s</td>
-      <td class="n">6s</td>
-      <td>—</td>
-    </tr><tr>
-      <td class="nm"><span class="dot" style="background:#F06000"></span>Wild Charge</td>
-      <td class="n">—</td>
-      <td class="n">—</td>
-      <td class="n">200ms</td>
-      <td class="n">20s</td>
-      <td class="n">20s</td>
-      <td>—</td>
-    </tr></tbody>
-     </table>
-     <p class="note">Wind-up is before the shot, recovery locks your <i>other</i> slots, and the
-       recharge only starts at the press's last shot — which is why the full cycle is the honest number.</p></section></body></html>
+<nav class="jump"><a href="#car-mirage">Mirage</a><a href="#car-bullseye">Bullseye</a><a href="#car-bastion">Bastion</a><a href="#effects">Effects</a></nav>
+<main>
+  <section id="cars">
+    <h2>Cars</h2>
+    <p class="secnote">Ratings are 0-100 and the figure beside each one is what it buys.
+      Weapon damage is what THAT chassis deals — its Attack rating is already in the number.
+      A row a weapon has no answer for is left out rather than printed empty.</p>
+    <section class="car" id="car-mirage">
+    <header class="carhead">
+      <img src="art/cars/mirage.png" alt="">
+      <div>
+        <h3>Mirage</h3>
+        <p>The fastest chassis and the thinnest hull. Two of its three weapons only reach at contact range, so it has to arrive, land the kit, and leave.</p>
+      </div>
+    </header>
+    <ul class="ratings"><li><span class="bl">Speed</span><span class="bt"><i style="width:85%"></i></span><span class="bv">85</span><span class="bn">189 u/s top</span></li><li><span class="bl">Acceleration</span><span class="bt"><i style="width:85%"></i></span><span class="bv">85</span><span class="bn">179 u/s² · 1.06s to top</span></li><li><span class="bl">Handling</span><span class="bt"><i style="width:85%"></i></span><span class="bv">85</span><span class="bn">8.19 rad/s · 23u turn radius</span></li><li><span class="bl">Attack</span><span class="bt"><i style="width:63%"></i></span><span class="bv">63</span><span class="bn">1.13× weapon damage</span></li><li><span class="bl">HP</span><span class="bt"><i style="width:70%"></i></span><span class="bv">70</span><span class="bn">700 hull</span></li><li><span class="bl">Ram power</span><span class="bt"><i style="width:55%"></i></span><span class="bv">55</span><span class="bn">how hard it shoves</span></li><li><span class="bl">Ram resistance</span><span class="bt"><i style="width:50%"></i></span><span class="bv">50</span><span class="bn">how hard it is to shove</span></li></ul>
+    <div class="weapons"><article class="weapon" style="--acc:#ffa36b">
+    <header>
+      <img src="art/weapon-icons/magmablast.png" alt="">
+      <div>
+        <h4>Magma Blast</h4>
+        <span class="slot">Slot 1</span>
+      </div>
+    </header>
+    <p class="line">A fast bolt that leaves a corroding field wherever it dies.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Single bolt, 24 across</dd></div><div class="row"><dt>Damage</dt><dd>57 direct · 17 blast</dd></div><div class="row"><dt>Cooldown</dt><dd>1.6s</dd></div><div class="row"><dt>Range</dt><dd>900 <span class="sub">80% of the arena</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-corroded">Corroded <b>2s</b><i>from the blast</i></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Lock-on within 400</li><li>Explodes where it dies — 60 radius, 2s field, hits again if you re-enter</li></ul></dd></div></dl>
+  </article><article class="weapon" style="--acc:#8fe4fc">
+    <header>
+      <img src="art/weapon-icons/thunderclap.png" alt="">
+      <div>
+        <h4>Thunderclap</h4>
+        <span class="slot">Slot 2</span>
+      </div>
+    </header>
+    <p class="line">A lunge that ends the fight where it lands.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Dash</dd></div><div class="row"><dt>Damage</dt><dd>102</dd></div><div class="row"><dt>Cooldown</dt><dd>5s</dd></div><div class="row"><dt>Range</dt><dd>400 <span class="sub">how far you lunge</span></dd></div><div class="row"><dt>Recovery</dt><dd>200ms <span class="sub">your other slots are locked</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-stunned">Stunned <b>1s</b></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Lock-on within 400</li></ul></dd></div></dl>
+  </article><article class="weapon" style="--acc:#ffbf6b">
+    <header>
+      <img src="art/weapon-icons/afterburner.png" alt="">
+      <div>
+        <h4>Afterburner</h4>
+        <span class="slot">Slot 3</span>
+      </div>
+    </header>
+    <p class="line">Flame cones off the nose and the tail at once.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Cone, 55° arc × 2 muzzles</dd></div><div class="row"><dt>Damage</dt><dd>55 per tick · 275 over 5 ticks</dd></div><div class="row"><dt>Cooldown</dt><dd>13s</dd></div><div class="row"><dt>Range</dt><dd>220 <span class="sub">19% of the arena</span></dd></div><div class="row"><dt>Lifetime</dt><dd>2.2s <span class="sub">grows for 200ms, then lingers</span></dd></div><div class="row"><dt>Recovery</dt><dd>200ms <span class="sub">your other slots are locked</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-overheated">Overheated <b>1.5s</b></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Rides your car and dies with you</li></ul></dd></div></dl>
+  </article></div>
+  </section>
+<section class="car" id="car-bullseye">
+    <header class="carhead">
+      <img src="art/cars/bullseye.png" alt="">
+      <div>
+        <h3>Bullseye</h3>
+        <p>The longest reach in the game, paid for with the lightest hull on the grid. Only its opener takes the lock — the other two ask you to aim.</p>
+      </div>
+    </header>
+    <ul class="ratings"><li><span class="bl">Speed</span><span class="bt"><i style="width:65%"></i></span><span class="bv">65</span><span class="bn">159 u/s top</span></li><li><span class="bl">Acceleration</span><span class="bt"><i style="width:45%"></i></span><span class="bv">45</span><span class="bn">123 u/s² · 1.29s to top</span></li><li><span class="bl">Handling</span><span class="bt"><i style="width:65%"></i></span><span class="bv">65</span><span class="bn">7.11 rad/s · 22u turn radius</span></li><li><span class="bl">Attack</span><span class="bt"><i style="width:55%"></i></span><span class="bv">55</span><span class="bn">1.05× weapon damage</span></li><li><span class="bl">HP</span><span class="bt"><i style="width:65%"></i></span><span class="bv">65</span><span class="bn">650 hull</span></li><li><span class="bl">Ram power</span><span class="bt"><i style="width:45%"></i></span><span class="bv">45</span><span class="bn">how hard it shoves</span></li><li><span class="bl">Ram resistance</span><span class="bt"><i style="width:30%"></i></span><span class="bv">30</span><span class="bn">how hard it is to shove</span></li></ul>
+    <div class="weapons"><article class="weapon" style="--acc:#a3a3a3">
+    <header>
+      <img src="art/weapon-icons/predator.png" alt="">
+      <div>
+        <h4>Predator</h4>
+        <span class="slot">Slot 1</span>
+      </div>
+    </header>
+    <p class="line">Fired blind — it picks its target after it is already in the air.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Single slug, 38 × 12, flat tail</dd></div><div class="row"><dt>Damage</dt><dd>32</dd></div><div class="row"><dt>Cooldown</dt><dd>1s</dd></div><div class="row"><dt>Range</dt><dd>1800 <span class="sub">159% of the arena</span></dd></div><div class="row"><dt>Lifetime</dt><dd>2s</dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Lock-on within 800</li><li>Homes on anything within 200 of the shot</li></ul></dd></div></dl>
+  </article><article class="weapon" style="--acc:#da9579">
+    <header>
+      <img src="art/weapon-icons/pepperbox.png" alt="">
+      <div>
+        <h4>Pepperbox</h4>
+        <span class="slot">Slot 2</span>
+      </div>
+    </header>
+    <p class="line">Darts out of every side at once. The panic button.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>4 muzzles × 3-dart fan, 12° spread — 12 out, 3 can hit one car</dd></div><div class="row"><dt>Damage</dt><dd>47 per pellet · 141 if all 3 land</dd></div><div class="row"><dt>Cooldown</dt><dd>1.8s</dd></div><div class="row"><dt>Range</dt><dd>600 <span class="sub">53% of the arena</span></dd></div><div class="row"><dt>Recovery</dt><dd>200ms <span class="sub">your other slots are locked</span></dd></div></dl>
+  </article><article class="weapon" style="--acc:#f6ff6b">
+    <header>
+      <img src="art/weapon-icons/lance.png" alt="">
+      <div>
+        <h4>Lance</h4>
+        <span class="slot">Slot 3</span>
+      </div>
+    </header>
+    <p class="line">Held in place, then sweep the beam across the line.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Beam, 57.5 wide</dd></div><div class="row"><dt>Damage</dt><dd>45 per tick · 180 over 4 ticks</dd></div><div class="row"><dt>Cooldown</dt><dd>16s</dd></div><div class="row"><dt>Range</dt><dd>1200 <span class="sub">106% of the arena</span></dd></div><div class="row"><dt>Lifetime</dt><dd>1.7s <span class="sub">grows for 200ms, then lingers</span></dd></div><div class="row"><dt>Windup</dt><dd>700ms <span class="sub">21 ticks, and you are visible</span></dd></div><div class="row"><dt>Recovery</dt><dd>1000ms <span class="sub">your other slots are locked</span></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Holds you in place — steering still works</li><li>Rides your car and dies with you</li></ul></dd></div></dl>
+  </article></div>
+  </section>
+<section class="car" id="car-bastion">
+    <header class="carhead">
+      <img src="art/cars/bastion.png" alt="">
+      <div>
+        <h3>Bastion</h3>
+        <p>The slowest chassis and the biggest hull. It cannot chase you, so it stops you instead: two of its three weapons stun or slam.</p>
+      </div>
+    </header>
+    <ul class="ratings"><li><span class="bl">Speed</span><span class="bt"><i style="width:50%"></i></span><span class="bv">50</span><span class="bn">136 u/s top</span></li><li><span class="bl">Acceleration</span><span class="bt"><i style="width:20%"></i></span><span class="bv">20</span><span class="bn">88 u/s² · 1.54s to top</span></li><li><span class="bl">Handling</span><span class="bt"><i style="width:50%"></i></span><span class="bv">50</span><span class="bn">6.3 rad/s · 22u turn radius</span></li><li><span class="bl">Attack</span><span class="bt"><i style="width:42%"></i></span><span class="bv">42</span><span class="bn">0.92× weapon damage</span></li><li><span class="bl">HP</span><span class="bt"><i style="width:90%"></i></span><span class="bv">90</span><span class="bn">900 hull</span></li><li><span class="bl">Ram power</span><span class="bt"><i style="width:70%"></i></span><span class="bv">70</span><span class="bn">how hard it shoves</span></li><li><span class="bl">Ram resistance</span><span class="bt"><i style="width:90%"></i></span><span class="bv">90</span><span class="bn">how hard it is to shove</span></li></ul>
+    <div class="weapons"><article class="weapon" style="--acc:#ffe86b">
+    <header>
+      <img src="art/weapon-icons/thumper.png" alt="">
+      <div>
+        <h4>Thumper</h4>
+        <span class="slot">Slot 1</span>
+      </div>
+    </header>
+    <p class="line">A bouncing slug, the biggest projectile in the game.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Single slug, 48 × 30, flat tail</dd></div><div class="row"><dt>Damage</dt><dd>55</dd></div><div class="row"><dt>Cooldown</dt><dd>3s</dd></div><div class="row"><dt>Range</dt><dd>1305 <span class="sub">115% of the arena</span></dd></div><div class="row"><dt>Lifetime</dt><dd>2.9s</dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-spiked">Spiked <b>3s</b></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Lock-on within 400</li><li>Bounces off walls</li></ul></dd></div></dl>
+  </article><article class="weapon" style="--acc:#e8bf6b">
+    <header>
+      <img src="art/weapon-icons/roadblock.png" alt="">
+      <div>
+        <h4>Roadblock</h4>
+        <span class="slot">Slot 2</span>
+      </div>
+    </header>
+    <p class="line">A wall on the move. It stuns through cover.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Single bar, 120 wide, 12 thick</dd></div><div class="row"><dt>Damage</dt><dd>92</dd></div><div class="row"><dt>Cooldown</dt><dd>6s</dd></div><div class="row"><dt>Range</dt><dd>500 <span class="sub">44% of the arena</span></dd></div><div class="row"><dt>Recovery</dt><dd>200ms <span class="sub">your other slots are locked</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-stunned">Stunned <b>1s</b></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Flies through walls</li><li>Pierces 5 cars</li></ul></dd></div></dl>
+  </article><article class="weapon" style="--acc:#f6a36b">
+    <header>
+      <img src="art/weapon-icons/wildcharge.png" alt="">
+      <div>
+        <h4>Wild Charge</h4>
+        <span class="slot">Slot 3</span>
+      </div>
+    </header>
+    <p class="line">Armor up, then hard-slam the first car you touch.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Charge</dd></div><div class="row"><dt>Damage</dt><dd>230</dd></div><div class="row"><dt>Cooldown</dt><dd>20s</dd></div><div class="row"><dt>Recovery</dt><dd>200ms <span class="sub">your other slots are locked</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-buff" href="#fx-fortified">Fortified <b>10s</b><i>on you</i></a><a class="fx fx-debuff" href="#fx-stunned">Stunned <b>0.5s</b><i>slammed into a wall</i></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>A stun cannot cancel it</li><li>Knocks back at 520 u/s</li><li>Armed for 10s or until it lands</li><li>Slams a stunned car too</li></ul></dd></div></dl>
+  </article></div>
+  </section>
+  </section>
+  <section class="effects" id="effects">
+    <h2>Effects</h2>
+    <p class="secnote">A car is never in the same effect twice — a second application refreshes the
+      clock rather than stacking. Durations are set by whatever applied it, not by the effect.</p>
+    <div class="effectgrid"><article class="effect" id="fx-overheated" style="--acc:#e99574">
+      <h4>Overheated <span class="kind">debuff</span></h4>
+      <p class="does">8 hp per 0.4s</p>
+      <p class="from"><span>From</span> Afterburner 1.5s</p>
+    </article><article class="effect" id="fx-corroded" style="--acc:#aed678">
+      <h4>Corroded <span class="kind">debuff</span></h4>
+      <p class="does">damage taken +30%</p>
+      <p class="from"><span>From</span> Magma Blast 2s (from the blast)</p>
+    </article><article class="effect" id="fx-stunned" style="--acc:#91a5f3">
+      <h4>Stunned <span class="kind">debuff</span></h4>
+      <p class="does">total stop · no control · no steering · cannot fire</p>
+      <p class="from"><span>From</span> Thunderclap 1s · Roadblock 1s · Wild Charge 0.5s (slammed into a wall)</p>
+    </article><article class="effect" id="fx-spiked" style="--acc:#72b8c4">
+      <h4>Spiked <span class="kind">debuff</span></h4>
+      <p class="does">top speed −40%</p>
+      <p class="from"><span>From</span> Thumper 3s</p>
+    </article><article class="effect" id="fx-fortified" style="--acc:#7aaddc">
+      <h4>Fortified <span class="kind">buff</span></h4>
+      <p class="does">damage taken −30%</p>
+      <p class="from"><span>From</span> Wild Charge 10s (on yourself)</p>
+    </article><article class="effect" id="fx-phased" style="--acc:#98cefa">
+      <h4>Phasing <span class="kind">buff</span></h4>
+      <p class="does">cannot be hit or rammed</p>
+      <p class="from"><span>From</span> The moment after you respawn in Deathmatch.</p>
+    </article><article class="effect" id="fx-reeling" style="--acc:#f29f72">
+      <h4>Reeling <span class="kind">debuff</span></h4>
+      <p class="does">steering −60% · acceleration −60%</p>
+      <p class="from"><span>From</span> Every ram, and Wild Charge's slam.</p>
+    </article></div>
+  </section>
+</main></body></html>

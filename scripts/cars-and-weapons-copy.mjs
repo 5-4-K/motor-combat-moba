@@ -3,274 +3,74 @@
  * `WEAPON_TABLE`. Numbers never live here — `build-cars-and-weapons.mjs` reads every stat from
  * built shared, so a balance edit reprints the manual correctly without touching this file.
  *
- * **That rule now covers the SENTENCES too, and did not always.** The stat cells were generated from
+ * **That rule covers the SENTENCES too, and did not always.** The stat cells were generated from
  * the start; the prose quoted figures by hand, and three of them had gone wrong by 2026-09-04 —
  * predator claiming a 300 ms recharge against a table reading 1000, afterburner claiming five damage
  * ticks a second against a `damageFrequencyMs` of 500, and a chassis note citing a full-connect
  * number that appears nowhere on the page. `balanceStamp` cannot catch that: it hashes this file, so
  * it only asks "was the page rebuilt from this text", never "is this text true".
  *
- * So write `{predator.acquireRadius}`, not `200`. Tokens are defined in `manual-facts.mjs`, derived
- * from the tables; `{token:words}` spells small whole numbers out ("two") where that reads better.
- * An unknown token fails the build, and `manual-facts.test.mjs` fails if a token's current value is
- * typed as a literal here instead.
+ * So write `{roster.slotsPerCar}`, not `3`. Tokens are defined in `manual-facts.mjs`, derived from
+ * the tables; `{token:words}` spells small whole numbers out ("three"). An unknown token fails the
+ * build, and `manual-facts.test.mjs` fails if a token's current value is typed as a literal here
+ * instead.
  *
- * Prose is sourced from `docs/superpowers/specs/2026-08-29-weapon-roster-design.md` and rewritten
- * for players rather than for reviewers.
+ * **One line each, and no more.** The 2026-09-17 restructure cut this file from a magazine to a
+ * caption track: the page is a stat sheet now, and every figure on it is generated. A sentence here
+ * exists only to say the thing the numbers cannot — what the weapon is *for*. If a line you are
+ * tempted to add restates a stat the page already prints beside it, the page already says it.
  */
 
 export const MANUAL_META = {
   title: "Motor Combat",
-  // Not "Weapon Dossier" any more: the book covers the three chassis as well, and each chassis
-  // page introduces the kit that follows it.
   subtitle: "Cars & Weapons",
-  blurb:
-    "{roster.weapons:words} weapons. {roster.chassis:words} chassis. No sharing. Pick a car and " +
-    "you have picked all three of your " +
-    "guns — this is what each one of them does, and what it is for.",
 };
 
+/** One line per chassis: what it is, not how it plays. The stats below it answer the rest. */
 export const CHASSIS_COPY = {
   mirage: {
-    codename: "The Runner",
-    theme: "Your driving is your aim.",
-    body:
-      // NOT "hits hardest per press": Bastion's Bulwark (the old titleholder) is retired, and
-      // Afterburner — Mirage's OWN weapon — is near the top of the full-connect ranking at 245,
-      // though NOT top of it: Wildcharge's 250 edges it, and Tremor ties at 250 (uncarried today).
-      // The claim stays conditional rather than flat, because 245 needs all five damage ticks of
-      // the 2.2s burn held on one target; Mirage's damage is real but conditional either way.
-      // A single cone is ~38% of Bullseye's 650 hp, so "most of a car's HP" below is the KIT over a
-      // few seconds — Afterburner plus a Thunderclap and a Magma Blast — not one press of this.
-      "The fastest thing on the map, and the one that turns a few seconds of contact into most of " +
-      "a car's HP — but only for as " +
-      "long as it is beside you. Two of its {roster.slotsPerCar:words} weapons hug the chassis, so " +
-      "Mirage has to pick a " +
-      "moment, arrive, and finish. It has the hull of a car that never planned to stay.",
-    beats: "Closes on Bullseye before its wind-ups can resolve.",
-    losesTo: "Bastion. Mirage must come close to use its kit, and close is where Bastion lives.",
+    line:
+      "The fastest chassis and the thinnest hull. Two of its {roster.slotsPerCar:words} weapons " +
+      "only reach at contact range, so it has to arrive, land the kit, and leave.",
   },
   bullseye: {
-    codename: "The Gunner",
-    theme: "Reach and precision, punished hard when caught.",
-    body:
-      "A glass cannon that wants never to be touched. It carries the longest straight-line reach " +
-      "in the game and two mid-range answers underneath it, though only its opener takes the lock " +
-      "— the other two ask you to aim yourself. It has the thinnest hull on the grid to pay for it.",
-    beats: "Kites Bastion forever; it can never close the speed gap.",
-    losesTo: "Mirage, which arrives before you have finished winding up.",
+    line:
+      "The longest reach in the game, paid for with the lightest hull on the grid. Only its opener " +
+      "takes the lock — the other two ask you to aim.",
   },
   bastion: {
-    // NOT "The Bastion". The codename is printed right after the chassis name — "Bastion — The
-    // Bastion" on the chassis page and again under the cover triangle — so it has to be a different
-    // word from the name it sits beside. An anvil is the thing you bring the work to rather than
-    // the thing that chases it, which is this chassis's whole argument. Checked against the other
-    // two: "The Runner" and "The Gunner" collide with neither Mirage nor Bullseye.
-    codename: "The Anvil",
-    theme: "It cannot chase — so it makes you come to it.",
-    body:
-      // NOT "the only hard crowd control in the game": `thunderclap` (Mirage's dash) applies
-      // `stunned` too, the same 1000ms as roadblock — CC is not exclusive to this chassis any more.
-      // What IS true, and what the claim below rests on instead, is the kit's own shape: two of
-      // Bastion's three weapons (`roadblock`, `wildcharge`) stun or slam a car to a stop; `thumper`
-      // only slows one. NOT "the longest crowd control" either: `fortified` (10000ms, wildcharge's
-      // own self-buff) and `spiked` (3000ms, thumper's own rider) both outlast roadblock's 1000ms
-      // stun. The claim is about kind and count on this chassis, not duration or exclusivity.
-      "The slowest chassis and the biggest hull, built around stopping people rather than catching " +
-      "them — two of its {roster.slotsPerCar:words} weapons stun or slam a car to a dead stop. " +
-      "Bastion does not catch " +
-      "anybody: it stops them, slams them, and denies the ground they wanted. That is the only " +
-      "currency a car that cannot reposition has.",
-    beats: "Mirage, the moment it commits to contact range.",
-    losesTo: "Bullseye, which simply refuses to come within reach.",
+    line:
+      "The slowest chassis and the biggest hull. It cannot chase you, so it stops you instead: two " +
+      "of its {roster.slotsPerCar:words} weapons stun or slam.",
   },
 };
 
-export const SLOT_ROLES = [
-  { name: "Go-to", line: "Fills every gap. Never gates anything else you carry." },
-  { name: "Mid", line: "A real burst, with a real aiming or positioning condition." },
-  { name: "Ultimate", line: "A commitment. Used properly, it wins the fight." },
-];
-
-// Prose for the current roster, in two layers of history. The 2026-09-01 weapon-status overhaul
-// retired `fireball`, `needler`, `skewer` and `bulwark` outright (their copy history lives in git);
-// redefined `magmablast` (originally `shockwave`) from the retired Mirage aura into a plain fast
-// dart on Bullseye's slot 1; added `predator`, `thunderclap`, `roadblock` and `wildcharge`; and gave
-// `afterburner`, `pepperbox`, `lance` and `thumper` new behaviour (two-cone afterburner, four-muzzle
-// pepperbox, held-and-steered lance, a bouncing spiking thumper) under their old ids. The
-// 2026-09-02 predator/magmablast pass then swapped the two between chassis and redesigned both:
-// `magmablast` moved to **Mirage's** slot 1 and picked up an `ExplosionDef` — it now detonates on
-// death into a corroding blast, reviving the aura mechanism the first rename had left dormant.
-// `predator` moved to **Bullseye's** slot 1 and lost its lock-frozen homing and `corroded` rider for
-// a proximity seeker that flies blind until something wanders close.
+/** One line per weapon. What it is for — the stat list under it covers what it does. */
 export const WEAPON_COPY = {
-  predator: {
-    tagline: "It picks its target after it's already in the air.",
-    shape: "Proximity-seeking missile · locks on",
-    what:
-      "It leaves the muzzle with no target at all — fired at your lock like anything else in this " +
-      "slot, but blind to who is actually out there once it's away. The instant an enemy car drifts " +
-      "within {predator.acquireRadius} units of the shot itself, it locks onto them and won't let " +
-      "go for the rest of its {predator.lifeSec:words}-second life, curling a tight turn to stay " +
-      "on their line. A hit is a hit — nothing rides along with the damage.",
-    how:
-      "A {predator.cooldownSec}-second recharge against a {predator.lifeSec:words}-second " +
-      "flight time means up to {predator.inFlight:words} of these can be in the air from one car at " +
-      "once, each one hunting on its own. It carries no real range, only a life span, so a shot " +
-      "that finds nobody simply runs out rather than travelling on.",
-    tip:
-      "Fire into a group rather than at one target — whichever car wanders inside {predator.acquireRadius} units of any " +
-      "shot already in flight is the one that eats it. One press will not close out a fight on its " +
-      "own; follow it with Pepperbox or Lance rather than expecting it to do the work alone.",
-  },
-  thunderclap: {
-    tagline: "A lunge that ends the fight where it lands.",
-    shape: "Dash · hits the first car it touches · locks on",
-    what:
-      "A {thunderclap.dashUnits}-unit lunge toward the lock, covering the distance in well under a second. The first " +
-      "enemy hull it touches takes the hit and stops dead — a {thunderclap.stunSec:words}-second stun — and the " +
-      "dash ends right there, on top of them. A wall ends it just as hard, with nothing to show for " +
-      "it.",
-    how:
-      "Only the first car it touches matters: a dash that clips two cars in the same tick still " +
-      "only hits one. That is the whole trade of a maneuver weapon — no instance to dodge, no " +
-      "travel time to react to, just whether you are still there when it lands.",
-    tip:
-      "Use it to close, not to open from range — it is not a ranged threat, it is the last few " +
-      "metres. Landing it stuns them right as you arrive, which is exactly when Afterburner wants " +
-      "them held still.",
-  },
-  afterburner: {
-    tagline: "The same flame, now pouring from both ends.",
-    shape: "Flame cone · welded to your nose and tail · ticks",
-    what:
-      "Two mirrored cones, one off the nose and one off the tail, burning everything inside either " +
-      "of them {afterburner.ticksPerSec:words} times a second for {afterburner.burnSec} seconds. It sweeps as you steer, and both " +
-      "cones die the instant you do.",
-    how:
-      "The per-cone numbers are unchanged from a single flame; the ceiling only doubles against a " +
-      "target somehow held in both cones at once, which in practice means someone chasing you " +
-      "through your own exhaust. Recovery is tiny on purpose — the beam lives on its own once " +
-      "spawned, so you stay free to keep firing Magma Blast into a target that is already burning.",
-    tip:
-      "Press it when you are on somebody's bumper, or when somebody is on yours. No other chassis " +
-      "can catch a fleeing car, and now nothing catches Mirage either — the tail cone overheats " +
-      "whoever tries.",
-  },
-  magmablast: {
-    tagline: "It doesn't stop working when it lands.",
-    shape: "Explosive bolt · locks on",
-    what:
-      "A fast, straight bolt, and Mirage's bread and butter — except it no longer stops at the " +
-      "hit. Whatever kills the shot, a car, a wall, the arena edge, or its own reach running out, " +
-      "leaves a {magmablast.blastRadius}-unit lava field that stays for {magmablast.lingerSec:words} " +
-      "seconds — long enough to drive into and out of — and corrodes anyone it catches for " +
-      "{magmablast.corrodeSec:words} full seconds, {magmablast.corrodePct}% more damage taken from " +
-      "everything that follows. A direct hit takes the " +
-      "impact and the field both.",
-    how:
-      "This is the round every other weapon on this chassis gets read against: it arrives quickly, " +
-      "often, and exactly where the assist points it, so sustained fire from close range adds up " +
-      "fast without asking much of you. The corrode is the real payoff — it does little on its " +
-      "own, but it makes whatever Thunderclap or Afterburner lands next hit harder. And because the " +
-      "blast has no straight-line hitbox, it reaches through a wall a target thinks is cover.",
-    tip:
-      "Never stop pressing it. Magma Blast has no recovery, so firing it never locks out Thunderclap " +
-      "or Afterburner afterward. It cannot fire through their wind-up either way, though — a press " +
-      "in flight on any slot blocks every slot, Magma Blast included, until it resolves.",
-  },
-  pepperbox: {
-    tagline: "{pepperbox.totalDarts:words} darts, one press.",
-    shape: "Four-way spray · no lock",
-    what:
-      "One press, {pepperbox.totalDarts} darts: a {pepperbox.dartsPerFan:words}-dart, {pepperbox.spreadDeg}° fan fires from the nose, the tail, and both " +
-      "flanks at once. The panic button that punishes anyone who closes in — or the drive-by that " +
-      "clips everyone around you as you pass.",
-    how:
-      "Per-target reality is one fan: the {pepperbox.muzzleCount:words} muzzles are " +
-      "{pepperbox.muzzleSpacingDeg} degrees apart, so at most one lines " +
-      "up with any single car, and that fan is still {pepperbox.fanDamage} damage if all {pepperbox.dartsPerFan:words} darts land. No lock " +
-      "steers a spray firing in four directions at once — where your nose points at the press is " +
-      "where all four fans go.",
-    tip:
-      "Fire it when someone is already on top of you, or when you are threading a pass through a " +
-      "crowd. It punishes proximity from any direction, which is exactly what a lock-on weapon " +
-      "cannot do.",
-  },
-  lance: {
-    tagline: "Stand still, then sweep the line.",
-    shape: "Held beam · steer while it fires · ticks · no lock",
-    what:
-      "{lance.windupMs} milliseconds standing still and visible, then a beam that grows to full " +
-      "extent almost instantly and lingers {lance.lingerSec} seconds — all of it steerable, because the " +
-      "car is held rather than stopped. The wheel still works; the beam sweeps wherever you turn " +
-      "it. It burns rather than stamps: whoever is inside the line is bitten " +
-      "{lance.ticksPerSec:words} times a second, so what it costs them is however long you hold it " +
-      "on them.",
-    how:
-      "The old aim-assist argument no longer applies: a lock could once steer a stamped beam, but " +
-      "this one sweeps live under your own hands while the car is held, which is a strictly " +
-      "stronger form of aim. Windup plus growth plus linger is {lance.committedSec} seconds committed end to " +
-      "end, before the {lance.recoverySec:words}-second recovery after — the roster's biggest single-press risk, paid up " +
-      "front, during, and after all at once.",
-    tip:
-      "Fire it at somebody who cannot spend the next {lance.committedSec} seconds finding cover — " +
-      "cornered, mid-commitment, or lined up with a second car so the sweep catches both. A whiff " +
-      "on this hull is close to a death sentence — and so, nearly, is a graze, which now costs them " +
-      "a single bite instead of the whole bolt.",
-  },
-  thumper: {
-    tagline: "It doesn't stop at the wall any more.",
-    shape: "Bouncing slug · biggest projectile in the game · locks on",
-    what:
-      "The largest projectile hitbox in the game, and it no longer dies against level geometry — " +
-      "it bounces off walls until it finds someone or its {thumper.flightSec}-second flight clock runs " +
-      "out. Whatever it finds, it spikes: {thumper.slowPct}% slower for {thumper.spikeSec:words} seconds, with no bleed.",
-    how:
-      "Hard CC has moved on to Roadblock; this is the bouncing pressure shot instead. Bastion is " +
-      "slower than everything else on the map, and a target it spikes cannot simply drive away " +
-      "from that fact — the slow keeps them inside the fight rather than taking it away from them " +
-      "outright.",
-    tip:
-      "Bounce it down a corridor or off an angled wall to reach someone hiding from a straight " +
-      "line. It buys time to close, not a kill on its own — spend the window it opens.",
-  },
-  roadblock: {
-    tagline: "A wall on the move.",
-    shape: "Piercing bar · {roadblock.widthUnits} units wide · no lock",
-    what:
-      "A {roadblock.widthUnits}-unit-wide bar that travels along its short axis and pierces everything in its path " +
-      "— up to {roadblock.maxCars:words} cars, every other player in the match, and the walls themselves: level " +
-      "geometry does not stop it. Everything it touches takes the hit and stops dead for a " +
-      "{roadblock.stunSec:words}-second stun.",
-    how:
-      "Aim assist would be wasted here: a {roadblock.widthUnits}-unit face aims itself, wide enough to answer the " +
-      "same 'help the slowest chassis hit something' problem a lock used to solve, just by " +
-      "covering more ground. Line up two or three opponents and the whole line stops together — " +
-      "the roster's only hard CC that hits more than one car at once.",
-    tip:
-      "Fire it across a chokepoint or a doorway rather than at a single target — its width is the " +
-      "point. A crowd caught in it stops as one, which is exactly the moment Bastion's own slow " +
-      "chassis stops mattering. And nobody is safe behind cover: it stuns the camper through the " +
-      "wall they are hiding behind.",
-  },
-  wildcharge: {
-    tagline: "{wildcharge.armorSec:words} seconds of armor — {wildcharge.armorPct}% less damage taken — and intent.",
-    shape: "Charge · one hit ends it · no lock",
-    what:
-      "One press opens a {wildcharge.armorSec:words}-second window: you take {wildcharge.armorPct}% less damage for its length, and the car " +
-      "wears the charge outline the whole time. The first enemy hull you touch is hard-slammed for " +
-      "a fixed impulse plus {wildcharge.slamDamage} damage, and the window closes right there — one hit, then it is " +
-      "over.",
-    how:
-      "It is the roster's only exemption from the stun interrupt: a stun still stops the car dead, " +
-      "but the armor and the charge state hold through it, because a state that cannot chain into " +
-      "anything else is safe to protect. Armor cuts what gets through, it does not stop it — this " +
-      "buys you a fight, not a free pass through one. Speed and range are both zero — a charge " +
-      "dashes nowhere, it only waits for the first car foolish enough to get close.",
-    tip:
-      "Press it before a fight, not during one — the {wildcharge.armorSec:words} seconds have to still be running when you " +
-      "make contact. Whoever you catch takes the hit, the slam, and loses the exchange before it " +
-      "starts; everyone else just watches you stand there, armored, until you find someone.",
-  },
+  magmablast: { line: "A fast bolt that leaves a corroding field wherever it dies." },
+  thunderclap: { line: "A lunge that ends the fight where it lands." },
+  afterburner: { line: "Flame cones off the nose and the tail at once." },
+  predator: { line: "Fired blind — it picks its target after it is already in the air." },
+  pepperbox: { line: "Darts out of every side at once. The panic button." },
+  lance: { line: "Held in place, then sweep the beam across the line." },
+  thumper: { line: "A bouncing slug, the biggest projectile in the game." },
+  roadblock: { line: "A wall on the move. It stuns through cover." },
+  wildcharge: { line: "Armor up, then hard-slam the first car you touch." },
+};
+
+/**
+ * Where an effect comes from when no weapon row says so.
+ *
+ * The Effects section derives each row's sources from `WEAPON_TABLE` — which weapon applies it, and
+ * for how long — and that covers every status a gun can inflict. Two reach a player another way
+ * entirely: the contact pass writes `reeling`, and the deathmatch respawn writes `phased`. Neither
+ * is in a weapon table to be read, so the source line is authored here.
+ *
+ * A status with no weapon source and no line here does not appear on the page at all, which is the
+ * intended behaviour for a `STATUS_TABLE` row nothing in the shipped game can apply (`armored` and
+ * `overhauled` today). Adding a source for one is how it gets published.
+ */
+export const EFFECT_SOURCES = {
+  reeling: "Every ram, and Wild Charge's slam.",
+  phased: "The moment after you respawn in Deathmatch.",
 };

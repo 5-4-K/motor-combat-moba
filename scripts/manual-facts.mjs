@@ -8,137 +8,37 @@
  * nowhere on the page. `balanceStamp` cannot catch that class of error: it hashes the prose, so it
  * only ever asks "was the page rebuilt from this text", never "is this text true".
  *
- * So the prose writes `{predator.acquireRadius}` and this file answers it. A retune now rewrites the
- * sentence exactly as it already rewrote the cell beside it.
+ * So the prose writes `{roster.slotsPerCar:words}` and this file answers it. A retune now rewrites
+ * the sentence exactly as it already rewrote the cell beside it.
  *
  * **Adding a fact:** put it here, derived — never typed. If you find yourself writing a literal,
  * that is the bug this file exists to prevent. `manual-facts.test.mjs` fails on a token the prose
- * never uses, so a fact and its sentence are added and deleted together.
+ * never uses, so a fact and its sentence are added and deleted together. The helpers that read a
+ * status duration or a modifier percentage out of the tables went with the paragraphs that used
+ * them in the 2026-09-17 restructure; the git history has them if a sentence needs one back.
  */
-import {
-  STATUS_TABLE,
-  WEAPON_TABLE,
-  activeCarIds,
-  slotsOf,
-  statusDefOf,
-} from "@motor-combat-moba/shared";
-
-/** Trims float noise without printing a misleading `2.4000000000000004`. */
-const round = (n, dp = 2) => Number(n.toFixed(dp));
-
-/** How long a status this weapon applies to its opponents lasts, in seconds. */
-function appliedSeconds(weaponId, statusId) {
-  const applied = (WEAPON_TABLE[weaponId].applies ?? []).find((a) => a.statusId === statusId);
-  if (!applied) throw new Error(`${weaponId} no longer applies ${statusId}`);
-  return round(applied.durationMs / 1000);
-}
-
-/** A status's multiplier expressed as the percentage the guide talks in. */
-function percentOff(statusId, channel) {
-  const value = statusDefOf(statusId).modifiers[channel];
-  if (typeof value !== "number") throw new Error(`${statusId} has no ${channel} modifier`);
-  return round(Math.abs(1 - value) * 100, 1);
-}
+import { activeCarIds, slotsOf } from "@motor-combat-moba/shared";
 
 /**
  * The flat token map the prose is rendered against. Keys are `weapon.fact`; every value is a number
  * computed from a table, so none of them can drift from what the stat cells print.
+ *
+ * **Short, and meant to stay short.** The 2026-09-17 restructure cut the prose to one line per
+ * chassis and one per weapon, and a caption that quotes no figure needs no token — thirty of these
+ * went with the paragraphs that quoted them. `manual-facts.test.mjs` fails on a fact the prose never
+ * uses, so this map can only ever be as long as the sentences justify. Adding a sentence that
+ * measures something is what adds its fact back.
  */
 export function manualFacts() {
-  const w = WEAPON_TABLE;
-
-  const predator = w.predator;
-  const afterburner = w.afterburner;
-  const magmablast = w.magmablast;
-  const pepperbox = w.pepperbox;
-  const lance = w.lance;
-  const thumper = w.thumper;
-  const roadblock = w.roadblock;
-  const wildcharge = w.wildcharge;
-  const thunderclap = w.thunderclap;
-
-  // ACTIVE cars only, exactly as `build-cars-and-weapons.mjs` derives its own `CAR_IDS` — these
-  // tokens render the cover blurb ("Nine weapons. Three chassis."), and a chassis in development
-  // must not be able to rewrite that sentence into "Twelve weapons. Four chassis." while the grid
-  // beside it still shows three cards. Filtering the cards without filtering these would be the
-  // worse bug of the two: a page that contradicts itself.
+  // ACTIVE cars only, exactly as `build-cars-and-weapons.mjs` derives its own `CAR_IDS` — a chassis
+  // in development must not be able to rewrite a shipped chassis's sentence.
   const carIds = activeCarIds();
 
   return {
-    // --- the roster itself ------------------------------------------------------------------
-    // Derived exactly as the build derives them, so the cover blurb cannot outlive a chassis or a
-    // loadout change. CARRIED weapons, not table rows: `tremor` has a row nobody fires.
-    "roster.weapons": carIds.flatMap((carId) => slotsOf(carId)).length,
-    "roster.chassis": carIds.length,
-    // Every chassis carries the same number of slots, so this is one number rather than three.
+    // Every chassis carries the same number of slots, so this is one number rather than three. The
+    // chassis lines say "two of its {roster.slotsPerCar:words} weapons", which is a measurement and
+    // therefore not something the prose may spell out by hand.
     "roster.slotsPerCar": slotsOf(carIds[0]).length,
-
-    // --- predator ---------------------------------------------------------------------------
-    "predator.acquireRadius": predator.homing.acquireRadius,
-    "predator.lifeSec": round(predator.lifetimeMs / 1000),
-    "predator.cooldownSec": round(predator.cooldownMs / 1000),
-    // A shot fired now expires exactly as the (lifetime/cooldown)-th press lands, so this is a
-    // floor rather than a ceil: at 2000/1000 that is two alive, not three.
-    "predator.inFlight": Math.floor(predator.lifetimeMs / predator.cooldownMs),
-
-    // --- thunderclap ------------------------------------------------------------------------
-    "thunderclap.dashUnits": thunderclap.range,
-    "thunderclap.stunSec": appliedSeconds("thunderclap", "stunned"),
-
-    // --- afterburner ------------------------------------------------------------------------
-    "afterburner.ticksPerSec": round(1000 / afterburner.damageFrequencyMs),
-    // Growth plus linger: the cones exist while the beam extends AND for its authored lifetime.
-    "afterburner.burnSec": round(
-      (afterburner.lifetimeMs + (afterburner.range / afterburner.speed) * 1000) / 1000,
-    ),
-
-    // --- magmablast -------------------------------------------------------------------------
-    "magmablast.blastRadius": magmablast.explosion.radius,
-    "magmablast.lingerSec": round(magmablast.explosion.lingerMs / 1000),
-    "magmablast.corrodeSec": round(
-      magmablast.explosion.applies.find((a) => a.statusId === "corroded").durationMs / 1000,
-    ),
-    "magmablast.corrodePct": percentOff("corroded", "damageTaken"),
-
-    // --- pepperbox --------------------------------------------------------------------------
-    "pepperbox.muzzleCount": pepperbox.muzzles.length,
-    "pepperbox.totalDarts": pepperbox.muzzles.length * pepperbox.pellets.pelletsPerVolley,
-    "pepperbox.dartsPerFan": pepperbox.pellets.pelletsPerVolley,
-    "pepperbox.spreadDeg": pepperbox.pellets.spreadAngleDeg,
-    "pepperbox.muzzleSpacingDeg": round(360 / pepperbox.muzzles.length),
-    // The page's own "full connect" figure: base damage before the chassis attack scale, which is
-    // what the stat cell beside this prose prints.
-    "pepperbox.fanDamage": pepperbox.damage * pepperbox.pellets.pelletsPerVolley,
-
-    // --- lance ------------------------------------------------------------------------------
-    "lance.windupMs": lance.startUpMs,
-    // Same derivation as `afterburner.ticksPerSec`, and the same number: the 2026-09-04 retune put
-    // both beams on one cadence, so the two sentences quoting this stay in step by construction.
-    "lance.ticksPerSec": round(1000 / lance.damageFrequencyMs),
-    "lance.lingerSec": round(lance.lifetimeMs / 1000),
-    "lance.recoverySec": round(lance.recoveryMs / 1000),
-    // Wind-up, then growth, then linger — everything before recovery starts.
-    "lance.committedSec": round(
-      (lance.startUpMs + (lance.range / lance.speed) * 1000 + lance.lifetimeMs) / 1000,
-    ),
-
-    // --- thumper ----------------------------------------------------------------------------
-    "thumper.flightSec": round(thumper.lifetimeMs / 1000),
-    "thumper.slowPct": percentOff("spiked", "topSpeed"),
-    "thumper.spikeSec": appliedSeconds("thumper", "spiked"),
-
-    // --- roadblock --------------------------------------------------------------------------
-    "roadblock.widthUnits": roadblock.hitbox.radiusAcross * 2,
-    // `pierce` counts the opponents passed through AFTER the first, so the total caught is one more.
-    "roadblock.maxCars": roadblock.pierce + 1,
-    "roadblock.stunSec": appliedSeconds("roadblock", "stunned"),
-
-    // --- wildcharge -------------------------------------------------------------------------
-    "wildcharge.armorSec": round(
-      wildcharge.applies.find((a) => a.statusId === "fortified").durationMs / 1000,
-    ),
-    "wildcharge.armorPct": percentOff("fortified", "damageTaken"),
-    "wildcharge.slamDamage": wildcharge.damage,
   };
 }
 
@@ -203,5 +103,3 @@ export function tokensUsedIn(node, found = new Set()) {
   }
   return found;
 }
-
-export { STATUS_TABLE };

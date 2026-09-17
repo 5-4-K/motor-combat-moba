@@ -16,12 +16,19 @@ import { dirname, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { CHASSIS_COPY, MANUAL_META, SLOT_ROLES, WEAPON_COPY } from "./cars-and-weapons-copy.mjs";
+import {
+  CHASSIS_COPY,
+  EFFECT_SOURCES,
+  MANUAL_META,
+  WEAPON_COPY,
+} from "./cars-and-weapons-copy.mjs";
 import { inWords, manualFacts, renderCopy, tokensUsedIn } from "./manual-facts.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const COPY_SRC = readFileSync(resolve(ROOT, "scripts/cars-and-weapons-copy.mjs"), "utf8");
-const RAW = { MANUAL_META, CHASSIS_COPY, SLOT_ROLES, WEAPON_COPY };
+// Every copy tree the page renders, exactly as `build-cars-and-weapons.mjs` renders them. A tree
+// missing here is prose nothing checks — which is how a hand-typed number gets in.
+const RAW = { MANUAL_META, CHASSIS_COPY, WEAPON_COPY, EFFECT_SOURCES };
 
 /** Just the prose: the quoted string literals, with `//` comment lines dropped. */
 function proseOnly() {
@@ -115,18 +122,19 @@ describe("manual copy facts", () => {
     assert.equal(inWords(40, "t"), "forty");
     // A value that outgrew what the sentence can spell must fail the build, not render
     // "two point four-second life".
-    assert.throws(() => inWords(2.4, "lance.committedSec"), /cannot be spelled out/);
-    assert.throws(() => inWords(135, "pepperbox.fanDamage"), /cannot be spelled out/);
+    assert.throws(() => inWords(2.4, "some.committedSec"), /cannot be spelled out/);
+    assert.throws(() => inWords(135, "some.damageTotal"), /cannot be spelled out/);
   });
 
   it("derives every fact from the tables, so a retune rewrites the sentence", () => {
     // Not a value check -- the point is that these are computed, and the surest evidence of that is
     // that they track a table nobody edited by hand here. Spot-checked against the live rows.
+    //
+    // There is one fact left to spot-check, because the 2026-09-17 restructure cut the prose to one
+    // line per chassis and one per weapon and those lines measure almost nothing. That is the map
+    // shrinking correctly, not the guard weakening: "defines no fact the prose never uses" above is
+    // what holds the two in step, whatever the count.
     const facts = manualFacts();
-    assert.equal(facts["predator.inFlight"], 2);
-    assert.equal(facts["afterburner.ticksPerSec"], 2);
-    assert.equal(facts["roadblock.maxCars"], 5);
-    assert.equal(facts["pepperbox.totalDarts"], 12);
-    assert.equal(facts["wildcharge.armorPct"], 30);
+    assert.equal(facts["roster.slotsPerCar"], 3);
   });
 });

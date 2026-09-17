@@ -66,7 +66,7 @@ units/s², not 0-100 ratings.) **`handling` is turn RATE, not turn radius.** Rad
 publish gate**, and as of 2026-09-16 it is one everywhere rather than only in car select. Car select,
 `MSG_SELECT_CAR`/`MSG_PREVIEW_CAR`, the practice opponent roll and practice join options already
 filtered to `activeCarIds()`; the players' guide and the balance harness did not. The guide now
-publishes active chassis only — cards, kits, HP matrix and the `roster.*` prose tokens — and
+publishes active chassis only — the car sections, their kits and the `roster.*` prose tokens — and
 `balanceStamp` hashes that same subset, so an unreleased car neither reaches players nor churns the
 page. The balance harness seats active chassis by default and unreleased ones under
 `npm run balance -- --include-inactive`, **skipping any chassis with an empty kit under either**,
@@ -657,8 +657,21 @@ the join screen's "Cars & weapons guide" button opens. **It is written by
 (`WEAPON_TABLE`, `CAR_TABLE`, `WEAPON_TICKS`, `weaponDamageOf`, `hpOf`); the prose lives beside it in
 `scripts/cars-and-weapons-copy.mjs`.
 
-**The prose quotes numbers through placeholders, never by hand.** Write `{predator.acquireRadius}`,
-not `200`; `{token:words}` spells small whole numbers out. Tokens are defined in
+**It is a stat sheet, and as of 2026-09-17 it has exactly two sections.** The thirteen A4-style
+sheets (cover, legend, a page per chassis, a page per weapon, a compare table, a ceilings table) are
+gone, replaced by one continuous scrolling page: **Cars** — each active chassis's seven ratings, then
+its three weapons as a stat list — and **Effects** — every status a player can be put in, what it
+does, and what applies it. Two rules run the weapon lists. A point that does not apply is **left
+out**, never printed as a dash (most rows have no wind-up at all, and a charge has no range), and
+a weapon's **effects are links** into the Effects section, so a chip and its row can never drift
+apart — `manual-page.test.mjs` resolves every `#fx-…` against the ids the page defines, in both
+directions. A status is published only when something can apply it: a weapon an active chassis
+carries, or an authored `EFFECT_SOURCES` line for the two that reach a player outside the weapon
+tables (`reeling` from the contact pass, `phased` from the deathmatch respawn). `armored` and
+`overhauled` have neither today and so do not appear at all.
+
+**The prose quotes numbers through placeholders, never by hand.** Write `{roster.slotsPerCar}`,
+not `3`; `{token:words}` spells small whole numbers out. Tokens are defined in
 `scripts/manual-facts.mjs`, every one derived from a table, and an unknown token fails the build.
 This exists because `balanceStamp` **cannot** catch a stale number inside a sentence: it hashes the
 copy file, so it only asks "was the page rebuilt from this text", never "is this text true". Three
@@ -667,25 +680,35 @@ table reading 1000, on a page whose own generated cell two lines above said "1 p
 `scripts/manual-facts.test.mjs` fails if a token's current value is typed as digits, or if a
 spelled-out measurement ("two seconds", "four muzzles") appears at all. It deliberately does **not**
 watch the word "car": "a dash that clips two cars in the same tick" is prose, not a figure.
+The 2026-09-17 restructure cut the prose to **one line per chassis and one per weapon** — the page
+generates everything else — so the token map is down to a single entry. That is the map shrinking
+with the sentences, not the guard weakening: a fact the prose never quotes fails the suite, so the
+two can only ever be the same size. Adding a sentence that measures something adds its fact back.
 
 **Re-run `npm run build:manual` and commit the page whenever you change:** a weapon row, an ACTIVE
 chassis row, an active car's loadout, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `STATUS_TABLE`,
-`AIM_CONFIG.lockRange`, `TICK_RATE_HZ`, `ARENA_WIDTH`, or the prose in `cars-and-weapons-copy.mjs`.
+`TICK_RATE_HZ`, `ARENA_WIDTH`, or the prose in `cars-and-weapons-copy.mjs`. (`AIM_CONFIG.lockRange`
+was on this list until 2026-09-17 and is not any more: the page reports each weapon's own
+`aimRangeUnits`, which rides in `WEAPON_TABLE` and is already hashed. A stamp input the page does
+not print only ever demands a rebuild that produces a byte-identical page, which is how a guard gets
+rubber-stamped.)
 The page carries a fingerprint of all of that and `scripts/manual-page.test.mjs` recomputes it, so
 forgetting fails the suite with the command to run rather than quietly shipping last week's numbers
 to players.
 
 **"Active" is load-bearing in that list.** The page publishes `activeCarIds()`, not `CAR_TABLE` —
-cards, kits, the HP matrix, and the `roster.*` tokens behind the cover blurb's "Nine weapons. Three
-chassis." — and `balanceStamp` hashes the same active subset. So a chassis authored with
+the car sections, their kits, the `roster.*` prose tokens, and the sources the Effects section
+credits (so a status reachable only from an unreleased chassis's weapon is not published either) —
+and `balanceStamp` hashes the same active subset. So a chassis authored with
 `isActive: false` reaches neither the page nor the stamp, and tuning it owes no rebuild; flipping the
 flag to `true` moves the stamp and owes one. This used to run off the whole table, which published
 unreleased cars to players with nothing saying so.
 
 `balanceStamp` hashes those tables **whole**, so *any* field of a row counts — including the purely
 visual ones. `WEAPON_TABLE.color` is the one that surprises people: it is not a balance number, but
-the guide paints swatches and stat bars with it, so changing a weapon's colour without rebuilding
-fails the suite. If the stamp moved, the page owed players a rebuild; that is the whole rule.
+the guide paints every weapon's heading and accent rule with it, so changing a weapon's colour
+without rebuilding fails the suite. If the stamp moved, the page owed players a rebuild; that is the
+whole rule.
 
 Vite copies `public/` verbatim, so the page ships in the LAN zip; its art is linked and its fonts are
 inlined, so it reaches for nothing off the machine — `manual-page.test.mjs` asserts that too. Its URL
@@ -703,8 +726,8 @@ test**. Convenient, and a trap: the guide changed, nothing said so, and the diff
 
 **After importing art the guide draws, say so — loudly, in your summary — and recommend they look at
 the page.** Both importers land art it draws: `scripts/import-weapon-icon.mjs` (a weapon's icon
-appears on the cover grid, its chassis kit list, and its own card) and `scripts/import-art.mjs` (a
-chassis sprite appears on the cover and its chassis card). Name the file, and point at
+appears beside its name in its chassis's weapon list) and `scripts/import-art.mjs` (a chassis
+sprite appears in that chassis's header). Name the file, and point at
 `http://localhost:5173/manual.html` — the guide is the only place a sprite is shown large and at
 rest, so it catches what `?dev=assets` cannot.
 
