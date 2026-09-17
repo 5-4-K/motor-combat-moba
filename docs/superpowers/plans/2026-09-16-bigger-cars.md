@@ -1,5 +1,13 @@
 # Bigger Cars (1.5x hull) Implementation Plan
 
+> **REVISED 2026-09-17: the factor is 1.25x (60 × 40), not 1.5x (72 × 48).** Every task below was
+> written and executed at 1.5x; the hull was then re-scaled down because 1.5x played too large
+> against arenas that did not grow. This plan is kept as the record of HOW the work was done — the
+> task order, the classification rule and the measurement methods all still apply — but every
+> literal dimension, offset and pinned value in it is the 1.5x one. **§12 of
+> [`../specs/2026-09-16-bigger-cars-design.md`](../specs/2026-09-16-bigger-cars-design.md) (BC35–BC39)
+> is the authoritative list of what the revision changed**; the code and that spec win over this file.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Every car's real hull grows from 48 × 32 to 72 × 48 world units, while ram spin, arena

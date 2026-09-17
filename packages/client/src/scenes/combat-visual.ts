@@ -312,7 +312,7 @@ export const WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {
       // Hotter than the icon's own core: a shell that casts a halo should have something casting it.
       { radiusScale: 0.42, color: "#FFD060" },
     ],
-    // Out to 2.5x the 12-unit hitbox — 30 units, about two fifths of a car length (72 u). Continues the
+    // Out to 2.5x the 12-unit hitbox — 30 units, exactly half a car length (60 u). Continues the
     // ramp outward rather than restating it: the halo is the same fire, further from the middle.
     halo: [
       { radiusScale: 2.5, color: "#4A1000", alpha: 0.1 },
@@ -734,9 +734,9 @@ const JET_ROD_FRACTION = 0.7;
  * `flameHz` names the SLOWEST.
  *
  * The whole octave ladder comes off measured flame behaviour rather than taste. Buoyant flames puff
- * at about `1.5 / sqrt(D)` Hz with D the flame's width in metres; at this game's scale (a 72-unit
- * car is about 4.5 m, so 16 units per metre) `afterburner`'s roughly 1.3 m wide plume puffs near
- * 1.3 Hz. The small roll-up vortices inside the luminous flame of the same flames were measured at
+ * at about `1.5 / sqrt(D)` Hz with D the flame's width in metres; at this game's scale (a 60-unit
+ * car is about 4.5 m, so 13.3 units per metre) `afterburner`'s roughly 1.6 m wide plume puffs near
+ * 1.2 Hz. The small roll-up vortices inside the luminous flame of the same flames were measured at
  * 10-20 Hz. Three octaves a factor of three apart span exactly that: at `flameHz` 1.3 the ladder
  * runs 1.3 / 3.9 / 11.7 Hz.
  *
@@ -2833,14 +2833,14 @@ export function beamFadeAlpha(
 export const SHOW_LOCK_BRACKET: boolean = true;
 
 /**
- * Half the bracket's side, world units. Larger than a car hull's half-diagonal (43 units for the
- * 72 x 48 hull) so the bracket frames the car instead of being drawn across it. Scaled 34 -> 51 with
- * the 2026-09-16 hull resize, keeping its old proportion to the car.
+ * Half the bracket's side, world units. Larger than a car hull's half-diagonal (36 units for the
+ * 60 x 40 hull) so the bracket frames the car instead of being drawn across it. Scaled 34 -> 42.5
+ * with the 2026-09-16 hull resize, keeping its old proportion to the car.
  */
-export const LOCK_BRACKET_HALF = 51;
+export const LOCK_BRACKET_HALF = 42.5;
 
 /** How far each arm runs from its corner. Kept well under the side, so the corners never join. */
-export const LOCK_BRACKET_ARM = 16;
+export const LOCK_BRACKET_ARM = 13.75;
 
 /**
  * The eight line segments of a corner bracket centred on a car, in world space.

@@ -838,15 +838,15 @@ describe("aimAngleFor", () => {
       angle: 0,
       lock: { ...newLockState(), targetSessionId: "b" },
     });
-    const b = player("b", { x: 136, y: 100 });
+    const b = player("b", { x: 130, y: 100 });
     const byId = new Map([
       ["a", a],
       ["b", b],
     ]);
     // Computed independently of `aimAngleFor`'s own expression, to pin the geometry rather than
     // re-derive it: owner is at (0, 0) facing angle 0, so the muzzle sits `muzzleOffset()` units
-    // ahead along that heading. muzzleOffset() == DRIVE_CONFIG.carWidth / 2 == 72 / 2 == 36, so the
-    // muzzle is at (36, 0). Target "b" is at (136, 100), so dx = 100 and dy = 100. atan2(100, 100) =
+    // ahead along that heading. muzzleOffset() == DRIVE_CONFIG.carWidth / 2 == 60 / 2 == 30, so the
+    // muzzle is at (30, 0). Target "b" is at (130, 100), so dx = 100 and dy = 100. atan2(100, 100) =
     // atan(1) = pi/4 radians (45 degrees).
     const expected = Math.PI / 4;
     // "magmablast" is usesAimAssist: true.
@@ -1887,7 +1887,7 @@ describe("spawn protection: a phased car is not a target", () => {
       angle: 0,
       lock: { ...newLockState(), targetSessionId: "bbb" },
     });
-    const b = player("bbb", { x: 136, y: 100, statuses: [PHASED] });
+    const b = player("bbb", { x: 130, y: 100, statuses: [PHASED] });
     const byId = new Map([
       ["aaa", a],
       ["bbb", b],
@@ -1895,8 +1895,8 @@ describe("spawn protection: a phased car is not a target", () => {
     const phased = (sessionId: string): boolean => sessionId === "bbb";
     expect(aimAngleFor(a, "magmablast", byId, phased)).toBeNull();
     // Same call with nobody phasing still aims, so this pins the new guard rather than a typo in
-    // the lock id: muzzleOffset() == DRIVE_CONFIG.carWidth / 2 == 72 / 2 == 36, so the muzzle is at
-    // (36, 0). Target at (136, 100), so dx = 100 and dy = 100, atan2(100, 100) = pi/4.
+    // the lock id: muzzleOffset() == DRIVE_CONFIG.carWidth / 2 == 60 / 2 == 30, so the muzzle is at
+    // (30, 0). Target at (130, 100), so dx = 100 and dy = 100, atan2(100, 100) = pi/4.
     expect(aimAngleFor(a, "magmablast", byId, () => false)).toBeCloseTo(Math.PI / 4, 10);
   });
 

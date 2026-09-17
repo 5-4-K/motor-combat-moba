@@ -56,7 +56,7 @@ export function isUlt(slot: BotSlotView): boolean {
  * the total above the bar past a lightly-weighted short slot's cliff, so `slotWeights` reach the
  * standoff again — see that constant for the sweep the 0.95 came out of.
  *
- * "REACH IT" MEANT ONE CELL OF NINE AT 48x32 — TWO SINCE THE HULL GREW, SEE BELOW (R-D5 pushback, fix wave 3,
+ * "REACH IT" MEANS ONE CELL OF NINE, AND THAT IS THE HONEST SUMMARY (R-D5 pushback, fix wave 3,
  * 2026-09-07). A 5x5x5 sweep of `rollPersonality`'s 0.5-1.5 draw over three chassis x three tiers
  * returns more than one standoff for exactly one cell — Mirage at hard, 386.7 against 220.
  * Everywhere else the shortest ready slot's cliff is too large a share of the peak for any
@@ -67,12 +67,13 @@ export function isUlt(slot: BotSlotView): boolean {
  * the accepted-loss note on `proxyValue` in `solution.ts`, which records that fixing it takes the
  * sweep to 0 of 9 and why it was reverted anyway.
  *
- * TWO CELLS OF NINE SINCE THE HULL GREW (2026-09-16, 48x32 -> 72x48). `proxyValue`'s subtense reads
- * `DRIVE_CONFIG.carHeight`, so a taller target keeps hit chance saturated further out and moves
- * every plateau edge outward. The same sweep now returns more than one standoff for Mirage at
- * medium too (220 / 253.3 / 270) beside Mirage at hard (220 / 386.7, unchanged). The figures in
- * the paragraphs above (470, 420, the 0-of-9 reading) were measured at 48x32; at 72x48 a neutral
- * hard Bullseye stands at 570.
+ * STILL ONE CELL AFTER THE HULL GREW (2026-09-16, 48x32 -> 60x40), BUT THE DISTANCES MOVED.
+ * `proxyValue`'s subtense reads `DRIVE_CONFIG.carHeight`, so a taller target keeps hit chance
+ * saturated further out and moves every plateau edge outward. The same sweep still returns more than
+ * one standoff for Mirage at hard alone, at the same 220 / 386.7. What did move is every neutral
+ * standoff: the 470 quoted in the paragraph above was measured at 48x32, and a neutral hard Bullseye
+ * now stands at 570. (The count is sensitive to hull size rather than structural — at 72x48 a second
+ * cell, Mirage at medium, comes alive.)
  *
  * IT TAKES TWO PASSES OVER THE SAMPLES, but only ONE evaluation of each (M7, fix wave 3,
  * 2026-09-07). The two-pass STRUCTURE is forced: the bar is a fraction of the maximum, so the

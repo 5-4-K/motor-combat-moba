@@ -159,7 +159,7 @@ export function contactBandsFor(look: CarLook): ShadowBand[] {
  *
  * The rim is a copy of the car's own artwork, tinted and nudged toward the light behind the body, so
  * a lit sliver shows along whatever edge the art actually has. That is the whole reason it is not a
- * stroked outline: the hull is a 72x48 box, the sprites do not fill it, and stroking the box drew a
+ * stroked outline: the hull is a 60x40 box, the sprites do not fill it, and stroking the box drew a
  * picture frame around the car rather than an edge on it.
  *
  * Local, not world, because the copy lives INSIDE the car's rotated container — so the world offset

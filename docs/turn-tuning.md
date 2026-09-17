@@ -112,7 +112,7 @@ the 2026-09-02 rewrite reset Mirage's `handling` again, to 85 (matching its `spe
 54.9 u — the roster's widest again, now by design rather than as something to fix. The 2026-09-06
 heavy-car pass (`baseMaxSpeed` 135 -> 80, `speedPerRating` 3.7 -> 2.2) then cut every car's radius by
 the same ~41%, without moving a single `handling` rating, taking Mirage to 32.6 u — still the
-roster's widest, now well under one car length (72 u since the 2026-09-16 hull resize). The 2026-09-16 cut
+roster's widest, now well under one car length (60 u since the 2026-09-16 hull resize). The 2026-09-16 cut
 (`baseMaxSpeed` 80 -> 60, `speedPerRating` 2.2 -> 1.518) did the same thing again, turn rate untouched
 for a third consecutive pass, landing Mirage at today's 23.1 u. **The whole roster now corners inside
 a 1.5 u band** (Bastion 21.6, Bullseye 22.3, Mirage 23.1), which is under a tenth of a car length:
@@ -185,7 +185,7 @@ the same factor — turn rate untouched — so Mirage-to-Bastion narrowed from 4
 after 2026-09-02) to 2.4 u (32.6 vs 30.2) rather than closing outright: the *ordering* and *relative*
 spacing the 2026-09-02 rewrite established are exactly what this pass preserved, on top of pulling
 every absolute radius down to comfortably under one car length (48 u) (the hull was 48 u long until
-the 2026-09-16 resize to 72 u). The same pass also cut `accel`
+the 2026-09-16 resize to 60 u). The same pass also cut `accel`
 (`baseAccel`/`accelPerRating`), which lengthens time-to-top-speed roster-wide by roughly 3-4x (mirage
 0.44 -> 1.49 s, bullseye 0.50 -> 1.81 s, bastion 0.57 -> 2.16 s) — that is a straight-line number, not
 a turning one, so it is not tabulated on this page.

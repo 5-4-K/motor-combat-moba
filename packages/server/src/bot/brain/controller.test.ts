@@ -324,7 +324,8 @@ describe("HumanController", () => {
     /**
      * The target's own shell coming back down the line between the two cars — fired 50 units in
      * front of it, travelling in -x, passing 10 units to the car's left. Ten units is well inside
-     * `THREAT_LATERAL_UNITS` (~59 at the 72x48 hull; ~45 at 48x32), so `perceive()` registers it as a threat, and it is deliberately
+     * `THREAT_LATERAL_UNITS` (~52 at the 60x40 hull; ~45 at 48x32), so `perceive()` registers it as a
+     * threat, and it is deliberately
      * not zero: a car sitting EXACTLY on the line makes `threatHeading`'s cross-product sign a
      * floating-point coin flip, and `awayHeadingRad` would then name one of the two escapes
      * arbitrarily.

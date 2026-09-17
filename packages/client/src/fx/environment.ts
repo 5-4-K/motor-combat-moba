@@ -171,7 +171,7 @@ export interface EnvironmentFx {
      * The rim light: a copy of the car's OWN ART, tinted and nudged toward the light behind the
      * body, so a lit sliver shows along whatever edge the artwork actually has.
      *
-     * It has to be the art and not a stroked outline of the hitbox. The hull is a 72x48 box and the
+     * It has to be the art and not a stroked outline of the hitbox. The hull is a 60x40 box and the
      * sprites do not fill it, so stroking the box drew a picture frame around the car — which is
      * what the first cut of this shipped and what looking at it on screen immediately killed.
      */

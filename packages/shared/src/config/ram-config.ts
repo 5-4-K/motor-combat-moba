@@ -162,29 +162,30 @@ export const RAM_CONFIG = {
    * the torque several times smaller. Neither ratio predicts the answer on its own, which is why it
    * was measured on the same composed `serverTick` -> `contactTick` sweep `globalScale` was.
    *
-   * **Moved 10 -> 15 on 2026-09-16 by derivation, not measurement (bigger cars, spec BC7).** The
-   * hull grew 48x32 -> 72x48: `contactPointOn`'s maximum lever arm grew 1.5x and
-   * `inertiaCoefficient` grew 2.25x, so every ram would otherwise spin its victim 0.667x as hard.
-   * 1.5 * 1.5 / 2.25 = 1 — the spin a player feels is unchanged, and so is every figure below once
-   * its lever arm is read at the new scale. Stage 5 of the car-physics rework re-pitches from 15.
+   * **Moved 10 -> 12.5 on 2026-09-16 by derivation, not measurement (bigger cars, spec BC7).** The
+   * hull grew 48x32 -> 60x40: `contactPointOn`'s maximum lever arm grew 1.25x and
+   * `inertiaCoefficient` grew 1.5625x, so every ram would otherwise spin its victim 0.8x as hard.
+   * 1.25 * 1.25 / 1.5625 = 1 — the spin a player feels is unchanged, and so is every figure below
+   * once its lever arm is read at the new scale. Stage 5 of the car-physics rework re-pitches
+   * from 12.5.
    *
    * The calibration this value has always been written to, restored: an ordinary solid flank ram
    * lands around 1-2 rad/s, and the hardest ram in the game APPROACHES `spinMaxRate` without pinning
    * it. Measured, victim spin at an attacker's own top speed, by lever arm (the offset of the hit
-   * from the victim's centre, which `contactPointOn` clamps at the 36 u hull half-length):
+   * from the victim's centre, which `contactPointOn` clamps at the 30 u hull half-length):
    *
    * | lever | Mirage flanks Mirage (ordinary) | Bastion flanks Bullseye (hardest) | Bullseye flanks Bastion (weakest) |
    * |---|---|---|---|
-   * | 6 u | 0.34 rad/s | 0.99 | 0.06 |
-   * | 18 u | 1.03 | 2.97 | 0.18 |
-   * | 36 u (clamped max) | 2.06 | **5.95** | 0.37 |
+   * | 5 u | 0.34 rad/s | 0.99 | 0.06 |
+   * | 15 u | 1.03 | 2.97 | 0.18 |
+   * | 30 u (clamped max) | 2.06 | **5.95** | 0.37 |
    *
    * 5.95 against a 6.0 ceiling is the calibration working, not a near miss: the hardest ram the
    * roster can produce reaches 99% of the ceiling on its own and never clips. What still makes the
    * ceiling load-bearing is that `nextSpin` ACCUMULATES (`clamp(body.angVel + spin, ...)`), so a car
    * rammed twice does hit it.
    */
-  spinScale: 15,
+  spinScale: 12.5,
   /**
    * Ceiling on injected spin, so a corner contact cannot produce an absurd rotation.
    *

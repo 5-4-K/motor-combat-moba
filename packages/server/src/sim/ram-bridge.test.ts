@@ -90,7 +90,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
   it("knocks a victim that was just rammed", () => {
     const state = arena();
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
-    const victim = addPlayer(state, "b", { x: 70.5, y: 400, angle: 0 });
+    const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
     contactTick(
       state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 10,
@@ -110,7 +110,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     // the victim took.
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
-    addPlayer(state, "b", { x: 70.5, y: 400, angle: 0 });
+    addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
     contactTick(
       state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 10,
@@ -145,7 +145,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
   it("never changes hp", () => {
     const state = arena();
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540, hp: 400 });
-    const victim = addPlayer(state, "b", { x: 70.5, y: 400, angle: 0, hp: 400 });
+    const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0, hp: 400 });
     contactTick(
       state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 10,
@@ -156,7 +156,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
   it("fires once per contact episode, not once per tick", () => {
     const state = arena();
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
-    const victim = addPlayer(state, "b", { x: 70.5, y: 400, angle: 0 });
+    const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
     const memory = newContactMemory();
     contactTick(
       state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS, approachVelocities(state),
@@ -179,7 +179,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
   it("ignores players who are not in the roster", () => {
     const state = arena();
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
-    const bystander = addPlayer(state, "b", { x: 70.5, y: 400, angle: 0 });
+    const bystander = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
     contactTick(
       state, new Set(["a"]), newContactMemory(), "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 10,
@@ -191,7 +191,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
   it("ignores players who are not on the field", () => {
     const state = arena();
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
-    const lobbying = addPlayer(state, "b", { x: 70.5, y: 400, angle: 0, status: PlayerStatus.READY });
+    const lobbying = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0, status: PlayerStatus.READY });
     contactTick(
       state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 10,
@@ -203,7 +203,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
   it("ignores wrecks", () => {
     const state = arena();
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
-    const wreck = addPlayer(state, "b", { x: 70.5, y: 400, angle: 0, alive: false });
+    const wreck = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0, alive: false });
     contactTick(
       state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 10,
@@ -215,7 +215,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
   it("spares teammates in team mode", () => {
     const state = arena();
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540, team: 0 });
-    const mate = addPlayer(state, "b", { x: 70.5, y: 400, angle: 0, team: 0 });
+    const mate = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0, team: 0 });
     contactTick(
       state, new Set(["a", "b"]), newContactMemory(), "team", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 10,
@@ -237,7 +237,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
   it("stacks a later ram's knock onto a victim's still-decaying velocity from an earlier one", () => {
     const state = arena();
     addPlayer(state, "strong", { x: 0, y: 400, angle: 0, vx: 540 });
-    const victim = addPlayer(state, "b", { x: 70.5, y: 400, angle: 0 });
+    const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
     const memory = newContactMemory();
     contactTick(
       state, new Set(["strong", "b"]), memory, "ffa", NO_EFFECTS, approachVelocities(state),
@@ -250,12 +250,12 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     // A second attacker rams the victim from a DIFFERENT axis (approaching along y) on a later tick,
     // so its knock is geometrically independent of the first one and there is no directional
     // ambiguity about which car is the attacker. Its knock is simply added on top of whatever the
-    // victim still carries. The offsets are the pre-2026-09-16 48x32 fixture's, scaled 1.5x for the
-    // 72x48 hull (spec BC9): "second" sits 46.5 u above the victim (31 before), so its
-    // hull overlaps the victim's by 13.5 u along y, and it clears "strong" by 10.5 u along x (7 before)
+    // victim still carries. The offsets are the pre-2026-09-16 48x32 fixture's, scaled 1.25x for the
+    // 60x40 hull (spec BC9): "second" sits 38.75 u above the victim (31 before), so its
+    // hull overlaps the victim's by 11.25 u along y, and it clears "strong" by 8.75 u along x (7 before)
     // — it touches the victim alone. Left unscaled at (47, 431) the wider hull made it overlap
     // "strong" too, a third contact this test never meant to have.
-    addPlayer(state, "second", { x: 70.5, y: 446.5, angle: -Math.PI / 2, vy: -(RAM_CONFIG.minApproachSpeed + 200) });
+    addPlayer(state, "second", { x: 58.75, y: 438.75, angle: -Math.PI / 2, vy: -(RAM_CONFIG.minApproachSpeed + 200) });
     contactTick(
       state, new Set(["strong", "b", "second"]), memory, "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 11,
@@ -269,7 +269,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     expect(victim.vx).toBeCloseTo(afterFirstRam);
     // The knock's SIGN is purely geometric (`resolveRam` authors `dirX`/`dirY` as the unit normal
     // pointing away from the attacker, and `impactOn` can never return a negative magnitude),
-    // so a directional assertion is exact, not an approximation. "second" sits at y=446.5 approaching
+    // so a directional assertion is exact, not an approximation. "second" sits at y=438.75 approaching
     // along -y toward the victim at y=400, so `away.y < 0` and the knock must push the victim's vy
     // negative.
     expect(victim.vy).toBeLessThan(0);
@@ -278,7 +278,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
   it("adds a second ram's knock on top rather than replacing the standing one (no precedence)", () => {
     const state = arena();
     addPlayer(state, "medium", { x: 0, y: 400, angle: 0, vx: 150 });
-    const victim = addPlayer(state, "b", { x: 70.5, y: 400, angle: 0 });
+    const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
     const memory = newContactMemory();
     contactTick(
       state, new Set(["medium", "b"]), memory, "ffa", NO_EFFECTS, approachVelocities(state),
@@ -291,7 +291,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     // on a later tick. Under the old `authority`-based precedence a stronger ram could overwrite a
     // standing one; that mechanism is gone (temporary shim, stage 1), so this just adds a fresh
     // knock component rather than overwriting or being blocked.
-    addPlayer(state, "hexy", { x: 70.5, y: 446.5, angle: -Math.PI / 2, vy: -320, carId: "bastion" });
+    addPlayer(state, "hexy", { x: 58.75, y: 438.75, angle: -Math.PI / 2, vy: -320, carId: "bastion" });
     contactTick(
       state, new Set(["medium", "b", "hexy"]), memory, "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 11,
@@ -300,7 +300,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     // Same float-zero caveat as the test above: the second attacker's shove is nominally along y
     // alone, but its x contribution is only float-zero, not exactly 0.
     expect(victim.vx).toBeCloseTo(afterMediumRam);
-    // Same geometric-sign reasoning as the test above: "hexy" sits at y=446.5 approaching along -y
+    // Same geometric-sign reasoning as the test above: "hexy" sits at y=438.75 approaching along -y
     // toward the victim at y=400, so `away.y < 0` and the knock must push the victim's vy negative,
     // independent of the attacker's ramDefence or drive-in.
     expect(victim.vy).toBeLessThan(0);
@@ -312,16 +312,16 @@ describe("contactTick (dash, O12)", () => {
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 0 });
     attacker.maneuver = ManeuverKind.DASH;
-    // "b" touches via the x-axis gap (70.5 = 36+36-1.5, a grazing 1.5 u overlap — the 72x48 hull's
-    // 1.5x scaling of the old 47 = 24+24-1, and the margin every other touching test in this file
-    // uses); "c" touches via the y-axis gap (46.5 = 24+24-1.5, the mirror of that margin against
-    // the hull's 48-unit height) — two DIFFERENT, both-fresh contacts in one tick. "c" also sits
-    // half a hull length back (x -36), so "b"/"c" are 106.5 apart in x and clear each other by
-    // 34.5 u: they never touch each other. (Before 2026-09-16 "c" sat at x 0, and dx 47 / dy 31
+    // "b" touches via the x-axis gap (58.75 = 30+30-1.25, a grazing 1.25 u overlap — the 60x40 hull's
+    // 1.25x scaling of the old 47 = 24+24-1, and the margin every other touching test in this file
+    // uses); "c" touches via the y-axis gap (38.75 = 20+20-1.25, the mirror of that margin against
+    // the hull's 40-unit height) — two DIFFERENT, both-fresh contacts in one tick. "c" also sits
+    // half a hull length back (x -30), so "b"/"c" are 88.75 apart in x and clear each other by
+    // 28.75 u: they never touch each other. (Before 2026-09-16 "c" sat at x 0, and dx 47 / dy 31
     // left "b" and "c" overlapping by 1 u at the corner — the claim was already false at 48x32, and
-    // at 72x48 the unscaled offsets made that a 25 x 17 overlap.)
-    addPlayer(state, "b", { x: 70.5, y: 400, angle: 0 });
-    addPlayer(state, "c", { x: -36, y: 446.5, angle: 0 });
+    // at 60x40 the unscaled offsets made that a 13 x 9 overlap.)
+    addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
+    addPlayer(state, "c", { x: -30, y: 438.75, angle: 0 });
     const result = contactTick(
       state,
       new Set(["a", "b", "c"]),
@@ -342,7 +342,7 @@ describe("contactTick (dash, O12)", () => {
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 0 });
     attacker.maneuver = ManeuverKind.DASH;
-    addPlayer(state, "b", { x: 70.5, y: 400, angle: 0 });
+    addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
     const debuffed = new Map([["a", { ...NEUTRAL_MODIFIERS, topSpeed: 0.6 }]]);
     contactTick(
       state,
@@ -371,7 +371,7 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     // both gone; the attacker keeps whatever velocity it already had.
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
-    addPlayer(state, "b", { x: 70.5, y: 400, angle: 0 });
+    addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
     attacker.maneuver = ManeuverKind.CHARGE;
     attacker.maneuverTicksLeft = 200;
     writeStatuses(attacker, applyStatus([], "fortified", 5, 300, "a"));
@@ -441,10 +441,10 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     // is inside the wall band and gets an immediate stun, closing `wallStunUntilTick` at `tick` and
     // failing this assertion. Moving the whole pair inward by the same 200 units keeps the 47-unit
     // spacing the charge contact needs while clearing the new wall by a wide margin. That spacing
-    // is 70.5 u since the 2026-09-16 resize to the 72x48 hull (1.5x, spec BC9), so "b" sits at 270.5.
+    // is 58.75 u since the 2026-09-16 resize to the 60x40 hull (1.25x, spec BC9), so "b" sits at 258.75.
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 200, y: 400, angle: 0, vx: 300 });
-    addPlayer(state, "b", { x: 270.5, y: 400, angle: 0 });
+    addPlayer(state, "b", { x: 258.75, y: 400, angle: 0 });
     attacker.maneuver = ManeuverKind.CHARGE;
     attacker.maneuverTicksLeft = 200;
     const memory = newContactMemory();
@@ -463,7 +463,7 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
   it("pushes the victim at the row's own speed, in the direction the event carried", () => {
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
-    const victim = addPlayer(state, "b", { x: 70.5, y: 400, angle: 0 });
+    const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
     attacker.maneuver = ManeuverKind.CHARGE;
     attacker.maneuverTicksLeft = 200;
     contactTick(
@@ -488,7 +488,7 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     const speedFor = (carId: string): number => {
       const state = arena();
       const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
-      const victim = addPlayer(state, "b", { x: 70.5, y: 400, angle: 0, carId });
+      const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0, carId });
       attacker.maneuver = ManeuverKind.CHARGE;
       attacker.maneuverTicksLeft = 200;
       contactTick(
@@ -509,7 +509,7 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     // read as a pass.
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
-    const victim = addPlayer(state, "b", { x: 70.5, y: 400, angle: 0 });
+    const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
     attacker.maneuver = ManeuverKind.CHARGE;
     attacker.maneuverTicksLeft = 200;
     contactTick(
@@ -532,18 +532,18 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     // Uncapped, this fixture lands 2x the authored `speed` on one car in a single tick.
     //
     // Geometry: "a" charges into "b" along +x, "c" charges into it along +y. Rescaled for the
-    // 2026-09-16 hull resize (72x48): at the old 48x32 hull, -47/-39 put the two chargers clear of
-    // each other and each just touching "b"; at 72x48 those same offsets put the chargers touching
-    // EACH OTHER too, so both are scaled 1.5x. The two chargers are clear of each other (a's hull
-    // spans x [-106.5,-34.5], c's spans x [-24,24] — no x overlap, so the AABBs can't touch even
-    // though their y-ranges graze), and each overlaps "b" by 1.5 u, so the only two contacts in the
+    // 2026-09-16 hull resize (60x40): at the old 48x32 hull, -47/-39 put the two chargers clear of
+    // each other and each just touching "b"; at 60x40 those same offsets put the chargers touching
+    // EACH OTHER too, so both are scaled 1.25x. The two chargers are clear of each other (a's hull
+    // spans x [-88.75,-28.75], c's spans x [-20,20] — no x overlap, so the AABBs can't touch even
+    // though their y-ranges graze), and each overlaps "b" by 1.25 u, so the only two contacts in the
     // tick are the two slams, and the pushes are PERPENDICULAR — which is what makes doubling
     // observable. Uncapped the victim would end at hypot(speed, speed) ≈ 1.41x the row's number;
     // capped it ends at exactly the row's number, along the LAST slam's axis alone.
     const state = arena();
-    const first = addPlayer(state, "a", { x: -70.5, y: 0, angle: 0, vx: 300 });
+    const first = addPlayer(state, "a", { x: -58.75, y: 0, angle: 0, vx: 300 });
     const victim = addPlayer(state, "b", { x: 0, y: 0, angle: 0 });
-    const second = addPlayer(state, "c", { x: 0, y: -58.5, angle: Math.PI / 2, vy: 300 });
+    const second = addPlayer(state, "c", { x: 0, y: -48.75, angle: Math.PI / 2, vy: 300 });
     for (const charger of [first, second]) {
       charger.maneuver = ManeuverKind.CHARGE;
       charger.maneuverTicksLeft = 200;
@@ -612,7 +612,7 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     const dasher = addPlayer(state, "a", { x: 400, y: 400, angle: 0, vx: 300 });
     dasher.maneuver = ManeuverKind.DASH;
     dasher.maneuverTicksLeft = 200;
-    const charger = addPlayer(state, "b", { x: 470.5, y: 400, angle: Math.PI, vx: -300 });
+    const charger = addPlayer(state, "b", { x: 458.75, y: 400, angle: Math.PI, vx: -300 });
     charger.maneuver = ManeuverKind.CHARGE;
     charger.maneuverTicksLeft = 200;
     const memory = newContactMemory();
@@ -662,7 +662,7 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
   it("gives a freshly rammed victim the full RAM_TICKS.uncontrol duration", () => {
     const state = arena();
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
-    const victim = addPlayer(state, "b", { x: 70.5, y: 400, angle: 0 });
+    const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
     contactTick(
       state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS,
       approachVelocities(state), NO_MANEUVER_WEAPONS, 10,
@@ -676,7 +676,7 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     const state = arena();
     const memory = newContactMemory();
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
-    const victim = addPlayer(state, "b", { x: 70.5, y: 400, angle: 0 });
+    const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
     contactTick(
       state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS,
       approachVelocities(state), NO_MANEUVER_WEAPONS, 10,
@@ -719,14 +719,14 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     const state = arena();
     const memory = newContactMemory();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
-    const victim = addPlayer(state, "b", { x: 70.5, y: 400, angle: 0 });
+    const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
     contactTick(
       state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS,
       approachVelocities(state), NO_MANEUVER_WEAPONS, 10,
     );
     const first = Math.abs(victim.vx);
 
-    victim.x = 70.5; victim.y = 400; victim.vx = 0; victim.vy = 0;
+    victim.x = 58.75; victim.y = 400; victim.vx = 0; victim.vy = 0;
     attacker.vx = 540;
     memory.contacts = new Set();
     contactTick(
@@ -750,7 +750,7 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     const state = arena();
     const memory = newContactMemory();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
-    const victim = addPlayer(state, "b", { x: 70.5, y: 400, angle: 0 });
+    const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
     contactTick(
       state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS,
       approachVelocities(state), NO_MANEUVER_WEAPONS, 10,
@@ -761,7 +761,7 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     // Restore the exact opening geometry and both approach velocities, so the ONLY thing that
     // differs between the two rams is the falloff stack `memory` is now carrying.
     attacker.x = 0; attacker.y = 400; attacker.vx = 540; attacker.vy = 0;
-    victim.x = 70.5; victim.y = 400; victim.vx = 0; victim.vy = 0;
+    victim.x = 58.75; victim.y = 400; victim.vx = 0; victim.vy = 0;
     memory.contacts = new Set();
     contactTick(
       state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS,
@@ -777,7 +777,7 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
   it("does not apply reeling to the attacker", () => {
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
-    addPlayer(state, "b", { x: 70.5, y: 400, angle: 0 });
+    addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
     contactTick(
       state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS,
       approachVelocities(state), NO_MANEUVER_WEAPONS, 10,
@@ -789,7 +789,7 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     const state = arena();
     const memory = newContactMemory();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
-    const victim = addPlayer(state, "b", { x: 70.5, y: 400, angle: 0 });
+    const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
     attacker.maneuver = ManeuverKind.CHARGE;
     attacker.maneuverTicksLeft = 200;
     contactTick(
@@ -813,7 +813,7 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     const state = arena();
     const memory = newContactMemory();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
-    const victim = addPlayer(state, "b", { x: 70.5, y: 400, angle: 0 });
+    const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
     attacker.maneuver = ManeuverKind.CHARGE;
     attacker.maneuverTicksLeft = 200;
     const approach = new Map([["a", { vx: 300, vy: 0 }], ["b", { vx: 0, vy: 0 }]]);
@@ -826,7 +826,7 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     // fresh contact episode on the SAME memory — and so the same falloff stack — the way the ram
     // falloff tests above do. Tick 11 is well inside `RAM_TICKS.drWindow`, which is the window a
     // second ram WOULD be diminished in.
-    victim.x = 70.5; victim.y = 400; victim.vx = 0; victim.vy = 0;
+    victim.x = 58.75; victim.y = 400; victim.vx = 0; victim.vy = 0;
     attacker.x = 0; attacker.y = 400; attacker.vx = 300; attacker.vy = 0;
     attacker.maneuver = ManeuverKind.CHARGE;
     attacker.maneuverTicksLeft = 200;
@@ -848,19 +848,19 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     // unambiguously a ram.
     //
     // The rammer approaches along +x and the charger along -y, so the two pushes are on different
-    // axes and can be told apart in the result. Their centres are 70.5 apart in x and 46.5 in y
-    // (47 and 31 before the 2026-09-16 resize to the 72x48 hull, scaled 1.5x), which leaves their
-    // hulls 10.5 u clear of each other along x — each touches the victim alone.
+    // axes and can be told apart in the result. Their centres are 58.75 apart in x and 38.75 in y
+    // (47 and 31 before the 2026-09-16 resize to the 60x40 hull, scaled 1.25x), which leaves their
+    // hulls 8.75 u clear of each other along x — each touches the victim alone.
     const build = (withRammer: boolean, withCharger: boolean) => {
       const state = arena();
       const victim = addPlayer(state, "victim", { x: 0, y: 400, angle: 0 });
       const roster = new Set(["victim"]);
       if (withRammer) {
-        addPlayer(state, "aRam", { x: -70.5, y: 400, angle: 0, vx: 540 });
+        addPlayer(state, "aRam", { x: -58.75, y: 400, angle: 0, vx: 540 });
         roster.add("aRam");
       }
       if (withCharger) {
-        const charger = addPlayer(state, "zCharge", { x: 0, y: 446.5, angle: -Math.PI / 2, vy: -300 });
+        const charger = addPlayer(state, "zCharge", { x: 0, y: 438.75, angle: -Math.PI / 2, vy: -300 });
         charger.maneuver = ManeuverKind.CHARGE;
         charger.maneuverTicksLeft = 200;
         roster.add("zCharge");

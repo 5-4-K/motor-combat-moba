@@ -53,9 +53,11 @@ export const ARENA_02 = {
   /**
    * Four corners and the midpoint of each long wall, one margin off the spiked edge. Corner cars
    * face across the arena and the two midpoint cars face each other — the same facing rule
-   * `ARENA_01` uses, re-seated in this rect. The rows moved inward on 2026-09-16 for the 72x48 hull
-   * (y 150/570 -> 187/543, spec BC10), so every spawn clears the spike ring by about 106 u, more
-   * than a car diagonal (86.5); `x` and `angle` did not move.
+   * `ARENA_01` uses, re-seated in this rect. The rows moved inward on 2026-09-16 for the 60x40 hull
+   * (y 150/570 -> 187/543, spec BC10), so every spawn clears the spike ring by about 106 u, well
+   * past a car diagonal (72.1); `x` and `angle` did not move. Unlike `ARENA_01`'s, the old rows here
+   * did not merely scrape the bar — they cleared by 69 u, inside the diagonal, so this move is
+   * forced rather than tidy.
    */
   ffaSpawns: [
     { x: 200, y: 187, angle: 0 },

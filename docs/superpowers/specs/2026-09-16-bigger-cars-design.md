@@ -1,19 +1,21 @@
-# Bigger cars (1.5x hull) — design
+# Bigger cars (1.25x hull) — design
 
 **Date:** 2026-09-16
-**Status:** approved
+**Status:** approved (revised 2026-09-17 from 1.5x to 1.25x — see §12)
 **Branch:** `feature/bigger-cars`
-**Clauses:** BC1–BC34
+**Clauses:** BC1–BC39
 
 ## 1. What this changes, and why
 
 Every car in the game shares one hull, `DRIVE_CONFIG.carWidth` × `carHeight` = **48 × 32** world
 units. The user previewed cars drawn 1.5x larger in the playground — a console-only scale of each
-car's `Container`, with the sim untouched — liked how the game felt, and asked to ship it.
+car's `Container`, with the sim untouched — liked how the game felt, and asked to ship it. Playing
+the shipped 1.5x hull then read as **too** large against arenas that did not grow, so the factor was
+revised down to **1.25x** (§12).
 
-**BC1.** What ships is the **real hull**, not the drawing: `carWidth` 48 → **72**, `carHeight`
-32 → **48**. What a player sees is what collides, rams, touches spikes and gets hit. A sprite drawn
-1.5x over an unchanged hitbox was rejected: shots would visibly pass through a car's outer third and
+**BC1.** What ships is the **real hull**, not the drawing: `carWidth` 48 → **60**, `carHeight`
+32 → **40**. What a player sees is what collides, rams, touches spikes and gets hit. A sprite drawn
+1.25x over an unchanged hitbox was rejected: shots would visibly pass through a car's outer edge and
 cars would appear to overlap before they touch, which reads as a bug.
 
 **BC2.** The arenas do **not** grow. Both stay 1280 × 720 with their current boundaries and spike
@@ -38,7 +40,7 @@ strips, so the field is relatively more crowded. That is the feel the preview sh
 
 ## 2. The hull
 
-**BC3.** `DRIVE_CONFIG.carWidth: 72` and `carHeight: 48` in
+**BC3.** `DRIVE_CONFIG.carWidth: 60` and `carHeight: 40` in
 `packages/shared/src/config/drive-config.ts`. The 3:2 aspect ratio is preserved exactly.
 
 **BC4.** No reader of the hull gains a typed number. Every sim, client, bot and script reader
@@ -47,42 +49,44 @@ clamp, `RAM_CONFIG.inertiaCoefficient`, `muzzleOffset`, the bot's margins and ai
 client's shadow, occlusion, decals, lock bracket and contact FX, the car-select "Hull size" row, and
 the art importer. The dimension change is the only logic edit this section needs.
 
-**BC5.** Derived values that move with it, for reference: half-length 24 → 36, half-width 16 → 24,
-diagonal 57.7 → 86.5, half-diagonal 28.8 → 43.3, `inertiaCoefficient` 277.33 → 624, muzzle offset
-24 → 36, sprite width 96 → 144 px.
+**BC5.** Derived values that move with it, for reference: half-length 24 → 30, half-width 16 → 20,
+diagonal 57.7 → 72.1, half-diagonal 28.8 → 36.1, `inertiaCoefficient` 277.33 → 433.33, muzzle offset
+24 → 30, sprite width 96 → 120 px.
 
 ## 3. Ram spin
 
 **BC6.** Spin injected by a ram is `torque / (ramDefence × inertiaCoefficient) × spinScale`. At a
-1.5x hull the maximum lever arm grows 1.5x and `inertiaCoefficient` grows 2.25x, so every ram would
-spin its victim **0.667x** as hard. Straight-line push is unaffected (`pushOf`/`impactOn` never read
-the hull).
+1.25x hull the maximum lever arm grows 1.25x and `inertiaCoefficient` grows 1.5625x, so every ram
+would spin its victim **0.8x** as hard. Straight-line push is unaffected (`pushOf`/`impactOn` never
+read the hull).
 
-**BC7.** Compensate: `RAM_CONFIG.spinScale` 10 → **15**. For any ram whose contact geometry scales
-with the hull, 1.5 × 1.5 / 2.25 = 1, so the spin a player feels is **identical** to today. This keeps
-the change about size, not handling. Stage 5 of the car-physics rework still owns the real re-pitch
-of `spinScale`/`globalScale`; this edit hands it an unchanged spin budget.
+**BC7.** Compensate: `RAM_CONFIG.spinScale` 10 → **12.5**. For any ram whose contact geometry scales
+with the hull, 1.25 × 1.25 / 1.5625 = 1, so the spin a player feels is **identical** to today. This
+keeps the change about size, not handling. Stage 5 of the car-physics rework still owns the real
+re-pitch of `spinScale`/`globalScale`; this edit hands it an unchanged spin budget.
 
 **BC8.** The hardest-ram figure (Bastion flanking a stationary Bullseye at top speed, maximum lever)
 must still read **4.4975 rad/s**. Its fixture in `ram-config.test.ts` moves to the new maximal-lever
-geometry (attacker at `(36, -45)`, recovered local contact `(36, -24)`) and its hand derivation is
-rewritten with 36 u, 624 and 15. `spinScale`'s doc comment is updated to match: the lever column
-reads 6 / 18 / **36 u (clamped max)**, and the values in the table are unchanged by construction.
-The "pins the authored knobs" assertion becomes `spinScale` 15, and the comment says why it moved.
+geometry (attacker at `(30, -37.5)`, recovered local contact `(30, -20)`) and its hand derivation is
+rewritten with 30 u, 433.33 and 12.5. `spinScale`'s doc comment is updated to match: the lever column
+reads 5 / 15 / **30 u (clamped max)**, and the values in the table are unchanged by construction.
+The "pins the authored knobs" assertion becomes `spinScale` 12.5, and the comment says why it moved.
 
 **BC9.** Every other ram/contact fixture that places cars by hand at 48 × 32-relative offsets scales
-those offsets by 1.5 (or derives them from `DRIVE_CONFIG`), so its hand-derived expectation is
+those offsets by 1.25 (or derives them from `DRIVE_CONFIG`), so its hand-derived expectation is
 unchanged. `ram.test.ts`'s "ordinary flank ram spin" fixture is the model: attacker `(12, -30)` →
-`(18, -45)`, lever 12 → 18, and the 1.0283 rad/s derivation still holds.
+`(15, -37.5)`, lever 12 → 15, and the 1.0283 rad/s derivation still holds.
 
 ## 4. Arenas
 
 **BC10.** `arena-01.test.ts` and `arena-02.test.ts` require every spawn to clear every spike strip
-by more than a car diagonal (now 86.5). Measured against the current tables, **all ten** failing
-spawns are FFA spawns; team spawns clear by 106–122 u and already pass. The FFA rows move inward so
-each row stays level and every FFA spawn clears by about 106 u, matching the team spawns:
+by more than a car diagonal (now 72.1). Measured against the original tables, `arena-02`'s FFA rows
+**fail outright** (69 u, inside the diagonal) and `arena-01`'s corners **pass by under four units**
+(76 u); team spawns clear by 106–122 u and already pass. The FFA rows move inward so each row stays
+level and every FFA spawn clears by about 106 u, matching the team spawns — the point is to sit level
+with the team spawns rather than to scrape the bar:
 
-| Arena | FFA spawn `y` today | New `y` | Clearance today → new |
+| Arena | FFA spawn `y` before | New `y` | Clearance before → new |
 |---|---|---|---|
 | `arena-01` (spike band y 54–74 / 646–666) | 150 / 570 | **180 / 540** | 76 → 106 (corners; the middle pair was already 106.8) |
 | `arena-02` (spike band y 61–81 / 648–668) | 150 / 570 | **187 / 543** | 69 / 78 → 106 / 105 |
@@ -91,7 +95,7 @@ each row stays level and every FFA spawn clears by about 106 u, matching the tea
 centre line (y 365), as its team spawns already are.
 
 **BC11.** `dashSubstepMaxUnits` stays 16. `config.test.ts` bounds it at half the short axis, which
-is now 24, so it passes with more headroom. The measured penetration figures quoted in its comment
+is now 20, so it passes with more headroom. The measured penetration figures quoted in its comment
 (18.49 u, and the five-row table) and in `step.test.ts` (`~26.64u`, `MEASURED_WORST_REACHABLE`)
 **are re-measured** by the method those comments already describe (run the sweep with the bound
 removed, read the label). The bounds `MAX_PENETRATION` and `MAX_REACHABLE_PENETRATION` are re-derived
@@ -108,7 +112,7 @@ turn-tuning page test passed.
 
 1. **Fixture geometry authored against 48 × 32.** Cars or boxes placed at hull-relative offsets, or
    a literal `48`/`32`/`24`/`16` meaning "the hull". Fix by deriving from `DRIVE_CONFIG`, or by
-   scaling the offsets 1.5x so the hand-derived expectation is unchanged. Examples: `collide.test.ts`
+   scaling the offsets 1.25x so the hand-derived expectation is unchanged. Examples: `collide.test.ts`
    (11 tests), `golden.test.ts`'s `resolveWorld` block (4 tests), `ram.test.ts`, `lock.test.ts`'s
    `muzzleOf`, `combat.test.ts`'s `aimAngleFor`/phased-lock pair, `tick.test.ts`,
    `ram-bridge.test.ts`'s double-slam, client `fx/events.test.ts` and `combat-visual.test.ts`'s lock
@@ -130,7 +134,7 @@ and report it.
 ## 6. The bot
 
 **BC15.** The bot's hull-derived margins grow with the hull: `movement.ts` (spike and obstacle
-probes, `max/2` 24 → 36), `planner.ts`'s `boundsPenalty` margin (48 → 72), `perception.ts`'s
+probes, `max/2` 24 → 30), `planner.ts`'s `boundsPenalty` margin (48 → 60), `perception.ts`'s
 `THREAT_LATERAL_UNITS`, and `solution.ts`'s aim subtense. That is the correct behaviour for a bigger
 car and is kept.
 
@@ -169,8 +173,8 @@ part of this change.
 
 ## 7. Car art
 
-**BC20.** All nine car sprites are **re-imported at 144 px** (`SUPERSAMPLE` 2 × the 72-unit long
-axis) from the user's source folder `E:\Work\PROJECT DOCS\car racer\assets\cars\`. Filenames there
+**BC20.** All nine car sprites were **re-imported at 144 px** (`SUPERSAMPLE` 2 × the 72-unit long
+axis) under the 1.5x revision, from the user's source folder `E:\Work\PROJECT DOCS\car racer\assets\cars\`. Filenames there
 are the capitalised car ids (`Anvil.png`, `Bastion.png`, `Bullseye.png`, `Caprico.png`,
 `Cleaver.png`, `Mirage.png`, `Prowler.png`, `Skorpios.png`, `Taurus.png`). Each goes through the
 `process-car-asset` skill's own workflow: build shared **after** the hull change, preflight, then
@@ -181,10 +185,10 @@ are the capitalised car ids (`Anvil.png`, `Bastion.png`, `Bullseye.png`, `Capric
 
 **BC22.** `import-art.mjs`, `check-cars.mjs` and the skill's `preflight.mjs` need **no logic change**.
 All three read the hull from built shared. Only prose moves:
-- `.claude/skills/process-car-asset/SKILL.md`: "48x32 hull" becomes "72x48 hull", and "legible at
-  48×32" becomes "legible at 72×48".
+- `.claude/skills/process-car-asset/SKILL.md`: "48x32 hull" becomes "60x40 hull", and "legible at
+  48×32" becomes "legible at 60×40".
 - `generation-prompt.md`: "legible at 48x32 pixels", "fits art to the 48×32 hull" and "Legible at
-  48x32" all become 72×48.
+  48x32" all become 60×40.
 - `packages/client/public/art/README.md`: the example output line and the `scale` row.
 - `docs/asset-pipeline.md`: the `scale` row, the rotation example (`128 along the hull's 48, not
   along its 32` becomes 72/48), the "roughly 48×32 world units" line, and the fit-target table row.
@@ -192,8 +196,10 @@ All three read the hull from built shared. Only prose moves:
 **BC23.** The manifest rows need no change (`file` only, default fit). The importer rewrites them
 idempotently.
 
-**BC24.** After import, `npm run check:cars` must report every chassis at the expected 144 px width
-with no blockers.
+**BC24.** After import, `npm run check:cars` must report no blockers. Under the 1.25x revision the
+expected width is 120 px and the art is deliberately **left at 144 px** (§12), so every chassis
+reports an off-size *warning* — over-sampled, not under-sampled, which costs a little texture memory
+and nothing else. Warnings never fail the suite.
 
 ## 8. Client
 
@@ -203,21 +209,21 @@ car:
 
 | Constant | File | Now | New | Why |
 |---|---|---|---|---|
-| `LOCK_BRACKET_HALF` | `scenes/combat-visual.ts` | 34 | **51** | must exceed the half-diagonal, now 43.3 (its test already derives this and fails today) |
-| `LOCK_BRACKET_ARM` | `scenes/combat-visual.ts` | 11 | **16** | proportion to the bracket; still under half the side |
-| `ARROW_GAP_PX` | `scenes/countdown-arrow.ts` | 38 | **57** | apex at the bottom of the bob must clear the 43.3 half-diagonal (52 > 43.3) |
-| `HP_BAR_GEOMETRY.length` | `scenes/ArenaScene.ts` | 44 | **66** | the bar lies across the car's tail; keeps its width relative to the 48-unit (was 32) tail |
+| `LOCK_BRACKET_HALF` | `scenes/combat-visual.ts` | 34 | **42.5** | must exceed the half-diagonal, now 36.1 (its test already derives this and fails today) |
+| `LOCK_BRACKET_ARM` | `scenes/combat-visual.ts` | 11 | **13.75** | proportion to the bracket; still under half the side |
+| `ARROW_GAP_PX` | `scenes/countdown-arrow.ts` | 38 | **47.5** | apex at the bottom of the bob must clear the 36.1 half-diagonal (42.5 > 36.1) |
+| `HP_BAR_GEOMETRY.length` | `scenes/ArenaScene.ts` | 44 | **55** | the bar lies across the car's tail; keeps its width relative to the 40-unit (was 32) tail |
 
 `HP_BAR_GEOMETRY.offset` already derives from `carWidth` and stays as written; `thickness` stays 5.
 `countdown-arrow.test.ts`'s hardcoded `Math.hypot(48, 32)` is replaced by `DRIVE_CONFIG`, which is
 what makes that test catch this class of drift from now on.
 
-No other client logic changes. Comments that state the hull as a fact are updated to 72 × 48 (or
+No other client logic changes. Comments that state the hull as a fact are updated to 60 × 40 (or
 reworded to reference `DRIVE_CONFIG`):
 - `fx/environment.ts`, `fx/occlusion.ts` (its "107 x 93 units against a 48 x 32 hull" figure is
-  recomputed), `scenes/car-lighting.ts`
+  reworded as historical), `scenes/car-lighting.ts`
 - `scenes/combat-visual.ts` (both mentions), `scenes/countdown-arrow.ts` and its test (the
-  half-diagonal becomes 43 u, and the test's `Math.hypot(48, 32)` is derived from `DRIVE_CONFIG`)
+  half-diagonal becomes 36 u, and the test's `Math.hypot(48, 32)` is derived from `DRIVE_CONFIG`)
 - `scenes/weapon-hud.ts`, `assets/sprite-fit.ts` and its test's comment, `scripts/import-weapon-icon.mjs`
 - `packages/client/CLAUDE.md`
 
@@ -230,27 +236,27 @@ Tests that call pure geometry helpers with explicit arbitrary dimensions (`shape
 **BC26.** Shared comments that state the hull as a fact are updated: `ram.ts` ("48 long by 32
 wide"), `step.ts` and `step.test.ts` (thunderclap's 53.3 u/tick "against a 48x32 hull"),
 `aim-config.ts` ("cars are 48 x 32"), `drive-config.ts`'s `dashSubstepMaxUnits` comment (BC11),
-`config.test.ts`'s "32-unit face"/"48-unit face" (now 48/72), `ram-config.ts` (BC8), and the
+`config.test.ts`'s "32-unit face"/"48-unit face" (now 40/60), `ram-config.ts` (BC8), and the
 server-side `planner.ts` "48-unit margin" prose, `planner.test.ts`, `solution.test.ts` and
 `ram-bridge.test.ts` comments.
 
 **BC27.** Docs:
 - `docs/config-reference.md` gets these edits:
-  - the `DRIVE_CONFIG` table's `carWidth`/`carHeight` rows (72 / 48)
-  - the `RAM_CONFIG` table's `spinScale` row (15, with the reason) and `inertiaCoefficient` row
-    (624 **[D]**)
-  - the `spinScale` prose ("it is 10 now", and the lever-arm table's clamp at 24 u → 36 u)
-  - the lever-clamp sentence "(24 and 16 today)" → "(36 and 24 today)"
+  - the `DRIVE_CONFIG` table's `carWidth`/`carHeight` rows (60 / 40)
+  - the `RAM_CONFIG` table's `spinScale` row (12.5, with the reason) and `inertiaCoefficient` row
+    (433.33 **[D]**)
+  - the `spinScale` prose ("it is 10 now", and the lever-arm table's clamp at 24 u → 30 u)
+  - the lever-clamp sentence "(24 and 16 today)" → "(30 and 20 today)"
 - `docs/turn-tuning.md`: its prose calling radii "under one car length (48 u)" is re-read against
-  72 u. Its three tables do not contain the hull, and its test already passes.
+  60 u. Its three tables do not contain the hull, and its test already passes.
 - Root `CLAUDE.md`: one new dated paragraph recording the resize, the spin compensation and the
   moved spawns. Older dated paragraphs stay as history.
 - `docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md`: one note that `spinScale` moved
-  10 → 15 outside the rework to hold spin constant across the hull resize, so stage 5 re-pitches
-  from 15.
+  10 → 12.5 outside the rework to hold spin constant across the hull resize, so stage 5 re-pitches
+  from 12.5.
 
 **BC28.** The players' guide is regenerated with `npm run build:manual`. `DRIVE_CONFIG` is in its
-stamp, and the page prints "a car is 48 long" and weapon reach in car lengths. The regenerated page
+stamp, and the page prints "a car is 60 long" and weapon reach in car lengths. The regenerated page
 is committed.
 
 ## 10. Probes and harnesses: flagged, not run
@@ -258,7 +264,7 @@ is committed.
 **BC29.** The playtest probes are **not** updated as a matter of course and **not** run. The final
 summary must name, loudly:
 - `geometry.ts` and `collision.ts`: hull-derived placements and verdicts.
-- `prediction.ts`: its FINDING threshold is `carWidth`, which just grew 1.5x.
+- `prediction.ts`: its FINDING threshold is `carWidth`, which just grew 1.25x.
 - `ram.ts`: attacker placements at `vx - 48 - gap`, a typed hull length that is now wrong.
 - `weapons.ts`: `HULLS_TOUCH_AT = 48` and the "W2. Point-blank (… hulls touch at 48)" report string,
   both now wrong.
@@ -279,9 +285,62 @@ is not comparable across the `BOT_BRAIN_VERSION` bump.
 and the check-art blockers.
 
 **BC33.** Root `npm run build` succeeds, and the server bundle is checked to carry the new hull
-(`grep "carWidth: 72" packages/server/dist/index.js`), per the shared-dist gotcha.
+(`grep "carWidth: 60" packages/server/dist/index.js`), per the shared-dist gotcha.
 
 **BC34.** A visual check in the playground (`?dev=playground`, dev server via the preview tools):
 cars render at the new size with the re-imported art, the debug hitbox outline matches the sprite,
 and cars collide where they appear to touch. A screenshot is shared. The guide page
-(`/manual.html`) is loaded to confirm the new sprites and the "72 long" text.
+(`/manual.html`) is loaded to confirm the new sprites and the "60 long" text.
+
+
+## 12. Revision: 1.5x → 1.25x (2026-09-17)
+
+**BC35.** The 1.5x hull shipped on this branch and played too large: the arenas did not grow (BC2),
+so a 72 × 48 car left the field feeling crowded rather than weighty. The factor is revised to
+**1.25x — 60 × 40** — and every clause above is restated at that factor rather than kept as history,
+because none of this has reached `development/main` yet.
+
+**BC36.** What that changed, against the 1.5x work:
+
+- `spinScale` **12.5**, not 15 (BC7). The hardest ram still measures 4.4975 rad/s.
+- Every hand-placed fixture offset re-derived at 1.25x of its **48 × 32 original**, not at 1.25/1.5
+  of the 72 × 48 value, so each hand derivation is exact rather than rounded twice.
+- The golden `resolveWorld` poses re-pinned a third time: wall 30, corner 35.3553390593,
+  car 485.5357142857143, obstacle 289.5798033337405.
+- The bot's slot-preference sweep returns to **one** cell of nine (`mirage/hard`), the 48 × 32
+  reading — `mirage/medium` only comes alive at 72 × 48. `firing.ts`, `bot-profiles.ts` and
+  `docs/bot-behavior.md` revert to "one cell", with the neutral standoffs re-measured at 60 × 40
+  (bullseye 70 / 220 / 570, mirage 103.3 / 220 / 220, bastion 111.7 / 132.5 / 132.5).
+- `planner.test.ts`'s R-P16 winner is `{ steer: 1, throttle: 1 }`. Measured: `{ 1, 1 }` and
+  `{ -1, 1 }` score **bit-identically** in this symmetric scene, so the steer sign is `ALL_ACTIONS`
+  order breaking an exact tie, not a play. The comment now says so; `throttle: 1` is the real claim.
+- `solution.test.ts`'s fine pass re-bands to 16–28, off a 1-unit probe putting the last connecting
+  offset at 25 and the first miss at 26.
+- `instances.test.ts`'s beam wall-clip expectation is derived through `MUZZLE_STEP_UNITS` rather than
+  written as a bare gap. `wallClipDistance` marches the centre axis in 4 u steps, so it answers the
+  gap **rounded up** to a multiple of 4; 48 × 32 (176) and 72 × 48 (164) both happened to be exact
+  multiples and 60 × 40 (170) is the first that is not.
+- `BOT_BRAIN_VERSION` stays **4.7.0** — it already marks "the hull moved and every derived margin
+  moved with it" against 4.6.0, and no 4.7.0 report exists to compare against.
+
+**BC37.** The **car art is deliberately not re-imported** and stays at 144 px, at the user's
+instruction; they will re-import against the 60 u hull separately. `check:cars` therefore warns on
+all nine rows (144 px against an expected 120) and blocks on none. BC20/BC21/BC24's import workflow
+is unchanged for whenever that happens.
+
+**BC38.** The FFA spawn rows (BC10) **stay** where the 1.5x work put them. At 72.1 u of diagonal
+`arena-02`'s original rows fail outright and `arena-01`'s clear by under four units, so the move is
+forced on one arena and wanted on the other.
+
+**BC39.** Three server tests were **already failing on `development/main`** before any of this work,
+from the 2026-09-16 top-speed cut, and are not this change's to fix (BC19 sends them to `bot-tuner`
+and the user). Measured at each hull, for whoever picks that up:
+
+| Test | 48 × 32 (base) | 72 × 48 | 60 × 40 (now) |
+|---|---|---|---|
+| `controller.test.ts` OFF-AXIS mean offset (bar < 0.2) | 0.2386 | 0.6939 | **0.2017** |
+| `tiers.test.ts` P49 time-to-kill (cap 17.87 s) | no kill in the run | 18.7 s | **passes** |
+| `tiers.test.ts` P50 hard vs medium hit rate | 0.778 vs 0.8 | 0.632 vs 0.857 | **0.765 vs 0.857** |
+
+P49 goes green at 60 × 40. The other two stay red, both closer to their bars than at 72 × 48 and
+OFF-AXIS closer than at base.

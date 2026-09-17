@@ -35,9 +35,9 @@ const UP: InputMessage = { seq: 1, steer: 0, throttle: 1, fireSlots: 0 };
  * arena-01's spikes (landed 2026-09-11) include a strip on the top wall spanning x 129-310, which a
  * test that curves or loops (see the dedicated centre-spawn spot below) must avoid instead. Moved
  * from 100 with the 2026-09-16 hull resize: it keeps a 10 u clearance under that strip (bottom edge
- * y 74) for a car half-width of 24 (74 + 24 + 10).
+ * y 74) for a car half-width of 20 (74 + 20 + 10).
  */
-const CORRIDOR_Y = 108;
+const CORRIDOR_Y = 104;
 
 /** Dead centre of arena-01, clear of every wall and every spike by a wide margin on both axes. */
 const ARENA_CENTRE_X = 640;
@@ -385,8 +385,8 @@ describe("serverTick", () => {
     // everyone against a single pre-loop snapshot would still see "aaa" back at LEADER_X, overlap
     // "bbb", and shove it clear of the stale pose instead.
     const LEADER_X = 400;
-    const FOLLOWER_X = 460; // < LEADER_X + carWidth, so the two start overlapping
-    const CLEARING_SPEED = 450; // enough to open a gap in a single tick
+    const FOLLOWER_X = 450; // < LEADER_X + carWidth, so the two start overlapping
+    const CLEARING_SPEED = 375; // enough to open a gap in a single tick
 
     const leader = makePlayer("aaa", LEADER_X, CORRIDOR_Y, Math.PI);
     Object.assign(leader, toWorld(Math.PI, CLEARING_SPEED, 0));
@@ -730,13 +730,13 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
     // below provides: it fails loudly, rather than quietly re-pinning over a real spike hit, the
     // moment any spike's span reaches this fixture's traced approach corridor.
     //
-    // REPINNED again for the 2026-09-16 hull resize (72x48): the 48-unit-wide hull reaches the
+    // REPINNED again for the 2026-09-16 hull resize (60x40): the 40-unit-wide hull reaches the
     // bottom wall earlier in the same arc, so the single wall contact happens at a different point
-    // (traced x = 649, at tick 44) and the residual moved 8.1 -> 7.95; re-verified spike-free by
-    // emptying `ARENA_01.obstacles` (identical value: 7.95485311808494). Traced by the wall contact
+    // (traced x = 649.42, at tick 46) and the residual moved 8.1 -> 8.06; re-verified spike-free by
+    // emptying `ARENA_01.obstacles` (identical value: 8.057940264918944). Traced by the wall contact
     // itself (the tick `vy` flips sign), not by the `player.y + carHeight/2 >= 665` heuristic this
     // comment used to name: by the time the arc reaches the wall the car has rotated well past
-    // axis-aligned, so the OBB's actual vertical reach exceeds half the 48-unit height and that
+    // axis-aligned, so the OBB's actual vertical reach exceeds half the 40-unit height and that
     // heuristic never fires for this trajectory.
     const APPROACH_X = 649; // this fixture's traced x when its arc reaches the bottom wall band
     const spikeSpans = ARENA_01.obstacles
@@ -745,7 +745,7 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
     expect(spikeSpans.some(([a, b]) => APPROACH_X >= a && APPROACH_X <= b)).toBe(false);
     const residualSpeed = Math.hypot(player.vx, player.vy);
     expect(residualSpeed).toBeGreaterThan(0);
-    expect(residualSpeed).toBeCloseTo(7.95, 2);
+    expect(residualSpeed).toBeCloseTo(8.06, 2);
     const restingX = player.x;
     const restingVx = player.vx;
     const restingVy = player.vy;

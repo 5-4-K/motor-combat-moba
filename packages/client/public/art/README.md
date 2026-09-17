@@ -38,7 +38,7 @@ It reports what the client will actually draw, which is the part worth reading:
 
 ```
 art           2417 x 1382   aspect 1.75
-in-game       drawn 72.0 x 41.0 inside the 72x48 hull  (100% x 85%)
+in-game       drawn 60.0 x 34.0 inside the 60x40 hull  (100% x 85%)
 ```
 
 Warnings never stop an import — a questionable source still lands, and you judge it in
@@ -100,7 +100,7 @@ All optional except `file`.
 |---|---|---|
 | `file` | required | Path relative to this folder. |
 | `rotationOffset` | `0` | Radians added to the car's angle. The sim's forward is `+x`, i.e. pointing **right**. Art drawn facing **up** needs `1.5707963`. |
-| `scale` | `"fit"` | `"fit"` contains the art inside the 72x48 hull. A positive number is an explicit multiplier — use it when pack art has heavy transparent padding and `"fit"` renders it too small. |
+| `scale` | `"fit"` | `"fit"` contains the art inside the 60x40 hull. A positive number is an explicit multiplier — use it when pack art has heavy transparent padding and `"fit"` renders it too small. |
 | `colorMode` | `"tint"` | `"tint"` multiplies the texture by the player colour and needs desaturated art. `"none"` leaves pre-coloured art alone — the player's colour then does not appear on the car at all, so use it only for chassis skins whose colour is not meant to identify the player. |
 | `origin` | `[0.5, 0.5]` | Normalised origin, for art whose visual centre is not its geometric centre. |
 

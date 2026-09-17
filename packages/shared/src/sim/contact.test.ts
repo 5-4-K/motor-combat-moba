@@ -51,19 +51,19 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     // control-loss all live on `wildcharge`'s own `ImpulseDef` and are assembled by `ram-bridge.ts`;
     // what only this pass can produce is the OBB contact normal and the contact point, so that is
     // what the event carries and all this file can assert about the push.
-    const r = resolveContacts([charger(), victimAt(70.5)], new Set(), "ffa", 10, new Map(), [], bounds);
+    const r = resolveContacts([charger(), victimAt(58.75)], new Set(), "ffa", 10, new Map(), [], bounds);
     expect(r.events.slams).toHaveLength(1);
     const slam = r.events.slams[0]!;
     expect(slam).toMatchObject({ attackerSessionId: "a", targetSessionId: "b", weaponId: "wildcharge" });
-    // The charger sits at x=0 facing +x and the victim at x=70.5 (a grazing 1.5 u overlap against
-    // the 72x48 hull; 47, a 1 u overlap, at 48x32 before the 2026-09-16 resize — every ±70.5 in
+    // The charger sits at x=0 facing +x and the victim at x=58.75 (a grazing 1.25 u overlap against
+    // the 60x40 hull; 47, a 1 u overlap, at 48x32 before the 2026-09-16 resize — every ±58.75 in
     // this file is that same scaled touch), so the push points along +x, and it is a UNIT vector —
     // `applyImpulse` multiplies it by the def's `speed`, so a non-unit direction would silently
     // rescale the ult.
     expect(slam.dirX).toBeCloseTo(1, 6);
     expect(slam.dirY).toBeCloseTo(0, 6);
     expect(Math.hypot(slam.dirX, slam.dirY)).toBeCloseTo(1, 6);
-    expect(slam.contactX).toBe(70.5);
+    expect(slam.contactX).toBe(58.75);
     expect(slam.contactY).toBe(0);
     // Nothing at all in the impulses map: a slam does not compete with a ram for the per-victim
     // slot any more, and the pair produced no ram of its own either (`resolvePair` short-circuits).
@@ -77,7 +77,7 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     // ram's impulse always authors `spin: 1` (`resolveRam`'s hard-coded contract), where a slam's
     // `spin` is whatever its weapon row says (0 for `wildcharge`, "a clean straight punt").
     const ram = resolveContacts(
-      [car({ sessionId: "a", x: 0, y: 0, angle: 0, vx: 300, vy: 0, carId: "bastion" as CarId }), victimAt(70.5)],
+      [car({ sessionId: "a", x: 0, y: 0, angle: 0, vx: 300, vy: 0, carId: "bastion" as CarId }), victimAt(58.75)],
       new Set(),
       "ffa",
       10,
@@ -93,7 +93,7 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
 
   it("slams a stunned victim only when the weapon says so (O3)", () => {
     const blocked = resolveContacts(
-      [charger({ slamsStunned: false }), victimAt(70.5, { stunned: true })],
+      [charger({ slamsStunned: false }), victimAt(58.75, { stunned: true })],
       new Set(),
       "ffa",
       10,
@@ -103,7 +103,7 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     );
     expect(blocked.events.slams).toHaveLength(0); // falls back to an ordinary ram
     const exempt = resolveContacts(
-      [charger({ slamsStunned: true }), victimAt(70.5, { stunned: true })],
+      [charger({ slamsStunned: true }), victimAt(58.75, { stunned: true })],
       new Set(),
       "ffa",
       10,
@@ -116,13 +116,13 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
 
   it("respects re-slam immunity, falling back to an ordinary ram (O18)", () => {
     const immune = new Map([["b", 25]]); // immune until tick 25
-    const r = resolveContacts([charger(), victimAt(70.5)], new Set(), "ffa", 10, immune, [], bounds);
+    const r = resolveContacts([charger(), victimAt(58.75)], new Set(), "ffa", 10, immune, [], bounds);
     expect(r.events.slams).toHaveLength(0);
   });
 
   it("stays edge-triggered like the ram it extends", () => {
     const touching = new Set([pairKey("a", "b")]);
-    const r = resolveContacts([charger(), victimAt(70.5)], touching, "ffa", 10, new Map(), [], bounds);
+    const r = resolveContacts([charger(), victimAt(58.75)], touching, "ffa", 10, new Map(), [], bounds);
     expect(r.events.slams).toHaveLength(0);
     expect(r.impulses.size).toBe(0);
   });
@@ -137,11 +137,11 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     // sorts by session id ("aRam" < "victim" < "zCharge"), so the nested pair loop visits
     // (aRam, victim) ahead of (victim, zCharge). Under the old `best` comparison that ordering was
     // what gave the slam something to overwrite.
-    const rammer = car({ sessionId: "aRam", x: -70.5, y: 0, angle: 0, vx: 100, vy: 0, carId: "bastion" as CarId });
+    const rammer = car({ sessionId: "aRam", x: -58.75, y: 0, angle: 0, vx: 100, vy: 0, carId: "bastion" as CarId });
     const victim = car({ sessionId: "victim", x: 0, y: 0, angle: 0, carId: "mirage" as CarId });
     const charger2 = car({
       sessionId: "zCharge",
-      x: 70.5,
+      x: 58.75,
       y: 0,
       angle: Math.PI,
       carId: "bastion" as CarId,
@@ -166,9 +166,9 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     // contest any more, so neither is dropped: both events are reported, in pair-enumeration order,
     // and `ram-bridge.ts` applies both pushes. Under the old `best` map one of the two was silently
     // discarded, and which one depended on a `>=` comparison between two identical magnitudes.
-    const charger1 = charger({ sessionId: "aCharge", x: -70.5, y: 0, angle: 0 });
+    const charger1 = charger({ sessionId: "aCharge", x: -58.75, y: 0, angle: 0 });
     const victim = car({ sessionId: "victim", x: 0, y: 0, angle: 0, carId: "mirage" as CarId });
-    const charger2 = charger({ sessionId: "zCharge", x: 70.5, y: 0, angle: Math.PI });
+    const charger2 = charger({ sessionId: "zCharge", x: 58.75, y: 0, angle: Math.PI });
     const r = resolveContacts([charger1, victim, charger2], new Set(), "ffa", 10, new Map(), [], bounds);
 
     expect(r.events.slams.map((s) => s.attackerSessionId)).toEqual(["aCharge", "zCharge"]);
@@ -194,7 +194,7 @@ describe("dash contact", () => {
       maneuverWeaponId: "thunderclap",
     });
     const r = resolveContacts(
-      [dasher, car({ sessionId: "b", x: 70.5, y: 0, angle: 0, vx: 0, vy: 0, carId: "bastion" as CarId })],
+      [dasher, car({ sessionId: "b", x: 58.75, y: 0, angle: 0, vx: 0, vy: 0, carId: "bastion" as CarId })],
       new Set(),
       "ffa",
       10,
@@ -228,12 +228,12 @@ describe("dash contact", () => {
 describe("hullTouchesWorld", () => {
   const bounds = { width: 1000, height: 1000 };
   it("detects the arena edge and inflated obstacles, and clears open ground", () => {
-    // 72x48 hull since the 2026-09-16 resize; both fixtures scaled 1.5x from their 48x32 originals
+    // 60x40 hull since the 2026-09-16 resize; both fixtures scaled 1.25x from their 48x32 originals
     // (x 24; box { x: 530, y: 480, w: 40, h: 40 }). The tail sits exactly ON the edge, and the box
-    // leaves a real 1.5 u gap to the car's front (541) that only the inflation (2 * pad) closes.
-    expect(hullTouchesWorld(carHullOf(36, 500, 0), [], bounds, 1)).toBe(true); // tail ON the edge
+    // leaves a real 1.25 u gap to the car's front (535) that only the inflation (2 * pad) closes.
+    expect(hullTouchesWorld(carHullOf(30, 500, 0), [], bounds, 1)).toBe(true); // tail ON the edge
     expect(hullTouchesWorld(carHullOf(500, 500, 0), [], bounds, 1)).toBe(false);
-    const box = { x: 542.5, y: 470, w: 60, h: 60 };
+    const box = { x: 536.25, y: 475, w: 50, h: 50 };
     expect(hullTouchesWorld(carHullOf(505, 500, 0), [box], bounds, 1)).toBe(true);
   });
 
@@ -257,7 +257,7 @@ describe("spike contacts", () => {
   const bounds = { width: 1280, height: 720 };
 
   it("reports a car driving into a spike strip", () => {
-    // x:100,y:150 overlaps the strip's AABB (x:[74,94], y:[105,200]) once the car's 72x48 hull is
+    // x:100,y:150 overlaps the strip's AABB (x:[74,94], y:[105,200]) once the car's 60x40 hull is
     // applied; vx:-100 drives it further left, into the strip's face.
     const driving = car({ x: 100, y: 150, vx: -100, vy: 0 });
     const { events } = resolveContacts([driving], new Set(), "ffa", 1, new Map(), [strip], bounds);
@@ -286,7 +286,7 @@ describe("spike contacts", () => {
     // A car parked on the seam between two vertically-stacked strips (the shape of an octagon
     // corner in ARENA_01, where two strips meet at an angle but both still overlap one hull). `strip`
     // covers y:[105,200]; `stripBelow` picks up immediately at y:200 and runs on. A car centred on
-    // y:200 with the standard 48-unit-tall hull overlaps both by half its height.
+    // y:200 with the standard 40-unit-tall hull overlaps both by half its height.
     const stripBelow = { x: strip.x, y: strip.y + strip.h, w: strip.w, h: strip.h, kind: "spike" as const };
     const straddling = car({ x: 100, y: strip.y + strip.h, vx: -100, vy: 0 });
     const { events } = resolveContacts(

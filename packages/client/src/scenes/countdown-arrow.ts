@@ -65,11 +65,11 @@ export const ARROW_HEIGHT_PX = 16;
  * Centre of the car to the apex, world units, at the middle of the bob.
  *
  * Measured from the *centre* rather than from the car's top edge, because the hull turns and its top
- * edge does not stay put: the worst case is the 72 x 48 hull's half-diagonal, 43 units. At the
- * bottom of the bob the apex is 52 units out, so the arrow never touches the car whichever way it
+ * edge does not stay put: the worst case is the 60 x 40 hull's half-diagonal, 36 units. At the
+ * bottom of the bob the apex is 42.5 units out, so the arrow never touches the car whichever way it
  * happens to be pointing when the countdown starts.
  */
-export const ARROW_GAP_PX = 57;
+export const ARROW_GAP_PX = 47.5;
 
 /**
  * The three world-space corners of the arrow above the car at `(x, y)`, apex last.

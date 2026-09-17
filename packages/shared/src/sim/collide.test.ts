@@ -226,7 +226,7 @@ describe("resolveWorld - obstacles", () => {
 });
 
 describe("resolveWorld - the car is a real OBB, not its axis-aligned hull", () => {
-  // Car centre (100,100), half-extents 36 x 24.
+  // Car centre (100,100), half-extents 30 x 20.
   const start = { x: 100, y: 100, vx: 0, vy: 0, reverseHold: 0 };
 
   // These two fixtures are hand-computed from the rotation by construction, and that is the point.
@@ -238,11 +238,11 @@ describe("resolveWorld - the car is a real OBB, not its axis-aligned hull", () =
   // below for the same reason.
   //
   // Sits just past the car's +x face, but inside the 45deg-rotated rectangle.
-  // (The 48x32-era fixture scaled 1.5x about the car centre with the 2026-09-16 hull resize, so every
+  // (The 48x32-era fixture scaled 1.25x about the car centre with the 2026-09-16 hull resize, so every
   // hand-computed inside/outside relation is preserved exactly.)
-  const clearsAxisAligned: Aabb = { x: 137.5, y: 106, w: 6, h: 6 };
+  const clearsAxisAligned: Aabb = { x: 131.25, y: 105, w: 5, h: 5 };
   // Sits inside the car's +x/-y corner, but outside the 45deg-rotated rectangle.
-  const clearsRotated: Aabb = { x: 130, y: 76, w: 6, h: 6 };
+  const clearsRotated: Aabb = { x: 125, y: 80, w: 5, h: 5 };
 
   it("a 45deg car hits a box that the unrotated car misses", () => {
     const flat = body({ ...start, angle: 0 });
@@ -273,9 +273,9 @@ describe("resolveWorld - the car is a real OBB, not its axis-aligned hull", () =
 describe("resolveWorld - car vs car", () => {
   it("separates two cars overlapping along x", () => {
     const start = body({ x: 500, y: 500, angle: 0 });
-    // 30 apart (scaled with the 2026-09-16 hull): x overlap CAR_W - 30 = 42 stays under the y overlap
-    // CAR_H = 48, so the shortest way out is still along x, which is the axis this test is about.
-    const other: Obb = { x: 530, y: 500, angle: 0, w: CAR_W, h: CAR_H };
+    // 25 apart (scaled with the 2026-09-16 hull): x overlap CAR_W - 25 = 35 stays under the y overlap
+    // CAR_H = 40, so the shortest way out is still along x, which is the axis this test is about.
+    const other: Obb = { x: 525, y: 500, angle: 0, w: CAR_W, h: CAR_H };
     expect(overlaps(carObb(start), other)).toBe(true);
 
     const out = resolveWorld(start, [pinned(other)], [], BOUNDS, 0);
@@ -348,7 +348,7 @@ describe("ramDefence-weighted separation", () => {
     const MIRAGE_RAM_DEFENCE = 50;
     const BASTION_RAM_DEFENCE = 90;
     let mirage = { ...body({}), x: 600, y: 300 };
-    let bastion = { ...body({}), x: 645, y: 300 };
+    let bastion = { ...body({}), x: 637.5, y: 300 };
     const startDepth = penetrationDepth(carObb(mirage), carObb(bastion));
     expect(startDepth).toBeGreaterThan(0); // sanity: this fixture must actually start overlapping
 
@@ -644,7 +644,7 @@ describe("resolveWorld - the leading bounds pass is load-bearing", () => {
 
 describe("resolveWorld - one restitution per distinct surface", () => {
   const r = DRIVE_CONFIG.restitution;
-  // Obstacle flush against the right wall: it spans x[910,1000] in a 1000-wide arena, so its right
+  // Obstacle flush against the right wall: it spans x[925,1000] in a 1000-wide arena, so its right
   // face lies exactly ON the wall plane. A body can therefore be out of bounds AND inside the
   // obstacle at once, passing the leading bounds pass, the obstacle contact, and the trailing clamp
   // -- the three sites that used to each take a bite, yielding r^3.
@@ -654,9 +654,9 @@ describe("resolveWorld - one restitution per distinct surface", () => {
   // from opposite sides, NOT two different surfaces. The r^2 result is still correct under the
   // "once per contact surface" rule -- these are two distinct contacts -- but nobody should read
   // this fixture as a car bouncing off two separate pieces of geometry.
-  const hugging: Aabb = { x: 910, y: 400, w: 90, h: 200 };
-  // Car spans [949,1021]: past the wall at 1000 and overlapping the obstacle at 910.
-  const wedged = () => body({ x: 985, y: 500, angle: 0, ...alongHeading(0, 100) });
+  const hugging: Aabb = { x: 925, y: 400, w: 75, h: 200 };
+  // Car spans [957.5,1017.5]: past the wall at 1000 and overlapping the obstacle at 925.
+  const wedged = () => body({ x: 987.5, y: 500, angle: 0, ...alongHeading(0, 100) });
 
   it("damps once per contact: wall then obstacle is r^2, never r^3", () => {
     const out = resolveWorld(wedged(), [], [hugging], BOUNDS, FILLER_RAM_DEFENCE);

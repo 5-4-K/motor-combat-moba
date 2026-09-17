@@ -105,7 +105,7 @@ export function stepSim(body: SimBody, input: InputMessage, dt: number, ctx: Ste
 /**
  * A dash, resolved in bounded steps instead of one teleport.
  *
- * `thunderclap` covers 53.3 units per tick against a 72x48 hull, so a single translation lands the
+ * `thunderclap` covers 53.3 units per tick against a 60x40 hull, so a single translation lands the
  * car deep inside whatever it hit — and `mtvBetween` returns the SHORTEST way out of an overlap,
  * which for a deep overlap is not the way the car came in. The resolver is not wrong; it is being
  * asked the wrong question (C1). Rather than teach it where the body came from — an entry-normal

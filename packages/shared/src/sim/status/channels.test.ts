@@ -319,7 +319,7 @@ describe("the ramDefence channel reaches the ram, both as the victim's solidity 
     // rating it actually scales) feeds `RamCar.defenceMult`, which scales the DEFENCE term of
     // `pushOf` (spec R2). A buffed attacker brings more push into the contest purely through that
     // term, driving in at the same speed, so the victim's impulse must come out larger.
-    const victim = car({ sessionId: "b", x: 70.5 });
+    const victim = car({ sessionId: "b", x: 58.75 });
     const buffed = resolveRam(car({ vx: 100, vy: 0, defenceMult: 1.5 }), victim, "ffa")!;
     const plain = resolveRam(car({ vx: 100, vy: 0 }), victim, "ffa")!;
     expect(buffed.impulse.speed).toBeGreaterThan(plain.impulse.speed);
@@ -339,11 +339,11 @@ describe("the ramDefence channel reaches the ram, both as the victim's solidity 
     // end-to-end through `applyImpulse`, passing each victim's real `ramDefenceOf`, to match how
     // `ram-bridge.ts`'s `ramDefenceFor` actually applies a ram.
     const attacker = car({ vx: 400, vy: 0 });
-    const plainVictim = car({ sessionId: "b", x: 70.5 });
-    const heavyVictim = car({ sessionId: "b", x: 70.5, defenceMult: 1.5 });
+    const plainVictim = car({ sessionId: "b", x: 58.75 });
+    const heavyVictim = car({ sessionId: "b", x: 58.75, defenceMult: 1.5 });
     const plain = resolveRam(attacker, plainVictim, "ffa")!;
     const heavy = resolveRam(attacker, heavyVictim, "ffa")!;
-    const restBody = body({ x: 70.5, y: 0, angle: 0 });
+    const restBody = body({ x: 58.75, y: 0, angle: 0 });
     const plainNext = applyImpulse(restBody, ramDefenceOf(plainVictim.carId) * plainVictim.defenceMult, plain.impulse);
     const heavyNext = applyImpulse(restBody, ramDefenceOf(heavyVictim.carId) * heavyVictim.defenceMult, heavy.impulse);
     expect(Math.hypot(heavyNext.vx, heavyNext.vy)).toBeLessThan(Math.hypot(plainNext.vx, plainNext.vy));

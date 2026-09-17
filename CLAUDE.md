@@ -128,25 +128,30 @@ re-pitch inherits a spin budget that is a quarter unspent, and `globalScale`/`sp
 measured against the old ceiling-hugging case. See
 [`docs/turn-tuning.md`](docs/turn-tuning.md#current-values).
 
-**The 2026-09-16 hull resize made every car 1.5x bigger — for real, not just in the drawing.**
-`DRIVE_CONFIG.carWidth`/`carHeight` went 48 × 32 → **72 × 48**; the arenas did not grow, so the field
-is relatively more crowded. Every reader derives from the hull, so the logic edits were small, and
-three of them are worth knowing: `RAM_CONFIG.spinScale` went 10 → **15** by derivation (a 1.5x lever
-over a 2.25x `inertiaCoefficient`), which keeps every ram's spin exactly where it was — stage 5 of the
-car-physics rework re-pitches from 15, not 10; both arenas' FFA spawn rows moved inward (arena-01
-y 180/540, arena-02 y 187/543) to clear the spikes by a car diagonal; and the client's lock bracket,
-countdown arrow and hp bar length scaled 1.5x with the car. Weapon balance was deliberately **not**
+**The 2026-09-16 hull resize made every car 1.25x bigger — for real, not just in the drawing.**
+`DRIVE_CONFIG.carWidth`/`carHeight` went 48 × 32 → **60 × 40**; the arenas did not grow, so the field
+is relatively more crowded. **It was first built at 1.5x (72 × 48) and revised down on 2026-09-17**
+because that played too large against arenas that did not grow — the spec's §12 restates every clause
+at the new factor, and nothing on this branch has reached `development/main`, so 72 × 48 is not
+history to preserve. Every reader derives from the hull, so the logic edits were small, and three of
+them are worth knowing: `RAM_CONFIG.spinScale` went 10 → **12.5** by derivation (a 1.25x lever over a
+1.5625x `inertiaCoefficient`), which keeps every ram's spin exactly where it was — stage 5 of the
+car-physics rework re-pitches from 12.5, not 10; both arenas' FFA spawn rows moved inward (arena-01
+y 180/540, arena-02 y 187/543) to clear the spikes by ~106 u rather than a car diagonal (72.1) —
+forced on arena-02, whose old rows sat *inside* the diagonal at 69 u; and the client's lock bracket,
+countdown arrow and hp bar length scaled 1.25x with the car. Weapon balance was deliberately **not**
 touched: a bigger target is easier to hit, so hit rates are expected to rise, and that is for the
 balance harness to measure. `BOT_BRAIN_VERSION` went to 4.7.0, so balance reports across this change
-are not comparable. All nine car sprites were re-imported at 144 px. Three bot tests were already
-failing before this resize (the 2026-09-16 top-speed cut) and still need a `BOT_PROFILES` retune;
-measured on base `0904012` at 48 × 32 and again on the resized branch at 72 × 48:
-`controller.test.ts`'s OFF-AXIS mean offset got worse, 0.2386 → 0.6939 against a bar of < 0.2,
-alongside the hard bot's preferred standoff growing from 470 to 570 (the two moved together; a causal
-link was not measured); `tiers.test.ts`'s P49, a **time-to-kill** case, improved but is still red —
-the hard bot did not kill within the run at base, and now kills in 18.7 s against a 17.87 s cap; and
-P50, a hit-rate case, widened its inversion — hard vs medium hit rate 0.778 vs 0.8 at base, 0.632 vs
-0.857 now. See
+are not comparable. **The car art was deliberately left at the 144 px re-import** the 1.5x pass did,
+against an expected 120 px — `check:cars` warns on all nine rows and blocks on none, and the user
+re-imports separately. Three bot tests were already failing before this resize (the 2026-09-16
+top-speed cut) and still need a `BOT_PROFILES` retune; measured on base `0904012` at 48 × 32, at
+72 × 48, and at the shipped 60 × 40: `controller.test.ts`'s OFF-AXIS mean offset reads 0.2386 →
+0.6939 → **0.2017** against a bar of < 0.2 — still red, but now better than base — alongside the hard
+bot's preferred standoff growing from 470 to 570 (the two moved together; a causal link was not
+measured); `tiers.test.ts`'s P49, a **time-to-kill** case, **passes at 60 × 40** (no kill within the
+run at base, 18.7 s against a 17.87 s cap at 72 × 48); and P50, a hit-rate case, is still inverted —
+hard vs medium hit rate 0.778 vs 0.8 at base, 0.632 vs 0.857 at 72 × 48, **0.765 vs 0.857** now. See
 [`docs/superpowers/specs/2026-09-16-bigger-cars-design.md`](docs/superpowers/specs/2026-09-16-bigger-cars-design.md).
 
 Turn rates themselves were last touched on **2026-08-31, when the whole roster's turn rate was raised
