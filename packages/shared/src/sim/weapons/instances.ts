@@ -142,6 +142,19 @@ export function muzzleOffset(): number {
   return DRIVE_CONFIG.carWidth / 2;
 }
 
+/**
+ * Where the shot actually leaves from: the front face of the owner's hull, along its heading.
+ *
+ * Takes a POSE, not a player: the muzzle is a fact about where a car is and which way it faces.
+ * Demanding a session id and a team meant a caller holding only a pose had to invent them, which
+ * cost the client a compile error -- `PlayerState.team` is a `uint8` and so widens to `number`,
+ * and `ArenaScene`'s charge-orb telegraph could not call this at all.
+ */
+export function muzzleOf(owner: OwnerPose): { x: number; y: number } {
+  const nose = muzzleOffset();
+  return { x: owner.x + Math.cos(owner.angle) * nose, y: owner.y + Math.sin(owner.angle) * nose };
+}
+
 /** Step length of the wall raycast, in world units. Finer than the thinnest sane obstacle. */
 export const MUZZLE_STEP_UNITS = 4;
 

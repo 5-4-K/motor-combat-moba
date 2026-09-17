@@ -21,7 +21,6 @@ function slotFor(weaponId: Parameters<typeof weaponDefOf>[0]): BotSlotView {
 function shooterAt(x: number, y: number, angle: number): SolverShooter {
   return {
     sessionId: "me", carId: "bullseye", team: 0, x, y, angle, vx: 0, vy: 0,
-    lockTargetSessionId: "",
   };
 }
 
@@ -246,56 +245,22 @@ describe("solve — explosion", () => {
   });
 });
 
-describe("solve — aim assist", () => {
-  it("is near certain with a live lock even when the nose is off, inside aimRangeUnits (P13)", () => {
-    const target = targetAt(300, 300);
-    const locked = solve({
-      shooter: { ...shooterAt(0, 300, 0.25), lockTargetSessionId: "them" },
-      slot: slotFor("predator"), slotIndex: 0,
-      target, targetAt: constantVelocityPredictor(target),
-      aimSigmaRad: 0, tick: 0, arena,
-    });
-    const unlocked = solve({
-      shooter: shooterAt(0, 300, 0.25),
-      slot: slotFor("predator"), slotIndex: 0,
-      target, targetAt: constantVelocityPredictor(target),
-      aimSigmaRad: 0, tick: 0, arena,
-    });
-    expect(locked.hitChance).toBeGreaterThan(unlocked.hitChance);
-    expect(locked.hitChance).toBeGreaterThan(0.9);
-  });
-
-  // The brief's original version placed the target at 600 to be "beyond aimRangeUnits (400) but
-  // within reach" -- but `weaponReachOf` returns `aimRangeUnits` itself for any assisted weapon
-  // (reach.ts), and `weapon-config.test.ts` requires `range >= aimRangeUnits` for every such row, so
-  // "inside weaponReachOf but outside aimRangeUnits" is unreachable for a real weapon on the roster:
-  // `solve`'s outer reach gate (`distance > reach`) fires first and returns NO_SOLUTION before the
-  // assist branch is ever reached, which is exactly why the original test was vacuous. The other
-  // reachable way to decline the assist is the lock check itself: hold distance well inside both
-  // `weaponReachOf` and `aimRangeUnits`, but name a session the lock is not actually on.
-  it("declines the assist when the held lock names a different target, even inside aimRangeUnits", () => {
-    // magmablast: aimRangeUnits 400, range 900. 300 sits inside both, so distance alone would pass
-    // the assist gate -- only the lock mismatch (`shooter.lockTargetSessionId !== target.sessionId`)
-    // should make it decline, exactly mirroring `aimAngleFor`'s own lock check in sim/combat.ts.
+describe("solve — nose, not bearing", () => {
+  it("prices every weapon through the shooter's own aim error, off-nose included", () => {
+    // Was "solve — aim assist": `predator` held a live lock used to be steered onto the bearing
+    // with sigma forced to 0, so an off-nose shot read as near certain. Nothing steers a shot now,
+    // so a shooter aimed 0.25 rad off a target 300 units away must read as a likely miss, and the
+    // same shooter pointed AT it must read as a likely hit. That pair is the regression guard.
     const target = targetAt(300, 300);
     const common = {
-      slot: slotFor("magmablast"), slotIndex: 0,
+      slot: slotFor("predator"), slotIndex: 0,
       target, targetAt: constantVelocityPredictor(target),
       aimSigmaRad: 0, tick: 0, arena,
     };
-    const staleLock = solve({
-      shooter: { ...shooterAt(0, 300, 0.4), carId: "mirage", lockTargetSessionId: "someone-else" },
-      ...common,
-    });
-    const liveLock = solve({
-      shooter: { ...shooterAt(0, 300, 0.4), carId: "mirage", lockTargetSessionId: "them" },
-      ...common,
-    });
-    // Same distance, same off-nose angle, same everything except which session the lock names: a
-    // stale lock fires along the nose (0.4 rad off the bearing) and misses, a live lock is steered
-    // onto the target and lands -- proof the decline is the lock check, not the distance.
-    expect(staleLock.hitChance).toBeLessThan(0.5);
-    expect(liveLock.hitChance).toBeGreaterThan(0.9);
+    const offNose = solve({ shooter: shooterAt(0, 300, 0.25), ...common });
+    const onNose = solve({ shooter: shooterAt(0, 300, 0), ...common });
+    expect(onNose.hitChance).toBeGreaterThan(0.9);
+    expect(offNose.hitChance).toBeLessThan(onNose.hitChance);
   });
 });
 
@@ -467,7 +432,7 @@ describe("proxyValue (P9)", () => {
   const slot = () => slotFor("predator");
 
   it("agrees with the exact solver about which of two positions is better", () => {
-    const near = { shooter: { x: 0, y: 0, angle: 0 }, slot: slot(), targetX: 250, targetY: 0, aimSigmaRad: 0.05, assisted: false };
+    const near = { shooter: { x: 0, y: 0, angle: 0 }, slot: slot(), targetX: 250, targetY: 0, aimSigmaRad: 0.05 };
     const off = { ...near, shooter: { x: 0, y: 0, angle: 0.6 } };
     expect(proxyValue(near)).toBeGreaterThan(proxyValue(off));
   });
@@ -475,7 +440,7 @@ describe("proxyValue (P9)", () => {
   it("falls with distance", () => {
     const at = (targetX: number) => proxyValue({
       shooter: { x: 0, y: 0, angle: 0 }, slot: slot(), targetX, targetY: 0,
-      aimSigmaRad: 0.05, assisted: false,
+      aimSigmaRad: 0.05,
     });
     expect(at(200)).toBeGreaterThan(at(700));
   });
@@ -483,15 +448,18 @@ describe("proxyValue (P9)", () => {
   it("is 0 beyond reach", () => {
     expect(proxyValue({
       shooter: { x: 0, y: 0, angle: 0 }, slot: slot(), targetX: 5000, targetY: 0,
-      aimSigmaRad: 0.05, assisted: false,
+      aimSigmaRad: 0.05,
     })).toBe(0);
   });
 
-  it("ignores the nose when the shot is assisted, because aimAngleFor does (P13)", () => {
+  it("counts the nose for every shot, now that nothing points one for the bot", () => {
+    // Was "ignores the nose when the shot is assisted": an `assisted: true` proxy zeroed the angle
+    // term, so a car turned 0.6 rad away scored exactly as well as one pointed at the target. The
+    // flag is gone with the lock, so the turned car must now score strictly worse.
     const common = { slot: slot(), targetX: 250, targetY: 0, aimSigmaRad: 0.05 };
-    const straight = { ...common, shooter: { x: 0, y: 0, angle: 0 }, assisted: true };
-    const turned = { ...common, shooter: { x: 0, y: 0, angle: 0.6 }, assisted: true };
-    expect(proxyValue(turned)).toBeCloseTo(proxyValue(straight), 6);
+    const straight = { ...common, shooter: { x: 0, y: 0, angle: 0 } };
+    const turned = { ...common, shooter: { x: 0, y: 0, angle: 0.6 } };
+    expect(proxyValue(turned)).toBeLessThan(proxyValue(straight));
   });
 });
 
@@ -590,7 +558,7 @@ describe("solver determinism (P43)", () => {
     try {
       expect(() => proxyValue({
         shooter: { x: 0, y: 0, angle: 0 }, slot: slotFor("predator"),
-        targetX: 250, targetY: 0, aimSigmaRad: 0.05, assisted: false,
+        targetX: 250, targetY: 0, aimSigmaRad: 0.05,
       })).not.toThrow();
 
       const threat: BotCarView = { ...targetAt(0, 0), sessionId: "them", carId: "bullseye", angle: 0 };

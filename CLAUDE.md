@@ -296,7 +296,7 @@ arena, since the art already carries them. The bot also learned the polygon and 
 | Spec + tracker | [`docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`](docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md), [`docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md`](docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md) |
 | **Online netcode and client rendering — the fourteen-phase rewrite in progress** | **start at [`docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md`](docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md)** — see below |
 | **Car physics rework — stages 1-4 landed, spec now on revision 2** | **start at [`docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md`](docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md)** — see below |
-| Weapon system decisions (D1–D22), aim assist and target lock (A1–A14), online-play review, future work | [`docs/superpowers/specs/2026-08-27-weapon-system-design.md`](docs/superpowers/specs/2026-08-27-weapon-system-design.md), [`docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md), [`docs/superpowers/plans/2026-08-27-weapon-system.md`](docs/superpowers/plans/2026-08-27-weapon-system.md) |
+| Weapon system decisions (D1–D22), online-play review, future work — plus the **retired** aim assist and target lock (A1–A14), removed 2026-09-17 and kept only as a record | [`docs/superpowers/specs/2026-08-27-weapon-system-design.md`](docs/superpowers/specs/2026-08-27-weapon-system-design.md), [`docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md), [`docs/superpowers/plans/2026-08-27-weapon-system.md`](docs/superpowers/plans/2026-08-27-weapon-system.md) |
 | The nine-weapon roster, per-chassis kits (L1–L7) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
 | The three chassis types and their triangle, the `accel`/`handling` ratings, the weapon redistribution (T1–T22) — **supersedes L1–L7's assignments** | [`docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md`](docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md) |
 | Ram CC and knockback decisions (R1–R20): severity, side bonus, authority/shove/spin, the `mass` rating | [`docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md`](docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md) |
@@ -587,7 +587,7 @@ and leaving it broken is worse than leaving it stale. Say that you did.
 
 Changes that reach them include: `sim/` (drive, collide, ram, combat, damage, status, weapons), the
 tick order in `ArenaRoom.tick` or the bridges, `WEAPON_TABLE`, `CAR_TABLE`, `DRIVE_CONFIG`,
-`RAM_CONFIG`, `COMBAT_CONFIG`, `STATUS_*`, `AIM_CONFIG`, `NET_CONFIG`, `TICK_RATE_HZ`,
+`RAM_CONFIG`, `COMBAT_CONFIG`, `STATUS_*`, `NET_CONFIG`, `TICK_RATE_HZ`,
 `DEFAULT_PATCH_RATE_HZ`, arena definitions and spawn tables, and the client's prediction or
 step-context assembly.
 
@@ -688,10 +688,7 @@ two can only ever be the same size. Adding a sentence that measures something ad
 **Re-run `npm run build:manual` and commit the page whenever you change:** a weapon row, an ACTIVE
 chassis row, an active car's loadout, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `STATUS_TABLE`,
 `TICK_RATE_HZ`, `ARENA_WIDTH`, or the prose in `cars-and-weapons-copy.mjs`. (`AIM_CONFIG.lockRange`
-was on this list until 2026-09-17 and is not any more: the page reports each weapon's own
-`aimRangeUnits`, which rides in `WEAPON_TABLE` and is already hashed. A stamp input the page does
-not print only ever demands a rebuild that produces a byte-identical page, which is how a guard gets
-rubber-stamped.)
+was on this list until 2026-09-17, when the aim-lock feature and the whole config were deleted.)
 The page carries a fingerprint of all of that and `scripts/manual-page.test.mjs` recomputes it, so
 forgetting fails the suite with the command to run rather than quietly shipping last week's numbers
 to players.

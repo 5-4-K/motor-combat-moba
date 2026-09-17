@@ -23,13 +23,13 @@ import type { BeamWeaponDef, ExplosionDamageMode, WeaponDef, WeaponId } from "./
 export const WEAPON_TABLE = {
   /**
    * Bullseye's slot 1 as of the 2026-09-02 loadout swap (it was Mirage's before): the proximity
-   * seeker. It leaves the muzzle as an ordinary fast dart aimed by the lock, carries no target, and
+   * seeker. It leaves the muzzle as an ordinary fast dart aimed by the driver, carries no target, and
    * grabs the first eligible car to come within 200 u of ITSELF — then chases that one until it hits
    * something or its 2 s clock runs out.
    *
    * It has no range in any sense a player experiences: `range` is authored as `speed x lifetime`
    * (900 x 2 s) purely because `WEAPON_TICKS.flight`, the guide's reach figure and the
-   * `range >= aimRangeUnits` validator all read it. At 1800 the flight count is exactly the
+   * validator all read it. At 1800 the flight count is exactly the
    * lifetime, so the two clocks cannot disagree. That clears either shipped arena's ~1470 u frame
    * diagonal. "No range" is a statement about those arenas, not the engine.
    *
@@ -37,7 +37,7 @@ export const WEAPON_TABLE = {
    * 900 u/s this arcs at 172 u — tight enough to convert a 200 u grab. The old 120 deg/s would arc
    * at 430 u and sail past everything it acquired. ⚙
    *
-   * 1.0 Hz sits 20% clear of the 1.25 Hz aim cliff — it passes the guard's 15% floor, but it is the
+   * 1.0 Hz makes it the
    * tightest margin in the table, and this is the fastest aim-assisted row the roster carries. Do
    * not retune this cooldown toward 800 ms without re-reading that guard.
    *
@@ -59,8 +59,6 @@ export const WEAPON_TABLE = {
     startUpMs: 0,
     cooldownMs: 1000,
     recoveryMs: 0,
-    usesAimAssist: true,
-    aimRangeUnits: 800,
     // 38 units long, of which the rear 10 are the exhaust plume the client draws (2026-09-04).
     // Grown from 14 deliberately and as a BUFF, not a wash: the plume was drawn first as art
     // trailing behind a 28-unit hitbox, which would have made the shot's most legible feature the
@@ -77,10 +75,10 @@ export const WEAPON_TABLE = {
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
   },
   /**
-   * Mirage's slot 2: the dash (O12/O13). `speed` is the dash speed and `aimRangeUnits` the dash
-   * distance — 400 units in ~8 ticks, snapped toward the lock when one is held. First enemy hull
-   * contact deals `damage` + 1 s stun and ends the dash; a wall ends it cold. The car's own hull
-   * is the hit volume; no instance spawns. 0.2 Hz, 84% clear of the aim cliff.
+   * Mirage's slot 2: the dash (O12/O13). `speed` is the dash speed and `range` the dash distance —
+   * 400 units in ~8 ticks, along the car's heading. First enemy hull contact deals `damage` + 1 s
+   * stun and ends the dash; a wall ends it cold. The car's own hull is the hit volume; no instance
+   * spawns. 0.2 Hz.
    */
   thunderclap: {
     id: "thunderclap",
@@ -98,8 +96,6 @@ export const WEAPON_TABLE = {
     startUpMs: 0,
     cooldownMs: 5000, // ⚙
     recoveryMs: 200,
-    usesAimAssist: true,
-    aimRangeUnits: 400,
     maneuver: { type: "dash" },
     volley: { volleys: 1, volleyIntervalMs: 0 },
     applies: [{ statusId: "stunned", target: "opponents", durationMs: 1000 }],
@@ -115,8 +111,9 @@ export const WEAPON_TABLE = {
    * 11 × 26 every 200 ms until the 2026-09-01 balance pass chunked them: same-ish press total,
    * but escaping between pulses is now worth something and grazing the cone costs real HP.
    *
-   * `usesAimAssist: false` is FORCED twice over: the attached-beam guard (it re-derives its angle
-   * from the owner every tick, so a lock would have nothing to decide) and the multi-muzzle guard
+   * Its angle is re-derived from the owner every tick (attached) and it emits from more than one
+   * muzzle — two independent reasons its exit angle was never the driver's to steer. The
+   * multi-muzzle guard
    * (`muzzles.length > 1` forces assist off, same as `pepperbox`). Do not "fix" this to true.
    *
    * `recoveryMs: 200` is deliberately small (L5). The beam lives on its own once spawned, so the
@@ -142,7 +139,6 @@ export const WEAPON_TABLE = {
     startUpMs: 0,
     cooldownMs: 13000,
     recoveryMs: 200,
-    usesAimAssist: false,
     muzzles: [0, 180],
     hitbox: { shape: "cone", angleDeg: 55 },
     volley: { volleys: 1, volleyIntervalMs: 0 },
@@ -173,7 +169,7 @@ export const WEAPON_TABLE = {
    * for the wall raycast to follow, so it never had a clip to skip. A car hugging the far side of
    * a wall within 60 u takes the splash.
    *
-   * 0.625 Hz sits 50% clear of the 1.25 Hz aim cliff, comfortably outside the guard's 15% floor.
+   * 0.625 Hz makes it the roster's slowest shell and its heaviest single press.
    * `predator` carries the table's tightest margin now, not this row.
    */
   magmablast: {
@@ -187,12 +183,10 @@ export const WEAPON_TABLE = {
     damage: 50,
     damageFrequencyMs: 0,
     speed: 600,
-    range: 900, // >= aimRangeUnits, required for usesAimAssist
+    range: 900,
     startUpMs: 0,
     cooldownMs: 1600,
     recoveryMs: 0,
-    usesAimAssist: true,
-    aimRangeUnits: 400,
     hitbox: { shape: "circle", radius: 12 },
     pierce: 0,
     volley: { volleys: 1, volleyIntervalMs: 0 },
@@ -226,8 +220,8 @@ export const WEAPON_TABLE = {
    * deliberately level with the old `needler`'s 73 — needler is retired now, but the number this
    * row was tuned against is worth keeping on the record.
    *
-   * `usesAimAssist: false` is FORCED by the multi-muzzle guard (O9): a lock cannot steer a spray
-   * firing in four directions at once, so `aimRangeUnits` is deleted along with it.
+   * Four muzzles firing at once (O9): its exit angles are welded to the heading and fanned by
+   * `muzzles`.
    */
   pepperbox: {
     id: "pepperbox",
@@ -242,7 +236,6 @@ export const WEAPON_TABLE = {
     startUpMs: 0, // a drive-by must be instant
     cooldownMs: 1800,
     recoveryMs: 200,
-    usesAimAssist: false,
     muzzles: [0, 90, 180, 270],
     // needler's dart silhouette, carried over now that needler is retired: long and thin along its
     // own flight, distinct from every circular hitbox in the table.
@@ -263,15 +256,14 @@ export const WEAPON_TABLE = {
    * committed end to end — the roster's biggest single-press risk, still paid up front and
    * afterward and now also during (L5).
    *
-   * T13 made it 15% wider (20 -> 23) and handed it the lock, and trimmed 180 -> 170 to pay for both
+   * T13 made it 15% wider (20 -> 23), and trimmed 180 -> 170 to pay for it
    * arriving at once on the game's hardest single press. The render side moves with the hitbox: the
    * charge orb's `maxRadius` in `combat-visual.ts` goes 18 -> 21, the same 15%, so the telegraph
    * keeps matching what it warns about.
    *
    * **The T13 aim-assist argument is superseded (O10).** It held while the beam stamped once at a
    * fixed pose; now it sweeps live under the driver's own steering while the car is held, which is
-   * a strictly stronger form of aim than a lock ever offered. `usesAimAssist: false`, and
-   * `aimRangeUnits` is deleted with it.
+   * a strictly stronger form of aim than any targeting aid the roster ever carried.
    *
    * **It TICKS now, and the 170-in-one-touch reading above is history.** `damageFrequencyMs: 500`
    * is `afterburner`'s cadence exactly, deliberately: the two ticking beams pulse on the same clock
@@ -305,7 +297,6 @@ export const WEAPON_TABLE = {
     startUpMs: 700,
     cooldownMs: 16000, // 0.06 Hz
     recoveryMs: 1000,
-    usesAimAssist: false,
     hitbox: { shape: "rect", width: 57.5 }, // 2.5x wider; the charge orb deliberately does NOT track it
     volley: { volleys: 1, volleyIntervalMs: 0 },
     attached: true,
@@ -322,7 +313,7 @@ export const WEAPON_TABLE = {
    * slowest chassis has no answer to a patient opponent.
    *
    * **The stun's whole history paragraph is superseded (O16).** Hard CC now enters Bastion's kit
-   * through `roadblock`, not this row — Type 3's identity no longer rests on thumper holding a lock.
+   * through `roadblock`, not this row.
    * Thumper is the bouncing pressure shot that spikes instead: `spiked` (0.6 topSpeed, no bleed) for
    * 3 s, a slow that keeps a target inside the fight rather than a stop that takes the fight away.
    *
@@ -340,7 +331,7 @@ export const WEAPON_TABLE = {
    * not settled here.
    *
    * The cooldown is still CONSTRAINED at the low end. The aim-assist cliff guard rejects any assisted
-   * weapon whose `1000 / cooldownMs` is within 15% of `1000 / AIM_CONFIG.lockTimeoutMs`, which
+   * weapon whose `1000 / cooldownMs` sits where it does, which
    * forbids every value between 696 and 941. This row was first drafted at 900 and would have failed
    * the suite. Do not "round it down" to 900 without re-reading that guard.
    */
@@ -357,8 +348,6 @@ export const WEAPON_TABLE = {
     startUpMs: 0,
     cooldownMs: 3000, // 0.33 Hz, 73% clear of the 1.25 Hz cliff
     recoveryMs: 0,
-    usesAimAssist: true,
-    aimRangeUnits: 400,
     hitbox: { shape: "capsule", radiusAlong: 24, radiusAcross: 15 },
     pierce: 0,
     bounces: true,
@@ -392,7 +381,6 @@ export const WEAPON_TABLE = {
     startUpMs: 0,
     cooldownMs: 6000,
     recoveryMs: 200,
-    usesAimAssist: false,
     hitbox: { shape: "bar", radiusAlong: 6, radiusAcross: 60 },
     pierce: 4,
     // The wall stops for nothing: cars are pierced (above) and level geometry too — the bar's 60u
@@ -427,7 +415,6 @@ export const WEAPON_TABLE = {
     startUpMs: 0,
     cooldownMs: 20000, // ⚙ must exceed the 10 s window (guarded)
     recoveryMs: 200,
-    usesAimAssist: false,
     isUnInterruptable: true,
     maneuver: { type: "charge", durationMs: 10000, slamsStunned: true },
     volley: { volleys: 1, volleyIntervalMs: 0 },
@@ -515,7 +502,6 @@ export const WEAPON_TABLE = {
     startUpMs: 0,
     cooldownMs: 15000,
     recoveryMs: 200,
-    usesAimAssist: false, // a zone is aimed at ground; a lock would drag it onto the one thing that can leave
     hitbox: { shape: "cone", angleDeg: 60 },
     volley: { volleys: 1, volleyIntervalMs: 0 },
     attached: false,
@@ -634,7 +620,6 @@ function buildBurstDefs(): Partial<Record<WeaponId, BeamWeaponDef>> {
       startUpMs: parent.startUpMs,
       cooldownMs: parent.cooldownMs,
       recoveryMs: parent.recoveryMs,
-      usesAimAssist: false,
       hitbox: { shape: "disc" },
       attached: false,
       origin: "center",

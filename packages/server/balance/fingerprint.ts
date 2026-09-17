@@ -5,7 +5,7 @@
  * `configFingerprint` covers every config `stepSim`, `runCombat`, the contact/ram pass, and the
  * deathmatch respawn/phase pipeline this harness itself drives (`runPipeline`, `respawnSweep`) read
  * that a tuning pass could touch: `WEAPON_TABLE`, `CAR_TABLE`, `COMBAT_CONFIG`, `DRIVE_CONFIG`,
- * `STATUS_TABLE`, `RAM_CONFIG`, `SLAM_CONFIG`, `AIM_CONFIG`, `WEAPON_SLOT_CONFIG`,
+ * `STATUS_TABLE`, `RAM_CONFIG`, `SLAM_CONFIG`, `WEAPON_SLOT_CONFIG`,
  * `DEATHMATCH_CONFIG`, `TICK_RATE_HZ`, and every registered arena (`ARENAS` — `assignSpawns` reads
  * an arena's spawn points directly, and its obstacles feed `stepSim`). Also `CAMERA_CONFIG` and
  * `LOGICAL_CANVAS` (B17, 2026-09-03): `buildBotView`'s viewport fairness limit is derived from both
@@ -40,7 +40,6 @@
  */
 import { BOT_BRAIN_VERSION, BOT_PROFILES } from "../src/config/bot-profiles.js";
 import {
-  AIM_CONFIG,
   ARENAS,
   CAMERA_CONFIG,
   CAR_TABLE,
@@ -112,7 +111,6 @@ export function configFingerprint(): string {
       STATUS_TABLE,
       RAM_CONFIG,
       SLAM_CONFIG,
-      AIM_CONFIG,
       WEAPON_SLOT_CONFIG,
       DEATHMATCH_CONFIG,
       TICK_RATE_HZ,

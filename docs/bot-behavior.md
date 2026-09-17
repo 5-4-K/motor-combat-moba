@@ -119,15 +119,15 @@ else about how the car moves falls out of scoring nine candidate arcs against it
 | `waitOut` | nobody hittable | `rangeError` 0.375 against a synthetic hunt waypoint projected at `awarenessRadiusUnits`, with `preferredRange` 0 — "arrive"; `wallPenalty` 240 | **off** |
 | `evade` | a noticed shot in flight (rolled `dodgeChance`), or an incoming car (`incomingCarChance`) | `threatAvoid` 0.6 and `theirEv` 4 — get off the line, and out of their solution; `rangeError` 0 | still fires |
 | `unpin` | on a bound/corner with a target, `cornerRespect` | `wallPenalty` **2400** — the play whose entire content is "leave"; `rangeError` 0 | fight rules |
-| `punish` | stunned, low HP, or they just spent a 5s+ gun | `myEv` 3 and `lockKeep` 12, at half its own comfortable range (`punishRangeFraction`) | dump, including ult |
+| `punish` | stunned, low HP, or they just spent a 5s+ gun | `myEv` 3, at half its own comfortable range (`punishRangeFraction`) | dump, including ult |
 | `reset` | own HP < `retreatHpFraction` (0 = Easy fights to zero) | `theirEv` 3 against `myEv` 0.4 — the disengagement is carried by the weights, not the range, which gives up only 15% (`resetRangeMultiplier`) | fight rules |
-| `fight` | a ready gun's **aim/player** reach covers them | `myEv` 2, `theirEv` 0.6, `lockKeep` 8, `rangeError` 0.3 against `fightRange` | `chooseSlot` |
+| `fight` | a ready gun's reach covers them | `myEv` 2, `theirEv` 0.6, `rangeError` 0.3 against `fightRange` | `chooseSlot` |
 | `close` | they're up but not in reach yet | `rangeError` 0.875 against `minEngageUnits` — drive to contact | off |
 
-HUD lock is never a veto. A big gun is `cooldownMs >= 5000` (not predator).
+A big gun is `cooldownMs >= 5000` (not predator).
 
-Own reach uses `aimRangeUnits` when the gun has aim assist (predator fights around 800, not 1800).
-Opponent keep-out is their **shortest** gun × `opponentRangeRespect`, and `fightRange` is
+Own reach is the gun's authored `range` — there is no separate aim reach since the target lock was
+removed on 2026-09-17, so predator now reports 1800 where it used to report 800. Opponent keep-out is their **shortest** gun × `opponentRangeRespect`, and `fightRange` is
 `max(ownComfort, theirKeepOut)`: stand where MY kit works, but never inside the range their shortest
 gun keeps me out of.
 
@@ -144,21 +144,27 @@ Base weights, identical across every tier. `weightsFor()` then scales exactly on
 profile — `theirEv × opponentRangeRespect` (P38). A tier may change how strongly it feels a
 pressure; it may never change what a situation is for.
 
-| Situation | `myEv` | `theirEv` | `rangeError` | `wallPenalty` | `lockKeep` | `threatAvoid` | `facingError` | `preferredRange` |
-|---|---|---|---|---|---|---|---|---|
-| `recover` | 0 | 0 | 0 | 60 | 0 | 0 | 0 | 0 |
-| `waitOut` | 0 | 0.5 | 0.375 | 240 | 0 | 0 | 120 | 0 (arrive at the waypoint) |
-| `evade` | 0.3 | 4 | 0 | 360 | 0 | 0.6 | 10 | `fightRange` |
-| `unpin` | 0.2 | 1 | 0 | 2400 | 0 | 0 | 60 | `fightRange` |
-| `punish` | 3 | 0.25 | 0.5 | 240 | 12 | 0 | 50 | `max(70, ownComfort × 0.5)` |
-| `reset` | 0.4 | 3 | 0.625 | 360 | 2 | 0 | 10 | `max(fightRange × 1.15, 70)` |
-| `fight` | 2 | 0.6 | 0.3 | 300 | 8 | 0 | 30 | `fightRange` |
-| `close` | 1 | 0.75 | 0.875 | 300 | 4 | 0 | 80 | 70 (`minEngageUnits`) |
+| Situation | `myEv` | `theirEv` | `rangeError` | `wallPenalty` | `threatAvoid` | `facingError` | `preferredRange` |
+|---|---|---|---|---|---|---|---|
+| `recover` | 0 | 0 | 0 | 60 | 0 | 0 | 0 |
+| `waitOut` | 0 | 0.5 | 0.375 | 240 | 0 | 120 | 0 (arrive at the waypoint) |
+| `evade` | 0.3 | 4 | 0 | 360 | 0.6 | 10 | `fightRange` |
+| `unpin` | 0.2 | 1 | 0 | 2400 | 0 | 60 | `fightRange` |
+| `punish` | 3 | 0.25 | 0.5 | 240 | 0 | 50 | `max(70, ownComfort × 0.5)` |
+| `reset` | 0.4 | 3 | 0.625 | 360 | 0 | 10 | `max(fightRange × 1.15, 70)` |
+| `fight` | 2 | 0.6 | 0.3 | 300 | 0 | 30 | `fightRange` |
+| `close` | 1 | 0.75 | 0.875 | 300 | 0 | 80 | 70 (`minEngageUnits`) |
+
+`lockKeep` was a ninth column here — 12 in `punish`, 8 in `fight`, 4 in `close`, 2 in `reset`, 0
+elsewhere. It scored whether the retired ambient lock would have pointed an assisted shot from a
+candidate pose, and it was deleted with the lock on 2026-09-17. Nothing replaced it: what it bought
+(stand where the enemy is in front of you, inside your reach) is what `myEv` now scores directly,
+since no slot gets a forced-zero aim error any more.
 
 The weights are not on one scale and are not meant to be: `myEv` and `theirEv` are EV per second
 (0–75 in a duel), `rangeError` is world units, `wallPenalty` is a squared normalised overlap
-(0.017 in a corner — which is why its weight runs to the hundreds), `lockKeep` is 0 or 1,
-`threatAvoid` is a displacement in units, and `facingError` is a bounded `[0, 1]` alignment — the
+(0.017 in a corner — which is why its weight runs to the hundreds), `threatAvoid` is a displacement
+in units, and `facingError` is a bounded `[0, 1]` alignment — the
 cosine-derived misalignment between terminal velocity and terminal heading (0 driving straight
 ahead, 0.5 sliding sideways, 1 reversing; see `sim/velocity.ts`'s `forwardOf`). Boundedness is why it
 did not need a fourth magnitude regime added to a table that was already three: every other term's
@@ -204,8 +210,8 @@ term begins charging for **turning itself** — re-creating "turning is pure cos
 was written to delete, by a new route. Re-derive the whole column if that number moves;
 `facingErrorOf`'s doc comment in `planner.ts` carries the same warning at the code.
 
-Four terms are read as MOMENTS along the candidate arc — `myEv` and `lockKeep` at their best,
-`theirEv` and `wallPenalty` at their worst. `rangeError`, `threatAvoid` and `facingError` are
+Three terms are read as MOMENTS along the candidate arc — `myEv` at its best, `theirEv` and
+`wallPenalty` at their worst. `rangeError`, `threatAvoid` and `facingError` are
 DESTINATIONS, read at the terminus — the same terminal `SimBody` `rangeError`/`threatAvoid` already
 read, so `facingError` cost the planner no new rollout or sample. A moment reading would have
 punished the transient mid-turn misalignment every good turn necessarily passes through, which
@@ -494,7 +500,7 @@ The playground prints **two lines** (P45, P46):
 
 ```
 personality | situation | range N | slot K | danger N | plan(+1,+1) SCORE | ev BEST/THRESHOLD
-terms  myEv N  theirEv N  rangeError N  wallPenalty N  lockKeep N  threatAvoid N
+terms  myEv N  theirEv N  rangeError N  wallPenalty N  threatAvoid N  facingError N
 ```
 
 - `range` is `preferredRangeFor(situation)` — the range this play is holding, which is 0 in

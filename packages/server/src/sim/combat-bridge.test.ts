@@ -5,7 +5,6 @@ import {
   hpOf,
   isCarId,
   newFireState,
-  newLockState,
   slotsOf,
   weaponDamageOf,
   TICK_RATE_HZ,
@@ -83,7 +82,6 @@ describe("newCombatMemory", () => {
     expect(memory.instanceSeq).toBe(0);
     expect(memory.fireStates.size).toBe(0);
     expect(memory.instances.size).toBe(0);
-    expect(memory.locks.size).toBe(0);
   });
 });
 
@@ -298,7 +296,6 @@ describe("applyCombatResult", () => {
       inRoster: true,
       fireMask: 0,
       fireState: newFireState(isCarId(player.carId) ? player.carId : "", 1),
-      lock: newLockState(),
       statuses: [],
       maneuver: 0,
       maneuverTicksLeft: 0,
@@ -366,7 +363,6 @@ describe("applyCombatResult", () => {
             inRoster: true,
             fireMask: 0,
             fireState: newFireState("mirage", 1),
-            lock: newLockState(),
             statuses: [],
             maneuver: 0,
             maneuverTicksLeft: 0,
@@ -540,71 +536,6 @@ describe("clearInstances", () => {
   });
 });
 
-describe("lock state across the bridge", () => {
-  const aLock = {
-    targetSessionId: "b",
-    lockedAtTick: 7,
-    losLostSinceTick: 3,
-    lastPressTick: 9,
-  };
-
-  it("hands a player with no lock yet a fresh one", () => {
-    const state = new ArenaState();
-    playerIn(state, "a");
-    const memory = newCombatMemory();
-
-    const players = toCombatPlayers(state, new Set(["a"]), new Map(), memory);
-
-    expect(players[0]!.lock).toEqual(newLockState());
-  });
-
-  it("carries a lock forward between ticks instead of rebuilding it", () => {
-    // Locks live in room memory, never on the schema. `lockedAtTick` and `losLostSinceTick` have no
-    // wire representation, so rebuilding from `ArenaState` each tick would reset both timers and
-    // neither the commit window nor the sight grace could ever elapse -- the lock would be
-    // permanently stealable and permanently one tick from releasing on sight.
-    const state = new ArenaState();
-    playerIn(state, "a");
-    const memory = newCombatMemory();
-    memory.locks.set("a", { ...aLock });
-
-    const players = toCombatPlayers(state, new Set(["a"]), new Map(), memory);
-
-    expect(players[0]!.lock).toEqual(aLock);
-  });
-
-  it("writes only the target id onto the schema, keeping the machine in memory", () => {
-    const state = new ArenaState();
-    playerIn(state, "a");
-    const memory = newCombatMemory();
-    const players = toCombatPlayers(state, new Set(["a"]), new Map(), memory);
-    players[0]!.lock = { ...aLock };
-
-    applyCombatResult(state, result({ players }), memory);
-
-    expect(state.players.get("a")!.lockTargetSessionId).toBe("b");
-    expect(memory.locks.get("a")).toEqual(aLock);
-  });
-
-  it("clears every lock when a match ends", () => {
-    // The same rule that already stops a shot in flight carrying into the next match: nothing from
-    // a previous match may survive into the next one.
-    const state = new ArenaState();
-    const player = playerIn(state, "a");
-    player.lockTargetSessionId = "b";
-    const memory = newCombatMemory();
-    memory.locks.set("a", { ...aLock });
-
-    clearInstances(state, memory);
-
-    expect(memory.locks.size).toBe(0);
-    // The schema half matters separately from the memory half: `ArenaScene` is on screen from
-    // COUNTDOWN onward, before combat has run a single tick, so a stale `lockTargetSessionId` would
-    // draw a lock bracket through the whole countdown of the next match.
-    expect(state.players.get("a")!.lockTargetSessionId).toBe("");
-  });
-});
-
 describe("kill booking", () => {
   /** One entry of a `CombatResult`, matching the schema player `playerIn` created. */
   const combatant = (sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlayer => ({
@@ -617,7 +548,6 @@ describe("kill booking", () => {
     inRoster: true,
     fireMask: 0,
     fireState: newFireState("mirage", 1),
-    lock: newLockState(),
     statuses: [],
     lastDamagerSessionId: "",
     ...over,
@@ -686,7 +616,6 @@ describe("forgetCombatPlayer (PG67)", () => {
     const memory = newCombatMemory();
     for (const id of ["pg-0", "pg-1"]) {
       memory.fireStates.set(id, newFireState("mirage", 3));
-      memory.locks.set(id, { targetSessionId: "x", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 });
       memory.maneuverWeapons.set(id, "thunderclap");
       memory.maneuverPressIds.set(id, `${id}-press`);
       memory.lastDamagers.set(id, "someone");
@@ -696,7 +625,6 @@ describe("forgetCombatPlayer (PG67)", () => {
     forgetCombatPlayer(memory, "pg-0");
 
     expect(memory.fireStates.has("pg-0")).toBe(false);
-    expect(memory.locks.has("pg-0")).toBe(false);
     expect(memory.maneuverWeapons.has("pg-0")).toBe(false);
     expect(memory.maneuverPressIds.has("pg-0")).toBe(false);
     expect(memory.lastDamagers.has("pg-0")).toBe(false);

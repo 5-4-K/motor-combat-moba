@@ -119,8 +119,6 @@ import {
   instanceGlowBands,
   instanceHaloBands,
   projectileHaloShapes,
-  lockBracketArms,
-  SHOW_LOCK_BRACKET,
   isProjectileWeapon,
   projectileDrawLayers,
   weaponFillOf,
@@ -226,12 +224,10 @@ const RIM_NAME = "rim";
  * Over everything: a bar is the last thing that may ever be hidden.
  */
 const HP_BAR_DEPTH = 60;
-/** Under the hp bar, over the cars: the bracket frames a car, it never occludes its own hp. */
-const LOCK_DEPTH = 55;
 /**
  * The arrow that marks your own car — the countdown's bob and the respawn blink alike
  * (`drawSelfArrow`). Above the cars so the marker is never hidden by the car it is marking, and
- * below `LOCK_DEPTH` / `HP_BAR_DEPTH` so it can never occlude a bracket or a bar.
+ * below `HP_BAR_DEPTH` so it can never occlude an hp bar.
  */
 const ARROW_DEPTH = 52;
 /**
@@ -275,8 +271,6 @@ const HP_BAR_GEOMETRY: HpBarGeometry = {
 };
 const HP_BAR_BACK = 0x22252b;
 
-const LOCK_COLOR = 0xf2e14c;
-const LOCK_WIDTH = 2;
 
 /**
  * The countdown arrow's paint: the same green the local player's own hp bar draws in, taken from
@@ -742,7 +736,6 @@ export class ArenaScene extends Phaser.Scene {
    */
   private glowGfx: Phaser.GameObjects.Graphics | undefined;
   private hpGfx: Phaser.GameObjects.Graphics | undefined;
-  private lockGfx: Phaser.GameObjects.Graphics | undefined;
   private arrowGfx: Phaser.GameObjects.Graphics | undefined;
   /** The wild-charge outline and the thunderclap dash ghosts, cleared and redrawn every frame. */
   private maneuverGfx: Phaser.GameObjects.Graphics | undefined;
@@ -1006,17 +999,16 @@ export class ArenaScene extends Phaser.Scene {
 
     this.drawArena(this.arena);
 
-    // One Graphics for every shot, one for every hp bar, one for every lock bracket and one for the
-    // countdown arrow, cleared and redrawn each frame. All four are drawn in *world* space but must
-    // not rotate with any car, so none can live inside a car's own Graphics; a per-shot object would
-    // also mean creating and destroying objects at the fire rate for no gain.
+    // One Graphics for every shot, one for every hp bar and one for the countdown arrow, cleared
+    // and redrawn each frame. All are drawn in *world* space but must not rotate with any car, so
+    // none can live inside a car's own Graphics; a per-shot object would also mean creating and
+    // destroying objects at the fire rate for no gain.
     this.shotGfx = this.add.graphics().setDepth(SHOT_DEPTH);
     this.glowGfx = this.add
       .graphics()
       .setDepth(GLOW_DEPTH)
       .setBlendMode(Phaser.BlendModes.ADD);
     this.hpGfx = this.add.graphics().setDepth(HP_BAR_DEPTH);
-    this.lockGfx = this.add.graphics().setDepth(LOCK_DEPTH);
     this.arrowGfx = this.add.graphics().setDepth(ARROW_DEPTH);
     this.maneuverGfx = this.add.graphics().setDepth(MANEUVER_DEPTH);
     this.shadowGfx = this.add.graphics().setDepth(CAR_SHADOW_DEPTH);
@@ -1426,10 +1418,6 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.shotGfx ? [this.shotGfx] : []),
       ...(this.glowGfx ? [this.glowGfx] : []),
       ...(this.hpGfx ? [this.hpGfx] : []),
-      // Was in neither list, and so drew twice — once clipped into the arena viewport and once
-      // unclipped across the whole canvas, over the gutter (D13). It draws in world space at
-      // `LOCK_DEPTH`, so the world camera is the one that keeps it.
-      ...(this.lockGfx ? [this.lockGfx] : []),
       // World space at `ARROW_DEPTH`, drawn over the local car during the countdown, so the world
       // camera keeps it and the HUD camera must not draw it a second time over the gutter.
       ...(this.arrowGfx ? [this.arrowGfx] : []),
@@ -1544,8 +1532,6 @@ export class ArenaScene extends Phaser.Scene {
     this.glowGfx = undefined;
     this.hpGfx?.destroy();
     this.hpGfx = undefined;
-    this.lockGfx?.destroy();
-    this.lockGfx = undefined;
     this.arrowGfx?.destroy();
     this.arrowGfx = undefined;
     this.maneuverGfx?.destroy();
@@ -1877,13 +1863,11 @@ export class ArenaScene extends Phaser.Scene {
   private renderCars(room: Room<ArenaState>, delta: number): void {
     const seen = new Set<string>();
     const hp = this.hpGfx;
-    const lock = this.lockGfx;
     const arrow = this.arrowGfx;
     const maneuver = this.maneuverGfx;
     const shadow = this.shadowGfx;
     hp?.clear();
     shadow?.clear();
-    lock?.clear();
     // Cleared here and refilled below, so the first frame after the countdown draws nothing at all:
     // the arrow going away is the absence of a draw call, not an animation that has to be stopped.
     arrow?.clear();
@@ -1996,25 +1980,6 @@ export class ArenaScene extends Phaser.Scene {
     // The same render pose the spark pass above tested against — predicted and blended for the local
     // car — so the marker sits on the car that is on screen instead of trailing it by a tick.
     if (arrow && selfPose) this.drawSelfArrow(arrow, room, selfPose);
-
-    // The bracket follows the CAMERA's subject -- the local car while driving, the watched car while
-    // spectating -- which is the same rule the weapon slot bar already uses. Read straight off the
-    // wire and never computed here: combat is server-only, and a mispredicted bracket is a lie about
-    // where your shot is going. `SHOW_LOCK_BRACKET` is the source switch that suppresses the draw;
-    // it is read here rather than folded into `lockBracketArms` so that hiding the bracket skips the
-    // stroke entirely instead of stroking an empty list.
-    const subject = room.state.players.get(this.cameraTarget(room));
-    const target = subject?.lockTargetSessionId ?? "";
-    const at = target === "" ? undefined : poses.get(target);
-    if (SHOW_LOCK_BRACKET && lock && at) {
-      lock.lineStyle(LOCK_WIDTH, LOCK_COLOR, 0.9);
-      for (const arm of lockBracketArms(at.x, at.y)) {
-        lock.beginPath();
-        lock.moveTo(arm.x1, arm.y1);
-        lock.lineTo(arm.x2, arm.y2);
-        lock.strokePath();
-      }
-    }
 
     for (const [sessionId, gfx] of this.cars) {
       if (seen.has(sessionId)) continue;

@@ -36,7 +36,6 @@ export interface BotSelfView {
   statuses: readonly ActiveStatus[];
   slots: readonly BotSlotView[];
   switchLockUntilTick: number;
-  lockTargetSessionId: string;
   maneuver: number;
   maneuverTicksLeft: number;
 }

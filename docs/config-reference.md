@@ -2,8 +2,7 @@
 
 Balance tables live in `@motor-combat-moba/shared`. Env knobs override process settings only.
 
-**`CAR_TABLE`, `WEAPON_TABLE`, `COMBAT_CONFIG`, `DRIVE_CONFIG` and `AIM_CONFIG.lockRange` are also
-printed to players**, by the generated cars-and-weapons guide the join screen links. It is committed
+**`CAR_TABLE`, `WEAPON_TABLE`, `COMBAT_CONFIG` and `DRIVE_CONFIG` are also printed to players**, by the generated cars-and-weapons guide the join screen links. It is committed
 rather than built on demand, so editing any of them means `npm run build:manual` and committing
 `packages/client/public/manual.html` in the same change — see the root `CLAUDE.md`.
 `scripts/manual-page.test.mjs` fails when the committed page predates the tables.
@@ -205,18 +204,18 @@ chassis carries and in what slot order. Durations are authored in **milliseconds
 once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually reads — see
 "Authoring in milliseconds" below.
 
-| id | kind | damage | damageFrequencyMs | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys / intervalMs) | pellets (perVolley / spreadDeg) | attached | lifetimeMs | hitbox | unlocksAt | usesAimAssist | color |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `predator` | projectile | 30 | 0 | 900 | 1800 (no real range — speed × 2000 ms lifetime; see below) | 1000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | 2000 | capsule, along 19 / across 6 (homing: proximity acquire, 200u radius, 300°/s) | 1 | true | `#606060` |
-| `thunderclap` | maneuver (dash) | 90 | 0 | 1600 (dash speed) | 400 (dash distance) | 5000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — | 1 | true | `#3ED1FA` |
-| `afterburner` | beam | 49 | 500 | 1100 | 220 | 13000 | 0 | 200 | — | — | 1 / 0 | — | true | 2000 | cone, 55° (muzzles `[0, 180]`) | 1 | false | `#FF9000` |
-| `magmablast` | projectile | 50 | 0 | 600 | 900 | 1600 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 (explosion on death: 60u disc, +15 splash, 150 ms linger, corrodes 2s; see below) | 1 | true | `#FF6000` |
-| `pepperbox` | projectile | 45 (per pellet) | 0 | 800 | 600 | 1800 | 0 | 200 | — | 0 | 1 / 0 | 3 / 12 | — | — | ellipse, along 9 / across 3 (muzzles `[0, 90, 180, 270]`) | 1 | false | `#C04818` |
-| `lance` | beam | 43 (per pulse; 4 pulses == 172 full connect point-blank, 3 == 129 at the tip) | 500 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | 1 / 0 | — | true | 1500 | rect, width 57.5 (`holdsDuringFire`) | 1 | false | `#F0FF00` |
-| `thumper` | projectile | 60 | 0 | 450 | 1305 (bounce, 2900 ms lifetime) | 3000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 24 / across 15 (flat tail) | 1 | true | `#FFD800` |
-| `roadblock` | projectile | 100 | 0 | 600 | 500 | 6000 | 0 | 200 | — | 4 | 1 / 0 | 1 / 0 | — | — | bar, along 6 / across 60 (`piercesWalls`) | 1 | false | `#D89000` |
-| `wildcharge` | maneuver (charge) | 250 | 0 | 0 | 0 | 20000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — (`isUnInterruptable`, 10 s window, `slamsStunned`) | 1 | false | `#F06000` |
-| `tremor` | beam | 25 (per tick; 10 ticks == 250 full connect) | 400 | 492 | 492 | 15000 | 0 | 200 | — | — | 1 / 0 | — | false | 2875 | cone, 60° | 1 | false | `#8A6D12` |
+| id | kind | damage | damageFrequencyMs | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys / intervalMs) | pellets (perVolley / spreadDeg) | attached | lifetimeMs | hitbox | unlocksAt | color |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `predator` | projectile | 30 | 0 | 900 | 1800 (no real range — speed × 2000 ms lifetime; see below) | 1000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | 2000 | capsule, along 19 / across 6 (homing: proximity acquire, 200u radius, 300°/s) | 1 | `#606060` |
+| `thunderclap` | maneuver (dash) | 90 | 0 | 1600 (dash speed) | 400 (dash distance) | 5000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — | 1 | `#3ED1FA` |
+| `afterburner` | beam | 49 | 500 | 1100 | 220 | 13000 | 0 | 200 | — | — | 1 / 0 | — | true | 2000 | cone, 55° (muzzles `[0, 180]`) | 1 | `#FF9000` |
+| `magmablast` | projectile | 50 | 0 | 600 | 900 | 1600 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 (explosion on death: 60u disc, +15 splash, 150 ms linger, corrodes 2s; see below) | 1 | `#FF6000` |
+| `pepperbox` | projectile | 45 (per pellet) | 0 | 800 | 600 | 1800 | 0 | 200 | — | 0 | 1 / 0 | 3 / 12 | — | — | ellipse, along 9 / across 3 (muzzles `[0, 90, 180, 270]`) | 1 | `#C04818` |
+| `lance` | beam | 43 (per pulse; 4 pulses == 172 full connect point-blank, 3 == 129 at the tip) | 500 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | 1 / 0 | — | true | 1500 | rect, width 57.5 (`holdsDuringFire`) | 1 | `#F0FF00` |
+| `thumper` | projectile | 60 | 0 | 450 | 1305 (bounce, 2900 ms lifetime) | 3000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 24 / across 15 (flat tail) | 1 | `#FFD800` |
+| `roadblock` | projectile | 100 | 0 | 600 | 500 | 6000 | 0 | 200 | — | 4 | 1 / 0 | 1 / 0 | — | — | bar, along 6 / across 60 (`piercesWalls`) | 1 | `#D89000` |
+| `wildcharge` | maneuver (charge) | 250 | 0 | 0 | 0 | 20000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — (`isUnInterruptable`, 10 s window, `slamsStunned`) | 1 | `#F06000` |
+| `tremor` | beam | 25 (per tick; 10 ticks == 250 full connect) | 400 | 492 | 492 | 15000 | 0 | 200 | — | — | 1 / 0 | — | false | 2875 | cone, 60° | 1 | `#8A6D12` |
 
 **`tremor` is carried by no chassis** — the table's one deliberately unassigned row, the retired
 `bulwark`'s geometry re-solved as a presence zone (loadout decision pending;
@@ -245,19 +244,20 @@ no axis for the wall raycast to follow, the field passes through level geometry 
 just the shape having nothing for `wallClipDistance` to clip against. `damage` here is the **splash**
 add-on; the shell's own `damage` field is the contact hit, so a direct hit costs both (50 + 15 today).
 
-**`HomingDef.acquire` (`"lock" | "proximity"`) plus `acquireRadius`** decide how a homing shot picks
-its target. `"lock"` (the original design) freezes the car's ambient aim-assist lock at the exit pose
-and steers toward that one car for `durationMs`. `"proximity"` — `predator`'s mode — spawns with no
-target at all and, every tick it has none, grabs the nearest eligible car within `acquireRadius` of
-the **instance itself** (not the firing car), then commits to that target for the rest of its
-`durationMs`/lifetime exactly as a locked shot would. `acquireRadius` is meaningless for `"lock"` and
-required for `"proximity"`; `weapon-config.test.ts` enforces that pairing.
+**`HomingDef.acquire` (`"proximity"`) plus `acquireRadius`** decide how a homing shot picks its
+target. `"proximity"` — `predator`'s mode, and the only one — spawns with no target at all and,
+every tick it has none, grabs the nearest eligible car within `acquireRadius` of the **instance
+itself** (not the firing car), then commits to that target for the rest of its `durationMs`/lifetime.
+`acquireRadius` is required; `weapon-config.test.ts` enforces it. A second `"lock"` mode existed
+until 2026-09-17, freezing the car's ambient aim-assist lock at the exit pose — no shipped row ever
+used it, and it was deleted with the lock. The union is left as a one-member union so a future
+acquisition rule still has to be named rather than inherited.
 
 **`ProjectileWeaponDef.lifetimeMs` and `.bounces`** (optional, hoisted off the deleted `BounceDef`)
 give a projectile its own expiry clock instead of dying at `range`. `bounces: true` (`thumper`)
 reflects off walls until the clock runs out; `predator` sets `lifetimeMs` with no `bounces` at all —
 it simply expires in the open after 2000 ms, `range` authored only because `WEAPON_TICKS.flight`, the
-guide's reach figure, and the `range >= aimRangeUnits` validator all read it (at `900 × 2000ms =
+guide's reach figure all read it (at `900 × 2000ms =
 1800` the flight-tick count equals the lifetime, so the two clocks can never disagree). Reading
 `predator`'s 1800 as a real threat radius is the mistake this paragraph exists to head off: the shot
 has no meaningful range in play, only a life span.
@@ -318,10 +318,6 @@ layer — the flame wants its darkest ring outermost so the shot reads as a hard
 floor — while `lance` carries it on the outer edge. `shotPaletteOf` returns the full ordered set for
 anything that needs to show "the shot colour" honestly, which is what the `?dev=assets` swatch draws.
 
-`usesAimAssist` is **required** and has no default: `true` fires at the car's ambient target lock
-instead of along its heading. It is the only per-weapon aim-assist knob — all the geometry lives once
-in `AIM_CONFIG` below. See [`combat-model.md`](combat-model.md#aim-assist-and-the-target-lock).
-
 `predator`'s hitbox is a capsule, not a migrated circle: the retired `fireball` it replaces shipped a
 12-unit circle (widened from an original 3-unit point-hit shape so the shot reads on screen, since the
 client draws the hitbox itself rather than a sprite), while `predator` carries its own homing shape
@@ -335,7 +331,7 @@ the balance table. The client draws `predator` as the missile its icon shows, ex
 that could not hurt anybody. The hitbox was lengthened to contain it rather than the plume cropped,
 so D19 still holds exactly — what you see is what hits you — and the capsule is now 38 units long
 with the rear 10 being flame. **It was taken as a buff and nothing was trimmed to pay for it**
-(+36% hit length on a homing, aim-assisted projectile); the intended way to price it is a
+(+36% hit length on a homing projectile); the intended way to price it is a
 `npm run balance` paired run, not a guessed compensating nerf. Shortening the plume without
 shortening the capsule would put the weapon back to reaching further than it draws.
 
@@ -373,40 +369,15 @@ Caps how many slots any chassis may present. A car whose `weapons` list is longe
 `console.warn` naming the car and the extras are truncated — a warning, never a thrown error or a
 failed test.
 
-## AIM_CONFIG
+## AIM_CONFIG — deleted
 
-Aim assist geometry and feel, global to every weapon that opts in with `usesAimAssist: true` (A1).
-See [`combat-model.md`](combat-model.md#aim-assist-and-the-target-lock) for how these knobs combine.
-
-| Knob | Value | Unit |
-|---|---|---|
-| `coneDeg` | 20 | degrees (half-angle of the acquisition cone) |
-| `lateralMax` | 120 | world units (perpendicular offset from centreline) |
-| `lockRange` | 400 | world units |
-| `retentionConeDeg` | 5 | degrees (pad added to `coneDeg` to hold an already-locked target) |
-| `retentionLateralUnits` | 30 | world units (pad added to `lateralMax`) |
-| `retentionRangeUnits` | 60 | world units (pad added to `lockRange`) |
-| `scorePerDistanceUnit` | 0.04 | per world unit (scoring: `abs(angleDeg) + distance × scorePerDistanceUnit`) |
-| `stealMarginFraction` | 0.25 | fraction (a rival must score this much better to steal the lock) |
-| `commitMs` | 400 | ms (minimum time on a target before it may be stolen) |
-| `lockTimeoutMs` | 800 | ms (how long after the last fire press the lock keeps incumbency) |
-| `losGraceMs` | 300 | ms (how long a target may be out of sight before the lock releases) |
-
-`commitMs`, `lockTimeoutMs`, and `losGraceMs` are authored in milliseconds and converted once, at
-shared's module load, into the frozen `AIM_TICKS` (`commit` / `lockTimeout` / `losGrace`) the sim
-actually reads — the same pattern as `WEAPON_TICKS` above.
-
-`lockRange` is deliberately its own number, not borrowed from a weapon's `range` (A3):
-`weapon-config.test.ts` asserts every aim-assist weapon's `range` is at least `lockRange`, and
-separately asserts every aim-assist weapon's sustained fire rate sits outside a ±15% band around the
-`1000 / lockTimeoutMs` cliff — see `combat-model.md` for what that cliff means.
-
-Nothing in `AIM_CONFIG` decides whether you can *see* the lock. The bracket is drawn by the client
-alone, from `PlayerState.lockTargetSessionId` on the wire, and `SHOW_LOCK_BRACKET` in the client's
-`scenes/combat-visual.ts` (default `true`) is the source switch that suppresses that draw. It is a
-render flag with no sim effect whatsoever — with it `false` the server acquires, holds, steals, and
-fires at the same targets, and the field still ships on every patch. Turning aim assist *off* is a
-different knob entirely: `usesAimAssist` per weapon in `WEAPON_TABLE`.
+`AIM_CONFIG` held the aim-assist geometry and feel: `coneDeg`, `lateralMax`, `lockRange`, three
+retention pads, `scorePerDistanceUnit`, `stealMarginFraction`, `commitMs`, `lockTimeoutMs` and
+`losGraceMs`, plus the derived `AIM_TICKS`. **The whole table and the feature it configured were
+removed on 2026-09-17.** Nothing replaced it — shots leave along the firing car's heading, and there
+is no knob for that because there is no assist to size. `WeaponDef.usesAimAssist`,
+`WeaponDef.aimRangeUnits` and `carAimRangeOf` went with it. See
+[`combat-model.md`](combat-model.md#shot-direction-the-heading-always).
 
 ## COMBAT_CONFIG
 

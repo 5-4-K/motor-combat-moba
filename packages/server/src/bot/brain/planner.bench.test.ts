@@ -204,7 +204,7 @@ const self: BotSelfView = {
   // 300 u/s along the 0.2 rad heading — the vector spelling of the old `speed: 300`.
   vx: Math.cos(0.2) * 300, vy: Math.sin(0.2) * 300,
   hp: 65, maxHp: 65, alive: true, statuses: [], slots: slotsFor("bullseye"),
-  switchLockUntilTick: 0, lockTargetSessionId: "them", maneuver: 0, maneuverTicksLeft: 0,
+  switchLockUntilTick: 0, maneuver: 0, maneuverTicksLeft: 0,
 };
 
 const target: BotCarView = {

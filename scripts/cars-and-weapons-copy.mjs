@@ -35,8 +35,8 @@ export const CHASSIS_COPY = {
   },
   bullseye: {
     line:
-      "The longest reach in the game, paid for with the lightest hull on the grid. Only its opener " +
-      "takes the lock — the other two ask you to aim.",
+      "The longest reach in the game, paid for with the lightest hull on the grid. Its opener " +
+      "steers itself once it is near you — the other two ask you to aim.",
   },
   bastion: {
     line:

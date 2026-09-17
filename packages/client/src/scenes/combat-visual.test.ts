@@ -32,9 +32,6 @@ import {
   isAuraInstance,
   WEAPON_BEAM_STYLES,
   WEAPON_GLOW_STYLES,
-  lockBracketArms,
-  LOCK_BRACKET_HALF,
-  SHOW_LOCK_BRACKET,
   weaponFillOf,
   type DrawableInstance,
 } from "./combat-visual.js";
@@ -254,46 +251,6 @@ describe("instance drawing", () => {
       weaponId: "magmablast", isExplosion: false, x: 100, y: 100, angle: 0, extent: 0,
     };
     expect(isAuraInstance(shell)).toBe(false);
-  });
-});
-
-describe("SHOW_LOCK_BRACKET", () => {
-  it("ships on", () => {
-    // A deliberate change detector, and the only guard there is. The flag exists to be flipped
-    // while working on the arena, and a flip left in is invisible in review -- the bracket simply
-    // stops appearing, which looks exactly like a lock that never acquired.
-    expect(SHOW_LOCK_BRACKET).toBe(true);
-  });
-});
-
-describe("lockBracketArms", () => {
-  it("returns two arms per corner", () => {
-    expect(lockBracketArms(0, 0)).toHaveLength(8);
-  });
-
-  it("is centred on the point it is given", () => {
-    const arms = lockBracketArms(500, 300);
-    const xs = arms.flatMap((a) => [a.x1, a.x2]);
-    const ys = arms.flatMap((a) => [a.y1, a.y2]);
-    expect((Math.min(...xs) + Math.max(...xs)) / 2).toBeCloseTo(500, 6);
-    expect((Math.min(...ys) + Math.max(...ys)) / 2).toBeCloseTo(300, 6);
-  });
-
-  it("is a corner bracket, not a closed box", () => {
-    // Every arm is shorter than the bracket's own side, so the four corners never join up. A closed
-    // box reads as a selection rectangle and hides the car inside it.
-    const arms = lockBracketArms(0, 0);
-    const side = LOCK_BRACKET_HALF * 2;
-    for (const a of arms) {
-      expect(Math.hypot(a.x2 - a.x1, a.y2 - a.y1)).toBeLessThan(side / 2);
-    }
-  });
-
-  it("clears a car hull, so the bracket frames the car rather than crossing it", () => {
-    // Read from DRIVE_CONFIG rather than hardcoded as 48 x 32, so a chassis resize moves this
-    // assertion instead of silently leaving the bracket inside the sprite.
-    const halfDiagonal = Math.hypot(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight) / 2;
-    expect(LOCK_BRACKET_HALF).toBeGreaterThan(halfDiagonal);
   });
 });
 

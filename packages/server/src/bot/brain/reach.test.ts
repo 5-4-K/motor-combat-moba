@@ -4,14 +4,10 @@ import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import { kitReachOf, weaponReachOf } from "./reach.js";
 
 describe("weaponReachOf", () => {
-  it("uses aimRangeUnits for an aim-assisted gun, not authored flight range", () => {
-    const def = weaponDefOf("predator");
-    expect(def.aimRangeUnits).toBeDefined();
-    expect(weaponReachOf("predator")).toBe(def.aimRangeUnits);
-    expect(weaponReachOf("predator")).toBeLessThan(def.range);
-  });
-
-  it("uses authored range when there is no aim assist", () => {
+  it("uses the authored flight range for every gun", () => {
+    // Was "uses aimRangeUnits for an aim-assisted gun": `predator` reported 800 against an 1800
+    // unit range while the ambient lock existed. With targeting removed there is one reach.
+    expect(weaponReachOf("predator")).toBe(weaponDefOf("predator").range);
     expect(weaponReachOf("pepperbox")).toBe(weaponDefOf("pepperbox").range);
   });
 

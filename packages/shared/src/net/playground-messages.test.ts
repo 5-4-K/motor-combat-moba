@@ -164,7 +164,7 @@ describe("isBotDebugPayload", () => {
     dangerEv: 12,
     planSteer: 1, planThrottle: -1, planScore: 8.4,
     terms: {
-      myEv: 5.2, theirEv: -1.1, rangeError: -0.3, wallPenalty: 0, lockKeep: 1, threatAvoid: 0,
+      myEv: 5.2, theirEv: -1.1, rangeError: -0.3, wallPenalty: 0, threatAvoid: 0, facingError: 0,
     },
     shotEvBest: 24, shotEvThreshold: 26,
   };

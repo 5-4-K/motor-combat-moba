@@ -129,25 +129,8 @@ interface WeaponBase {
   /** Lockout before a DIFFERENT weapon may fire. Not a universal lockout — see `StockDef`. */
   recoveryMs: number;
   /**
-   * true = this weapon fires at the car's current lock (A1); false = its exit angle is welded to
-   * the car's heading, which is how every weapon behaved before aim assist existed.
-   *
-   * Required rather than optional on purpose: every row must state its answer, so authoring a new
-   * weapon cannot silently inherit a targeting behaviour nobody chose.
-   */
-  usesAimAssist: boolean;
-  /**
-   * This weapon's own aim-assist reach, world units. Required exactly when `usesAimAssist` is
-   * true (test-enforced both ways). Lock ACQUISITION uses the car's largest value
-   * (`carAimRangeOf`); at fire time a lock farther than this fires straight ahead. Every row in
-   * this pass authors 400 — `AIM_CONFIG.lockRange`'s value, written literally because importing
-   * aim-config here is a cycle — so behavior is identical until the numbers diverge.
-   */
-  aimRangeUnits?: number;
-  /**
    * Muzzle directions, degrees off the heading. Absent means `[0]`. Each muzzle emits the full
-   * pellet fan (or its own beam instance). More than one requires `usesAimAssist: false` — a lock
-   * cannot steer four directions at once.
+   * pellet fan (or its own beam instance).
    */
   muzzles?: readonly number[];
   /**
@@ -296,23 +279,21 @@ export interface StatusApplication {
 /** Homing guidance for a projectile (spec: Homing, and 2026-09-02 P1-P9). */
 export interface HomingDef {
   /**
-   * How this shot finds a target.
+   * How this shot finds a target. One mode today:
    *
-   * - `"lock"` — the car's aim-assist lock, frozen at spawn. The shot commits to whatever the
-   *   driver had bracketed when they pressed, and needs the aim to have actually resolved.
    * - `"proximity"` — no target at spawn. Each tick the shot takes the nearest eligible car within
    *   `acquireRadius` of ITSELF, then commits to it. The driver aims the launch; the shot finds
    *   the victim.
    *
-   * Required rather than defaulted, for the reason `usesAimAssist` is: a homing row must state how
-   * it finds things, so a new weapon cannot silently inherit an acquisition rule nobody chose.
+   * Written as a one-member union rather than dropped: a second acquisition rule is a plausible
+   * future weapon, and a row that has to name its mode cannot silently inherit one nobody chose.
    */
-  acquire: "lock" | "proximity";
+  acquire: "proximity";
   /**
    * Proximity only: how near a car must come to the SHOT to be grabbed, world units. Required
-   * exactly when `acquire: "proximity"` and forbidden otherwise (test-enforced both ways).
+   * when `acquire: "proximity"` (test-enforced).
    *
-   * Deliberately its own number rather than a fraction of `aimRangeUnits`. The two answer different
+   * Deliberately its own number. The two answer different
    * questions — one is how far the driver may bracket, the other is how near the missile must pass —
    * and coupling them means a balance edit to either silently moves the other.
    */
@@ -430,9 +411,8 @@ export interface BeamWeaponDef extends WeaponBase {
    * comes from and the only sensible answer for anything directional. `"center"` is the car's own
    * centre — the other half of what makes an AURA, alongside a `disc` hitbox.
    *
-   * Required on beams rather than defaulted, for the reason `usesAimAssist` is: a beam that grows
-   * out of the wrong point is a silent, hard-to-see mistake, and every row should have to say which
-   * it is.
+   * Required on beams rather than defaulted: a beam that grows out of the wrong point is a silent,
+   * hard-to-see mistake, and every row should have to say which it is.
    */
   origin: BeamOrigin;
   /** Linger AFTER full extension. Total life = range/speed + this. */

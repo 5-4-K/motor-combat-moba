@@ -40,7 +40,7 @@
  */
 import {
   NEUTRAL_MODIFIERS, TICK_RATE_HZ, boundsOf, driveOf, expireStatuses, hasStatus, hpOf,
-  newCombatEvents, newFireState, newLockState, runCombat, slotsOf, stepDrive, weaponDamageOf,
+  newCombatEvents, newFireState, runCombat, slotsOf, stepDrive, weaponDamageOf,
   weaponDefOf, type CarId, type CombatEvents, type CombatPlayer, type SimBody, type WeaponInstance,
 } from "@motor-combat-moba/shared";
 import type { BotCarView, BotInstanceView, BotSlotView, BotView } from "../types.js";
@@ -149,7 +149,7 @@ export function pressCeilingOf(carId: CarId, ticks: number, burstGapTicks: numbe
 function combatant(sessionId: string, carId: CarId, team: 0 | 1, x: number, y: number, angle: number): CombatPlayer {
   return {
     sessionId, x, y, angle, team, carId, hp: hpOf(carId), alive: true, inRoster: true,
-    fireMask: 0, fireState: newFireState(carId, 1), lock: newLockState(), statuses: [],
+    fireMask: 0, fireState: newFireState(carId, 1), statuses: [],
     maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
     maneuverWeaponId: "", maneuverPressId: "", lastDamagerSessionId: "",
   };
@@ -212,7 +212,6 @@ export function runDuel(opts: DuelOptions): DuelResult {
         x: body.x, y: body.y, angle: body.angle, vx: body.vx, vy: body.vy,
         hp: me.hp, maxHp: hpOf(chassis), alive: me.alive, statuses: me.statuses, slots,
         switchLockUntilTick: resolveCombat ? me.fireState.switchLockUntilTick : 0,
-        lockTargetSessionId: resolveCombat ? me.lock.targetSessionId : "",
         maneuver: 0, maneuverTicksLeft: 0,
       },
       others: them.alive ? [dummy] : [],

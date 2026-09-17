@@ -199,7 +199,6 @@ a turning one, so it is not tabulated on this page.
 | Tighter corners without faster aim | lower `speed` (rating, or `baseMaxSpeed`/`speedPerRating`) | Radius is `speed / rate`; this is the other half |
 | Snappier pivots once fully stopped | `stopTurnRatio` (0.5) | Only touches at-rest steering — a scale change does not reach it. As of the 2026-09-06 vector-drive rework's proportional coast, "crawling" no longer reaches this branch: a car that lifts off stays above `stopEpsilon` for roughly 20 seconds at a 1.0-1.5s coast half-life, so `isMoving(forward)` keeps reading the moving turn rate until the car brakes to a dead stop |
 | Braking into a corner to feel rewarding | that car's `brakeDecel` against its `coastHalfLifeSeconds` | Slower entry is a smaller radius; the *situational* radius lever, and per-car since the 2026-09-06 vector-drive rework |
-| Aiming easier without changing driving at all | `AIM_CONFIG.coneDeg`, `lockRange` | Assist and lock, entirely outside the drive model |
 | Getting rammed to feel less helpless | `STATUS_TABLE.reeling`'s `turnRate`/`accel` multipliers (0.4/0.4) for how bad it is; `RAM_CONFIG.ramUncontrolMs` (1000) for how long | Since stage 3b of the car-physics rework a ram applies the `reeling` status. Severity and duration are separate knobs on purpose — raise the multipliers to keep the victim steering, cut the ms to make it brief. **The multipliers only move in ONE direction:** both already sit exactly AT their `STATUS_LIMITS` floors (0.4 on `turnRate`, 0.4 on `accel`), so anything lower is silently clamped back by `modifiersOf` and the sim behaves as if you had not typed it. `status-config.ts` says so on the row and forbids widening the floors to get past it — they are documented guarantees, so "harsher" has to come from duration or from the physics, never from that number. `RAM_CONFIG`'s falloff knobs (`drWindowMs`, `durationDrScale`, `impulseDrScale`, and their floors) are the third lever: they are what stops a repeated ram reading as a lock |
 
 ## What is *not* a knob
@@ -217,7 +216,7 @@ so read it against speed.
 
 | Symptom | Usually |
 |---|---|
-| "Aiming is heavy", "I can't track anyone" | Rate — or `AIM_CONFIG`, if you would rather not touch driving |
+| "Aiming is heavy", "I can't track anyone" | Rate. There is no aim assist to reach for instead — every shot leaves along the heading, so turn rate IS the aiming knob |
 | "Fine slow, wide at speed" | Radius. Lower that car's `speed`; raising rate again over-serves the slow chassis |
 | "Sluggish in tight spaces" | `stopTurnRatio` — but check the car is actually at a dead stop first. Since the 2026-09-06 vector-drive rework's proportional coast, a car off the throttle stays in the *moving* turn-rate branch for roughly 20 seconds before decaying below `stopEpsilon`, so this knob almost never fires from a mere crawl |
 | "I lose control when hit" | The `reeling` status a ram applies — `STATUS_TABLE.reeling`'s `turnRate`/`accel` for severity, `RAM_CONFIG.ramUncontrolMs` for length. If the complaint is really "and then it happened again", it is the falloff knobs, not these |

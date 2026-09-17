@@ -5,7 +5,6 @@ import {
   WeaponSlotState,
   isCarId,
   newFireState,
-  newLockState,
   runCombat,
   slotsFrom,
   slotsOf,
@@ -14,7 +13,6 @@ import {
   type CombatPlayer,
   type CombatResult,
   type FireState,
-  type LockState,
   type PlayerState,
   type WeaponId,
   type WeaponInstance,
@@ -43,8 +41,6 @@ export interface CombatMemory {
   /** Per-player fire state, and the per-instance damage clocks. Server-only, never networked. */
   fireStates: Map<string, FireState>;
   instances: Map<string, WeaponInstance>;
-  /** Per-player target lock. Server-only; only `targetSessionId` is projected onto the schema. */
-  locks: Map<string, LockState>;
   /**
    * Which weapon started each player's running maneuver, or "". Server-only, carried like
    * `fireStates`: `CombatPlayer.maneuverWeaponId` has no wire representation — `stepSim` reads only
@@ -87,7 +83,6 @@ export function newCombatMemory(): CombatMemory {
     instanceSeq: 0,
     fireStates: new Map(),
     instances: new Map(),
-    locks: new Map(),
     maneuverWeapons: new Map(),
     maneuverPressIds: new Map(),
     lastDamagers: new Map(),
@@ -127,12 +122,6 @@ export function toCombatPlayers(
       : { ...existing, level: player.level };
     memory.fireStates.set(sessionId, fireState);
 
-    // Carried forward rather than rebuilt from the schema: `lockedAtTick` and `losLostSinceTick`
-    // have no wire representation, so a rebuild would reset both timers every tick and neither the
-    // commit window nor the sight grace could ever elapse.
-    const lock = memory.locks.get(sessionId) ?? newLockState();
-    memory.locks.set(sessionId, lock);
-
     players.push({
       sessionId,
       x: player.x,
@@ -145,15 +134,14 @@ export function toCombatPlayers(
       inRoster: roster.has(sessionId),
       fireMask: masks.get(sessionId) ?? 0,
       fireState,
-      lock,
       // Read straight off the schema rather than carried in room memory, and expired entries are
       // already gone: `statusTick` swept the list at the top of this tick, before driving. There is
-      // no server-only half to keep beside it — unlike `fireState` and `lock`, every field of a
+      // no server-only half to keep beside it — unlike `fireState`, every field of a
       // status is networked, because the client predicts through the same modifiers.
       statuses: readStatuses(player),
       // The four numeric fields ARE networked (`stepDrive` reads them, invariant 8) and come
       // straight off the schema; `maneuverWeaponId` has no wire representation and is carried in
-      // room memory instead, exactly like `fireState` and `lock`.
+      // room memory instead, exactly like `fireState`.
       maneuver: player.maneuver,
       maneuverTicksLeft: player.maneuverTicksLeft,
       maneuverAngle: player.maneuverAngle,
@@ -202,7 +190,6 @@ export function toInstances(memory: CombatMemory): WeaponInstance[] {
 export function applyCombatResult(state: ArenaState, result: CombatResult, memory: CombatMemory): void {
   for (const p of result.players) {
     memory.fireStates.set(p.sessionId, p.fireState);
-    memory.locks.set(p.sessionId, p.lock);
     // A dash or charge that ends by natural expiry (rather than a stun interruption, which already
     // clears `maneuverWeaponId` through `clearManeuver`) sets `player.maneuver` back to NONE on the
     // networked numeric fields without touching this server-only map — `stepDrive` only knows the
@@ -250,7 +237,6 @@ export function applyCombatResult(state: ArenaState, result: CombatResult, memor
     // (like `damageClock` and `pierceLeft`) — only the tick it next fires on crosses the wire.
     player.pendingUntilTick = p.fireState.pending?.nextShotTick ?? 0;
     player.lastFiredSlot = p.fireState.lastFiredSlot;
-    player.lockTargetSessionId = p.lock.targetSessionId;
     // Combat adds statuses (this tick's hits, shots and room requests) and never removes one except
     // through a cleanse, so this is a no-op for every car nothing landed on — `writeStatuses`
     // compares row by row rather than rebuilding.
@@ -311,7 +297,6 @@ export function clearInstances(state: ArenaState, memory: CombatMemory): void {
   for (const id of ids) state.weapons.delete(id);
   memory.instances.clear();
   memory.fireStates.clear();
-  memory.locks.clear();
   memory.maneuverWeapons.clear();
   // Not observable today — every path that zeroes hp stamps a fresh source before `alive` flips, so
   // no carried-over entry can currently be read. Cleared anyway on both counts this map is here
@@ -319,17 +304,11 @@ export function clearInstances(state: ArenaState, memory: CombatMemory): void {
   // player who ever played in it; and leaving the one omission in a function whose whole job is
   // per-match hygiene reads as a deliberate exception, which invites the next reader to preserve it.
   memory.lastDamagers.clear();
-  // The schema projection has to be cleared here too, separately from the memory map above: combat
-  // only runs in RoomPhase.MATCH, but ArenaScene is on screen from COUNTDOWN onward, and `endMatch`
-  // freezes whatever `lockTargetSessionId` was last written. Without this, the second match onward
-  // would draw a lock bracket through the whole countdown before a single tick of combat has run
-  // (spec A14: no lock survives a match end or setup).
   state.players.forEach((p) => {
-    p.lockTargetSessionId = "";
     // Nothing from the previous match survives into this one, a buff included: a car must not spawn
     // into the countdown still carrying the slow that killed it last round. Same rule as the ram
-    // knock cleared in `revealCars`, and cleared here for the same reason the lock is — statuses
-    // tick only in MATCH, so whatever was standing at the final tick would otherwise freeze on.
+    // knock cleared in `revealCars` — statuses tick only in MATCH, so whatever was standing at the
+    // final tick would otherwise freeze on through a countdown ArenaScene is already drawing.
     clearPlayerStatuses(p);
   });
 }
@@ -338,8 +317,8 @@ export function clearInstances(state: ArenaState, memory: CombatMemory): void {
  * Drop one session's combat memory entirely (spec PG67).
  *
  * A real match never needs this — a car leaves only when the room does — but the playground removes
- * a seat mid-session and re-adds it later, and a seat that came back carrying its old target lock or
- * a half-finished maneuver would be the previous car wearing a new chassis.
+ * a seat mid-session and re-adds it later, and a seat that came back carrying a half-finished
+ * maneuver would be the previous car wearing a new chassis.
  *
  * Deliberately does NOT sweep `instances` owned by this session. A weapon instance is detached from
  * its owner the moment it is in flight and `runCombat` resolves an ownerless one without incident —
@@ -348,7 +327,6 @@ export function clearInstances(state: ArenaState, memory: CombatMemory): void {
  */
 export function forgetCombatPlayer(memory: CombatMemory, sessionId: string): void {
   memory.fireStates.delete(sessionId);
-  memory.locks.delete(sessionId);
   memory.maneuverWeapons.delete(sessionId);
   memory.maneuverPressIds.delete(sessionId);
   memory.lastDamagers.delete(sessionId);

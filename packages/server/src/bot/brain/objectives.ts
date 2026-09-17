@@ -19,7 +19,7 @@ import type { PlanWeights } from "./planner.js";
  *
  * RE-DERIVED AGAINST MEASURED TERM SCALES (R-P9, fix round 1, 2026-09-06). The first draft of this
  * table was written before a single term had been measured, and it was dimensionally incoherent:
- * three of the six terms could not move a decision at all. Measured in a hard Bullseye duel, per
+ * three of them could not move a decision at all. Measured in a hard Bullseye duel, per
  * term, as the CONTRIBUTION each weight bought at a realistic pose:
  *
  * | term          | measured range        | old weight | old points | new weight | new points |
@@ -28,7 +28,6 @@ import type { PlanWeights } from "./planner.js";
  * | `theirEv`     | 0-75 EV/s             | 1 (x0.9)   | 0-67       | 0.6 (x0.9) | 0-40       |
  * | `rangeError`  | 0-600 units           | 0.02       | ~1 at 50 u | 0.12       | ~6 at 50 u |
  * | `wallPenalty` | 0-1 (0.017 in a corner)| 40 (unpin)| **0.66**   | 2400       | 40         |
- * | `lockKeep`    | 0 or 1                | 1          | **1**      | 8          | 8          |
  * | `threatAvoid` | +-40 u (see below)    | (absent)   | —          | 0.6 (evade)| 0-24       |
  *
  * `threatAvoid`'s ROW IS STATED AT THE SHIPPED SCALE, and it is much smaller than the scale it was
@@ -52,9 +51,15 @@ import type { PlanWeights } from "./planner.js";
  * scores exactly 0 — the units are hundredths, and a weight in the hundreds is what turns them into
  * points. The 60x scale-up is the same number in a different unit, not a 60x behaviour change: an
  * obstacle box contributes a flat 1.0, which is where the term saturates, and `unpin`'s 2400 is the
- * situation whose entire content is "leave". `lockKeep` is 0-or-1 and was likewise worth one point
- * against a `myEv` running to 150; 8 makes holding a lock worth about a twentieth of a perfect shot,
- * which is roughly what the lock is worth.
+ * situation whose entire content is "leave".
+ *
+ * `lockKeep` USED TO BE THE SIXTH ROW HERE, worth 12 in `punish`, 8 in `fight`, 4 in `close` and 2
+ * in `reset`. It scored 0-or-1 on whether the retired ambient lock would have pointed an assisted
+ * shot from a candidate pose, and it went with the mechanism. Nothing replaced it, deliberately:
+ * what it was really buying — stand where the enemy is in front of you and inside your reach — is
+ * what `myEv` scores directly through `proxyValue`, now that no slot gets the forced-zero aim error
+ * that made `myEv` blind to the nose for exactly those weapons. The four situations that carried a
+ * weight for it are the ones to watch in a balance run.
  *
  * `theirEv`'s drop from 1 to 0.6 is the only judgment call in the table rather than a unit fix. Both
  * it and `myEv` are EV per second, so their ratio IS the trade the bot is offering: at 2:1 the bot
@@ -182,15 +187,15 @@ import type { PlanWeights } from "./planner.js";
  */
 const BASE: Readonly<Record<SituationId, PlanWeights>> = Object.freeze({
   recover: {
-    myEv: 0, theirEv: 0, rangeError: 0, wallPenalty: 60, lockKeep: 0, threatAvoid: 0,
+    myEv: 0, theirEv: 0, rangeError: 0, wallPenalty: 60, threatAvoid: 0,
     facingError: 0,
   },
   waitOut: {
-    myEv: 0, theirEv: 0.5, rangeError: 0.375, wallPenalty: 240, lockKeep: 0, threatAvoid: 0,
+    myEv: 0, theirEv: 0.5, rangeError: 0.375, wallPenalty: 240, threatAvoid: 0,
     facingError: 120,
   },
   evade: {
-    myEv: 0.3, theirEv: 4, rangeError: 0, wallPenalty: 360, lockKeep: 0, threatAvoid: 0.6,
+    myEv: 0.3, theirEv: 4, rangeError: 0, wallPenalty: 360, threatAvoid: 0.6,
     // 10, not 40: `threatAvoid` maxes out at 24 points here (0.6 x the ~40 u spread, per the
     // scale table above), so 40 made a full-clearance reverse dodge earn 24 and pay 40 —
     // dominated outright, which is F12's prohibition in a situation F12 never examined. See the
@@ -198,23 +203,23 @@ const BASE: Readonly<Record<SituationId, PlanWeights>> = Object.freeze({
     facingError: 10,
   },
   unpin: {
-    myEv: 0.2, theirEv: 1, rangeError: 0, wallPenalty: 2400, lockKeep: 0, threatAvoid: 0,
+    myEv: 0.2, theirEv: 1, rangeError: 0, wallPenalty: 2400, threatAvoid: 0,
     facingError: 60,
   },
   punish: {
-    myEv: 3, theirEv: 0.25, rangeError: 0.5, wallPenalty: 240, lockKeep: 12, threatAvoid: 0,
+    myEv: 3, theirEv: 0.25, rangeError: 0.5, wallPenalty: 240, threatAvoid: 0,
     facingError: 50,
   },
   reset: {
-    myEv: 0.4, theirEv: 3, rangeError: 0.625, wallPenalty: 360, lockKeep: 2, threatAvoid: 0,
+    myEv: 0.4, theirEv: 3, rangeError: 0.625, wallPenalty: 360, threatAvoid: 0,
     facingError: 10,
   },
   fight: {
-    myEv: 2, theirEv: 0.6, rangeError: 0.3, wallPenalty: 300, lockKeep: 8, threatAvoid: 0,
+    myEv: 2, theirEv: 0.6, rangeError: 0.3, wallPenalty: 300, threatAvoid: 0,
     facingError: 30,
   },
   close: {
-    myEv: 1, theirEv: 0.75, rangeError: 0.875, wallPenalty: 300, lockKeep: 4, threatAvoid: 0,
+    myEv: 1, theirEv: 0.75, rangeError: 0.875, wallPenalty: 300, threatAvoid: 0,
     facingError: 80,
   },
 });

@@ -164,7 +164,6 @@ function selfView(player: PlayerState, combat: CombatMemory): BotSelfView {
       range: weaponDefOf(slot.weaponId).range,
     })),
     switchLockUntilTick: fireState?.switchLockUntilTick ?? 0,
-    lockTargetSessionId: player.lockTargetSessionId,
     maneuver: player.maneuver,
     maneuverTicksLeft: player.maneuverTicksLeft,
   };

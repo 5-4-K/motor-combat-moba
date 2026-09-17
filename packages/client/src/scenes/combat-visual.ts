@@ -2815,65 +2815,6 @@ export function beamFadeAlpha(
 }
 
 /**
- * Whether the lock bracket is drawn at all.
- *
- * A source switch, not a player setting: the client has no options surface, and the bracket is the
- * only thing on screen that says the server has picked a target for you (A13), so playing with it
- * off is a deliberate choice — recording clean footage, or reading the arena while working on
- * something the bracket sits on top of — rather than a preference a match should carry.
- *
- * Hiding it changes nothing but the picture. The lock is server-only and the client never computes
- * it: with this `false` the server still acquires, holds, steals, and fires at exactly the same
- * target, and `PlayerState.lockTargetSessionId` still arrives on every patch. Aim assist is not
- * disabled here — the per-weapon opt-out is `usesAimAssist` in `WEAPON_TABLE`.
- *
- * Annotated `boolean` rather than left to infer the literal `true`, so `ArenaScene`'s guard stays
- * live code both ways and flipping this line is the whole edit.
- */
-export const SHOW_LOCK_BRACKET: boolean = true;
-
-/**
- * Half the bracket's side, world units. Larger than a car hull's half-diagonal (29 units for the
- * 48 x 32 hull) so the bracket frames the car instead of being drawn across it.
- */
-export const LOCK_BRACKET_HALF = 34;
-
-/** How far each arm runs from its corner. Kept well under the side, so the corners never join. */
-export const LOCK_BRACKET_ARM = 11;
-
-/**
- * The eight line segments of a corner bracket centred on a car, in world space.
- *
- * Corners rather than a closed box: a full rectangle reads as a selection marquee and competes with
- * the car it is meant to point at. Unrotated, like the hp bar above it -- the bracket says "this is
- * your lock", not "this is how the car is facing".
- *
- * Pure geometry so it can be tested without a Phaser scene; `ArenaScene` only strokes the result.
- */
-export function lockBracketArms(
-  x: number,
-  y: number,
-): { x1: number; y1: number; x2: number; y2: number }[] {
-  const h = LOCK_BRACKET_HALF;
-  const a = LOCK_BRACKET_ARM;
-  const left = x - h;
-  const right = x + h;
-  const top = y - h;
-  const bottom = y + h;
-
-  return [
-    { x1: left, y1: top, x2: left + a, y2: top },
-    { x1: left, y1: top, x2: left, y2: top + a },
-    { x1: right, y1: top, x2: right - a, y2: top },
-    { x1: right, y1: top, x2: right, y2: top + a },
-    { x1: left, y1: bottom, x2: left + a, y2: bottom },
-    { x1: left, y1: bottom, x2: left, y2: bottom - a },
-    { x1: right, y1: bottom, x2: right - a, y2: bottom },
-    { x1: right, y1: bottom, x2: right, y2: bottom - a },
-  ];
-}
-
-/**
  * Every colour this weapon's shots actually draw in, outermost first, with duplicates removed.
  *
  * `WEAPON_TABLE.color` alone stopped being the answer once weapons grew ramps and markings: it is

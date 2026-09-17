@@ -24,7 +24,7 @@ function selfAt(x: number, y: number, angle: number): BotSelfView {
     // 200 u/s along the heading — the car-physics rework's spelling of the old `speed: 200`.
     vx: Math.cos(angle) * 200, vy: Math.sin(angle) * 200,
     hp: 65, maxHp: 65, alive: true, statuses: [], slots: slotsFor("bullseye"),
-    switchLockUntilTick: 0, lockTargetSessionId: "", maneuver: 0, maneuverTicksLeft: 0,
+    switchLockUntilTick: 0, maneuver: 0, maneuverTicksLeft: 0,
   };
 }
 
@@ -34,7 +34,7 @@ const target: BotCarView = {
 };
 
 const fightWeights: PlanWeights = {
-  myEv: 1, theirEv: 0, rangeError: 0.01, wallPenalty: 5, lockKeep: 0.5, threatAvoid: 0,
+  myEv: 1, theirEv: 0, rangeError: 0.01, wallPenalty: 5, threatAvoid: 0,
   facingError: 0,
 };
 
@@ -90,7 +90,7 @@ describe("plan", () => {
   it("reports a score breakdown for the overlay (P45)", () => {
     const result = plan({ ...base, self: selfAt(300, 360, 0) });
     expect(Object.keys(result.terms).sort()).toEqual(
-      ["facingError", "lockKeep", "myEv", "rangeError", "theirEv", "threatAvoid", "wallPenalty"],
+      ["facingError", "myEv", "rangeError", "theirEv", "threatAvoid", "wallPenalty"],
     );
   });
 
@@ -116,7 +116,7 @@ describe("plan", () => {
   // --- R-P8 / P40: the reactive dodge ----------------------------------------------------------
   it("scores displacement along an in-flight shot's away heading (P40, R-P8)", () => {
     const dodging: PlanWeights = {
-      myEv: 0, theirEv: 0, rangeError: 0, wallPenalty: 0, lockKeep: 0, threatAvoid: 1,
+      myEv: 0, theirEv: 0, rangeError: 0, wallPenalty: 0, threatAvoid: 1,
       facingError: 0,
     };
     // Away is +y. The bot faces +x, so only a turn can carry it there.
@@ -182,21 +182,12 @@ describe("plan", () => {
     expect(result.runnerUp).not.toEqual(result.action);
   });
 
-  it("scores an aim-assisted slot's lock envelope, not its bare reach (P13)", () => {
-    // Nose exactly on the target at 400u: inside predator's cone, lateral cap and aim range.
-    const onLine = plan({ ...base, self: selfAt(300, 360, 0), horizonTicks: 0 });
-    expect(onLine.terms.lockKeep).toBe(1);
-    // Nose 90 degrees off, at the same distance — inside predator's 800u REACH, but far outside
-    // the 20-degree acquisition cone, so no lock is held or acquirable from there.
-    const offLine = plan({ ...base, self: selfAt(300, 360, -Math.PI / 2), horizonTicks: 0 });
-    expect(offLine.terms.lockKeep).toBe(0);
-  });
-
-  it("only lets the assist zero the aim error inside the lock envelope (P13)", () => {
-    // Same distance, same kit, same everything but the nose. An assist that were gated on the
-    // weapon's RANGE alone would call both of these assisted, hand both a certain shot, and score
-    // a car pointed 90 degrees away from its target exactly as highly as one aimed at it.
-    // Predator alone, so `myEv` is the assisted slot's own number and not pepperbox's.
+  it("scores the nose, so a car pointed away from its target is worth less", () => {
+    // Same distance, same kit, same everything but the nose. This guarded the aim assist's own
+    // envelope gate before the targeting removal — without it, an assist gated on the weapon's
+    // RANGE alone would have handed a car pointed 90 degrees away the same certain shot as one
+    // aimed at its target. Nothing zeroes the angle term now, so it guards the general rule.
+    // Predator alone, so `myEv` is that slot's own number and not pepperbox's.
     const predatorOnly: BotSelfView = {
       ...selfAt(300, 360, 0), slots: [slotsFor("bullseye")[0]!],
     };
@@ -282,7 +273,6 @@ describe("plan", () => {
       expect(result.terms.rangeError).toBeGreaterThan(0);
       expect(result.terms.myEv).toBe(0);
       expect(result.terms.theirEv).toBe(0);
-      expect(result.terms.lockKeep).toBe(0);
     });
   });
 
@@ -324,7 +314,7 @@ describe("plan", () => {
       const fight: Omit<PlanArgs, "self"> = { ...base, horizonTicks: SHORT_HORIZON };
       const nose = selfAt(300, 360, -Math.PI / 2);
       const hundredfold: PlanWeights = {
-        myEv: 100, theirEv: 0, rangeError: 1, wallPenalty: 500, lockKeep: 50, threatAvoid: 0,
+        myEv: 100, theirEv: 0, rangeError: 1, wallPenalty: 500, threatAvoid: 0,
         facingError: 0,
       };
 

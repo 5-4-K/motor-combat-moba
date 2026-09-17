@@ -22,19 +22,19 @@ describe("rolesOf", () => {
     ] as const satisfies readonly WeaponId[];
 
     const expected: Record<WeaponId, {
-      setupCc: boolean; contact: boolean; lockAim: boolean; lockHoming: boolean;
+      setupCc: boolean; contact: boolean;
       shotgun: boolean; explosion: boolean; holdBeam: boolean; slow: boolean;
     }> = {
-      predator: { setupCc: false, contact: false, lockAim: true, lockHoming: false, shotgun: false, explosion: false, holdBeam: false, slow: false },
-      thunderclap: { setupCc: true, contact: true, lockAim: true, lockHoming: false, shotgun: false, explosion: false, holdBeam: false, slow: false },
-      afterburner: { setupCc: false, contact: false, lockAim: false, lockHoming: false, shotgun: false, explosion: false, holdBeam: false, slow: false },
-      magmablast: { setupCc: false, contact: false, lockAim: true, lockHoming: false, shotgun: false, explosion: true, holdBeam: false, slow: false },
-      pepperbox: { setupCc: false, contact: false, lockAim: false, lockHoming: false, shotgun: true, explosion: false, holdBeam: false, slow: false },
-      lance: { setupCc: false, contact: false, lockAim: false, lockHoming: false, shotgun: false, explosion: false, holdBeam: true, slow: false },
-      thumper: { setupCc: false, contact: false, lockAim: true, lockHoming: false, shotgun: false, explosion: false, holdBeam: false, slow: true },
-      roadblock: { setupCc: true, contact: false, lockAim: false, lockHoming: false, shotgun: false, explosion: false, holdBeam: false, slow: false },
-      wildcharge: { setupCc: false, contact: true, lockAim: false, lockHoming: false, shotgun: false, explosion: false, holdBeam: false, slow: false },
-      tremor: { setupCc: false, contact: false, lockAim: false, lockHoming: false, shotgun: false, explosion: false, holdBeam: false, slow: true },
+      predator: { setupCc: false, contact: false, shotgun: false, explosion: false, holdBeam: false, slow: false },
+      thunderclap: { setupCc: true, contact: true, shotgun: false, explosion: false, holdBeam: false, slow: false },
+      afterburner: { setupCc: false, contact: false, shotgun: false, explosion: false, holdBeam: false, slow: false },
+      magmablast: { setupCc: false, contact: false, shotgun: false, explosion: true, holdBeam: false, slow: false },
+      pepperbox: { setupCc: false, contact: false, shotgun: true, explosion: false, holdBeam: false, slow: false },
+      lance: { setupCc: false, contact: false, shotgun: false, explosion: false, holdBeam: true, slow: false },
+      thumper: { setupCc: false, contact: false, shotgun: false, explosion: false, holdBeam: false, slow: true },
+      roadblock: { setupCc: true, contact: false, shotgun: false, explosion: false, holdBeam: false, slow: false },
+      wildcharge: { setupCc: false, contact: true, shotgun: false, explosion: false, holdBeam: false, slow: false },
+      tremor: { setupCc: false, contact: false, shotgun: false, explosion: false, holdBeam: false, slow: true },
     };
 
     for (const id of ids) {
@@ -42,8 +42,6 @@ describe("rolesOf", () => {
       const want = expected[id];
       expect(roles.setupCcSlot === 0, `${id} setupCc`).toBe(want.setupCc);
       expect(roles.contactSlot === 0, `${id} contact`).toBe(want.contact);
-      expect(has(roles.lockAimSlots, 0), `${id} lockAim`).toBe(want.lockAim);
-      expect(has(roles.lockHomingSlots, 0), `${id} lockHoming`).toBe(want.lockHoming);
       expect(has(roles.shotgunSlots, 0), `${id} shotgun`).toBe(want.shotgun);
       expect(has(roles.explosionSlots, 0), `${id} explosion`).toBe(want.explosion);
       expect(has(roles.holdBeamSlots, 0), `${id} holdBeam`).toBe(want.holdBeam);
@@ -57,6 +55,5 @@ describe("rolesOf", () => {
     expect(roles.setupCcSlot).toBe(1);
     expect(roles.contactSlot).toBe(2);
     expect(roles.slowSlot).toBe(0);
-    expect(roles.lockAimSlots).toEqual([0]);
   });
 });

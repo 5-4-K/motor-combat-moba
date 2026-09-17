@@ -285,10 +285,10 @@ export function carrierOf(weaponId) {
  * fetch and a browser, and a guard that only runs online is not a guard.
  *
  * **Every input here must be something the page actually prints.** `AIM_CONFIG.lockRange` was hashed
- * until the 2026-09-17 restructure, which stopped printing it (a weapon's own `aimRangeUnits` is
- * what the Lock-on property reports, and that rides in `WEAPON_TABLE`) — so it went, rather than
- * demanding a rebuild that would produce a byte-identical page but for this tag. That is how a
- * guard gets rubber-stamped.
+ * until the 2026-09-17 restructure, which stopped printing it, and the config itself was deleted
+ * outright when the target-lock feature was removed later that day. The lesson survives the
+ * constant: hashing something the page does not print demands a rebuild that produces a
+ * byte-identical page but for this tag, which is how a guard gets rubber-stamped.
  */
 export function balanceStamp() {
   const inputs = {
@@ -513,14 +513,7 @@ function damageText(w) {
 function propertiesOf(w) {
   const d = w.def;
   const out = [];
-  if (d.usesAimAssist) out.push(d.aimRangeUnits ? `Lock-on within ${d.aimRangeUnits}` : "Lock-on");
-  if (d.homing) {
-    out.push(
-      d.homing.acquire === "proximity"
-        ? `Homes on anything within ${d.homing.acquireRadius} of the shot`
-        : "Homes on your lock",
-    );
-  }
+  if (d.homing) out.push(`Homes on anything within ${d.homing.acquireRadius} of the shot`);
   if (d.explosion) {
     out.push(
       `Explodes where it dies — ${d.explosion.radius} radius, ${secs(d.explosion.lingerMs)} field` +

@@ -123,7 +123,7 @@ swatch's own claim (that the panel can never disagree with the field about who i
 
 Combat is drawn, never predicted: live instances (projectiles and beams alike) come from `state.weapons` (cosmetically extrapolated along their own motion by `combat-visual.ts`), HP from `PlayerState.hp`. A dead car stops driving, predicting, and interpolating, and — **in Last Standing only** — gains the spectate controls in `spectate.ts`. A Deathmatch wreck keeps its own seat instead: the camera holds where it died, the slot column keeps showing the player's own kit, and the camera cuts (never eases) to the new car on respawn, which is marked for the local player alone by the blinking self arrow (`drawSelfArrow`, gated on `isPhasedAt`). **There is no wreck left on the field**: it is intangible from the tick it dies, and `deathFadeAlpha` (`car-visual.ts`) fades it out over `DEATH_FADE_MS` from the networked `diedAtTick`, after which the container is destroyed rather than left invisible.
 
-The lock bracket is drawn from `PlayerState.lockTargetSessionId` for whichever car the camera is following, never computed client-side. `SHOW_LOCK_BRACKET` in `scenes/combat-visual.ts` hides it at source; it ships `true` and `combat-visual.test.ts` asserts that, because a flip left in looks identical to a lock that never acquired.
+There is no lock bracket, and no targeting HUD of any kind: the 2026-09-17 removal of the aim-lock feature deleted `PlayerState.lockTargetSessionId`, `SHOW_LOCK_BRACKET`, `lockBracketArms` and the `lockGfx` layer it was stroked into. Every shot leaves along the car's heading, so the nose IS the aiming HUD.
 
 **Player colour is for cars; weapon colour is for shots.**
 

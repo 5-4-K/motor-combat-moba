@@ -7,7 +7,6 @@ import { WEAPON_TABLE, weaponDefOf } from "../config/weapon-config.js";
 import { SPIKE_CONFIG } from "../config/spike-config.js";
 import { MS_PER_TICK, TICK_RATE_HZ } from "../constants.js";
 import {
-  aimAngleFor,
   clearManeuver,
   dealDamageTo,
   runCombat,
@@ -26,8 +25,7 @@ import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import { applyStatus } from "./status/statuses.js";
 import { damageFor, weaponDamageOf } from "./damage.js";
 import { newFireState } from "./weapons/fire.js";
-import type { WeaponInstance } from "./weapons/instances.js";
-import { muzzleOf, newLockState } from "./weapons/lock.js";
+import { muzzleOf, type WeaponInstance } from "./weapons/instances.js";
 import { stepSim } from "./step.js";
 import type { SimBody } from "./step.js";
 import type { InputMessage } from "../net/input.js";
@@ -72,7 +70,6 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
     inRoster: true,
     fireMask: 0,
     fireState: newFireState(carId as CarId | "", 1),
-    lock: newLockState(),
     statuses: [],
     maneuver: 0,
     maneuverTicksLeft: 0,
@@ -123,7 +120,6 @@ function combatant(sessionId: string, over: Partial<CombatPlayer> = {}): CombatP
     inRoster: true,
     fireMask: 0,
     fireState: newFireState(carId, 1),
-    lock: newLockState(),
     statuses: [],
     maneuver: 0,
     maneuverTicksLeft: 0,
@@ -184,7 +180,6 @@ describe("firing", () => {
       inRoster: true,
       fireMask: 0,
       fireState: newFireState("mirage", 1),
-      lock: newLockState(),
       statuses: [],
       maneuver: 0,
       maneuverTicksLeft: 0,
@@ -756,129 +751,31 @@ describe("collision deals no damage", () => {
   });
 });
 
-describe("aim assist through a real tick", () => {
-  it("acquires a lock without anyone firing", () => {
-    // A4: the lock is ambient. The trigger fires; it never targets.
-    const result = run({
-      players: [
-        player("a", { x: 300, y: 300, angle: 0 }),
-        player("b", { x: 500, y: 300, angle: Math.PI }),
-      ],
-    });
-    expect(find(result, "a").lock.targetSessionId).toBe("b");
-  });
-
-  it("fires at the lock now that the weapon has opted in", () => {
-    // Was the zero-balance-change guard through Task 7: with `fireball` opted out, a lock changed
-    // nothing about where the shot went. Task 8 flips that switch, so the shot must now leave along
-    // the lock direction instead of the car's heading. "b" sits 18 degrees off the nose, well inside
-    // the cone, so this fails loudly if the aim angle stops reaching an opted-in weapon.
+describe("shot direction through a real tick", () => {
+  it("fires along the car's heading, never toward a car off the nose", () => {
+    // The regression guard for the targeting removal. "b" sits 18 degrees off "a"'s nose -- the
+    // exact geometry the old ambient lock was built to snap onto, well inside the cone it used --
+    // so a shot that leaves at anything but `a.angle` means something is still steering it.
     const a = player("a", { x: 300, y: 300, angle: 0, fireMask: 1 });
     const b = player("b", { x: 480, y: 360, angle: Math.PI });
     const result = run({ players: [a, b] });
     const shot = result.instances.find((i) => i.ownerSessionId === "a");
     expect(shot).toBeDefined();
-    // The same muzzle-to-target math `aimAngleFor` uses, so this asserts the real geometry rather
-    // than a hardcoded literal.
+    expect(shot!.angle).toBeCloseTo(a.angle, 10);
+    // Spelled out rather than left implicit: the bearing to "b" is the answer this must NOT give.
     const muzzle = muzzleOf({ x: a.x, y: a.y, angle: a.angle });
-    const expectedAngle = Math.atan2(b.y - muzzle.y, b.x - muzzle.x);
-    expect(shot!.angle).toBeCloseTo(expectedAngle, 6);
+    expect(shot!.angle).not.toBeCloseTo(Math.atan2(b.y - muzzle.y, b.x - muzzle.x), 2);
   });
 
-  it("holds no lock for a wrecked owner", () => {
-    const result = run({
-      players: [
-        player("a", { x: 300, y: 300, angle: 0, alive: false, hp: 0 }),
-        player("b", { x: 500, y: 300, angle: Math.PI }),
-      ],
-    });
-    expect(find(result, "a").lock.targetSessionId).toBe("");
-  });
-
-  it("never locks a wreck", () => {
-    const result = run({
-      players: [
-        player("a", { x: 300, y: 300, angle: 0 }),
-        player("b", { x: 500, y: 300, angle: Math.PI, alive: false, hp: 0 }),
-      ],
-    });
-    expect(find(result, "a").lock.targetSessionId).toBe("");
-  });
-});
-
-describe("aimAngleFor", () => {
-  // Direct coverage of both branches of the per-weapon opt-in (A1). Deleting the `usesAimAssist`
-  // check entirely still passes most other tests in this file, so these two call `aimAngleFor`
-  // directly. `afterburner` is Mirage's slot 3 and holds the "off" branch: it is `usesAimAssist:
-  // false` by constraint rather than by taste — an attached beam re-derives its angle from the
-  // owner's pose every tick, so a lock would have nothing to decide, and the authoring guard in
-  // `weapon-config.test.ts` refuses the combination outright. `skewer` used to hold this branch and
-  // took the lock in T17, which is why the row named here moved.
-
-  it("returns null for a weapon with usesAimAssist: false, even with a live lock", () => {
-    const a = player("a", {
-      x: 0,
-      y: 0,
-      angle: 0,
-      lock: { ...newLockState(), targetSessionId: "b" },
-    });
-    const b = player("b", { x: 124, y: 100 });
-    const byId = new Map([
-      ["a", a],
-      ["b", b],
-    ]);
-    // "afterburner" is usesAimAssist: false and exists in WEAPON_TABLE.
-    expect(aimAngleFor(a, "afterburner", byId, () => false)).toBeNull();
-  });
-
-  it("returns the muzzle-derived bearing to the lock target for a weapon with usesAimAssist: true", () => {
-    const a = player("a", {
-      x: 0,
-      y: 0,
-      angle: 0,
-      lock: { ...newLockState(), targetSessionId: "b" },
-    });
-    const b = player("b", { x: 124, y: 100 });
-    const byId = new Map([
-      ["a", a],
-      ["b", b],
-    ]);
-    // Computed independently of `aimAngleFor`'s own expression, to pin the geometry rather than
-    // re-derive it: owner is at (0, 0) facing angle 0, so the muzzle sits `muzzleOffset()` units
-    // ahead along that heading. muzzleOffset() == DRIVE_CONFIG.carWidth / 2 == 48 / 2 == 24, so the
-    // muzzle is at (24, 0). Target "b" is at (124, 100), so dx = 124 - 24 = 100 and dy = 100 - 0 =
-    // 100. atan2(100, 100) = atan(1) = pi/4 radians (45 degrees).
-    const expected = Math.PI / 4;
-    // "magmablast" is usesAimAssist: true.
-    expect(aimAngleFor(a, "magmablast", byId, () => false)).toBeCloseTo(expected, 10);
-  });
-
-  it("fires straight ahead when the lock sits beyond the weapon's own aimRangeUnits", () => {
-    // Retention can hold a lock out to lockRange + retentionRangeUnits (460), past magmablast's 400.
-    const shooter = player("a", { x: 0, y: 0, angle: 0 });
-    shooter.lock = { targetSessionId: "b", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
-    const target = player("b", { x: 430, y: 0 });
-    const byId = new Map([
-      ["a", shooter],
-      ["b", target],
-    ]);
-    expect(aimAngleFor(shooter, "magmablast", byId, () => false)).toBeNull(); // 430 > 400 -> welded to heading
-  });
-
-  it("does NOT lead a moving locked target — it aims where the target is (A3)", () => {
-    // The assist sets direction, never lead: a crossing target is shot at, not shot ahead of, and
-    // carrying the lead stays the player's job. Aiming at a first-order intercept shipped briefly
-    // and was reverted.
-    const shooter = player("a", { x: 0, y: 0, angle: 0 });
-    shooter.lock = { targetSessionId: "b", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
-    const target = player("b", { x: 300, y: 0, angle: Math.PI / 2 }); // crossing at full tilt, +y
-    const byId = new Map([
-      ["a", shooter],
-      ["b", target],
-    ]);
-    const aimed = aimAngleFor(shooter, "magmablast", byId, () => false)!;
-    // Muzzle at x = 24, target dead ahead on the x axis: straight down the +x axis, angle 0.
-    expect(aimed).toBeCloseTo(Math.atan2(0, 300 - 24), 10);
+  it("leaves the muzzle, not the car centre", () => {
+    // `muzzleOf` outlived the targeting system it was written for -- it is where every shot is
+    // born and where the client draws a charge orb -- so its offset is pinned here now that
+    // `lock.test.ts` is gone.
+    const a = player("a", { x: 300, y: 300, angle: 0, fireMask: 1 });
+    const result = run({ players: [a, player("b", { x: 900, y: 300, angle: Math.PI })] });
+    const shot = result.instances.find((i) => i.ownerSessionId === "a");
+    expect(shot!.x).toBeCloseTo(300 + DRIVE_CONFIG.carWidth / 2, 6);
+    expect(shot!.y).toBeCloseTo(300, 6);
   });
 });
 
@@ -971,8 +868,8 @@ it("pulses lance for its whole life, spending a full connect over four ticks ins
 });
 
 /**
- * `startManeuver`/`dashAngleFor` take their `ManeuverWeaponDef` as a parameter rather than reading a
- * table row, so this drives them directly against the roster's two REAL maneuver rows —
+ * `startManeuver` takes its `ManeuverWeaponDef` as a parameter rather than reading a table row, so
+ * this drives it directly against the roster's two REAL maneuver rows —
  * `thunderclap` (Mirage's dash) and `wildcharge` (Bastion's charge), both landed by the 2026-09-01
  * overhaul. Before this pass no `WEAPON_TABLE` row was `kind: "maneuver"`, so these fixtures were
  * synthetic defs spread from `fireball`; that coverage note is now obsolete — see "real-row
@@ -983,32 +880,33 @@ describe("startManeuver", () => {
   const dashDef = WEAPON_TABLE.thunderclap as unknown as ManeuverWeaponDef;
   const chargeDef = WEAPON_TABLE.wildcharge as unknown as ManeuverWeaponDef;
 
-  it("starts a dash toward the lock, distance = aimRangeUnits at def.speed", () => {
+  it("starts a dash along the heading, distance = def.range at def.speed", () => {
     const p = playerAt("a", 0, 0, 0);
-    p.lock = { targetSessionId: "b", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
-    const byId = new Map([["a", p], ["b", playerAt("b", 0, 300, 0)]]);
-    startManeuver(p, dashDef, byId, "a#0#1");
+    startManeuver(p, dashDef, "a#0#1");
     expect(p.maneuver).toBe(ManeuverKind.DASH);
-    expect(p.maneuverAngle).toBeCloseTo(Math.PI / 2); // snapped toward the target, no lead
+    expect(p.maneuverAngle).toBeCloseTo(0);
     expect(p.maneuverSpeed).toBe(1600);
     expect(p.maneuverTicksLeft).toBe(Math.ceil((400 / 1600) * 30)); // 8 ticks
     expect(p.maneuverWeaponId).toBe(dashDef.id);
     expect(p.maneuverPressId).toBe("a#0#1"); // B8a: the press that started it is named
   });
 
-  it("dashes along the heading with no lock", () => {
+  it("dashes along the heading with a car sitting off the nose", () => {
+    // The regression guard for the targeting removal: a car straight off to one side used to drag
+    // the dash onto itself. `playerAt("b", ...)` exists only to be ignored.
     const p = playerAt("a", 0, 0, 1.2);
-    startManeuver(p, dashDef, new Map([["a", p]]), "a#0#1");
+    playerAt("b", 0, 300, 0);
+    startManeuver(p, dashDef, "a#0#1");
     expect(p.maneuverAngle).toBeCloseTo(1.2);
   });
 
   it("starts a charge for its authored duration and refuses to stack maneuvers", () => {
     const p = playerAt("a", 0, 0, 0);
-    startManeuver(p, chargeDef, new Map([["a", p]]), "a#0#2");
+    startManeuver(p, chargeDef, "a#0#2");
     expect(p.maneuver).toBe(ManeuverKind.CHARGE);
     expect(p.maneuverTicksLeft).toBe(300); // msToTicks(10000)
     const before = { ...p };
-    startManeuver(p, dashDef, new Map([["a", p]]), "a#1#1"); // second press mid-charge
+    startManeuver(p, dashDef, "a#1#1"); // second press mid-charge
     expect(p.maneuver).toBe(before.maneuver);
   });
 });
@@ -1016,13 +914,13 @@ describe("startManeuver", () => {
 describe("maneuverPressId (B8a)", () => {
   it("startManeuver records the press that started it", () => {
     const p = player("p1", { carId: "bastion" });
-    startManeuver(p, weaponDefOf("wildcharge") as ManeuverWeaponDef, new Map(), "p1#7#2");
+    startManeuver(p, weaponDefOf("wildcharge") as ManeuverWeaponDef, "p1#7#2");
     expect(p.maneuverPressId).toBe("p1#7#2");
   });
 
   it("clearManeuver drops it with the rest of the maneuver state", () => {
     const p = player("p1", { carId: "bastion" });
-    startManeuver(p, weaponDefOf("wildcharge") as ManeuverWeaponDef, new Map(), "p1#7#2");
+    startManeuver(p, weaponDefOf("wildcharge") as ManeuverWeaponDef, "p1#7#2");
     clearManeuver(p);
     expect(p.maneuverPressId).toBe("");
     expect(p.maneuverWeaponId).toBe("");
@@ -1337,9 +1235,9 @@ describe("stun interruption (O8)", () => {
 describe("real-row integration (2026-09-01 roster)", () => {
   it("a thunderclap press starts a dash through the real fire pipeline", () => {
     const shooter = player("a", { x: 300, y: OPEN_Y, angle: 0, carId: "mirage", fireMask: 0b010 });
-    // 15 degrees off-axis, 300 units out: inside the acquisition cone (20 deg), the lateral cap
-    // (300 * sin(15deg) ~= 78 <= 120) and the lock range (400) — a single tick both acquires the
-    // lock and fires off it (A2's three-bound region, `lock.ts`).
+    // 15 degrees off-axis, 300 units out. Placed off the nose on purpose: this is the geometry the
+    // retired ambient lock would have snapped the dash onto, so the angle assertion below is the
+    // end-to-end guard that nothing steers a maneuver any more.
     const bearing = (15 * Math.PI) / 180;
     const target = player("b", {
       x: shooter.x + 300 * Math.cos(bearing),
@@ -1353,14 +1251,15 @@ describe("real-row integration (2026-09-01 roster)", () => {
       instanceSeq: 0,
     });
     const out = find(result, "a");
-    expect(out.lock.targetSessionId).toBe("b"); // sanity: the lock actually acquired this tick
     expect(out.maneuver).toBe(ManeuverKind.DASH);
     expect(out.maneuverSpeed).toBe(1600);
-    expect(out.maneuverTicksLeft).toBe(8); // ceil(aimRangeUnits 400 / speed 1600 * 30)
+    expect(out.maneuverTicksLeft).toBe(8); // ceil(range 400 / speed 1600 * 30)
     expect(out.maneuverWeaponId).toBe("thunderclap");
     expect(out.fireState.slots[1]!.stocks).toBe(0); // the press spent its stock
-    const expectedAngle = Math.atan2(target.y - shooter.y, target.x - shooter.x);
-    expect(out.maneuverAngle).toBeCloseTo(expectedAngle, 6); // snapped toward the target, no lead
+    expect(out.maneuverAngle).toBeCloseTo(shooter.angle, 10); // the heading, not the car off the nose
+    expect(out.maneuverAngle).not.toBeCloseTo(
+      Math.atan2(target.y - shooter.y, target.x - shooter.x), 2,
+    );
   });
 
   it("a wildcharge press opens the charge window and self-applies fortified", () => {
@@ -1864,39 +1763,6 @@ describe("spawn protection: a phased car is not a target", () => {
     expect(shot).toBeDefined();
     expect(shot!.pierceLeft).toBe(1);
     expect(find(result, "bbb").statuses.map((s) => s.statusId)).toEqual(["phased"]);
-  });
-
-  it("is not acquired as an aim-assist lock target", () => {
-    // The mirror of "never locks a wreck" above: a ghost is no more lockable than a hulk.
-    const result = run({
-      players: [
-        player("aaa", { x: 300, y: 300, angle: 0 }),
-        player("bbb", { x: 500, y: 300, angle: Math.PI, statuses: [PHASED] }),
-      ],
-    });
-    expect(find(result, "aaa").lock.targetSessionId).toBe("");
-  });
-
-  it("stops steering a lock that was already held when it began phasing", () => {
-    // Locks survive a tick past the event that invalidates them (`runCombat`'s own comment on the
-    // lock phase), so the target guard inside `aimAngleFor` is what stops that one stale tick from
-    // curving a shot into an untouchable car.
-    const a = player("aaa", {
-      x: 0,
-      y: 0,
-      angle: 0,
-      lock: { ...newLockState(), targetSessionId: "bbb" },
-    });
-    const b = player("bbb", { x: 124, y: 100, statuses: [PHASED] });
-    const byId = new Map([
-      ["aaa", a],
-      ["bbb", b],
-    ]);
-    const phased = (sessionId: string): boolean => sessionId === "bbb";
-    expect(aimAngleFor(a, "magmablast", byId, phased)).toBeNull();
-    // Same call with nobody phasing still aims, so this pins the new guard rather than a typo in
-    // the lock id: muzzle at (24, 0), target at (124, 100), atan2(100, 100) = pi/4.
-    expect(aimAngleFor(a, "magmablast", byId, () => false)).toBeCloseTo(Math.PI / 4, 10);
   });
 
   it("can still fire while phasing", () => {

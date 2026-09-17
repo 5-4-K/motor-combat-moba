@@ -91,7 +91,7 @@ export {
   pointInObb,
   resolveWorld,
 } from "./sim/collide.js";
-export { dashAngleFor, runCombat, startManeuver } from "./sim/combat.js";
+export { runCombat, startManeuver } from "./sim/combat.js";
 export type {
   CombatInput,
   CombatPlayer,
@@ -119,17 +119,6 @@ export type {
 } from "./sim/combat-events.js";
 export { canDamage } from "./sim/weapons/targets.js";
 export {
-  hasLineOfSight,
-  inAcquireRegion,
-  inRetainRegion,
-  lockScore,
-  muzzleOf,
-  newLockState,
-  signedAngleDegTo,
-  updateLock,
-} from "./sim/weapons/lock.js";
-export type { LockOwner, LockState, LockTarget, UpdateLockContext } from "./sim/weapons/lock.js";
-export {
   beginFire,
   cancelPending,
   newFireState,
@@ -139,6 +128,7 @@ export {
 export type { FireState, PendingFire, SlotState } from "./sim/weapons/fire.js";
 export {
   instanceExpired,
+  muzzleOf,
   muzzleOffset,
   type OwnerPose,
   spawnInstances,
@@ -205,7 +195,7 @@ export type {
 } from "./config/weapon-types.js";
 export { WEAPON_TICKS, msToTicks, scaleTicks, weaponTicksOf } from "./config/weapon-ticks.js";
 export type { WeaponTicks } from "./config/weapon-ticks.js";
-export { WEAPON_SLOT_CONFIG, carAimRangeOf, slotsFrom, slotsOf } from "./config/weapon-slots.js";
+export { WEAPON_SLOT_CONFIG, slotsFrom, slotsOf } from "./config/weapon-slots.js";
 export { COMBAT_CONFIG, DEATH_FADE_MS } from "./config/combat-config.js";
 export { activeTuning, setTuning } from "./config/tuning.js";
 export type { TuningOverrides, TuningValue } from "./config/tuning.js";
@@ -248,8 +238,6 @@ export {
 export type { ActiveStatus, StatusPulseResult, StatusRow } from "./sim/status/statuses.js";
 export { NEUTRAL_MODIFIERS, modifiersOf } from "./sim/status/modifiers.js";
 export type { Modifiers } from "./sim/status/modifiers.js";
-export { AIM_CONFIG, AIM_TICKS } from "./config/aim-config.js";
-export type { AimTicks } from "./config/aim-config.js";
 export { CAMERA_CONFIG, DRIVE_CONFIG, LOGICAL_CANVAS } from "./config/drive-config.js";
 export { FLOW_CONFIG } from "./config/flow-config.js";
 export { DEATHMATCH_CONFIG, DEATHMATCH_TICKS } from "./config/deathmatch-config.js";

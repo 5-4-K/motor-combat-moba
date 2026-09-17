@@ -104,7 +104,6 @@ field at all, so the check is always false there. See root `CLAUDE.md` and
 | `level` | uint8 | `1` | In-match level; pinned to 1 until the level system exists. Gates `unlocksAt` |
 | `pendingUntilTick` | uint32 | `0` | Tick a committed press next puts a shot out (wind-up, or the next volley of a burst). `0` = nothing pending; the HUD reads mid-press as `tick < pendingUntilTick` |
 | `lastFiredSlot` | int8 | `-1` | Slot the car most recently committed to firing; `-1` = never fired. Signed because `-1` is the natural "never" for an index |
-| `lockTargetSessionId` | string | `""` | Session id of this car's aim-assist target, or `""`. The only part of the lock that is networked |
 | `statuses` | array `StatusState` | empty | The statuses this car is in, capped at `STATUS_CONFIG.maxActive` (6). Sorted by `statusId` so a patch carries a diff rather than a reshuffle |
 
 `weaponCooldown` (a single counter for the one pre-weapon-system shot) is gone — replaced by

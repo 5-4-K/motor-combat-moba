@@ -1,6 +1,6 @@
 import {
-  DRIVE_CONFIG, TICK_RATE_HZ, NEUTRAL_MODIFIERS, carAimRangeOf, forwardOf, inAcquireRegion,
-  inRetainRegion, rectPlanes, speedOf, turnRateOf, weaponDefOf,
+  DRIVE_CONFIG, TICK_RATE_HZ, NEUTRAL_MODIFIERS, forwardOf, rectPlanes, speedOf, turnRateOf,
+  weaponDefOf,
   type BoundaryPlane, type SimBody, type WeaponDef, type WeaponId,
 } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
@@ -39,7 +39,6 @@ export interface PlanWeights {
   theirEv: number;
   rangeError: number;
   wallPenalty: number;
-  lockKeep: number;
   /**
    * How much this play wants to get OFF the line of a shot already in the air (P40, R-P8).
    *
@@ -261,12 +260,11 @@ export function commitWindowOf(horizonTicks: number, depth: 1 | 2): CommitWindow
  * reached by a new road. Sampled along the path, the +1 candidate's nose passes straight through the
  * target at tick 2, `myEv` peaks there, and the arc wins on the sweep it actually contains.
  *
- * FOUR OF THE SIX TERMS ARE MOMENTS; `rangeError` AND `threatAvoid` ARE DESTINATIONS AND ARE READ
+ * THREE OF THE FIVE TERMS ARE MOMENTS; `rangeError` AND `threatAvoid` ARE DESTINATIONS AND ARE READ
  * AT THE TERMINUS (R-P7 third revision, fix round 3; `threatAvoid` joined them under R-P11, fix
  * round 4, 2026-09-07):
  *
  * - `myEv` — the BEST found anywhere along the path. That is the sweep.
- * - `lockKeep` — the BEST along the path, for the same reason.
  * - `threatAvoid` — AT THE TERMINUS (R-P11). Displacement along a threat's `awayHeadingRad` asks
  *   "am I out of the line", which is a destination: a maximum over the arc rewards an arc that
  *   steps aside and then drifts straight back, because the moment it was clear is banked and the
@@ -357,18 +355,6 @@ export function plan(args: PlanArgs): PlanResult {
    */
   const sampleTicks = sampleTicksFor(pathTicks);
   const constants: SharedConstants = {
-    /**
-     * `lockKeep` is scored across EVERY assisted slot, ready or not. A lock is a property of the
-     * car and survives the weapon that uses it going on cooldown; counting it only while `predator`
-     * is loaded would make the bot's whole positioning flip on a 1000 ms timer, which is exactly
-     * the chatter `commitPenalty` exists to fight.
-     */
-    assisted: args.self.slots
-      .map((slot) => weaponDefOf(slot.weaponId))
-      .filter((def) => def.usesAimAssist),
-    lockRange: carAimRangeOf(args.self.carId),
-    holdsLock: args.target !== undefined
-      && args.self.lockTargetSessionId === args.target.sessionId,
     planes: args.arena.planes ?? rectPlanes(args.arena.width, args.arena.height),
   };
   const samples: SampleTerms[] = sampleTicks.map((pathTick) => {
@@ -456,7 +442,7 @@ export function plan(args: PlanArgs): PlanResult {
       action: ALL_ACTIONS[0]!,
       score: 0,
       terms: {
-        myEv: 0, theirEv: 0, rangeError: 0, wallPenalty: 0, lockKeep: 0, threatAvoid: 0,
+        myEv: 0, theirEv: 0, rangeError: 0, wallPenalty: 0, threatAvoid: 0,
         facingError: 0,
       },
       runnerUp: undefined,
@@ -731,11 +717,6 @@ interface SampleTerms {
 
 /** The parts that do not move with the horizon either: a property of the car, not of a moment. */
 interface SharedConstants {
-  /** Every aim-assisted row this car carries, ready or not — see `lockKeep`. */
-  assisted: readonly WeaponDef[];
-  /** The CAR's acquisition range: `carAimRangeOf`, exactly as `updateLock` reads it. */
-  lockRange: number;
-  holdsLock: boolean;
   /**
    * The arena's inward half-planes, resolved ONCE per plan rather than per scored pose: a
    * boundary-less arena would otherwise rebuild `rectPlanes` for every sample of every candidate,
@@ -764,13 +745,11 @@ function scoreCandidate(
   away: readonly { x: number; y: number }[],
   origin: { x: number; y: number },
 ): Record<keyof PlanWeights, number> {
-  const { lockRange, holdsLock } = constants;
   const last = sampleTicks.length - 1;
 
   let myEv = 0;
   let theirEv = 0;
   let wallPenalty = 0;
-  let lockKeep = 0;
   // All three destination terms are assigned outright at the terminal sample (see below), so none
   // needs a maximising or minimising seed. `plan` guarantees at least one sample (`commit` is
   // floored at 1), so the terminal branch always runs and 0 is never returned by accident.
@@ -813,7 +792,6 @@ function scoreCandidate(
 
     let sampleEv = 0;
     for (const { slot, def } of sample.ready) {
-      const assisted = withinLockEnvelope(body, future, def, lockRange, holdsLock);
       /**
        * R-P5: aim at where the target will be when the SHOT lands, not when the BOT arrives.
        *
@@ -824,37 +802,22 @@ function scoreCandidate(
        * and a 450 u/s one need visibly different leads, against the arrival-shifted predictor and
        * bounded by the same horizon a firing solution rolls.
        *
-       * An ASSISTED slot is deliberately scored at the UNLED pose: the sim's `aimAngleFor` points
-       * the shot at where the target IS, with no lead at all (`AIM_CONFIG.lockRange`'s doc
-       * comment), so leading it here would score a shot the game will not fire.
+       * Unconditional now. A slot whose weapon was pointed by the retired ambient lock used to be
+       * scored at the UNLED pose, because the assist aimed where the target WAS; nothing aims for
+       * the bot any more, so every slot leads its own shot.
        */
-      let aimX = future.x;
-      let aimY = future.y;
-      if (!assisted) {
-        const lead = interceptTicks(
-          body, sample.fromArrival, projectileSpeedOf(def), BRAIN_CONSTANTS.predictionHorizonTicks,
-        );
-        const led = sample.fromArrival(lead);
-        aimX = led.x;
-        aimY = led.y;
-      }
+      const lead = interceptTicks(
+        body, sample.fromArrival, projectileSpeedOf(def), BRAIN_CONSTANTS.predictionHorizonTicks,
+      );
+      const led = sample.fromArrival(lead);
       const value = proxyValue({
         shooter: { x: body.x, y: body.y, angle: body.angle },
-        slot, targetX: aimX, targetY: aimY,
-        aimSigmaRad: args.aimSigmaRad, assisted,
+        slot, targetX: led.x, targetY: led.y,
+        aimSigmaRad: args.aimSigmaRad,
       });
       if (value > sampleEv) sampleEv = value;
     }
     if (sampleEv > myEv) myEv = sampleEv;
-
-    if (lockKeep === 0) {
-      for (const def of constants.assisted) {
-        if (withinLockEnvelope(body, future, def, lockRange, holdsLock)) {
-          lockKeep = 1;
-          break;
-        }
-      }
-    }
 
     // `proxyValue`'s `distance < 1` early return is shared by the danger side, so a candidate pose
     // within one unit of a threat reads as ZERO danger rather than maximum. Physically unreachable —
@@ -864,7 +827,7 @@ function scoreCandidate(
     if (danger > theirEv) theirEv = danger;
   }
 
-  return { myEv, theirEv, rangeError, wallPenalty, lockKeep, threatAvoid, facingError };
+  return { myEv, theirEv, rangeError, wallPenalty, threatAvoid, facingError };
 }
 
 /**
@@ -902,7 +865,7 @@ function threatAvoidOf(
  * short horizon loses.
  *
  * Nose-versus-TRAVEL, deliberately, not nose-versus-objective. The second reading duplicates `myEv`
- * (per-slot solutions are already built from the car's real pose) and `lockKeep`, and it is zero at
+ * (per-slot solutions are already built from the car's real pose), and it is zero at
  * `steer: 0` in `controller.test.ts`'s dodge scene, where the nose already points at the target —
  * so it would reinforce the input under test rather than move it.
  *
@@ -949,7 +912,6 @@ function rawScore(terms: Record<keyof PlanWeights, number>, weights: PlanWeights
     - terms.theirEv * weights.theirEv
     - terms.rangeError * weights.rangeError
     - terms.wallPenalty * weights.wallPenalty
-    + terms.lockKeep * weights.lockKeep
     + terms.threatAvoid * weights.threatAvoid
     - terms.facingError * weights.facingError;
 }
@@ -992,47 +954,6 @@ function boundsPenalty(
       && y > box.y - margin && y < box.y + box.h + margin) total += 1;
   }
   return total;
-}
-
-/**
- * Would an aim-assisted weapon actually be pointed by a lock from this pose (P13, R-P2)?
- *
- * THE REAL LOCK RULES, not the weapon's reach. An earlier draft compared the distance against
- * `weaponReachOf`, which for `predator` is 800 units of aim range and admits a target sitting 90
- * degrees off the nose — the assist would never fire there, so `lockKeep` would have rewarded poses
- * that keep nothing and the term that names the mechanism would have been measuring something else.
- *
- * What the sim does, mirrored here in both halves:
- *
- * - `updateLock` (`sim/weapons/lock.ts`) admits a target through `inAcquireRegion` — cone AND
- *   lateral cap AND range, all three — against the CAR's `carAimRangeOf`, the longest-reaching
- *   assisted weapon it carries. A lock already held is instead tested against `inRetainRegion`, the
- *   same region widened by every retention pad, which is why the incumbent case is checked here
- *   too: hysteresis is the difference between holding a lock and re-earning it every tick.
- * - `aimAngleFor` (`sim/combat.ts`) then gates the assist PER WEAPON on `def.aimRangeUnits`: a lock
- *   the car holds through a longer gun may still be out of this one's reach, and then this weapon
- *   fires straight ahead like any other.
- *
- * The angle is computed from the car CENTRE, matching `signedAngleDegTo`, and the sim's
- * degrees-and-normalise convention is reproduced through `signedDelta` rather than by reaching for
- * `LockOwner`, which wants a `sessionId` and a `team` a candidate pose does not have.
- */
-function withinLockEnvelope(
-  body: { x: number; y: number; angle: number },
-  target: { x: number; y: number },
-  def: WeaponDef,
-  lockRangeUnits: number,
-  holdsLock: boolean,
-): boolean {
-  if (!def.usesAimAssist) return false;
-  const dx = target.x - body.x;
-  const dy = target.y - body.y;
-  const distance = Math.hypot(dx, dy);
-  if (distance > (def.aimRangeUnits ?? 0)) return false;
-  const angleDeg = signedDelta(body.angle, Math.atan2(dy, dx)) * DEG_PER_RAD;
-  return holdsLock
-    ? inRetainRegion(angleDeg, distance, lockRangeUnits)
-    : inAcquireRegion(angleDeg, distance, lockRangeUnits);
 }
 
 /**

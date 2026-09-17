@@ -53,7 +53,6 @@ export interface SolverShooter {
   carId: CarId;
   team: 0 | 1;
   x: number; y: number; angle: number; vx: number; vy: number;
-  lockTargetSessionId: string;
 }
 
 export interface FiringSolution {
@@ -110,14 +109,10 @@ export function readyInTicksOf(slot: BotSlotView, tick: number): number {
  * chance" — because that is what a later phase's planner wants to steer toward. The two headings
  * therefore diverge on purpose: `nominal` drives the physics, `aimHeadingRad` reports the target.
  *
- * AIM ASSIST (Task 6, P13): when a live, in-range lock is held on THIS target and the weapon uses
- * assist, the real sim's `aimAngleFor` (`sim/combat.ts`) points the shot at the target regardless of
- * where the nose is aimed — so `nominal` is overridden back to the bearing and `sigma` forced to 0,
- * collapsing the quadrature's spread to a single certain point. The gate mirrors `aimAngleFor`'s own
- * conditions (`usesAimAssist`, a lock on this exact target, centre-to-centre distance within
- * `aimRangeUnits`) with two simplifications noted in the Task 5/6 report: it does not check the
- * target is still fighting or not phased (the caller is not expected to solve against a target that
- * is neither), and it aims from the shooter's centre rather than `muzzleOf`'s offset.
+ * `nominal` is UNCONDITIONALLY the shooter's own heading. It used to be overridden onto the bearing
+ * with `sigma` forced to 0 whenever an ambient lock would have pointed the shot; with targeting
+ * removed there is no such override, and every weapon is priced through the same quadrature over
+ * the shooter's real aim noise.
  */
 export function solve(args: SolveArgs): FiringSolution {
   const { shooter, slot, target, aimSigmaRad, tick } = args;
@@ -127,14 +122,10 @@ export function solve(args: SolveArgs): FiringSolution {
   if (distance > reach) return NO_SOLUTION;
 
   const bearing = Math.atan2(target.y - shooter.y, target.x - shooter.x);
-  const assisted = def.usesAimAssist
-    && shooter.lockTargetSessionId === target.sessionId
-    && distance <= (def.aimRangeUnits ?? 0);
-  // The shot leaves along the car's nose (`aimAngleFor`) UNLESS an assist lock overrides it onto the
-  // bearing — evaluating the bearing unconditionally would answer "if I were aimed right" and gate
-  // nothing for an unassisted weapon.
-  const nominal = assisted ? bearing : shooter.angle;
-  const sigma = assisted ? 0 : aimSigmaRad;
+  // The shot leaves along the car's nose. Evaluating the bearing instead would answer "if I were
+  // aimed right" and gate nothing.
+  const nominal = shooter.angle;
+  const sigma = aimSigmaRad;
   const cooldownSeconds = Math.max(def.cooldownMs, 1) / 1000;
 
   let hitChance = 0;
@@ -163,8 +154,8 @@ const bestAchievableValueCache = new Map<string, number>();
  * Fractions of a slot's `weaponReachOf` tried when hunting for its best-case `value` (R20). A grid
  * rather than a closed form because "best range" is not the same shape for every weapon: a pellet
  * spread and a beam both want to stand close (a target subtends a wider angle, so aim noise is less
- * likely to miss it), an aim-assisted gun's ceiling is flat across most of its lock envelope, and a
- * maneuver's hull-sweep can connect anywhere along its own travel line. Sampling densely near 0 and
+ * likely to miss it), a long gun's ceiling is flat across most of its reach, and a maneuver's
+ * hull-sweep can connect anywhere along its own travel line. Sampling densely near 0 and
  * coarsely out to the full reach covers all three shapes without hand-deriving one per weapon kind.
  *
  * Each sampled distance is still floored at `BRAIN_CONSTANTS.minEngageUnits` (below) — without that
@@ -191,9 +182,7 @@ const CEILING_RANGE_FRACTIONS: readonly number[] = Object.freeze([
  *
  * Built the same way `solve` itself works — a synthetic stationary target, straight ahead, at a grid
  * of candidate ranges per slot (`CEILING_RANGE_FRACTIONS`) — and taking the best `value` any slot
- * reaches at any sampled range. A lock is assumed held on the synthetic target (matching distance
- * within `aimRangeUnits`) so an aim-assisted weapon's real ceiling — a forced sigma of 0 — is not
- * silently discarded, the same condition `solve` itself checks.
+ * reaches at any sampled range, at the same aim noise `solve` itself would charge.
  *
  * MEMOISED (`bestAchievableValueCache`): a kit is fixed for the whole match, so this must never be
  * recomputed per tick — only look it up once per (carId, aimSigma) pair.
@@ -206,7 +195,7 @@ export function bestAchievableValueOf(carId: CarId, aimSigmaRad: number): number
   const arena: BotArenaView = { width: 1_000_000, height: 1_000_000, obstacles: [] };
   const shooter: SolverShooter = {
     sessionId: "ceiling-shooter", carId, team: 0,
-    x: 0, y: 0, angle: 0, vx: 0, vy: 0, lockTargetSessionId: "ceiling-target",
+    x: 0, y: 0, angle: 0, vx: 0, vy: 0,
   };
 
   let best = 0;
@@ -471,9 +460,6 @@ export function dangerEvAgainst(args: DangerArgs): number {
       shooter: {
         sessionId: threat.sessionId, carId: threat.carId, team: threat.team,
         x: threat.x, y: threat.y, angle: threat.angle, vx: threat.vx, vy: threat.vy,
-        // A lock we cannot see. Assuming none is the conservative read: it makes danger LOWER, so
-        // the bot never flinches from a lock the opponent does not actually hold.
-        lockTargetSessionId: "",
       },
       slot: {
         weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
@@ -497,8 +483,6 @@ export interface ProxyArgs {
   targetX: number;
   targetY: number;
   aimSigmaRad: number;
-  /** True when a live lock will point this shot regardless of the nose (P13). */
-  assisted: boolean;
 }
 
 /**
@@ -508,8 +492,7 @@ export interface ProxyArgs {
  * standing", never "should I pull the trigger" — the trigger keeps the exact solver. That split is
  * deliberate and mirrors how people play: move on intuition, shoot on confirmation.
  *
- * The model is: how wide does the target look from here, against how badly do my hands wander. An
- * assisted shot skips the angle term entirely, because `aimAngleFor` points it for me.
+ * The model is: how wide does the target look from here, against how badly do my hands wander.
  *
  * A KNOWN, MEASURED, ACCEPTED LOSS: IT DOES NOT COUNT A TICKING BEAM'S PULSES (R-S1, fix wave 3,
  * 2026-09-07). `damage` on a ticking row is a PULSE, not a press, so `lance` and `afterburner`
@@ -544,7 +527,7 @@ export interface ProxyArgs {
  * move first, and should re-measure all three numbers above rather than trusting this note.
  */
 export function proxyValue(args: ProxyArgs): number {
-  const { shooter, slot, targetX, targetY, aimSigmaRad, assisted } = args;
+  const { shooter, slot, targetX, targetY, aimSigmaRad } = args;
   const def = weaponDefOf(slot.weaponId);
   const reach = weaponReachOf(slot.weaponId);
   const dx = targetX - shooter.x;
@@ -554,7 +537,7 @@ export function proxyValue(args: ProxyArgs): number {
 
   // Half the target's angular width from here — how much room the shot has to be wrong by.
   const subtense = Math.atan2(DRIVE_CONFIG.carHeight / 2, distance);
-  const offBy = assisted ? 0 : Math.abs(signedDelta(shooter.angle, Math.atan2(dy, dx)));
+  const offBy = Math.abs(signedDelta(shooter.angle, Math.atan2(dy, dx)));
   // Total angular budget: how far off I am now, plus how far my hands wander.
   const spread = Math.hypot(offBy, aimSigmaRad);
   const chance = spread <= 0 ? 1 : Math.min(1, subtense / spread);
@@ -584,8 +567,7 @@ export interface ProxyDangerArgs {
  * Mirrors `dangerEvAgainst` exactly in shape — same kit (`kitWeaponIds`, chassis default, no
  * extras), same synthetic slot (`stocks: 1`, off cooldown, `range` from `weaponDefOf`), same
  * `readiness`-weighted sum — except the per-weapon number comes from `proxyValue` rather than
- * `solve`. Their lock is unknowable too, so this assumes none (`assisted: false`), the same
- * conservative direction `dangerEvAgainst` documents on its own `lockTargetSessionId: ""`.
+ * `solve`.
  */
 export function proxyDangerAgainst(args: ProxyDangerArgs): number {
   const { threat, meX, meY, readiness, assumedAimSigmaRad } = args;
@@ -602,7 +584,6 @@ export function proxyDangerAgainst(args: ProxyDangerArgs): number {
       targetX: meX,
       targetY: meY,
       aimSigmaRad: assumedAimSigmaRad,
-      assisted: false,
     });
     total += value * ready;
   }

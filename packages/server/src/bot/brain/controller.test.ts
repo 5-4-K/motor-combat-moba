@@ -15,7 +15,7 @@ function view(overrides: Partial<BotView> = {}): BotView {
     self: {
       sessionId: "me", carId: "bullseye", team: 0,
       x: 100, y: 100, angle: 0, vx: 0, vy: 0, hp: 65, maxHp: 65, alive: true,
-      statuses: [], slots: [], switchLockUntilTick: 0, lockTargetSessionId: "",
+      statuses: [], slots: [], switchLockUntilTick: 0,
       maneuver: 0, maneuverTicksLeft: 0,
     },
     others: [],
@@ -242,7 +242,7 @@ describe("HumanController", () => {
     const selfView = {
       sessionId: "me", carId: "bullseye" as const, team: 0 as const,
       x: 100, y: 100, angle: 0, vx: 0, vy: 0, hp: 65, maxHp: 65, alive: true,
-      statuses: [], slots, switchLockUntilTick: 0, lockTargetSessionId: "",
+      statuses: [], slots, switchLockUntilTick: 0,
       maneuver: 0, maneuverTicksLeft: 0,
     };
     const target = {
@@ -310,7 +310,7 @@ describe("HumanController", () => {
     const selfView = {
       sessionId: "me", carId: "bullseye" as const, team: 0 as const,
       x: 400, y: 360, angle: 0, vx: driveOf("bullseye").maxSpeed, vy: 0, hp: 65, maxHp: 65,
-      alive: true, statuses: [], slots, switchLockUntilTick: 0, lockTargetSessionId: "",
+      alive: true, statuses: [], slots, switchLockUntilTick: 0,
       maneuver: 0, maneuverTicksLeft: 0,
     };
     // Straight ahead of the car (bearing ~= self.angle, which stays fixed here — this test never
@@ -549,7 +549,7 @@ describe("HumanController", () => {
     const aliveSelf = {
       sessionId: "me", carId: "bullseye" as const, team: 0 as const,
       x: 100, y: 100, angle: 0, vx: 0, vy: 0, hp: 65, maxHp: 65, alive: true,
-      statuses: [], slots, switchLockUntilTick: 0, lockTargetSessionId: "",
+      statuses: [], slots, switchLockUntilTick: 0,
       maneuver: 0, maneuverTicksLeft: 0,
     };
     // Same car, same tick, same target and slots — the ONLY difference is a live `phased` status,
@@ -651,7 +651,7 @@ describe("HumanController", () => {
     };
     const bot = new HumanController("hard", { profile });
     const selfView = {
-      ...view().self, slots, x: 200, y: 360, angle: 0, lockTargetSessionId: "",
+      ...view().self, slots, x: 200, y: 360, angle: 0,
     };
     const them = {
       sessionId: "them", carId: "mirage" as const, team: 0 as const,
@@ -864,7 +864,7 @@ function inThreatLineView(tick: number, rng: ReturnType<typeof makeRng>): BotVie
         weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
         range: weaponDefOf(weaponId).range,
       })),
-      switchLockUntilTick: 0, lockTargetSessionId: "", maneuver: 0, maneuverTicksLeft: 0,
+      switchLockUntilTick: 0, maneuver: 0, maneuverTicksLeft: 0,
     },
     others: [{
       sessionId: "them", carId: "bullseye", team: 1, x: 100, y: 360, angle: 0, vx: 0, vy: 0,

@@ -439,74 +439,34 @@ Firing still rides the same gate as movement: `serverTick` reports which session
 on an input it actually **simulated**, so an input past `NET_CONFIG.maxInputsPerTick` cannot buy a
 shot the sim never ran, and a lobby player spamming a fire key spawns nothing.
 
-### Aim assist and the target lock
+### Shot direction: the heading, always
 
-A weapon whose `usesAimAssist` is true fires at the car's **lock** instead of along its heading.
-The lock decides a direction only: the instance is an ordinary projectile frozen to its exit pose,
-with no homing and no correction in flight.
+Every shot leaves along the firing car's **heading**, measured from the muzzle rather than the car
+centre. There is no targeting aid of any kind: no lock, no snap, no assist, no lead. Where the nose
+points is where the shot goes, and carrying the lead against a moving target is entirely the
+player's job.
 
-The lock is **ambient** — maintained every tick whenever a valid target exists, whether or not the
-player is firing. The trigger fires; it never targets. With no lock, a weapon fires straight ahead,
-and firing is never blocked.
+A pellet fan spreads around that heading (`pellets.spreadAngleDeg`), and a multi-muzzle row fans its
+muzzles off it (`muzzles`, `pepperbox`'s four). Both are offsets from the heading, not departures
+from it.
 
-**The region** is a cone intersected with a lateral cap, out to `AIM_CONFIG.lockRange` — all three
-bounds, because neither of the first two survives alone. A pure cone's width scales with distance,
-so at `magmablast`'s 900-unit range it would span half the arena; a pure lane's angular width explodes near the
-car, so it would accept a target 83° off your nose during a collision. The cone governs contact range, the
-cap governs long range. They cross over at `lateralMax / tan(coneDeg)` ≈ 330 units measured **along
-the car's axis** (the forward leg of the triangle at the cone's edge), which is ≈351 units measured
-**radially** (`lateralMax / sin(coneDeg)`, the straight-line hypotenuse) — and the radial figure is
-the one that matters in practice, since `distance` in `lock.ts` is `Math.hypot(dx, dy)`, not the
-axial component.
+**This replaced an ambient target lock, removed on 2026-09-17.** Four rows — `predator`,
+`magmablast`, `thumper` and `thunderclap` — used to carry `usesAimAssist: true` and fire at a
+per-car lock maintained every tick inside a cone-and-lateral-cap region, with retention pads, a
+steal margin, a commit timer, a line-of-sight raycast and a HUD bracket. All of it is gone:
+`AIM_CONFIG`, `sim/weapons/lock.ts`, `PlayerState.lockTargetSessionId`, `WeaponDef.usesAimAssist`
+and `WeaponDef.aimRangeUnits` no longer exist, and `docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`
+is a historical record of a system the game no longer has.
 
-**Scoring** is `abs(angleDeg) + distance × scorePerDistanceUnit`, lowest wins. The coefficient is per
-**world unit** — there are no metres in this game, and a value sized for metres makes the distance
-term swamp the angle and turns the whole system into "always nearest target".
+Two consequences worth knowing, because neither is obvious from the diff:
 
-**Hysteresis comes in two independent halves**, and conflating them is the easy mistake:
-
-- *Spatial* — the retention pads and the sight grace — decides whether the current target is still
-  held. All three bounds are padded, not just the angle: at long range the lateral cap is what binds,
-  so a degrees-only pad would give a distant target no hysteresis at all.
-- *Competitive* — the 25% steal margin and the commit timer — decides whether a rival may replace it.
-
-`AIM_CONFIG.lockTimeoutMs` switches off the **competitive** half after a spell with no fire press
-(any slot: the timer asks whether the driver has disengaged, not whether a particular gun is in use).
-It never blanks the bracket — release and re-acquisition resolve in one pass — it just means the
-best-scoring target wins outright. That is what splits weapons into two classes: faster than
-`1000 / lockTimeoutMs` holds locks and the margin governs, slower re-picks the best target every
-shot. `weapon-config.test.ts` fails any aim-assist weapon authored within 15% of that cliff.
-
-**Line of sight** is a muzzle-to-target raycast reusing `wallClipDistance`. It is a no-op in
-`arena-01`, which has no obstacles, and exists because switching arenas is a one-line edit.
-**Wrecks are not cover** — shots already pass straight through them, so blocking a lock on one would
-drop it for an obstruction that provably does not stop the bullet.
-
-**Shot geometry:** the fired angle is measured from the **muzzle**, not the car centre (scoring uses
-the centre); the muzzle never swings to the aim angle, it stays the car's physical nose (it plainly
-still translates and rotates with the car — it just never deflects toward a locked target); and a
-pellet fan or a sequential burst re-reads the lock at each shot's own tick, the same way it already
-re-reads the car's pose.
-
-**There is no lead** (A3), for any weapon kind. `aimAngleFor` returns the target's *current* bearing
-from the muzzle: the assist sets the shot's direction, and carrying the lead against a crossing
-target stays the player's job. First-order interception — aiming at where the target *will* be,
-solved against the shot's own `speed` — shipped briefly and was **reverted**: it decided the shot
-rather than pointing it, so a lock read as an aimbot. The known cost is the one A3 states plainly:
-against a full-speed crosser a no-lead lock only connects at close range, which is a skill boundary
-rather than a bug. Re-derived per shot, not once per press, so a burst's later volleys track the
-target's new position at their own tick.
-
-**Per-weapon range** (spec S1) is a second gate below the lock itself. Lock *acquisition* uses the
-car's single largest `aimRangeUnits` across its assisted weapons (`carAimRangeOf`), so a bracket can
-appear on a target only the car's longest-ranged gun can actually reach. At fire time each weapon
-checks the target against its **own** `aimRangeUnits`, centre-to-centre exactly as lock scoring
-measures it — a held lock farther than the weapon in hand can reach makes that weapon decline the
-assist and fire straight ahead rather than refuse to fire.
-
-`roadblock` is the table's reference row for `usesAimAssist: false`, as `predator` is for `true`.
-See [`superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](superpowers/specs/2026-08-27-aim-assist-target-lock-design.md)
-for the decisions (A1–A14) and the rejected alternatives.
+- **`thunderclap`, Mirage's dash, no longer steers.** It used the same lock to pick its direction;
+  it now travels along the heading, and its distance comes from `range` (400, the value its
+  `aimRangeUnits` also carried, so the dash is exactly as long as it was).
+- **`predator` still finds you, by a different mechanism.** Its `homing.acquire` is `"proximity"`:
+  the shot grabs the nearest eligible car within `acquireRadius` of **itself**, in flight. That was
+  always true — it never homed on the lock — so it is the one row whose behaviour the removal barely
+  touched. `"lock"` was a supported `acquire` mode no shipped row used, and it went with the rest.
 
 ### One fire state machine per car
 
@@ -787,13 +747,8 @@ against a light arena floor.
 
 The per-row test loop in `weapon-config.test.ts` enforces `unlocksAt >= 1`, positive
 `damage`/`speed`/`range`, `stock.max >= 2` when a `stock` block is present, volley counts `>= 1`,
-a cone `angleDeg` strictly inside 0–180, the `color` rules above, and that `usesAimAssist` is set
-(it is a **required** field — there is no default). If `usesAimAssist` is `true`, two further
-assertions apply: the weapon's `range` must be at least `AIM_CONFIG.lockRange` (a lock the weapon's
-own range cannot reach would show a bracket and then fall short), and its sustained fire rate
-(`1000 / cooldownMs`) must sit outside ±15% of the `1000 / lockTimeoutMs` behavioural cliff (see
-"Aim assist and the target lock" below for why that boundary matters). A row that breaks one fails
-the suite immediately rather than misbehaving at run time.
+a cone `angleDeg` strictly inside 0–180 and the `color` rules above. A row that breaks one fails the
+suite immediately rather than misbehaving at run time.
 
 **3. Give it to a car.** Add the id to that chassis's `weapons` array in `CAR_TABLE` — array index
 is the slot index, and `maxWeaponSlots` (3) is the cap. A weapon in the table that no car carries is
@@ -833,7 +788,6 @@ you find out which:
 | File | Why it breaks |
 |---|---|
 | `config/weapon-config.test.ts` | Pins several rows' stats digit-for-digit, including the per-row shape and status-application checks near the top of the file |
-| `config/weapon-config.test.ts` | "keeps aim-assist weapons off the behavioural cliff" — every `usesAimAssist` weapon's `cooldownMs` must stay outside ±15% of `1000 / AIM_CONFIG.lockTimeoutMs`; `thumper`'s row is the named example of a value (900 ms) that was first drafted inside the forbidden band and had to move |
 | `config/weapon-ticks.test.ts` | Pins the tick counts derived from them (`cooldown`, `flight`) |
 | `sim/weapons/fire.test.ts` | Simulates recharge tick-by-tick across a hard-coded window; `lance`'s real `startUpMs`/`recoveryMs` are driven end to end here |
 | `sim/weapons/instances.test.ts` | Beam tests borrow `weaponId: "magmablast"` for its range rather than a real beam row — see the coverage list above |
@@ -1245,7 +1199,7 @@ there is no tick on which a freshly respawned car reads as solid. Respawn:
 
 **`phased` is intangible and invulnerable as one rule, not two.** Rather than "cannot be hurt" plus
 "passes through cars," a phasing car is simply not present in the world: not a collider, not a ram
-partner, not a weapon target, not an aim-assist lock candidate. It is a status — networked on
+partner, not a weapon target. It is a status — networked on
 `PlayerState.statuses`, client-predicted, rendered as a HUD badge and a ghost alpha — that flips one
 `Modifiers` flag and scales nothing. It is granted `chainable: true` (`StatusDef`), the one row
 allowed to be `reapply: "refresh"` while carrying a flag, because contact-clear extension (below)

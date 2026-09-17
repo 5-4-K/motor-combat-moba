@@ -47,7 +47,6 @@ Fields to recommend, in order. Stop early once nothing is undetermined.
 | 8b | `pellets` (projectiles only) | `pelletsPerVolley` + `spreadAngleDeg` for a shotgun fan. Split off `VolleyDef` deliberately, so a beam never has to author `pelletsPerVolley: 1` |
 | 9 | Pierce (projectiles) | Extra opponents passed through after damaging one; 0 dies on the first |
 | 10 | Beam only | `lifetimeMs` after full extension; `attached: true` sweeps with the car |
-| 11 | Targeting — `usesAimAssist` | Required, no default. `true` fires at the car's ambient lock instead of its heading; ask whether this weapon should feel assisted (like `predator`) or purely manual (like `roadblock`) — this is the whole reason the field is required rather than optional |
 | 12 | `color` | The `#RRGGBB` its shots draw in — per weapon, never per player. Must be unique among weapons, must not be a `COLOR_TABLE` player colour, and must read against a light floor |
 | 12 | **Which chassis, which slot** | Ask outright whether it **replaces** an existing weapon or is **added** alongside — never decide this |
 
@@ -76,10 +75,9 @@ Then edit six files, in this order:
 
 Validation the row must satisfy: `unlocksAt >= 1`, positive `damage`/`speed`/`range`,
 `stock.max >= 2` when present, volley counts `>= 1`, cone `angleDeg` strictly inside 0–180, a
-`color` that is a unique `#RRGGBB` and not a player colour, and `usesAimAssist` set. If
-`usesAimAssist` is `true`: `range` must be at least `AIM_CONFIG.lockRange`, and the weapon's
-sustained fire rate (`1000 / cooldownMs`) must sit outside ±15% of the
-`1000 / AIM_CONFIG.lockTimeoutMs` behavioural cliff.
+`color` that is a unique `#RRGGBB` and not a player colour. There is no targeting field to set:
+`usesAimAssist` and `aimRangeUnits` were deleted with the aim-lock feature on 2026-09-17, and every
+shot now leaves along the firing car's heading.
 
 ## Path B — Re-tune an existing weapon
 
@@ -96,7 +94,6 @@ by accident — the suite is how you find out which:
 | File | Why it breaks |
 |---|---|
 | `config/weapon-config.test.ts` | Pins `magmablast`'s stats digit-for-digit — the per-row zero-balance-change guard |
-| `config/weapon-config.test.ts` | "keeps aim-assist weapons off the behavioural cliff" — an aim-assist weapon's sustained rate (`1000 / cooldownMs`) must stay outside ±15% of `1000 / AIM_CONFIG.lockTimeoutMs` |
 | `config/weapon-ticks.test.ts` | Pins the tick counts derived from them (`cooldown`, `flight`) |
 | `sim/weapons/fire.test.ts` | Simulates recharge tick-by-tick across a hard-coded window |
 | `sim/weapons/instances.test.ts` | Beam tests hand-build a synthetic beam over `magmablast`'s numbers rather than reading a real beam row like `afterburner` |
@@ -104,12 +101,6 @@ by accident — the suite is how you find out which:
 
 A failure here is usually the guard doing its job, not a bug: update the assertion in the same
 commit. If a test fails for a reason you cannot explain from your own change, stop and say so.
-
-**Retuning `cooldownMs` on an aim-assist weapon can walk it onto the cliff even without
-intending to.** The cliff sits at `1000 / AIM_CONFIG.lockTimeoutMs` (1.25 Hz today); a guard rejects
-any sustained rate within 15% of it — the band runs 696–941 ms, which is why `thumper` (an aim-assist
-row) ships at 3000 ms rather than the 900 ms first drafted for it. Check the new `cooldownMs` against
-the cliff before proposing the number, not after the test fails.
 
 **One stat reaches other weapons.** `recoveryMs` gates how soon that car's **other** slots may fire.
 Raising it on one weapon slows down every other weapon on any chassis carrying it — say so out loud
@@ -122,7 +113,7 @@ npm run build:manual   # then commit packages/client/public/manual.html
 ```
 
 `packages/client/public/manual.html` is the cars-and-weapons guide the join screen opens. It prints
-each weapon's damage, recharge, reach, hitbox, lock-on and derived DPS, plus each chassis's kit — so
+each weapon's damage, recharge, reach, hitbox and derived DPS, plus each chassis's kit — so
 **every** number you just agreed appears on it, and so does a loadout move. It is generated from the
 tables but **committed**, which means nothing rebuilds it for you: skip this and players read the
 numbers you just replaced.

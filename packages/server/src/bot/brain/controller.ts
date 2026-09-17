@@ -365,7 +365,6 @@ export class HumanController implements BotController {
           shooter: {
             sessionId: self.sessionId, carId: self.carId, team: self.team,
             x: self.x, y: self.y, angle: self.angle, vx: self.vx, vy: self.vy,
-            lockTargetSessionId: self.lockTargetSessionId,
           },
           slot: candidate, slotIndex: i, target, targetAt: predictor,
           aimSigmaRad: profile.aimErrorSigmaRad, tick, arena: view.arena,

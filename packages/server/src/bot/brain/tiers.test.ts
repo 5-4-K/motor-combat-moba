@@ -19,7 +19,7 @@ function view(tick: number, over: Partial<BotView> = {}): BotView {
     self: {
       sessionId: "me", carId: "bullseye", team: 0, x: 200, y: 360, angle: 0, vx: forwardMaxSpeedOf("bullseye"), vy: 0,
       hp: 65, maxHp: 65, alive: true, statuses: [], slots: slotsFor("bullseye"),
-      switchLockUntilTick: 0, lockTargetSessionId: "", maneuver: 0, maneuverTicksLeft: 0,
+      switchLockUntilTick: 0, maneuver: 0, maneuverTicksLeft: 0,
     },
     others: [], instances: [], arena: { width: 1280, height: 720, obstacles: [] },
     observedFires: [], rng: makeRng(17),
@@ -388,7 +388,6 @@ describe("tier characterisation", () => {
   it("hard fires predator without a HUD lock (S20)", () => {
     const predatorOnly = (base: BotView["self"]): BotView["self"] => ({
       ...base,
-      lockTargetSessionId: "",
       slots: slotsFor("bullseye").map((slot, i) => (i === 0 ? slot : { ...slot, stocks: 0 })),
     });
     const fired = (tier: "easy" | "hard") => {
@@ -423,7 +422,7 @@ describe("ladder monotonicity", () => {
         const scene = view(tick, { others: [sitting], rng });
         const intent = bot.decide({
           ...scene,
-          self: { ...scene.self, lockTargetSessionId: "them" },
+          self: { ...scene.self},
         });
         if (intent.fireSlots !== 0 && prev === 0) n++;
         prev = intent.fireSlots;

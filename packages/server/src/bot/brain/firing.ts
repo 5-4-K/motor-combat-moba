@@ -125,7 +125,7 @@ export function preferredRangeOf(
       total += proxyValue({
         shooter: { x: 0, y: 0, angle: 0 }, slot,
         targetX: range, targetY: 0,
-        aimSigmaRad: profile.aimErrorSigmaRad, assisted: false,
+        aimSigmaRad: profile.aimErrorSigmaRad,
       }) * Math.max(weights[i] ?? 1, 0.01);
     }
     return total;
@@ -293,7 +293,6 @@ export function chooseSlot(args: {
     const roles = args.roles;
     if (situation === "punish" && roles?.setupCcSlot === i && targetStunned) score -= 500;
     if (args.stuckSlot === i) score += 200;
-    if (self.lockTargetSessionId === target.sessionId && def.usesAimAssist) score += 50;
     if (score > bestScore) {
       bestScore = score;
       best = i;

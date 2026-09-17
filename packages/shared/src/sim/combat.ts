@@ -3,7 +3,6 @@ import { isStatusId } from "../config/status-config.js";
 import { SPIKE_CONFIG } from "../config/spike-config.js";
 import type { StatusId } from "../config/status-types.js";
 import { instanceDefOf, isWeaponId, weaponDefOf } from "../config/weapon-config.js";
-import { carAimRangeOf } from "../config/weapon-slots.js";
 import { msToTicks, weaponTicksOf } from "../config/weapon-ticks.js";
 import type { ManeuverWeaponDef, WeaponId } from "../config/weapon-types.js";
 import type { CarId } from "../config/types.js";
@@ -30,7 +29,6 @@ import {
   stepInstance,
   type WeaponInstance,
 } from "./weapons/instances.js";
-import { muzzleOf, updateLock, type LockState, type LockTarget } from "./weapons/lock.js";
 import { beamShapeAt, projectileShapeAt, shapeHitsObb, smear } from "./weapons/shapes.js";
 import { canDamage } from "./weapons/targets.js";
 
@@ -40,8 +38,8 @@ import { canDamage } from "./weapons/targets.js";
  *
  * `fireMask` is "this player pressed these slots on an input the server actually simulated this
  * tick", not the raw key state — see `serverTick`, which reports it. `fireState` is what actually
- * gates firing: cooldowns, locks and any pending burst, so holding a key and tapping it fire at the
- * same rate.
+ * gates firing: cooldowns, recovery and any pending burst, so holding a key and tapping it fire at
+ * the same rate.
  */
 export interface CombatPlayer {
   sessionId: string;
@@ -57,12 +55,7 @@ export interface CombatPlayer {
   fireMask: number;
   fireState: FireState;
   /**
-   * This car's ambient target lock (A1). Server-only state carried in and back out, exactly as
-   * `fireState` is; only `targetSessionId` is ever projected onto the schema.
-   */
-  lock: LockState;
-  /**
-   * The statuses this car is in, carried in and back out. Unlike `fireState` and `lock`, this one IS
+   * The statuses this car is in, carried in and back out. Unlike `fireState`, this one IS
    * networked in full (`PlayerState.statuses`) — the client predicts the local car through
    * `stepSim`, which reads the modifiers derived from it.
    *
@@ -96,7 +89,7 @@ export interface CombatPlayer {
    * The whole of kill attribution (M5–M7). There is no damage ledger and no contribution window,
    * because there are no assists: the last point of damage decides the kill outright.
    *
-   * Carried in and back out like `fireState` and `lock`, and server-only for the same reason — the
+   * Carried in and back out like `fireState`, and server-only for the same reason — the
    * client does not predict damage, so putting it on the wire would patch a string to everyone at
    * the tick rate for nothing. `stepSim` never reads it, so invariant 8 does not apply.
    *
@@ -214,7 +207,7 @@ export interface CombatResult {
  * Per-tick phase order — pinned by `weapons/fire.ts`'s own module comment and its tests:
  *
  *     read modifiers -> status pulses -> status requests -> tickRecharge ->
- *     (step existing instances) -> update lock -> beginFire -> releaseShots ->
+ *     (step existing instances) -> beginFire -> releaseShots ->
  *     hit resolution (which applies each weapon's `applies` entries)
  *
  * Statuses bracket the rest of the tick. Every car's modifiers are derived ONCE, up front, from the
@@ -266,8 +259,8 @@ export function runCombat(input: CombatInput): CombatResult {
   /**
    * Spawn protection, on the TARGET side only (M13).
    *
-   * A phasing car is not present in the world: not a collider, not a ram partner, not a weapon
-   * target, not an aim-assist lock candidate. Collision and the ram pair list got that through
+     * A phasing car is not present in the world: not a collider, not a ram partner, not a weapon
+   * target. Collision and the ram pair list got that through
    * `otherCarHulls` (M15); this is combat's half of the same promise. It reads the answer off the
    * modifiers derived once above rather than re-scanning the status rows, so there is exactly one
    * derivation per car per tick and every phase below sees the same one.
@@ -276,9 +269,9 @@ export function runCombat(input: CombatInput): CombatResult {
    * car must still be able to shoot: M23's first termination condition is "the player commits a
    * press", so the firing path has to run for them, or spawn protection becomes unbreakable by
    * firing and the state machine quietly changes shape. Gate every place a car is looked at as a
-   * target — lock candidates, the hit-resolution snapshot, a held lock's continued validity
-   * (`aimAngleFor`), and now proximity acquisition (`acquireByProximity`, passed this same
-   * `isTargetable` closure rather than deriving its own) — and leave every place it acts alone.
+   * target — the hit-resolution snapshot, and proximity acquisition (`acquireByProximity`, passed
+   * this same `isTargetable` closure rather than deriving its own) — and leave every place it acts
+   * alone.
    */
   const isPhasedOf = (sessionId: string): boolean => modsOf(sessionId).phased;
   /** In the fight AND actually present: the gate for everything that treats a car as a target. */
@@ -417,9 +410,9 @@ export function runCombat(input: CombatInput): CombatResult {
     // An attached beam dies with its owner: a wreck does not shoot. Everything already frozen at
     // birth — projectiles, detached beams — finishes its life regardless.
     if (instance.attached && (!owner || !isFighting(owner))) continue;
-    // The locked car's LIVE pose, looked up fresh every tick. For a proximity shot the target is
-    // not known at spawn: it is chosen HERE, where the pose list is, so `instances.ts` keeps its
-    // rule that it never reads player state (spec P1).
+    // The homing target's LIVE pose, looked up fresh every tick. The target is not known at
+    // spawn: it is chosen HERE, where the pose list is, so `instances.ts` keeps its rule that it
+    // never reads player state (spec P1).
     let targetId = instance.homingTargetId;
     if (targetId === "") {
       targetId = acquireByProximity(instance, players, world.mode, isTargetable);
@@ -439,42 +432,6 @@ export function runCombat(input: CombatInput): CombatResult {
       // (spec P5). Written back here rather than inside `stepInstance` for the same reason the
       // scan is here — the choice is the caller's, the steering is the instance's.
       homingTargetId: targetId,
-    });
-  }
-
-  // 2b. Locks, BEFORE any shot is aimed by one. `spawnInstances` reads the lock in phase 3, and
-  // with `startUpMs: 0` a press both schedules and fires on the same tick, so a lock updated after
-  // phase 3 would aim every shot one tick stale. Runs after driving, like the rest of combat, so
-  // scoring and the sight raycast read the poses cars actually ended the tick at.
-  //
-  // A car wrecked by THIS tick's hit resolution is still locked until the next tick's update: the
-  // same one-tick seam the pose snapshot already accepts, worth at most one shot at 30 Hz.
-  //
-  // A car under spawn protection is not a candidate: `isTargetable`, not `isFighting`, because a
-  // phasing car may still hold and use a lock of its own — the OWNER gate a few lines below stays
-  // `isFighting` for exactly that reason.
-  const lockTargets: LockTarget[] = players
-    .filter(isTargetable)
-    .map((p) => ({ sessionId: p.sessionId, team: p.team, x: p.x, y: p.y }));
-
-  for (const player of players) {
-    player.lock = updateLock(player.lock, {
-      owner: {
-        sessionId: player.sessionId,
-        team: player.team,
-        x: player.x,
-        y: player.y,
-        angle: player.angle,
-      },
-      ownerFighting: isFighting(player),
-      // Read before `beginFire`, so a press a cooldown will reject still counts as engagement.
-      pressedThisTick: player.fireMask > 0,
-      candidates: lockTargets,
-      mode: world.mode,
-      obstacles: world.obstacles,
-      bounds: world.bounds,
-      tick: world.tick,
-      lockRangeUnits: carAimRangeOf(carIdOf(player)),
     });
   }
 
@@ -521,27 +478,22 @@ export function runCombat(input: CombatInput): CombatResult {
       // A press that would start a maneuver-kind weapon moves the car instead of spawning an
       // instance — no aim, no hit test, just the trigger for `startManeuver`.
       if (def.kind === "maneuver") {
-        startManeuver(player, def, byId, order.pressId);
+        startManeuver(player, def, order.pressId);
         applySelfStatuses(player, order.weaponId, world.tick, order.finalVolley);
         continue;
       }
-      const aim = aimAngleFor(player, order.weaponId, byId, isPhasedOf);
-      // A homing shot needs both a live lock AND a successful aim assist — `aim === null` means the
-      // lock was out of range, absent, or the weapon declined assist for some other reason, and
-      // firing a rocket that steers toward a target it did not actually aim at would be a stealth
-      // buff no other weapon gets.
-      const homingTargetId =
-        def.kind === "projectile" && def.homing?.acquire === "lock" && aim !== null
-          ? player.lock.targetSessionId
-          : "";
+      // `null` is "along the car's heading", which is now the only way anything exits a muzzle:
+      // every shot's exit angle is welded to the car's facing, fanned by `muzzles` and `spread`.
+      // `homingTargetId` is likewise always `""` at spawn — the one shipped homing mode acquires
+      // by proximity, in flight, from phase 2 above.
       const spawned = spawnInstances(
         order,
         player,
         world.tick,
         instanceSeq,
-        aim,
+        null,
         mods.damageDealt,
-        homingTargetId,
+        "",
       );
       instanceSeq = spawned.seq;
       stepped.push(...spawned.instances);
@@ -688,8 +640,8 @@ export function runCombat(input: CombatInput): CombatResult {
 }
 
 /**
- * In the match and not yet a wreck: the gate for ACTING — firing, holding a lock, keeping an
- * attached beam alive, receiving a status the room asked for.
+ * In the match and not yet a wreck: the gate for ACTING — firing, keeping an attached beam alive,
+ * receiving a status the room asked for.
  *
  * Being *shot at* is the strictly narrower `isTargetable` inside `runCombat`, which adds "and not
  * phasing". Do not merge the two: see the note on `isPhasedOf` for what folding `phased` in here
@@ -699,77 +651,18 @@ function isFighting(player: CombatPlayer): boolean {
   return player.inRoster && player.alive;
 }
 
-/**
- * The direction one shot should travel, or `null` for "along the car's heading".
- *
- * Re-derived per ORDER rather than once per press (A11c), so each volley of a burst aims at where
- * the target is on its own tick. That is the direct translation of the rule that a burst's shots
- * each exit from the car's pose at their own tick -- the thing that makes a burst steerable.
- *
- * Measured from the MUZZLE, not the car centre (A11a). Scoring uses the centre, because "angle off
- * my nose" is a fact about the car's facing, but the shot leaves the nose: at a target 100 units
- * out and 40 degrees off, a centre-derived angle misses by roughly a car length.
- */
-export function aimAngleFor(
-  player: CombatPlayer,
-  weaponId: WeaponId,
-  byId: ReadonlyMap<string, CombatPlayer>,
-  isPhased: (sessionId: string) => boolean,
-): number | null {
-  if (!weaponDefOf(weaponId).usesAimAssist) return null;
-  if (player.lock.targetSessionId === "") return null;
-  const target = byId.get(player.lock.targetSessionId);
-  if (!target || !isFighting(target)) return null;
-  // A lock outlives by one tick the event that invalidates it — `updateLock` runs before hits, and
-  // dropping a car from `lockTargets` only stops the NEXT acquisition, never the lock already held.
-  // Without this guard that one stale tick curves a shot into a car spawn protection says is not
-  // there. `isPhased` is a parameter rather than something derived here so `runCombat`'s single
-  // per-tick derivation stays the only reading of the flag anywhere in combat; it is required, not
-  // optional, so a future call site has to answer the question rather than inherit "no".
-  if (isPhased(target.sessionId)) return null;
-  const def = weaponDefOf(weaponId);
-  // Per-weapon range gate (spec S1): a lock the car holds through its longest assisted weapon may
-  // still be out of THIS weapon's reach — then the weapon declines the assist and fires straight.
-  // Centre-to-centre, matching how lock scoring measures distance.
-  const distance = Math.hypot(target.x - player.x, target.y - player.y);
-  if (distance > (def.aimRangeUnits ?? 0)) return null;
-  const muzzle = muzzleOf({ x: player.x, y: player.y, angle: player.angle });
-  // NO lead, for any kind (A3): the assist points the shot at where the target IS and the player
-  // carries the lead themselves. Aiming at a first-order intercept instead shipped briefly and was
-  // reverted -- it made the assist decide the shot rather than set its direction.
-  return Math.atan2(target.y - muzzle.y, target.x - muzzle.x);
-}
-
-/** The dash direction: the lock target's bearing (NO lead — the car arrives, not a shot), or the heading. */
-export function dashAngleFor(
-  player: CombatPlayer,
-  def: ManeuverWeaponDef,
-  byId: ReadonlyMap<string, CombatPlayer>,
-): number {
-  if (!def.usesAimAssist || player.lock.targetSessionId === "") return player.angle;
-  const target = byId.get(player.lock.targetSessionId);
-  if (!target || !isFighting(target)) return player.angle;
-  const distance = Math.hypot(target.x - player.x, target.y - player.y);
-  if (distance > (def.aimRangeUnits ?? 0)) return player.angle;
-  return Math.atan2(target.y - player.y, target.x - player.x);
-}
-
 /** Begin a maneuver-kind weapon's effect. One maneuver at a time; a second press is ignored. */
-export function startManeuver(
-  player: CombatPlayer,
-  def: ManeuverWeaponDef,
-  byId: ReadonlyMap<string, CombatPlayer>,
-  pressId: string,
-): void {
+export function startManeuver(player: CombatPlayer, def: ManeuverWeaponDef, pressId: string): void {
   if (player.maneuver !== ManeuverKind.NONE) return;
   player.maneuverWeaponId = def.id;
   player.maneuverPressId = pressId;
   if (def.maneuver.type === "dash") {
-    const distance = def.aimRangeUnits ?? def.range;
     player.maneuver = ManeuverKind.DASH;
     player.maneuverSpeed = def.speed;
-    player.maneuverTicksLeft = Math.max(1, Math.ceil((distance / def.speed) * TICK_RATE_HZ));
-    player.maneuverAngle = dashAngleFor(player, def, byId);
+    player.maneuverTicksLeft = Math.max(1, Math.ceil((def.range / def.speed) * TICK_RATE_HZ));
+    // Straight along the heading. The dash used to snap toward a locked car; with targeting gone
+    // the driver points it themselves, which is also why `range` alone now sets the distance.
+    player.maneuverAngle = player.angle;
   } else {
     player.maneuver = ManeuverKind.CHARGE;
     player.maneuverTicksLeft = msToTicks(def.maneuver.durationMs);

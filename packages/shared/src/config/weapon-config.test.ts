@@ -7,7 +7,6 @@ import { WEAPON_TABLE, explosionDamageModeOf, instanceDefOf, isWeaponId, weaponD
 import { slotsOf } from "./weapon-slots.js";
 import { WEAPON_TICKS, msToTicks, weaponTicksOf } from "./weapon-ticks.js";
 import type { WeaponDef } from "./weapon-types.js";
-import { AIM_CONFIG } from "./aim-config.js";
 import { STATUS_CONFIG } from "./status-config.js";
 
 describe("WEAPON_TABLE", () => {
@@ -19,7 +18,7 @@ describe("WEAPON_TABLE", () => {
       turnRateDegPerSec: 300,
       durationMs: 2000,
     });
-    expect(WEAPON_TABLE.thunderclap).toMatchObject({ damage: 90, speed: 1600, aimRangeUnits: 400 });
+    expect(WEAPON_TABLE.thunderclap).toMatchObject({ damage: 90, speed: 1600, range: 400 });
     expect(WEAPON_TABLE.roadblock).toMatchObject({ damage: 100, pierce: 4 });
     expect(WEAPON_TABLE.roadblock.hitbox).toEqual({ shape: "bar", radiusAlong: 6, radiusAcross: 60 });
     expect(WEAPON_TABLE.wildcharge.maneuver).toEqual({ type: "charge", durationMs: 10000, slamsStunned: true });
@@ -27,7 +26,7 @@ describe("WEAPON_TABLE", () => {
     expect(WEAPON_TABLE.thumper).toMatchObject({ bounces: true, lifetimeMs: 2900 });
     expect(WEAPON_TABLE.pepperbox.muzzles).toEqual([0, 90, 180, 270]);
     expect(WEAPON_TABLE.afterburner.muzzles).toEqual([0, 180]);
-    expect(WEAPON_TABLE.lance).toMatchObject({ attached: true, lifetimeMs: 1500, holdsDuringFire: true, usesAimAssist: false });
+    expect(WEAPON_TABLE.lance).toMatchObject({ attached: true, lifetimeMs: 1500, holdsDuringFire: true });
   });
 
   it("keeps maneuver rows single-volley", () => {
@@ -94,37 +93,7 @@ describe("WEAPON_TABLE", () => {
     expect(weaponDefOf("magmablast").id).toBe("magmablast");
   });
 
-  describe("per-weapon aim range (spec S1)", () => {
-    it("pairs aimRangeUnits with usesAimAssist, both ways", () => {
-      for (const def of Object.values(WEAPON_TABLE)) {
-        if (def.usesAimAssist) {
-          expect(def.aimRangeUnits, `${def.id} uses aim assist and must author aimRangeUnits`).toBeGreaterThan(0);
-        } else {
-          expect(def.aimRangeUnits, `${def.id} must not author aimRangeUnits without usesAimAssist`).toBeUndefined();
-        }
-      }
-    });
-
-    it("keeps every assisted weapon's range at or beyond its own aim range", () => {
-      // Replaces the old `range >= AIM_CONFIG.lockRange` guard: the lock is now bounded per weapon.
-      for (const def of Object.values(WEAPON_TABLE)) {
-        if (!def.usesAimAssist || def.kind === "maneuver") continue;
-        expect(def.range, `${def.id}`).toBeGreaterThanOrEqual(def.aimRangeUnits!);
-      }
-    });
-  });
-
   describe("new-mechanic guards (vacuous until plan 3's rows land — they gate authoring, not code)", () => {
-    it("keeps multi-muzzle weapons off aim assist", () => {
-      for (const def of Object.values(WEAPON_TABLE)) {
-        if ((def.muzzles?.length ?? 1) > 1) expect(def.usesAimAssist, def.id).toBe(false);
-      }
-    });
-    it("requires aim assist on homing weapons", () => {
-      for (const def of Object.values(WEAPON_TABLE)) {
-        if (def.kind === "projectile" && def.homing) expect(def.usesAimAssist, def.id).toBe(true);
-      }
-    });
     it("bounds a BOUNCING row's lifetime under its own cooldown, so two never coexist", () => {
       for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
         if (def.kind !== "projectile" || !def.bounces) continue;
@@ -146,44 +115,20 @@ describe("WEAPON_TABLE", () => {
         }
       }
     });
-    it("requires a dash to author positive speed and an aim range (its distance)", () => {
+    it("requires a dash to author positive speed and a range (its distance)", () => {
       for (const def of Object.values(WEAPON_TABLE)) {
         if (def.kind === "maneuver" && def.maneuver.type === "dash") {
           expect(def.speed, def.id).toBeGreaterThan(0);
-          expect(def.aimRangeUnits, def.id).toBeGreaterThan(0);
+          expect(def.range, def.id).toBeGreaterThan(0);
         }
       }
     });
-    it("pairs acquireRadius with proximity acquisition, both ways", () => {
+    it("requires a homing row to author an acquireRadius", () => {
       for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
         if (def.kind !== "projectile" || !def.homing) continue;
-        if (def.homing.acquire === "proximity") {
-          expect(def.homing.acquireRadius, `${def.id} acquires by proximity`).toBeGreaterThan(0);
-        } else {
-          expect(def.homing.acquireRadius, `${def.id} acquires by lock`).toBeUndefined();
-        }
+        expect(def.homing.acquireRadius, `${def.id} acquires by proximity`).toBeGreaterThan(0);
       }
     });
-  });
-
-  it("keeps aim-assist weapons off the behavioural cliff", () => {
-    // A9.4. `lockTimeoutMs` splits weapons into two targeting classes at `1000 / lockTimeoutMs`:
-    // above it presses keep refreshing the timer and the 25% steal margin governs; below it the
-    // timer lapses between shots and every shot re-picks the best target. A weapon authored near
-    // the boundary flips between the two depending on how metronomically the player fires.
-    //
-    // The cliff is DERIVED, not hardcoded, so retuning `lockTimeoutMs` moves this guard with it
-    // rather than stranding a stale range. Sustained rate is `1000 / cooldownMs` for every weapon:
-    // a stocked weapon still needs one full `cooldownMs` per stock, and `refireDelayMs` only spaces
-    // a burst. Per-row and therefore conservative -- a multi-slot car presses MORE often, which
-    // moves it away from the cliff, never toward it.
-    const cliffHz = 1000 / AIM_CONFIG.lockTimeoutMs;
-    for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
-      if (!def.usesAimAssist) continue;
-      const sustainedHz = 1000 / def.cooldownMs;
-      const distance = Math.abs(sustainedHz - cliffHz) / cliffHz;
-      expect(distance).toBeGreaterThan(0.15);
-    }
   });
 
   it("ships pepperbox as a single fan repeated across four muzzles", () => {
@@ -198,9 +143,6 @@ describe("WEAPON_TABLE", () => {
     // four muzzles are 90 degrees apart, so at most one fan lines up with a single target.
     const pellets = pepperbox.volley.volleys * pepperbox.pellets.pelletsPerVolley;
     expect(pellets * pepperbox.damage).toBe(135);
-    // Multi-muzzle forces assist off (O9): a lock cannot steer a four-way spray.
-    expect(pepperbox.usesAimAssist).toBe(false);
-    expect(pepperbox.aimRangeUnits).toBeUndefined();
   });
 
   it("ships afterburner as the table's first beam, attached and ticking", () => {
@@ -213,9 +155,6 @@ describe("WEAPON_TABLE", () => {
     // Total life is range/speed + lifetime == 200ms + 2000ms. At one pulse per 500ms that is 5
     // pulses == 245 base max, about a third of an average car's hull HP.
     expect(afterburner.range / afterburner.speed + afterburner.lifetimeMs / 1000).toBeCloseTo(2.2);
-    // Forced, not chosen: range 220 < AIM_CONFIG.lockRange, and an attached beam re-derives its
-    // angle from the owner every tick, so a lock would have nothing to decide.
-    expect(afterburner.usesAimAssist).toBe(false);
   });
 
   it("keeps every capsule long enough for its own nose cap", () => {
@@ -237,19 +176,7 @@ describe("WEAPON_TABLE", () => {
     }
   });
 
-  it("refuses aim assist on an attached beam", () => {
-    // A12. An attached beam re-derives its origin and angle from the owner's pose every tick, so it
-    // would snap to the lock at birth and immediately re-weld to the car's nose. Dormant until the
-    // first beam row ships, and written now rather than then: making an attached beam track the
-    // lock every tick is a far stronger weapon than its numbers suggest, and not a decision anyone
-    // should make implicitly.
-    for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
-      if (def.kind !== "beam" || !def.attached) continue;
-      expect(def.usesAimAssist).toBe(false);
-    }
-  });
-
-  it("ships roadblock piercing everything, aim assist deliberately off", () => {
+  it("ships roadblock piercing everything", () => {
     const roadblock = WEAPON_TABLE.roadblock;
     if (roadblock.kind !== "projectile") throw new Error("roadblock must be a projectile");
     // pierce counts cars hit AFTER the first, so pierce: 4 reaches all 5 possible opponents in a
@@ -260,17 +187,13 @@ describe("WEAPON_TABLE", () => {
     // The wall stops for nothing — walls included. Without this the 60u wingtips killed the shot
     // in `hitsWorld` on its own spawn tick whenever Bastion fired within a wingtip of a wall.
     expect(roadblock.piercesWalls).toBe(true);
-    // A 120-unit face aims itself; skewer's old "help the slowest chassis" argument is answered by
-    // width here instead of by a lock.
-    expect(roadblock.usesAimAssist).toBe(false);
-    expect(roadblock.aimRangeUnits).toBeUndefined();
   });
 
   it("ships lance as an attached, held beam with the roster's only substantial recovery", () => {
     const lance = WEAPON_TABLE.lance;
     if (lance.kind !== "beam") throw new Error("lance must be a beam");
-    // O10: lance became held-and-attached, superseding the old detached-with-a-lock design — it
-    // now sweeps live under the driver's own steering while the HOLD maneuver keeps the car still.
+    // O10: lance became held-and-attached, superseding the old detached design — it now sweeps
+    // live under the driver's own steering while the HOLD maneuver keeps the car still.
     expect(lance.attached).toBe(true);
     expect(lance.holdsDuringFire).toBe(true);
     expect(lance.damage).toBe(43); // per PULSE now, not per press — see the interval below
@@ -280,10 +203,6 @@ describe("WEAPON_TABLE", () => {
     expect(lance.damageFrequencyMs).toBe(500);
     expect(lance.damageFrequencyMs).toBe(WEAPON_TABLE.afterburner.damageFrequencyMs);
     expect(lance.startUpMs).toBe(700);
-    // O10 supersedes T13's aim-assist argument: sweeping live under manual steering while held is a
-    // strictly stronger form of aim than a lock, so assist is off and the field is deleted with it.
-    expect(lance.usesAimAssist).toBe(false);
-    expect(lance.aimRangeUnits).toBeUndefined();
     // The wind-up alone is not the whole cost: a missed lance also owes a second of silence, which
     // is what makes it punishing on a 300 HP chassis (L5).
     expect(lance.recoveryMs).toBe(1000);
@@ -314,39 +233,6 @@ describe("WEAPON_TABLE", () => {
     // one more tick of `lifetimeMs` would even it out. Documented in the row's comment.
     expect(pulsesFrom(ticks.flight)).toBe(3);
     expect(pulsesFrom(ticks.flight) * lance.damage).toBe(129);
-  });
-
-  it("keeps both branches of usesAimAssist populated by carried weapons", () => {
-    // The pair that makes `usesAimAssist` a real switch rather than a global: one row on, one off.
-    // Both are weapons a player can fire. The 2026-09-01 overhaul flipped the majority off (five of
-    // nine): the multi-muzzle and held-beam guards forced `pepperbox`, `lance` and `afterburner`
-    // off, and `roadblock` opts out by choice — the same "aim yourself" argument `bulwark` used to
-    // carry.
-    expect(WEAPON_TABLE.magmablast.usesAimAssist).toBe(true);
-    expect(WEAPON_TABLE.roadblock.usesAimAssist).toBe(false);
-    const off = Object.values(WEAPON_TABLE).filter((d) => !d.usesAimAssist);
-    expect(off.map((d) => d.id).sort()).toEqual([
-      "afterburner",
-      "lance",
-      "pepperbox",
-      "roadblock",
-      "tremor", // a zone is aimed at ground — bulwark's old argument, inherited with its shape
-      "wildcharge",
-    ]);
-  });
-
-  it("keeps thumper's cooldown clear of the band the aim-assist cliff forbids", () => {
-    const thumper = WEAPON_TABLE.thumper;
-    expect(thumper.usesAimAssist).toBe(true);
-    // The cliff guard rejects any aim-assist weapon within 15% of 1000 / lockTimeoutMs. At
-    // lockTimeoutMs 800 that is 1.25 Hz, which forbids EVERY cooldownMs between 696 and 941. The
-    // 900ms first drafted for this row sat inside the band and would have failed the suite.
-    const forbiddenLow = 1000 / (1.25 * 1.15);
-    const forbiddenHigh = 1000 / (1.25 * 0.85);
-    expect(thumper.cooldownMs).toBe(3000);
-    expect(thumper.cooldownMs).toBeGreaterThan(forbiddenHigh);
-    expect(forbiddenLow).toBeLessThan(forbiddenHigh); // the band is a band, not a point
-    expect(thumper.hitbox).toEqual({ shape: "capsule", radiusAlong: 24, radiusAcross: 15 });
   });
 
   it("carries ten weapons — nine on the roster plus the unassigned tremor — every one a different colour", () => {
@@ -498,7 +384,6 @@ describe("WEAPON_TABLE", () => {
       expect(burst.hitbox).toEqual({ shape: "disc" });
       expect(burst.origin).toBe("center");
       expect(burst.attached).toBe(false);
-      expect(burst.usesAimAssist).toBe(false);
       expect(burst.range).toBe(WEAPON_TABLE.magmablast.explosion!.radius);
       expect(burst.damage).toBe(WEAPON_TABLE.magmablast.explosion!.damage);
       expect(burst.damageFrequencyMs).toBe(0);

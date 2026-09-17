@@ -33,7 +33,7 @@ function self(carId: "bullseye" | "mirage" | "bastion"): BotSelfView {
   return {
     sessionId: "me", carId, team: 0, x: 0, y: 0, angle: 0, vx: 0, vy: 0,
     hp: 100, maxHp: 100, alive: true, statuses: [], slots: slotsFor(carId),
-    switchLockUntilTick: 0, lockTargetSessionId: "", maneuver: 0, maneuverTicksLeft: 0,
+    switchLockUntilTick: 0, maneuver: 0, maneuverTicksLeft: 0,
   };
 }
 
@@ -365,7 +365,6 @@ describe("chooseSlot", () => {
   it("fires an aim-assisted gun without a HUD lock (S20)", () => {
     const predatorOnly: BotSelfView = {
       ...self("bullseye"),
-      lockTargetSessionId: "",
       slots: slotsFor("bullseye").map((slot, i) => (i === 0 ? slot : { ...slot, stocks: 0 })),
     };
     const out = chooseSlot({
@@ -378,7 +377,6 @@ describe("chooseSlot", () => {
   it("an undisciplined bot still mashes an aim-assisted gun without a lock", () => {
     const predatorOnly: BotSelfView = {
       ...self("bullseye"),
-      lockTargetSessionId: "",
       slots: slotsFor("bullseye").map((slot, i) => (i === 0 ? slot : { ...slot, stocks: 0 })),
     };
     let presses = 0;

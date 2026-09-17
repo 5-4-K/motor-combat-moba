@@ -8,7 +8,7 @@ import { scoreTargets } from "./goals.js";
 const self: BotSelfView = {
   sessionId: "me", carId: "bullseye", team: 0, x: 0, y: 0, angle: 0, vx: 0, vy: 0,
   hp: 65, maxHp: 65, alive: true, statuses: [], slots: [],
-  switchLockUntilTick: 0, lockTargetSessionId: "", maneuver: 0, maneuverTicksLeft: 0,
+  switchLockUntilTick: 0, maneuver: 0, maneuverTicksLeft: 0,
 };
 
 function car(sessionId: string, over: Partial<BotCarView> = {}): BotCarView {

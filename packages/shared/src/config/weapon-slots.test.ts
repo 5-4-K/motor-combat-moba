@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AIM_CONFIG } from "./aim-config.js";
 import { CAR_TABLE } from "./car-config.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
-import { WEAPON_SLOT_CONFIG, carAimRangeOf, slotsOf, slotsFrom } from "./weapon-slots.js";
+import { WEAPON_SLOT_CONFIG, slotsOf, slotsFrom } from "./weapon-slots.js";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -74,21 +73,5 @@ describe("loadouts", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     slotsFrom("bullseye", ["magmablast"]);
     expect(warn).not.toHaveBeenCalled();
-  });
-});
-
-describe("carAimRangeOf", () => {
-  it("is the longest assisted reach on each chassis", () => {
-    // Mirage and Bastion carry only 400 u assisted rows. Predator authors 800, which lifts the
-    // whole car's acquisition range — carAimRangeOf returns the MAX across assisted slots, so one
-    // long-reaching weapon re-ranges the car's ambient lock. Since the 2026-09-02 loadout swap
-    // Predator rides Bullseye, so it is Bullseye's lock that doubles and Mirage's that returns to 400.
-    expect(carAimRangeOf("mirage")).toBe(400);   // magmablast 400, thunderclap 400
-    expect(carAimRangeOf("bullseye")).toBe(800); // predator's 800 re-ranges the whole car
-    expect(carAimRangeOf("bastion")).toBe(400);
-  });
-  it("falls back to AIM_CONFIG.lockRange for a car with no assisted weapon", () => {
-    // No such chassis ships; the fallback is the contract for one. Assert it equals the global.
-    expect(AIM_CONFIG.lockRange).toBe(400); // if this moves, revisit carAimRangeOf's fallback
   });
 });

@@ -8,7 +8,6 @@
  * are asked against is the spike ring.
  */
 import {
-  AIM_CONFIG,
   DRIVE_CONFIG,
   SPIKE_CONFIG,
   forwardMaxSpeedOf,
@@ -265,61 +264,16 @@ function crushAgainstObstacle(): void {
   );
 }
 
-/* ------------------------------------------------- G5. aim-assist lock through a spike strip */
-/**
- * `updateLock` raycasts line of sight. A lock held through a solid strip would aim shots at a wall.
- *
- * There is no free-standing bunker to stand two cars on opposite faces of. The west strip is 20u
- * of cover between an interior shooter and a target placed in the wall band; the sim will clamp
- * that target inward, so lock ticks are counted only while its centre is still at or behind the
- * strip. Once it has been pushed onto the same side, LOS is genuinely clear.
+/*
+ * G5 measured the aim-assist lock's line-of-sight raycast: could a car hold a lock on a target
+ * standing behind a solid spike strip? The 2026-09-17 removal of the target-lock feature deleted
+ * `updateLock`, `lockTargetSessionId` and the raycast, so the scenario has no subject left to
+ * measure and was removed with them rather than rewritten into something it was never asked to
+ * check. G6 below still covers the OTHER caller of the same raycast — `wallClipDistance` against a
+ * beam whose muzzle is buried in a strip — so the geometry itself is not unwatched. The numbering
+ * is left with a hole on purpose: renumbering G6 and G7 would silently invalidate every earlier
+ * report on disk.
  */
-function lockThroughWall(): void {
-  const y = CY;
-  const sx = INNER_L + 60;
-  const tx = WEST.x - 60;
-  const gap = sx - tx;
-  const w = new PlaytestWorld(
-    [
-      { id: "s", carId: "bullseye", x: sx, y, angle: Math.PI, team: 0 },
-      { id: "t", carId: "bastion", x: tx, y, angle: 0, team: 0 },
-    ],
-    "ffa",
-    "arena-02",
-  );
-  const bit = slotBitFor("bullseye", "predator");
-  let lockedTicks = 0;
-  for (let i = 0; i < 120; i++) {
-    w.input("s", { fireSlots: bit });
-    w.tick();
-    // Only count a lock while the target's centre is still in or west of the strip — after the
-    // clamp pulls it into the open, a lock is the ray working, not a leak.
-    if (w.get("s").lockTargetSessionId === "t" && w.get("t").x <= INNER_L) lockedTicks++;
-  }
-  // Control: same distance, both on the open floor, well clear of every strip.
-  const clear = new PlaytestWorld(
-    [
-      { id: "s", carId: "bullseye", x: CX - gap / 2, y: CY, angle: 0, team: 0 },
-      { id: "t", carId: "bastion", x: CX + gap / 2, y: CY, angle: 0, team: 0 },
-    ],
-    "ffa",
-    "arena-02",
-  );
-  let clearLocked = 0;
-  for (let i = 0; i < 120; i++) {
-    clear.input("s", { fireSlots: bit });
-    clear.tick();
-    if (clear.get("s").lockTargetSessionId === "t") clearLocked++;
-  }
-  report(
-    "G5. Aim-assist lock through a spike strip",
-    lockedTicks > 5 ? "FINDING" : "OK",
-    `${gap.toFixed(0)}u apart (lockRange ${AIM_CONFIG.lockRange}), west strip between centres: ` +
-      `locked on ${lockedTicks}/120 ticks while the target was still at or behind the strip\n` +
-      `same distance in the open (control): locked on ${clearLocked}/120 ticks\n` +
-      `losGraceMs is ${AIM_CONFIG.losGraceMs}, so a few ticks of grace after sight is lost is expected.`,
-  );
-}
 
 /* --------------------------------------------------- G6. beam fired with its muzzle in a wall */
 /** `wallClipDistance` samples from d=0, so a muzzle buried in a wall should reach 0. */
@@ -394,7 +348,6 @@ function spawnOverlap(): void {
 driveIntoGeometry();
 pitCorners();
 crushAgainstObstacle();
-lockThroughWall();
 beamInWall();
 spawnOverlap();
 

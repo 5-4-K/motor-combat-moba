@@ -85,14 +85,6 @@ export class PlayerState extends Schema {
    */
   @type("int8") lastFiredSlot = -1;
   /**
-   * Session id of this car's current aim-assist target, or `""` for none (A14).
-   *
-   * The only part of the lock that crosses the wire. The machine behind it -- the commit timer, the
-   * sight grace, the last press -- stays server-side, exactly as `pending` does: the client is told
-   * the result, never the rules. All the HUD needs is which car to draw a bracket on.
-   */
-  @type("string") lockTargetSessionId = "";
-  /**
    * The statuses this car is currently in, capped at `STATUS_CONFIG.maxActive`.
    *
    * Networked because `stepSim` reads it (invariant 8) — `modifiersOf` turns this list into the

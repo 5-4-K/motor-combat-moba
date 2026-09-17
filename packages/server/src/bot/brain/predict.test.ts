@@ -39,7 +39,7 @@ function selfAt(over: Partial<BotSelfView> & { speed?: number } = {}): BotSelfVi
   const self: BotSelfView = {
     sessionId: "me", carId: "mirage", team: 0, x: 0, y: 0, angle: 0, vx: 300, vy: 0,
     hp: 70, maxHp: 70, alive: true, statuses: [], slots: [], switchLockUntilTick: 0,
-    lockTargetSessionId: "", maneuver: 0, maneuverTicksLeft: 0, ...rest,
+    maneuver: 0, maneuverTicksLeft: 0, ...rest,
   };
   if (speed === undefined) return self;
   return { ...self, vx: Math.cos(self.angle) * speed, vy: Math.sin(self.angle) * speed };

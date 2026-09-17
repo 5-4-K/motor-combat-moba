@@ -181,7 +181,7 @@ export interface BotProfile {
    * budget, leaving margin for a slower machine.
    *
    * Depth 2's overrun cannot be closed by lowering K instead: at 81 sequences the SCORING alone
-   * (`myEv`, `theirEv`, `lockKeep`, `rangeError`, `wallPenalty` across every candidate) measured
+   * (`myEv`, `theirEv`, `rangeError`, `wallPenalty` across every candidate) measured
    * roughly **0.475 ms**, already above the whole 0.33 ms budget before a single `stepDrive` runs.
    * Spec P33 and the plan both say the same thing in the same words for exactly this situation —
    * "do not raise the budget", "K and `planDepth` come down and nothing else changes" — so hard's
@@ -781,7 +781,16 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // one. A minor bump: `BOT_PROFILES` did not move, but a bot that used to drive into a chamfer or
 // grind on a spike strip no longer does, so a `--baseline` balance comparison across this change
 // would silently compare two different pilots without it.
-export const BOT_BRAIN_VERSION = "4.6.0";
+// 5.0.0 (2026-09-17): the ambient target lock is gone from the game, and with it three things the
+// brain read. `weaponReachOf` no longer prefers a row's shorter `aimRangeUnits`, so `predator`,
+// `magmablast` and `thumper` now report their full authored range (800 -> 1800, 400 -> 900,
+// 400 -> 1305) as the reach the bot engages at. `solve` and `proxyValue` no longer collapse an
+// assisted shot's aim error to zero, so every slot is priced through the shooter's real
+// `aimErrorSigmaRad`. And `lockKeep` left `PlanWeights` entirely, taking a 12/8/4/2-point positional
+// term out of `punish`/`fight`/`close`/`reset`. MAJOR, not minor: `BOT_PROFILES` again did not move,
+// but this is the largest single change to what the pilot values since the situation brain shipped,
+// and no `--baseline` comparison across it is meaningful.
+export const BOT_BRAIN_VERSION = "5.0.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency

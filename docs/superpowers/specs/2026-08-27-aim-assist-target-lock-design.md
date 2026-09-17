@@ -1,7 +1,18 @@
 # Motor Combat MOBA — Aim Assist and Target Lock Design
 
 **Designed:** 2026-08-27 · **Recorded in repo:** 2026-08-27
-**Status:** Implemented.
+**Status:** **REMOVED FROM THE GAME, 2026-09-17.** Implemented 2026-08-27, shipped, then deleted
+in full at the user's request. Nothing described below exists in `packages/` any more: not
+`AIM_CONFIG`, not `sim/weapons/lock.ts`, not `PlayerState.lockTargetSessionId`, not
+`WeaponDef.usesAimAssist` or `.aimRangeUnits`, not `carAimRangeOf`, not the HUD bracket. Every shot
+leaves along the firing car's heading, which is exactly the "Problem" this document opens by
+describing — the decision was reconsidered, not lost.
+
+**This file is kept as a record of the decisions (A1–A14) and the alternatives they rejected, so a
+future attempt at assisted aiming starts from what was already learned rather than from nothing.
+Read it as history. It is not a description of the game, and nothing in it is a requirement.** The
+live behaviour is [`docs/combat-model.md`](../../combat-model.md#shot-direction-the-heading-always).
+
 **Plan:** [`docs/superpowers/plans/2026-08-27-aim-assist-target-lock.md`](../plans/2026-08-27-aim-assist-target-lock.md)
 
 ---

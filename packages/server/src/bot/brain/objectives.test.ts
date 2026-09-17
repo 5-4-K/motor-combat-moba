@@ -41,7 +41,7 @@ describe("weightsFor", () => {
       expect(easy.myEv, id).toBe(hard.myEv);
       expect(easy.rangeError, id).toBe(hard.rangeError);
       expect(easy.wallPenalty, id).toBe(hard.wallPenalty);
-      expect(easy.lockKeep, id).toBe(hard.lockKeep);
+      expect(easy.facingError, id).toBe(hard.facingError);
     }
   });
 

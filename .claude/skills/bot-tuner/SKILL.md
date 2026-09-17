@@ -34,7 +34,7 @@ of the same facts, and worse hands.
 
    ```
    personality | situation | range N | slot K | danger N | plan(+1,+1) SCORE | ev BEST/THRESHOLD
-   terms  myEv N  theirEv N  rangeError N  wallPenalty N  lockKeep N  threatAvoid N  facingError N
+   terms  myEv N  theirEv N  rangeError N  wallPenalty N  threatAvoid N  facingError N
    ```
 
    - **`ev BEST/THRESHOLD` answers every holds-fire complaint outright.** `BEST` is the best EV/s
@@ -44,9 +44,9 @@ of the same facts, and worse hands.
      and `minShotValueFraction` is the tune. A ratio **at or above 1 with `slot -` is a bug** in
      `chooseSlot` / `solve()` — stop and say so.
    - **The `terms` line says what the bot thought it was doing instead.** The overlay prints
-     whatever keys `PlanWeights` currently has (`PlaygroundRoom` copies the map wholesale) — **seven
-     as of 4.5.0**, `facingError` the seventh. Do not treat an extra name as noise, and do not
-     hard-code six. These are RAW term values, not points: multiply each by that situation's weight
+     whatever keys `PlanWeights` currently has (`PlaygroundRoom` copies the map wholesale) — **six
+     as of 5.0.0**, which dropped `lockKeep` with the aim-lock feature. Do not treat an extra name as
+     noise, and do not hard-code the count. These are RAW term values, not points: multiply each by that situation's weight
      in `objectives.ts` to see which term actually won. `wallPenalty` runs about 0.017 in a TRUE
      corner (pose inside the margin) against weights in the hundreds, and **0 merely near a wall**;
      `rangeError` is units; `myEv` / `theirEv` are EV per second; `facingError` is bounded [0, 1]
@@ -107,7 +107,7 @@ of the same facts, and worse hands.
 | "never dodges" | judgment | Raise `dodgeChance` / `incomingCarChance`; lower `dodgeReactionTicks`. Those decide WHETHER it reacts; how hard it leans is `threatAvoid`'s weight in `objectives.ts`, which is not per-tier and not yours to move. How it dodges — reverse vs a forward arc — is `evade`'s `facingError` (10 as of 4.5.1), also BASE. See the reverse row |
 | "it reverse-dodges" / "it moonwalks" / "it won't reverse to dodge" | **not a knob** | `facingError` in `objectives.ts` BASE, per-situation, no `BOT_PROFILES` field. `fight` 30 is why a ranged car backs off with guns on you (correct). `evade` 10 is the dodge reverse-toll; 40 used to cost more than `threatAvoid` could earn. Do not invent a profile field. If they asked for a situation-play change, that is BASE **and** a `BOT_BRAIN_VERSION` bump (fingerprint does not hash `objectives.ts`) |
 | "shots are all over the place" | **not a knob** | The solver (`bot/brain/solution.ts`) decides hit chance and value. If it is firing shots that miss, that is a solver bug to investigate, not a value to tune — say so rather than reaching for `aimErrorSigmaRad` |
-| "too close / too far" | range | `opponentRangeRespect` — how much of THEIR shortest gun it insists on clearing. The bot's own comfortable range is derived from its kit by `preferredRangeOf` (`bot/brain/firing.ts`) and has no per-tier knob: `standoffFraction` no longer exists. Predator uses aim reach (~800), not 1800 |
+| "too close / too far" | range | `opponentRangeRespect` — how much of THEIR shortest gun it insists on clearing. The bot's own comfortable range is derived from its kit by `preferredRangeOf` (`bot/brain/firing.ts`) and has no per-tier knob: `standoffFraction` no longer exists. Since the aim lock was removed (5.0.0) predator reports its full authored range, 1800, not the old 800 aim reach, and hard's derived comfort for Bullseye is about 445 |
 | "it charges in / never closes" | range | `opponentRangeRespect` down to close, up to stand off — but know the ceiling: `fightRange = max(ownComfort, theirKeepOut)`, so **nothing in the profile can make a bot stand closer than its own derived comfort**. If they want a genuinely brawling bot, that is a new profile field, not a tune — say so |
 | "it runs away from nothing" | judgment | `opponentRangeRespect` down on that tier: it scales the planner's `theirEv` term, so a high value makes every candidate walking into a firing solution score worse. Read `danger` and the `theirEv` term first (Path step 2). The old anticipatory-`evade` apparatus — `dangerEvadeFraction`, `dangerEvadeCooldownTicks` — is deleted; do not propose either |
 | "it walks into obvious fire" | judgment | `opponentRangeRespect` up. If the overlay's `danger` reads 0 while you are aimed at it from inside your weapon's reach, that is a solver bug in `dangerEvAgainst` (`bot/brain/solution.ts`) — stop tuning and say so |

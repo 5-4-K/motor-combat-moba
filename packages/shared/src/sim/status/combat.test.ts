@@ -12,7 +12,6 @@ import {
   type CombatWorld,
 } from "../combat.js";
 import { newFireState } from "../weapons/fire.js";
-import { newLockState } from "../weapons/lock.js";
 import { applyStatus, hasStatus, type ActiveStatus } from "./statuses.js";
 
 /**
@@ -51,7 +50,6 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
     inRoster: true,
     fireMask: 0,
     fireState: newFireState(carId as "mirage", 1),
-    lock: newLockState(),
     statuses: [],
     maneuver: 0,
     maneuverTicksLeft: 0,
