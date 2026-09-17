@@ -63,14 +63,17 @@ describe("carOptions", () => {
 });
 
 describe("weaponOptions", () => {
-  it("lists every row of WEAPON_TABLE", () => {
+  it("lists every ABILITY row of WEAPON_TABLE, and no basic attack (BA37)", () => {
+    // A tester could otherwise seat another chassis's basic attack as Mirage's slot 1 — a car with
+    // two basic attacks, one of them borrowed — and nine options all reading "Basic Attack" would
+    // be unusable anyway. The basic attack is a property of the chassis, not of the loadout.
     const options = weaponOptions();
-    const expectedIds = Object.keys(WEAPON_TABLE) as WeaponId[];
+    const expectedIds = (Object.keys(WEAPON_TABLE) as WeaponId[]).filter(
+      (id) => !id.startsWith("basic-attack-"),
+    );
     expect(options.map((o) => o.id).sort()).toEqual([...expectedIds].sort());
     for (const id of expectedIds) {
-      const row = WEAPON_TABLE[id];
-      const option = options.find((o) => o.id === id);
-      expect(option?.name).toBe(row.name);
+      expect(options.find((o) => o.id === id)?.name).toBe(WEAPON_TABLE[id].name);
     }
   });
 });
@@ -139,15 +142,18 @@ describe("statsTabs (PG35)", () => {
     }
   });
 
-  it("gives each SELECTED weapon its own group under weapons, and no other weapon", () => {
+  it("gives each SELECTED weapon its own group under weapons, plus each seat's basic attack (BA38)", () => {
+    // Nine rows share the name "Basic Attack", so a shared name is titled by id instead.
     const weapons = statsTabs(twoCarSetup())[2]!;
     expect(weapons.groups.map((g) => g.title)).toEqual([
       WEAPON_TABLE.thumper.name,
       WEAPON_TABLE.roadblock.name,
       WEAPON_TABLE.wildcharge.name,
+      "basic-attack-bastion",
       WEAPON_TABLE.predator.name,
       WEAPON_TABLE.thunderclap.name,
       WEAPON_TABLE.afterburner.name,
+      "basic-attack-mirage",
     ]);
   });
 
@@ -155,7 +161,8 @@ describe("statsTabs (PG35)", () => {
     const same = defaultPlaygroundSetup(); // both cars are the default chassis with one kit
     const tabs = statsTabs(same);
     expect(tabs[1]!.groups).toHaveLength(1);
-    expect(tabs[2]!.groups).toHaveLength(3);
+    // Both seats are the same chassis, so they share one basic attack too: 3 abilities + 1.
+    expect(tabs[2]!.groups).toHaveLength(4);
   });
 
   it("always returns all three tabs, whatever the setup", () => {
@@ -435,7 +442,9 @@ describe("statsTabs over seats (PG82)", () => {
     expect(titles(setup, "cars").sort()).toEqual(
       [CAR_TABLE.mirage.name, CAR_TABLE.bullseye.name, CAR_TABLE.bastion.name].sort(),
     );
-    expect(titles(setup, "weapons")).toHaveLength(9);
+    // 9 distinct ability weapons across the six seats, plus one basic attack per distinct chassis
+    // (mirage, bullseye, bastion) — BA38.
+    expect(titles(setup, "weapons")).toHaveLength(12);
   });
 
   it("ignores a DISABLED seat's chassis and weapons", () => {
