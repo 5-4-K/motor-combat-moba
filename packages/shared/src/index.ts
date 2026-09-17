@@ -151,6 +151,7 @@ export {
   DEFAULT_CAR_ID,
   accelOf,
   activeCarIds,
+  basicAttackOf,
   driveOf,
   forwardMaxSpeedOf,
   hpOf,

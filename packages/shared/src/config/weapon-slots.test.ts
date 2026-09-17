@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CAR_TABLE } from "./car-config.js";
+import { CAR_TABLE, basicAttackOf } from "./car-config.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
 import { WEAPON_SLOT_CONFIG, slotsOf, slotsFrom } from "./weapon-slots.js";
 
@@ -73,5 +73,21 @@ describe("loadouts", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     slotsFrom("bullseye", ["magmablast"]);
     expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("gives every chassis a basic attack named after it, shipped or not (BA2, BA9)", () => {
+    for (const car of Object.values(CAR_TABLE)) {
+      expect(basicAttackOf(car.id), car.id).toBe(`basic-attack-${car.id}`);
+      expect(WEAPON_TABLE, car.id).toHaveProperty(basicAttackOf(car.id));
+    }
+  });
+
+  it("keeps the basic attack out of the chassis's own kit (BA10)", () => {
+    // `weapons` means the three ABILITY slots and nothing else. A basic attack leaking into it
+    // would double-arm the car and put a fourth box in the HUD.
+    for (const car of Object.values(CAR_TABLE)) {
+      expect(car.weapons, car.id).not.toContain(basicAttackOf(car.id));
+      for (const weaponId of car.weapons) expect(weaponId.startsWith("basic-attack-"), car.id).toBe(false);
+    }
   });
 });

@@ -2,6 +2,7 @@ import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
 import { halfLifeToPerTick } from "./ram-config.js";
 import type { CarDef, CarId } from "./types.js";
+import type { WeaponId } from "./weapon-types.js";
 
 /**
  * The roster. Every rating is an integer 0-100 with 50 as average.
@@ -58,9 +59,9 @@ import type { CarDef, CarId } from "./types.js";
  * swapping a pair, never copying one.
  */
 export const CAR_TABLE = {
-  mirage: { id: "mirage", name: "Mirage", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, coastHalfLifeSeconds: 1.2, brakeDecel: 500, weapons: ["magmablast", "thunderclap", "afterburner"], isActive: true },
-  bullseye: { id: "bullseye", name: "Bullseye", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30, coastHalfLifeSeconds: 1.0, brakeDecel: 520, weapons: ["predator", "pepperbox", "lance"], isActive: true },
-  bastion: { id: "bastion", name: "Bastion", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, coastHalfLifeSeconds: 1.5, brakeDecel: 430, weapons: ["thumper", "roadblock", "wildcharge"], isActive: true },
+  mirage: { id: "mirage", name: "Mirage", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, coastHalfLifeSeconds: 1.2, brakeDecel: 500, weapons: ["magmablast", "thunderclap", "afterburner"], basicAttack: "basic-attack-mirage", isActive: true },
+  bullseye: { id: "bullseye", name: "Bullseye", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30, coastHalfLifeSeconds: 1.0, brakeDecel: 520, weapons: ["predator", "pepperbox", "lance"], basicAttack: "basic-attack-bullseye", isActive: true },
+  bastion: { id: "bastion", name: "Bastion", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, coastHalfLifeSeconds: 1.5, brakeDecel: 430, weapons: ["thumper", "roadblock", "wildcharge"], basicAttack: "basic-attack-bastion", isActive: true },
 
   // --- Unreleased prototypes (`isActive: false`) ------------------------------------------------
   //
@@ -75,12 +76,12 @@ export const CAR_TABLE = {
   // `docs/config-reference.md`): the at-least-one-weapon floor in `weapon-slots.test.ts` applies to
   // active cars only, and weapon exclusivity (L1) is unconditional, so a prototype may not borrow a
   // shipped kit — it gets its own `WEAPON_TABLE` rows when someone authors them.
-  taurus: { id: "taurus", name: "Taurus", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, coastHalfLifeSeconds: 1.5, brakeDecel: 430, weapons: [], isActive: false },
-  anvil: { id: "anvil", name: "Anvil", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, coastHalfLifeSeconds: 1.5, brakeDecel: 430, weapons: [], isActive: false },
-  prowler: { id: "prowler", name: "Prowler", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, coastHalfLifeSeconds: 1.2, brakeDecel: 500, weapons: [], isActive: false },
-  cleaver: { id: "cleaver", name: "Cleaver", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, coastHalfLifeSeconds: 1.2, brakeDecel: 500, weapons: [], isActive: false },
-  skorpios: { id: "skorpios", name: "Skorpios", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30, coastHalfLifeSeconds: 1.0, brakeDecel: 520, weapons: [], isActive: false },
-  caprico: { id: "caprico", name: "Caprico", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, coastHalfLifeSeconds: 1.5, brakeDecel: 430, weapons: [], isActive: false },
+  taurus: { id: "taurus", name: "Taurus", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, coastHalfLifeSeconds: 1.5, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-taurus", isActive: false },
+  anvil: { id: "anvil", name: "Anvil", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, coastHalfLifeSeconds: 1.5, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-anvil", isActive: false },
+  prowler: { id: "prowler", name: "Prowler", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, coastHalfLifeSeconds: 1.2, brakeDecel: 500, weapons: [], basicAttack: "basic-attack-prowler", isActive: false },
+  cleaver: { id: "cleaver", name: "Cleaver", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, coastHalfLifeSeconds: 1.2, brakeDecel: 500, weapons: [], basicAttack: "basic-attack-cleaver", isActive: false },
+  skorpios: { id: "skorpios", name: "Skorpios", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30, coastHalfLifeSeconds: 1.0, brakeDecel: 520, weapons: [], basicAttack: "basic-attack-skorpios", isActive: false },
+  caprico: { id: "caprico", name: "Caprico", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, coastHalfLifeSeconds: 1.5, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-caprico", isActive: false },
 } as const satisfies Record<CarId, CarDef>;
 
 /**
@@ -110,6 +111,14 @@ export function activeCarIds(): CarId[] {
 
 export function hpOf(id: CarId): number {
   return CAR_TABLE[id].hp * COMBAT_CONFIG.hpPerRating;
+}
+
+/**
+ * This chassis's basic attack (BA9). Beside `slotsOf`, never inside it: `slotsOf` answers "what kit
+ * was this chassis designed around" and this answers "what else can it fire".
+ */
+export function basicAttackOf(id: CarId): WeaponId {
+  return CAR_TABLE[id].basicAttack;
 }
 
 export function forwardMaxSpeedOf(id: CarId): number {
