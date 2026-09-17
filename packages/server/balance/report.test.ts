@@ -428,10 +428,10 @@ describe("writeReport: per-match CSVs (Task 20 piece 3, B38)", () => {
     ]);
 
     // Every row's carId is one of the three that played (the fixture seats all three every match),
-    // and each match contributes one row per weapon slot across the whole roster (`slotsOf` — every
-    // car carries 3 slots today, so 3 cars x 3 slots).
+    // and each match contributes one row per weapon slot across the whole roster (`fireSlotsOf` —
+    // every car carries its 3-weapon kit plus the basic attack every chassis has, so 3 cars x 4).
     const matchZeroRows = rows.filter((r) => r[0] === "0");
-    expect(matchZeroRows).toHaveLength(9);
+    expect(matchZeroRows).toHaveLength(12);
 
     const roadblockRow = matchZeroRows.find((r) => r[2] === "roadblock")!;
     expect(roadblockRow[3]).toBe("1"); // presses

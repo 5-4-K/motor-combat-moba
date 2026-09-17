@@ -60,6 +60,7 @@ import {
   TICK_RATE_HZ,
   WEAPON_TABLE,
   damageFor,
+  fireSlotsOf,
   hpOf,
   slotsOf,
   weaponTicksOf,
@@ -138,10 +139,15 @@ export function pressPlan(attacker, weaponId) {
  *
  * `debuffs: false` drops `corroded`'s amplification and `spiked`'s bleed, which is the honest way to
  * see how much of a matchup is the weapons and how much is the status riders.
+ *
+ * The kit is `fireSlotsOf` (BA31) — a time-to-kill that ignored a trigger the car actually pulls
+ * would answer a question nobody asked. The ATTACKER AXIS is still `armedCarIds()`, off `slotsOf`:
+ * a chassis whose only weapon is the basic attack every chassis has books a row that measures
+ * nothing.
  */
 export function simulateTtk(attacker, defender, options = {}) {
   const debuffs = options.debuffs !== false;
-  const kit = slotsOf(attacker)
+  const kit = fireSlotsOf(attacker)
     .filter((id) => !SUSTAINED_ROTATION_EXCLUDED.has(id))
     .map((id) => pressPlan(attacker, id));
   const maxHp = hpOf(defender);
@@ -255,7 +261,7 @@ function inputs() {
     const scale =
       1 + (CAR_TABLE[attacker].attack - COMBAT_CONFIG.attackBaseline) * COMBAT_CONFIG.damagePerAttack;
     lines.push(`\n  ${nameOf(attacker)} — attack ${CAR_TABLE[attacker].attack} (x${scale.toFixed(2)})`);
-    for (const weaponId of slotsOf(attacker)) {
+    for (const weaponId of fireSlotsOf(attacker)) {
       const plan = pressPlan(attacker, weaponId);
       const spread = Math.max(...plan.events.map((pair) => pair[0])) / TICK_RATE_HZ;
       lines.push(
