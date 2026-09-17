@@ -551,9 +551,9 @@ describe("serverTick fire mask reporting", () => {
     expect(masks.get("p1")).toBe(0b001);
   });
 
-  it("masks off bits beyond maxWeaponSlots", () => {
+  it("masks off bits beyond maxAbilitySlots", () => {
     const masks = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1, 0b1111_1111)]);
-    expect(masks.get("p1")).toBe(0b111); // maxWeaponSlots = 3
+    expect(masks.get("p1")).toBe(0b111); // maxAbilitySlots = 3
   });
 
   it("ors the masks of every input simulated this tick", () => {

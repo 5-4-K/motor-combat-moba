@@ -4,7 +4,7 @@ import { SLOT_KEYS, slotMaskFrom } from "./slot-keys.js";
 
 describe("slot keys", () => {
   it("binds at least as many slots as there are weapon slots", () => {
-    expect(SLOT_KEYS.length).toBeGreaterThanOrEqual(WEAPON_SLOT_CONFIG.maxWeaponSlots);
+    expect(SLOT_KEYS.length).toBeGreaterThanOrEqual(WEAPON_SLOT_CONFIG.maxAbilitySlots);
   });
 
   it("gives every slot a display glyph for the HUD", () => {

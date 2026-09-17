@@ -243,7 +243,7 @@ export function beginFire(
   if (state.pending) return state;
   if (mask <= 0) return state;
 
-  const usable = Math.min(state.slots.length, WEAPON_SLOT_CONFIG.maxWeaponSlots);
+  const usable = Math.min(state.slots.length, WEAPON_SLOT_CONFIG.maxAbilitySlots);
   for (let index = 0; index < usable; index++) {
     if ((mask & (1 << index)) === 0) continue;
 

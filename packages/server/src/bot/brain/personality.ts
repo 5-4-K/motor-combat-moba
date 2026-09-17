@@ -108,7 +108,7 @@ const EASIER: Readonly<Record<BotDifficulty, BotDifficulty | undefined>> = Objec
  * that promise: `personalityJitter` around the tier value, and never past the easier neighbouring
  * tier's value on the same parameter. A hard `sprayer` is still recognisably a good player.
  *
- * Draws `1 + maxWeaponSlots` random numbers, always: the archetype, then one weight per slot.
+ * Draws `1 + maxAbilitySlots` random numbers, always: the archetype, then one weight per slot.
  *
  * `startFrom` is the profile to build the rolled result on top of — the tier row by default, but a
  * controller constructed with a custom `options.profile` (a test override, or a future dev-tools
@@ -124,7 +124,7 @@ export function rollPersonality(
 ): { personality: BotPersonality; profile: BotProfile } {
   const pick = rng();
   const weights: number[] = [];
-  for (let i = 0; i < WEAPON_SLOT_CONFIG.maxWeaponSlots; i++) {
+  for (let i = 0; i < WEAPON_SLOT_CONFIG.maxAbilitySlots; i++) {
     // 0.5x to 1.5x: a real preference, but never a weapon the bot refuses to touch.
     weights.push(0.5 + rng());
   }

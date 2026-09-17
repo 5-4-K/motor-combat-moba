@@ -183,7 +183,7 @@ not a `CarId`, is what `stepDrive` takes**. See [`DRIVE_CONFIG`](#drive_config).
 
 `weapons` is an ordered list of `WEAPON_TABLE` ids — index 0 is slot 1, and order *is* the slot
 mapping. `slotsOf(carId)` (`config/weapon-slots.ts`) is what actually reads it, capped at
-`WEAPON_SLOT_CONFIG.maxWeaponSlots`; see [`combat-model.md`](combat-model.md) for the fire model
+`WEAPON_SLOT_CONFIG.maxAbilitySlots`; see [`combat-model.md`](combat-model.md) for the fire model
 that consumes it.
 
 ## COLOR_TABLE
@@ -363,7 +363,7 @@ for the next weapon that authors a `stock` block.
 
 | Knob | Value |
 |---|---|
-| `maxWeaponSlots` | 3 |
+| `maxAbilitySlots` | 3 |
 
 Caps how many slots any chassis may present. A car whose `weapons` list is longer logs one
 `console.warn` naming the car and the extras are truncated — a warning, never a thrown error or a

@@ -23,8 +23,8 @@ import {
 } from "@motor-combat-moba/shared";
 import { modifiersFor } from "./status-bridge.js";
 
-/** Every bit at or beyond `maxWeaponSlots` is stripped before a wire mask ever reaches the sim. */
-const SLOT_MASK = (1 << WEAPON_SLOT_CONFIG.maxWeaponSlots) - 1;
+/** Every bit at or beyond `maxAbilitySlots` is stripped before a wire mask ever reaches the sim. */
+const SLOT_MASK = (1 << WEAPON_SLOT_CONFIG.maxAbilitySlots) - 1;
 
 /**
  * What one `serverTick` reports about the tick it just simulated.
@@ -114,7 +114,7 @@ export interface TickResult {
  * key state, so an input past the per-tick cap cannot buy a shot the sim never ran, and a lobby
  * player spamming `fire` never spawns anything. The mask itself is attacker-controlled wire data:
  * non-integers and non-positive values collapse to 0, and whatever remains is masked to
- * `WEAPON_SLOT_CONFIG.maxWeaponSlots` bits before combat ever sees it, so a hand-rolled client
+ * `WEAPON_SLOT_CONFIG.maxAbilitySlots` bits before combat ever sees it, so a hand-rolled client
  * cannot fire a slot its car does not have. Masks from several inputs simulated in one tick are
  * OR-ed together. The weapon cooldown in `runCombat`, not this map, is what limits the rate —
  * several fire inputs in one tick still yield at most one shot.

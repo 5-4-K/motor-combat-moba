@@ -4,7 +4,7 @@ import { WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
  * Which inputs fire which slot, and what the HUD prints for that slot.
  *
  * Client-only on purpose: the server never sees a key or a mouse button, only a slot index, so a
- * re-bind is a local change with no protocol consequence. Must be at least `maxWeaponSlots` long.
+ * re-bind is a local change with no protocol consequence. Must be at least `maxAbilitySlots` long.
  *
  * Each slot has TWO bindings: the J / K / L home-row keys under the right hand (for driving on
  * WASD), and a mouse-hand alternate — left button, right button, Space — for players who rest that
@@ -44,7 +44,7 @@ export const SLOT_KEYS = [
  */
 export function slotMaskFrom(down: readonly boolean[], mouseButtons = 0): number {
   let mask = 0;
-  const limit = Math.min(SLOT_KEYS.length, WEAPON_SLOT_CONFIG.maxWeaponSlots);
+  const limit = Math.min(SLOT_KEYS.length, WEAPON_SLOT_CONFIG.maxAbilitySlots);
   for (let i = 0; i < limit; i++) {
     const held = (down[i] ?? false) || (mouseButtons & SLOT_KEYS[i]!.buttonsMask) !== 0;
     if (held) mask |= 1 << i;

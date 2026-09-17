@@ -269,7 +269,7 @@ export function slotBarLayout(
   gutterWidth: number,
   topInset: number,
 ): SlotBox[] {
-  const shown = Math.min(count, WEAPON_SLOT_CONFIG.maxWeaponSlots);
+  const shown = Math.min(count, WEAPON_SLOT_CONFIG.maxAbilitySlots);
   if (shown <= 0) return [];
   const totalHeight = shown * SLOT_BOX_PX + (shown - 1) * GAP_PX;
   const top = topInset + (viewHeight - topInset - totalHeight) / 2;

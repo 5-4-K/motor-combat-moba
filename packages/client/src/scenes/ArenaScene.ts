@@ -2704,7 +2704,7 @@ export class ArenaScene extends Phaser.Scene {
         this.makeHudText(STATUS_LABEL_FONT_PX).setOrigin(0, 0.5).setColor(HUD_STATUS_TEXT),
       );
     }
-    for (let i = 0; i < WEAPON_SLOT_CONFIG.maxWeaponSlots; i++) {
+    for (let i = 0; i < WEAPON_SLOT_CONFIG.maxAbilitySlots; i++) {
       // Left-centre origin: the key sits `SLOT_KEY_GAP_PX` to the RIGHT of the slot and centred on
       // it, so `keyX` is the label's left edge and `cy` its middle. A centred origin would pull the
       // label back over the frame, and D18 wants the key outside it.
@@ -2826,7 +2826,7 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * The slot bar: camera-fixed, drawing `min(weapons.length, maxWeaponSlots)` boxes for whichever
+   * The slot bar: camera-fixed, drawing `min(weapons.length, maxAbilitySlots)` boxes for whichever
    * car `hudTargetPlayer` names. Slots beyond the current target (or with no target at all) just
    * hide their pooled text objects rather than destroying anything, so switching who is watched
    * costs no allocation.

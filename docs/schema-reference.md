@@ -227,7 +227,7 @@ slot with nothing left to fire.
 ## InputMessage.fireSlots
 
 `fireSlots: number` — a uint8 bitmask, bit 0 = slot 1 — replaced the single `fire: boolean`. The
-server masks it to `WEAPON_SLOT_CONFIG.maxWeaponSlots` bits and to the car's actual slot count
+server masks it to `WEAPON_SLOT_CONFIG.maxAbilitySlots` bits and to the car's actual slot count
 before the sim ever sees it; multiple bits set on one tick resolve to the lowest slot.
 
 It carries **key state, not presses**. The server derives the press edge itself from its own

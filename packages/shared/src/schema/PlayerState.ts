@@ -81,7 +81,7 @@ export class PlayerState extends Schema {
   /**
    * Slot index the car most recently committed to firing, or `-1` before its first shot — hence
    * `int8` rather than a uint8 sentinel: -1 is the natural "never" for an index, and slot counts are
-   * capped at `WEAPON_SLOT_CONFIG.maxWeaponSlots` (3), nowhere near the type's range.
+   * capped at `WEAPON_SLOT_CONFIG.maxAbilitySlots` (3), nowhere near the type's range.
    */
   @type("int8") lastFiredSlot = -1;
   /**

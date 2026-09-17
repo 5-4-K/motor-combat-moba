@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CAR_TABLE, basicAttackOf } from "./car-config.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
-import { WEAPON_SLOT_CONFIG, slotsOf, slotsFrom } from "./weapon-slots.js";
+import { WEAPON_SLOT_CONFIG, slotsOf, slotsFrom, fireSlotsOf } from "./weapon-slots.js";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -14,7 +14,7 @@ describe("loadouts", () => {
     // moment `isActive` flips true.
     for (const car of Object.values(CAR_TABLE)) {
       if (car.isActive) expect(car.weapons.length).toBeGreaterThanOrEqual(1);
-      expect(car.weapons.length).toBeLessThanOrEqual(WEAPON_SLOT_CONFIG.maxWeaponSlots);
+      expect(car.weapons.length).toBeLessThanOrEqual(WEAPON_SLOT_CONFIG.maxAbilitySlots);
     }
   });
 
@@ -63,8 +63,8 @@ describe("loadouts", () => {
     const first = slotsFrom("bastion", over);
     const second = slotsFrom("bastion", over);
 
-    expect(first).toHaveLength(WEAPON_SLOT_CONFIG.maxWeaponSlots);
-    expect(second).toHaveLength(WEAPON_SLOT_CONFIG.maxWeaponSlots);
+    expect(first).toHaveLength(WEAPON_SLOT_CONFIG.maxAbilitySlots);
+    expect(second).toHaveLength(WEAPON_SLOT_CONFIG.maxAbilitySlots);
     expect(warn).toHaveBeenCalledTimes(1); // once per car, not once per call
     expect(warn.mock.calls[0]![0]).toContain("bastion");
   });
@@ -89,5 +89,24 @@ describe("loadouts", () => {
       expect(car.weapons, car.id).not.toContain(basicAttackOf(car.id));
       for (const weaponId of car.weapons) expect(weaponId.startsWith("basic-attack-"), car.id).toBe(false);
     }
+  });
+
+  it("derives the fire-slot constants from the ability count, so the two cannot drift (BA11, BA13)", () => {
+    expect(WEAPON_SLOT_CONFIG.maxAbilitySlots).toBe(3);
+    expect(WEAPON_SLOT_CONFIG.maxFireSlots).toBe(WEAPON_SLOT_CONFIG.maxAbilitySlots + 1);
+    expect(WEAPON_SLOT_CONFIG.basicAttackSlotIndex).toBe(WEAPON_SLOT_CONFIG.maxAbilitySlots);
+  });
+
+  it("puts the basic attack last in the fire order, behind an unmoved kit (BA12, BA13)", () => {
+    expect(fireSlotsOf("bastion")).toEqual([
+      "thumper",
+      "roadblock",
+      "wildcharge",
+      "basic-attack-bastion",
+    ]);
+    // A prototype carries no abilities at all, so its basic attack is its only fire slot — and it
+    // still lands at index 0, not index 3: the fire order is the kit followed by the basic attack,
+    // not a fixed four-element array with holes.
+    expect(fireSlotsOf("taurus")).toEqual(["basic-attack-taurus"]);
   });
 });

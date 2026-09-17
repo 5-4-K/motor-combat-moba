@@ -302,7 +302,7 @@ describe("layout with a roster panel above it", () => {
 describe("the gutter budget", () => {
   const panel = rosterPanelLayout(MAX_PLAYERS, VIEW_WIDTH, HUD_GUTTER_WIDTH);
   const slots = slotBarLayout(
-    WEAPON_SLOT_CONFIG.maxWeaponSlots,
+    WEAPON_SLOT_CONFIG.maxAbilitySlots,
     VIEW_WIDTH,
     VIEW_HEIGHT,
     HUD_GUTTER_WIDTH,
