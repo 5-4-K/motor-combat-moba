@@ -56,6 +56,15 @@ export const WEAPON_COPY = {
   thumper: { line: "A bouncing slug, the biggest projectile in the game." },
   roadblock: { line: "A wall on the move. It stuns through cover." },
   wildcharge: { line: "Armor up, then hard-slam the first car you touch." },
+  "basic-attack-bullseye": { line: "Always loaded. A plain black bolt, and the only shot that never runs out." },
+  "basic-attack-mirage": { line: "Always loaded. A plain black bolt, and the only shot that never runs out." },
+  "basic-attack-bastion": { line: "Always loaded. A plain black bolt, and the only shot that never runs out." },
+  "basic-attack-taurus": { line: "Always loaded. A plain black bolt, and the only shot that never runs out." },
+  "basic-attack-anvil": { line: "Always loaded. A plain black bolt, and the only shot that never runs out." },
+  "basic-attack-prowler": { line: "Always loaded. A plain black bolt, and the only shot that never runs out." },
+  "basic-attack-cleaver": { line: "Always loaded. A plain black bolt, and the only shot that never runs out." },
+  "basic-attack-skorpios": { line: "Always loaded. A plain black bolt, and the only shot that never runs out." },
+  "basic-attack-caprico": { line: "Always loaded. A plain black bolt, and the only shot that never runs out." },
 };
 
 /**

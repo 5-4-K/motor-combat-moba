@@ -43,6 +43,7 @@ import {
   WEAPON_TICKS,
   accelOf,
   activeCarIds,
+  basicAttackOf,
   damageFor,
   forwardMaxSpeedOf,
   getArena,
@@ -113,7 +114,7 @@ const ARENA_WIDTH = playableExtentOf(getArena(ACTIVE_ARENA_ID)).width;
 const CAR_IDS = activeCarIds();
 
 const OWNER_OF = Object.fromEntries(
-  CAR_IDS.flatMap((carId) => slotsOf(carId).map((weaponId) => [weaponId, carId])),
+  CAR_IDS.flatMap((carId) => [...slotsOf(carId), basicAttackOf(carId)].map((weaponId) => [weaponId, carId])),
 );
 
 const round = (n, dp = 0) => Number(n.toFixed(dp));
@@ -171,6 +172,9 @@ const CHANNEL_WORDS = {
  */
 const PROJECTILE_NOUN = { circle: "bolt", ellipse: "dart", capsule: "slug", bar: "bar" };
 
+/** Printed above a card. A basic attack gets its own label instead of a kit slot's (see `derive`). */
+const SLOT_LABEL = ["Slot 1", "Slot 2", "Slot 3"];
+
 /** `{ shape, size }` — `size` kept short enough to sit inline in a stat row. */
 function hitboxSize(def) {
   const h = def.hitbox;
@@ -189,6 +193,9 @@ function derive(id) {
   const carId = OWNER_OF[id];
   const car = CAR_TABLE[carId];
   const slot = slotsOf(carId).indexOf(id);
+  // `-1` means this is the chassis's basic attack, not a kit slot (BA27): indexing `SLOT_LABEL` by
+  // a fire-slot index would print `undefined`.
+  const slotLabel = slot < 0 ? "Basic attack" : SLOT_LABEL[slot];
   const beam = def.kind === "beam";
   // A maneuver has neither `hitbox` nor `pellets` — the car's own hull is the hit volume and one
   // press lands exactly one hit (the contact, priced in `runCombat` like any other) — so it takes
@@ -242,6 +249,7 @@ function derive(id) {
     carId,
     car,
     slot,
+    slotLabel,
     beam,
     maneuver,
     waves: def.volley.volleys,
@@ -254,7 +262,7 @@ function derive(id) {
   };
 }
 
-const WEAPONS = CAR_IDS.flatMap((carId) => slotsOf(carId)).map(derive);
+const WEAPONS = CAR_IDS.flatMap((carId) => [...slotsOf(carId), basicAttackOf(carId)]).map(derive);
 const byId = Object.fromEntries(WEAPONS.map((w) => [w.id, w]));
 
 /**
@@ -337,7 +345,7 @@ const hasWeaponIcon = (id) => existsSync(resolve(ROOT, "packages/client/public",
  */
 function iconMarkup(w) {
   if (hasWeaponIcon(w.id)) return `<img src="${iconUrl(w.id)}" alt="">`;
-  return `<div class="icon-fallback" style="background:${w.def.color}" aria-hidden="true"></div>`;
+  return `<div class="icon-fallback" style="background:${lift(w.def.color)}" aria-hidden="true"></div>`;
 }
 
 /** Weapon colours are authored to read on the arena's light floor; lift them for a dark page. */
@@ -443,7 +451,6 @@ const PUBLISHED_EFFECTS = Object.keys(STATUS_TABLE).filter(
 // ---------------------------------------------------------------------------- weapon stats
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-const SLOT_LABEL = ["Slot 1", "Slot 2", "Slot 3"];
 
 /**
  * What comes out of the muzzle, in one phrase: the shape of the shot and how many of them.
@@ -615,7 +622,7 @@ function weaponCard(w) {
       ${iconMarkup(w)}
       <div>
         <h4>${esc(w.def.name)}</h4>
-        <span class="slot">${esc(SLOT_LABEL[w.slot])}</span>
+        <span class="slot">${esc(w.slotLabel)}</span>
       </div>
     </header>
     <p class="line">${esc(WEAPON_COPY[w.id].line)}</p>
@@ -656,7 +663,7 @@ function carSection(carId) {
           `<li><span class="bl">${esc(label)}</span><span class="bt"><i style="width:${value}%"></i></span><span class="bv">${value}</span><span class="bn">${esc(note)}</span></li>`,
       )
       .join("")}</ul>
-    <div class="weapons">${slotsOf(carId).map((id) => weaponCard(byId[id])).join("")}</div>
+    <div class="weapons">${[basicAttackOf(carId), ...slotsOf(carId)].map((id) => weaponCard(byId[id])).join("")}</div>
   </section>`;
 }
 
