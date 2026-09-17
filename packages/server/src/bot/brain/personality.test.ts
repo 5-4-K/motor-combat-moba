@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import { rollPersonality } from "./personality.js";
@@ -41,7 +42,9 @@ describe("rollPersonality", () => {
 
   it("rolls one slot weight per possible slot", () => {
     const { personality } = rollPersonality(makeRng(1), "easy");
-    expect(personality.slotWeights).toHaveLength(3);
+    // BA24: a fourth fire slot (the basic attack) now draws its own weight, so this is
+    // `maxFireSlots`, not `maxAbilitySlots` — one weight per slot the bot can actually press.
+    expect(personality.slotWeights).toHaveLength(WEAPON_SLOT_CONFIG.maxFireSlots);
     for (const weight of personality.slotWeights) {
       expect(weight).toBeGreaterThan(0);
     }

@@ -790,7 +790,8 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // term out of `punish`/`fight`/`close`/`reset`. MAJOR, not minor: `BOT_PROFILES` again did not move,
 // but this is the largest single change to what the pilot values since the situation brain shipped,
 // and no `--baseline` comparison across it is meaningful.
-export const BOT_BRAIN_VERSION = "5.0.0";
+// 5.1.0: the basic attack (BA24) — a fourth per-slot weight moved every bot's RNG stream.
+export const BOT_BRAIN_VERSION = "5.1.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency
