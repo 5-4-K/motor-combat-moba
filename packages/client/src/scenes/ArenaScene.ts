@@ -584,7 +584,6 @@ interface ArenaPlayer {
   angle: number;
   vx: number;
   vy: number;
-  reverseHold: number;
   angVel: number;
   maneuver: number;
   maneuverTicksLeft: number;
@@ -635,7 +634,6 @@ function bodyOf(player: ArenaPlayer): SimBody {
     angle: player.angle,
     vx: player.vx,
     vy: player.vy,
-    reverseHold: player.reverseHold,
     angVel: player.angVel,
     maneuver: player.maneuver,
     maneuverTicksLeft: player.maneuverTicksLeft,

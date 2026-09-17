@@ -32,7 +32,7 @@ function car(over: Partial<RamCar> = {}): RamCar {
  */
 function bodyAt(x: number, y: number, angle: number): SimBody {
   return {
-    x, y, angle, vx: 0, vy: 0, reverseHold: 0, angVel: 0,
+    x, y, angle, vx: 0, vy: 0, angVel: 0,
     maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
   };
 }

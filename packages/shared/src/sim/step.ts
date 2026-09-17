@@ -20,7 +20,6 @@ export interface SimBody {
    */
   vx: number;
   vy: number;
-  reverseHold: number;
   /**
    * Injected rotation, radians per second, decaying toward 0. Set only by a ram; steering is a
    * separate term and does not write here. Added to the steering rate rather than replacing it, so

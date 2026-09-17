@@ -61,7 +61,6 @@ function body(over: Partial<SimBody> = {}): SimBody {
     angle: 0,
     vx: 0,
     vy: 0,
-    reverseHold: 0,
     angVel: 0,
     ...over,
   };
@@ -101,8 +100,8 @@ describe("topSpeed reaches the drive cap", () => {
   it("caps reverse too, so backing away is not the way out of a slow", () => {
     // RE-PINNED for the Unity drive-model port: `reverseMaxSpeed` is gone from `ChassisDrive` —
     // reverse top speed is the emergent equilibrium `reverseAccel / dragRate` now, same shape as
-    // forward's `maxSpeed`. `reverseHoldTicks` dropped from the initial body: the reverse-hold
-    // ceremony is gone from `stepDrive` and nothing reads `body.reverseHold` any more.
+    // forward's `maxSpeed`. The reverse-hold ceremony is gone from `stepDrive`, and `reverseHold`
+    // itself is gone from `SimBody` — there is no field left for the initial body to carry.
     let out = body({ vx: -10 });
     for (let i = 0; i < 1000; i++) out = stepDrive(out, input(0, -1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 }));
     expect(fwd(out)).toBeCloseTo(-(GOLDEN_CHASSIS.reverseAccel / GOLDEN_CHASSIS.dragRate) * 0.5, 6);

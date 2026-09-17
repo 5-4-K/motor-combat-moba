@@ -17,8 +17,7 @@ export interface DriveAction {
  * A `SimBody` for ANOTHER car, from what a bot may legitimately see (P17, P5).
  *
  * `x`, `y`, `angle`, `vx`, `vy` and `maneuver` are drawn on screen and come straight off
- * `BotCarView`. `angVel` is INFERRED from two observed poses. `reverseHold` is not a number a human
- * reads at all, so it is assumed neutral.
+ * `BotCarView`. `angVel` is INFERRED from two observed poses.
  *
  * `vx`/`vy` REPLACE the old scalar `speed` (car-physics rework, stage 1). This is the fix, not a
  * rename: the previous code took a magnitude along the heading, so a car that was SLIDING — shoved
@@ -43,7 +42,6 @@ export interface DriveAction {
 export function bodyFromObservation(car: BotCarView, angVel: number): SimBody {
   return {
     x: car.x, y: car.y, angle: car.angle, vx: car.vx, vy: car.vy,
-    reverseHold: 0,
     angVel,
     maneuver: car.maneuver,
     maneuverTicksLeft: 0,
@@ -54,11 +52,10 @@ export function bodyFromObservation(car: BotCarView, angVel: number): SimBody {
 
 /**
  * A `SimBody` for the bot's OWN car. The POSE fields — `x`, `y`, `angle`, `vx`, `vy`, `maneuver` and
- * `maneuverTicksLeft` — come straight off the bot's own HUD and are exact, not inferred.
- * `reverseHold` is not on `BotSelfView` at all, so it is assumed neutral here exactly as it is for
- * an observed car in `bodyFromObservation` — this function does not read it off anything. (Before
+ * `maneuverTicksLeft` — come straight off the bot's own HUD and are exact, not inferred. (Before
  * the car-physics rework this paragraph named four such fields; `authority`, `shoveX` and `shoveY`
- * no longer exist on `SimBody` at all.)
+ * no longer exist on `SimBody` at all, and `reverseHold` was deleted outright in the Unity drive
+ * port.)
  *
  * `maneuverTicksLeft: 0` mirrors `bodyFromObservation`, and is a DELIBERATE discard of a field the
  * bot really does know. Copying a genuine `self.maneuverTicksLeft` while fabricating
@@ -76,7 +73,6 @@ export function bodyFromObservation(car: BotCarView, angVel: number): SimBody {
 export function bodyFromSelf(self: BotSelfView): SimBody {
   return {
     x: self.x, y: self.y, angle: self.angle, vx: self.vx, vy: self.vy,
-    reverseHold: 0,
     angVel: 0,
     maneuver: self.maneuver,
     maneuverTicksLeft: 0,

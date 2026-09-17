@@ -146,7 +146,7 @@ export const DRIVE_CONFIG = {
   reverseAccelFactor: 0.6,
   /**
    * Ticks Down must be held *at rest* before reverse engages, guarding against a tap of the brake
-   * flinging you backward. At `TICK_RATE_HZ` 30 this is 66ms. Networked as uint16 via `reverseHold`.
+   * flinging you backward. At `TICK_RATE_HZ` 30 this is 66ms.
    */
   reverseHoldTicks: 2,
   /**

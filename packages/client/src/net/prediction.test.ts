@@ -35,7 +35,6 @@ const START: SimBody = {
   angle: 0,
   vx: 0,
   vy: 0,
-  reverseHold: 0,
   angVel: 0,
   maneuver: 0,
   maneuverTicksLeft: 0,
@@ -155,7 +154,6 @@ describe("PredictionBuffer.reconcile", () => {
       angle: 0.2,
       vx: 30,
       vy: 6,
-      reverseHold: 0,
       angVel: 0,
       maneuver: 0,
       maneuverTicksLeft: 0,
@@ -178,7 +176,6 @@ describe("PredictionBuffer.reconcile", () => {
       angle: 0,
       vx: 0,
       vy: 0,
-      reverseHold: 0,
       angVel: 0,
       maneuver: 0,
       maneuverTicksLeft: 0,
@@ -198,7 +195,6 @@ describe("PredictionBuffer.reconcile", () => {
       angle: 0,
       vx: 0,
       vy: 0,
-      reverseHold: 0,
       angVel: 0,
       maneuver: 0,
       maneuverTicksLeft: 0,
@@ -213,7 +209,7 @@ describe("PredictionBuffer.reconcile", () => {
     expect(out.y).toBeCloseTo(406 + rate * (400 - 406), 10);
   });
 
-  it("snaps vx/vy and reverseHold to the replayed target instead of easing them", () => {
+  it("snaps vx/vy to the replayed target instead of easing them", () => {
     // Derived sim fields are inputs to the next step, so a half-eased velocity would feed a wrong
     // integration next tick and never converge.
     const buf = new PredictionBuffer();
@@ -223,7 +219,6 @@ describe("PredictionBuffer.reconcile", () => {
       angle: 0,
       vx: 50,
       vy: -20,
-      reverseHold: 6,
       angVel: 0,
       maneuver: 0,
       maneuverTicksLeft: 0,
@@ -236,7 +231,6 @@ describe("PredictionBuffer.reconcile", () => {
       angle: 0,
       vx: 0,
       vy: 0,
-      reverseHold: 0,
       angVel: 0,
       maneuver: 0,
       maneuverTicksLeft: 0,
@@ -247,7 +241,6 @@ describe("PredictionBuffer.reconcile", () => {
     const out = buf.reconcile(authoritative, 0, nearby, ctx);
     expect(out.vx).toBe(50);
     expect(out.vy).toBe(-20);
-    expect(out.reverseHold).toBe(6);
     expect(out.x).not.toBe(400);
   });
 
@@ -261,7 +254,6 @@ describe("PredictionBuffer.reconcile", () => {
       angle: 0.1,
       vx: 0,
       vy: 0,
-      reverseHold: 0,
       angVel: 0,
       maneuver: 0,
       maneuverTicksLeft: 0,
@@ -290,7 +282,6 @@ describe("PredictionBuffer.reconcile", () => {
       angle: 0,
       vx: 120,
       vy: -60,
-      reverseHold: 0,
       angVel: 2.5,
       maneuver: 0,
       maneuverTicksLeft: 0,
@@ -303,7 +294,6 @@ describe("PredictionBuffer.reconcile", () => {
       angle: 0,
       vx: 0,
       vy: 0,
-      reverseHold: 0,
       angVel: 0,
       maneuver: 0,
       maneuverTicksLeft: 0,
@@ -335,7 +325,6 @@ describe("PredictionBuffer.reconcile", () => {
       angle: 0,
       vx: 0,
       vy: 0,
-      reverseHold: 0,
       angVel: 0,
       maneuver: ManeuverKind.DASH,
       maneuverTicksLeft: 5,
@@ -348,7 +337,6 @@ describe("PredictionBuffer.reconcile", () => {
       angle: 0,
       vx: 0,
       vy: 0,
-      reverseHold: 0,
       angVel: 0,
       maneuver: ManeuverKind.NONE,
       maneuverTicksLeft: 0,
@@ -378,7 +366,6 @@ describe("PredictionBuffer.reconcile", () => {
       angle: -3,
       vx: 0,
       vy: 0,
-      reverseHold: 0,
       angVel: 0,
       maneuver: 0,
       maneuverTicksLeft: 0,

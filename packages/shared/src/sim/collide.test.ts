@@ -65,7 +65,6 @@ function body(patch: Partial<SimBody>): SimBody {
     angle: 0,
     vx: 0,
     vy: 0,
-    reverseHold: 0,
     angVel: 0,
     ...patch,
   };
@@ -177,13 +176,6 @@ describe("resolveWorld - world bounds", () => {
     expect(out.x).toBeGreaterThanOrEqual(hx - TOUCH_SLACK);
     expect(out.y).toBeGreaterThanOrEqual(hy - TOUCH_SLACK);
   });
-
-  it("carries angle and reverseHold through unchanged", () => {
-    const start = body({ x: BOUNDS.width + 40, y: 500, angle: 1.23, ...alongHeading(1.23, 40), reverseHold: 4 });
-    const out = resolveWorld(start, [], [], BOUNDS, FILLER_RAM_DEFENCE);
-    expect(out.angle).toBe(start.angle);
-    expect(out.reverseHold).toBe(start.reverseHold);
-  });
 });
 
 describe("resolveWorld - obstacles", () => {
@@ -227,7 +219,7 @@ describe("resolveWorld - obstacles", () => {
 
 describe("resolveWorld - the car is a real OBB, not its axis-aligned hull", () => {
   // Car centre (100,100), half-extents 30 x 20.
-  const start = { x: 100, y: 100, vx: 0, vy: 0, reverseHold: 0 };
+  const start = { x: 100, y: 100, vx: 0, vy: 0 };
 
   // These two fixtures are hand-computed from the rotation by construction, and that is the point.
   // `cornersOf` and `hullHalfExtents` in this file are line-for-line copies of the implementation's
@@ -422,7 +414,7 @@ describe("resolveWorld - purity and determinism", () => {
     { hull: { x: 118, y: 108, angle: 0.7, w: CAR_W, h: CAR_H }, ramDefence: FILLER_RAM_DEFENCE },
     { hull: { x: 80, y: 120, angle: -0.3, w: CAR_W, h: CAR_H }, ramDefence: FILLER_RAM_DEFENCE },
   ];
-  const start = body({ x: 100, y: 100, angle: 0.2, ...alongHeading(0.2, 55), reverseHold: 3 });
+  const start = body({ x: 100, y: 100, angle: 0.2, ...alongHeading(0.2, 55) });
 
   it("is deterministic for identical inputs", () => {
     const a = resolveWorld(start, others, obstacles, BOUNDS, FILLER_RAM_DEFENCE);
@@ -1011,7 +1003,7 @@ describe("polygon bounds", () => {
   };
 
   const bodyAt = (x: number, y: number, angle = 0) => ({
-    x, y, angle, vx: 0, vy: 0, reverseHold: 0, angVel: 0,
+    x, y, angle, vx: 0, vy: 0, angVel: 0,
     maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
   });
 

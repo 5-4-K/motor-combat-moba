@@ -11,7 +11,6 @@ function pose(x: number, y: number, angle = 0): SimBody {
     angle,
     vx: 0,
     vy: 0,
-    reverseHold: 0,
     angVel: 0,
     maneuver: 0,
     maneuverTicksLeft: 0,
@@ -82,21 +81,20 @@ describe("InterpolationBuffer", () => {
     expect(Math.abs(out?.angle ?? 0)).toBeCloseTo(Math.PI, 6);
   });
 
-  it("carries vx/vy and reverseHold from the snapshot being interpolated toward", () => {
+  it("carries vx/vy from the snapshot being interpolated toward", () => {
     const buf = new InterpolationBuffer();
     buf.push(1000, {
-      x: 0, y: 0, angle: 0, vx: 10, vy: -5, reverseHold: 0, angVel: 0,
+      x: 0, y: 0, angle: 0, vx: 10, vy: -5, angVel: 0,
       maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
     });
     buf.push(1100, {
-      x: 100, y: 0, angle: 0, vx: 90, vy: 15, reverseHold: 4, angVel: 0,
+      x: 100, y: 0, angle: 0, vx: 90, vy: 15, angVel: 0,
       maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
     });
 
     const out = buf.sample(1050 + DELAY);
     expect(out?.vx).toBe(90);
     expect(out?.vy).toBe(15);
-    expect(out?.reverseHold).toBe(4);
   });
 
   it("prunes snapshots older than the interpolation window", () => {
@@ -132,7 +130,6 @@ describe("blendPose", () => {
       angle: 0,
       vx: 7,
       vy: -2,
-      reverseHold: 3,
       angVel: 0,
       maneuver: 0,
       maneuverTicksLeft: 0,
@@ -145,7 +142,6 @@ describe("blendPose", () => {
       angle: 0,
       vx: 7,
       vy: -2,
-      reverseHold: 3,
       angVel: 0,
       maneuver: 0,
       maneuverTicksLeft: 0,

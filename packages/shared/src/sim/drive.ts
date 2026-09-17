@@ -82,10 +82,6 @@ export function stepDrive(
     angle,
     vx: v.vx,
     vy: v.vy,
-    // Dead field until Task 4 deletes it from `SimBody`/`PlayerState` (car-physics-port stage 1
-    // Task 4) — nothing here computes a meaningful reverse-hold delay any more, since reverse now
-    // engages the moment the driver holds Down below `reverseEpsilon` (see `engineCommandOf`).
-    reverseHold: 0,
     angVel,
     ...maneuverNext,
   };
@@ -238,7 +234,6 @@ function stepDash(body: SimBody, dt: number, chassis: ChassisDrive, mods: Readon
     x: body.x + step.x,
     y: body.y + step.y,
     angle: body.maneuverAngle,
-    reverseHold: 0,
     angVel: nextSpinOf(body.angVel, chassis),
     // Hand the car back already rolling at its cap — a dash that exits frozen reads as a stall.
     ...(done
@@ -279,7 +274,6 @@ function stepHold(
     angle,
     vx: v.vx,
     vy: v.vy,
-    reverseHold: 0,
     angVel: nextSpinOf(body.angVel, chassis),
     maneuver: done ? ManeuverKind.NONE : ManeuverKind.HOLD,
     maneuverTicksLeft: done ? 0 : ticksLeft,

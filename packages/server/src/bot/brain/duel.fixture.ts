@@ -175,7 +175,7 @@ export function runDuel(opts: DuelOptions): DuelResult {
   const events = newCombatEvents();
 
   let body: SimBody = {
-    ...BOT_START, reverseHold: 0, angVel: 0,
+    ...BOT_START, angVel: 0,
     maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
   };
   let me = combatant("me", chassis, 0, body.x, body.y, body.angle);

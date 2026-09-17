@@ -77,7 +77,7 @@ const RELAXATION_PASSES = 1;
 
 /**
  * Push a body out of the world it is overlapping and bounce its speed. Pure: inputs are never
- * mutated and the result is always a fresh `SimBody` with `angle` and `reverseHold` carried through.
+ * mutated and the result is always a fresh `SimBody` with `angle` carried through unchanged.
  *
  * Contacts resolve in a fixed order — bounds, `others` in array order, `obstacles` in array order,
  * then a final bounds clamp. Fixed order means server and client agree on *which* contacts are

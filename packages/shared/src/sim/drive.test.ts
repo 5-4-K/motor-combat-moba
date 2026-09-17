@@ -56,7 +56,6 @@ function rest(): SimBody {
     angle: 0,
     vx: 0,
     vy: 0,
-    reverseHold: 0,
     angVel: 0,
     maneuver: 0,
     maneuverTicksLeft: 0,
@@ -110,8 +109,8 @@ describe("stepDrive", () => {
   // has no hold delay at all: `engineCommandOf` reverses the instant `forward` is at or below
   // `reverseEpsilon`, on the very first tick Down is held. There is also no reverse CLAMP any more
   // — reverse top speed is the equilibrium `reverseAccel / dragRate`, approached asymptotically like
-  // the forward one, never pinned exactly. `reverseHoldTicks`/`SimBody.reverseHold` are dead until a
-  // later task deletes them; this file stops exercising the ceremony rather than asserting it.
+  // the forward one, never pinned exactly. `SimBody.reverseHold` was deleted outright by this port's
+  // Task 4; this file stops exercising the ceremony rather than asserting it.
 
   it("accelerates backward at reverseAccel, not the forward accel, from the first tick Down is held", () => {
     // Reverse gets its own rate so backing out of a fight is not gated by the forward curve, and

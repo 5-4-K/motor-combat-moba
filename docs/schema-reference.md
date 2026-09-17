@@ -86,7 +86,6 @@ field at all, so the check is always false there. See root `CLAUDE.md` and
 | `joinedAtTick` | uint32 | `0` | Host-succession order |
 | `carId` | string | `""` | `""` until reveal |
 | `vx`, `vy` | number | `0` | World velocity, u/s. Replaces the old scalar `speed` — a magnitude along the heading with a separate `shoveX`/`shoveY` knock vector bolted alongside. There is no successor to `shove`: steering grip keeps a driven car's own motion aligned with its nose, so any *lateral* component of `vx`/`vy` is by definition externally imposed, and a knocked car's motion is just a decomposition of the one velocity rather than a second field |
-| `reverseHold` | uint16 | `0` | Ticks held in reverse |
 | `angVel` | number | `0` | Ram-injected spin, rad/s. Decays toward `0` |
 | `maneuver` | uint8 `ManeuverKind` | `0` | NONE=0, DASH=1, HOLD=2, CHARGE=3 |
 | `maneuverTicksLeft` | uint16 | `0` | Ticks left in the current maneuver; `0` whenever `maneuver` is NONE |
@@ -109,10 +108,13 @@ field at all, so the check is always false there. See root `CLAUDE.md` and
 `weaponCooldown` (a single counter for the one pre-weapon-system shot) is gone — replaced by
 `weapons` above, one row per slot.
 
+`reverseHold` was removed by the 2026-09-18 Unity drive port: reverse engages at
+`DRIVE_CONFIG.reverseEpsilon` with no hold delay, so the field had no reader.
+
 `vx`, `vy`, and `angVel` are the ram knock state as of the 2026-09-06 vector-drive rework (see
 [`combat-model.md`](combat-model.md#ramming)). A ram now adds its knock directly into `vx`/`vy` as a
-temporary shim rather than writing a separate field. They join `reverseHold` in
-`PredictionBuffer.reconcile`'s always-**snap** set rather than the ease path — all four feed the
+temporary shim rather than writing a separate field. All three sit in
+`PredictionBuffer.reconcile`'s always-**snap** set rather than the ease path — they feed the
 next `stepSim` integration directly, so a half-eased value would poison every subsequent step rather
 than merely look wrong. Net effect on the wire, against the pre-rework schema: **four fields removed**
 (`speed`, `shoveX`, `shoveY`, `authority`) and **two added** (`vx`, `vy`). `authority` has no schema

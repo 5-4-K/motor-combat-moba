@@ -704,7 +704,6 @@ describe("collision deals no damage", () => {
       angle: 0,
       vx: 300,
       vy: 0,
-      reverseHold: 0,
       angVel: 0,
     };
     const b: SimBody = {
@@ -713,7 +712,6 @@ describe("collision deals no damage", () => {
       angle: bAngle,
       vx: 0,
       vy: 0,
-      reverseHold: 0,
       angVel: 0,
     };
     return {

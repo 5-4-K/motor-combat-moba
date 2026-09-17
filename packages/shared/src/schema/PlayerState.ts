@@ -27,7 +27,6 @@ export class PlayerState extends Schema {
    */
   @type("number") vx = 0;
   @type("number") vy = 0;
-  @type("uint16") reverseHold = 0;
   /**
    * Injected rotation, rad/s, decaying toward 0 — a ram's spin. Networked because `stepDrive` reads
    * it (invariant 8), and reconciled by snapping rather than easing, same reason as `vx`/`vy`.

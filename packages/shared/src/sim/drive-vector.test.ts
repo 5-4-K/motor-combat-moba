@@ -35,7 +35,6 @@ function body(over: Partial<SimBody> = {}): SimBody {
   return {
     x: 0, y: 0, angle: 0,
     vx: 0, vy: 0,
-    reverseHold: 0,
     angVel: 0,
     maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
     ...over,

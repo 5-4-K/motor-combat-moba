@@ -317,7 +317,6 @@ function bodyOf(player: PlayerState): SimBody {
     angle: player.angle,
     vx: player.vx,
     vy: player.vy,
-    reverseHold: player.reverseHold,
     angVel: player.angVel,
     // Reading/writing these fields here is what makes stepDrive's DASH/HOLD/CHARGE integration
     // and fullStop take hold once something upstream sets them (a weapon or status effect, not yet
@@ -336,7 +335,6 @@ function writeBody(player: PlayerState, body: SimBody): void {
   player.angle = body.angle;
   player.vx = body.vx;
   player.vy = body.vy;
-  player.reverseHold = body.reverseHold;
   player.angVel = body.angVel;
   player.maneuver = body.maneuver;
   player.maneuverTicksLeft = body.maneuverTicksLeft;

@@ -38,7 +38,6 @@ describe("stepSim", () => {
       angle: 0,
       vx: 0,
       vy: 0,
-      reverseHold: 0,
       angVel: 0,
     };
 
@@ -54,7 +53,6 @@ describe("stepSim", () => {
       angle: 0,
       vx: 0,
       vy: 0,
-      reverseHold: 0,
       angVel: 0,
     });
   });
@@ -67,7 +65,6 @@ describe("stepSim", () => {
       angle: 0,
       vx: 0,
       vy: 0,
-      reverseHold: 0,
       angVel: 0,
     };
 
@@ -91,7 +88,6 @@ describe("stepSim", () => {
       angle: 0,
       vx: 0,
       vy: 0,
-      reverseHold: 0,
       angVel: 0,
     };
 
@@ -135,7 +131,6 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
       angle,
       vx: 0,
       vy: 0,
-      reverseHold: 0,
       angVel: 0,
       maneuver: ManeuverKind.DASH,
       maneuverTicksLeft: DASH_TICKS,
@@ -395,7 +390,6 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
       angle: 0,
       vx: 300,
       vy: 0,
-      reverseHold: 0,
       angVel: 0,
       maneuver: ManeuverKind.NONE,
       maneuverTicksLeft: 0,

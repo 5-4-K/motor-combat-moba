@@ -105,7 +105,7 @@ describe("RAM_CONFIG", () => {
     const hit = resolveRam(attacker, victim, "ffa")!;
     expect(hit.side).toBe("flank");
     const restingBody: SimBody = {
-      x: victim.x, y: victim.y, angle: victim.angle, vx: 0, vy: 0, reverseHold: 0, angVel: 0,
+      x: victim.x, y: victim.y, angle: victim.angle, vx: 0, vy: 0, angVel: 0,
       maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
     };
     const next = applyImpulse(restingBody, ramDefenceOf(victim.carId), hit.impulse);

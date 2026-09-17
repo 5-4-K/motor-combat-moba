@@ -69,7 +69,6 @@ function body(over: Partial<SimBody> = {}): SimBody {
     angle: 0,
     vx: 0,
     vy: 0,
-    reverseHold: 0,
     angVel: 0,
     maneuver: 0,
     maneuverTicksLeft: 0,
@@ -179,14 +178,13 @@ describe("golden: stepDrive against the Unity drive-model port", () => {
   it("reverses from rest immediately, with no hold delay", () => {
     // CHANGED: the reverse-hold ceremony (`DRIVE_CONFIG.reverseHoldTicks`, `SimBody.reverseHold`)
     // is gone from `stepDrive`'s own logic — `engineCommandOf` reverses on the very first tick Down
-    // is held, since `forward` (0) is already at or below `reverseEpsilon`. `out.reverseHold` is a
-    // dead field now (always 0), until a later task deletes it from `SimBody`/`PlayerState`. The
-    // magnitude (-26.4, well short of the pre-port -351 reverse cap) is smaller for two reasons at
-    // once: `reverseAccel` on this frozen fixture (80) is a much smaller number than the old
-    // fixture's 1100, and reverse is likewise an asymptote now, not a clamp reached instantly.
+    // is held, since `forward` (0) is already at or below `reverseEpsilon`. `reverseHold` itself was
+    // deleted outright from `SimBody`/`PlayerState` by the Unity drive port. The magnitude (-26.4,
+    // well short of the pre-port -351 reverse cap) is smaller for two reasons at once:
+    // `reverseAccel` on this frozen fixture (80) is a much smaller number than the old fixture's
+    // 1100, and reverse is likewise an asymptote now, not a clamp reached instantly.
     const out = drive(body(), input(0, -1), 12);
     expectPose(out, -6.0627349263, 0, 0, -26.3743963171);
-    expect(out.reverseHold).toBe(0);
   });
 
   it("accelerates and turns from a non-zero heading", () => {

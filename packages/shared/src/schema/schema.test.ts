@@ -26,7 +26,6 @@ describe("PlayerState", () => {
     expect(p.vx).toBe(0);
     expect(p.vy).toBe(0);
     expect(p.angVel).toBe(0);
-    expect(p.reverseHold).toBe(0);
     expect(p.hp).toBe(0);
     expect(p.alive).toBe(true);
     expect(p.selectLocked).toBe(false);
@@ -48,7 +47,6 @@ describe("PlayerState", () => {
     p.carId = "bullseye";
     p.vx = 180;
     p.vy = -40;
-    p.reverseHold = 6;
     p.hp = 50;
     p.alive = false;
     p.selectLocked = true;
@@ -59,7 +57,6 @@ describe("PlayerState", () => {
     expect(p.carId).toBe("bullseye");
     expect(p.vx).toBe(180);
     expect(p.vy).toBe(-40);
-    expect(p.reverseHold).toBe(6);
     expect(p.hp).toBe(50);
     expect(p.alive).toBe(false);
     expect(p.selectLocked).toBe(true);
