@@ -2,13 +2,14 @@ import {
   CAR_TABLE,
   DRIVE_CONFIG,
   GameMode,
-  accelOf,
   activeCarIds,
+  dragRateOf,
+  engineAccelOf,
   forwardMaxSpeedOf,
   hpOf,
   ramAttackOf,
   ramDefenceOf,
-  reverseMaxSpeedOf,
+  reverseAccelOf,
   turnRateOf,
   weaponDamageOf,
   weaponDefOf,
@@ -81,8 +82,11 @@ export function fullStatsFor(id: CarId): StatRow[] {
   const def = CAR_TABLE[id];
   return [
     { label: "Top speed", value: `${trim(forwardMaxSpeedOf(id))} u/s` },
-    { label: "Reverse speed", value: `${trim(reverseMaxSpeedOf(id))} u/s` },
-    { label: "Acceleration", value: `${trim(accelOf(id))} u/s²` },
+    // CHANGED by the Unity drive-model port (car-physics-port stage 1 Task 3): there is no
+    // authored reverse top speed any more, only the equilibrium `reverseAccel / dragRate` — the
+    // same asymptote `stepDrive` itself settles at, not a separately-tuned ratio.
+    { label: "Reverse speed", value: `${trim(reverseAccelOf(id) / dragRateOf(id))} u/s` },
+    { label: "Acceleration", value: `${trim(engineAccelOf(id))} u/s²` },
     { label: "Turn rate", value: `${trim(turnRateOf(id))} rad/s` },
     { label: "Turn radius", value: `${trim(forwardMaxSpeedOf(id) / turnRateOf(id))} u` },
     { label: "Hull HP", value: String(hpOf(id)) },

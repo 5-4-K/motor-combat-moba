@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   CAR_TABLE,
-  DRIVE_CONFIG,
   TICK_RATE_HZ,
-  accelOf,
   activeCarIds,
+  dragRateOf,
+  engineAccelOf,
   forwardMaxSpeedOf,
   hpOf,
   ramAttackOf,
   ramDefenceOf,
-  reverseMaxSpeedOf,
+  reverseAccelOf,
   turnRateOf,
   weaponDamageOf,
   weaponDefOf,
@@ -40,16 +40,14 @@ describe("fullStatsFor", () => {
     );
   });
 
-  it("scales reverse speed by the configured ratio", () => {
-    // Rounded to match the panel's own `trim` (one decimal, no float noise): mirage's reverse speed
-    // is now 576 * 0.65 = 374.4, which IEEE-754 represents as 374.40000000000003 — a raw
-    // string-interpolation of the float would fail against the panel's trimmed display.
+  it("shows the reverse equilibrium (reverseAccel / dragRate), not a configured ratio", () => {
+    // CHANGED by the Unity drive-model port (car-physics-port stage 1 Task 3): `reverseMaxSpeedOf`
+    // and `DRIVE_CONFIG.reverseSpeedRatio` are gone from this row's derivation. Reverse top speed
+    // is now the same kind of asymptote `stepDrive` itself settles at — `reverseAccel / dragRate` —
+    // not a separately-authored fraction of the forward cap.
+    const expected = reverseAccelOf("mirage") / dragRateOf("mirage");
     expect(fullStatsFor("mirage").find((r) => r.label === "Reverse speed")?.value).toBe(
-      `${Math.round(reverseMaxSpeedOf("mirage") * 100) / 100} u/s`,
-    );
-    expect(reverseMaxSpeedOf("mirage")).toBeCloseTo(
-      forwardMaxSpeedOf("mirage") * DRIVE_CONFIG.reverseSpeedRatio,
-      9,
+      `${Math.round(expected * 100) / 100} u/s`,
     );
   });
 
@@ -60,7 +58,7 @@ describe("fullStatsFor", () => {
       const rows = fullStatsFor(id);
       const accelRow = rows.find((r) => r.label === "Acceleration")!;
       expect(accelRow.value.endsWith(" u/s²")).toBe(true);
-      expect(Number(accelRow.value.replace(" u/s²", ""))).toBeCloseTo(accelOf(id), 1);
+      expect(Number(accelRow.value.replace(" u/s²", ""))).toBeCloseTo(engineAccelOf(id), 1);
 
       const turnRateRow = rows.find((r) => r.label === "Turn rate")!;
       expect(turnRateRow.value.endsWith(" rad/s")).toBe(true);
