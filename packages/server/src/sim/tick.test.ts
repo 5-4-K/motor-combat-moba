@@ -92,7 +92,6 @@ function poseOf(player: PlayerState): SimBody {
     angle: player.angle,
     vx: player.vx,
     vy: player.vy,
-    reverseHold: player.reverseHold,
     angVel: player.angVel,
   };
 }
@@ -157,7 +156,6 @@ describe("serverTick", () => {
       angle: 0.1,
       vx: 0,
       vy: 0,
-      reverseHold: 0,
       angVel: 0,
     });
     expect(emptyQ.lastProcessedInputSeq).toBe(3);
@@ -167,7 +165,6 @@ describe("serverTick", () => {
       angle: 0.2,
       vx: 0,
       vy: 0,
-      reverseHold: 0,
       angVel: 0,
     });
     expect(missingQ.lastProcessedInputSeq).toBe(4);
@@ -286,7 +283,7 @@ describe("serverTick", () => {
 
         serverTick(state, queues, DT, phase, NO_EFFECTS, new Map());
 
-        expect(poseOf(player)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, vx: 0, vy: 0, reverseHold: 0, angVel: 0 });
+        expect(poseOf(player)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, vx: 0, vy: 0, angVel: 0 });
         expect(player.lastProcessedInputSeq).toBe(9);
         expect(queues.get("p1")).toEqual([]);
       });
@@ -303,7 +300,7 @@ describe("serverTick", () => {
 
       serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
-      expect(poseOf(offField)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, vx: 0, vy: 0, reverseHold: 0, angVel: 0 });
+      expect(poseOf(offField)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, vx: 0, vy: 0, angVel: 0 });
       expect(offField.lastProcessedInputSeq).toBe(9);
       expect(queues.get("p1")).toEqual([]);
     });

@@ -171,7 +171,7 @@ describe("a car that is SLIDING, not driving (car-physics merge, 2026-09-07)", (
   /** Nose along +x, but travelling mostly sideways: 60 u/s forward, 200 u/s to the car's left. */
   const sliding: SimBody = {
     x: 300, y: 360, angle: 0, vx: 60, vy: 200,
-    reverseHold: 0, angVel: 0, maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
+    angVel: 0, maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
   };
 
   /** Where the REAL sim puts that car, rolled under the same set the predictor assumes. */

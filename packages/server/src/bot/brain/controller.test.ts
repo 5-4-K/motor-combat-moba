@@ -840,7 +840,7 @@ function turningCrosserDuel(ticks: number): { fires: number } {
   const targetSpeed = 400;
   const omega = targetSpeed / radius; // rad/s, the arc's own turn rate
   let body: SimBody = {
-    x: centre.x, y: centre.y, angle: 0, vx: 300, vy: 0, reverseHold: 0, angVel: 0,
+    x: centre.x, y: centre.y, angle: 0, vx: 300, vy: 0, angVel: 0,
     maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
   };
   let fires = 0;
