@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DRIVE_CONFIG, ManeuverKind, NEUTRAL_MODIFIERS, TICK_RATE_HZ, driveOf, forwardOf, stepDrive,
-  turnRateAtStopOf, turnRateOf, type SimBody,
+  turnRateOf, type SimBody,
 } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
@@ -297,18 +297,17 @@ describe("predicting an observed car, against an independent ground truth", () =
 
   /**
    * One tick: `angle += steer * rate / TICK_RATE_HZ`, then `x/y += cos/sin(angle) * speed / HZ`.
-   * `rate` is the chassis's STOPPED turn rate below `DRIVE_CONFIG.stopEpsilon`, because that is the
-   * branch `stepDrive`'s `isMoving` takes -- a stationary car still turns, it just does not travel.
+   * `rate` is just `turnRateOf(carId)` now — the Unity drive-model port (car-physics-port stage 1
+   * Task 3) made yaw rate speed-independent, so there is no separate stopped-vs-moving branch any
+   * more (there was: `turnRateAtStopOf`, deleted alongside it).
    *
    * A NEGATIVE `speed` needs no special case and gets none: `stepDrive`'s translation is the same
    * `cos/sin(angle) * speed` line, so a reversing car walks backward along its heading while its
-   * nose still rotates the way the wheel is turned, and `Math.abs` on the `isMoving` test above
-   * matches the sim's own. That is what makes this a usable truth for the reversing scenes.
+   * nose still rotates the way the wheel is turned. That is what makes this a usable truth for the
+   * reversing scenes.
    */
   function truthPath(speed: number, steer: -1 | 0 | 1, carId: "mirage", ticks: number) {
-    const rate = Math.abs(speed) > DRIVE_CONFIG.stopEpsilon
-      ? turnRateOf(carId)
-      : turnRateAtStopOf(carId);
+    const rate = turnRateOf(carId);
     let x = 0;
     let y = 0;
     let angle = 0;

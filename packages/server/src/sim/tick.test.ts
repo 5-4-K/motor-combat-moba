@@ -30,6 +30,22 @@ const DT = MS_PER_TICK / 1000;
 const UP: InputMessage = { seq: 1, steer: 0, throttle: 1, fireSlots: 0 };
 
 /**
+ * Forward speed after `ticks` of full throttle from rest, under the Unity drive-model port's exact
+ * integrator (`stepDrive`'s `commandFactorOf`, drive.ts) — NOT `ticks * engineAccel * DT`. Drag now
+ * acts every tick (`accel` is neutral here, so the effective rate is just `dragRate`), so the
+ * accumulation is the geometric series `command*factor*(1 + drag + drag^2 + ... + drag^(ticks-1))`,
+ * not a linear one; the two agree only in the limit `dragRate -> 0`.
+ */
+function forwardAfterThrottleTicks(carId: CarId, ticks: number): number {
+  const chassis = driveOf(carId);
+  const factor = (1 - chassis.dragPerTick) / chassis.dragRate;
+  const command = chassis.engineAccel * factor;
+  let forward = 0;
+  for (let i = 0; i < ticks; i++) forward = forward * chassis.dragPerTick + command;
+  return forward;
+}
+
+/**
  * A clear east-west corridor in arena-01, for tests that drive straight and never turn far enough
  * to approach a wall or a spike strip. Not a claim that every point at this y is clear at every x —
  * arena-01's spikes (landed 2026-09-11) include a strip on the top wall spanning x 129-310, which a
@@ -100,7 +116,9 @@ describe("serverTick", () => {
 
     expect(player.x).toBeGreaterThan(300);
     expect(player.y).toBe(CORRIDOR_Y);
-    expect(forwardOf(player.vx, player.vy, player.angle)).toBeCloseTo(driveOf("mirage").accel * DT, 6);
+    // RE-PINNED for the Unity drive-model port: `driveOf("mirage").accel` is gone, and the
+    // command's contribution is no longer a flat `* DT` — see `forwardAfterThrottleTicks`.
+    expect(forwardOf(player.vx, player.vy, player.angle)).toBeCloseTo(forwardAfterThrottleTicks("mirage", 1), 6);
     expect(player.lastProcessedInputSeq).toBe(7);
     expect(queues.get("p1")).toEqual([]);
   });
@@ -112,9 +130,14 @@ describe("serverTick", () => {
 
     serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
-    // Would be a single `accel * DT` if `vx`/`vy` were only written back after the last input.
+    // Would be a single tick's worth if `vx`/`vy` were only written back after the last input —
+    // and, since the Unity drive-model port, "3 ticks' worth" is the GEOMETRIC accumulation
+    // `forwardAfterThrottleTicks` computes, not `3 * (one tick's worth)`: drag now acts every
+    // tick, so the series is sublinear (each tick's drag-decay makes the previous ticks' gains
+    // worth slightly less), and `toEqual`-checking against a literal `3x` would be re-asserting
+    // the pre-port flat-Euler model this whole task replaced.
     expect(forwardOf(player.vx, player.vy, player.angle))
-      .toBeCloseTo(3 * driveOf("mirage").accel * DT, 6);
+      .toBeCloseTo(forwardAfterThrottleTicks("mirage", 3), 6);
   });
 
   it("leaves a player with an empty or missing queue unchanged", () => {
@@ -171,15 +194,26 @@ describe("serverTick", () => {
   });
 
   it("integrates with the dt it is given", () => {
+    // CHANGED by the Unity drive-model port's exact-integrator ruling, and in a more structural
+    // way than "the numbers moved": `chassis.dragPerTick`/`gripPerTick`/`spinPerTick` are baked as
+    // PER-TICK factors (`perTickDecay`, at module load, against `TICK_RATE_HZ`) rather than
+    // per-second rates re-applied against whatever `dt` a caller passes — that is the whole point
+    // of resolving them onto `ChassisDrive` once (Task 8's 30-vs-60Hz proof rebuilds a NEW chassis
+    // for the other rate; it does not feed one chassis a different `dt`). One consequence: the
+    // velocity `stepDrive` produces from a throttle press is now IDENTICAL regardless of the `dt`
+    // argument (measured: bit-identical `forwardOf` for `DT` and `DT * 2` here) — `dt` only still
+    // matters for turning THAT velocity into a position (`x += v.vx * dt`), which is what this case
+    // now checks: `serverTick`'s own `dt` parameter really does reach that integration step, via
+    // the position delta scaling with it, rather than via the old (and now false) claim that the
+    // velocity itself scales with `dt`.
     const slow = makePlayer("p1", 300, CORRIDOR_Y, 0);
     const fast = makePlayer("p1", 300, CORRIDOR_Y, 0);
 
     serverTick(stateWith(slow), new Map([["p1", ups(1)]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     serverTick(stateWith(fast), new Map([["p1", ups(1)]]), DT * 2, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
-    expect(forwardOf(fast.vx, fast.vy, fast.angle))
-      .toBeCloseTo(forwardOf(slow.vx, slow.vy, slow.angle) * 2, 6);
-    expect(fast.x - 300).toBeGreaterThan(slow.x - 300);
+    expect(forwardOf(fast.vx, fast.vy, fast.angle)).toBeCloseTo(forwardOf(slow.vx, slow.vy, slow.angle), 9);
+    expect(fast.x - 300).toBeCloseTo((slow.x - 300) * 2, 6);
   });
 
   describe("input ordering", () => {
