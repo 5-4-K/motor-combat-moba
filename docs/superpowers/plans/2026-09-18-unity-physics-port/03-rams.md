@@ -557,6 +557,24 @@ it("makes a reeling car a passenger: no throttle, no steering, no grip, free spi
   expect(mods.accel).toBe(1);
 });
 
+it("puts grip on the clamped channel path, and says so while the clamp is unreachable", () => {
+  // Stage 1 Task 2 added the `grip` channel with a clamp test that could only assert the SHAPE of
+  // STATUS_LIMITS: no row declared `grip`, so nothing drove a value through multiply-then-clamp.
+  // `reeling` is the first row that does. It still cannot REACH either limit — a single 0.6 sits
+  // inside 0.25..2, and `reapply: "ignore"` stops it stacking with itself — so the honest thing to
+  // assert is that the value rides the generic channel path, plus a guard that fails the day a
+  // second `grip` row makes the clamp reachable and a real clamp test becomes possible.
+  const mods = modifiersOf([{ statusId: "reeling", endsTick: 10, sourceSessionId: "a" }], 0);
+  expect(mods.grip).toBeCloseTo(STATUS_TABLE.reeling.modifiers.grip!, 9);
+  expect(mods.grip).toBeGreaterThanOrEqual(STATUS_LIMITS.grip.min);
+  expect(mods.grip).toBeLessThanOrEqual(STATUS_LIMITS.grip.max);
+
+  const gripRows = Object.values(STATUS_TABLE).filter((row) => row.modifiers.grip !== undefined);
+  expect(gripRows.map((row) => row.id)).toEqual(["reeling"]);
+  // If THAT line fails, a second row now scales grip: write a test that actually drives the product
+  // past a limit and checks it is clamped, then delete this guard.
+});
+
 it("kills a rammer's own controls without making it a passenger", () => {
   const mods = modifiersOf([{ statusId: "ramLock", endsTick: 10, sourceSessionId: "a" }], 0);
   expect(mods.immobilised).toBe(true);
