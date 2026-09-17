@@ -39,7 +39,8 @@ const BASIC_ATTACK_BASE = {
   kind: "projectile",
   name: "Basic Attack",
   // Shared by all nine on purpose — see BA7 and the colour test. Dark, but never the flat fill:
-  // `WEAPON_GLOW_STYLES` gives it a lit core so it reads on dark asphalt.
+  // a flat #101014 disc is already highly visible on this game's light arena floors, it just reads
+  // as a hole rather than an object — `WEAPON_GLOW_STYLES` gives it a lit core so it reads as one.
   color: "#101014",
   unlocksAt: 1,
   damage: 20,

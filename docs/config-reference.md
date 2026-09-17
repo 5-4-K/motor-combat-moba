@@ -79,9 +79,12 @@ the flag, and what does not:
   "Nine weapons. Three chassis.". `balanceStamp` hashes the ACTIVE subset for the same reason: the
   stamp fingerprints what the page says, so tuning an unreleased car costs no rebuild, while flipping
   `isActive` to `true` correctly forces one.
-- **An inactive chassis may carry no weapons at all.** `weapon-slots.test.ts` applies the
-  at-least-one-weapon floor to active cars only — a prototype exists to be driven long before its kit
-  is authored. The floor applies the moment the flag flips.
+- **An inactive chassis may carry no weapons at all — but it still needs its own `basicAttack`.**
+  `weapon-slots.test.ts` applies the at-least-one-weapon floor to active cars' `weapons` only — a
+  prototype exists to be driven long before its kit is authored, so `weapons: []` is legal. `CarDef`
+  compiles `basicAttack` as required on every row regardless of `isActive`, so a prototype is authored
+  with its own `basic-attack-<carId>` row from day one, the same as the three shipped chassis — there
+  is no inactive exemption for that field. The `weapons` floor applies the moment `isActive` flips.
 - **Weapon exclusivity (L1) is unconditional and covers inactive rows.** No weapon may sit on two
   chassis, active or not, so a prototype cannot borrow a shipped kit. That is the deliberate trade
   for the rule above: author your own weapons (a `WEAPON_TABLE` row carried by nobody is legal —
@@ -186,6 +189,16 @@ mapping. `slotsOf(carId)` (`config/weapon-slots.ts`) is what actually reads it, 
 `WEAPON_SLOT_CONFIG.maxAbilitySlots`; see [`combat-model.md`](combat-model.md) for the fire model
 that consumes it.
 
+**`basicAttack: WeaponId` is a separate `CarDef` field, required on every row and distinct from
+`weapons`.** It names that chassis's `basic-attack-<carId>` row and is required so the compiler
+enforces one per car (BA2, BA9); `basicAttackOf(carId)` (`config/car-config.ts`) is its accessor,
+beside `slotsOf`.
+It is never counted toward `maxAbilitySlots` and never truncated the way an over-long `weapons` list
+is — it is a structurally separate slot, joined to the kit only through `fireSlotsOf(carId)` (=
+`[...slotsOf(carId), basicAttackOf(carId)]`), which has exactly three readers named in
+[`combat-model.md`](combat-model.md#basic-attack). All nine rows point at the same
+`BASIC_ATTACK_BASE` — see [`WEAPON_TABLE`](#weapon_table) below.
+
 ## COLOR_TABLE
 
 | colorId | name | hex |
@@ -221,6 +234,30 @@ once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually r
 `bulwark`'s geometry re-solved as a presence zone (loadout decision pending;
 `weapon-slots.test.ts` names it in the sanctioned-uncarried set, and the players' guide only shows
 carried weapons, so it is invisible to players until a kit lists it).
+
+**Nine more rows, `basic-attack-<carId>`, sit beside the ten above** (nineteen total) — one per
+chassis, shipped and unreleased alike, all identical and all spread from one shared
+`BASIC_ATTACK_BASE`:
+
+| Field | Value |
+|---|---|
+| `kind` | `projectile` |
+| `damage` | 20 |
+| `speed` | 900 |
+| `range` | 960 |
+| `cooldownMs` | 800 |
+| `startUpMs` | 0 |
+| `recoveryMs` | 0 |
+| `hitbox` | circle, radius 12 |
+| `color` | `#101014` (shared by all nine — see BA7) |
+
+No `applies`, `impulse` or `explosion` — `weapon-config.test.ts` holds every `basic-attack-*` row to
+that, so it stays an unlimited-ammo poke rather than growing a mechanic by accident. It is not in
+`CarDef.weapons`; each chassis's row is instead named by `CarDef.basicAttack` and reached through
+`fireSlotsOf`. See [`combat-model.md`](combat-model.md#basic-attack) for the slot model, the
+bindings and how it fits the fire state machine, and BA1–BA7 in
+[`docs/superpowers/specs/2026-09-17-basic-attack-design.md`](superpowers/specs/2026-09-17-basic-attack-design.md)
+for the numbers' authoring rationale.
 
 `fireball`, `needler`, `skewer` and `bulwark` were retired outright by the 2026-09-01 weapon-status
 overhaul; their ids are gone from `WeaponId` and their comment history lives in git rather than here.
@@ -361,13 +398,26 @@ for the next weapon that authors a `stock` block.
 
 ## WEAPON_SLOT_CONFIG
 
-| Knob | Value |
-|---|---|
-| `maxAbilitySlots` | 3 |
+| Knob | Value | Derivation |
+|---|---|---|
+| `maxAbilitySlots` | 3 | `MAX_ABILITY_SLOTS`, hoisted |
+| `maxFireSlots` | 4 | `maxAbilitySlots + 1` — never typed, so the two cannot drift |
+| `basicAttackSlotIndex` | 3 | `maxAbilitySlots` — the basic attack is always last |
 
-Caps how many slots any chassis may present. A car whose `weapons` list is longer logs one
-`console.warn` naming the car and the extras are truncated — a warning, never a thrown error or a
-failed test.
+`maxAbilitySlots` caps how many slots a chassis's **kit** — `CarDef.weapons` — may present. A car
+whose `weapons` list is longer logs one `console.warn` naming the car and the extras are truncated —
+a warning, never a thrown error or a failed test. It was called `maxWeaponSlots` until the
+2026-09-17 basic-attack feature, when it was renamed: every car now carries four weapons, and a
+constant called "max weapon slots" reading 3 would have been the quiet lie this codebase documents
+its way out of everywhere else.
+
+`maxFireSlots` is how many weapons a car can actually **fire** — the kit plus the basic attack
+(below). It is what the wire mask (`SLOT_MASK` in `packages/server/src/sim/tick.ts`) is sized to and
+what the client's `slotMaskFrom`/`SLOT_KEYS` run to. `basicAttackSlotIndex` is where the basic attack
+sits in that four-slot fire order — always last, so the three ability indices never move.
+`slotsOf`/`weapons` still mean the three ability slots alone; see
+[`combat-model.md`](combat-model.md#basic-attack) for the full model and `fireSlotsOf`'s three
+readers.
 
 ## AIM_CONFIG — deleted
 

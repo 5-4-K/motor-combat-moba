@@ -19,6 +19,20 @@ duration, and (since the car-physics rework's stage 4) a hard slam for
 through the `ImpulseDef` seam rather than through `applies`. See the car-physics section below. See
 [`docs/combat-model.md`](docs/combat-model.md#statuses).
 
+**Every car carries a fourth weapon it never sees in the HUD: its basic attack.** Nine
+`basic-attack-<carId>` rows in `WEAPON_TABLE`, all nine identical today and all spreading one
+`BASIC_ATTACK_BASE`, held on a `CarDef.basicAttack` field **beside** the three-weapon kit rather
+than inside it. **`CarDef.weapons` and `slotsOf` still mean the three ABILITY slots** — the HUD, the
+guide, the playground's loadout picker, the balance seat filter, ttk's attacker axis and the bot's
+reach model all depend on that and are the reason it did not widen. `fireSlotsOf(carId)` is where
+the two are joined, and it has exactly three readers: `newFireState`, `balance/stats.ts`'s
+accumulator seeding, and `scripts/ttk.mjs`. The basic attack is always fire slot 3 (`H` / `LMB`; the
+abilities moved to `J`/`RMB`, `K`/`SHIFT`, `L`/`SPACE`), rides the ordinary fire state machine with
+`recoveryMs: 0`, and loses a same-tick tie to an ability because the lowest set bit wins. Its
+binding is taught **only** in the countdown action hint — it has no gutter pill, which is the one
+place the "a binding nobody printed breaks quietly" rule is knowingly bent. See
+[`docs/superpowers/specs/2026-09-17-basic-attack-design.md`](docs/superpowers/specs/2026-09-17-basic-attack-design.md) (BA1–BA38).
+
 An **aura** is a beam with a `disc` hitbox at `origin: "center"` — a field around a car rather than a
 line of fire. It shipped once, as `shockwave` on Mirage's slot 2, and the 2026-09-01 overhaul retired
 that weapon's aura identity, leaving no row using a `disc` hitbox — but a disc ships again as of the
@@ -297,7 +311,7 @@ arena, since the art already carries them. The bot also learned the polygon and 
 | **Online netcode and client rendering — the fourteen-phase rewrite in progress** | **start at [`docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md`](docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md)** — see below |
 | **Car physics rework — stages 1-4 landed, spec now on revision 2** | **start at [`docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md`](docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md)** — see below |
 | Weapon system decisions (D1–D22), online-play review, future work — plus the **retired** aim assist and target lock (A1–A14), removed 2026-09-17 and kept only as a record | [`docs/superpowers/specs/2026-08-27-weapon-system-design.md`](docs/superpowers/specs/2026-08-27-weapon-system-design.md), [`docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md), [`docs/superpowers/plans/2026-08-27-weapon-system.md`](docs/superpowers/plans/2026-08-27-weapon-system.md) |
-| The nine-weapon roster, per-chassis kits (L1–L7) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
+| The ten-ability-weapon roster (nine shipped plus dormant `tremor`), per-chassis kits (L1–L7) — now alongside nine identical basic-attack rows (BA1–BA38, see above) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
 | The three chassis types and their triangle, the `accel`/`handling` ratings, the weapon redistribution (T1–T22) — **supersedes L1–L7's assignments** | [`docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md`](docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md) |
 | Ram CC and knockback decisions (R1–R20): severity, side bonus, authority/shove/spin, the `mass` rating | [`docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md`](docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md) |
 | Status (buff/debuff) decisions: channels, re-apply rules, clamps, pulses, auras, the application seams | [`docs/superpowers/specs/2026-08-29-status-mechanism-design.md`](docs/superpowers/specs/2026-08-29-status-mechanism-design.md) |
@@ -651,8 +665,8 @@ npm run balance        # headless win-rate/matchup harness -> packages/server/ba
 
 ## The cars & weapons guide is generated, committed, and easy to leave stale
 
-`packages/client/public/manual.html` is the player-facing guide — three chassis, nine weapons — that
-the join screen's "Cars & weapons guide" button opens. **It is written by
+`packages/client/public/manual.html` is the player-facing guide — three chassis, each with a basic
+attack plus a three-weapon kit — that the join screen's "Cars & weapons guide" button opens. **It is written by
 `scripts/build-cars-and-weapons.mjs`, never by hand.** Every number on it is read from built shared
 (`WEAPON_TABLE`, `CAR_TABLE`, `WEAPON_TICKS`, `weaponDamageOf`, `hpOf`); the prose lives beside it in
 `scripts/cars-and-weapons-copy.mjs`.
@@ -660,7 +674,8 @@ the join screen's "Cars & weapons guide" button opens. **It is written by
 **It is a stat sheet, and as of 2026-09-17 it has exactly two sections.** The thirteen A4-style
 sheets (cover, legend, a page per chassis, a page per weapon, a compare table, a ceilings table) are
 gone, replaced by one continuous scrolling page: **Cars** — each active chassis's seven ratings, then
-its three weapons as a stat list — and **Effects** — every status a player can be put in, what it
+its weapons as a stat list, a "Basic attack" card first and its three-weapon kit after (BA26) — and
+**Effects** — every status a player can be put in, what it
 does, and what applies it. Two rules run the weapon lists. A point that does not apply is **left
 out**, never printed as a dash (most rows have no wind-up at all, and a charge has no range), and
 a weapon's **effects are links** into the Effects section, so a chip and its row can never drift
@@ -742,11 +757,13 @@ sprite that still carries colour, an icon whose colour has drifted from its `WEA
 `scripts/check-art.test.mjs` runs the blockers as part of `npm test`, so a save that dropped the
 alpha fails the suite instead of reaching the HUD as an opaque square. **Warnings never fail the
 suite** — an icon is allowed more than one colour, and only a person looking at the screen can say
-whether a pair reads as one weapon. `npm run check:weapons` warns on exactly one of the ten rows
-today: `tremor`, which has no manifest row yet and falls back to the procedural glyph. **All nine
-carried weapons read `ok`**, most of them at a colour distance of 0-9, because the 2026-09-02 icon
-pass repainted every `WEAPON_TABLE.color` from its own icon rather than from a per-chassis palette.
-`thunderclap`'s 66 is the widest surviving gap and still well inside the limit.
+whether a pair reads as one weapon. `npm run check:weapons` warns on ten of the roster's nineteen
+rows today: `tremor` (no manifest row yet) and, since the basic attack landed, all nine
+`basic-attack-<carId>` rows alongside it — same reason, same fallback to the procedural glyph, and
+expected until someone draws an icon (BA32). **The nine other carried weapons read `ok`**, most of
+them at a colour distance of 0-9, because the 2026-09-02 icon pass repainted every
+`WEAPON_TABLE.color` from its own icon rather than from a per-chassis palette. `thunderclap`'s 66 is
+the widest surviving gap and still well inside the limit.
 
 One pairing nothing enforces: a weapon's icon and its `WEAPON_TABLE.color` are meant to read as the
 same weapon, but icons ship `colorMode: "none"` and no typed reference ties the two together. Either

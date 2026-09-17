@@ -311,9 +311,11 @@ const FLICKER_PHASE_PER_TICK = 0.7;
  * The basic attack's look (BA8): a near-black bolt with a lit core.
  *
  * A weapon with no entry here draws as a single flat fill of its `color`, and a flat `#101014` disc
- * on dark asphalt is close to invisible — so "shiny black" has to be authored. Concentric bands are
- * all this renderer has (a band is a radius, not a position), so the highlight is a small bright
- * CORE rather than an off-centre specular: the bolt reads as a polished sphere lit from inside.
+ * on this game's LIGHT arena floors is highly visible — but reads as a flat hole punched in the
+ * ground rather than as an object, so "shiny black" has to be authored. The lighter mid band and the
+ * pale core are what turn that hole into a sphere: concentric bands are all this renderer has (a
+ * band is a radius, not a position), so the highlight is a small bright CORE rather than an
+ * off-centre specular — the bolt reads as a polished sphere lit from inside.
  *
  * No halo and no flicker, for `magmablast`'s reason: a pulsing outline on a 12-unit disc reads as a
  * rendering fault rather than as light, and a static style costs no per-frame hash.

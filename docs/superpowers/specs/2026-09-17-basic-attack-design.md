@@ -98,15 +98,17 @@ across the ability weapons and a single shared colour across the basic attacks �
 The never-a-player-colour half of the rule still applies to all nineteen rows.
 
 **BA8. "Shiny black" is authored, not implied.** A weapon with no `WEAPON_GLOW_STYLES` entry draws as
-a flat fill of its `color`, and a flat `#101014` disc on dark asphalt is close to invisible. One
-shared `GlowStyle` — a near-black rim on the hitbox edge, a dark grey mid band, and a small pale
+a flat fill of its `color`, and on this game's LIGHT arena floors a flat `#101014` disc is already
+highly visible — it just reads as a flat hole punched in the ground rather than as an object. One
+shared `GlowStyle` — a near-black rim on the hitbox edge, a lighter mid band, and a small pale
 core — is registered for all nine ids from a single authored constant, the same one-source shape the
-table rows use. The highlight is a CORE rather than an off-centre specular because a band is a radius
-and not a position: concentric rings are all this renderer has, so the bolt reads as a polished
-sphere lit from inside. The outermost solid band must sit at `radiusScale: 1` — a `combat-visual`
-test holds every style to that, since a band outside the hitbox would draw a silhouette larger than
-the thing that can hurt you. No halo and no flicker: `magmablast`'s comment about a 12-unit disc's
-pulsing outline reading as a rendering fault applies here exactly.
+table rows use, and it is that lighter band and pale core that turn the hole into a sphere. The
+highlight is a CORE rather than an off-centre specular because a band is a radius and not a position:
+concentric rings are all this renderer has, so the bolt reads as a polished sphere lit from inside.
+The outermost solid band must sit at `radiusScale: 1` — a `combat-visual` test holds every style to
+that, since a band outside the hitbox would draw a silhouette larger than the thing that can hurt
+you. No halo and no flicker: `magmablast`'s comment about a 12-unit disc's pulsing outline reading as
+a rendering fault applies here exactly.
 
 ## 3. The slot model
 
