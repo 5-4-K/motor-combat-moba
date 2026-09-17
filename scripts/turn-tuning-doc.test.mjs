@@ -231,20 +231,28 @@ describe("docs/turn-tuning.md", () => {
     // `stepDrive` ever multiplies by it. The two agree today only because 0.4 IS the floor. Author a
     // harsher value and the raw read would put a number on the page that the sim never applies — the
     // exact staleness this row exists to catch, arriving through the guard itself.
+    // `turnRateAtStop` and `reverseMaxSpeed` are gone from `ChassisDrive` (the Unity drive-model
+    // port, car-physics-port stage 1 Task 3): yaw rate is speed-independent now (no separate
+    // at-rest rate), and reverse top speed is the emergent equilibrium `reverseAccel / dragRate`
+    // rather than an authored field. The four rows below that used to read them are given the
+    // closest still-meaningful formula so this script computes a real number instead of crashing
+    // on `undefined` — that number is expected to disagree with `docs/turn-tuning.md`'s committed
+    // figures (which reflect the pre-port model) until a later task rebuilds the page; this file's
+    // job is to prove the disagreement rather than hide it behind a `TypeError`.
     const spec = [
       ["Turn rate", (d) => d.turnRate],
       ["— in degrees", (d) => deg(d.turnRate)],
       ["— per tick", (d) => d.turnRate / TICK_RATE_HZ],
       ["— degrees per tick", (d) => deg(d.turnRate) / TICK_RATE_HZ],
-      ["Turn rate at rest", (d) => d.turnRateAtStop],
-      ["— in degrees", (d) => deg(d.turnRateAtStop)],
+      ["Turn rate at rest", (d) => d.turnRate],
+      ["— in degrees", (d) => deg(d.turnRate)],
       ["Top speed", (d) => d.maxSpeed],
-      ["Reverse top speed", (d) => d.reverseMaxSpeed],
+      ["Reverse top speed", (d) => d.reverseAccel / d.dragRate],
       ["Turn radius", (d) => d.maxSpeed / d.turnRate],
-      ["Reverse turn radius", (d) => d.reverseMaxSpeed / d.turnRate],
+      ["Reverse turn radius", (d) => (d.reverseAccel / d.dragRate) / d.turnRate],
       ["180° while moving", (d) => Math.PI / d.turnRate],
       ["360° while moving", (d) => (2 * Math.PI) / d.turnRate],
-      ["180° from standstill", (d) => Math.PI / d.turnRateAtStop],
+      ["180° from standstill", (d) => Math.PI / d.turnRate],
       ["Rate while reeling", (d) => d.turnRate * reelingTurnRate()],
     ];
     assert.deepEqual(

@@ -41,10 +41,11 @@ import {
   TICK_RATE_HZ,
   WEAPON_TABLE,
   WEAPON_TICKS,
-  accelOf,
   activeCarIds,
   basicAttackOf,
   damageFor,
+  dragRateOf,
+  engineAccelOf,
   forwardMaxSpeedOf,
   getArena,
   hpOf,
@@ -642,7 +643,11 @@ function carSection(carId) {
   const car = CAR_TABLE[carId];
   const ratings = [
     ["Speed", car.speed, `${round(forwardMaxSpeedOf(carId))} u/s top`],
-    ["Acceleration", car.accel, `${round(accelOf(carId))} u/s² · ${round(forwardMaxSpeedOf(carId) / accelOf(carId), 2)}s to top`],
+    // "s to top" is gone on purpose: under the Unity drive-model port there is no time at which a
+    // car reaches its top speed at all (the model is `dv/dt = engineAccel - dragRate*v`, an
+    // asymptote, never a clamp) — only a time constant, `1 / dragRate` seconds per e-fold, and
+    // `Math.log(10) / dragRate` to reach 90% of it. Labelled honestly as "to 90%", not "to top".
+    ["Acceleration", car.accel, `${round(engineAccelOf(carId))} u/s² · ${round(Math.log(10) / dragRateOf(carId), 2)}s to 90%`],
     ["Handling", car.handling, `${round(turnRateOf(carId), 2)} rad/s · ${round(forwardMaxSpeedOf(carId) / turnRateOf(carId))}u turn radius`],
     ["Attack", car.attack, `${round(1 + (car.attack - COMBAT_CONFIG.attackBaseline) * COMBAT_CONFIG.damagePerAttack, 2)}× weapon damage`],
     ["HP", car.hp, `${hpOf(carId)} hull`],
