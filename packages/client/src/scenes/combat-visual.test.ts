@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   weaponDefOf,
+  basicAttackOf,
+  CAR_TABLE,
   COLOR_TABLE,
   DEFAULT_PATCH_RATE_HZ,
   DRIVE_CONFIG,
@@ -9,6 +11,7 @@ import {
   hpOf,
   msToTicks,
   weaponTicksOf,
+  type CarId,
   type WeaponId,
 } from "@motor-combat-moba/shared";
 import {
@@ -1315,6 +1318,18 @@ describe("shell halos (LZ22, LZ23)", () => {
   it("draws no halo for a weapon that authors none", () => {
     expect(instanceHaloBands("pepperbox", 10)).toEqual([]);
     expect(instanceHaloBands("not-a-weapon", 10)).toEqual([]);
+  });
+
+  it("gives every basic attack a lit core, so a near-black bolt reads on dark asphalt (BA8)", () => {
+    for (const carId of Object.keys(CAR_TABLE) as CarId[]) {
+      const style = WEAPON_GLOW_STYLES[basicAttackOf(carId)];
+      expect(style, carId).toBeDefined();
+      // The outermost solid band sits exactly ON the hitbox — the existing halo test asserts this
+      // for every style, and a basic attack authors no halo at all.
+      expect(Math.max(...style!.bands.map((b) => b.radiusScale)), carId).toBe(1);
+      expect(style!.halo, carId).toBeUndefined();
+      expect(style!.flickerDepth, carId).toBe(0);
+    }
   });
 });
 

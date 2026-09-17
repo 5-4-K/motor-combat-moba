@@ -242,6 +242,11 @@ export interface SlotBox {
 /**
  * Camera-fixed slots, stacked down the HUD gutter and centred in it.
  *
+ * The slot bar draws the ABILITY kit — `min(weapons.length, maxAbilitySlots)` boxes. A car's
+ * `weapons` array carries four rows as of 2026-09-17; the fourth is its basic attack and it is
+ * deliberately not drawn (BA15). That is a decision, not a truncation that happens to work: if the
+ * basic attack ever needs a readout, it gets its own, not a fourth box here.
+ *
  * The bar used to be a row centred over the floor, pinned above the view's bottom edge, which put
  * it squarely inside the play area — a car could park under the slots and both were hard to read.
  * The gutter (`HUD_GUTTER_WIDTH`, the strip the arena camera's viewport deliberately does not

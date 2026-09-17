@@ -2826,9 +2826,12 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * The slot bar: camera-fixed, drawing `min(weapons.length, maxAbilitySlots)` boxes for whichever
-   * car `hudTargetPlayer` names. Slots beyond the current target (or with no target at all) just
-   * hide their pooled text objects rather than destroying anything, so switching who is watched
+   * The slot bar draws the ABILITY kit — `min(weapons.length, maxAbilitySlots)` boxes — for
+   * whichever car `hudTargetPlayer` names. A car's `weapons` array carries four rows as of
+   * 2026-09-17; the fourth is its basic attack and it is deliberately not drawn (BA15). That is a
+   * decision, not a truncation that happens to work: if the basic attack ever needs a readout, it
+   * gets its own, not a fourth box here. Slots beyond the current target (or with no target at all)
+   * just hide their pooled text objects rather than destroying anything, so switching who is watched
    * costs no allocation.
    *
    * `topInset` is the roster panel's height, passed in rather than derived here: the panel lists

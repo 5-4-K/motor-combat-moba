@@ -1,4 +1,6 @@
 import {
+  basicAttackOf,
+  CAR_TABLE,
   DEFAULT_PATCH_RATE_HZ,
   DEFAULT_CAR_ID,
   beamShapeAt,
@@ -12,6 +14,7 @@ import {
   weaponDefOf,
   weaponTicksOf,
   type BeamHitbox,
+  type CarId,
   type ProjectileHitbox,
   type WeaponDef,
   type WeaponId,
@@ -304,6 +307,27 @@ const FLICKER_PHASE_PER_TICK = 0.7;
  * bands, or a `Graphics` object per shot instead of `ArenaScene`'s shared `shotGfx`. See
  * `docs/asset-pipeline.md#how-much-detail-a-shot-can-afford`.
  */
+/**
+ * The basic attack's look (BA8): a near-black bolt with a lit core.
+ *
+ * A weapon with no entry here draws as a single flat fill of its `color`, and a flat `#101014` disc
+ * on dark asphalt is close to invisible — so "shiny black" has to be authored. Concentric bands are
+ * all this renderer has (a band is a radius, not a position), so the highlight is a small bright
+ * CORE rather than an off-centre specular: the bolt reads as a polished sphere lit from inside.
+ *
+ * No halo and no flicker, for `magmablast`'s reason: a pulsing outline on a 12-unit disc reads as a
+ * rendering fault rather than as light, and a static style costs no per-frame hash.
+ */
+const BASIC_ATTACK_GLOW: GlowStyle = {
+  bands: [
+    { radiusScale: 1, color: "#101014" },
+    { radiusScale: 0.66, color: "#2E3138" },
+    { radiusScale: 0.3, color: "#9AA3B2" },
+  ],
+  flickerDepth: 0,
+  flickerHz: 0,
+};
+
 export const WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {
   magmablast: {
     bands: [
@@ -325,6 +349,11 @@ export const WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {
     flickerDepth: 0,
     flickerHz: 0,
   },
+  // One authored look, nine ids. Spread rather than nine copies for `BASIC_ATTACK_BASE`'s reason:
+  // this table is a `Partial<Record<…>>` read by index, so nothing here depends on literal keys.
+  ...Object.fromEntries(
+    (Object.keys(CAR_TABLE) as CarId[]).map((carId) => [basicAttackOf(carId), BASIC_ATTACK_GLOW]),
+  ),
 };
 
 /** A band resolved to world units and a Phaser fill, ready to stroke. */
