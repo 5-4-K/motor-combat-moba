@@ -40,9 +40,20 @@ export type StatusId =
  *    rather than through it. `STATUS_LIMITS` is the hard backstop under that.
  */
 export type StatusChannel =
-  /** Forward and reverse top speed (`forwardMaxSpeedOf` / `reverseMaxSpeedOf`). */
+  /**
+   * Scales the engine command (`engineCommandOf`'s `mods.topSpeed` factor) — and therefore the
+   * equilibrium `stepDrive` settles at, both forward (`forwardMaxSpeedOf`) and reverse
+   * (`reverseAccelOf(id) / dragRateOf(id)`, the emergent reverse top speed) — since the model has
+   * no separate cap to clamp.
+   */
   | "topSpeed"
-  /** Engine push: `accelOf` and `reverseAccelOf`. Drag is NOT scaled. */
+  /**
+   * Scales the engine push AND the drag exponent (`dragFactorOf`'s `Math.pow(dragPerTick,
+   * mods.accel)`, U36): `accel: 0` holds a car's current speed instead of stopping it, because
+   * removing the push without also removing the drag it is balanced against would be a slow
+   * wearing the wrong name. `accelOf`/`reverseAccelOf` are gone — this is `engineAccelOf` and
+   * `reverseAccelOf` now.
+   */
   | "accel"
   /** Steering rate, alongside — never instead of — the ram's `authority`. Above 1 corners tighter. */
   | "turnRate"

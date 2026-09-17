@@ -167,10 +167,16 @@ describe("per-car drive ratings", () => {
     expect(baseAccel + 50 * accelPerRating).toBeCloseTo(130, 9);
   });
 
-  // DELETED: "keeps the stopped turn rate at half the moving one, as it shipped". Its premise —
-  // an at-rest turn rate distinct from the moving one, `turnRateAtStopOf` — is gone outright: yaw
-  // rate is speed-independent under the Unity drive-model port (car-physics-port stage 1 Task 3),
-  // so there is no "stopped" rate left to be half of anything.
+  it("keeps stopTurnRatio at the value it shipped with, pending its deletion", () => {
+    // The at-rest-turn-rate PREMISE this test used to check (`turnRateAtStopOf(id) ===
+    // turnRateOf(id) * 0.5`) is gone outright under the Unity drive-model port (car-physics-port
+    // stage 1 Task 3): yaw rate is speed-independent now, so there is no "stopped" rate left to be
+    // half of anything, and `turnRateAtStopOf` no longer exists to call. But
+    // `DRIVE_CONFIG.stopTurnRatio` ITSELF is not deleted — Task 6 owns removing it, alongside the
+    // other superseded knobs — and deleting the whole case left it pinned by nothing in the
+    // meantime. This is the narrower thing left to check: the orphaned knob's value has not drifted.
+    expect(DRIVE_CONFIG.stopTurnRatio).toBe(0.5);
+  });
 
   it("feeds the derived rates into every chassis's ChassisDrive", () => {
     // `turnRateAtStop` dropped from the assertion for the same reason it dropped from the test

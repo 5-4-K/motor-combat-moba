@@ -219,12 +219,21 @@ describe("the three flags", () => {
   // 0 SETS the yaw rate — it does not add to whatever `angVel` the car came in with. A previous ram
   // spin is erased the moment `steeringLocked` (or any non-`spinFree` tick) runs, not preserved.
 
-  it("`steeringLocked` also stops a driver countersteering out of a spin", () => {
+  it("`steeringLocked` forces the yaw rate to zero regardless of held steer", () => {
+    // REWRITTEN: this used to claim "stops a driver COUNTERSTEERING out of a spin" — a
+    // differential decay rate (steering against a spin decays it faster than steering with it)
+    // that no longer exists (`nextSpinOf`'s only decay knob is `chassis.spinPerTick`, and it never
+    // reads `steer`). The old assertion (`locked.angVel > free.angVel`) still happened to hold
+    // numerically, but for an unrelated reason: outside `mods.spinFree`, steering SETS the yaw
+    // rate (U16) rather than adding to it, so `free.angVel` here was never a "decayed spin" at
+    // all — it was the raw steering rate (`-1 * turnRate`, a large negative number), and `locked`
+    // (steer forced to 0) landed at exactly 0, which is bigger than a large negative number by
+    // coincidence. What the channel actually guarantees is narrower and still real: held steer
+    // contributes nothing to `angVel` while locked, full stop.
     const spinning = body({ vx: 200, angVel: 2 });
     const locked = stepDrive(spinning, input(-1, 0), DT, GOLDEN_CHASSIS, mods({ steeringLocked: true }));
-    const free = stepDrive(spinning, input(-1, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    // A free driver fighting the spin decays it faster; a locked one cannot.
-    expect(locked.angVel).toBeGreaterThan(free.angVel);
+    expect(locked.angVel).toBe(0);
+    expect(locked.angle).toBe(spinning.angle);
   });
 
   it("a stunned car keeps its ram knock resolving", () => {

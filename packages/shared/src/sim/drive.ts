@@ -160,7 +160,15 @@ function steerSenseOf(forward: number): number {
   return DRIVE_CONFIG.flipSteeringInReverse && forward < -DRIVE_CONFIG.reverseEpsilon ? -1 : 1;
 }
 
-/** Injected spin, decaying on its own while nothing holds the yaw. */
+/**
+ * Injected spin, decaying on its own while nothing holds the yaw.
+ *
+ * NOT YET A DECAY: until stage 3 sets `RAM_CONFIG.reelingSpinDecayRate` and `chassis.spinPerTick`
+ * resolves to something other than the placeholder 1 (`resolveChassisDrive`, car-config.ts), this
+ * function is the identity — a car rammed into a HOLD (or handed off through `spinFree` any other
+ * way) spins at a constant rate rather than winding down. Not a bug to fix here; a later stage's
+ * knob to set.
+ */
 function nextSpinOf(angVel: number, chassis: ChassisDrive): number {
   const next = angVel * chassis.spinPerTick;
   return Math.abs(next) < RAM_CONFIG.spinEpsilon ? 0 : next;

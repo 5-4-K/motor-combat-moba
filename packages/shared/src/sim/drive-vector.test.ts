@@ -129,6 +129,28 @@ describe("vector drive: the Unity drag/grip model", () => {
     expect(forwardOf(held.vx, held.vy, held.angle)).toBeCloseTo(120, 9);
   });
 
+  it("still settles at maxSpeed under a non-neutral accel, not just at accel: 1 or accel: 0", () => {
+    // The one-tick `accel: 0` case above proves the power form holds a speed; it cannot tell a
+    // correct `commandFactorOf` from a broken one, because at rest the two halves (decay and
+    // command) never disagree — `v` starts at 0, so drag has nothing to act on yet. This steps to
+    // STEADY STATE under `accel: 0.5`, where they do: `dragFactorOf` raises `dragPerTick` to the
+    // `accel` power, and `commandFactorOf`'s `rate` is `dragRate * accel` — the SAME exponent, on
+    // purpose, so halving it halves the decay AND the command coefficient together and the
+    // equilibrium (`engineAccel / (dragRate * accel)`... which is `chassis.maxSpeed`, `accel`
+    // cancelling out) is invariant to `accel` entirely. This is exactly the property that would
+    // break if `commandFactorOf` and `dragFactorOf` were ever "simplified" to use different
+    // exponents, or if `commandFactorOf` used `chassis.dragRate` unscaled while `dragFactorOf`
+    // kept scaling by `mods.accel`.
+    // Twice the ticks of the neutral-`accel` asymptote case above: halving `accel` halves the
+    // EFFECTIVE rate too (`dragRate * accel`), so the time constant doubles and the same number of
+    // ticks converges only half as far. 20s is still 10 time constants at the halved rate.
+    let b = body({ vx: 0, vy: 0 });
+    for (let i = 0; i < TICK_RATE_HZ * 20; i++) {
+      b = stepDrive(b, input(0, 1), DT, CHASSIS, { ...NEUTRAL_MODIFIERS, accel: 0.5 });
+    }
+    expect(forwardOf(b.vx, b.vy, b.angle)).toBeCloseTo(CHASSIS.maxSpeed, 1);
+  });
+
   it("keeps its spin while spinFree and erases it the moment control returns", () => {
     const spun = { ...body({ vx: 0, vy: 0 }), angVel: 4 };
     const free = stepDrive(spun, input(0, 0), DT, { ...CHASSIS, spinPerTick: 0.9 },
