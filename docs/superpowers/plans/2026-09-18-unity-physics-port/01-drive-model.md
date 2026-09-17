@@ -917,8 +917,10 @@ expressions.
 npm run build && npm test
 ```
 
-Expected: green except `scripts/turn-tuning-doc.test.mjs` (Task 7) and the three already-red bot
-tests.
+Expected: green except `scripts/turn-tuning-doc.test.mjs` (Task 7), the six `tick.test.ts` cases
+Task 8 Step 1a re-pins, and the already-red bot suites — which by this point are the three measured
+before the stage started PLUS the ones stage 1 moved: `predict.test.ts`, `controller.test.ts`,
+`planner.test.ts` and `tiers.test.ts` (H25, S13). Those are stage 5’s `bot-tuner` pass, not yours.
 
 - [ ] **Step 6: Commit**
 
@@ -1047,6 +1049,31 @@ describe("the drive model is tick-rate independent", () => {
 
 Match the `InputMessage` literal and the `SimBody` literal to whatever those types require at the
 time — the point of the test is the two rates, not the field list.
+
+- [ ] **Step 1a: Re-pin the six `tick.test.ts` cases the drive model moved**
+
+Stage 1 Task 3 left six cases in `packages/server/src/sim/tick.test.ts` red — "stops a driver short
+of another player…", "converges to a residual overlap…", "carries angVel/vx/vy through bodyOf →
+stepDrive → writeBody…", "carries every knock component…", "settles angVel to exact neutral…",
+"leaves a merely-driving, recently-turned silent player frozen…". None of them reads a deleted
+field: every one drives the REAL roster through `stepDrive`, so its numbers moved when the model did
+and moved again when Task 6 retuned `baseTurnRate`/`turnRatePerRating`/`reverseAccelFactor`.
+
+They are re-derived **here**, not in Task 3, for one reason: re-pinning them before Task 6's retune
+would have cost two derivations and published a figure that was already stale when it was written.
+Here the stage's numbers are final.
+
+Re-derive each by running the scenario rather than by arithmetic — the same method
+`golden.test.ts`'s own header prescribes — and put the old figure, the new one and the cause in a
+comment beside each. **Two of them ("carries every knock component", "settles angVel to exact
+neutral") measure ram knock, which stage 3 rewrites outright.** Re-pin them anyway so the suite is
+honest at this stage's exit, and note in the comment that stage 3 owns them next.
+
+```bash
+npm test -w @motor-combat-moba/server -- tick.test
+```
+
+Expected: green.
 
 - [ ] **Step 2: Run it**
 
