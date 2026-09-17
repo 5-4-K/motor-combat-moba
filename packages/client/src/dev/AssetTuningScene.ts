@@ -169,7 +169,15 @@ export class AssetTuningScene extends Phaser.Scene {
       Object.keys(WEAPON_TABLE),
       Object.values(CAR_TABLE).map((car) => car.weapons),
     );
-    const orphanNote = orphans.length > 0 ? ` (${orphans.join(", ")} on no kit)` : "";
+    // Past a few, the list is longer than the line: a count says the same thing without pushing the
+    // rest of the summary off screen. "No kit SLOT", not "no kit" — a basic attack is carried by
+    // its chassis through `CarDef.basicAttack`, and this grid has no column for it.
+    const orphanNote =
+      orphans.length === 0
+        ? ""
+        : orphans.length <= 3
+          ? ` (${orphans.join(", ")} on no kit slot)`
+          : ` (${orphans.length} on no kit slot)`;
     return (
       `${carCount} car entr${carCount === 1 ? "y" : "ies"} - ${chassis} chassis - ` +
       `${iconCount}/${weapons} weapon icons${orphanNote} - white box is the OBB hitbox, ` +
