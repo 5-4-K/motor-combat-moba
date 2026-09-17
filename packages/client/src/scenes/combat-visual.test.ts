@@ -1320,7 +1320,7 @@ describe("shell halos (LZ22, LZ23)", () => {
     expect(instanceHaloBands("not-a-weapon", 10)).toEqual([]);
   });
 
-  it("gives every basic attack a lit core, so a near-black bolt reads on dark asphalt (BA8)", () => {
+  it("gives every basic attack a lit core, so a flat near-black disc reads as a sphere rather than a hole on this game's light floors (BA8)", () => {
     for (const carId of Object.keys(CAR_TABLE) as CarId[]) {
       const style = WEAPON_GLOW_STYLES[basicAttackOf(carId)];
       expect(style, carId).toBeDefined();

@@ -134,13 +134,21 @@ fireSlotsOf(carId) === [...slotsOf(carId), basicAttackOf(carId)]
 ```
 
 The rule that decides which of the two a caller wants: **`fireSlotsOf` answers "what can this car
-fire", `slotsOf` answers "what kit was this chassis designed around".** Exactly three readers ask the
-first question, and they are named here so a fourth is a deliberate act rather than a habit:
+fire", `slotsOf` answers "what kit was this chassis designed around".** Its readers are named here
+so a new one is a deliberate act rather than a habit:
 
-1. `newFireState` — the sim's fire state, and the only one on the tick path. It is server-side only;
-   the client never builds a fire state, so there is no lockstep half to keep in agreement here.
-2. `packages/server/balance/stats.ts` — the per-weapon accumulator seeding (BA30).
-3. `scripts/ttk.mjs` — `simulateTtk`'s rotation and the one-press input table (BA31).
+1. `packages/server/balance/stats.ts` — the per-weapon accumulator seeding (BA30).
+2. `scripts/ttk.mjs` — two call sites, `simulateTtk`'s rotation and the one-press input table (BA31).
+3. `packages/server/src/bot/brain/duel.fixture.ts` — two call sites, `pressCeilingOf` and
+   `bestSustainedDpsOf`. The latter is a deliberate choice, not an oversight: a sustained-DPS
+   ceiling should count every trigger a car can pull, and including the basic attack moved
+   Bastion's figure from 18.3 (thumper alone) to 22.5.
+
+`newFireState` — the sim's fire state, and the only one on the tick path — does **not** call
+`fireSlotsOf`. It builds the same `[...kit, basicAttackOf(carId)]` list inline, because it also
+has to accept a caller-given `weaponIds` override (BA14) that `fireSlotsOf` has no parameter for.
+It is server-side only; the client never builds a fire state, so there is no lockstep half to keep
+in agreement here.
 
 Everything else — the HUD, the manual, the playground editor, the balance seat filter, ttk's
 `armedCarIds`, the bot's reach model, the playtest probes — keeps calling `slotsOf` and keeps seeing

@@ -20,7 +20,13 @@ const MAX_ABILITY_SLOTS = 3;
 export const WEAPON_SLOT_CONFIG = {
   maxAbilitySlots: MAX_ABILITY_SLOTS,
   maxFireSlots: MAX_ABILITY_SLOTS + 1,
-  /** The basic attack is always last, so the three ability indices never move (BA13). */
+  /**
+   * The basic attack is always last, so the three ability indices never move (BA13). "Always" is
+   * enforced, not assumed: `weapon-slots.test.ts`'s "gives every ACTIVE car exactly a full kit"
+   * pins every active chassis's `weapons.length` to `maxAbilitySlots`, which is what keeps this
+   * index the one `fireSlotsOf` actually produces rather than a claim that a short kit would quietly
+   * falsify.
+   */
   basicAttackSlotIndex: MAX_ABILITY_SLOTS,
 } as const;
 
@@ -52,12 +58,19 @@ export function slotsOf(carId: CarId): readonly WeaponId[] {
 /**
  * Everything this chassis can fire, in fire-slot order: its kit, then its basic attack (BA12).
  *
- * **Three readers, named so a fourth is a deliberate act rather than a habit:**
+ * **The readers, named so a new one is a deliberate act rather than a habit:**
  *
- * 1. `newFireState` (`sim/weapons/fire.ts`) — the sim's fire state, the only one on the tick path.
- * 2. `packages/server/balance/stats.ts` — the per-weapon accumulator seeding. A weapon the bots
+ * 1. `packages/server/balance/stats.ts` — the per-weapon accumulator seeding. A weapon the bots
  *    press but nobody seeded is silently absent from the report.
- * 3. `scripts/ttk.mjs` — the rotation and the one-press input table.
+ * 2. `scripts/ttk.mjs` — two call sites, the rotation and the one-press input table.
+ * 3. `packages/server/src/bot/brain/duel.fixture.ts` — two call sites, `pressCeilingOf` and
+ *    `bestSustainedDpsOf`. The latter is deliberate, not an oversight: a sustained-DPS ceiling
+ *    should count every trigger a car can pull, and including the basic attack moved Bastion's
+ *    figure from 18.3 (thumper alone) to 22.5.
+ *
+ * `newFireState` (`sim/weapons/fire.ts`) does **not** call this — its explicit-loadout path builds
+ * the same `[...kit, basicAttackOf(carId)]` list inline, because it also has to accept a caller-given
+ * `weaponIds` override that this function has no parameter for.
  *
  * Everything else wants `slotsOf`. The rule: **`fireSlotsOf` answers "what can this car fire",
  * `slotsOf` answers "what kit was this chassis designed around".** The HUD, the guide, the

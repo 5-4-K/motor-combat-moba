@@ -25,8 +25,12 @@ through the `ImpulseDef` seam rather than through `applies`. See the car-physics
 than inside it. **`CarDef.weapons` and `slotsOf` still mean the three ABILITY slots** — the HUD, the
 guide, the playground's loadout picker, the balance seat filter, ttk's attacker axis and the bot's
 reach model all depend on that and are the reason it did not widen. `fireSlotsOf(carId)` is where
-the two are joined, and it has exactly three readers: `newFireState`, `balance/stats.ts`'s
-accumulator seeding, and `scripts/ttk.mjs`. The basic attack is always fire slot 3 (`H` / `LMB`; the
+the two are joined, and its live readers are `packages/server/balance/stats.ts`'s accumulator
+seeding, `scripts/ttk.mjs` (two call sites) and `packages/server/src/bot/brain/duel.fixture.ts` (two
+call sites) — the latter's `bestSustainedDpsOf` deliberately counts the basic attack in its DPS
+ceiling, moving Bastion's figure from 18.3 to 22.5. `newFireState` does not call it — its
+explicit-loadout path builds the same list inline, since it also has to accept a caller-given
+weapon override `fireSlotsOf` has no parameter for. The basic attack is always fire slot 3 (`H` / `LMB`; the
 abilities moved to `J`/`RMB`, `K`/`SHIFT`, `L`/`SPACE`), rides the ordinary fire state machine with
 `recoveryMs: 0`, and loses a same-tick tie to an ability because the lowest set bit wins. Its
 binding is taught **only** in the countdown action hint — it has no gutter pill, which is the one

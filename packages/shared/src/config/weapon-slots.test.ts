@@ -6,14 +6,23 @@ import { WEAPON_SLOT_CONFIG, slotsOf, slotsFrom, fireSlotsOf } from "./weapon-sl
 afterEach(() => vi.restoreAllMocks());
 
 describe("loadouts", () => {
-  it("gives every ACTIVE car at least one weapon, and no car more than the slot limit", () => {
+  it("gives every ACTIVE car exactly a full kit, and no car more than the slot limit", () => {
     // The floor is an ACTIVE-car rule, not a roster-wide one. An inactive car may carry nothing at
     // all: that is the shape a chassis is prototyped in, driven in the playground to judge its
     // handling long before anyone has authored the three exclusive weapons it will eventually ship
-    // with. A car a player can actually select must be able to fight, so the floor applies the
-    // moment `isActive` flips true.
+    // with.
+    //
+    // The floor is EXACT, not "at least one", because `fireSlotsOf` places the basic attack at
+    // `kit.length` while `WEAPON_SLOT_CONFIG.basicAttackSlotIndex` is pinned at
+    // `maxAbilitySlots` (3, BA13's "always"). A two-ability active chassis would pass an "at least
+    // one" floor and then break silently in two directions: `beginFire`'s `usable` cap would never
+    // scan index 3, so H / LMB would fire nothing and the basic attack would answer to the last
+    // ability's key instead; and the HUD's slot bar, capped at `maxAbilitySlots`, would draw the
+    // basic attack as a visible ability box (forbidden by BA15). Pinning every active chassis to
+    // exactly `maxAbilitySlots` weapons is what makes `basicAttackSlotIndex` true rather than
+    // merely typical.
     for (const car of Object.values(CAR_TABLE)) {
-      if (car.isActive) expect(car.weapons.length).toBeGreaterThanOrEqual(1);
+      if (car.isActive) expect(car.weapons.length).toBe(WEAPON_SLOT_CONFIG.maxAbilitySlots);
       expect(car.weapons.length).toBeLessThanOrEqual(WEAPON_SLOT_CONFIG.maxAbilitySlots);
     }
   });

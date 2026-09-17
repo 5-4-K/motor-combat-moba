@@ -2,25 +2,6 @@ import { TICK_RATE_HZ } from "../constants.js";
 import type { BeamWeaponDef, ExplosionDamageMode, WeaponDef, WeaponId } from "./weapon-types.js";
 
 /**
- * Every weapon in the game, mirroring `CAR_TABLE`. Balance lives here and nowhere else.
- *
- * `color` is the one render-only number here besides `name`. It is per weapon on purpose: every
- * car firing a given weapon fires the same shot colour. All nine shipped colours are picked to be
- * unmistakable against any `COLOR_TABLE` player colour, so a shot never reads as somebody's car
- * paint.
- *
- * `damage` is what the weapon deals from a chassis at `COMBAT_CONFIG.attackBaseline` — an *average*
- * car, not every car. `damageFor` (`sim/damage.ts`) moves it +/-50% with the firing chassis's
- * `attack` rating.
- *
- * This is the nine-row roster from the 2026-09-01 weapon-status overhaul (O1-O17): `fireball`,
- * `needler`, `skewer` and `bulwark` are retired outright, their comment history living in git
- * rather than here. See
- * `docs/superpowers/specs/2026-08-29-weapon-roster-design.md` for the original roster rules and
- * `docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md` for the
- * type triangle these numbers now serve.
- */
-/**
  * Everything every basic attack has in common (BA3, BA4).
  *
  * Nine rows spread this and add only their own `id`, so "all nine are identical" is structural
@@ -56,6 +37,28 @@ const BASIC_ATTACK_BASE = {
   pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
 } as const;
 
+/**
+ * Every weapon in the game, mirroring `CAR_TABLE`. Balance lives here and nowhere else.
+ *
+ * `color` is the one render-only number here besides `name`. It is per weapon on purpose: every
+ * car firing a given weapon fires the same shot colour. All ten shipped ability colours are picked
+ * to be unmistakable against any `COLOR_TABLE` player colour, so a shot never reads as somebody's
+ * car paint — the basic attack rows are the deliberate exception, all nine sharing one dark colour
+ * on purpose (BA7), since a basic attack is meant to read as the same weapon regardless of chassis.
+ *
+ * `damage` is what the weapon deals from a chassis at `COMBAT_CONFIG.attackBaseline` — an *average*
+ * car, not every car. `damageFor` (`sim/damage.ts`) moves it +/-50% with the firing chassis's
+ * `attack` rating.
+ *
+ * This is the ten-ability roster from the 2026-09-01 weapon-status overhaul (O1-O17) — `fireball`,
+ * `needler`, `skewer` and `bulwark` are retired outright, their comment history living in git
+ * rather than here — plus the nine `basic-attack-<carId>` rows every chassis carries beside its kit
+ * (BA1-BA38). See
+ * `docs/superpowers/specs/2026-08-29-weapon-roster-design.md` for the original roster rules,
+ * `docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md` for the
+ * type triangle these numbers now serve, and
+ * `docs/superpowers/specs/2026-09-17-basic-attack-design.md` for the basic attack.
+ */
 export const WEAPON_TABLE = {
   /**
    * Bullseye's slot 1 as of the 2026-09-02 loadout swap (it was Mirage's before): the proximity
