@@ -1,0 +1,227 @@
+# Interfaces ledger — Unity physics port
+
+Every name the five stage plans share. **This ledger outranks any one plan and is outranked by the
+spec** ([`2026-09-18-unity-driving-and-ram-physics-port-design.md`](../../specs/2026-09-18-unity-driving-and-ram-physics-port-design.md)).
+If a plan and this file disagree, this file wins; if this file and the spec disagree, the spec wins.
+A stage that changes a name here edits this file in the same commit.
+
+## Config — `packages/shared/src/config/drive-config.ts`
+
+```ts
+export const DRIVE_CONFIG = {
+  baseMaxSpeed: 60,            // unchanged
+  speedPerRating: 1.518,       // unchanged
+  baseDrag: 0.768,             // NEW  1/s at rating 0
+  dragPerRating: 0.00608,      // NEW  1/s per point of `accel`
+  lateralGripRate: 7.0,        // NEW  1/s, global (U10)
+  baseTurnRate: 0.667,         // RETUNED from 3.6
+  turnRatePerRating: 0.0169,   // RETUNED from 0.054
+  reverseAccelFactor: 0.4,     // RETUNED from 0.6
+  reverseEpsilon: 6.0,         // NEW  u/s — brake-vs-reverse AND steering-flip threshold
+  flipSteeringInReverse: true, // NEW  (U8)
+  stopEpsilon: 1e-3,           // unchanged, widened job (U17)
+  carWidth: 60,                // unchanged
+  carHeight: 40,               // unchanged
+  dashSubstepMaxUnits: 16,     // unchanged
+  restitution: 0,              // RETUNED from 0.15 in stage 2 (U22)
+} as const;
+```
+
+**Deleted:** `steeringGrip`, `impactGripDecel`, `stopTurnRatio`, `baseAccel`, `accelPerRating`,
+`reverseSpeedRatio`, `reverseHoldTicks`.
+
+## Config — `packages/shared/src/config/car-config.ts`
+
+```ts
+export interface ChassisDrive {
+  maxSpeed: number;      // u/s, emergent ceiling: engineAccel / dragRate
+  engineAccel: number;   // u/s²
+  reverseAccel: number;  // u/s²
+  brakeDecel: number;    // u/s²
+  turnRate: number;      // rad/s, speed-independent
+  dragRate: number;      // 1/s — the authored rate, for docs and status scaling
+  dragPerTick: number;   // perTickDecay(dragRate)
+  gripPerTick: number;   // perTickDecay(DRIVE_CONFIG.lateralGripRate)
+  spinPerTick: number;   // perTickDecay(RAM_CONFIG.reelingSpinDecayRate); 1 until stage 3 wires it
+}
+```
+
+**`gripPerTick` and `spinPerTick` are resolved per chassis although both rates are global.** That is
+what leaves `stepDrive` reading no module-level rate, which is what makes stage 1's 30-vs-60 Hz
+equivalence test possible: build a `ChassisDrive` at the other rate and step it.
+
+```ts
+
+export function forwardMaxSpeedOf(id: CarId): number;  // unchanged
+export function dragRateOf(id: CarId): number;         // RENAMED from accelOf, new meaning
+export function engineAccelOf(id: CarId): number;      // NEW — forwardMaxSpeedOf * dragRateOf
+export function reverseAccelOf(id: CarId): number;     // unchanged name, now engineAccelOf * reverseAccelFactor
+export function turnRateOf(id: CarId): number;         // unchanged
+export function brakeDecelOf(id: CarId): number;       // unchanged
+export function driveOf(id: CarId): ChassisDrive;      // unchanged
+```
+
+**Deleted:** `accelOf` (renamed), `reverseMaxSpeedOf`, `turnRateAtStopOf`, `coastHalfLifeSecondsOf`,
+`CarDef.coastHalfLifeSeconds`, `ChassisDrive.coastPerTick`, `.reverseMaxSpeed`, `.turnRateAtStop`,
+`.accel`.
+
+`halfLifeToPerTick` stays in `ram-config.ts` and keeps its one remaining caller there.
+
+## Sim — `packages/shared/src/sim/drive.ts`
+
+`stepDrive`'s signature is unchanged:
+
+```ts
+export function stepDrive(
+  body: SimBody, input: InputMessage, dt: number,
+  chassis: ChassisDrive, mods: Readonly<Modifiers>,
+): SimBody;
+```
+
+Internal helpers after the rewrite — `engineCommandOf`, `dragFactorOf`, `steerSenseOf`,
+`nextSpinOf`. **Deleted:** `nextForward`, `accelerateForward`, `brakeOrReverse`, `reverseFurther`,
+`coast`, `bleedLateral`, `isMoving`, `nextAngVel`.
+
+`isDashing`, `dashTranslation` and `dashSubstepCount` keep their current signatures.
+
+## Sim — `packages/shared/src/sim/ram.ts`
+
+```ts
+export type RamRegion = "front" | "frontCorner" | "side" | "rearCorner" | "rear";
+export type RamType = "headOn" | "flank" | "rear";
+
+export interface RamCar {
+  sessionId: string; team: 0 | 1; x: number; y: number; angle: number;
+  vx: number; vy: number;            // PRE-COLLISION velocity
+  carId: CarId; defenceMult: number;
+  ramBlocked: boolean;               // NEW — from Modifiers.ramBlocked; a reeling or locked car cannot attack
+}
+
+/** What one car receives. `spin` is 0 for a head-on (U27); the clamp is the bridge's, not this. */
+export interface RamSide {
+  sessionId: string;
+  shoveX: number; shoveY: number;
+  spin: number;
+  /** true: this car's velocity is REPLACED by the shove (attacker stop, head-on). false: ADDED to it. */
+  replacesVelocity: boolean;
+}
+
+export interface RamResolution {
+  type: RamType;
+  /** The attacker's id, or "" for a head-on, which has none (U27). */
+  attackerId: string;
+  /** Every car this contact acts on: two entries for a flank/rear ram (attacker and victim), two for a head-on. */
+  sides: readonly RamSide[];
+  /** Takes `ramLock`: the attacker, or both cars on a head-on. */
+  locked: readonly string[];
+  /** Takes `reeling`: the victim, or nobody on a head-on. */
+  reeled: readonly string[];
+}
+
+export function regionOf(localX: number, localY: number, cornerBand: number): RamRegion;
+export function ramTypeOf(victimRegion: RamRegion, attackerForward: Vec2, victimForward: Vec2, headOnAngleDeg: number): RamType;
+export function resolveRam(a: RamCar, b: RamCar, mode: "ffa" | "team"): RamResolution | null;
+export function applyRams(
+  cars: readonly RamCar[], previous: ReadonlySet<string>, mode: "ffa" | "team",
+): { rams: RamResolution[]; contacts: Set<string> };
+export function pairKey(a: string, b: string): string;   // unchanged
+export function contactPointOn(victim: RamCar, attacker: RamCar): Vec2;  // now exported
+```
+
+**Deleted:** `ImpactSide`, `impactSideOf`, `RamHit`, `RamImpulseEntry`, `pushOf`, `impactOn`,
+`bonusFor`.
+
+## Sim — `packages/shared/src/sim/contact.ts`
+
+`ContactEvents` gains `rams: RamResolution[]`, and `resolveContacts` stops returning an
+`ImpulseEntry` map:
+
+```ts
+export function resolveContacts(
+  cars: readonly ContactCar[], previous: ReadonlySet<string>, mode: "ffa" | "team",
+  tick: number, slamImmuneUntil: ReadonlyMap<string, number>,
+  obstacles: readonly Aabb[], bounds: Bounds,
+): { contacts: Set<string>; events: ContactEvents };
+```
+
+`ImpulseEntry` is deleted. `ContactHit`, `SlamEvent`, `SpikeContact` and `SpikeHit` are unchanged,
+and the dash and slam arms are untouched.
+
+## Sim — `packages/shared/src/sim/impulse.ts`
+
+`Impulse`, `applyImpulse` and `ImpulseDef` are **unchanged**. After stage 3 their only production
+caller is the slam path in `ram-bridge.ts`.
+
+## Config — `packages/shared/src/config/ram-config.ts`
+
+```ts
+export const RAM_CONFIG = {
+  contactPad: 1,              // unchanged
+  minRamSpeed: 39,            // NEW (replaces minApproachSpeed)
+  headOnAngleDeg: 45,         // NEW
+  cornerBandUnits: 4,         // NEW
+  headOnScale: 0.2,           // NEW
+  flankScale: 1.5,            // NEW
+  rearScale: 1.2,             // NEW
+  globalScale: 0.5,           // RETUNED from 0.4, new meaning
+  spinScale: 0.3,             // RETUNED from 12.5, new meaning
+  spinMaxRate: 6,             // unchanged
+  spinEpsilon: 0.01,          // unchanged
+  reelingSpinDecayRate: 2.0,  // NEW  1/s
+  attackerLockMs: 500,        // NEW
+  ramUncontrolMs: 1000,       // unchanged
+  drWindowMs: 2000,           // unchanged
+  durationDrScale: 0.5,       // unchanged
+  durationDrFloorMs: 150,     // unchanged
+  impulseDrScale: 0.5,        // unchanged
+  impulseDrFloor: 0.25,       // unchanged
+} as const;
+
+export const RAM_TICKS: Readonly<{ uncontrol: number; drWindow: number; durationFloor: number; attackerLock: number }>;
+export function inertiaRadiusSquared(): number;   // (carWidth² + carHeight²) / 12
+export function reelingSpinPerTick(): number;     // exp(-reelingSpinDecayRate / TICK_RATE_HZ)
+```
+
+**Deleted:** `minApproachSpeed`, `defencePushScale`, `bonusFront`, `bonusFlank`, `bonusRear`,
+`knockMaxSpeed`, `inertiaCoefficient`, `spinHalfLifeSeconds`, `counterSteerHalfLifeSeconds`,
+`RamDecay`, `RAM_DECAY`, `resolveRamDecay`, `ramDecay`, `rebuildRamDecay`.
+
+`halfLifeToPerTick` survives (exported, used by `reelingSpinPerTick`'s neighbours and by tests).
+
+## Statuses — `packages/shared/src/config/status-types.ts`, `status-config.ts`
+
+`StatusFlag` gains `"gripless" | "spinFree" | "ramBlocked"`; `Modifiers` gains the three matching
+booleans, false in `NEUTRAL_MODIFIERS`, OR-ed in `modifiersOf`.
+
+```ts
+reeling: { id: "reeling", name: "Reeling", kind: "debuff", color: "#e8590c",
+  reapply: "ignore", modifiers: {},
+  flags: ["immobilised", "steeringLocked", "gripless", "spinFree", "ramBlocked"] },
+
+ramLock: { id: "ramLock", name: "Ram Lock", kind: "debuff", color: "#adb5bd",
+  reapply: "ignore", modifiers: {},
+  flags: ["immobilised", "steeringLocked", "ramBlocked"] },
+```
+
+`StatusId` gains `"ramLock"`. Wire values are string ids, so nothing renumbers.
+
+## Server — `packages/server/src/sim/ram-bridge.ts`
+
+`contactTick`'s signature is unchanged. Internally the impulses loop is replaced by a rams loop that
+writes velocities directly:
+
+```ts
+function applyRamResolution(
+  state: ArenaState, memory: ContactMemory, statusMods: ReadonlyMap<string, Modifiers>,
+  approachVelocities: ReadonlyMap<string, { vx: number; vy: number }>,
+  ram: RamResolution, tick: number,
+): void;
+```
+
+`newFalloffStack`, `nextFalloff`, `sweepFalloff`, `FalloffStack`, `FalloffScales`, `ContactMemory`,
+`clearKnock`, `forgetContactPlayer` and the slam half are unchanged.
+
+## Bot — `packages/server/src/bot/brain/predict.ts`
+
+`OBSERVATION_MODIFIERS` keeps `accel: 0` and `brakeDecel: 0` and **loses** its `topSpeed` override
+(U34). `BOT_BRAIN_VERSION` moves to `6.0.0` in stage 1 and does not move again inside this work.

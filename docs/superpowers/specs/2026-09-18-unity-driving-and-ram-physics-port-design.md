@@ -170,13 +170,25 @@ the precomputed factor. Scaling `dragPerTick` itself (`dragPerTick * mods.accel`
 wrong version: it is not the same function, and at `mods.accel` of 0 it would stop the car dead
 rather than remove its drag.
 
-**This changes what `accel: 0` means, and one caller depends on the old meaning** (**U34**).
-`packages/server/src/bot/brain/predict.ts` freezes a prediction `Modifiers` with `accel: 0` and
-`brakeDecel: 0`, meaning "assume the observed car neither accelerates nor brakes". Under U18,
-`accel: 0` would also zero the drag, and the predicted car would coast forever at constant speed. The
-frozen set must be rebuilt against the new semantics — `accel: 1` with the throttle held neutral is
-the faithful translation — and its justification comment rewritten. `STATUS_LIMITS.accel.min` is a
-floor on statuses, not on this internal caller, so nothing guards it.
+**This changes what `accel: 0` means, and the one caller that relies on it gets what it wanted by a
+different route** (**U34**). `packages/server/src/bot/brain/predict.ts` freezes
+`OBSERVATION_MODIFIERS` as `{ accel: 0, brakeDecel: 0, topSpeed: observationTopSpeedHeadroom }`,
+meaning "roll this observed car forward holding the speed and turn it was seen at". Under U18,
+`accel: 0` zeroes the engine push **and** the drag (`Math.pow(dragPerTick, 0) === 1`), so a
+`throttle: 1` rollout holds its speed exactly — which is precisely the intent, reached now by one
+mechanism instead of three. So:
+
+- **The values stay**, except `topSpeed`, whose headroom existed solely to lift the speed clamp that
+  §4.1 deletes. It becomes inert and is removed, along with
+  `BRAIN_CONSTANTS.observationTopSpeedHeadroom` if nothing else reads it.
+- **The ~60-line justification comment above it is wrong in every particular** — it argues from
+  `accelerateForward`'s two branches, the clamp, `coast`, `brakeOrReverse` and `bleedLateral`, none
+  of which will exist. It is rewritten to argue from the new step, not patched.
+- `brakeDecel: 0` stays: it is unreachable for a `throttle: 1` predictor under the new engine-command
+  table, and it keeps a hypothetical `throttle: -1` predictor from braking a car it only observed.
+
+`STATUS_LIMITS.accel.min` is a floor on statuses, not on this internal caller, so nothing guards
+this either way.
 
 `mods.immobilised` zeroes the throttle (drag, brake and grip still run). `mods.fullStop` still forces
 the velocity to 0 every tick: **`stunned` is deliberately NOT changed** to Unity's apply-once
@@ -469,7 +481,8 @@ fails:
 `STATUS_TABLE` and the copy — but **not** `RAM_CONFIG` — so stages 1, 3 and 4 each owe
 `npm run build:manual`. The builder also calls the renamed resolvers and is not typechecked (U35).
 
-**The bot.** `predict.ts` forward-models the drive step (U34); `planner.ts` and `objectives.ts` each
+**The bot.** `predict.ts` forward-models the drive step, and its frozen observation modifiers keep
+their values but lose their argument (U34); `planner.ts` and `objectives.ts` each
 carry a scoring term calibrated against `steeringGrip === 1.0`, one of them saying in capitals to
 re-derive every weight if a physics pass lowers it — this is that pass. A ram that stops the attacker
 dead also changes whether ramming is worth planning. `BOT_BRAIN_VERSION` is bumped, and a `bot-tuner`
