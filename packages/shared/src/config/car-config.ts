@@ -1,6 +1,5 @@
 import { COMBAT_CONFIG } from "./combat-config.js";
-import { DRIVE_CONFIG } from "./drive-config.js";
-import { halfLifeToPerTick } from "./ram-config.js";
+import { DRIVE_CONFIG, perTickDecay } from "./drive-config.js";
 import type { CarDef, CarId } from "./types.js";
 import type { WeaponId } from "./weapon-types.js";
 
@@ -125,28 +124,32 @@ export function forwardMaxSpeedOf(id: CarId): number {
   return DRIVE_CONFIG.baseMaxSpeed + CAR_TABLE[id].speed * DRIVE_CONFIG.speedPerRating;
 }
 
-export function reverseMaxSpeedOf(id: CarId): number {
-  return forwardMaxSpeedOf(id) * DRIVE_CONFIG.reverseSpeedRatio;
-}
-
 export function turnRateOf(id: CarId): number {
   return DRIVE_CONFIG.baseTurnRate + CAR_TABLE[id].handling * DRIVE_CONFIG.turnRatePerRating;
 }
 
-export function turnRateAtStopOf(id: CarId): number {
-  return turnRateOf(id) * DRIVE_CONFIG.stopTurnRatio;
+/**
+ * This chassis's drag rate, 1/s — the single number that sets its wind-up AND its roll (U4).
+ *
+ * Named for what it IS rather than for the rating that feeds it: the rating is still `accel`,
+ * because a higher rating still means a car that gets going sooner, but the quantity is drag. It was
+ * `accelOf` and returned an acceleration until the Unity port; the engine push is `engineAccelOf`.
+ */
+export function dragRateOf(id: CarId): number {
+  return DRIVE_CONFIG.baseDrag + CAR_TABLE[id].accel * DRIVE_CONFIG.dragPerRating;
 }
 
-export function accelOf(id: CarId): number {
-  return DRIVE_CONFIG.baseAccel + CAR_TABLE[id].accel * DRIVE_CONFIG.accelPerRating;
+/**
+ * The engine's push, u/s². DERIVED so top speed is exactly `forwardMaxSpeedOf`: at equilibrium
+ * `engineAccel === maxSpeed * dragRate`. Nothing clamps to the ceiling any more — it is where these
+ * two balance, which is why it cannot be authored independently of them.
+ */
+export function engineAccelOf(id: CarId): number {
+  return forwardMaxSpeedOf(id) * dragRateOf(id);
 }
 
 export function reverseAccelOf(id: CarId): number {
-  return accelOf(id) * DRIVE_CONFIG.reverseAccelFactor;
-}
-
-export function coastHalfLifeSecondsOf(id: CarId): number {
-  return CAR_TABLE[id].coastHalfLifeSeconds;
+  return engineAccelOf(id) * DRIVE_CONFIG.reverseAccelFactor;
 }
 
 export function brakeDecelOf(id: CarId): number {
@@ -183,16 +186,15 @@ export function ramDefenceOf(id: CarId): number {
  * through every future balance edit.
  */
 export interface ChassisDrive {
-  maxSpeed: number;
-  reverseMaxSpeed: number;
-  accel: number;
-  reverseAccel: number;
-  turnRate: number;
-  turnRateAtStop: number;
-  /** Per-tick multiplier on forward speed while coasting. Resolved from `coastHalfLifeSeconds`. */
-  coastPerTick: number;
-  /** Flat deceleration while the brake is held, u/s². */
-  brakeDecel: number;
+  maxSpeed: number; // u/s — emergent: engineAccel / dragRate
+  engineAccel: number; // u/s²
+  reverseAccel: number; // u/s²
+  brakeDecel: number; // u/s²
+  turnRate: number; // rad/s, speed-independent
+  dragRate: number; // 1/s — the authored rate, for docs and status scaling
+  dragPerTick: number; // perTickDecay(dragRate)
+  gripPerTick: number; // perTickDecay(DRIVE_CONFIG.lateralGripRate)
+  spinPerTick: number; // perTickDecay(RAM_CONFIG.reelingSpinDecayRate) — 1 until stage 3
 }
 
 function resolveChassisDrive(): Readonly<Record<CarId, ChassisDrive>> {
@@ -202,13 +204,17 @@ function resolveChassisDrive(): Readonly<Record<CarId, ChassisDrive>> {
         id,
         Object.freeze({
           maxSpeed: forwardMaxSpeedOf(id),
-          reverseMaxSpeed: reverseMaxSpeedOf(id),
-          accel: accelOf(id),
+          engineAccel: engineAccelOf(id),
           reverseAccel: reverseAccelOf(id),
-          turnRate: turnRateOf(id),
-          turnRateAtStop: turnRateAtStopOf(id),
-          coastPerTick: halfLifeToPerTick(coastHalfLifeSecondsOf(id)),
           brakeDecel: brakeDecelOf(id),
+          turnRate: turnRateOf(id),
+          dragRate: dragRateOf(id),
+          dragPerTick: perTickDecay(dragRateOf(id)),
+          gripPerTick: perTickDecay(DRIVE_CONFIG.lateralGripRate),
+          // Placeholder for exactly one stage: stage 3 replaces this with
+          // `perTickDecay(RAM_CONFIG.reelingSpinDecayRate)` once that knob exists. 1 means "no
+          // decay", and nothing sets `spinFree` until that same stage, so it is unreachable here.
+          spinPerTick: 1,
         }),
       ]),
     ) as Record<CarId, ChassisDrive>,

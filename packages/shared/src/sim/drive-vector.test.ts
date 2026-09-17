@@ -1,30 +1,25 @@
 import { describe, expect, it } from "vitest";
 import type { ChassisDrive } from "../config/car-config.js";
-import { DRIVE_CONFIG } from "../config/drive-config.js";
+import { perTickDecay } from "../config/drive-config.js";
+import { TICK_RATE_HZ } from "../constants.js";
 import type { InputMessage } from "../net/input.js";
 import { stepDrive } from "./drive.js";
 import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import type { SimBody } from "./step.js";
-import { forwardOf, lateralOf } from "./velocity.js";
+import { forwardOf, lateralOf, toWorld } from "./velocity.js";
 
-const DT = 1 / 30;
-
-/**
- * A fixed chassis, frozen here rather than read from `CAR_TABLE`. These expectations pin the SHAPE
- * of the new integration, not the roster's balance — every car's ratings must stay free to move
- * without any number below moving with them. Same principle as `golden.test.ts`.
- */
+const DT = 1 / TICK_RATE_HZ;
+const DRAG_RATE = 1.0;
 const CHASSIS: ChassisDrive = Object.freeze({
-  maxSpeed: 300,
-  reverseMaxSpeed: 195,
-  accel: 200,
-  reverseAccel: 282,
-  turnRate: 6.3,
-  turnRateAtStop: 3.15,
-  coastPerTick: 0.5 ** (1 / (1.0 * 30)), // a 1.0s half-life at 30Hz — tick-count-frozen, not
-  // seconds-frozen: this stays correct if a future netcode phase moves TICK_RATE_HZ, because DT
-  // above is hardcoded to 1/30 in lockstep with it, not read from config.
+  maxSpeed: 200,
+  engineAccel: 200,        // maxSpeed * dragRate
+  reverseAccel: 80,        // engineAccel * 0.4
   brakeDecel: 500,
+  turnRate: 2,
+  dragRate: DRAG_RATE,
+  dragPerTick: perTickDecay(DRAG_RATE),
+  gripPerTick: perTickDecay(3),
+  spinPerTick: 1,
 });
 
 function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputMessage {
@@ -42,96 +37,89 @@ function body(over: Partial<SimBody> = {}): SimBody {
   };
 }
 
-describe("vector drive: throttle acts on the forward component", () => {
-  it("accelerates along the heading from rest", () => {
-    const next = stepDrive(body(), input(0, 1), DT, CHASSIS, NEUTRAL_MODIFIERS);
-    expect(forwardOf(next.vx, next.vy, next.angle)).toBeCloseTo(CHASSIS.accel * DT);
-    expect(lateralOf(next.vx, next.vy, next.angle)).toBeCloseTo(0);
+describe("vector drive: the Unity drag/grip model", () => {
+  it("approaches top speed asymptotically instead of clamping to it", () => {
+    let b = body({ vx: 0, vy: 0 });
+    for (let i = 0; i < TICK_RATE_HZ * 10; i++) b = stepDrive(b, input(0, 1), DT, CHASSIS, NEUTRAL_MODIFIERS);
+    const speed = forwardOf(b.vx, b.vy, b.angle);
+    expect(speed).toBeLessThan(CHASSIS.maxSpeed);
+    expect(speed).toBeGreaterThan(CHASSIS.maxSpeed * 0.99);
   });
 
-  it("clamps forward speed to the chassis maximum", () => {
-    const next = stepDrive(body({ vx: 295, vy: 0 }), input(0, 1), DT, CHASSIS, NEUTRAL_MODIFIERS);
-    expect(forwardOf(next.vx, next.vy, next.angle)).toBeCloseTo(CHASSIS.maxSpeed);
+  it("reaches 90% of top speed after ln(10) time constants", () => {
+    const ticks = Math.round((Math.log(10) / DRAG_RATE) * TICK_RATE_HZ);
+    let b = body({ vx: 0, vy: 0 });
+    for (let i = 0; i < ticks; i++) b = stepDrive(b, input(0, 1), DT, CHASSIS, NEUTRAL_MODIFIERS);
+    expect(forwardOf(b.vx, b.vy, b.angle)).toBeCloseTo(CHASSIS.maxSpeed * 0.9, 0);
   });
 
-  it("brakes at the chassis flat rate while rolling forward", () => {
-    const next = stepDrive(body({ vx: 200, vy: 0 }), input(0, -1), DT, CHASSIS, NEUTRAL_MODIFIERS);
-    expect(forwardOf(next.vx, next.vy, next.angle)).toBeCloseTo(200 - CHASSIS.brakeDecel * DT);
-  });
-});
-
-describe("vector drive: coasting is speed-proportional", () => {
-  it("sheds a fixed FRACTION per tick, not a fixed amount", () => {
-    const fast = stepDrive(body({ vx: 300, vy: 0 }), input(0, 0), DT, CHASSIS, NEUTRAL_MODIFIERS);
-    const slow = stepDrive(body({ vx: 30, vy: 0 }), input(0, 0), DT, CHASSIS, NEUTRAL_MODIFIERS);
-    const fastLoss = 300 - forwardOf(fast.vx, fast.vy, fast.angle);
-    const slowLoss = 30 - forwardOf(slow.vx, slow.vy, slow.angle);
-    // Ten times the speed sheds ten times the speed. Flat drag would shed the same amount.
-    expect(fastLoss / slowLoss).toBeCloseTo(10, 1);
+  it("decays a coasting car by the drag factor every tick, in both components", () => {
+    const b0 = body({ ...toWorld(0, 100, 40) });
+    const b1 = stepDrive(b0, input(0, 0), DT, CHASSIS, NEUTRAL_MODIFIERS);
+    expect(forwardOf(b1.vx, b1.vy, b1.angle)).toBeCloseTo(100 * CHASSIS.dragPerTick, 9);
+    // The lateral component takes drag AND grip.
+    expect(lateralOf(b1.vx, b1.vy, b1.angle)).toBeCloseTo(40 * CHASSIS.dragPerTick * CHASSIS.gripPerTick, 9);
   });
 
-  it("halves the speed over one half-life", () => {
-    let b = body({ vx: 300, vy: 0 });
-    for (let i = 0; i < 30; i++) b = stepDrive(b, input(0, 0), DT, CHASSIS, NEUTRAL_MODIFIERS);
-    expect(forwardOf(b.vx, b.vy, b.angle)).toBeCloseTo(150, 0);
+  it("scales grip by the `grip` modifier, so a shove can be made to ride longer", () => {
+    const b0 = body({ ...toWorld(0, 0, 100) });
+    const reeling = stepDrive(b0, input(0, 0), DT, CHASSIS, { ...NEUTRAL_MODIFIERS, grip: 0.6 });
+    expect(lateralOf(reeling.vx, reeling.vy, reeling.angle)).toBeCloseTo(
+      100 * CHASSIS.dragPerTick * CHASSIS.gripPerTick ** 0.6, 9);
+
+    // `grip: 0` is the Unity "no grip at all" case: drag alone. Out of STATUS_LIMITS' reach for a
+    // status, reachable here, and the proof the power form degenerates correctly.
+    const puck = stepDrive(b0, input(0, 0), DT, CHASSIS, { ...NEUTRAL_MODIFIERS, grip: 0 });
+    expect(lateralOf(puck.vx, puck.vy, puck.angle)).toBeCloseTo(100 * CHASSIS.dragPerTick, 9);
   });
 
-  it("snaps to true rest inside stopEpsilon rather than creeping forever", () => {
-    let b = body({ vx: DRIVE_CONFIG.stopEpsilon / 2, vy: 0 });
-    b = stepDrive(b, input(0, 0), DT, CHASSIS, NEUTRAL_MODIFIERS);
-    expect(b.vx).toBe(0);
-    expect(b.vy).toBe(0);
-  });
-});
-
-describe("vector drive: steering grip", () => {
-  it("at grip 1.0 the velocity follows the nose exactly, leaving no lateral", () => {
-    // A car doing 300 that turns hard should still be doing ~300 straight ahead afterwards.
-    const next = stepDrive(body({ vx: 300, vy: 0 }), input(1, 1), DT, CHASSIS, NEUTRAL_MODIFIERS);
-    expect(next.angle).toBeGreaterThan(0); // it did turn
-    expect(lateralOf(next.vx, next.vy, next.angle)).toBeCloseTo(0);
-    expect(forwardOf(next.vx, next.vy, next.angle)).toBeGreaterThan(295);
+  it("drifts: turning at speed leaves velocity pointing where the car WAS going", () => {
+    let b = body({ ...toWorld(0, 150, 0) });
+    for (let i = 0; i < 10; i++) b = stepDrive(b, input(1, 1), DT, CHASSIS, NEUTRAL_MODIFIERS);
+    expect(Math.abs(lateralOf(b.vx, b.vy, b.angle))).toBeGreaterThan(1);
   });
 
-  it("steers at the at-rest rate when stopped", () => {
-    const next = stepDrive(body(), input(1, 0), DT, CHASSIS, NEUTRAL_MODIFIERS);
-    expect(next.angle).toBeCloseTo(CHASSIS.turnRateAtStop * DT);
-  });
-});
-
-describe("vector drive: imposed lateral velocity", () => {
-  it("bleeds sideways motion at the flat impact-grip rate", () => {
-    const next = stepDrive(body({ vx: 0, vy: 200 }), input(0, 0), DT, CHASSIS, NEUTRAL_MODIFIERS);
-    // Facing +x, so all 200 is lateral. It loses impactGripDecel * dt.
-    expect(lateralOf(next.vx, next.vy, next.angle)).toBeCloseTo(
-      200 - DRIVE_CONFIG.impactGripDecel * DT,
-    );
+  it("settles at the slip angle the two rates predict, holding full lock", () => {
+    let b = body({ ...toWorld(0, 150, 0) });
+    for (let i = 0; i < TICK_RATE_HZ * 5; i++) b = stepDrive(b, input(1, 1), DT, CHASSIS, NEUTRAL_MODIFIERS);
+    const slip = Math.abs(Math.atan2(lateralOf(b.vx, b.vy, b.angle), forwardOf(b.vx, b.vy, b.angle)));
+    expect(slip).toBeCloseTo(Math.atan(CHASSIS.turnRate / 7), 1);
   });
 
-  it("never overshoots through zero", () => {
-    const tiny = DRIVE_CONFIG.impactGripDecel * DT * 0.25;
-    const next = stepDrive(body({ vx: 0, vy: tiny }), input(0, 0), DT, CHASSIS, NEUTRAL_MODIFIERS);
-    expect(lateralOf(next.vx, next.vy, next.angle)).toBeCloseTo(0);
+  it("turns at the same rate stopped as at speed", () => {
+    const stopped = stepDrive(body({ vx: 0, vy: 0 }), input(1, 0), DT, CHASSIS, NEUTRAL_MODIFIERS);
+    const rolling = stepDrive(body({ ...toWorld(0, 150, 0) }), input(1, 0), DT, CHASSIS, NEUTRAL_MODIFIERS);
+    expect(stopped.angle).toBeCloseTo(CHASSIS.turnRate * DT, 9);
+    expect(rolling.angle).toBeCloseTo(CHASSIS.turnRate * DT, 9);
   });
 
-  it("bleeds lateral independently of forward, so a shoved car keeps driving", () => {
-    const next = stepDrive(body({ vx: 200, vy: 100 }), input(0, 1), DT, CHASSIS, NEUTRAL_MODIFIERS);
-    expect(forwardOf(next.vx, next.vy, next.angle)).toBeGreaterThan(200); // still accelerating
-    expect(lateralOf(next.vx, next.vy, next.angle)).toBeLessThan(100);    // and still recovering
-  });
-});
-
-describe("vector drive: reverse", () => {
-  it("does not engage reverse until the hold delay elapses at rest", () => {
-    let b = body();
-    b = stepDrive(b, input(0, -1), DT, CHASSIS, NEUTRAL_MODIFIERS);
-    expect(forwardOf(b.vx, b.vy, b.angle)).toBeCloseTo(0);
-    expect(b.reverseHold).toBe(1);
+  it("flips the steering sense once genuinely reversing, and not at rest", () => {
+    const reversing = stepDrive(body({ ...toWorld(0, -50, 0) }), input(1, 0), DT, CHASSIS, NEUTRAL_MODIFIERS);
+    expect(reversing.angle).toBeLessThan(0);
+    const atRest = stepDrive(body({ vx: 0, vy: 0 }), input(1, 0), DT, CHASSIS, NEUTRAL_MODIFIERS);
+    expect(atRest.angle).toBeGreaterThan(0);
   });
 
-  it("reverses once the hold delay is satisfied, clamped to the reverse cap", () => {
-    let b = body({ reverseHold: DRIVE_CONFIG.reverseHoldTicks });
-    for (let i = 0; i < 200; i++) b = stepDrive(b, input(0, -1), DT, CHASSIS, NEUTRAL_MODIFIERS);
-    expect(forwardOf(b.vx, b.vy, b.angle)).toBeCloseTo(-CHASSIS.reverseMaxSpeed);
+  it("brakes while rolling forward and reverses once nearly stopped, with no hold delay", () => {
+    const braking = stepDrive(body({ ...toWorld(0, 100, 0) }), input(0, -1), DT, CHASSIS, NEUTRAL_MODIFIERS);
+    expect(forwardOf(braking.vx, braking.vy, braking.angle)).toBeCloseTo(
+      100 * CHASSIS.dragPerTick - CHASSIS.brakeDecel * DT, 9);
+    const engaging = stepDrive(body({ vx: 0, vy: 0 }), input(0, -1), DT, CHASSIS, NEUTRAL_MODIFIERS);
+    expect(forwardOf(engaging.vx, engaging.vy, engaging.angle)).toBeCloseTo(-CHASSIS.reverseAccel * DT, 9);
+  });
+
+  it("scales drag as a power, so `accel: 0` holds a speed instead of stopping the car", () => {
+    const held = stepDrive(body({ ...toWorld(0, 120, 0) }), input(0, 1), DT, CHASSIS,
+      { ...NEUTRAL_MODIFIERS, accel: 0 });
+    expect(forwardOf(held.vx, held.vy, held.angle)).toBeCloseTo(120, 9);
+  });
+
+  it("keeps its spin while spinFree and erases it the moment control returns", () => {
+    const spun = { ...body({ vx: 0, vy: 0 }), angVel: 4 };
+    const free = stepDrive(spun, input(0, 0), DT, { ...CHASSIS, spinPerTick: 0.9 },
+      { ...NEUTRAL_MODIFIERS, spinFree: true });
+    expect(free.angVel).toBeCloseTo(3.6, 9);
+    const held = stepDrive(spun, input(0, 0), DT, CHASSIS, NEUTRAL_MODIFIERS);
+    expect(held.angVel).toBe(0);
   });
 });

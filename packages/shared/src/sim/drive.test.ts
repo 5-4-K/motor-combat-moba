@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChassisDrive } from "../config/car-config.js";
-import { DRIVE_CONFIG } from "../config/drive-config.js";
+import { DRIVE_CONFIG, perTickDecay } from "../config/drive-config.js";
 import type { InputMessage } from "../net/input.js";
 import { dashSubstepCount, dashTranslation, isDashing, stepDrive } from "./drive.js";
 import { ManeuverKind } from "./maneuver.js";
@@ -11,29 +11,29 @@ import { forwardOf } from "./velocity.js";
 const DT = 1 / 30;
 
 /**
- * The drive numbers this suite was recorded against — the chassis that shipped as `rectangle` on
- * 2026-08-29, before per-car acceleration and turn rate existed.
+ * The drive numbers this suite was recorded against.
  *
  * Frozen here rather than read from `CAR_TABLE` deliberately: these expectations pin the SHAPE of
  * the integration, not the roster's balance. A car's ratings must be free to move without any
  * number below moving with them.
+ *
+ * REFIXTURED for the Unity drive-model port (car-physics-port stage 1 Task 3): the old six-field
+ * `ChassisDrive` (`maxSpeed`, `reverseMaxSpeed`, `accel`, `reverseAccel`, `turnRate`,
+ * `turnRateAtStop`) plus `coastPerTick`/`brakeDecel` is gone. This file's own fixture used to differ
+ * from `golden.test.ts`'s only by `coastPerTick`'s half-life (1.0s here, 0.35s there) — that axis no
+ * longer exists (there is no `coastPerTick` field at all now), so the two fixtures coincide on every
+ * field below. That is not a copy-paste drift: it is the distinguishing axis disappearing.
  */
-// NOTE: `golden.test.ts` also declares a `GOLDEN_CHASSIS` with these same first six values but a
-// DIFFERENT `coastPerTick` (a 0.35s half-life there, frozen to the pre-rework global, against the
-// 1.0s used here). That is deliberate, not a copy-paste drift between the two fixtures — this file's
-// suite predates the coast field and was never meant to pin a specific half-life, so 1.0s was picked
-// as a convenient round number for this suite's own scenarios. Do not "fix" one to match the other.
 const GOLDEN_CHASSIS: ChassisDrive = Object.freeze({
-  maxSpeed: 540,
-  reverseMaxSpeed: 351,
-  accel: 780,
-  reverseAccel: 1100,
-  turnRate: 4.2,
-  turnRateAtStop: 2.1,
-  coastPerTick: 0.5 ** (1 / (1.0 * 30)), // a 1.0s half-life at 30Hz — tick-count-frozen, not
-  // seconds-frozen: this stays correct if a future netcode phase moves TICK_RATE_HZ, because DT
-  // above is hardcoded to 1/30 in lockstep with it, not read from config.
-  brakeDecel: 1600,
+  maxSpeed: 200,
+  engineAccel: 200,
+  reverseAccel: 80,
+  brakeDecel: 500,
+  turnRate: 2,
+  dragRate: 1,
+  dragPerTick: perTickDecay(1),
+  gripPerTick: perTickDecay(7),
+  spinPerTick: 1,
 });
 
 function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputMessage {
@@ -78,9 +78,18 @@ describe("stepDrive", () => {
     expect(out.y).toBe(0);
   });
 
-  it("reaches (and does not exceed) forwardMaxSpeedOf(carId) after sustained throttle", () => {
+  it("approaches its own discrete equilibrium after sustained throttle (asymptotic, not a clamp)", () => {
+    // The equilibrium THIS discrete recurrence settles at is `engineAccel*DT / (1 - dragPerTick)`,
+    // not the continuous `engineAccel / dragRate` (`chassis.maxSpeed`) — a semi-implicit step applies
+    // the WHOLE tick's drag before adding a plain `command * dt` forcing term, so at a finite tick
+    // rate the fixed point sits slightly ABOVE the continuous ceiling (about 1.7% here, at 30Hz with
+    // `dragRate: 1`). See the task report for this as a discrepancy against `drive-vector.test.ts`'s
+    // own "approaches top speed asymptotically instead of clamping to it" case, which assumes the
+    // continuous figure and is left failing rather than silently retuned.
     const out = drive(rest(), input(0, 1), 1000);
-    expect(fwd(out)).toBeCloseTo(GOLDEN_CHASSIS.maxSpeed);
+    const discreteEquilibrium =
+      (GOLDEN_CHASSIS.engineAccel * DT) / (1 - GOLDEN_CHASSIS.dragPerTick);
+    expect(fwd(out)).toBeCloseTo(discreteEquilibrium, 2);
   });
 
   it("from high +speed, holding Down brakes the speed down before it goes negative", () => {
@@ -90,95 +99,54 @@ describe("stepDrive", () => {
     expect(fwd(out)).toBeGreaterThanOrEqual(0);
   });
 
-  it("from rest, holding Down for reverseHoldTicks then more goes negative, clamped to the reverse max", () => {
-    const atThreshold = drive(rest(), input(0, -1), DRIVE_CONFIG.reverseHoldTicks);
-    expect(fwd(atThreshold)).toBeLessThan(0);
+  // DELETED: "from rest, holding Down for reverseHoldTicks then more goes negative, clamped to the
+  // reverse max" and "brakes through zero into reverse without overshoot, only reverses past the
+  // hold threshold, and pins at the cap" and "does not re-arm the reverse hold delay when briefly
+  // coasting mid-reverse" — all three pinned `DRIVE_CONFIG.reverseHoldTicks` gating. The Unity port
+  // has no hold delay at all: `engineCommandOf` reverses the instant `forward` is at or below
+  // `reverseEpsilon`, on the very first tick Down is held. There is also no reverse CLAMP any more
+  // — reverse top speed is the equilibrium `reverseAccel / dragRate`, approached asymptotically like
+  // the forward one, never pinned exactly. `reverseHoldTicks`/`SimBody.reverseHold` are dead until a
+  // later task deletes them; this file stops exercising the ceremony rather than asserting it.
 
-    const held = drive(atThreshold, input(0, -1), 500);
-    expect(fwd(held)).toBeLessThan(0);
-    expect(Math.abs(fwd(held))).toBeLessThanOrEqual(GOLDEN_CHASSIS.reverseMaxSpeed);
-    expect(GOLDEN_CHASSIS.reverseMaxSpeed).toBeCloseTo(
-      GOLDEN_CHASSIS.maxSpeed * DRIVE_CONFIG.reverseSpeedRatio,
-      9,
-    );
-    expect(held.reverseHold).toBe(DRIVE_CONFIG.reverseHoldTicks);
-  });
-
-  it("accelerates backward at reverseAccel, not the forward accel", () => {
-    // Reverse gets its own rate so backing out of a fight is not gated by the forward curve.
+  it("accelerates backward at reverseAccel, not the forward accel, from the first tick Down is held", () => {
+    // Reverse gets its own rate so backing out of a fight is not gated by the forward curve, and
+    // (unlike the pre-port model) it is available immediately from rest — no hold delay to satisfy.
     const down = input(0, -1);
-    const engaged = drive(rest(), down, DRIVE_CONFIG.reverseHoldTicks);
+    const engaged = stepDrive(rest(), down, DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(fwd(engaged)).toBeLessThan(0);
-
-    const next = stepDrive(engaged, down, DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    expect(fwd(engaged) - fwd(next)).toBeCloseTo(GOLDEN_CHASSIS.reverseAccel * DT, 6);
+    expect(fwd(engaged)).toBeCloseTo(-GOLDEN_CHASSIS.reverseAccel * DT, 9);
   });
 
-  it("brakes through zero into reverse without overshoot, only reverses past the hold threshold, and pins at the cap", () => {
+  it("brakes from a forward speed into reverse, settling near its own reverse equilibrium", () => {
+    // The brake command is FLAT (`-brakeDecel * mods.brakeDecel`, not proportional to `forward`)
+    // and nothing in `stepDrive` clamps the crossing, unlike the deleted `accelerateForward`'s
+    // `Math.max(0, ...)`: a car whose forward speed is smaller than one tick's brake magnitude
+    // steps straight past 0 into reverse in a single tick. This case checks the shape (monotonic
+    // braking, then a negative settle) rather than an exact zero-crossing that the model no longer
+    // guarantees.
     const down = input(0, -1);
     let body: SimBody = { ...rest(), vx: GOLDEN_CHASSIS.maxSpeed, vy: 0 };
-    let sawZero = false;
-    let wentNegative = false;
-
-    for (let tick = 0; tick < 25; tick++) {
+    let prev = fwd(body);
+    for (let tick = 0; tick < 25 && prev > 0; tick++) {
       body = stepDrive(body, down, DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
       const speed = fwd(body);
-      if (!sawZero) {
-        // Braking phase: speed must reach exactly 0 without ever overshooting negative, and the
-        // reverse-hold delay must not start accumulating until the car is actually at rest.
-        expect(speed).toBeGreaterThanOrEqual(0);
-        expect(body.reverseHold).toBe(0);
-        if (speed === 0) sawZero = true;
-      } else if (!wentNegative) {
-        if (speed < 0) {
-          wentNegative = true;
-          // Reverse only engages once the hold delay has fully accumulated.
-          expect(body.reverseHold).toBe(DRIVE_CONFIG.reverseHoldTicks);
-        }
-      }
+      expect(speed).toBeLessThan(prev);
+      prev = speed;
     }
-
-    expect(sawZero).toBe(true);
-    expect(wentNegative).toBe(true);
+    expect(fwd(body)).toBeLessThan(0);
 
     const pinned = drive(body, down, 500);
-    expect(fwd(pinned)).toBe(-GOLDEN_CHASSIS.reverseMaxSpeed);
+    const reverseEquilibrium = -(GOLDEN_CHASSIS.reverseAccel * DT) / (1 - GOLDEN_CHASSIS.dragPerTick);
+    expect(fwd(pinned)).toBeCloseTo(reverseEquilibrium, 1);
   });
 
-  it("holding Up from reverse brakes to exactly 0 without overshoot, then accelerates forward", () => {
+  it("holding Up from reverse brings the car back through zero and on to accelerating forward", () => {
     const up = input(0, 1);
-    let body: SimBody = { ...rest(), vx: -GOLDEN_CHASSIS.reverseMaxSpeed, vy: 0 };
-    let sawZero = false;
-
-    for (let tick = 0; tick < 15; tick++) {
-      body = stepDrive(body, up, DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-      const speed = fwd(body);
-      if (!sawZero) {
-        expect(speed).toBeLessThanOrEqual(0);
-        if (speed === 0) sawZero = true;
-      } else {
-        expect(speed).toBeGreaterThanOrEqual(0);
-      }
-    }
-
-    expect(sawZero).toBe(true);
+    const reverseEquilibrium = -(GOLDEN_CHASSIS.reverseAccel * DT) / (1 - GOLDEN_CHASSIS.dragPerTick);
+    let body: SimBody = { ...rest(), vx: reverseEquilibrium, vy: 0 };
+    for (let tick = 0; tick < 15; tick++) body = stepDrive(body, up, DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(fwd(body)).toBeGreaterThan(0);
-  });
-
-  it("does not re-arm the reverse hold delay when briefly coasting mid-reverse", () => {
-    const down = input(0, -1);
-    const reversing = drive(rest(), down, DRIVE_CONFIG.reverseHoldTicks + 5);
-    expect(fwd(reversing)).toBeLessThan(0);
-
-    // Release Down for exactly one tick.
-    const afterCoast = stepDrive(reversing, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    expect(afterCoast.reverseHold).toBe(0);
-    expect(fwd(afterCoast)).toBeLessThan(0);
-
-    // Re-press Down: speed must keep getting more negative immediately, never freeze.
-    const resumed = stepDrive(afterCoast, down, DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    expect(fwd(resumed)).toBeLessThan(fwd(afterCoast));
-    expect(resumed.reverseHold).toBe(DRIVE_CONFIG.reverseHoldTicks);
   });
 
   it("Left steer increases angle (CCW); Right steer decreases it", () => {
@@ -188,29 +156,25 @@ describe("stepDrive", () => {
     expect(right.angle).toBeLessThan(0);
   });
 
-  it("turns faster while moving than while stopped (turnRate vs turnRateAtStop)", () => {
-    expect(GOLDEN_CHASSIS.turnRate).toBeGreaterThan(GOLDEN_CHASSIS.turnRateAtStop);
+  // DELETED: "turns faster while moving than while stopped (turnRate vs turnRateAtStop)" and
+  // "steers at turnRateAtStop below stopEpsilon and at turnRate above it" — there is no at-rest turn
+  // rate any more (U-model yaw is speed-independent), so both premises are now false rather than
+  // merely unpinned.
 
-    const steerLeft = input(1, 0);
-    const stopped = stepDrive(rest(), steerLeft, DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    const movingBody: SimBody = { ...rest(), vx: 100, vy: 0 };
-    const moving = stepDrive(movingBody, steerLeft, DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-
-    expect(moving.angle).toBeGreaterThan(stopped.angle);
-  });
-
-  it("coasting (throttle 0) reduces |speed| via coast from a positive speed", () => {
+  it("coasting (throttle 0) reduces |speed| via drag from a positive speed", () => {
     const moving: SimBody = { ...rest(), vx: 100, vy: 0 };
     const out = stepDrive(moving, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(fwd(out)).toBeLessThan(fwd(moving));
     expect(fwd(out)).toBeGreaterThanOrEqual(0);
+    expect(fwd(out)).toBeCloseTo(100 * GOLDEN_CHASSIS.dragPerTick, 9);
   });
 
-  it("coasting (throttle 0) reduces |speed| via coast from a negative speed", () => {
+  it("coasting (throttle 0) reduces |speed| via drag from a negative speed", () => {
     const movingReverse: SimBody = { ...rest(), vx: -100, vy: 0 };
     const out = stepDrive(movingReverse, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(fwd(out)).toBeGreaterThan(fwd(movingReverse));
     expect(fwd(out)).toBeLessThanOrEqual(0);
+    expect(fwd(out)).toBeCloseTo(-100 * GOLDEN_CHASSIS.dragPerTick, 9);
   });
 
   it("coasting from a sub-stopEpsilon speed settles to exact rest in one tick", () => {
@@ -218,48 +182,30 @@ describe("stepDrive", () => {
     const out = stepDrive(barelyMoving, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(fwd(out)).toBe(0);
   });
-
-  it("steers at turnRateAtStop below stopEpsilon and at turnRate above it", () => {
-    // stopEpsilon is the band that decides which steering rate applies, so it is sim logic and
-    // belongs in config rather than as a literal in drive.ts.
-    const crawling: SimBody = { ...rest(), vx: DRIVE_CONFIG.stopEpsilon / 2, vy: 0 };
-    const rolling: SimBody = { ...crawling, vx: DRIVE_CONFIG.stopEpsilon * 2 };
-
-    expect(stepDrive(crawling, input(1, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS).angle).toBeCloseTo(
-      GOLDEN_CHASSIS.turnRateAtStop * DT,
-      9,
-    );
-    expect(stepDrive(rolling, input(1, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS).angle).toBeCloseTo(
-      GOLDEN_CHASSIS.turnRate * DT,
-      9,
-    );
-  });
 });
 
 describe("stepDrive: ram knock state", () => {
-  it("rotates the car from angVel with no steering input", () => {
-    const out = stepDrive({ ...rest(), angVel: 2 }, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    expect(out.angle).toBeCloseTo(2 * DT, 9);
-  });
-
-  it("decays angVel toward zero and snaps inside the epsilon", () => {
-    const spun = drive({ ...rest(), angVel: 3 }, input(0, 0), 1);
-    expect(Math.abs(spun.angVel)).toBeLessThan(3);
-    const settled = drive({ ...rest(), angVel: 3 }, input(0, 0), 300);
-    expect(settled.angVel).toBe(0);
-  });
+  // DELETED: "rotates the car from angVel with no steering input", "decays angVel toward zero and
+  // snaps inside the epsilon", the four countersteer-differential cases, and "adds steering
+  // rotation and injected spin rather than one substituting for the other" — all of them pinned the
+  // pre-port model where steering ADDED to an independently-decaying `angVel`. The Unity port makes
+  // steering SET the yaw rate: outside `mods.spinFree`, an injected spin is overwritten by the
+  // steering term on the very next tick rather than decaying alongside it, and countersteering no
+  // longer has a differential decay rate to test (`spinPerTick` is the only decay knob left, and it
+  // does not read `steer` at all). `drive-vector.test.ts` now covers this shape directly (see
+  // "keeps its spin while spinFree and erases it the moment control returns").
 
   it("translates the car from an imposed lateral velocity with no throttle", () => {
     // There is no successor to `shove`: any lateral component of vx/vy IS the imposed motion. A
-    // pure lateral component (angle 0, so lateral = vy) with no throttle still displaces the car.
+    // pure lateral component (angle 0, so lateral = vy) with no throttle still displaces the car,
+    // now decayed by drag-then-grip instead of the old flat impactGripDecel bleed.
     const out = stepDrive({ ...rest(), vx: 0, vy: -60 }, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
+    const expectedLateral = -60 * GOLDEN_CHASSIS.dragPerTick * GOLDEN_CHASSIS.gripPerTick;
     expect(out.x).toBeCloseTo(0, 9);
-    expect(out.y).toBeCloseTo(-(60 - DRIVE_CONFIG.impactGripDecel * DT) * DT, 9);
+    expect(out.y).toBeCloseTo(expectedLateral * DT, 9);
   });
 
   it("decays an imposed lateral velocity toward zero and snaps to exact rest", () => {
-    // `bleedLateral` clamps rather than asymptotes, so this reaches exact 0 with no epsilon needed
-    // — unlike the old shove decay, which halved forever and had to be snapped.
     const settled = drive({ ...rest(), vx: 0, vy: 200 }, input(0, 0), 300);
     expect(settled.vx).toBe(0);
     expect(settled.vy).toBe(0);
@@ -269,50 +215,8 @@ describe("stepDrive: ram knock state", () => {
     const out = stepDrive({ ...rest(), vx: 300, vy: 150 }, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     // angle 0, so drive motion is +x and the imposed lateral motion is +y. Both must survive.
     expect(out.x).toBeGreaterThan(0);
-    expect(out.y).toBeCloseTo((150 - DRIVE_CONFIG.impactGripDecel * DT) * DT, 9);
-  });
-
-  it("bleeds spin faster when steering against it than when coasting", () => {
-    const coasting = stepDrive({ ...rest(), vx: 200, angVel: 3 }, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    const fighting = stepDrive({ ...rest(), vx: 200, angVel: 3 }, input(-1, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    expect(fighting.angVel).toBeLessThan(coasting.angVel);
-  });
-
-  it("does not bleed spin when steering WITH it", () => {
-    const coasting = stepDrive({ ...rest(), vx: 200, angVel: 3 }, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    const going = stepDrive({ ...rest(), vx: 200, angVel: 3 }, input(1, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    expect(going.angVel).toBe(coasting.angVel);
-  });
-
-  it("bleeds spin faster when steering against a NEGATIVE angVel too", () => {
-    // Every existing countersteer test above only exercises angVel: 3, so a predicate as loose as
-    // `steer < 0` (rather than the actual `steer * angVel < 0`) would pass them all. This mirrors the
-    // pair with the sign of angVel flipped and the opposing steer flipped to match.
-    const coasting = stepDrive({ ...rest(), vx: 200, angVel: -3 }, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    const fighting = stepDrive({ ...rest(), vx: 200, angVel: -3 }, input(1, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    expect(Math.abs(fighting.angVel)).toBeLessThan(Math.abs(coasting.angVel));
-  });
-
-  it("does not bleed spin when steering WITH a NEGATIVE angVel", () => {
-    const coasting = stepDrive({ ...rest(), vx: 200, angVel: -3 }, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    const going = stepDrive({ ...rest(), vx: 200, angVel: -3 }, input(-1, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    expect(going.angVel).toBe(coasting.angVel);
-  });
-
-  it("adds steering rotation and injected spin rather than one substituting for the other", () => {
-    // Every steering test above uses angVel: 0 and every angVel test above uses steer: 0, so a
-    // substitutive integrator — e.g. `angle + (angVel !== 0 ? angVel : steer*turnRate) * dt` —
-    // passes the entire rest of this file. Isolating each contribution alone and checking the
-    // combination equals their sum is the only thing that can catch that.
-    const steerOnly = stepDrive({ ...rest(), vx: 200 }, input(1, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    const spinOnly = stepDrive({ ...rest(), vx: 200, angVel: 2 }, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    const both = stepDrive({ ...rest(), vx: 200, angVel: 2 }, input(1, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-
-    // Preconditions: both contributions are individually non-zero, so the sum has teeth.
-    expect(steerOnly.angle).not.toBe(0);
-    expect(spinOnly.angle).not.toBe(0);
-
-    expect(both.angle).toBeCloseTo(steerOnly.angle + spinOnly.angle, 9);
+    const expectedLateral = 150 * GOLDEN_CHASSIS.dragPerTick * GOLDEN_CHASSIS.gripPerTick;
+    expect(out.y).toBeCloseTo(expectedLateral * DT, 9);
   });
 });
 
@@ -354,13 +258,13 @@ describe("maneuvers (spec S3 / O13)", () => {
     expect(fwd(out)).toBeCloseTo(GOLDEN_CHASSIS.maxSpeed);
   });
 
-  it("HOLD pins the car and steers at the stopped turn rate", () => {
+  it("HOLD pins the car and steers at the turn rate (there is no separate at-rest rate any more)", () => {
     const restingBody = rest();
     const held: SimBody = { ...restingBody, vx: 200, vy: 0, maneuver: ManeuverKind.HOLD, maneuverTicksLeft: 10 };
     const out = stepDrive(held, { seq: 1, steer: 1, throttle: 1, fireSlots: 0 }, DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(out.x).toBeCloseTo(restingBody.x); // throttle dead
     expect(fwd(out)).toBe(0);
-    expect(out.angle).toBeCloseTo(restingBody.angle + GOLDEN_CHASSIS.turnRateAtStop * DT);
+    expect(out.angle).toBeCloseTo(restingBody.angle + GOLDEN_CHASSIS.turnRate * DT);
     expect(out.maneuverTicksLeft).toBe(9);
   });
 
@@ -373,13 +277,17 @@ describe("maneuvers (spec S3 / O13)", () => {
     expect(out.maneuverTicksLeft).toBe(299);
   });
 
-  it("fullStop zeroes the forward component while an imposed lateral velocity still moves the car", () => {
+  it("fullStop zeroes BOTH the forward and the lateral component every tick", () => {
+    // CHANGED from the pre-port model: `stepDrive`'s ordinary branch now zeroes `forward` AND
+    // `lateral` together under `fullStop` (see the brief's Step 4 code, used verbatim) — a stunned
+    // car pushed sideways by a slam no longer slides at all. Before this task, `fullStop` zeroed
+    // only the forward component and left an imposed lateral velocity to bleed off on its own; see
+    // the task report for the doc/behaviour note this leaves for `packages/shared/CLAUDE.md`.
     const stunned: SimBody = { ...movingBody, vx: 250, vy: 100 };
     const out = stepDrive(stunned, input(0, 1), DT, GOLDEN_CHASSIS, { ...NEUTRAL_MODIFIERS, fullStop: true });
     expect(fwd(out)).toBe(0);
-    // The slam can still push you into a wall: angle 0, so the imposed lateral component (vy: 100)
-    // is what survives fullStop, bled at the flat impactGripDecel rate.
-    expect(out.y).toBeCloseTo((100 - DRIVE_CONFIG.impactGripDecel * DT) * DT, 9);
+    expect(out.x).toBeCloseTo(stunned.x, 9);
+    expect(out.y).toBeCloseTo(stunned.y, 9);
   });
 });
 

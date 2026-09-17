@@ -149,10 +149,11 @@ export type { CarDef, CarId, ColorDef, ModeDef } from "./config/types.js";
 export {
   CAR_TABLE,
   DEFAULT_CAR_ID,
-  accelOf,
   activeCarIds,
   basicAttackOf,
+  dragRateOf,
   driveOf,
+  engineAccelOf,
   forwardMaxSpeedOf,
   hpOf,
   isActiveCarId,
@@ -160,8 +161,6 @@ export {
   ramAttackOf,
   ramDefenceOf,
   reverseAccelOf,
-  reverseMaxSpeedOf,
-  turnRateAtStopOf,
   turnRateOf,
 } from "./config/car-config.js";
 export type { ChassisDrive } from "./config/car-config.js";

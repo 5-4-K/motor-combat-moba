@@ -9,59 +9,53 @@ import type { SimBody } from "./step.js";
 import { forwardOf, lateralOf, toWorld } from "./velocity.js";
 
 /**
- * Behaviour frozen against `stepDrive`'s vector-velocity integration (stage 1 of the car-physics
- * rework, 2026-09-06). This suite originally pinned the pre-ram-CC drive on 2026-08-29 against a
- * scalar `SimBody.speed` (a magnitude along the heading, with a separate `shoveX`/`shoveY` knockback
- * vector and an `authority` scalar bolted alongside it). Stage 1 deleted all of that in favour of a
- * true 2D `vx`/`vy`, so this fixture is refixtured here BY DESIGN — see the brief for why that is a
- * cost worth naming rather than a free rebase.
+ * Behaviour frozen against `stepDrive`'s integration. This suite has been refixtured twice now:
+ * originally against the pre-ram-CC scalar `SimBody.speed` model (2026-08-29), then against the
+ * vector-velocity `vx`/`vy` rework of car-physics stage 1 (2026-09-06), and now AGAIN for the Unity
+ * drive-model port (car-physics-port stage 1 Task 3, current), which replaces the whole
+ * accel-clamp-and-coast integration with one always-on exponential drag rate plus a lateral grip
+ * rate. `ChassisDrive`'s shape changed a third time along with it — `reverseMaxSpeed`, `accel`,
+ * `turnRateAtStop` and `coastPerTick` are gone, replaced by `engineAccel`, `dragRate`,
+ * `dragPerTick`, `gripPerTick` and `spinPerTick` — so EVERY number in the "golden: stepDrive" block
+ * below moved, not just the ones that touched coasting last time. This is refixtured here BY
+ * DESIGN, the same as the two rewrites before it; see the task report for how each number below was
+ * derived and why it is right.
  *
- * The shape being pinned has not changed: full throttle, turning, braking, reverse, and wall/obstacle
- * contact still integrate exactly the way they did before, and every case below that does not touch
- * coasting is numerically IDENTICAL to the pre-rework fixture (hand-verified, not assumed — see the
- * task report). Only the "coasts from 300" case moved, because stage 1 deliberately changed coasting
- * from a flat per-tick deceleration to a proportional per-tick decay; see the comment on that case.
- *
- * `angVel` is a real additive term from the ram work, unrelated to this rework: at 0 it contributes
- * nothing, so it stays neutral in `body()` below and every number here is unaffected by it, the same
- * contract this suite has held since the ram work landed.
+ * `angVel` is unrelated to this port: at 0 it contributes nothing, so it stays neutral in `body()`
+ * below and every number here is unaffected by it, the same contract this suite has held since the
+ * ram work landed.
  *
  * These numbers are pinned against `GOLDEN_CHASSIS`, a frozen fixture, not against a car in
  * `CAR_TABLE`. Retuning the roster therefore cannot move them, and a future balance edit has no
  * excuse to. If one of these moves without a deliberate, understood change to the integration itself,
  * the integration broke — do not re-record them.
+ *
+ * The "golden: resolveWorld" block below is UNTOUCHED by this port: `resolveWorld` never calls
+ * `stepDrive` and never reads a `ChassisDrive`, so none of its own fixtures or derivations move.
  */
 const DT = 1 / 30;
 
 /**
- * The drive numbers this suite was recorded against — the chassis that shipped as `rectangle` on
- * 2026-08-29, before per-car acceleration and turn rate existed.
+ * The drive numbers this suite is recorded against, given verbatim by the Task 3 brief.
  *
  * Frozen here rather than read from `CAR_TABLE` deliberately: these expectations pin the SHAPE of
  * the integration, not the roster's balance. A car's ratings must be free to move without any
  * number below moving with them.
- *
- * The six original values are untouched. `coastPerTick` and `brakeDecel` are the two fields
- * `ChassisDrive` gained for the vector rework; both are frozen to the PRE-rework globals rather than
- * read from today's `DRIVE_CONFIG`/`CAR_TABLE`, for the same reason the original six are frozen: a
- * future retune of coasting or braking must not silently move this suite.
  */
-// NOTE: `drive.test.ts` also declares a `GOLDEN_CHASSIS` with these same first six values but a
-// DIFFERENT `coastPerTick` (a 1.0s half-life there, picked as a round number for that suite's own
-// scenarios, against the pre-rework 0.35s frozen here). Both are deliberately independent fixtures
-// that happen to share a name — not a copy-paste drift, and not a bug in either file. Do not "fix"
-// one to match the other.
+// NOTE: `drive.test.ts` also declares a `GOLDEN_CHASSIS`. The two used to differ (a different
+// `coastPerTick` half-life picked as a round number for that suite's own scenarios) but that
+// distinguishing field no longer exists on `ChassisDrive` at all, so the brief's literal fixture is
+// used in both files now and they happen to coincide field-for-field. Not a copy-paste drift.
 const GOLDEN_CHASSIS: ChassisDrive = Object.freeze({
-  maxSpeed: 540,
-  reverseMaxSpeed: 351,
-  accel: 780,
-  reverseAccel: 1100,
-  turnRate: 4.2,
-  turnRateAtStop: 2.1,
-  coastPerTick: 0.5 ** (1 / (0.35 * 30)), // the pre-rework 0.35s half-life, frozen — tick-count-
-  // frozen, not seconds-frozen: stays correct if a future netcode phase moves TICK_RATE_HZ, since
-  // DT above is hardcoded to 1/30 in lockstep with it, not read from config.
-  brakeDecel: 1600, // the pre-rework global, frozen
+  maxSpeed: 200,
+  engineAccel: 200,
+  reverseAccel: 80,
+  brakeDecel: 500,
+  turnRate: 2,
+  dragRate: 1,
+  dragPerTick: Math.exp(-1 / 30),
+  gripPerTick: Math.exp(-7 / 30),
+  spinPerTick: 1,
 });
 
 function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputMessage {
@@ -135,39 +129,61 @@ function expectPose(
   expect(lateralOf(actual.vx, actual.vy, actual.angle)).toBeCloseTo(lateral, 9);
 }
 
-describe("golden: stepDrive against the vector-drive rework", () => {
+describe("golden: stepDrive against the Unity drive-model port", () => {
   it("accelerates straight for 10 ticks", () => {
-    expectPose(drive(body(), input(0, 1), 10), 47.6666666667, 0, 0, 260);
+    // No lateral term at all here (steer 0), so forward alone is the story: it is well below
+    // `maxSpeed` (200) after only 10 ticks — under this model wind-up is governed by `dragRate`
+    // (1/s here), and 10 ticks is a third of one time constant (`1/dragRate` seconds = 30 ticks).
+    expectPose(drive(body(), input(0, 1), 10), 11.0954617463, 0, 0, 57.6438828396);
   });
 
   it("accelerates while turning right for 10 ticks", () => {
-    expectPose(drive(body(), input(1, 1), 10), 27.434465046, 35.5795364692, 1.33, 260);
+    // Same `input(1, 1)` this case has always used. Lateral is now genuinely nonzero: the car
+    // turns 0.667 rad over these 10 ticks (turnRate 2 * DT * 10) while its velocity is recomposed
+    // at the OLD heading each tick (U-model drift), so it trails behind the new nose direction
+    // instead of riding on rails the way the pre-port `steeringGrip: 1.0` model kept it.
+    expectPose(drive(body(), input(1, 1), 10), 10.3850177496, 3.0933484384, 0.6666666667, 54.9123963350, -11.3742715060);
   });
 
-  it("turns left under throttle for 25 ticks, capped at top speed", () => {
-    expectPose(drive(body(), input(-1, 1), 25), -131.5066473051, -136.8263554597, -3.43, 540);
+  it("turns left under throttle for 25 ticks", () => {
+    // Same `input(-1, 1)` this case has always used. RENAMED from "...capped at top speed": there
+    // is no cap any more, only the asymptote `engineAccel / dragRate` (200), and forward here
+    // (98.98) is still well short of it after 25 ticks under a full-lock turn — most of the
+    // engine's push goes into rotating the drift rather than building straight-line speed.
+    // `forward` stays positive throughout the run (tick-by-tick trace checked before recording
+    // this), so `steerSenseOf` never flips: `angle` integrates at a constant `-turnRate * DT` per
+    // tick the whole way, landing at exactly `-2 * DT * 25`.
+    expectPose(drive(body(), input(-1, 1), 25), 32.1265839228, -37.1307977206, -1.6666666667, 98.9831314874, 26.1739285049);
   });
 
-  it("coasts from 300 for 8 ticks", () => {
-    // CHANGED from the pre-rework fixture (44, 60): coasting is now a proportional per-tick decay
-    // (`forward * coastPerTick`) rather than a flat per-tick deceleration, and a proportional decay
-    // sheds much less of a fast car's speed than a flat one did — hand-verified against
-    // `300 * coastPerTick^8` before being recorded here, see the task report.
-    expectPose(drive(bodyAt(0, 0, 0, 300), input(0, 0), 8), 60.1220120215, 0, 0, 176.9151673346);
+  it("decays via drag from 300 for 8 ticks", () => {
+    // CHANGED again from the vector-drive-rework fixture (which pinned 60.122.../176.915... for a
+    // PROPORTIONAL `coastPerTick` decay): the Unity port removes the dedicated coast knob entirely
+    // and replaces it with the always-on drag rate `dragPerTick` (U4) — the SAME mechanism that also
+    // sets top speed and wind-up now. `300 * dragPerTick^8` (dragPerTick = exp(-1/30)) hand-checked
+    // against the figure below before recording it.
+    expectPose(drive(bodyAt(0, 0, 0, 300), input(0, 0), 8), 69.0576420526, 0, 0, 229.7785015094);
   });
 
-  it("brakes from 300 to rest in 6 ticks", () => {
-    expectPose(drive(bodyAt(0, 0, 0, 300), input(0, -1), 6), 23.3333333333, 0, 0, 0);
+  it("brakes from 300 toward rest over 6 ticks", () => {
+    expectPose(drive(bodyAt(0, 0, 0, 300), input(0, -1), 6), 42.4297690836, 0, 0, 153.4656334653);
   });
 
-  it("engages reverse from rest after the hold delay", () => {
+  it("reverses from rest immediately, with no hold delay", () => {
+    // CHANGED: the reverse-hold ceremony (`DRIVE_CONFIG.reverseHoldTicks`, `SimBody.reverseHold`)
+    // is gone from `stepDrive`'s own logic — `engineCommandOf` reverses on the very first tick Down
+    // is held, since `forward` (0) is already at or below `reverseEpsilon`. `out.reverseHold` is a
+    // dead field now (always 0), until a later task deletes it from `SimBody`/`PlayerState`. The
+    // magnitude (-26.8, well short of the pre-port -351 reverse cap) is smaller for two reasons at
+    // once: `reverseAccel` on this frozen fixture (80) is a much smaller number than the old
+    // fixture's 1100, and reverse is likewise an asymptote now, not a clamp reached instantly.
     const out = drive(body(), input(0, -1), 12);
-    expectPose(out, -78.4, 0, 0, -351);
-    expect(out.reverseHold).toBe(2);
+    expectPose(out, -6.1643418623, 0, 0, -26.8164116176);
+    expect(out.reverseHold).toBe(0);
   });
 
   it("accelerates and turns from a non-zero heading", () => {
-    expectPose(drive(body({ angle: 0.7 }), input(1, 1), 15), -45.2471561479, 79.1894268095, 2.73, 390);
+    expectPose(drive(body({ angle: 0.7 }), input(1, 1), 15), 8.4218852495, 20.1157577657, 1.7, 73.6574947864, -17.4503955674);
   });
 });
 
