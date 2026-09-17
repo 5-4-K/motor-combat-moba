@@ -128,9 +128,14 @@ Then add these fields to `DRIVE_CONFIG`, each with its doc comment:
    *
    * Global rather than per-car (U10). The steady-state slip angle while holding full lock is
    * `atan(turnRate / lateralGripRate)` at ANY speed, so this is the drift knob: lower drifts more,
-   * and 0 is a hockey puck.
+   * and 0 is a hockey puck. 3.0 gives ~35° at the sharpest turn on the roster — a real drift, looser
+   * than Unity's grippy 6.0.
+   *
+   * **This rate is the DRIVER's drift only.** How long an IMPOSED shove carries a victim is the
+   * `grip` status multiplier on `reeling` (spec §5), because one number could not answer both
+   * questions once the base rate came down this far.
    */
-  lateralGripRate: 7.0,
+  lateralGripRate: 3.0,
   /**
    * Forward speed below which Down reverses instead of braking, u/s. Unity's
    * `DriveConfig.reverseEpsilon` (0.5 m/s). It is also the threshold the steering flip reads, which
@@ -162,36 +167,48 @@ git commit -m "feat(drive): add the Unity drag, grip and reverse knobs"
 
 ---
 
-### Task 2: The three new status flags
+### Task 2: Two new status flags and the `grip` channel
 
 **Files:**
-- Modify: `packages/shared/src/config/status-types.ts`, `packages/shared/src/sim/status/modifiers.ts`
+- Modify: `packages/shared/src/config/status-types.ts`, `packages/shared/src/sim/status/modifiers.ts`,
+  `packages/shared/src/config/status-config.ts` (`STATUS_LIMITS` only)
 - Test: `packages/shared/src/sim/status/channels.test.ts`
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `StatusFlag` members `"gripless" | "spinFree" | "ramBlocked"`; `Modifiers.gripless`,
-  `.spinFree`, `.ramBlocked`, all `false` in `NEUTRAL_MODIFIERS`.
+- Produces: `StatusFlag` members `"spinFree" | "ramBlocked"`; `Modifiers.spinFree`, `.ramBlocked`
+  (both `false` in `NEUTRAL_MODIFIERS`); **`Modifiers.grip`**, a multiplier neutral at 1, with a
+  `STATUS_LIMITS.grip` entry of `{ min: 0.25, max: 2 }`.
 
-No `STATUS_TABLE` row sets them until stage 3; this task is the plumbing alone.
+No `STATUS_TABLE` row uses any of them until stage 3; this task is the plumbing alone.
+
+**Why `grip` is a channel and not a `gripless` flag (spec §5):** one rate has to answer two
+questions — how far a DRIVER drifts through a corner, and how long an IMPOSED shove carries a victim.
+A multiplier lets `reeling` say "scrubs, but slower"; a boolean can only say "not at all", which at
+this game's loose base rate would throw a rammed car most of the way across the arena.
 
 - [ ] **Step 1: Write the failing test**
 
 Append to `packages/shared/src/sim/status/channels.test.ts`:
 
 ```ts
-describe("the Unity ability flags", () => {
-  it("is false on every new flag for a car in no status", () => {
-    expect(NEUTRAL_MODIFIERS.gripless).toBe(false);
+describe("the Unity ability flags and the grip channel", () => {
+  it("is neutral on every new modifier for a car in no status", () => {
     expect(NEUTRAL_MODIFIERS.spinFree).toBe(false);
     expect(NEUTRAL_MODIFIERS.ramBlocked).toBe(false);
+    expect(NEUTRAL_MODIFIERS.grip).toBe(1);
   });
 
-  it("leaves them false for a row that declares none of them", () => {
+  it("leaves them neutral for a row that declares none of them", () => {
     const mods = modifiersOf([{ statusId: "stunned", endsTick: 10, sourceSessionId: "" }], 0);
-    expect(mods.gripless).toBe(false);
     expect(mods.spinFree).toBe(false);
     expect(mods.ramBlocked).toBe(false);
+    expect(mods.grip).toBe(1);
+  });
+
+  it("clamps grip to STATUS_LIMITS, so no stack of debuffs turns a car into a puck", () => {
+    expect(STATUS_LIMITS.grip.min).toBeGreaterThan(0);
+    expect(STATUS_LIMITS.grip.max).toBeGreaterThanOrEqual(1);
   });
 });
 ```
@@ -204,19 +221,13 @@ Match the `ActiveStatus` literal to the shape the rest of that file uses.
 npm test -w @motor-combat-moba/shared -- channels.test
 ```
 
-Expected: FAIL — `Property 'gripless' does not exist on type 'Modifiers'`.
+Expected: FAIL — `Property 'grip' does not exist on type 'Modifiers'`.
 
 - [ ] **Step 3: Add the flags**
 
 In `status-types.ts`, extend the `StatusFlag` union:
 
 ```ts
-  /**
-   * Lateral grip is not applied: sideways velocity survives until drag alone bleeds it. Unity's
-   * `CarAbility.Grip` blocked. This is what makes a rammed car a passenger rather than a car with
-   * worse numbers.
-   */
-  | "gripless"
   /**
    * Steering does not write the car's yaw rate, so an injected spin survives and decays on its own.
    * Unity's `CarAbility.YawHold` blocked. Outside this flag `angVel` IS the steering's yaw rate
@@ -227,14 +238,32 @@ In `status-types.ts`, extend the `StatusFlag` union:
   | "ramBlocked"
 ```
 
-In `modifiers.ts`, add the three booleans to `Modifiers` with the same doc lines, add
-`gripless: false, spinFree: false, ramBlocked: false` to `NEUTRAL_MODIFIERS`, and add three lines
-beside the existing flag reads in `modifiersOf`:
+In `modifiers.ts`, add the two booleans to `Modifiers` with the same doc lines, add
+`spinFree: false, ramBlocked: false` to `NEUTRAL_MODIFIERS`, and add two lines beside the existing
+flag reads in `modifiersOf`:
 
 ```ts
-  mods.gripless = flags.has("gripless");
   mods.spinFree = flags.has("spinFree");
   mods.ramBlocked = flags.has("ramBlocked");
+```
+
+Then add the `grip` multiplier. It needs three edits and no new machinery, because `modifiersOf`
+already walks `STATUS_LIMITS`'s keys and multiplies whatever it finds:
+
+```ts
+  // in Modifiers
+  /**
+   * Scales the lateral grip RATE this car is subject to (spec §5). 1 is the drive config's own rate.
+   * Below 1 a sideways slide lasts longer, which is what a ram's victim gets; 0 would be Unity's
+   * grip-off Reeling, and the `STATUS_LIMITS` floor deliberately keeps it out of reach.
+   */
+  grip: number;
+
+  // in NEUTRAL_MODIFIERS
+  grip: 1,
+
+  // in STATUS_LIMITS (status-config.ts), beside the other channels
+  grip: { min: 0.25, max: 2 },
 ```
 
 - [ ] **Step 4: Run the test and watch it pass**
@@ -249,7 +278,7 @@ Expected: PASS.
 
 ```bash
 git add packages/shared/src/config/status-types.ts packages/shared/src/sim/status/modifiers.ts packages/shared/src/sim/status/channels.test.ts
-git commit -m "feat(status): add the gripless, spinFree and ramBlocked flags"
+git commit -m "feat(status): add the spinFree and ramBlocked flags and the grip channel"
 ```
 
 ---
@@ -265,7 +294,7 @@ compile apart.
   `packages/shared/src/sim/golden.test.ts`
 
 **Interfaces:**
-- Consumes: `perTickDecay` (Task 1); `Modifiers.gripless`, `.spinFree` (Task 2).
+- Consumes: `perTickDecay` (Task 1); `Modifiers.grip`, `.spinFree` (Task 2).
 - Produces:
 
 ```ts
@@ -304,7 +333,7 @@ const CHASSIS: ChassisDrive = Object.freeze({
   turnRate: 2,
   dragRate: DRAG_RATE,
   dragPerTick: perTickDecay(DRAG_RATE),
-  gripPerTick: perTickDecay(7),
+  gripPerTick: perTickDecay(3),
   spinPerTick: 1,
 });
 ```
@@ -335,10 +364,16 @@ it("decays a coasting car by the drag factor every tick, in both components", ()
   expect(lateralOf(b1.vx, b1.vy, b1.angle)).toBeCloseTo(40 * CHASSIS.dragPerTick * CHASSIS.gripPerTick, 9);
 });
 
-it("skips grip entirely while gripless, so an imposed slide survives on drag alone", () => {
+it("scales grip by the `grip` modifier, so a shove can be made to ride longer", () => {
   const b0 = body({ ...toWorld(0, 0, 100) });
-  const b1 = stepDrive(b0, input(0, 0), DT, CHASSIS, { ...NEUTRAL_MODIFIERS, gripless: true });
-  expect(lateralOf(b1.vx, b1.vy, b1.angle)).toBeCloseTo(100 * CHASSIS.dragPerTick, 9);
+  const reeling = stepDrive(b0, input(0, 0), DT, CHASSIS, { ...NEUTRAL_MODIFIERS, grip: 0.6 });
+  expect(lateralOf(reeling.vx, reeling.vy, reeling.angle)).toBeCloseTo(
+    100 * CHASSIS.dragPerTick * CHASSIS.gripPerTick ** 0.6, 9);
+
+  // `grip: 0` is the Unity "no grip at all" case: drag alone. Out of STATUS_LIMITS' reach for a
+  // status, reachable here, and the proof the power form degenerates correctly.
+  const puck = stepDrive(b0, input(0, 0), DT, CHASSIS, { ...NEUTRAL_MODIFIERS, grip: 0 });
+  expect(lateralOf(puck.vx, puck.vy, puck.angle)).toBeCloseTo(100 * CHASSIS.dragPerTick, 9);
 });
 
 it("drifts: turning at speed leaves velocity pointing where the car WAS going", () => {
@@ -479,8 +514,9 @@ export function stepDrive(
   let forward = forwardOf(body.vx, body.vy, body.angle) * drag;
   let lateral = lateralOf(body.vx, body.vy, body.angle) * drag;
 
-  // 3. Grip: the sideways component alone. Whatever survives is the drift.
-  if (!mods.gripless) lateral *= chassis.gripPerTick;
+  // 3. Grip: the sideways component alone, scaled by the car's own grip modifier. Whatever
+  //    survives is the drift.
+  lateral *= gripFactorOf(chassis, mods);
 
   // 4. Yaw. Steering SETS the rate (U16) — it is not added to a separate spin channel — so an
   //    injected ram spin lives exactly as long as `spinFree` does.
@@ -538,6 +574,17 @@ function engineCommandOf(
  */
 function dragFactorOf(chassis: ChassisDrive, mods: Readonly<Modifiers>): number {
   return mods.accel === 1 ? chassis.dragPerTick : Math.pow(chassis.dragPerTick, mods.accel);
+}
+
+/**
+ * The lateral grip factor for this tick, with the `grip` channel applied the same way (spec §5).
+ *
+ * The channel is what separates a driver's drift from a victim's ride: `lateralGripRate` says how
+ * loose the car is in a corner, and a status — `reeling` is the only one today — says how much of
+ * that grip a car currently has. `grip: 0` degenerates to no grip at all, which is Unity's flag.
+ */
+function gripFactorOf(chassis: ChassisDrive, mods: Readonly<Modifiers>): number {
+  return mods.grip === 1 ? chassis.gripPerTick : Math.pow(chassis.gripPerTick, mods.grip);
 }
 
 /** -1 once the car is genuinely travelling backwards and the flip is on. Unity's `YawRate` sense. */

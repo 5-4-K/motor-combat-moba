@@ -86,49 +86,32 @@ Expected: every line reads `ok`. `drive.flipSteeringInReverse` comes through as
 `kind: "boolean"` (`tuning-walker.ts:95-97`), so it is a toggle rather than a slider — that is
 correct, not a gap.
 
-- [ ] **Step 2: Check the two knobs that are emitted but may not actually DO anything**
+- [ ] **Step 2: Verify the ram durations really are live now**
 
-A path appearing in `tunableFields()` only proves the panel will show a control. It does not prove
-the sim reads the new value, because two of this stage's knobs are consumed through a snapshot that
-is frozen at module load:
-
-1. **`ram.ramUncontrolMs` and `ram.attackerLockMs` feed `RAM_TICKS`** (`ram-config.ts:327-332`),
-   which is `Object.freeze`d once at module load. `setTuning` (`tuning.ts:137-140`) calls
-   `rebuildResolvedDrive`, `rebuildWeaponTicks`, `rebuildRamDecay` and `rebuildBurstDefs` — **there
-   is no `rebuildRamTicks`.** On today's code `ram.ramUncontrolMs` is therefore a live slider that
-   changes nothing, and stage 3 adds `attackerLockMs` to the same frozen table. Note also that
-   `rebuildRamDecay` is on the interfaces ledger's deletion list, so `tuning.ts:139` must already
-   have lost that call in stage 3 — if it has not, that is a stage 3 defect, not this task's.
-2. **`CarDef.brakeDecel` is not emitted at all** (Step 1 does not ask for it, because it cannot be
-   there). `buildFields` walks `CAR_RATINGS` only. Spec §9.1 keeps the roster's 500 / 520 / 430, so
-   this is not expected to move — but if the user wants it moved during Task 2 it is a source edit
-   plus `npm run build -w @motor-combat-moba/shared` plus a restart, not a slider.
-
-Measure (1) rather than assuming it:
+A path appearing in `tunableFields()` only proves the panel shows a control. It does not prove the
+sim reads the new value: until stage 3, `RAM_TICKS` was frozen at module load and `setTuning` never
+rebuilt it, so `ram.ramUncontrolMs` was a slider that changed nothing (spec U40). Stage 3 replaced it
+with the `ramTicks()` accessor and a `rebuildRamTicks` call in `tuning.ts`. Prove it landed before
+spending the user's evening on it:
 
 ```bash
-node -e "import('./packages/shared/dist/index.js').then(({setTuning,RAM_TICKS,RAM_CONFIG,TICK_RATE_HZ})=>{console.log('shipped ramUncontrolMs',RAM_CONFIG.ramUncontrolMs,'-> RAM_TICKS.uncontrol',RAM_TICKS.uncontrol);setTuning({'ram.ramUncontrolMs':2000});console.log('overridden to 2000  -> RAM_TICKS.uncontrol',RAM_TICKS.uncontrol,'(expected',Math.round(2000/1000*TICK_RATE_HZ)+')');setTuning(null);})"
+node -e "import('./packages/shared/dist/index.js').then(({setTuning,ramTicks,RAM_CONFIG,TICK_RATE_HZ})=>{console.log('shipped',RAM_CONFIG.ramUncontrolMs,'->',ramTicks().uncontrol);setTuning({'ram.ramUncontrolMs':2000});console.log('overridden to 2000 ->',ramTicks().uncontrol,'(expected',Math.round(2000/1000*TICK_RATE_HZ)+')');setTuning(null);})"
 ```
 
-- [ ] **Step 3: Present the gaps to the user and wait**
+Expected: the second figure follows the override. If it does not, stage 3 is incomplete — stop and
+fix it there rather than tuning around it.
 
-Report exactly which of the twenty-six paths are missing, and whether `RAM_TICKS` followed the
-override. Then give the user the choice, and **wait for their answer before opening the playground**:
+**One knob genuinely is not dialable, and that is known:** `CarDef.brakeDecel` is not emitted at all,
+because `buildFields` walks `CAR_RATINGS` only (`tuning-walker.ts:188-206`). Spec §9.1 keeps the
+roster's 500 / 520 / 430, so it is not expected to move — but if the user wants it moved during
+Task 2 it is a source edit plus `npm run build -w @motor-combat-moba/shared` plus a restart, not a
+slider. Say so when it comes up rather than letting them drag a control that is not there.
 
-- **Fix `RAM_TICKS` now** — add a `rebuildRamTicks(hasOverrides)` beside the four existing rebuilds,
-  modelled on `rebuildResolvedDrive` (`car-config.ts:248`), with a case in `tuning.test.ts` that
-  overrides `ram.ramUncontrolMs` and reads `RAM_TICKS.uncontrol` back. This is a small, contained
-  change and it makes two of Task 3's five ram knobs dialable.
-- **Or accept it** — tune `attackerLockMs` and `ramUncontrolMs` by source edit and rebuild, one value
-  per restart, and say so in Task 3 Step 4 so nobody later reads "we tried 700 ms" as a live trial.
+- [ ] **Step 3: Report the emitted paths to the user**
 
-Do not pick for them. If they choose the fix:
-
-```bash
-npm test -w @motor-combat-moba/shared -- tuning.test
-git add packages/shared/src/config/ram-config.ts packages/shared/src/config/tuning.ts packages/shared/src/config/tuning.test.ts
-git commit -m "fix(tuning): rebuild RAM_TICKS when the playground overrides a ram duration"
-```
+Report which of the expected paths are present and whether the ram durations followed the override.
+This is a status report, not a decision: the two structural questions it used to ask were answered
+before this stage started.
 
 ---
 
@@ -257,10 +240,11 @@ car slide" rather than as per-speed guesswork. Lower grips less and drifts more;
    travel diverge by exactly the slip angle. At 17° that is a real aiming cost and it is intended; at
    35° it may make a ranged chassis unplayable.
 3. **Coming out of a turn.** Does the car straighten, or does it keep sliding for an uncomfortable
-   beat? That beat is `1 / lateralGripRate` seconds — 143 ms at 7.0.
-4. **What a ram feels like through it.** A `reeling` car is `gripless`, so its imposed sideways
-   velocity survives on drag alone. Ask the user to get rammed once here rather than waiting for
-   Task 3 — it is the same knob showing its other face.
+   beat? That beat is `1 / lateralGripRate` seconds — 333 ms at 3.0.
+4. **What a ram feels like through it.** A `reeling` car keeps only `grip: 0.6` of this rate, so its
+   imposed sideways velocity rides roughly 1.7x further than a driver would slide. Ask the user to
+   get rammed once here rather than waiting for Task 3 — it is the same knob showing its other face,
+   and the two are tuned against each other (spec §5).
 
 **Present and wait.**
 
@@ -324,7 +308,7 @@ hit lands nearer 3.3.
 3. **The spike interaction.** Spikes deal a flat 80 damage on a fresh push into the surface above
    `SPIKE_CONFIG.triggerSpeed` (25 u/s), credited to whoever last shoved within `shoverCreditMs`. A
    237 u/s punt into a wall clears that threshold by an order of magnitude, and the victim is
-   `gripless` and `spinFree` for the whole ride. **Ask the user explicitly whether a ram-into-spikes
+   `spinFree` and `grip: 0.6` for the whole ride. **Ask the user explicitly whether a ram-into-spikes
    kill reads as skilful or as cheap** — it is the single most likely way this port ships too strong,
    and no test can answer it.
 
@@ -364,11 +348,19 @@ not need one at its scale. If spin is hitting 6 on ordinary rams, `spinScale` is
    second of being a parked car a fair price, or does it hand the fight to whoever was watching?
    Ram a bot with a third car nearby and find out.
 3. **`ramUncontrolMs` (1000 ms).** The victim's `reeling`. Under U31 this is now a *total* loss of
-   control — sliding, spinning, no grip, no steering, no throttle, guns still live — where before it
-   was a 0.4/0.4 degradation. **A second of that is a much bigger second than it used to be.** Ask
-   whether it reads as "flung and fighting for grip" or as a stun.
+   control — sliding, spinning, no steering, no throttle, guns still live — where before it was a
+   0.4/0.4 degradation. **A second of that is a much bigger second than it used to be.** Ask whether
+   it reads as "flung and fighting for grip" or as a stun.
+4. **`reeling`'s `grip` multiplier (0.6).** How far the shove actually carries the victim, and the
+   second half of the pair Task 2 Step 6 set (spec §5). At 0.6 of a 3.0 base that is 1.8/s, so a
+   237 u/s shove rides ~132 u — about 2.2 car lengths. Lower it and a rammed car sails; raise it
+   toward 1 and a ram becomes a shove-and-spin that ends where it started. **Tune this against the
+   spikes specifically:** ask the user to be rammed toward a spike wall at 0.6, then at 1.0, and say
+   which reads as a fair punish rather than a delete. It lives in `STATUS_TABLE.reeling.modifiers`,
+   so it is a source edit and a rebuild rather than a slider unless the status table is tunable —
+   check `tunableFields()` output from Task 1 before promising the user a live dial.
 
-**If Task 1 Step 3 ended with the `RAM_TICKS` rebuild declined**, items 2 and 3 are not live sliders:
+**If Task 1 Step 2 showed the ram durations NOT following an override**, stop: stage 3 is incomplete and items 2 and 3 below are not live sliders.
 each trial is a source edit in `packages/shared/src/config/ram-config.ts`, then
 `npm run build -w @motor-combat-moba/shared`, then restart `npm run dev`. Say so before the user
 starts moving a slider that does nothing.
@@ -686,7 +678,7 @@ describe the port rather than the 2026-09-06 rework. The substance:
   successor is `minRamSpeed` and it is no longer a *combined* drive-in but the attacker's own.
 - *R5 (`chaseRamLock`, lines 244-348)* already reported **0 rams landed on all 63 runs** before this
   port: its "rise in lateral velocity" counter (line 303) stopped detecting anything. The port makes
-  that worse in a way worth naming — a `reeling` victim is `gripless`, so lateral velocity now
+  that worse in a way worth naming — a `reeling` victim keeps only `grip: 0.6`, so lateral velocity now
   survives on drag alone instead of being bled by grip, and the victim's escape steering (line 293)
   does nothing at all while `steeringLocked`. The escape verdict itself may still be sound. **Report
   the counter as dead, propose nothing, and let the user decide** whether to fix the diagnostic or
@@ -782,7 +774,7 @@ From `packages/server/balance/README.md`:
   `magmablast`.
 - **Spike damage belongs to no weapon**, and an unshoved spike death credits the victim's own chassis
   with dealing it. **This port makes that distortion materially larger** — a 237 u/s shove into a
-  spike wall with the victim `gripless` is a new and common way to die, and the credit goes to the
+  spike wall with the victim reeling is a new and common way to die, and the credit goes to the
   shover only within `SPIKE_CONFIG.shoverCreditMs`. Say so when handing the report over; a Bastion
   damage-dealt column that jumped is probably this.
 - **Maneuver weapons get a real hit-probability solution**, so reports across a `BOT_BRAIN_VERSION`
@@ -861,8 +853,8 @@ changed under the bot, because it is a lot:
 
 - A ram now **stops the attacker dead and locks it for 500 ms**, so whether ramming is worth planning
   at all is a different question than it was.
-- A rammed car is a **total passenger for a second** (`immobilised`, `steeringLocked`, `gripless`,
-  `spinFree`, `ramBlocked`), so `evade` and `unpin` are reasoning about a car that cannot act.
+- A rammed car is a **total passenger for a second** (`immobilised`, `steeringLocked`, `spinFree`,
+  `ramBlocked`, `grip: 0.6`), so `evade` and `unpin` are reasoning about a car that cannot act.
 - Cars **drift**, so the bot's own rollout no longer travels along its nose.
 - Nothing **bounces**, so the wall-escape assumptions in `wallPenalty` changed shape.
 - `predict.ts`'s `OBSERVATION_MODIFIERS` reaches "hold the speed it was seen at" by one mechanism
@@ -930,7 +922,7 @@ before editing** — line numbers drift.
   keeping one sentence of: there is no reflection left to throw anyone backwards, and the rammer's
   stop is authored.
 - **Lines 175-212** — ram control-loss. `reeling` is unchanged as a *name* and completely changed as a
-  *thing*: `flags: ["immobilised","steeringLocked","gripless","spinFree","ramBlocked"]`,
+  *thing*: `flags: ["immobilised","steeringLocked","spinFree","ramBlocked"] plus grip: 0.6`,
   `modifiers: {}`, `reapply: "ignore"` (U31). Record the behaviour that costs: **a re-ram landing
   while a reel is still running no longer extends it.** Add `ramLock` beside it (U32). Falloff (U5)
   is unchanged in mechanism and now scales the shove, the spin and the reel.
@@ -943,8 +935,8 @@ before editing** — line numbers drift.
   exactly once. **Re-measure it in the playground during Task 2 rather than guessing**, and if it is
   not re-measured, say so rather than leaving a number that reads as measured.
 - **Lines 838-846** (`## Damage`) — the ram summary there names the contested `Impulse`.
-- **Line 886** — "one set of multipliers and **three** flags". `StatusFlag` gained `gripless`,
-  `spinFree` and `ramBlocked`, so it is six.
+- **Line 886** — "one set of multipliers and **three** flags". `StatusFlag` gained `spinFree` and
+  `ramBlocked`, so it is five, and `Modifiers` gained the `grip` channel alongside them.
 - **Lines 917 and 936-937** — the effect-sources table. `reeling` is still the row no `applies` entry
   grants; `ramLock` joins it as a second such row, published through `EFFECT_SOURCES` (U33).
 
@@ -982,7 +974,7 @@ before editing** — line numbers drift.
   scales `engineAccel` **and** `dragRate` by the same factor, applied as a power (U36); `turnRate`'s
   entry names `turnRateAtStopOf` and claims `reeling` scales it — `reeling` carries no modifiers now.
 - **Lines 783 and 825** — both quote `CarDef.coastHalfLifeSeconds` resolving to `coastPerTick`.
-- **Line 1037 (`## Tuning store`)** — if Task 1 added a `RAM_TICKS` rebuild, the list of rebuilt
+- **Line 1037 (`## Tuning store`)** — stage 3 added the `rebuildRamTicks` call, so the list of rebuilt
   snapshots grows by one.
 - **Line 1085** — `SPIKE_CONFIG.triggerSpeed`'s measured consequence quotes restitution 0.15, the
   same void measurement as `combat-model.md:345`. Fix both from the same re-measurement or neither.

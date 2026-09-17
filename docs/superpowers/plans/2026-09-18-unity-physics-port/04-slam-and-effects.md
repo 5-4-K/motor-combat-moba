@@ -29,7 +29,7 @@ starting values and the `wildcharge` re-pitch obligation), and §12 (`impact-fee
 
 - **Stages 1, 2 and 3 must have landed before this stage starts.** Every task here reads a name that
   stage 3 creates: `RAM_CONFIG.flankScale`/`rearScale`/`headOnScale`/`minRamSpeed`/`globalScale` (new
-  meaning), `STATUS_TABLE.ramLock`, the redefined `STATUS_TABLE.reeling`, the `gripless`/`spinFree`/
+  meaning), `STATUS_TABLE.ramLock`, the redefined `STATUS_TABLE.reeling`, the `spinFree`/
   `ramBlocked` flags, and `resolveRam`'s `RamResolution` return. Check
   [`EXECUTION.md`](EXECUTION.md) says stage 3 is **Landed** before beginning.
 - **`npm test` from the repo root**, never per-workspace: a per-workspace run silently skips the
@@ -226,8 +226,8 @@ and a `reeling` that no longer means what it says. Replace it:
        * recently absorbed.
        *
        * **This got much harsher on 2026-09-18 without the number moving.** Under spec U31 `reeling`
-       * carries `immobilised`, `steeringLocked`, `gripless`, `spinFree` and `ramBlocked` and no
-       * multipliers at all: 1.4 seconds of being a passenger, sliding on whatever velocity it was
+       * carries `immobilised`, `steeringLocked`, `spinFree`, `ramBlocked` and `grip: 0.6`
+       * (spec §5): 1.4 seconds of being a passenger, sliding on whatever velocity it was
        * given. Before that it was `turnRate: 0.4, accel: 0.4` — a degraded car, still steering. The
        * duration is the same; what it buys is not, and stage 5's playground pass is where that is
        * judged against the punt above.
@@ -274,7 +274,7 @@ git commit -m "docs(weapons): re-pitch wildcharge's slam against the Unity ram s
 - Test: `scripts/manual-facts.test.mjs`, `scripts/manual-page.test.mjs`
 
 **Interfaces:**
-- Consumes: stage 3's `STATUS_TABLE.ramLock` and redefined `.reeling`; the `gripless`, `spinFree`
+- Consumes: stage 3's `STATUS_TABLE.ramLock` and redefined `.reeling`; the `spinFree`
   and `ramBlocked` flags.
 - Produces: `EFFECT_SOURCES.ramLock`; three new words in `statusBlurb`'s vocabulary.
 
@@ -294,7 +294,7 @@ In `scripts/build-cars-and-weapons.mjs`, inside `statusBlurb`, add three lines �
 describes what it may do:
 
 ```js
-  if ((def.flags ?? []).includes("gripless")) parts.push("no grip");
+  if ((def.modifiers?.grip ?? 1) < 1) parts.push("low grip");
   if ((def.flags ?? []).includes("spinFree")) parts.push("spins freely");
   if ((def.flags ?? []).includes("disarmed")) parts.push("cannot fire");
   if ((def.flags ?? []).includes("ramBlocked")) parts.push("cannot ram");

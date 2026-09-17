@@ -64,7 +64,8 @@ command as well as the figure.
 |---|---|---|
 | Time to 90% of top speed, per chassis | — | stage 1 |
 | Roll distance from top speed, per chassis | — | stage 1 |
-| Slip angle at full lock, per chassis | — | stage 1 |
+| Slip angle at full lock, per chassis (target ~35° at `lateralGripRate` 3.0) | — | stage 1 |
+| How far a ram's shove carries a reeling victim (`grip: 0.6`, target ~2.2 car lengths) | — | stage 3 |
 | Settled speed into a wall, self-driven, vs `SPIKE_CONFIG.triggerSpeed` | — | stage 2 |
 | Reference flank ram: shove and spin (Bastion → parked Bullseye) | — | stage 3 |
 | `wildcharge` slam against the best ordinary ram | — | stage 4 |
@@ -87,6 +88,14 @@ command as well as the figure.
 - The spec's §2 decisions U1–U11 were put to the user and answered. **Do not re-litigate them**, in
   particular: pure Unity drag (launch and roll are one number), drift replacing the "no wash" rule,
   diminishing returns kept, the slam keeping its own rules, and 30 Hz now.
+- **Grip is two knobs, not Unity's one** (U10 as revised, spec §5): `DRIVE_CONFIG.lateralGripRate`
+  3.0 is the driver's drift, and `reeling`'s `grip: 0.6` multiplier is how far a shove carries a
+  victim. The user chose this over a Unity-faithful single rate after seeing that one number could
+  not serve both. **There is no `gripless` flag** — an earlier draft of the spec had one.
+- **Turn radius is uniform across the roster on purpose, for now** (~89.9 u on all three). The user
+  was shown two spreads and chose to revisit it in stage 5's tuning pass. Do not widen it silently.
+- **The frozen `RAM_TICKS` table is fixed in stage 3** (U40), so stage 5's ram duration sliders are
+  live. It was a real bug predating this work, not something the port introduced.
 - **This work supersedes the 2026-09-06 car-physics rework's stage 5 and its parked restitution
   stage.** Stage 5 of THIS plan set records that in the rework's own `EXECUTION.md`.
 - Tuning is the user's call. An agent proposes numbers and measures them; it does not decide what the

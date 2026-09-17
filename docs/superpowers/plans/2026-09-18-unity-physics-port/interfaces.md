@@ -13,7 +13,7 @@ export const DRIVE_CONFIG = {
   speedPerRating: 1.518,       // unchanged
   baseDrag: 0.768,             // NEW  1/s at rating 0
   dragPerRating: 0.00608,      // NEW  1/s per point of `accel`
-  lateralGripRate: 7.0,        // NEW  1/s, global (U10)
+  lateralGripRate: 3.0,        // NEW  1/s, the DRIFT dial (U10). reeling scales it via the `grip` channel
   baseTurnRate: 0.667,         // RETUNED from 3.6
   turnRatePerRating: 0.0169,   // RETUNED from 0.054
   reverseAccelFactor: 0.4,     // RETUNED from 0.6
@@ -177,7 +177,8 @@ export const RAM_CONFIG = {
   impulseDrFloor: 0.25,       // unchanged
 } as const;
 
-export const RAM_TICKS: Readonly<{ uncontrol: number; drWindow: number; durationFloor: number; attackerLock: number }>;
+export function ramTicks(): Readonly<{ uncontrol: number; drWindow: number; durationFloor: number; attackerLock: number }>;
+export function rebuildRamTicks(hasOverrides: boolean): void;  // called by setTuning (U40)
 export function inertiaRadiusSquared(): number;   // (carWidth² + carHeight²) / 12
 export function reelingSpinPerTick(): number;     // exp(-reelingSpinDecayRate / TICK_RATE_HZ)
 ```
@@ -190,13 +191,16 @@ export function reelingSpinPerTick(): number;     // exp(-reelingSpinDecayRate /
 
 ## Statuses — `packages/shared/src/config/status-types.ts`, `status-config.ts`
 
-`StatusFlag` gains `"gripless" | "spinFree" | "ramBlocked"`; `Modifiers` gains the three matching
-booleans, false in `NEUTRAL_MODIFIERS`, OR-ed in `modifiersOf`.
+`StatusFlag` gains `"spinFree" | "ramBlocked"`; `Modifiers` gains those two booleans (false in
+`NEUTRAL_MODIFIERS`, OR-ed in `modifiersOf`) **and one multiplier channel, `grip`** (neutral 1,
+multiplied and clamped like every other channel), with a `STATUS_LIMITS.grip` entry — suggested
+`{ min: 0.25, max: 2 }`. There is **no `gripless` flag**: `grip` is a rate multiplier, so a status can
+say "scrubs, but slower", which a boolean cannot.
 
 ```ts
 reeling: { id: "reeling", name: "Reeling", kind: "debuff", color: "#e8590c",
-  reapply: "ignore", modifiers: {},
-  flags: ["immobilised", "steeringLocked", "gripless", "spinFree", "ramBlocked"] },
+  reapply: "ignore", modifiers: { grip: 0.6 },
+  flags: ["immobilised", "steeringLocked", "spinFree", "ramBlocked"] },
 
 ramLock: { id: "ramLock", name: "Ram Lock", kind: "debuff", color: "#adb5bd",
   reapply: "ignore", modifiers: {},

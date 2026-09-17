@@ -44,8 +44,8 @@ ledger disagree, the ledger wins.
 
 **Interfaces:**
 - Consumes: `perTickDecay` (stage 1).
-- Produces: the ledger's `RAM_CONFIG`; `inertiaRadiusSquared()`; `reelingSpinPerTick()`; `RAM_TICKS`
-  gaining `attackerLock`.
+- Produces: the ledger's `RAM_CONFIG`; `inertiaRadiusSquared()`; `reelingSpinPerTick()`; `ramTicks()`
+  (the ram tick table, now a rebuildable accessor, gaining `attackerLock`); `rebuildRamTicks()`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -81,7 +81,7 @@ describe("RAM_CONFIG under the Unity ram rule", () => {
   it("locks the attacker for less time than it reels the victim", () => {
     expect(RAM_CONFIG.attackerLockMs).toBeGreaterThan(0);
     expect(RAM_CONFIG.attackerLockMs).toBeLessThan(RAM_CONFIG.ramUncontrolMs);
-    expect(RAM_TICKS.attackerLock).toBe(msToTicks(RAM_CONFIG.attackerLockMs));
+    expect(ramTicks().attackerLock).toBe(msToTicks(RAM_CONFIG.attackerLockMs));
   });
 });
 ```
@@ -120,8 +120,67 @@ export function reelingSpinPerTick(): number {
 }
 ```
 
-Add `attackerLock: msToTicks(RAM_CONFIG.attackerLockMs)` to `RAM_TICKS`. In `index.ts`, drop the
-`RAM_DECAY` cluster and export the two new functions.
+**Then fix the frozen tick table, which is a real bug predating this work (U40).** `RAM_TICKS` is a
+`const` resolved at module load, and `setTuning` rebuilds four tables but never it — so
+`ramUncontrolMs`, `drWindowMs` and `durationDrFloorMs` are already playground sliders that change
+nothing, and `attackerLockMs` would join them. Stage 5's tuning session reaches for exactly these.
+Replace the const with the same accessor-plus-rebuild pattern `driveOf` uses:
+
+```ts
+interface RamTicks {
+  uncontrol: number;
+  drWindow: number;
+  durationFloor: number;
+  attackerLock: number;
+}
+
+function resolveRamTicks(): Readonly<RamTicks> {
+  return Object.freeze({
+    uncontrol: msToTicks(RAM_CONFIG.ramUncontrolMs),
+    drWindow: msToTicks(RAM_CONFIG.drWindowMs),
+    durationFloor: msToTicks(RAM_CONFIG.durationDrFloorMs),
+    attackerLock: msToTicks(RAM_CONFIG.attackerLockMs),
+  });
+}
+
+const DEFAULT_RAM_TICKS: Readonly<RamTicks> = resolveRamTicks();
+let ACTIVE_RAM_TICKS: Readonly<RamTicks> = DEFAULT_RAM_TICKS;
+
+/** The ram durations in ticks. A FUNCTION, not a const: playground tuning may rebuild them. */
+export function ramTicks(): Readonly<RamTicks> {
+  return ACTIVE_RAM_TICKS;
+}
+
+/**
+ * Re-resolve the ram durations after a tuning change (spec U40). Without this, every ram duration
+ * knob in the playground moved its config value and changed nothing the sim read — the bug this
+ * replaces. With no overrides it reassigns the module-load object BY REFERENCE, so an untuned build
+ * cannot drift by a float, exactly as `rebuildResolvedDrive` does.
+ */
+export function rebuildRamTicks(hasOverrides: boolean): void {
+  ACTIVE_RAM_TICKS = hasOverrides ? resolveRamTicks() : DEFAULT_RAM_TICKS;
+}
+```
+
+Then add `rebuildRamTicks(active !== null);` beside the four existing rebuilds in
+`packages/shared/src/config/tuning.ts:137-140`, and update the readers in
+`packages/server/src/sim/ram-bridge.ts` (three sites) from `RAM_TICKS.x` to `ramTicks().x`. In
+`index.ts`, drop the `RAM_DECAY` cluster and export `ramTicks`, `rebuildRamTicks`,
+`inertiaRadiusSquared` and `reelingSpinPerTick`.
+
+Add a test to `tuning.test.ts` beside the existing override cases:
+
+```ts
+it("rebuilds the ram durations when tuning moves them", () => {
+  const before = ramTicks().uncontrol;
+  setTuning({ "ram.ramUncontrolMs": RAM_CONFIG.ramUncontrolMs * 2 });
+  expect(ramTicks().uncontrol).toBeGreaterThan(before);
+  setTuning(null);
+  expect(ramTicks().uncontrol).toBe(before);
+});
+```
+
+Match `setTuning`'s real signature — read the file rather than trusting this sketch.
 
 - [ ] **Step 4: Wire the reeling spin into `ChassisDrive`**
 
@@ -486,12 +545,14 @@ it("makes a reeling car a passenger: no throttle, no steering, no grip, free spi
   const mods = modifiersOf([{ statusId: "reeling", endsTick: 10, sourceSessionId: "a" }], 0);
   expect(mods.immobilised).toBe(true);
   expect(mods.steeringLocked).toBe(true);
-  expect(mods.gripless).toBe(true);
   expect(mods.spinFree).toBe(true);
   expect(mods.ramBlocked).toBe(true);
   // It is not a stun: the trigger still works.
   expect(mods.disarmed).toBe(false);
-  // Flags only — no multiplier survives from the contest era.
+  // Grip is REDUCED, not switched off (spec §5): a shove scrubs, only slower.
+  expect(mods.grip).toBeCloseTo(0.6, 9);
+  expect(mods.grip).toBeGreaterThan(0);
+  // The contest-era multipliers are gone.
   expect(mods.turnRate).toBe(1);
   expect(mods.accel).toBe(1);
 });
@@ -501,8 +562,8 @@ it("kills a rammer's own controls without making it a passenger", () => {
   expect(mods.immobilised).toBe(true);
   expect(mods.steeringLocked).toBe(true);
   expect(mods.ramBlocked).toBe(true);
-  // A rammer stops; it does not slide.
-  expect(mods.gripless).toBe(false);
+  // A rammer stops; it does not slide, and it keeps full grip.
+  expect(mods.grip).toBe(1);
   expect(mods.spinFree).toBe(false);
 });
 ```
@@ -522,11 +583,16 @@ Expected: FAIL — `reeling` still resolves `turnRate: 0.4`.
    * Rammed: flung, sliding, spinning and along for the ride. Unity's `ReelingEffect` exactly —
    * `CarAbility.Throttle | Steer | YawHold | Grip | Ram` blocked for `RAM_CONFIG.ramUncontrolMs`.
    *
-   * **Flags, not multipliers, since the 2026-09-18 Unity port.** It used to be `turnRate: 0.4,
-   * accel: 0.4` — a car with worse numbers. It is now a car with no inputs, and the helplessness is
-   * the physics: `gripless` means the shove it just took does not bleed off through grip, and
-   * `spinFree` means the spin keeps running. You can still shoot, which is what keeps a ram a setup
-   * rather than a delete.
+   * **Inputs off, not numbers worsened, since the 2026-09-18 Unity port.** It used to be
+   * `turnRate: 0.4, accel: 0.4` — a car that handled badly. It is now a car with no inputs at all,
+   * and the helplessness is the physics: `spinFree` leaves the spin running, and `grip: 0.6` slows
+   * how fast the shove it just took scrubs off, so it rides further than a driver would slide. You
+   * can still shoot, which is what keeps a ram a setup rather than a delete.
+   *
+   * **`grip` is a multiplier and not Unity's on/off `Grip` ability, deliberately (spec §5).** Unity
+   * kills grip outright while reeling, which is survivable there because its base grip is high and
+   * its arena is large. This game runs a much looser base rate for drift, so switching grip off would
+   * carry a victim most of the way across the arena. 0.6 of 3/s is 1.8/s: a ~2.2 car length ride.
    *
    * `reapply: "ignore"` is FORCED by the flags (a flag-carrying debuff may never chain) and costs
    * exactly one behaviour: a re-ram landing while a reel is still running no longer extends it.
@@ -541,15 +607,15 @@ Expected: FAIL — `reeling` still resolves `turnRate: 0.4`.
     kind: "debuff",
     color: "#e8590c",
     reapply: "ignore",
-    modifiers: {},
-    flags: ["immobilised", "steeringLocked", "gripless", "spinFree", "ramBlocked"],
+    modifiers: { grip: 0.6 },
+    flags: ["immobilised", "steeringLocked", "spinFree", "ramBlocked"],
   },
   /**
    * The price of landing a ram: your own car goes dead for `RAM_CONFIG.attackerLockMs`. Unity's
    * attacker lock (`RammingModule.LockMask`), and the reason ramming is a commitment rather than a
    * free hit — you stop, and for half a second you cannot drive, steer or ram again.
    *
-   * Deliberately WITHOUT `gripless` and `spinFree`: a rammer stops, it does not slide. Both cars
+   * Deliberately WITHOUT `spinFree` and with grip untouched: a rammer stops, it does not slide. Both cars
    * take it on a head-on.
    */
   ramLock: {
@@ -695,8 +761,8 @@ function applyRamResolution(
 
     if (ram.reeled.includes(side.sessionId)) {
       const ticks = Math.max(
-        RAM_TICKS.durationFloor,
-        Math.round(RAM_TICKS.uncontrol * scales.durationScale),
+        ramTicks().durationFloor,
+        Math.round(ramTicks().uncontrol * scales.durationScale),
       );
       writeStatuses(player, applyStatus(readStatuses(player), "reeling", tick, ticks, ram.attackerId));
     }
@@ -704,7 +770,7 @@ function applyRamResolution(
     if (ram.locked.includes(side.sessionId)) {
       writeStatuses(
         player,
-        applyStatus(readStatuses(player), "ramLock", tick, RAM_TICKS.attackerLock, ram.attackerId),
+        applyStatus(readStatuses(player), "ramLock", tick, ramTicks().attackerLock, ram.attackerId),
       );
     }
 

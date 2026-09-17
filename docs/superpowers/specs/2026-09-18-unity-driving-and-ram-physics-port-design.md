@@ -47,7 +47,9 @@ Each was put to the user and answered. The plans must not re-litigate them.
   as Unity's `DriveConfig.flipSteeringInReverse`.
 - **U9. `handling` keeps meaning turn rate**, now at the same rate at every speed including at rest.
   `stopTurnRatio`, `ChassisDrive.turnRateAtStop` and `turnRateAtStopOf` are deleted.
-- **U10. Grip is one global rate to start.** No per-chassis drift rating; if the type triangle later
+- **U10. Grip is one global rate plus a status multiplier — two knobs, not Unity's one.** The base
+  rate is the driver's drift; `reeling`'s `grip` multiplier is how fast an imposed shove scrubs off.
+  See §5 for why the two had to separate. No per-chassis drift rating; if the type triangle later
   needs one it is a `CarDef` field added then.
 - **U11. `ramAttack`/`ramDefence` become Unity's `strength`/`resistance`** in the shove, keeping their
   current names.
@@ -81,7 +83,7 @@ this order (**U12**):
 
 1. **Decide the engine command** from the throttle and the car's current forward speed.
 2. **Drag:** multiply the WHOLE velocity — forward and lateral alike — by `dragPerTick`.
-3. **Grip:** multiply the LATERAL component by `gripPerTick`, unless the car is `gripless`.
+3. **Grip:** multiply the LATERAL component by `gripPerTick`, raised to the car's `grip` modifier.
 4. **Yaw:** set `angVel` from the steer input, unless the car is `spinFree`, in which case the
    existing `angVel` decays instead. Then `angle += angVel * dt`.
 5. **Integrate:** `v += command * dt` along the heading, then `x += v * dt`.
@@ -224,16 +226,30 @@ consumers break and must move in the same commit:
 
 ## 5. Grip and drift
 
-One global rate (U10): `DRIVE_CONFIG.lateralGripRate`, in 1/s, applied as
-`gripPerTick = Math.exp(-lateralGripRate / TICK_RATE_HZ)`.
+One base rate, `DRIVE_CONFIG.lateralGripRate` in 1/s, applied as
+`gripPerTick = Math.exp(-lateralGripRate / TICK_RATE_HZ)` and scaled per car by a **`grip` status
+multiplier**: `gripPerTick ** mods.grip`, the same exact power trick drag uses (U36).
 
 The steady-state slip angle while holding full lock is `atan(turnRate / lateralGripRate)` — at any
 speed, a property of the two rates alone, which is what makes this tunable as "how much does the car
-drift" rather than per-speed guesswork. Unity's 90°/s against 6/s gives ~15°.
+drift" rather than per-speed guesswork. Unity's 90°/s against 6/s gives ~15°; this game runs a looser
+3/s for a real drift (§9.2).
 
-A `gripless` car (§8) skips step 3 entirely, so imposed sideways velocity survives until drag alone
-bleeds it. `DRIVE_CONFIG.impactGripDecel` and `bleedLateral` are deleted (**U20**): grip is now one
-mechanism for both, which is the point of the port.
+**This is the one place the port deliberately departs from the Unity source (U10, revised).** Unity
+has a single grip rate and switches it off outright while reeling, which couples two different
+questions to one number: how much a DRIVER drifts through a corner, and how long an IMPOSED shove
+carries a victim. At Unity's grippy 6/s that coupling is invisible; at the 3/s this game wants for
+drift it is not, because the same looseness that makes cornering fun makes a ram throw a car most of
+the way across a much smaller arena. So there are two knobs:
+
+- **`DRIVE_CONFIG.lateralGripRate`** — the driver's own cornering. The drift dial.
+- **`reeling`'s `grip` multiplier** — how fast a ram's shove scrubs off. The knockback dial, since a
+  shove and `reeling` always arrive together.
+
+`DRIVE_CONFIG.impactGripDecel` and `bleedLateral` are still deleted (**U20**): the flat bleed is gone
+and grip is one *mechanism* for both, with a multiplier rather than a second rate saying how hard it
+bites. The `gripless` flag the first draft of this spec proposed is **not** built — a boolean cannot
+express "scrubs, but slower", and `grip: 0` reproduces it exactly if it is ever wanted.
 
 ## 6. Walls and bumps
 
@@ -341,15 +357,20 @@ Three new flags on `StatusFlag`, `Modifiers` and `modifiersOf`, mirroring Unity'
 
 | Flag | Meaning |
 |---|---|
-| `gripless` | Step 3 of the drive step is skipped: no lateral grip |
 | `spinFree` | Step 4 does not write yaw from steering; existing `angVel` decays instead |
 | `ramBlocked` | This car cannot qualify as a ram attacker |
 
+and **one new multiplier channel**, `grip`, which scales the lateral grip rate a car is subject to
+(§5). Neutral 1; `STATUS_LIMITS.grip` bounds it, with a floor above 0 so no stack of debuffs can turn
+a car into a puck for good.
+
 Two rows change or arrive:
 
-- **`reeling`** becomes `flags: ["immobilised", "steeringLocked", "gripless", "spinFree",
-  "ramBlocked"]`, `modifiers: {}`, `reapply: "ignore"` (**U31**) — Unity's Reeling exactly: a
-  passenger, sliding and spinning, unable to ram, still able to shoot. The rule that a flag-carrying
+- **`reeling`** becomes `flags: ["immobilised", "steeringLocked", "spinFree", "ramBlocked"]` with
+  `modifiers: { grip: 0.6 }` and `reapply: "ignore"` (**U31**) — Unity's Reeling but for the grip
+  knob: a passenger, sliding and spinning, unable to ram, still able to shoot, and scrubbing its
+  slide at 0.6 of the base rate (an effective 1.8/s at §9.2's values) rather than not at all. The
+  rule that a flag-carrying
   debuff must be `"ignore"` therefore applies, which **costs one behaviour**: a re-ram landing while a
   reel is still running no longer extends it. That is acceptable and arguably better —
   `applyStatus`'s `Math.max(endsTick, …)` already discarded every falloff-scaled duration on that
@@ -389,7 +410,8 @@ brake works out at ~430 u/s², so the roster already sits on it.
 |---|---|---|
 | `baseDrag` | 0.768 | With `dragPerRating`, targets ~1.8 s to 90% of top speed for Mirage and ~2.6 s for Bastion — between today's 1.0–1.5 s and Unity's 2.3 s |
 | `dragPerRating` | 0.00608 | Anchored on `accel` ratings 85 and 20, so Bullseye's 45 falls out at 1.04 (2.2 s) |
-| `lateralGripRate` | 7.0 | ~17° of slip at Mirage's turn rate, against Unity's ~15° |
+| `lateralGripRate` | 3.0 | **35° of slip** at Mirage's turn rate — a real drift, against Unity's grippier ~15°. Chosen by the user over 7.0 (U10, revised); the knockback it would otherwise lengthen is held by `reeling`'s `grip` multiplier instead |
+| `reeling`'s `grip` multiplier | 0.6 | An effective 1.8/s while reeling, so a 237 u/s shove carries a victim ~132 u — about 2.2 car lengths — before it is mostly scrubbed. `grip: 0` would be Unity's helpless slide at ~185 u |
 | `baseTurnRate` | 0.667 | With `turnRatePerRating`, puts every chassis's turn radius near 1.5 car lengths at its own top speed — between Unity's 3.4 and today's 0.38 |
 | `turnRatePerRating` | 0.0169 | Anchored on `handling` 85 → 2.10 rad/s and 50 → 1.51 rad/s; Bullseye's 65 falls out at 1.77 |
 | `reverseAccelFactor` | 0.4 | Unity's `reversePower / enginePower` (12000 / 30000), replacing 0.6. Reverse top speed becomes 0.4 of forward, against today's 0.65 |
@@ -399,8 +421,17 @@ brake works out at ~430 u/s², so the roster already sits on it.
 | `stopEpsilon` | 1e-3 | Unchanged |
 
 Derived per car, for the record: engine accel 242 / 165 / 120 u/s² (Mirage / Bullseye / Bastion)
-against today's 179 / 123 / 88; roll distance after lifting off at top speed ≈ 147 / 152 / 154 u,
+against today's 179 / 123 / 88; roll distance after lifting off at top speed ≈ 147 / 152 / 153 u,
 about 2.5 car lengths.
+
+**Turn radius comes out the same on all three chassis — 89.9 u — and that is known, not an
+oversight.** The anchors above pitch every car at 1.5 car lengths of radius at its own top speed,
+and because each chassis's `speed` and `handling` ratings are equal (85/85, 65/65, 50/50), the
+arithmetic returns the same radius each time. Mirage still comes ROUND quicker (2.10 rad/s against
+Bastion's 1.51, a 90° turn in 0.75 s against 1.04 s), but no car can turn inside another. The user
+was shown two alternatives that spread it — nimble-tightest and tank-tightest — and chose to keep it
+uniform and revisit during the stage 5 tuning pass. **Do not "fix" this silently**; widening it is a
+`baseTurnRate`/`turnRatePerRating` re-anchor and the user's call.
 
 ### 9.3 Ram
 
@@ -449,7 +480,12 @@ Five stages, each independently mergeable, each leaving `npm test` green.
 2. **Walls and bumps.** `restitution: 0` and the contact tests that pin the old value, including
    `collide.test.ts`'s "one restitution per distinct surface" and the golden `resolveWorld` traces.
 3. **Rams.** `sim/ram.ts` rewritten to the Unity rule; `ram-bridge.ts` writing velocities directly;
-   `RAM_CONFIG` reshaped; `reeling` redefined; `ramLock` added.
+   `RAM_CONFIG` reshaped; `reeling` redefined; `ramLock` added. **Plus one pre-existing bug this work
+   cannot tune around** (**U40**): `RAM_TICKS` converts the ram durations to ticks once at module
+   load and `setTuning` never rebuilds it, so `ramUncontrolMs`, `drWindowMs` and `durationDrFloorMs`
+   are already playground sliders that change nothing — and `attackerLockMs` would join them. Stage 3
+   adds a `rebuildRamTicks` alongside the four rebuilds `setTuning` already runs, because stage 5's
+   tuning session reaches for exactly those knobs.
 4. **Slam and effects reconciliation.** `wildcharge`'s `ImpulseDef` re-pitch; the `EFFECT_SOURCES`
    line for `ramLock`; the guide's Effects section; the HUD's status chips.
 5. **Tune and reconcile.** The playground pass with the user; `docs/turn-tuning.md` rewritten and its
