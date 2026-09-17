@@ -384,7 +384,31 @@ describe("runMatch", () => {
     // window, so the physics branch's pick carries forward. That is the same durability rule that
     // picked 98, then 22, then 79 before it: prefer a seed already present in a known-good set over
     // a fresh one, because it has survived more than one change to the thing under it.
-    const out = runMatch({ ...SETUP, seed: 98, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    //
+    // `seed: 1`, not 98 (2026-09-17, basic-attack task 6): every chassis gained a fourth weapon —
+    // its own basic attack (`CarDef.basicAttack`, BA23) — and both seats' `HumanController`s now
+    // consider a fourth fire slot every tick (`self.slots` already carried it from an earlier task
+    // in this stack; this task is what gives it a real personality weight instead of `firing.ts`'s
+    // `weights[i] ?? 1` fallback, BA24). That is a real change to what each bot presses and when,
+    // not just an RNG reseed, so seed 98 is now a legitimate 1-1 RANKING TIE in this matchup (`a: 1
+    // kill / 1 death, b: 1 kill / 1 death`, `hitClock: false`) — the kills assertion below still
+    // passes and only `winnerSessionId` comes back empty, the same non-clock-defect failure mode
+    // several earlier entries in this history describe.
+    //
+    // Swept 1-60 against this build (the brief's fallback range — a 60-seed sweep of this fixture
+    // took ~10 minutes, so 1-150 was not run to completion; this is 1-60 ONLY, not 1-150): 42 of 60
+    // seeds land a decisive kill inside the 30 s window — 70%, well above the previous entry's
+    // 63/150 (42%). That is the honest number this partial sweep measured, not a claim about the
+    // full 1-150 range. The decisive rate did not collapse (a basic attack giving both sides more to
+    // press, more often, reads as MORE fights resolving inside 30 s, not fewer), so this reads as
+    // the regime getting slightly more decisive under the wider sweep, not moving in a concerning
+    // direction; a like-for-like 150-seed comparison is left to whoever next re-seeds this fixture.
+    // Decisive seeds in 1-60: 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 15, 16, 17, 20, 22, 24, 25, 26,
+    // 29, 30, 31, 32, 36, 37, 38, 39, 40, 43, 44, 45, 46, 48, 49, 51, 52, 53, 54, 55, 56, 57.
+    //
+    // 1 by the lowest-decisive-seed rule: it is `a: 1 kill / 0 deaths, b: 0 / 1` — decisive on
+    // kills alone, so it does not rest on the deaths tiebreak.
+    const out = runMatch({ ...SETUP, seed: 1, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);
