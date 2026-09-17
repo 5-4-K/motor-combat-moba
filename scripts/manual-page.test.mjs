@@ -14,6 +14,7 @@ import {
   spawnInstances,
   stepInstance,
 } from "@motor-combat-moba/shared";
+import { EFFECT_SOURCES } from "./cars-and-weapons-copy.mjs";
 import {
   OUT_WEB_HTML,
   STAMP_META_NAME,
@@ -203,6 +204,52 @@ describe("the generated manual page", () => {
           "`npm run build:manual`.",
       );
     }
+  });
+
+  /**
+   * The 2026-09-17 restructure made the page cross-reference itself: a weapon's Effect chips are
+   * links into the Effects section, so "what does Corroded do" is one click rather than a search.
+   *
+   * Nothing else can catch a dead one. The anchor is a string on both sides, the compiler never
+   * sees this file, and a browser answers a missing `#id` by silently doing nothing — so a status
+   * that stops being published (its last carrier retired, its source removed) would leave every
+   * chip pointing at it as a link that looks fine and goes nowhere.
+   */
+  it("resolves every in-page link to an anchor that exists", () => {
+    const html = read(path.join(PUBLIC_DIR, manualPath()));
+    const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
+    const targets = [...html.matchAll(/href="#([^"]+)"/g)].map((m) => m[1]);
+    assert.ok(targets.length > 0, "the manual carries no in-page links at all");
+    const dead = [...new Set(targets)].filter((target) => !ids.has(target));
+    assert.deepEqual(
+      dead,
+      [],
+      `the manual links to anchors nothing on the page defines: ${dead.join(", ")}. ` +
+        "An effect is only published when something can apply it — see PUBLISHED_EFFECTS in " +
+        "build-cars-and-weapons.mjs.",
+    );
+  });
+
+  /**
+   * The other half of the same pairing: an effect the page describes but never links to is a
+   * section nobody can reach from the weapon that inflicts it. Both directions matter, and only
+   * one of them is a broken link.
+   */
+  it("links to every effect it publishes", () => {
+    const html = read(path.join(PUBLIC_DIR, manualPath()));
+    const published = [...html.matchAll(/\sid="(fx-[^"]+)"/g)].map((m) => m[1]);
+    const linked = new Set([...html.matchAll(/href="#(fx-[^"]+)"/g)].map((m) => m[1]));
+    assert.ok(published.length > 0, "the manual publishes no effects");
+    // `reeling` and `phased` come from ramming and from the deathmatch respawn, not from a weapon
+    // row, so nothing in the Cars section links to them by construction. They are named in
+    // EFFECT_SOURCES, which is exactly what publishes them.
+    const fromCopy = new Set(Object.keys(EFFECT_SOURCES).map((id) => `fx-${id}`));
+    const orphans = published.filter((id) => !linked.has(id) && !fromCopy.has(id));
+    assert.deepEqual(
+      orphans,
+      [],
+      `the manual describes effects no weapon links to: ${orphans.join(", ")}`,
+    );
   });
 
   it("points at art the client already ships", () => {

@@ -1,12 +1,19 @@
 #!/usr/bin/env node
 /**
- * Builds `packages/client/public/manual.html` — the player-facing cars-and-weapons guide, three
- * chassis and nine weapons, that the join screen's button opens.
+ * Builds `packages/client/public/manual.html` — the player-facing cars-and-weapons guide that the
+ * join screen's button opens.
+ *
+ * **It is a stat sheet, not a magazine.** The 2026-09-17 restructure cut it from thirteen A4-style
+ * sheets (cover, legend, a page per chassis, a page per weapon, two comparison tables) to one
+ * continuous page with two sections: CARS — each chassis's ratings and the stats of its three
+ * weapons — and EFFECTS — what every status a player can be put in actually does. A weapon's
+ * effects link into that second section, so "what is Corroded?" is one click rather than a search.
+ * Prose is one line per chassis and one per weapon; everything else on the page is generated.
  *
  * It is a web page rather than a document players download: an <embed>ed file is at the mercy of
- * whatever viewer they have, and on mobile is usually just a download prompt. The layout is still
- * paginated and still prints — the topbar's Print button hands the browser the same A4 sheets — but
- * that is a courtesy of the stylesheet, not a second output this script has to produce.
+ * whatever viewer they have, and on mobile is usually just a download prompt. It still prints — the
+ * topbar's Print button hands the browser the page — but it is no longer laid out as A4 sheets, so
+ * page breaks fall where the browser puts them rather than where a fixed-height section ends.
  *
  * Every number on it is read from BUILT shared (`WEAPON_TABLE`, `CAR_TABLE`, `WEAPON_TICKS`,
  * `weaponDamageOf`), never transcribed, so a balance edit is reprinted by re-running this script and
@@ -27,7 +34,6 @@ import { fileURLToPath } from "node:url";
 
 import {
   ACTIVE_ARENA_ID,
-  AIM_CONFIG,
   CAR_TABLE,
   COMBAT_CONFIG,
   DRIVE_CONFIG,
@@ -37,6 +43,7 @@ import {
   WEAPON_TICKS,
   accelOf,
   activeCarIds,
+  damageFor,
   forwardMaxSpeedOf,
   getArena,
   hpOf,
@@ -49,24 +56,24 @@ import {
 
 import {
   CHASSIS_COPY as RAW_CHASSIS_COPY,
+  EFFECT_SOURCES as RAW_EFFECT_SOURCES,
   MANUAL_META as RAW_MANUAL_META,
-  SLOT_ROLES as RAW_SLOT_ROLES,
   WEAPON_COPY as RAW_WEAPON_COPY,
 } from "./cars-and-weapons-copy.mjs";
 import { manualFacts, renderCopy } from "./manual-facts.mjs";
 
 /**
- * The prose with its `{weapon.fact}` placeholders resolved against the live tables.
+ * The prose with its `{roster.fact}` placeholders resolved against the live tables.
  *
  * Done ONCE, here, so every consumer below sees finished sentences and no call site has to remember
  * to render. An unknown token throws out of `renderCopy`, so a typo fails the build rather than
- * shipping a literal "{predator.lifeSec}" to players.
+ * shipping a literal "{roster.slotsPerCar}" to players.
  */
 const FACTS = manualFacts();
 const MANUAL_META = renderCopy(RAW_MANUAL_META, FACTS);
 const CHASSIS_COPY = renderCopy(RAW_CHASSIS_COPY, FACTS);
-const SLOT_ROLES = renderCopy(RAW_SLOT_ROLES, FACTS);
 const WEAPON_COPY = renderCopy(RAW_WEAPON_COPY, FACTS);
+const EFFECT_SOURCES = renderCopy(RAW_EFFECT_SOURCES, FACTS);
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** Served by the client. Vite copies `public/` verbatim, so this ships in the LAN zip too. */
@@ -78,20 +85,17 @@ export const OUT_WEB_HTML = resolve(ROOT, "packages/client/public/manual.html");
  * Read from `ACTIVE_ARENA_ID` rather than written out, because every weapon's reach is reported as a
  * PERCENTAGE of this. The two shipped arenas are both 1280 wide at the frame and ~1100 at the
  * playable floor, so pointing the build at the other one would barely move the figures — and,
- * hardcoded, would do it silently:
- * `balanceStamp` hashes this value, so a literal would only ever fingerprint itself.
+ * hardcoded, would do it silently: `balanceStamp` hashes this value, so a literal would only ever
+ * fingerprint itself.
  *
  * The PLAYABLE extent, not `arena.width`. Those were the same number until `arena-01` became an
- * octagon inset inside its own image frame, and this read the frame — printing "the arena is 1280
- * units wide" to players and understating every reach percentage by about 13%. `playableExtentOf`
- * answers the polygon's bounding box when an arena authors a `boundary`.
- * Note that neither the page nor the stamp can catch this class of error on its own: the regenerated
- * page came out byte-identical, because the fingerprint hashes this value and the value was wrong.
+ * octagon inset inside its own image frame, and this read the frame — understating every reach
+ * percentage by about 13%. `playableExtentOf` answers the polygon's bounding box when an arena
+ * authors a `boundary`. Note that neither the page nor the stamp can catch this class of error on
+ * its own: the regenerated page came out byte-identical, because the fingerprint hashes this value
+ * and the value was wrong.
  */
 const ARENA_WIDTH = playableExtentOf(getArena(ACTIVE_ARENA_ID)).width;
-/** Rating 50 is average by definition (`COMBAT_CONFIG.attackBaseline` is the same pivot). */
-const AVERAGE_RATING = 50;
-const AVERAGE_HP = AVERAGE_RATING * COMBAT_CONFIG.hpPerRating;
 
 // ---------------------------------------------------------------------------- derived stats
 
@@ -102,27 +106,19 @@ const AVERAGE_HP = AVERAGE_RATING * COMBAT_CONFIG.hpPerRating;
  * car select and from every server-side gate, but this script used to read the table whole — so
  * authoring a car in development shipped its stats, its kit and its silhouette to players on the
  * next `npm run build:manual`, with nothing saying so. Every downstream derivation here follows
- * this list: the cover grid, `OWNER_OF`, `WEAPONS` (which is `CAR_IDS.flatMap(slotsOf)`, so an
- * inactive car's exclusive weapons drop off the page with it), the chassis cards, the attack
- * multiplier row, the kit lists and the HP matrix.
+ * this list: `OWNER_OF`, `WEAPONS` (which is `CAR_IDS.flatMap(slotsOf)`, so an inactive car's
+ * exclusive weapons drop off the page with it), the car sections, and the sources the Effects
+ * section credits each status to.
  */
 const CAR_IDS = activeCarIds();
 
-/**
- * How many weapons carry a magazine, said in words. Derived rather than written down: this line
- * asserted "One weapon has them" until `needler` lost its stock and nobody noticed the page had
- * started lying to players.
- */
-function stockBlurb() {
-  const n = Object.values(WEAPON_TABLE).filter((d) => d.stock).length;
-  if (n === 0) return "No weapon carries them right now.";
-  return n === 1 ? "One weapon has them." : `${n} weapons have them.`;
-}
 const OWNER_OF = Object.fromEntries(
   CAR_IDS.flatMap((carId) => slotsOf(carId).map((weaponId) => [weaponId, carId])),
 );
 
 const round = (n, dp = 0) => Number(n.toFixed(dp));
+/** Seconds, printed the way the page talks: `1.8s`, `0.7s`, `13s`. */
+const secs = (ms) => `${round(ms / 1000, ms % 1000 === 0 ? 0 : 2)}s`;
 
 /**
  * A one-line reading of what a status does, derived from the row itself rather than written out
@@ -139,9 +135,12 @@ function statusBlurb(def) {
   // leads even over "no control".
   if ((def.flags ?? []).includes("fullStop")) parts.push("total stop");
   if ((def.flags ?? []).includes("immobilised")) parts.push("no control");
+  if ((def.flags ?? []).includes("steeringLocked")) parts.push("no steering");
+  if ((def.flags ?? []).includes("disarmed")) parts.push("cannot fire");
   if ((def.flags ?? []).includes("invulnerable")) parts.push("takes no damage");
-  if (def.pulse?.damage) parts.push(`${def.pulse.damage} hp per ${round(def.pulse.intervalMs / 1000, 2)}s`);
-  if (def.pulse?.heal) parts.push(`repairs ${def.pulse.heal} hp per ${round(def.pulse.intervalMs / 1000, 2)}s`);
+  if ((def.flags ?? []).includes("phased")) parts.push("cannot be hit or rammed");
+  if (def.pulse?.damage) parts.push(`${def.pulse.damage} hp per ${secs(def.pulse.intervalMs)}`);
+  if (def.pulse?.heal) parts.push(`repairs ${def.pulse.heal} hp per ${secs(def.pulse.intervalMs)}`);
   if (def.onApply?.cleanse) parts.push(`clears every ${def.onApply.cleanse}`);
   for (const [channel, value] of Object.entries(def.modifiers)) {
     const pct = Math.round(Math.abs(value - 1) * 100);
@@ -163,69 +162,25 @@ const CHANNEL_WORDS = {
 };
 
 /**
- * `{ shape, size }` — `size` is kept short enough never to wrap inside the spec panel.
+ * The noun the page calls one projectile of each hitbox shape.
  *
- * A `maneuver` weapon has no `hitbox` at all: the car's own hull is the hit volume (O12/O2), so
- * there is no separate shape to report — "car hull" is the honest answer, and the shape word is the
- * same "Dash"/"Charge" label the guide uses everywhere else a weapon's kind is named.
+ * Display vocabulary, like `CHANNEL_WORDS` above — `radiusAlong`/`radiusAcross` is how the sim
+ * thinks about a shot and "slug" is how a player does. A shape with no entry falls back to "shot"
+ * rather than printing `undefined`, so a new hitbox kind degrades to a correct generic instead of
+ * failing the page.
  */
-function hitboxLine(def) {
-  if (def.kind === "maneuver") return { shape: kindLabel(def), size: "car hull" };
+const PROJECTILE_NOUN = { circle: "bolt", ellipse: "dart", capsule: "slug", bar: "bar" };
+
+/** `{ shape, size }` — `size` kept short enough to sit inline in a stat row. */
+function hitboxSize(def) {
   const h = def.hitbox;
-  if (h.shape === "circle") return { shape: "Circle", size: `${h.radius * 2} across` };
-  if (h.shape === "ellipse") return { shape: "Ellipse", size: `${h.radiusAlong * 2} × ${h.radiusAcross * 2}` };
-  if (h.shape === "capsule")
-    return { shape: "Capsule", size: `${h.radiusAlong * 2} × ${h.radiusAcross * 2}, flat tail` };
-  // A bar travels along its SHORT axis (`radiusAlong` is the thickness along flight), so its
-  // "reach" is really its face width, printed first the way every other shape leads with its
-  // longest dimension.
-  if (h.shape === "bar") return { shape: "Bar", size: `${h.radiusAcross * 2} × ${h.radiusAlong * 2}` };
-  if (h.shape === "rect") return { shape: "Beam", size: `${h.width} × ${def.range}` };
-  // A disc grows in every direction at once, so its `range` is a radius rather than a reach.
-  if (h.shape === "disc") return { shape: "Aura", size: `${def.range} radius` };
-  return { shape: "Cone", size: `${h.angleDeg}° × ${def.range}` };
-}
-
-/**
- * "Beam" / "Shot" / "Dash" / "Charge" — the one word the guide uses everywhere a weapon's kind is
- * named: the compare table's Type column and (via `hitboxLine`) the Area bar's own label.
- */
-function kindLabel(def) {
-  if (def.kind === "beam") return "Beam";
-  if (def.kind === "maneuver") return def.maneuver.type === "dash" ? "Dash" : "Charge";
-  return "Shot";
-}
-
-/**
- * Rough swept footprint, only ever compared against the other eight rows.
- *
- * A `maneuver` weapon's hit volume is the car's own hull (see `hitboxLine`), so its footprint is the
- * hull's own area rather than anything read off a `hitbox` field it does not have.
- */
-function footprint(def) {
-  if (def.kind === "maneuver") return DRIVE_CONFIG.carWidth * DRIVE_CONFIG.carHeight;
-  const h = def.hitbox;
-  if (h.shape === "circle") return Math.PI * h.radius ** 2;
-  if (h.shape === "ellipse") return Math.PI * h.radiusAlong * h.radiusAcross;
-  // A rectangle from the tail to the nose cap's centre, plus the semicircular cap itself.
-  if (h.shape === "capsule")
-    return (
-      (h.radiusAlong - h.radiusAcross) * 2 * h.radiusAcross * 2 + Math.PI * h.radiusAcross ** 2
-    );
-  if (h.shape === "bar") return h.radiusAlong * 2 * h.radiusAcross * 2;
-  if (h.shape === "rect") return h.width * def.range;
-  if (h.shape === "disc") return Math.PI * def.range ** 2;
-  return ((h.angleDeg / 360) * Math.PI * def.range ** 2);
-}
-
-/**
- * `range` as the guide prints it. A dash's 400 is a real reach worth stating; a charge's 0 is not a
- * reach of zero units, it is the absence of one ("speed/range are 0: a charge dashes nowhere," per
- * `wildcharge`'s own row comment) — so it reads as "—" rather than a number that invites a percent
- * and a car-lengths conversion of nothing.
- */
-function reachText(range) {
-  return range > 0 ? String(range) : "—";
+  if (h.shape === "circle") return `${h.radius * 2} across`;
+  if (h.shape === "ellipse") return `${h.radiusAlong * 2} × ${h.radiusAcross * 2}`;
+  if (h.shape === "capsule") return `${h.radiusAlong * 2} × ${h.radiusAcross * 2}, flat tail`;
+  // A bar travels along its SHORT axis (`radiusAlong` is the thickness along flight), so its face
+  // width leads — the same way every other shape leads with its longest dimension.
+  if (h.shape === "bar") return `${h.radiusAcross * 2} wide, ${h.radiusAlong * 2} thick`;
+  return "";
 }
 
 function derive(id) {
@@ -242,12 +197,9 @@ function derive(id) {
   const maneuver = def.kind === "maneuver";
 
   // `volley` lives on `WeaponBase`, so a BEAM can be a wave sequence too — dormant today (no
-  // shipped row has `volleys > 1`; `shockwave` used to be three discs 500ms apart before the
-  // 2026-09-01 cutover redefined it into a single-volley projectile). This file is plain `.mjs`
-  // and the compiler never checks it, so a "beams fire once per press" shortcut here would
-  // silently under-report a real weapon on the page the day one next ships. Both kinds go through
-  // the same volley arithmetic; only what one volley *contains* differs, which is exactly the line
-  // `PelletDef` was split out on.
+  // shipped row has `volleys > 1`). This file is plain `.mjs` and the compiler never checks it, so
+  // a "beams fire once per press" shortcut here would silently under-report a real weapon on the
+  // page the day one next ships.
   const shotsPerPress = beam
     ? def.volley.volleys
     : maneuver
@@ -258,7 +210,7 @@ function derive(id) {
   // be 0/0, NaN. `thunderclap` (a dash) has both, and crosses its 400-unit `range` at its `speed`
   // exactly like a projectile would.
   const extendMs = def.speed > 0 ? (def.range / def.speed) * 1000 : 0;
-  const totalLifeMs = beam ? extendMs + def.lifetimeMs : extendMs;
+  const totalLifeMs = beam ? extendMs + def.lifetimeMs : (def.lifetimeMs ?? 0);
   // A ticking beam re-arms on its own interval for as long as it lives; everything else lands once
   // per instance, so a projectile's ceiling on one car is its whole pellet count.
   //
@@ -266,26 +218,22 @@ function derive(id) {
   // `resolveInstanceHits` damages on the first tick the beam covers a car and only then arms the
   // clock for `damageInterval` ticks later, over the `flight + lifetime` ticks `instanceExpired`
   // keeps the instance alive. Dividing the millisecond life by the interval instead loses that
-  // opening hit whenever the life is not a whole multiple of the interval — which cost Bulwark a
-  // ninth tick (35 damage, and the top of the damage-per-press ranking) until 2026-08-30.
+  // opening hit whenever the life is not a whole multiple of the interval — which cost the retired
+  // Bulwark a ninth tick (35 damage) until 2026-08-30.
   const aliveTicks = ticks.flight + ticks.lifetime;
   const damageTicks =
     ticks.damageInterval === Number.POSITIVE_INFINITY
       ? 1
       : Math.floor((aliveTicks - 1) / ticks.damageInterval) + 1;
   // Each of a beam's volleys is its own instance with its own damage clock, so a target that eats
-  // every wave takes `damageTicks` from each — dormant today alongside `volleys > 1` itself (see
-  // above); `shockwave`'s old three-wave shape (1 x 3) and the retired `bulwark`'s single 10-tick
-  // wave (10 x 1) were the last two rows that exercised more than the `hitsPerTarget = shotsPerPress`
-  // branch below.
+  // every wave takes `damageTicks` from each — dormant today alongside `volleys > 1` itself.
+  //
+  // For a PROJECTILE this is the pellets of one fan, not every pellet the press emits: the muzzles
+  // of a four-way spray point 90° apart, so at most one fan can ever line up with a single car.
+  // `shotType` below prints both figures, which is exactly the distinction that needs making.
   const hitsPerTarget = beam ? damageTicks * def.volley.volleys : shotsPerPress;
 
-  const baseBurst = def.damage * hitsPerTarget;
-  // Recharge starts at the LAST shot of a press (`fire.ts`), so a multi-volley burst pushes the
-  // whole cycle out by its own span. Wind-up counts for the same reason.
-  const cycleMs = def.startUpMs + burstSpanMs + def.cooldownMs;
   const perHit = weaponDamageOf(carId, id);
-  const liveBurst = perHit * hitsPerTarget;
 
   return {
     id,
@@ -296,21 +244,13 @@ function derive(id) {
     slot,
     beam,
     maneuver,
-    shotsPerPress,
     waves: def.volley.volleys,
     burstSpanMs,
     extendMs,
     totalLifeMs,
     hitsPerTarget,
-    baseBurst,
-    cycleMs,
     perHit,
-    liveBurst,
-    sustainedDps: baseBurst / (cycleMs / 1000),
-    liveDps: liveBurst / (cycleMs / 1000),
-    pctOfAverageCar: (baseBurst / AVERAGE_HP) * 100,
-    footprint: footprint(def),
-    attackScale: 1 + (car.attack - COMBAT_CONFIG.attackBaseline) * COMBAT_CONFIG.damagePerAttack,
+    liveBurst: perHit * hitsPerTarget,
   };
 }
 
@@ -318,8 +258,7 @@ const WEAPONS = CAR_IDS.flatMap((carId) => slotsOf(carId)).map(derive);
 const byId = Object.fromEntries(WEAPONS.map((w) => [w.id, w]));
 
 /**
- * How many times one press can damage a SINGLE car — the "full connect" ceiling the guide prints,
- * and the multiplier behind its damage figure, its share-of-a-car figure and its DPS.
+ * How many times one press can damage a SINGLE car — the "if all N land" ceiling the guide prints.
  *
  * Exported purely as a seam for `manual-page.test.mjs`, which checks it by driving the real sim
  * instead of repeating the arithmetic above. Nothing in the page build calls this.
@@ -333,28 +272,6 @@ export function carrierOf(weaponId) {
   return OWNER_OF[weaponId];
 }
 
-const MAX = {
-  power: Math.max(...WEAPONS.map((w) => w.baseBurst)),
-  cadence: Math.max(...WEAPONS.map((w) => 1000 / w.cycleMs)),
-  reach: Math.max(...WEAPONS.map((w) => w.def.range)),
-  area: Math.max(...WEAPONS.map((w) => Math.sqrt(w.footprint))),
-  commit: Math.max(...WEAPONS.map((w) => w.def.startUpMs + w.def.recoveryMs + w.def.cooldownMs)),
-};
-
-function bars(w) {
-  return [
-    ["Damage", (w.baseBurst / MAX.power) * 100, `${w.baseBurst} full connect`],
-    ["Rate", ((1000 / w.cycleMs) / MAX.cadence) * 100, `${round(1000 / w.cycleMs, 2)} presses/s`],
-    ["Reach", (w.def.range / MAX.reach) * 100, w.def.range > 0 ? `${w.def.range} units` : "—"],
-    ["Area", (Math.sqrt(w.footprint) / MAX.area) * 100, `${hitboxLine(w.def).shape}, ${hitboxLine(w.def).size}`],
-    [
-      "Commitment",
-      ((w.def.startUpMs + w.def.recoveryMs + w.def.cooldownMs) / MAX.commit) * 100,
-      `${round((w.def.startUpMs + w.def.recoveryMs + w.def.cooldownMs) / 1000, 1)}s locked in`,
-    ],
-  ];
-}
-
 /**
  * A fingerprint of everything the guide reports, written into the page as a meta tag.
  *
@@ -366,27 +283,28 @@ function bars(w) {
  * Covers the prose as well as the numbers: editing `cars-and-weapons-copy.mjs` without rebuilding
  * goes just as stale. Deliberately NOT a hash of the rendered HTML — that would need the webfont
  * fetch and a browser, and a guard that only runs online is not a guard.
+ *
+ * **Every input here must be something the page actually prints.** `AIM_CONFIG.lockRange` was hashed
+ * until the 2026-09-17 restructure, which stopped printing it (a weapon's own `aimRangeUnits` is
+ * what the Lock-on property reports, and that rides in `WEAPON_TABLE`) — so it went, rather than
+ * demanding a rebuild that would produce a byte-identical page but for this tag. That is how a
+ * guard gets rubber-stamped.
  */
 export function balanceStamp() {
   const inputs = {
     weapons: WEAPON_TABLE,
-    // ACTIVE cars only, matching `CAR_IDS` — the stamp fingerprints what the page SAYS, per this
-    // comment's own rule above, and the page says nothing about an inactive chassis. Hashing
-    // `CAR_TABLE` whole would fail `npm test` on every ratings tweak to an unreleased car and
-    // demand a rebuild of a page that comes out byte-identical but for this meta tag, which is how
-    // a guard gets rubber-stamped. Flipping `isActive` to true still moves the stamp, correctly:
-    // that edit really does owe players a rebuild.
+    // ACTIVE cars only, matching `CAR_IDS` — the stamp fingerprints what the page SAYS, and the
+    // page says nothing about an inactive chassis. Hashing `CAR_TABLE` whole would fail `npm test`
+    // on every ratings tweak to an unreleased car. Flipping `isActive` to true still moves the
+    // stamp, correctly: that edit really does owe players a rebuild.
     cars: Object.fromEntries(CAR_IDS.map((id) => [id, CAR_TABLE[id]])),
     combat: COMBAT_CONFIG,
     statuses: STATUS_TABLE,
     drive: DRIVE_CONFIG,
-    lockRange: AIM_CONFIG.lockRange,
     tickRateHz: TICK_RATE_HZ,
     arenaWidth: ARENA_WIDTH,
     // The RENDERED copy, not the raw templates: the stamp should fingerprint what the page says.
-    // Either would move when a table moves (the tables are hashed above too), but hashing the
-    // resolved text means the stamp is a fingerprint of the finished page rather than of its source.
-    copy: { MANUAL_META, CHASSIS_COPY, SLOT_ROLES, WEAPON_COPY },
+    copy: { MANUAL_META, CHASSIS_COPY, WEAPON_COPY, EFFECT_SOURCES },
   };
   return createHash("sha256").update(JSON.stringify(inputs)).digest("hex").slice(0, 16);
 }
@@ -414,8 +332,8 @@ const hasWeaponIcon = (id) => existsSync(resolve(ROOT, "packages/client/public",
 /**
  * An icon `<img>`, or a flat colour swatch in its place for a weapon with no art yet — the guide's
  * own version of the HUD's procedural fallback. The swatch carries `.icon-fallback`, which `css()`
- * sizes identically to the real `<img>` in every spot one is drawn (`.cover-grid img`, `.kit img`,
- * `.hero img`), so it fills exactly the same box without a second set of dimensions to keep in sync.
+ * sizes identically to the real `<img>`, so it fills exactly the same box without a second set of
+ * dimensions to keep in sync.
  */
 function iconMarkup(w) {
   if (hasWeaponIcon(w.id)) return `<img src="${iconUrl(w.id)}" alt="">`;
@@ -458,366 +376,318 @@ async function fontCss() {
   }
 }
 
-// ---------------------------------------------------------------------------- page fragments
+// ---------------------------------------------------------------------------- effects
+
+/**
+ * The anchor a weapon's effect chip links to, and the id the Effects section publishes.
+ *
+ * One function so the two can never disagree — a chip pointing at an id nothing renders is a dead
+ * link that no compiler and no existing guard would catch, which is why `manual-page.test.mjs` now
+ * resolves every one of them.
+ */
+const effectAnchor = (statusId) => `fx-${statusId}`;
+
+/**
+ * Every status an ACTIVE chassis can inflict or grant, and what applies it.
+ *
+ * Three application paths, and a status is only as published as the paths that reach it:
+ *  - `WeaponDef.applies` — the ordinary one, `self` or `opponents`.
+ *  - `ExplosionDef.applies` — magmablast's blast is the only user, and it is `opponents` only.
+ *  - `ImpulseDef.wallStun` — wildcharge's hard slam stuns a car it drives into a wall. It is a
+ *    duration on a push rather than a status application, so nothing else on this page would find
+ *    it; before the 2026-09-17 restructure the guide never mentioned it at all.
+ *
+ * Returns `Map<statusId, { weaponId, durationMs, note }[]>` in `WEAPONS` order, so the Effects
+ * section credits the sources a player will meet first.
+ */
+function effectSources() {
+  const sources = new Map();
+  const add = (statusId, entry) => {
+    if (!sources.has(statusId)) sources.set(statusId, []);
+    sources.get(statusId).push(entry);
+  };
+  for (const w of WEAPONS) {
+    for (const a of w.def.applies ?? []) {
+      add(a.statusId, { weaponId: w.id, durationMs: a.durationMs, note: a.target === "self" ? "on yourself" : "" });
+    }
+    for (const a of w.def.explosion?.applies ?? []) {
+      add(a.statusId, { weaponId: w.id, durationMs: a.durationMs, note: "from the blast" });
+    }
+    if (w.def.impulse?.wallStun) {
+      add("stunned", {
+        weaponId: w.id,
+        durationMs: w.def.impulse.wallStun.durationMs,
+        note: "slammed into a wall",
+      });
+    }
+  }
+  return sources;
+}
+
+const EFFECT_SOURCE_MAP = effectSources();
+
+/**
+ * The statuses the page publishes, in `STATUS_TABLE` order.
+ *
+ * A row appears only if something can actually apply it: a weapon an active chassis carries, or an
+ * authored `EFFECT_SOURCES` line for the two that reach a player outside the weapon tables
+ * (`reeling` from the contact pass, `phased` from the deathmatch respawn). `armored` and
+ * `overhauled` have neither today and so do not appear — publishing a status no shipped code can
+ * inflict would be describing a game the player is not playing. Giving one a source is what
+ * publishes it.
+ */
+const PUBLISHED_EFFECTS = Object.keys(STATUS_TABLE).filter(
+  (id) => EFFECT_SOURCE_MAP.has(id) || id in EFFECT_SOURCES,
+);
+
+// ---------------------------------------------------------------------------- weapon stats
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-const SLOT_LABEL = ["Slot 1 — Go-to", "Slot 2 — Mid", "Slot 3 — Ultimate"];
+const SLOT_LABEL = ["Slot 1", "Slot 2", "Slot 3"];
 
-function page(cls, inner) {
-  return `<section class="page ${cls}">${inner}</section>`;
-}
-
-function cover() {
-  const grid = WEAPONS.map(
-    (w) =>
-      `<figure>${iconMarkup(w)}<figcaption style="color:${lift(w.def.color)}">${esc(
-        w.def.name,
-      )}</figcaption></figure>`,
-  ).join("");
-  return page(
-    "cover",
-    `<div class="cover-rule"></div>
-     <p class="kicker">Field Manual · ${WEAPONS.length} weapons · ${CAR_IDS.length} chassis</p>
-     <h1>${esc(MANUAL_META.title)}</h1>
-     <h2>${esc(MANUAL_META.subtitle)}</h2>
-     <p class="blurb">${esc(MANUAL_META.blurb)}</p>
-     <div class="cover-grid">${grid}</div>
-     <p class="cover-foot">All figures read straight from the shipping balance tables.
-       Damage shown at an average chassis unless a chassis is named.</p>`,
-  );
-}
-
-function legend() {
-  const roles = SLOT_ROLES.map(
-    (r, i) => `<li><b>${i + 1}. ${esc(r.name)}</b><span>${esc(r.line)}</span></li>`,
-  ).join("");
-  return page(
-    "legend",
-    `<header class="phead"><span class="pnum">How to read this</span><h2>The five bars, and the words next to them</h2></header>
-     <div class="two-col">
-       <div>
-         <h3>The bars</h3>
-         <dl class="defs">
-           <dt>Damage</dt><dd>Everything one press can put into a single car if all of it connects. For a shotgun that is every pellet; for a burning cone that is every tick of it.</dd>
-           <dt>Rate</dt><dd>How often you get to press. Counts the wind-up and the burst, not just the recharge.</dd>
-           <dt>Reach</dt><dd>How far the shot travels, or how far the beam grows. The arena is ${ARENA_WIDTH} units wide and a car is ${DRIVE_CONFIG.carWidth} long.</dd>
-           <dt>Area</dt><dd>How much room the hitbox covers. Big area forgives bad aim.</dd>
-           <dt>Commitment</dt><dd>Wind-up plus recovery plus recharge — how long the press owns you.</dd>
-         </dl>
-         <h3>Slots</h3>
-         <ol class="roles">${roles}</ol>
-       </div>
-       <div>
-         <h3>Terms</h3>
-         <dl class="defs">
-           <dt>Lock-on</dt><dd>Some weapons fire at whatever the car has locked instead of straight down the nose. The lock reaches ${AIM_CONFIG.lockRange} units and aims where the target <i>is</i>, with no lead — so it helps most up close. ${WEAPONS.filter((w) => !w.def.usesAimAssist).length} of the ${WEAPONS.length} weapons do not use it at all.</dd>
-           <dt>Wind-up</dt><dd>Delay between the press and the shot. You keep driving, but you cannot take the press back.</dd>
-           <dt>Recovery</dt><dd>Lockout on your <i>other</i> two slots after a press.</dd>
-           <dt>Recharge</dt><dd>Time before this weapon is ready again. It starts at the last shot of the press, not the first.</dd>
-           <dt>Stock</dt><dd>Shots you can bank. ${stockBlurb()}</dd>
-           <dt>Pierce</dt><dd>Cars a shot carries on through after the first one it hits.</dd>
-           <dt>Attack scale</dt><dd>Your chassis multiplies every weapon's damage. ${CAR_IDS.map(
-             (id) => `${CAR_TABLE[id].name} ${round(1 + (CAR_TABLE[id].attack - COMBAT_CONFIG.attackBaseline) * COMBAT_CONFIG.damagePerAttack, 1)}×`,
-           ).join(", ")}.</dd>
-         </dl>
-         <div class="callout">
-           <b>The yardstick.</b> An average car has ${AVERAGE_HP} hull HP. Every “% of a car” in this
-           book is measured against that, before your chassis's attack scale is applied. The sim runs
-           at ${TICK_RATE_HZ} ticks a second, so every duration here is rounded up to a whole tick in play.
-         </div>
-       </div>
-     </div>
-     <div class="triangle">
-       <h3>Three chassis, one triangle</h3>
-       <div class="tri">${CAR_IDS.map(
-         (carId, i) => `<div>
-           <img src="${carUrl(carId)}" alt="">
-           <b>${esc(CAR_TABLE[carId].name)}</b>
-           <span>${esc(CHASSIS_COPY[carId].codename)}</span>
-           <p>${esc(CHASSIS_COPY[carId].theme)}</p>
-         </div>${i < CAR_IDS.length - 1 ? '<i class="arrow">&#9654;</i>' : ""}`,
-       ).join("")}</div>
-       <p class="note">Mirage catches Bullseye · Bullseye kites Bastion · Bastion punishes Mirage.
-         Nobody is safe from everybody — and the kit is most of the reason why.</p>
-     </div>`,
-  );
-}
-
-function chassisPage(carId) {
-  const car = CAR_TABLE[carId];
-  const copy = CHASSIS_COPY[carId];
-  const kit = slotsOf(carId).map((id) => byId[id]);
-  // Six ratings, not the four this rendered until 2026-08-30 — `accel` and `handling` became real
-  // per-chassis axes and a page that omitted them would describe three cars that drive identically
-  // off the line and through a corner.
-  //
-  // Handling prints its turn RADIUS beside its turn rate because the rate alone actively misleads on
-  // this roster: Bullseye has the lowest rate of the three and still corners tighter than Mirage,
-  // whose far higher top speed carries it wider. Radius is `speed / turnRate`, so it is the number a
-  // player actually feels — how much ground a corner costs — while the rate is what the rating sets.
-  const ratings = [
-    ["Speed", car.speed, `${round(forwardMaxSpeedOf(carId))} u/s top`],
-    ["Accel", car.accel, `${round(accelOf(carId))} u/s² · ${round(forwardMaxSpeedOf(carId) / accelOf(carId), 2)}s to top`],
-    ["Handling", car.handling, `${round(turnRateOf(carId), 2)} rad/s · ${round(forwardMaxSpeedOf(carId) / turnRateOf(carId))}u turn radius`],
-    ["Attack", car.attack, `${round(1 + (car.attack - COMBAT_CONFIG.attackBaseline) * COMBAT_CONFIG.damagePerAttack, 2)}× damage`],
-    ["Hull", car.hp, `${hpOf(carId)} HP`],
-    ["Ram power", car.ramAttack, "how hard it hits"],
-    ["Ram resistance", car.ramDefence, "how hard it is to shift"],
-  ];
-  const bars_ = ratings
-    .map(
-      ([label, value, note]) =>
-        `<li><span class="bl">${label}</span><span class="bt"><i style="width:${value}%"></i></span><span class="bv">${value}</span><span class="bn">${esc(note)}</span></li>`,
-    )
-    .join("");
-  const kitRows = kit
-    .map(
-      (w) => `<li style="--acc:${lift(w.def.color)}">
-        ${iconMarkup(w)}
-        <div class="kn"><b>${esc(w.def.name)}</b><span>${esc(SLOT_LABEL[w.slot])}</span>
-          <p>${esc(WEAPON_COPY[w.id].tagline)}</p></div>
-        <dl class="kstats">
-          <div><dt>Damage</dt><dd>${w.liveBurst}</dd></div>
-          <div><dt>Recharge</dt><dd>${round(w.def.cooldownMs / 1000, 1)}s</dd></div>
-          <div><dt>Reach</dt><dd>${reachText(w.def.range)}</dd></div>
-          <div><dt>Lock</dt><dd>${w.def.usesAimAssist ? "Yes" : "No"}</dd></div>
-        </dl>
-      </li>`,
-    )
-    .join("");
-  return page(
-    "chassis",
-    `<header class="phead"><span class="pnum">Chassis</span><h2>${esc(car.name)} <em>— ${esc(copy.codename)}</em></h2></header>
-     <div class="chassis-hero">
-       <img class="carshot" src="${carUrl(carId)}" alt="">
-       <div>
-         <p class="theme">“${esc(copy.theme)}”</p>
-         <p class="body">${esc(copy.body)}</p>
-       </div>
-     </div>
-     <ul class="ratings">${bars_}</ul>
-     <div class="matchup">
-       <p><b>Beats</b> ${esc(copy.beats)}</p>
-       <p><b>Loses to</b> ${esc(copy.losesTo)}</p>
-     </div>
-     <h3 class="kit-head">The kit <em>— one page each, overleaf</em></h3>
-     <ul class="kit">${kitRows}</ul>`,
-  );
-}
-
-function specRows(w) {
+/**
+ * What comes out of the muzzle, in one phrase: the shape of the shot and how many of them.
+ *
+ * The count distinction is the reason this row exists. Pepperbox emits twelve darts and can land
+ * three on any one car, because its four muzzles point 90° apart — a page printing only "45 × 3"
+ * describes a weapon nobody is firing, and one printing only "12 darts" describes damage nobody
+ * takes. Both numbers, side by side, is the honest answer.
+ */
+function shotType(w) {
   const d = w.def;
-  const multi = w.hitsPerTarget > 1;
-  const rows = [
-    ["Damage", `${d.damage}${multi ? ` × ${w.hitsPerTarget}` : ""}`,
-      multi ? (w.beam ? (w.waves > 1 ? "per wave" : "per tick") : "per shot")
-            : `${round(w.pctOfAverageCar)}% of an average car`],
-    ["On ${car}", `${w.perHit}${w.hitsPerTarget > 1 ? ` × ${w.hitsPerTarget} = ${w.liveBurst}` : ""}`,
-      `${round(w.attackScale, 1)}× attack scale`],
-    ["Recharge", `${round(d.cooldownMs / 1000, 2)}s`, d.stock ? `per stock · ${d.stock.max} banked` : "single stock"],
-    ["Sustained", `${round(w.sustainedDps)} dps`, "if every press connects"],
-    ["Reach", reachText(d.range),
-      d.range > 0
-        ? `${round((d.range / ARENA_WIDTH) * 100)}% of the arena · ${round(d.range / DRIVE_CONFIG.carWidth, 1)} car lengths`
-        : "a charge dashes nowhere"],
-    ["Speed", `${d.speed} u/s`,
-      d.range === 0
-        ? "a charge dashes nowhere"
-        : w.beam
-          ? `full extent in ${round(w.extendMs)}ms`
-          : `crosses its range in ${round(w.extendMs)}ms`],
-    ["Hitbox", hitboxLine(d).size, hitboxLine(d).shape.toLowerCase()],
-  ];
-  if (multi) rows.splice(1, 0, ["Full connect", `${w.baseBurst}`, `${round(w.pctOfAverageCar)}% of an average car`]);
-  if (w.beam) rows.push(["Lifetime", `${round(w.totalLifeMs / 1000, 2)}s`, d.attached ? "rides your car" : "stamped in place"]);
-  // `d.pellets` does not exist on a maneuver row, so it is excluded here alongside beams rather
-  // than merely relying on `d.pellets?.` to fail quietly.
-  if (!w.beam && !w.maneuver && d.volley.volleys * d.pellets.pelletsPerVolley > 1)
-    rows.push(["Volley", `${d.volley.volleys} × ${d.pellets.pelletsPerVolley}`, `${d.volley.volleyIntervalMs}ms apart · ${d.pellets.spreadAngleDeg}° fan`]);
-  // A beam sequence has no pellets to fan, so it gets its own row rather than sharing the one
-  // above: three waves is the whole shape of the press and the page must say so.
-  if (w.beam && w.waves > 1)
-    rows.push(["Waves", `${w.waves}`, `${d.volley.volleyIntervalMs}ms apart · ${round(w.burstSpanMs / 1000, 2)}s to land them all`]);
-  // `d.pierce` likewise does not exist on a maneuver row.
-  if (!w.beam && !w.maneuver && d.pierce > 0) rows.push(["Pierce", `${d.pierce + 1} cars`, "keeps going after the first"]);
-  // The dump window is counted in TICKS, not in authored milliseconds: `refireDelayMs: 110` rounds
-  // up to 4 ticks (133ms), so two gaps are 267ms rather than the 220ms the raw field multiplies to.
-  // The player waits whole ticks, so the page must print whole ticks.
-  if (d.stock)
-    rows.push([
-      "Salvo",
-      `${d.stock.max} × ${w.perHit} = ${d.stock.max * w.perHit}`,
-      `dumped in ${round(((d.stock.max - 1) * w.ticks.refireDelay * 1000) / TICK_RATE_HZ / 1000, 2)}s`,
-    ]);
-  if (d.startUpMs > 0) rows.push(["Wind-up", `${d.startUpMs}ms`, `${w.ticks.startUp} ticks — you are visible`]);
-  rows.push(["Recovery", d.recoveryMs > 0 ? `${d.recoveryMs}ms` : "none", d.recoveryMs > 0 ? "other slots locked" : "gates nothing else"]);
-  rows.push(["Lock-on", d.usesAimAssist ? "Yes" : "No", d.usesAimAssist ? `assists inside ${AIM_CONFIG.lockRange} units` : "fires down your nose"]);
-  // What a weapon DOES to you beyond the damage number is the thing a player most needs the guide
-  // for: nothing on screen says "this one stuns", and the badge only appears once it is too late.
-  for (const a of d.applies ?? []) {
-    const def = statusDefOf(a.statusId);
-    // `onWave: "final"` is a real rule a player has to plan around when a weapon has it — the old
-    // three-wave shockwave's debuff only landed if the target was still in the ring for the LAST
-    // wave — so it goes on the page rather than staying a table detail. Dormant today: no shipped
-    // row authors `onWave` at all, since none has `volleys > 1` (see `derive()`'s own note on that).
-    const wave = a.onWave === "final" && w.waves > 1 ? ` · last wave only` : "";
-    rows.push([
-      a.target === "self" ? "Grants you" : "Inflicts",
-      def.name,
-      `${round(a.durationMs / 1000, 2)}s · ${statusBlurb(def)}${wave}`,
-    ]);
+  if (w.maneuver) return d.maneuver.type === "dash" ? "Dash" : "Charge";
+
+  const muzzles = (d.muzzles ?? [0]).length;
+  const waveNote =
+    w.waves > 1 ? `, ${w.waves} waves ${d.volley.volleyIntervalMs}ms apart` : "";
+
+  if (w.beam) {
+    const h = d.hitbox;
+    const core =
+      h.shape === "cone"
+        ? `Cone, ${h.angleDeg}° arc`
+        : h.shape === "rect"
+          ? `Beam, ${h.width} wide`
+          : `Field, ${d.range} radius`;
+    return `${core}${muzzles > 1 ? ` × ${muzzles} muzzles` : ""}${waveNote}`;
   }
 
+  const noun = PROJECTILE_NOUN[d.hitbox.shape] ?? "shot";
+  const perFan = d.pellets.pelletsPerVolley;
+  if (perFan === 1 && muzzles === 1) return `Single ${noun}, ${hitboxSize(d)}${waveNote}`;
+
+  const fan =
+    perFan > 1 ? `${perFan}-${noun} fan, ${d.pellets.spreadAngleDeg}° spread` : `one ${noun}`;
+  const emitted = muzzles * perFan * w.waves;
+  return (
+    `${muzzles > 1 ? `${muzzles} muzzles × ` : ""}${fan}${waveNote} — ` +
+    `${emitted} out, ${w.hitsPerTarget} can hit one car`
+  );
+}
+
+/**
+ * The damage cell: what one hit costs, then what the whole press costs if all of it connects.
+ *
+ * At the CARRIER's damage, not the table's base — the page prints a weapon underneath the chassis
+ * that fires it, so the number beside it should be the number that chassis deals. A blast is priced
+ * through `damageFor` rather than `weaponDamageOf`, which reads the weapon row's own damage (the
+ * shell's, not the burst's) and would credit magmablast's field with the shell's 50.
+ */
+function damageText(w) {
+  const unit = w.beam ? "per tick" : w.hitsPerTarget > 1 ? "per pellet" : "";
+  // "direct" only earns its place when a second damage number follows it.
+  const lead = unit || (w.def.explosion ? "direct" : "");
+  const parts = [lead ? `${w.perHit} ${lead}` : `${w.perHit}`];
+  if (w.hitsPerTarget > 1) {
+    parts.push(
+      w.beam
+        ? `${w.liveBurst} over ${w.hitsPerTarget} ticks`
+        : `${w.liveBurst} if all ${w.hitsPerTarget} land`,
+    );
+  }
+  if (w.def.explosion) parts.push(`${damageFor(w.car.attack, w.def.explosion.damage)} blast`);
+  return parts.join(" · ");
+}
+
+/** Everything the seven required rows do not cover, as short chips. Empty means none apply. */
+function propertiesOf(w) {
+  const d = w.def;
+  const out = [];
+  if (d.usesAimAssist) out.push(d.aimRangeUnits ? `Lock-on within ${d.aimRangeUnits}` : "Lock-on");
+  if (d.homing) {
+    out.push(
+      d.homing.acquire === "proximity"
+        ? `Homes on anything within ${d.homing.acquireRadius} of the shot`
+        : "Homes on your lock",
+    );
+  }
+  if (d.explosion) {
+    out.push(
+      `Explodes where it dies — ${d.explosion.radius} radius, ${secs(d.explosion.lingerMs)} field` +
+        (d.explosion.damageMode === "perEntry" ? ", hits again if you re-enter" : ""),
+    );
+  }
+  if (d.bounces) out.push("Bounces off walls");
+  if (d.piercesWalls) out.push("Flies through walls");
+  // `pierce` counts the cars passed through AFTER the first, so the total caught is one more.
+  if (d.pierce > 0) out.push(`Pierces ${d.pierce + 1} cars`);
+  if (d.stock) out.push(`${d.stock.max} banked, ${d.stock.refireDelayMs}ms apart`);
+  if (d.holdsDuringFire) out.push("Holds you in place — steering still works");
+  if (w.beam && d.attached) out.push("Rides your car and dies with you");
+  if (w.beam && !d.attached) out.push("Stamped in place where it spawns");
+  if (d.isUnInterruptable) out.push("A stun cannot cancel it");
+  if (d.impulse) out.push(`Knocks back at ${d.impulse.speed} u/s`);
+  if (w.maneuver && d.maneuver.type === "charge") {
+    out.push(`Armed for ${secs(d.maneuver.durationMs)} or until it lands`);
+    if (d.maneuver.slamsStunned) out.push("Slams a stunned car too");
+  }
+  return out;
+}
+
+/** The effect chips, each a link into the Effects section. */
+function effectChips(w) {
+  const chips = [];
+  const push = (statusId, durationMs, note) => {
+    const def = statusDefOf(statusId);
+    chips.push(
+      `<a class="fx fx-${def.kind}" href="#${effectAnchor(statusId)}">${esc(def.name)} ` +
+        `<b>${secs(durationMs)}</b>${note ? `<i>${esc(note)}</i>` : ""}</a>`,
+    );
+  };
+  for (const a of w.def.applies ?? []) {
+    // `onWave: "final"` is a real rule a player has to plan around, so it goes on the page rather
+    // than staying a table detail. Dormant today: no shipped row authors `onWave` at all, since
+    // none has `volleys > 1`.
+    const wave = a.onWave === "final" && w.waves > 1 ? "last wave only" : "";
+    push(a.statusId, a.durationMs, [a.target === "self" ? "on you" : "", wave].filter(Boolean).join(", "));
+  }
+  for (const a of w.def.explosion?.applies ?? []) push(a.statusId, a.durationMs, "from the blast");
+  if (w.def.impulse?.wallStun) {
+    push("stunned", w.def.impulse.wallStun.durationMs, "slammed into a wall");
+  }
+  return chips.join("");
+}
+
+/**
+ * The stat rows for one weapon, in the order the page reads them, with every row that does not
+ * apply LEFT OUT rather than printed as a dash.
+ *
+ * "Not applicable" is a real state here and there are six of them: a charge has no range (speed and
+ * range are both 0 — it dashes nowhere), six of the nine rows have no wind-up, three have no
+ * recovery, four have no lifetime clock at all, three inflict nothing, and a plain shot has no extra
+ * properties. A table of dashes would be longer and say less.
+ */
+function statRows(w) {
+  const d = w.def;
+  const rows = [
+    ["Shot type", esc(shotType(w))],
+    ["Damage", esc(damageText(w))],
+    ["Cooldown", esc(secs(d.cooldownMs))],
+  ];
+  if (d.range > 0) {
+    // A dash's `range` is how far the CAR travels, not how far a shot does — the same field
+    // meaning a different thing, and a reader who takes it for a shot's reach has misread the
+    // weapon entirely.
+    const what = w.maneuver ? "how far you lunge" : `${round((d.range / ARENA_WIDTH) * 100)}% of the arena`;
+    rows.push(["Range", `${d.range} <span class="sub">${what}</span>`]);
+  }
+  if (w.totalLifeMs > 0) {
+    rows.push([
+      "Lifetime",
+      `${esc(secs(w.totalLifeMs))}${w.beam ? ` <span class="sub">grows for ${round(w.extendMs)}ms, then lingers</span>` : ""}`,
+    ]);
+  }
+  if (d.startUpMs > 0) {
+    rows.push(["Windup", `${d.startUpMs}ms <span class="sub">${w.ticks.startUp} ticks, and you are visible</span>`]);
+  }
+  if (d.recoveryMs > 0) {
+    rows.push(["Recovery", `${d.recoveryMs}ms <span class="sub">your other slots are locked</span>`]);
+  }
+  const chips = effectChips(w);
+  if (chips) rows.push(["Effect", `<div class="fxrow">${chips}</div>`]);
+  const props = propertiesOf(w);
+  if (props.length > 0) {
+    rows.push(["Properties", `<ul class="props">${props.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>`]);
+  }
   return rows
-    .map(
-      ([k, v, n]) =>
-        `<div class="spec"><dt>${esc(k.replace("${car}", w.car.name))}</dt><dd>${esc(v)}<span>${esc(n)}</span></dd></div>`,
-    )
+    .map(([k, v]) => `<div class="row"><dt>${esc(k)}</dt><dd>${v}</dd></div>`)
     .join("");
 }
 
-function weaponPage(w, index) {
-  const copy = WEAPON_COPY[w.id];
-  const acc = lift(w.def.color);
-  const barHtml = bars(w)
-    .map(
-      ([label, pct, note]) =>
-        `<li><span class="bl">${label}</span><span class="bt"><i style="width:${Math.max(2, round(pct, 1))}%"></i></span><span class="bn">${esc(note)}</span></li>`,
-    )
-    .join("");
-  return page(
-    "weapon",
-    `<div class="wpn" style="--acc:${acc};--raw:${w.def.color}">
-       <header class="phead"><span class="pnum">${String(index + 1).padStart(2, "0")} / ${String(WEAPONS.length).padStart(2, "0")}</span>
-         <span class="owner">${esc(w.car.name)} · ${esc(SLOT_LABEL[w.slot])}</span></header>
-       <div class="hero">
-         ${iconMarkup(w)}
-         <div>
-           <h1>${esc(w.def.name)}</h1>
-           <p class="shape">${esc(copy.shape)}</p>
-           <p class="tagline">${esc(copy.tagline)}</p>
-         </div>
-       </div>
-       <ul class="bars">${barHtml}</ul>
-       <div class="wbody">
-         <div class="prose">
-           <p>${esc(copy.what)}</p>
-           <p>${esc(copy.how)}</p>
-           <div class="tip"><b>Used properly</b><p>${esc(copy.tip)}</p></div>
-         </div>
-         <dl class="specs">${specRows(w)}</dl>
-       </div>
-       <footer class="wfoot">
-         <span class="swatch" style="background:${w.def.color}"></span>
-         Incoming ${esc(w.def.name)} draws in this colour — <code>${w.def.color}</code>. Every car firing it fires the same shade.
-       </footer>
-     </div>`,
-  );
+// ---------------------------------------------------------------------------- page sections
+
+function weaponCard(w) {
+  return `<article class="weapon" style="--acc:${lift(w.def.color)}">
+    <header>
+      ${iconMarkup(w)}
+      <div>
+        <h4>${esc(w.def.name)}</h4>
+        <span class="slot">${esc(SLOT_LABEL[w.slot])}</span>
+      </div>
+    </header>
+    <p class="line">${esc(WEAPON_COPY[w.id].line)}</p>
+    <dl class="stats">${statRows(w)}</dl>
+  </article>`;
 }
 
-function compare() {
-  const rows = WEAPONS.map(
-    (w) => `<tr>
-      <td class="nm"><span class="dot" style="background:${w.def.color}"></span>${esc(w.def.name)}</td>
-      <td>${esc(w.car.name)}</td>
-      <td>${w.slot + 1}</td>
-      <td>${kindLabel(w.def)}</td>
-      <td class="n">${w.def.damage}${w.hitsPerTarget > 1 ? `×${w.hitsPerTarget}` : ""}</td>
-      <td class="n">${w.baseBurst}</td>
-      <td class="n">${round(w.pctOfAverageCar)}%</td>
-      <td class="n">${round(w.def.cooldownMs / 1000, 2)}s</td>
-      <td class="n">${reachText(w.def.range)}</td>
-      <td class="n">${round(w.sustainedDps)}</td>
-      <td>${w.def.usesAimAssist ? "Yes" : "—"}</td>
-    </tr>`,
-  ).join("");
-  return page(
-    "compare",
-    `<header class="phead"><span class="pnum">At a glance</span><h2>All nine, side by side</h2></header>
-     <table class="grid">
-       <thead><tr>
-         <th>Weapon</th><th>Chassis</th><th>Slot</th><th>Type</th><th>Damage</th>
-         <th>Full connect</th><th>% of a car</th><th>Recharge</th><th>Reach</th><th>DPS</th><th>Lock</th>
-       </tr></thead>
-       <tbody>${rows}</tbody>
-     </table>
-     <p class="note">“Full connect” is everything one press can land on a single car. “% of a car” is
-       that figure against an average ${AVERAGE_HP} HP hull, before your chassis's attack scale. “DPS”
-       assumes every press connects in full and counts wind-up, burst and recharge.</p>
-     <h3 class="sub">Damage per press, ranked</h3>
-     <ul class="rank">${[...WEAPONS]
-       .sort((a, b) => b.baseBurst - a.baseBurst)
-       .map(
-         (w) => `<li>
-           <span class="rn">${esc(w.def.name)}</span>
-           <span class="rt"><i style="width:${round((w.baseBurst / MAX.power) * 100, 1)}%;background:${lift(w.def.color, 0.2)}"></i></span>
-           <span class="rv">${w.baseBurst}</span>
-           <span class="rp">${round(w.pctOfAverageCar)}% of a car</span>
-         </li>`,
-       )
-       .join("")}</ul>
-     <p class="note">Full connect, before any chassis's attack scale. The top three bars are the
-       three ultimates — and also the three longest waits.</p>
-     <div class="palette">
-       <h3>Read the colour, know the shot</h3>
-       <div class="swatches">${CAR_IDS.map(
-         (carId) => `<div><b>${esc(CAR_TABLE[carId].name)}</b>${slotsOf(carId)
-           .map(
-             (id) =>
-               `<span><i style="background:${WEAPON_TABLE[id].color}"></i>${esc(WEAPON_TABLE[id].name)} <code>${WEAPON_TABLE[id].color}</code></span>`,
-           )
-           .join("")}</div>`,
-       ).join("")}</div>
-       <p class="note">Shot colour is per weapon, never per player — the car wearing your enemy's
-         colour is the thing on screen. Colour answers <i>who is shooting</i>; shape answers
-         <i>what is coming</i>.</p>
-     </div>`,
-  );
+/**
+ * One chassis: its seven ratings, then its three weapons.
+ *
+ * Each rating prints the 0-100 value AND what it buys, because neither says enough alone — "Speed
+ * 85" is meaningless without u/s, and "189 u/s" hides the comparison the bar makes obvious.
+ * Handling prints turn RADIUS beside the rate for the same reason: the rate is what the rating sets,
+ * the radius is what a corner costs.
+ */
+function carSection(carId) {
+  const car = CAR_TABLE[carId];
+  const ratings = [
+    ["Speed", car.speed, `${round(forwardMaxSpeedOf(carId))} u/s top`],
+    ["Acceleration", car.accel, `${round(accelOf(carId))} u/s² · ${round(forwardMaxSpeedOf(carId) / accelOf(carId), 2)}s to top`],
+    ["Handling", car.handling, `${round(turnRateOf(carId), 2)} rad/s · ${round(forwardMaxSpeedOf(carId) / turnRateOf(carId))}u turn radius`],
+    ["Attack", car.attack, `${round(1 + (car.attack - COMBAT_CONFIG.attackBaseline) * COMBAT_CONFIG.damagePerAttack, 2)}× weapon damage`],
+    ["HP", car.hp, `${hpOf(carId)} hull`],
+    ["Ram power", car.ramAttack, "how hard it shoves"],
+    ["Ram resistance", car.ramDefence, "how hard it is to shove"],
+  ];
+  return `<section class="car" id="car-${carId}">
+    <header class="carhead">
+      <img src="${carUrl(carId)}" alt="">
+      <div>
+        <h3>${esc(car.name)}</h3>
+        <p>${esc(CHASSIS_COPY[carId].line)}</p>
+      </div>
+    </header>
+    <ul class="ratings">${ratings
+      .map(
+        ([label, value, note]) =>
+          `<li><span class="bl">${esc(label)}</span><span class="bt"><i style="width:${value}%"></i></span><span class="bv">${value}</span><span class="bn">${esc(note)}</span></li>`,
+      )
+      .join("")}</ul>
+    <div class="weapons">${slotsOf(carId).map((id) => weaponCard(byId[id])).join("")}</div>
+  </section>`;
 }
 
-function ceilings() {
-  const wreck = WEAPONS.map(
-    (w) => `<tr>
-      <td class="nm"><span class="dot" style="background:${w.def.color}"></span>${esc(w.def.name)}</td>
-      ${CAR_IDS.map((id) => `<td class="n">${Math.ceil(hpOf(id) / w.liveBurst)}</td>`).join("")}
-      <td class="n">${w.liveBurst}</td>
-      <td>${esc(w.car.name)}</td>
-    </tr>`,
-  ).join("");
-  const cost = WEAPONS.map(
-    (w) => `<tr>
-      <td class="nm"><span class="dot" style="background:${w.def.color}"></span>${esc(w.def.name)}</td>
-      <td class="n">${w.def.startUpMs > 0 ? `${w.def.startUpMs}ms` : "—"}</td>
-      <td class="n">${w.burstSpanMs > 0 ? `${w.burstSpanMs}ms` : "—"}</td>
-      <td class="n">${w.def.recoveryMs > 0 ? `${w.def.recoveryMs}ms` : "—"}</td>
-      <td class="n">${round(w.def.cooldownMs / 1000, 2)}s</td>
-      <td class="n">${round(w.cycleMs / 1000, 2)}s</td>
-      <td>${w.def.stock ? `${w.def.stock.max} banked · ${w.def.stock.refireDelayMs}ms apart` : "—"}</td>
-    </tr>`,
-  ).join("");
-  return page(
-    "ceilings",
-    `<header class="phead"><span class="pnum">At a glance</span><h2>Ceilings and costs</h2></header>
-     <h3 class="sub">Presses to wreck</h3>
-     <table class="grid tight">
-       <thead><tr><th>Weapon</th>${CAR_IDS.map(
-         (id) => `<th class="n">vs ${esc(CAR_TABLE[id].name)}<span>${hpOf(id)} HP</span></th>`,
-       ).join("")}<th class="n">Per press</th><th>Firing from</th></tr></thead>
-       <tbody>${wreck}</tbody>
-     </table>
-     <p class="note">Presses needed if every one of them connects in full, at the damage its own
-       chassis actually deals. A real fight is never this tidy — treat these as the ceiling, not the plan.</p>
-     <h3 class="sub">What a press costs you</h3>
-     <table class="grid tight">
-       <thead><tr>
-         <th>Weapon</th><th class="n">Wind-up</th><th class="n">Burst</th><th class="n">Recovery</th>
-         <th class="n">Recharge</th><th class="n">Full cycle</th><th>Stock</th>
-       </tr></thead>
-       <tbody>${cost}</tbody>
-     </table>
-     <p class="note">Wind-up is before the shot, recovery locks your <i>other</i> slots, and the
-       recharge only starts at the press's last shot — which is why the full cycle is the honest number.</p>`,
-  );
+/** Every effect a player can be put in: what it does, how long, and what puts you there. */
+function effectsSection() {
+  const rows = PUBLISHED_EFFECTS.map((statusId) => {
+    const def = statusDefOf(statusId);
+    const applied = (EFFECT_SOURCE_MAP.get(statusId) ?? []).map(
+      (s) =>
+        `${esc(WEAPON_TABLE[s.weaponId].name)} ${secs(s.durationMs)}${s.note ? ` (${esc(s.note)})` : ""}`,
+    );
+    if (EFFECT_SOURCES[statusId]) applied.push(esc(EFFECT_SOURCES[statusId]));
+    return `<article class="effect" id="${effectAnchor(statusId)}" style="--acc:${lift(def.color)}">
+      <h4>${esc(def.name)} <span class="kind">${esc(def.kind)}</span></h4>
+      <p class="does">${esc(statusBlurb(def))}</p>
+      <p class="from"><span>From</span> ${applied.join(" · ")}</p>
+    </article>`;
+  }).join("");
+  return `<section class="effects" id="effects">
+    <h2>Effects</h2>
+    <p class="secnote">A car is never in the same effect twice — a second application refreshes the
+      clock rather than stacking. Durations are set by whatever applied it, not by the effect.</p>
+    <div class="effectgrid">${rows}</div>
+  </section>`;
 }
 
 // ---------------------------------------------------------------------------- document
@@ -826,184 +696,147 @@ function css(fonts) {
   return `${fonts}
 :root {
   --ink: #E8EDF4; --dim: #97A3B4; --faint: #66707E;
-  --bg: #0D1016; --panel: #151A22; --line: #262E3A;
+  --bg: #0D1016; --panel: #151A22; --panel2: #1B212B; --line: #262E3A;
   --display: "Oswald", "Liberation Sans Narrow", "DejaVu Sans", sans-serif;
-  --body: "Barlow", "Liberation Sans", "DejaVu Sans", sans-serif;
+  --text: "Barlow", "DejaVu Sans", system-ui, sans-serif;
 }
-* { box-sizing: border-box; margin: 0; padding: 0; }
-@page { size: A4; margin: 0; }
-html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-body { font-family: var(--body); color: var(--ink); background: var(--bg); font-size: 10pt; line-height: 1.5; }
-.page { width: 210mm; height: 297mm; padding: 15mm 16mm; position: relative; overflow: hidden;
-        page-break-after: always; background: var(--bg); display: flex; flex-direction: column; }
-.page:last-child { page-break-after: auto; }
-.chassis { justify-content: space-between; }
-h1, h2, h3, .kicker, .pnum, .owner, .bl, th { font-family: var(--display); font-weight: 700;
-        text-transform: uppercase; letter-spacing: .06em; }
-code { font-family: "DejaVu Sans Mono", monospace; font-size: .85em; color: var(--dim); }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--text); font-size: 15px; line-height: 1.45;
+  -webkit-text-size-adjust: 100%;
+}
+h1, h2, h3, h4 { font-family: var(--display); margin: 0; letter-spacing: .02em; }
+a { color: inherit; }
 
-/* ---- shared page header ---- */
-.phead { display: flex; align-items: baseline; justify-content: space-between; gap: 6mm;
-         border-bottom: 1.5pt solid var(--line); padding-bottom: 2.5mm; margin-bottom: 7mm; }
-.phead h2 { font-size: 17pt; letter-spacing: .04em; }
-.phead h2 em { color: var(--faint); font-style: normal; font-weight: 500; }
-.pnum, .owner { font-size: 8.5pt; color: var(--faint); letter-spacing: .18em; font-weight: 500; }
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 10px 20px; background: #0A0D12; border-bottom: 1px solid var(--line);
+}
+.topbar b { font-family: var(--display); font-size: 17px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.topbar b span { color: var(--faint); font-weight: 500; margin-left: 8px; }
+.topbar nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.topbar a, .topbar button {
+  font: inherit; font-size: 13px; color: var(--dim); text-decoration: none;
+  background: var(--panel2); border: 1px solid var(--line); border-radius: 4px;
+  padding: 5px 10px; cursor: pointer;
+}
+.topbar a:hover, .topbar button:hover { color: var(--ink); border-color: #3A465A; }
 
-/* ---- cover ---- */
-.cover { justify-content: flex-start; padding-top: 26mm; }
-.cover-rule { height: 3pt; width: 34mm; background: #E8590C; margin-bottom: 8mm; }
-.cover .kicker { font-size: 9pt; color: var(--faint); letter-spacing: .3em; margin-bottom: 5mm; }
-.cover h1 { font-size: 54pt; line-height: .95; letter-spacing: .01em; }
-.cover h2 { font-size: 22pt; color: var(--dim); font-weight: 500; letter-spacing: .3em; margin-top: 2mm; }
-.cover .blurb { font-size: 12pt; color: var(--dim); max-width: 118mm; margin-top: 9mm; line-height: 1.6; }
-.cover-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7mm 6mm; margin-top: auto; margin-bottom: 8mm; }
-.cover-grid figure { background: var(--panel); border: 1pt solid var(--line); border-radius: 2mm;
-        padding: 5mm 3mm 3.5mm; text-align: center; }
-.cover-grid img, .cover-grid .icon-fallback { width: 18mm; height: 18mm; }
-.cover-grid figcaption { font-family: var(--display); font-size: 9.5pt; text-transform: uppercase;
-        letter-spacing: .1em; margin-top: 2.5mm; }
-.cover-foot { font-size: 8.5pt; color: var(--faint); border-top: 1pt solid var(--line); padding-top: 3mm; }
+.jump {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  max-width: 1180px; margin: 0 auto; padding: 18px 20px 0;
+}
+.jump a {
+  font-family: var(--display); font-size: 13px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--dim); text-decoration: none;
+  border: 1px solid var(--line); border-radius: 999px; padding: 4px 14px;
+}
+.jump a:hover { color: var(--ink); border-color: #3A465A; }
 
-/* ---- legend ---- */
-.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10mm; }
-.two-col h3 { font-size: 11pt; color: #E8590C; letter-spacing: .12em; margin-bottom: 3mm; }
-.two-col h3 + * { margin-bottom: 8mm; }
-.defs dt { font-family: var(--display); font-size: 10pt; text-transform: uppercase; letter-spacing: .08em; margin-top: 3.5mm; }
-.defs dd { color: var(--dim); font-size: 9.5pt; }
-.roles { list-style: none; }
-.roles li { border-left: 2pt solid var(--line); padding: 1mm 0 1mm 4mm; margin-bottom: 3mm; }
-.roles b { font-family: var(--display); text-transform: uppercase; letter-spacing: .08em; display: block; font-size: 10pt; }
-.roles span { color: var(--dim); font-size: 9.5pt; }
-.callout { background: var(--panel); border-left: 2.5pt solid #E8590C; padding: 4mm 5mm;
-        font-size: 9.5pt; color: var(--dim); margin-top: 4mm; }
-.callout b { color: var(--ink); }
+main { max-width: 1180px; margin: 0 auto; padding: 8px 20px 80px; }
+main > section > h2 {
+  font-size: 28px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  margin: 40px 0 6px; padding-bottom: 8px; border-bottom: 2px solid var(--line);
+}
+.secnote { color: var(--faint); font-size: 13px; margin: 0 0 20px; max-width: 70ch; }
 
-/* ---- chassis ---- */
-.chassis-hero { display: grid; grid-template-columns: 46mm 1fr; gap: 8mm; align-items: center; margin-bottom: 8mm; }
-.carshot { width: 46mm; filter: brightness(1.25) contrast(1.05); }
-.theme { font-family: var(--display); font-size: 14pt; letter-spacing: .04em; color: #E8590C; margin-bottom: 3mm; }
-.body { color: var(--dim); font-size: 10.5pt; }
-.ratings { list-style: none; margin-bottom: 7mm; }
-.ratings li, .bars li { display: grid; grid-template-columns: 24mm 1fr 10mm auto; align-items: center;
-        gap: 3mm; padding: 1.6mm 0; border-bottom: 1pt solid var(--line); }
-.bl { font-size: 8.5pt; color: var(--dim); letter-spacing: .14em; font-weight: 500; }
-.bt { height: 3.4mm; background: #1D2430; border-radius: 1pt; overflow: hidden; }
-.bt i { display: block; height: 100%; background: var(--acc, #E8590C); }
-.bv { font-family: var(--display); font-size: 11pt; text-align: right; }
-.bn { font-size: 8.5pt; color: var(--faint); text-align: right; min-width: 40mm; }
-.matchup { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; margin-bottom: 8mm; }
-.matchup p { background: var(--panel); padding: 4mm; font-size: 9.5pt; color: var(--dim); border-radius: 1.5mm; }
-.matchup b { display: block; font-family: var(--display); text-transform: uppercase; letter-spacing: .12em;
-        font-size: 9pt; color: var(--ink); margin-bottom: 1mm; }
-.kit-head { font-size: 11pt; color: var(--faint); letter-spacing: .18em; margin-bottom: 3mm; }
-.kit-head em { font-style: normal; font-weight: 500; letter-spacing: .1em; text-transform: none; }
-.kit { list-style: none; display: grid; gap: 4mm; }
-.kit li { display: grid; grid-template-columns: 16mm 1fr 62mm; align-items: center; gap: 5mm;
-        background: var(--panel); border-left: 2.5pt solid var(--acc); padding: 4.5mm 5mm; border-radius: 0 1.5mm 1.5mm 0; }
-.kstats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2mm; text-align: right; }
-.kstats dt { font-family: var(--display); font-size: 7pt; text-transform: uppercase;
-        letter-spacing: .1em; color: var(--faint); }
-.kstats dd { font-family: var(--display); font-size: 12pt; color: var(--ink); }
-.kit img, .kit .icon-fallback { width: 14mm; height: 14mm; }
-.kit b { font-family: var(--display); font-size: 13pt; text-transform: uppercase; letter-spacing: .06em;
-        color: var(--acc); display: block; }
-.kit span { font-size: 8.5pt; color: var(--faint); letter-spacing: .1em; text-transform: uppercase; }
-.kit p { font-size: 10pt; color: var(--dim); font-style: italic; }
+/* ---- a chassis ---- */
+.car { margin: 28px 0 0; padding-top: 22px; border-top: 1px solid var(--line); }
+.car:first-of-type { border-top: 0; }
+.carhead { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; }
+.carhead img { width: 132px; height: auto; flex: 0 0 auto; }
+.carhead h3 { font-size: 30px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.carhead p { margin: 4px 0 0; color: var(--dim); max-width: 62ch; }
 
-/* ---- weapon ---- */
-.wpn { display: flex; flex-direction: column; height: 100%; }
-.hero { display: grid; grid-template-columns: 30mm 1fr; gap: 7mm; align-items: center; margin-bottom: 6mm; }
-.hero img, .hero .icon-fallback { width: 30mm; height: 30mm; }
-.icon-fallback { border-radius: 1.5mm; border: 1pt solid var(--line); }
-.hero h1 { font-size: 34pt; line-height: 1; color: var(--acc); letter-spacing: .02em; }
-.shape { font-size: 8.5pt; color: var(--faint); letter-spacing: .16em; text-transform: uppercase; margin-top: 2mm; }
-.tagline { font-size: 13pt; color: var(--dim); font-style: italic; margin-top: 3mm; }
-.bars { list-style: none; margin-bottom: 6mm; }
-.bars li { grid-template-columns: 24mm 1fr auto; }
-.wbody { display: grid; grid-template-columns: 1fr 68mm; gap: 8mm; flex: 1; }
-.prose p { font-size: 10.5pt; color: var(--dim); margin-bottom: 4mm; }
-.tip { background: var(--panel); border-left: 2.5pt solid var(--acc); padding: 4.5mm 5mm; margin-top: 2mm; }
-.tip b { font-family: var(--display); text-transform: uppercase; letter-spacing: .14em; font-size: 9pt;
-        color: var(--acc); display: block; margin-bottom: 1.5mm; }
-.tip p { margin: 0; font-size: 10pt; color: var(--ink); }
-.specs { background: var(--panel); border: 1pt solid var(--line); border-radius: 2mm; padding: 3.5mm 5mm; align-self: start; }
-.spec { display: grid; grid-template-columns: 25mm 1fr; gap: 2mm; padding: 1.6mm 0; border-bottom: 1pt solid var(--line); }
-.spec:last-child { border-bottom: 0; }
-.spec dt { font-family: var(--display); font-size: 8.5pt; text-transform: uppercase; letter-spacing: .1em;
-        color: var(--faint); padding-top: .6mm; }
-.spec dd { font-family: var(--display); font-size: 11pt; text-align: right; letter-spacing: .02em; white-space: nowrap; }
-.spec dd span { display: block; font-family: var(--body); font-size: 8pt; font-weight: 400; color: var(--faint);
-        text-transform: none; letter-spacing: 0; line-height: 1.35; white-space: normal; }
-.wfoot { margin-top: 6mm; padding-top: 3mm; border-top: 1pt solid var(--line); font-size: 8.5pt;
-        color: var(--faint); display: flex; align-items: center; gap: 3mm; }
-.swatch { width: 6mm; height: 6mm; border-radius: 1pt; display: inline-block; flex: none; }
+.ratings { list-style: none; margin: 0 0 20px; padding: 0; display: grid; gap: 5px; }
+.ratings li {
+  display: grid; grid-template-columns: 116px minmax(90px, 220px) 30px 1fr;
+  gap: 10px; align-items: center;
+}
+.bl { font-family: var(--display); font-size: 12px; letter-spacing: .09em; text-transform: uppercase; color: var(--dim); }
+.bt { height: 7px; background: var(--panel2); border-radius: 4px; overflow: hidden; }
+.bt i { display: block; height: 100%; background: linear-gradient(90deg, #4A6EA8, #7FA8E0); }
+.bv { font-family: var(--display); font-size: 14px; font-weight: 700; text-align: right; }
+.bn { font-size: 12.5px; color: var(--faint); }
 
-/* ---- counter triangle ---- */
-.triangle { margin-top: auto; border-top: 1pt solid var(--line); padding-top: 6mm; }
-.triangle h3 { font-size: 11pt; color: #E8590C; letter-spacing: .12em; margin-bottom: 4mm; }
-.tri { display: flex; align-items: center; gap: 4mm; }
-.tri > div { flex: 1; background: var(--panel); border: 1pt solid var(--line); border-radius: 2mm;
-        padding: 4mm 4mm 4.5mm; text-align: center; }
-.tri img { width: 26mm; filter: brightness(1.25); margin-bottom: 2mm; }
-.tri b { font-family: var(--display); font-size: 12pt; text-transform: uppercase; letter-spacing: .08em; display: block; }
-.tri span { font-size: 8.5pt; color: var(--faint); text-transform: uppercase; letter-spacing: .14em; }
-.tri p { font-size: 9pt; color: var(--dim); font-style: italic; margin-top: 2.5mm; }
-.arrow { color: #E8590C; font-size: 12pt; font-style: normal; flex: none; }
+/* ---- a weapon ---- */
+/* "start", not the grid default "stretch": a three-weapon row where one card carries twice the
+   rows of another would otherwise pad the short ones to match, which reads as missing content. */
+.weapons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: start; }
+.weapon {
+  background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--acc);
+  border-radius: 5px; padding: 14px 15px 16px;
+}
+.weapon header { display: flex; align-items: center; gap: 11px; }
+.weapon header img, .icon-fallback { width: 42px; height: 42px; flex: 0 0 auto; border-radius: 4px; }
+.weapon h4 { font-size: 19px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--acc); }
+.slot { font-family: var(--display); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+.line { margin: 10px 0 12px; font-size: 13.5px; color: var(--dim); }
 
-/* ---- compare ---- */
-.sub { font-family: var(--display); font-size: 11pt; color: #E8590C; letter-spacing: .12em;
-        text-transform: uppercase; margin: 6mm 0 3mm; }
-.grid th span { display: block; font-family: var(--body); font-size: 7.5pt; letter-spacing: 0;
-        text-transform: none; color: var(--faint); font-weight: 400; }
-.tight td { padding: 1.7mm 2mm; }
-.grid { width: 100%; border-collapse: collapse; font-size: 9pt; }
-.grid th { font-size: 8pt; color: var(--faint); letter-spacing: .1em; text-align: left;
-        border-bottom: 1.5pt solid var(--line); padding: 0 2mm 2mm; font-weight: 500; }
-.grid td { padding: 2.4mm 2mm; border-bottom: 1pt solid var(--line); color: var(--dim); }
-.grid .n { text-align: right; font-family: var(--display); font-size: 10pt; color: var(--ink); }
-.grid .nm { color: var(--ink); font-family: var(--display); text-transform: uppercase;
-        letter-spacing: .05em; font-size: 10pt; white-space: nowrap; }
-.dot { width: 2.6mm; height: 2.6mm; border-radius: 50%; display: inline-block; margin-right: 2mm; }
-.note { font-size: 8.5pt; color: var(--faint); margin-top: 4mm; }
-.rank { list-style: none; }
-.rank li { display: grid; grid-template-columns: 30mm 1fr 12mm 26mm; align-items: center; gap: 3mm;
-        padding: 0.9mm 0; }
-.rn { font-family: var(--display); font-size: 9.5pt; text-transform: uppercase; letter-spacing: .06em; }
-.rt { height: 3.2mm; background: #1D2430; border-radius: 1pt; overflow: hidden; }
-.rt i { display: block; height: 100%; }
-.rv { font-family: var(--display); font-size: 11pt; text-align: right; }
-.rp { font-size: 8.5pt; color: var(--faint); text-align: right; }
-.palette { margin-top: auto; border-top: 1pt solid var(--line); padding-top: 5mm; }
-.ceilings .sub:first-of-type { margin-top: 0; }
-.palette h3 { font-size: 11pt; color: #E8590C; letter-spacing: .12em; margin-bottom: 3.5mm; }
-.swatches { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5mm; }
-.swatches > div > b { font-family: var(--display); font-size: 9pt; text-transform: uppercase;
-        letter-spacing: .12em; color: var(--faint); display: block; margin-bottom: 2mm; }
-.swatches span { display: flex; align-items: center; gap: 2.5mm; font-size: 9pt; color: var(--dim); padding: .5mm 0; }
-.swatches i { width: 4mm; height: 4mm; border-radius: 1pt; flex: none; }
+.stats { margin: 0; }
+.row { display: grid; grid-template-columns: 92px 1fr; gap: 8px; padding: 5px 0; border-top: 1px solid var(--line); }
+.row dt { font-family: var(--display); font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); padding-top: 2px; }
+.row dd { margin: 0; font-size: 13.5px; }
+.row dd .sub { display: block; color: var(--faint); font-size: 12px; }
 
-/* ---- on a screen: the same pages, stacked as a scrolling document ---- */
-.topbar { display: none; }
-@media screen {
-  body { background: #07090D; padding-bottom: 12mm; }
-  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 6mm;
-        position: sticky; top: 0; z-index: 5; padding: 3.5mm 6mm;
-        background: rgba(13, 16, 22, .94); border-bottom: 1pt solid var(--line);
-        backdrop-filter: blur(6px); }
-  .topbar b { font-family: var(--display); font-size: 11pt; text-transform: uppercase;
-        letter-spacing: .14em; font-weight: 700; }
-  .topbar b span { color: var(--faint); font-weight: 500; }
-  .topbar nav { display: flex; gap: 3mm; }
-  .topbar a, .topbar button { font-family: var(--display); font-size: 9.5pt; text-transform: uppercase;
-        letter-spacing: .12em; color: var(--ink); text-decoration: none; cursor: pointer;
-        background: transparent; border: 1pt solid var(--line); border-radius: 1.5mm;
-        padding: 2mm 4mm; }
-  .topbar a:hover, .topbar button:hover { border-color: #E8590C; color: #E8590C; }
-  .page { margin: 6mm auto; box-shadow: 0 2mm 9mm rgba(0, 0, 0, .55); border-radius: 1.5mm; }
-  /* Pages are a fixed A4 wide, so a narrow window scales the whole document down rather than
-     scrolling sideways through it. */
-  @media (max-width: 880px) { body { zoom: .58; } }
-  @media (max-width: 520px) { body { zoom: .40; } }
+.fxrow { display: flex; flex-wrap: wrap; gap: 5px; }
+.fx {
+  display: inline-flex; align-items: baseline; gap: 5px; text-decoration: none;
+  font-size: 12.5px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--panel2);
+}
+.fx:hover { border-color: #4A5870; }
+.fx b { font-weight: 600; color: var(--dim); }
+.fx i { font-style: normal; color: var(--faint); font-size: 11.5px; }
+.fx-debuff { color: #FF9B7A; }
+.fx-buff { color: #8EC6FF; }
+
+.props { list-style: none; margin: 0; padding: 0; }
+.props li { font-size: 12.5px; color: var(--dim); padding-left: 13px; position: relative; }
+.props li::before { content: "▸"; position: absolute; left: 0; color: var(--faint); font-size: 10px; }
+
+/* ---- effects ---- */
+.effectgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; align-items: start; }
+.effect {
+  background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--acc);
+  border-radius: 5px; padding: 12px 15px 13px; scroll-margin-top: 70px;
+}
+.effect:target { border-color: var(--acc); background: var(--panel2); }
+.effect h4 { font-size: 18px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--acc); }
+.effect .kind { font-family: var(--text); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); margin-left: 6px; }
+.effect .does { margin: 5px 0 8px; font-size: 13.5px; }
+.effect .from { margin: 0; font-size: 12.5px; color: var(--faint); }
+.effect .from span { font-family: var(--display); letter-spacing: .08em; text-transform: uppercase; font-size: 11px; margin-right: 5px; }
+
+@media (max-width: 1000px) {
+  .weapons { grid-template-columns: 1fr; }
+  .effectgrid { grid-template-columns: 1fr; }
+}
+@media (max-width: 620px) {
+  /* The subtitle is the first thing to go: it wraps the title onto two lines and pushes the two
+     buttons into a stack, which costs a third of the first screen to a bar nobody reads twice. */
+  .topbar { padding: 8px 14px; }
+  .topbar b span { display: none; }
+  .topbar nav { flex-wrap: nowrap; }
+  .jump, main { padding-left: 14px; padding-right: 14px; }
+  .carhead { align-items: flex-start; }
+  .carhead img { width: 84px; }
+  .carhead h3 { font-size: 24px; }
+  .ratings li { grid-template-columns: 104px 1fr 28px; }
+  .bn { grid-column: 1 / -1; padding-left: 104px; margin-top: -3px; }
+  .row { grid-template-columns: 1fr; gap: 1px; }
+}
+
+@media print {
+  .topbar, .jump { display: none; }
+  body { background: #fff; color: #111; }
+  .weapon, .effect { background: #fff; border-color: #bbb; break-inside: avoid; }
+  .car { break-inside: avoid-page; }
+  .bl, .bn, .row dt, .props li, .effect .from { color: #555; }
+  .bt { background: #eee; }
 }
 `;
 }
@@ -1019,28 +852,30 @@ function topbar() {
   </div>`;
 }
 
-/** The whole book, as one self-contained page. */
+/** The two sections, as one self-contained page. */
 function buildDocument(fonts) {
-  // Chassis first, then ITS OWN three weapons, then the next chassis. The book reads as three
-  // self-contained kits rather than as a roster followed by a separate appendix of guns — which is
-  // also the order a player meets them in, since picking a car picks all three slots at once.
-  // `WEAPONS` is already built in chassis/slot order, so the "01 / 09" counters stay sequential.
-  const pages = [
-    cover(),
-    legend(),
-    ...CAR_IDS.flatMap((carId) => [
-      chassisPage(carId),
-      ...slotsOf(carId).map((id) => weaponPage(byId[id], WEAPONS.indexOf(byId[id]))),
-    ]),
-    compare(),
-    ceilings(),
-  ].join("\n");
+  const jump = [
+    ...CAR_IDS.map((carId) => `<a href="#car-${carId}">${esc(CAR_TABLE[carId].name)}</a>`),
+    `<a href="#effects">Effects</a>`,
+  ].join("");
+
+  const body = `<nav class="jump">${jump}</nav>
+<main>
+  <section id="cars">
+    <h2>Cars</h2>
+    <p class="secnote">Ratings are 0-100 and the figure beside each one is what it buys.
+      Weapon damage is what THAT chassis deals — its Attack rating is already in the number.
+      A row a weapon has no answer for is left out rather than printed empty.</p>
+    ${CAR_IDS.map(carSection).join("\n")}
+  </section>
+  ${effectsSection()}
+</main>`;
 
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="${STAMP_META_NAME}" content="${balanceStamp()}">
 <title>${esc(MANUAL_META.title)} — ${esc(MANUAL_META.subtitle)}</title>
-<style>${css(fonts)}</style></head><body>${topbar()}\n${pages}</body></html>`;
+<style>${css(fonts)}</style></head><body>${topbar()}\n${body}</body></html>`;
 }
 
 async function main() {
@@ -1048,8 +883,8 @@ async function main() {
   writeFileSync(OUT_WEB_HTML, buildDocument(await fontCss()));
   const kb = Math.round(statSync(OUT_WEB_HTML).size / 1024);
   console.log(
-    `[manual] ${WEAPONS.length} weapons, ${CAR_IDS.length} chassis, stamp ${balanceStamp()} -> ` +
-      `${OUT_WEB_HTML} (${kb} KB)`,
+    `[manual] ${WEAPONS.length} weapons, ${CAR_IDS.length} chassis, ` +
+      `${PUBLISHED_EFFECTS.length} effects, stamp ${balanceStamp()} -> ${OUT_WEB_HTML} (${kb} KB)`,
   );
 }
 
