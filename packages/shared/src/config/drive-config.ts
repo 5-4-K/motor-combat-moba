@@ -250,10 +250,23 @@ export const DRIVE_CONFIG = {
   /**
    * How fast sideways velocity bleeds off, 1/s. Unity's `DriveConfig.lateralGripStrength` (6.0).
    *
-   * Global rather than per-car (U10). The steady-state slip angle while holding full lock is
-   * `atan(turnRate / lateralGripRate)` at ANY speed, so this is the drift knob: lower drifts more,
-   * and 0 is a hockey puck. 3.0 gives ~35° at the sharpest turn on the roster — a real drift, looser
-   * than Unity's grippy 6.0.
+   * Global rather than per-car (U10). This is the drift knob: lower drifts more, and 0 is a hockey
+   * puck. **`atan(turnRate / lateralGripRate)` alone OVERSTATES the drift**, because drag also acts
+   * on the lateral component every tick (see `stepDrive`'s step 2) — it is extra sideways bleed
+   * grip shares the vector with, not a separate channel the slip angle can ignore. The honest
+   * continuous prediction is `atan(turnRate / (dragRate + lateralGripRate))`.
+   *
+   * Measured for Mirage (highest `handling` on the roster, 85) at the drive-model port's Task 6
+   * turn-rate anchors (`baseTurnRate` 0.667, `turnRatePerRating` 0.0169 — not yet landed as of this
+   * writing; `turnRateOf` today still reads 3.6/0.054) against `dragRateOf("mirage")` (1.2848,
+   * unaffected by Task 6) and this rate (3.0): the continuous formula above gives **26.1°**
+   * (`atan(2.1035 / 4.2848)`), and stepping the real chassis to its own steady state (full lock,
+   * 10s) lands the DISCRETE figure at **28.2°** — close to, not identical to, the continuous one,
+   * the same discretization gap `stepDrive`'s `commandFactorOf` exists to close for the forward
+   * axis; nothing does that for the lateral one, since grip has no forcing term to solve against.
+   * Both replace an earlier "~35°" claimed here against the wrong formula (`atan(turnRate /
+   * lateralGripRate)` alone, ignoring drag) and against today's un-retuned turn rate — re-measure
+   * again once Task 6 actually lands the anchors above.
    *
    * **This rate is the DRIVER's drift only.** How long an IMPOSED shove carries a victim is the
    * `grip` status multiplier on `reeling` (spec §5), because one number could not answer both

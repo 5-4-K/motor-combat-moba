@@ -62,9 +62,11 @@ export function stepDrive(
     : steer * chassis.turnRate * mods.turnRate * steerSenseOf(forward);
   const angle = body.angle + angVel * dt;
 
-  // 5. Integrate, semi-implicit: the command acts along the heading it was decided in, then the
-  //    position follows the resulting velocity.
-  forward += command * dt;
+  // 5. Integrate. Drag and the command are solved TOGETHER over this tick, not in sequence: `forward`
+  //    above is already `v * drag` (the decay half of the closed form for `dv/dt = a - k*v`), and
+  //    `commandFactorOf` supplies the matching forcing half, so the pair is exact rather than an
+  //    explicit-Euler add-on — see that function for why the difference matters.
+  forward += command * commandFactorOf(chassis, mods, dt, drag);
   if (mods.fullStop || atRest(forward, lateral, throttle)) {
     forward = 0;
     lateral = 0;
@@ -114,6 +116,32 @@ function engineCommandOf(
  */
 function dragFactorOf(chassis: ChassisDrive, mods: Readonly<Modifiers>): number {
   return mods.accel === 1 ? chassis.dragPerTick : Math.pow(chassis.dragPerTick, mods.accel);
+}
+
+/**
+ * The factor the engine command is multiplied by over one tick.
+ *
+ * Drag and the command are solved TOGETHER, not in sequence: `dv/dt = a - k*v` integrates over one
+ * tick to `v * exp(-k*dt) + (a/k) * (1 - exp(-k*dt))`, and this is that second term's coefficient.
+ * Adding `command * dt` instead would be explicit Euler, whose own fixed point is `a*dt/(1-decay)`
+ * — 1.7% above `engineAccel / dragRate` at 30 Hz and a DIFFERENT number at 60 Hz, which would cost
+ * both the asymptotic top speed and the tick-rate independence the whole model is built on (U7).
+ *
+ * `k` is the EFFECTIVE rate `dragRate * mods.accel` — the same effective rate `dragFactorOf` raises
+ * `dragPerTick` to via the power form, so the two halves agree on what "drag" means this tick.
+ *
+ * `k === 0` (an observation modifier can zero `accel`) is `0/0` in the closed form; its limit as
+ * `k -> 0` is exactly `dt`, which is also the physically right answer — no drag at all is plain
+ * Euler, `drag` is 1, and the two agree there too.
+ */
+function commandFactorOf(
+  chassis: ChassisDrive,
+  mods: Readonly<Modifiers>,
+  dt: number,
+  drag: number,
+): number {
+  const rate = chassis.dragRate * mods.accel;
+  return rate > 0 ? (1 - drag) / rate : dt;
 }
 
 /**
@@ -225,20 +253,16 @@ function stepHold(
 ): SimBody {
   const steer = mods.steeringLocked ? 0 : input.steer;
   // Only the rate symbol and the decay helper change here (there is no at-rest turn rate any
-  // more, and injected spin decays through `nextSpinOf` instead of the deleted `nextAngVel`) — the
-  // brief does not touch HOLD's lateral handling, so the flat `impactGripDecel` bleed below is
-  // `bleedLateral`'s own arithmetic, inlined because the shared helper is one of the functions
-  // this task deletes, not because HOLD's model changed.
+  // more, and injected spin decays through `nextSpinOf` instead of the deleted `nextAngVel`).
   const angle = body.angle + (steer * chassis.turnRate * mods.turnRate + body.angVel) * dt;
   const ticksLeft = body.maneuverTicksLeft - 1;
   const done = ticksLeft <= 0;
 
-  const priorLateral = lateralOf(body.vx, body.vy, body.angle);
-  const drop = DRIVE_CONFIG.impactGripDecel * dt;
-  const lateral =
-    priorLateral > 0 ? Math.max(0, priorLateral - drop)
-      : priorLateral < 0 ? Math.min(0, priorLateral + drop)
-        : 0;
+  // Lateral now bleeds through the same drag-then-grip model the ordinary branch uses, not the
+  // flat `impactGripDecel` rate `bleedLateral` used to apply here: `DRIVE_CONFIG.impactGripDecel`
+  // is on Task 6's deletion list, so leaving HOLD reading it would be a build break two tasks out,
+  // and one grip model for the whole car is the point of this port anyway.
+  const lateral = lateralOf(body.vx, body.vy, body.angle) * dragFactorOf(chassis, mods) * gripFactorOf(chassis, mods);
   const v = toWorld(angle, 0, lateral);
 
   return {

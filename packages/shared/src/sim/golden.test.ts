@@ -129,12 +129,18 @@ function expectPose(
   expect(lateralOf(actual.vx, actual.vy, actual.angle)).toBeCloseTo(lateral, 9);
 }
 
+// RE-DERIVED a second time within this same task, after the controller's ruling on the
+// asymptote/90%/slip contradiction reported against `drive-vector.test.ts`: `stepDrive`'s command
+// term went from explicit-Euler (`command * dt`) to the exact exponential-forcing integrator
+// (`command * commandFactorOf(...)`, drive.ts). Every case below that touches a command (throttle,
+// brake, or reverse) moved again as a result; "decays via drag from 300" did NOT move (coasting has
+// no command at all) and is the one case whose figure survives unchanged from the first derivation.
 describe("golden: stepDrive against the Unity drive-model port", () => {
   it("accelerates straight for 10 ticks", () => {
     // No lateral term at all here (steer 0), so forward alone is the story: it is well below
     // `maxSpeed` (200) after only 10 ticks — under this model wind-up is governed by `dragRate`
     // (1/s here), and 10 ticks is a third of one time constant (`1/dragRate` seconds = 30 ticks).
-    expectPose(drive(body(), input(0, 1), 10), 11.0954617463, 0, 0, 57.6438828396);
+    expectPose(drive(body(), input(0, 1), 10), 10.9125750899, 0, 0, 56.6937378852);
   });
 
   it("accelerates while turning right for 10 ticks", () => {
@@ -142,18 +148,18 @@ describe("golden: stepDrive against the Unity drive-model port", () => {
     // turns 0.667 rad over these 10 ticks (turnRate 2 * DT * 10) while its velocity is recomposed
     // at the OLD heading each tick (U-model drift), so it trails behind the new nose direction
     // instead of riding on rails the way the pre-port `steeringGrip: 1.0` model kept it.
-    expectPose(drive(body(), input(1, 1), 10), 10.3850177496, 3.0933484384, 0.6666666667, 54.9123963350, -11.3742715060);
+    expectPose(drive(body(), input(1, 1), 10), 10.2138413518, 3.0423607314, 0.6666666667, 54.0072745122, -11.1867892243);
   });
 
   it("turns left under throttle for 25 ticks", () => {
     // Same `input(-1, 1)` this case has always used. RENAMED from "...capped at top speed": there
     // is no cap any more, only the asymptote `engineAccel / dragRate` (200), and forward here
-    // (98.98) is still well short of it after 25 ticks under a full-lock turn — most of the
+    // (97.35) is still well short of it after 25 ticks under a full-lock turn — most of the
     // engine's push goes into rotating the drift rather than building straight-line speed.
     // `forward` stays positive throughout the run (tick-by-tick trace checked before recording
     // this), so `steerSenseOf` never flips: `angle` integrates at a constant `-turnRate * DT` per
     // tick the whole way, landing at exactly `-2 * DT * 25`.
-    expectPose(drive(body(), input(-1, 1), 25), 32.1265839228, -37.1307977206, -1.6666666667, 98.9831314874, 26.1739285049);
+    expectPose(drive(body(), input(-1, 1), 25), 31.5970409754, -36.5187702449, -1.6666666667, 97.3515910998, 25.7425032628);
   });
 
   it("decays via drag from 300 for 8 ticks", () => {
@@ -161,12 +167,13 @@ describe("golden: stepDrive against the Unity drive-model port", () => {
     // PROPORTIONAL `coastPerTick` decay): the Unity port removes the dedicated coast knob entirely
     // and replaces it with the always-on drag rate `dragPerTick` (U4) — the SAME mechanism that also
     // sets top speed and wind-up now. `300 * dragPerTick^8` (dragPerTick = exp(-1/30)) hand-checked
-    // against the figure below before recording it.
+    // against the figure below before recording it. UNCHANGED by the command-integrator ruling:
+    // throttle is 0 here, so `commandFactorOf` never enters the computation at all.
     expectPose(drive(bodyAt(0, 0, 0, 300), input(0, 0), 8), 69.0576420526, 0, 0, 229.7785015094);
   });
 
   it("brakes from 300 toward rest over 6 ticks", () => {
-    expectPose(drive(bodyAt(0, 0, 0, 300), input(0, -1), 6), 42.4297690836, 0, 0, 153.4656334653);
+    expectPose(drive(bodyAt(0, 0, 0, 300), input(0, -1), 6), 42.6119013483, 0, 0, 154.9846024624);
   });
 
   it("reverses from rest immediately, with no hold delay", () => {
@@ -174,16 +181,16 @@ describe("golden: stepDrive against the Unity drive-model port", () => {
     // is gone from `stepDrive`'s own logic — `engineCommandOf` reverses on the very first tick Down
     // is held, since `forward` (0) is already at or below `reverseEpsilon`. `out.reverseHold` is a
     // dead field now (always 0), until a later task deletes it from `SimBody`/`PlayerState`. The
-    // magnitude (-26.8, well short of the pre-port -351 reverse cap) is smaller for two reasons at
+    // magnitude (-26.4, well short of the pre-port -351 reverse cap) is smaller for two reasons at
     // once: `reverseAccel` on this frozen fixture (80) is a much smaller number than the old
     // fixture's 1100, and reverse is likewise an asymptote now, not a clamp reached instantly.
     const out = drive(body(), input(0, -1), 12);
-    expectPose(out, -6.1643418623, 0, 0, -26.8164116176);
+    expectPose(out, -6.0627349263, 0, 0, -26.3743963171);
     expect(out.reverseHold).toBe(0);
   });
 
   it("accelerates and turns from a non-zero heading", () => {
-    expectPose(drive(body({ angle: 0.7 }), input(1, 1), 15), 8.4218852495, 20.1157577657, 1.7, 73.6574947864, -17.4503955674);
+    expectPose(drive(body({ angle: 0.7 }), input(1, 1), 15), 8.2830671932, 19.7841894395, 1.7, 72.4433972347, -17.1627604449);
   });
 });
 

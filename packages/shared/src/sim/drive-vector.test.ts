@@ -10,6 +10,11 @@ import { forwardOf, lateralOf, toWorld } from "./velocity.js";
 
 const DT = 1 / TICK_RATE_HZ;
 const DRAG_RATE = 1.0;
+// The lateral component takes drag AND grip (see "decays a coasting car ... in both components"
+// below), so the steady-state slip angle it settles at is `atan(turnRate / (DRAG_RATE +
+// GRIP_RATE))`, not `atan(turnRate / GRIP_RATE)` alone — drag is the extra sideways bleed grip
+// shares the vector with, not a separate channel the slip angle can ignore.
+const GRIP_RATE = 3;
 const CHASSIS: ChassisDrive = Object.freeze({
   maxSpeed: 200,
   engineAccel: 200,        // maxSpeed * dragRate
@@ -18,7 +23,7 @@ const CHASSIS: ChassisDrive = Object.freeze({
   turnRate: 2,
   dragRate: DRAG_RATE,
   dragPerTick: perTickDecay(DRAG_RATE),
-  gripPerTick: perTickDecay(3),
+  gripPerTick: perTickDecay(GRIP_RATE),
   spinPerTick: 1,
 });
 
@@ -83,7 +88,7 @@ describe("vector drive: the Unity drag/grip model", () => {
     let b = body({ ...toWorld(0, 150, 0) });
     for (let i = 0; i < TICK_RATE_HZ * 5; i++) b = stepDrive(b, input(1, 1), DT, CHASSIS, NEUTRAL_MODIFIERS);
     const slip = Math.abs(Math.atan2(lateralOf(b.vx, b.vy, b.angle), forwardOf(b.vx, b.vy, b.angle)));
-    expect(slip).toBeCloseTo(Math.atan(CHASSIS.turnRate / 7), 1);
+    expect(slip).toBeCloseTo(Math.atan(CHASSIS.turnRate / (DRAG_RATE + GRIP_RATE)), 1);
   });
 
   it("turns at the same rate stopped as at speed", () => {
@@ -101,11 +106,21 @@ describe("vector drive: the Unity drag/grip model", () => {
   });
 
   it("brakes while rolling forward and reverses once nearly stopped, with no hold delay", () => {
+    // FIXED (same root cause as the asymptote/90%/slip cases, and the same fix the coordinator
+    // ruled on for those): every command channel — throttle, brake, reverse — goes through the
+    // exact drag/command integrator (`commandFactorOf` in drive.ts), not a flat `* DT`. This case
+    // originally passed under the old, uniformly-explicit-Euler model (both the model's forcing
+    // term AND this test's expectation used flat `* DT`, so they agreed by coincidence). Fixing
+    // the model to be tick-rate independent exposed the same flat-`DT` assumption here that was
+    // already wrong in the three cases above. `commandFactor` below is `commandFactorOf`'s own
+    // formula at `mods.accel: 1` (so `rate === dragRate`), duplicated rather than imported since
+    // `commandFactorOf` is drive.ts-private.
+    const commandFactor = (1 - CHASSIS.dragPerTick) / CHASSIS.dragRate;
     const braking = stepDrive(body({ ...toWorld(0, 100, 0) }), input(0, -1), DT, CHASSIS, NEUTRAL_MODIFIERS);
     expect(forwardOf(braking.vx, braking.vy, braking.angle)).toBeCloseTo(
-      100 * CHASSIS.dragPerTick - CHASSIS.brakeDecel * DT, 9);
+      100 * CHASSIS.dragPerTick - CHASSIS.brakeDecel * commandFactor, 9);
     const engaging = stepDrive(body({ vx: 0, vy: 0 }), input(0, -1), DT, CHASSIS, NEUTRAL_MODIFIERS);
-    expect(forwardOf(engaging.vx, engaging.vy, engaging.angle)).toBeCloseTo(-CHASSIS.reverseAccel * DT, 9);
+    expect(forwardOf(engaging.vx, engaging.vy, engaging.angle)).toBeCloseTo(-CHASSIS.reverseAccel * commandFactor, 9);
   });
 
   it("scales drag as a power, so `accel: 0` holds a speed instead of stopping the car", () => {

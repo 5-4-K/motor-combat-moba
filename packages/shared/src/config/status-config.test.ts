@@ -214,13 +214,16 @@ describe("STATUS_LIMITS", () => {
   });
 
   it("keeps the brake pedal better than lifting off, however faded it gets", () => {
-    // The floor is not a free choice: a brake weaker than coasting would mean pressing it slows you
-    // LESS than releasing the throttle, which reads as broken rather than degraded. Checked against
-    // the WORST case across the roster — the chassis that coasts FASTEST (sheds the most speed per
-    // second) at its own top speed, scaled down by the SLOWEST brake on the roster — so a per-car
+    // RE-PINNED for the Unity drive-model port (car-physics-port stage 1 Task 3): `coastPerTick`
+    // is gone from `ChassisDrive` — coasting is no longer a dedicated decay knob, only the
+    // always-on drag rate `dragPerTick` (U4), which is also what sets top speed and wind-up now.
+    // The invariant itself is unchanged: a brake weaker than coasting would mean pressing it slows
+    // you LESS than releasing the throttle, which reads as broken rather than degraded. Checked
+    // against the WORST case across the roster — the chassis whose drag sheds the most speed per
+    // second at its own top speed, scaled down by the SLOWEST brake on the roster — so a per-car
     // retune cannot silently invalidate it either.
     const worstCoastDecel = Math.max(
-      ...activeCarIds().map((id) => (1 - driveOf(id).coastPerTick) * forwardMaxSpeedOf(id) * TICK_RATE_HZ),
+      ...activeCarIds().map((id) => (1 - driveOf(id).dragPerTick) * forwardMaxSpeedOf(id) * TICK_RATE_HZ),
     );
     const slowestBrake = Math.min(...activeCarIds().map((id) => driveOf(id).brakeDecel));
     expect(slowestBrake * STATUS_LIMITS.brakeDecel.min).toBeGreaterThan(worstCoastDecel);

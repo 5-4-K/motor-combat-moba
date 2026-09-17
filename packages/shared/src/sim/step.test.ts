@@ -431,7 +431,22 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
     // twice in that one tick) would instead land on forward' = +restitution^2 * forward — POSITIVE,
     // not negative, and roughly 1/13th the magnitude here (0.15^2 / 0.15 = 0.15) — so this
     // assertion's sign alone already tells the two apart; the magnitude check is belt and braces.
-    expect(bounceForward).toBeCloseTo(-DRIVE_CONFIG.restitution * preBounceForward, 6);
+    //
+    // RE-PINNED for the Unity drive-model port (car-physics-port stage 1 Task 3): `preBounceForward`
+    // is the PREVIOUS tick's already-stepped forward, not the velocity `resolveWorld` actually
+    // reflects (which is THIS tick's, after `stepDrive`'s own drag and command have already run) —
+    // an approximation that read as exact under the old accel-clamp model, because a car driving
+    // into a wall at full throttle sits at its (clamped) `maxSpeed`, where a tick's worth of
+    // accel-vs-nothing nets to ~0. Real mirage's `dragRateOf` (1.2848/s) is a genuine per-tick pull
+    // now, so the two ticks' forward no longer coincide as tightly. Measured: before this task,
+    // `bounceForward` was `-40.846813...` against `toBeCloseTo(..., 6)` (agreeing to ~1e-6); after
+    // it (and after the exact-integrator ruling on `stepDrive`'s command term), it is
+    // `-40.171351149708585` against an expected `-40.68842064811721` — agreeing to ~1.3%, not 1e-6.
+    // A relative tolerance is the honest way to keep pinning "one bounce, not a double-damped one"
+    // (still 33x apart from the double-damped case's ratio) without claiming a precision this
+    // approximation cannot deliver against a live, undamped chassis.
+    const expectedBounce = -DRIVE_CONFIG.restitution * preBounceForward;
+    expect(Math.abs(bounceForward! - expectedBounce) / Math.abs(expectedBounce)).toBeLessThan(0.02);
     // Still rolling near the wall, not ejected back out past where it started.
     expect(body.x).toBeLessThan(300);
   });

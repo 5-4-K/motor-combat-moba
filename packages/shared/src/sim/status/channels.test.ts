@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChassisDrive } from "../../config/car-config.js";
 import { ramDefenceOf } from "../../config/car-config.js";
-import { DRIVE_CONFIG } from "../../config/drive-config.js";
 import { STATUS_LIMITS, STATUS_TABLE } from "../../config/status-config.js";
 import type { CarId } from "../../config/types.js";
 import { scaleTicks, weaponTicksOf } from "../../config/weapon-ticks.js";
@@ -29,22 +28,30 @@ const DT = MS_PER_TICK / 1000;
 const CAR: CarId = "mirage";
 
 /**
- * The drive numbers this suite was recorded against — the chassis that shipped as `rectangle` on
- * 2026-08-29, before per-car acceleration and turn rate existed.
+ * The drive numbers this suite was recorded against.
  *
  * Frozen here rather than read from `CAR_TABLE` deliberately: these expectations pin the SHAPE of
  * the integration, not the roster's balance. A car's ratings must be free to move without any
  * number below moving with them.
+ *
+ * RE-PINNED for the Unity drive-model port (car-physics-port stage 1 Task 3): the old 8-field
+ * `ChassisDrive` (`maxSpeed`/`reverseMaxSpeed`/`accel`/`reverseAccel`/`turnRate`/`turnRateAtStop`/
+ * `coastPerTick`/`brakeDecel`) is gone. `engineAccel` is chosen as `maxSpeed * dragRate` so the
+ * equilibrium this fixture settles at is exactly `maxSpeed` (matching the old field's name-implied
+ * meaning as closely as the new model allows); `reverseAccel` is chosen the same way against a
+ * smaller nominal reverse top speed.
  */
+const DRAG_RATE = 1;
 const GOLDEN_CHASSIS: ChassisDrive = Object.freeze({
   maxSpeed: 540,
-  reverseMaxSpeed: 351,
-  accel: 780,
-  reverseAccel: 1100,
-  turnRate: 4.2,
-  turnRateAtStop: 2.1,
-  coastPerTick: 0.5 ** (1 / (1.0 * 30)), // a 1.0s half-life at 30Hz
+  engineAccel: 540 * DRAG_RATE,
+  reverseAccel: 351 * DRAG_RATE,
   brakeDecel: 1600,
+  turnRate: 4.2,
+  dragRate: DRAG_RATE,
+  dragPerTick: Math.exp(-DRAG_RATE / 30),
+  gripPerTick: Math.exp(-3 / 30),
+  spinPerTick: 1,
 });
 
 function body(over: Partial<SimBody> = {}): SimBody {
@@ -73,69 +80,96 @@ function mods(over: Partial<Modifiers>): Modifiers {
   return { ...NEUTRAL_MODIFIERS, ...over };
 }
 
+/**
+ * `commandFactorOf`'s own formula (drive.ts, drive.ts-private), duplicated so these tests can
+ * predict a command term's exact contribution instead of `* DT`: drag and the command are solved
+ * TOGETHER over one tick (`dv/dt = a - k*v`), and `k` is the EFFECTIVE rate `dragRate * accelMod`.
+ */
+function commandFactorAt(accelMod: number): number {
+  const rate = GOLDEN_CHASSIS.dragRate * accelMod;
+  const drag = Math.pow(GOLDEN_CHASSIS.dragPerTick, accelMod);
+  return rate > 0 ? (1 - drag) / rate : DT;
+}
+
 describe("topSpeed reaches the drive cap", () => {
   it("caps forward speed at the scaled maximum", () => {
     let out = body();
-    for (let i = 0; i < 200; i++) out = stepDrive(out, input(0, 1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 }));
+    for (let i = 0; i < 1000; i++) out = stepDrive(out, input(0, 1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 }));
     expect(fwd(out)).toBeCloseTo(GOLDEN_CHASSIS.maxSpeed * 0.5, 6);
   });
 
   it("caps reverse too, so backing away is not the way out of a slow", () => {
-    let out = body({ vx: -10, reverseHold: DRIVE_CONFIG.reverseHoldTicks });
-    for (let i = 0; i < 200; i++) out = stepDrive(out, input(0, -1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 }));
-    expect(fwd(out)).toBeCloseTo(-GOLDEN_CHASSIS.reverseMaxSpeed * 0.5, 6);
+    // RE-PINNED for the Unity drive-model port: `reverseMaxSpeed` is gone from `ChassisDrive` —
+    // reverse top speed is the emergent equilibrium `reverseAccel / dragRate` now, same shape as
+    // forward's `maxSpeed`. `reverseHoldTicks` dropped from the initial body: the reverse-hold
+    // ceremony is gone from `stepDrive` and nothing reads `body.reverseHold` any more.
+    let out = body({ vx: -10 });
+    for (let i = 0; i < 1000; i++) out = stepDrive(out, input(0, -1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 }));
+    expect(fwd(out)).toBeCloseTo(-(GOLDEN_CHASSIS.reverseAccel / GOLDEN_CHASSIS.dragRate) * 0.5, 6);
   });
 
-  it("clamps a car already above the new cap the moment it asks for throttle", () => {
-    const fast = body({ vx: GOLDEN_CHASSIS.maxSpeed });
-    expect(fwd(stepDrive(fast, input(0, 1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 })))).toBeCloseTo(
-      GOLDEN_CHASSIS.maxSpeed * 0.5,
-      6,
-    );
-  });
+  // DELETED: "clamps a car already above the new cap the moment it asks for throttle". Its
+  // premise — that a car above the (scaled) cap snaps DOWN to it the instant throttle is pressed —
+  // is gone: there is no clamp any more, only an asymptote approached at the drag rate like any
+  // other speed change. A car at 540 asking for a 270 equilibrium decays toward it gradually
+  // (measured: 531 after one tick, not 270), the same shape "caps forward speed" above already
+  // covers over many ticks.
 
   it("lets a car above the cap coast down proportionally rather than snapping", () => {
     // Coasting no longer reads `mods.topSpeed` at all — the cap clamp only fires on active
-    // throttle — so a car above the new cap decays by the chassis's own proportional coast, same
-    // as it would at any other speed.
+    // throttle — so a car above the new cap decays by the chassis's own proportional DRAG
+    // (`coastPerTick` is gone; `dragPerTick` is the same always-on rate that also sets top speed).
     const fast = body({ vx: GOLDEN_CHASSIS.maxSpeed });
     expect(fwd(stepDrive(fast, input(0, 0), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 })))).toBeCloseTo(
-      GOLDEN_CHASSIS.maxSpeed * GOLDEN_CHASSIS.coastPerTick,
+      GOLDEN_CHASSIS.maxSpeed * GOLDEN_CHASSIS.dragPerTick,
       6,
     );
   });
 });
 
-describe("accel reaches the engine, and never the brakes or coast", () => {
+describe("accel reaches the engine", () => {
+  // RENAMED from "...and never the brakes or coast": that second half of the old title is now
+  // false. `accel` scales the drag exponent itself (U36: `accel: 0` holds a speed instead of
+  // stopping the car, `drive-vector.test.ts`), which is a deliberate design change from the
+  // pre-port model where `accel` touched only the throttle push.
   it("scales one tick of forward acceleration", () => {
+    // RE-PINNED: `GOLDEN_CHASSIS.accel` (deleted) -> `engineAccel`, and the command's contribution
+    // is `command * commandFactorAt(accel)`, not `command * DT` — see `commandFactorAt`'s comment.
+    const command = GOLDEN_CHASSIS.engineAccel * 0.5;
     expect(fwd(stepDrive(body(), input(0, 1), DT, GOLDEN_CHASSIS, mods({ accel: 0.5 })))).toBeCloseTo(
-      GOLDEN_CHASSIS.accel * 0.5 * DT,
+      command * commandFactorAt(0.5),
       9,
     );
   });
 
-  it("leaves coasting alone — a car with no input must always slow down", () => {
-    const rolling = body({ vx: 100 });
-    const debuffed = stepDrive(rolling, input(0, 0), DT, GOLDEN_CHASSIS, mods({ accel: 0.4, brakeDecel: 0.6 }));
-    const plain = stepDrive(rolling, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    expect(fwd(debuffed)).toBeCloseTo(fwd(plain), 9);
-  });
+  // DELETED: "leaves coasting alone — a car with no input must always slow down". Its premise is
+  // now false ON PURPOSE (see the describe block's rename above): `accel` debuffing a car to 0.4
+  // measurably changes how fast it coasts, because `dragFactorOf` raises `dragPerTick` to the
+  // `accel` power. The two `stepDrive` calls this case compared no longer land on the same speed.
 });
 
 describe("brakeDecel reaches the brake", () => {
   it("fades braking while rolling forward", () => {
+    // RE-PINNED: the brake's contribution is `command * commandFactorAt(1)` (`mods.accel` is
+    // neutral here), not `command * DT`.
     const rolling = body({ vx: 300 });
     const faded = stepDrive(rolling, input(0, -1), DT, GOLDEN_CHASSIS, mods({ brakeDecel: 0.6 }));
     const plain = stepDrive(rolling, input(0, -1), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(fwd(faded)).toBeGreaterThan(fwd(plain));
-    expect(fwd(faded)).toBeCloseTo(300 - GOLDEN_CHASSIS.brakeDecel * 0.6 * DT, 9);
+    const command = -GOLDEN_CHASSIS.brakeDecel * 0.6;
+    expect(fwd(faded)).toBeCloseTo(300 * GOLDEN_CHASSIS.dragPerTick + command * commandFactorAt(1), 9);
   });
 
-  it("fades the brake that arrests a reversing car too", () => {
-    const reversing = body({ vx: -200 });
-    const faded = stepDrive(reversing, input(0, 1), DT, GOLDEN_CHASSIS, mods({ brakeDecel: 0.6 }));
-    expect(fwd(faded)).toBeCloseTo(-200 + GOLDEN_CHASSIS.brakeDecel * 0.6 * DT, 9);
-  });
+  // DELETED: "fades the brake that arrests a reversing car too". Its premise — that holding Up
+  // while reversing reads `mods.brakeDecel` — is gone: `engineCommandOf`'s `throttle === 1` branch
+  // (drive.ts) ALWAYS returns the plain engine push `engineAccel * mods.topSpeed * mods.accel`,
+  // unconditionally, never the brake, regardless of which way the car is currently moving. Before
+  // this port, `accelerateForward` braked toward 0 first when reversing and only then accelerated;
+  // that branch is gone, and Up now just adds a big forward push that happens to overpower a
+  // reverse speed quickly — arresting it by ENGINE force, not brake force, so `mods.brakeDecel` has
+  // no effect on this scenario at all any more. `drive.test.ts`'s "holding Up from reverse..." case
+  // covers the surviving shape of this (reverse to zero to forward) without asserting which channel
+  // does it.
 
   it("still beats coasting at the worst fade the limits allow", () => {
     const rolling = body({ vx: 300 });
@@ -160,10 +194,12 @@ describe("turnRate reaches steering, in both directions", () => {
     expect(sharper.angle).toBeCloseTo(plain.angle * 1.55, 9);
   });
 
-  it("does not touch injected spin — that is the ram's term, not the driver's", () => {
-    const spun = body({ vx: 200, angVel: 2 });
-    expect(stepDrive(spun, input(0, 0), DT, GOLDEN_CHASSIS, mods({ turnRate: 0.5 })).angle).toBeCloseTo(2 * DT, 9);
-  });
+  // DELETED: "does not touch injected spin — that is the ram's term, not the driver's". Its
+  // premise — that an injected `angVel` adds to the steering term regardless of `mods` — is gone:
+  // outside `mods.spinFree`, steering SETS the yaw rate (U16, drive.ts's `stepDrive` step 4) rather
+  // than adding to a separately-decaying spin, so a previous `angVel` is overwritten to 0 here
+  // (steer: 0, not spinFree) on this very tick, not left untouched. `drive-vector.test.ts`'s "keeps
+  // its spin while spinFree and erases it the moment control returns" covers the surviving shape.
 });
 
 describe("the three flags", () => {
@@ -178,12 +214,10 @@ describe("the three flags", () => {
     expect(fwd(out)).toBeGreaterThan(0);
   });
 
-  it("`steeringLocked` kills the driver's steering but never the injected spin", () => {
-    const rolling = body({ vx: 200, angVel: 2 });
-    const out = stepDrive(rolling, input(1, 0), DT, GOLDEN_CHASSIS, mods({ steeringLocked: true }));
-    // Exactly the spin's contribution, with nothing from the held steer input.
-    expect(out.angle).toBeCloseTo(2 * DT, 9);
-  });
+  // DELETED: "`steeringLocked` kills the driver's steering but never the injected spin". Same root
+  // cause as the deletion above: `steeringLocked` forces `steer` to 0, and outside `spinFree` that
+  // 0 SETS the yaw rate — it does not add to whatever `angVel` the car came in with. A previous ram
+  // spin is erased the moment `steeringLocked` (or any non-`spinFree` tick) runs, not preserved.
 
   it("`steeringLocked` also stops a driver countersteering out of a spin", () => {
     const spinning = body({ vx: 200, angVel: 2 });

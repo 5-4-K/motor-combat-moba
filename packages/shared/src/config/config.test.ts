@@ -3,9 +3,9 @@ import { TICK_RATE_HZ } from "../constants.js";
 import {
   CAR_TABLE,
   DEFAULT_CAR_ID,
-  accelOf,
   activeCarIds,
   driveOf,
+  engineAccelOf,
   forwardMaxSpeedOf,
   hpOf,
   isActiveCarId,
@@ -13,8 +13,6 @@ import {
   ramAttackOf,
   ramDefenceOf,
   reverseAccelOf,
-  reverseMaxSpeedOf,
-  turnRateAtStopOf,
   turnRateOf,
 } from "./car-config.js";
 import type { CarId } from "./types.js";
@@ -130,14 +128,17 @@ describe("isActive", () => {
 
 describe("driveOf", () => {
   it("resolves every car's drive numbers from the tables", () => {
+    // `reverseMaxSpeed` and `turnRateAtStop` are gone from `ChassisDrive` (Unity drive-model port,
+    // car-physics-port stage 1 Task 3): there is no separately-authored reverse top speed any more
+    // (reverse is the emergent equilibrium `reverseAccel / dragRate`, same shape as forward's
+    // `maxSpeed`) and no separate at-rest turn rate (yaw is speed-independent under this model).
     for (const id of Object.keys(CAR_TABLE) as CarId[]) {
       const d = driveOf(id);
       expect(d.maxSpeed).toBe(forwardMaxSpeedOf(id));
-      expect(d.reverseMaxSpeed).toBe(reverseMaxSpeedOf(id));
-      expect(d.accel).toBeGreaterThan(0);
+      expect(d.engineAccel).toBeGreaterThan(0);
       expect(d.reverseAccel).toBeGreaterThan(0);
       expect(d.turnRate).toBeGreaterThan(0);
-      expect(d.turnRateAtStop).toBeGreaterThan(0);
+      expect(d.dragRate).toBeGreaterThan(0);
     }
   });
 
@@ -166,33 +167,28 @@ describe("per-car drive ratings", () => {
     expect(baseAccel + 50 * accelPerRating).toBeCloseTo(130, 9);
   });
 
-  it("keeps the stopped turn rate at half the moving one, as it shipped", () => {
-    expect(DRIVE_CONFIG.stopTurnRatio).toBe(0.5);
-    for (const id of Object.keys(CAR_TABLE) as CarId[]) {
-      expect(turnRateAtStopOf(id)).toBeCloseTo(turnRateOf(id) * 0.5, 9);
-    }
-  });
+  // DELETED: "keeps the stopped turn rate at half the moving one, as it shipped". Its premise —
+  // an at-rest turn rate distinct from the moving one, `turnRateAtStopOf` — is gone outright: yaw
+  // rate is speed-independent under the Unity drive-model port (car-physics-port stage 1 Task 3),
+  // so there is no "stopped" rate left to be half of anything.
 
   it("feeds the derived rates into every chassis's ChassisDrive", () => {
+    // `turnRateAtStop` dropped from the assertion for the same reason it dropped from the test
+    // above; `accel` -> `engineAccel`/`accelOf` -> `engineAccelOf`, since `stepDrive` reads the
+    // engine's push under that name now, not a per-rating acceleration.
     for (const id of Object.keys(CAR_TABLE) as CarId[]) {
       const d = driveOf(id);
       expect(d.turnRate).toBeCloseTo(turnRateOf(id), 9);
-      expect(d.turnRateAtStop).toBeCloseTo(turnRateAtStopOf(id), 9);
-      expect(d.accel).toBeCloseTo(accelOf(id), 9);
+      expect(d.engineAccel).toBeCloseTo(engineAccelOf(id), 9);
       expect(d.reverseAccel).toBeCloseTo(reverseAccelOf(id), 9);
     }
   });
 
-  it("scales every car's reverse speed from its own forward speed by reverseSpeedRatio", () => {
-    // The single-car version of this (mirage only) used to live in drive.test.ts as a byproduct of
-    // reading the live table inside an otherwise-hermetic GOLDEN_CHASSIS suite. R7: that suite now
-    // reads only the frozen fixture, so this per-car sweep is what keeps the actual property —
-    // reverse speed tracks EACH chassis's own forward speed, not just mirage's — pinned against the
-    // live roster.
-    for (const id of Object.keys(CAR_TABLE) as CarId[]) {
-      expect(reverseMaxSpeedOf(id)).toBeCloseTo(forwardMaxSpeedOf(id) * DRIVE_CONFIG.reverseSpeedRatio, 9);
-    }
-  });
+  // DELETED: "scales every car's reverse speed from its own forward speed by reverseSpeedRatio".
+  // Its premise — a reverse top speed authored as a fixed ratio of the forward one, read through
+  // `reverseMaxSpeedOf` — is gone: reverse top speed is now the emergent equilibrium
+  // `reverseAccel / dragRate`, unrelated to `DRIVE_CONFIG.reverseSpeedRatio` (an orphaned knob
+  // until a later task removes it).
 });
 
 describe("COLOR_TABLE", () => {
@@ -237,7 +233,7 @@ describe("weapon / combat / drive / flow knobs exist", () => {
     expect(DRIVE_CONFIG.reverseAccelFactor).toBeGreaterThan(0);
     expect(DRIVE_CONFIG.reverseAccelFactor).toBeLessThan(1);
     for (const id of Object.keys(CAR_TABLE) as CarId[]) {
-      expect(reverseAccelOf(id)).toBeLessThan(accelOf(id));
+      expect(reverseAccelOf(id)).toBeLessThan(engineAccelOf(id));
     }
   });
 
@@ -314,9 +310,14 @@ describe("the three types (T5/T6)", () => {
     expect(forwardMaxSpeedOf("mirage")).toBeCloseTo(189.03, 9);
     expect(forwardMaxSpeedOf("bastion")).toBeCloseTo(135.9, 9);
 
-    expect(accelOf("bullseye")).toBeCloseTo(123, 9);
-    expect(accelOf("mirage")).toBeCloseTo(179, 9);
-    expect(accelOf("bastion")).toBeCloseTo(88, 9);
+    // RE-PINNED for the Unity drive-model port (car-physics-port stage 1 Task 3): `accelOf` (the
+    // old `baseAccel + accel*accelPerRating`, pivoted at 130) is gone, replaced by `engineAccelOf`
+    // — DERIVED as `forwardMaxSpeedOf(id) * dragRateOf(id)` rather than authored independently, so
+    // these three numbers are not a retune, they are the same ratings read through the new formula.
+    // (123/179/88 were the old `accelOf` figures; not comparable to the numbers below.)
+    expect(engineAccelOf("bullseye")).toBeCloseTo(165.27067200000002, 6);
+    expect(engineAccelOf("mirage")).toBeCloseTo(242.86574400000003, 6);
+    expect(engineAccelOf("bastion")).toBeCloseTo(120.89664000000002, 6);
 
     // The 2026-09-02 rewrite set `speed` and `handling` to the same rating per car (65/65, 85/85,
     // 50/50), so turn rate now orders the roster the same way top speed does — Mirage highest,
@@ -350,8 +351,8 @@ describe("the three types (T5/T6)", () => {
   it("orders the three types on every axis the design names", () => {
     expect(forwardMaxSpeedOf("mirage")).toBeGreaterThan(forwardMaxSpeedOf("bullseye"));
     expect(forwardMaxSpeedOf("bullseye")).toBeGreaterThan(forwardMaxSpeedOf("bastion"));
-    expect(accelOf("mirage")).toBeGreaterThan(accelOf("bullseye"));
-    expect(accelOf("bullseye")).toBeGreaterThan(accelOf("bastion"));
+    expect(engineAccelOf("mirage")).toBeGreaterThan(engineAccelOf("bullseye"));
+    expect(engineAccelOf("bullseye")).toBeGreaterThan(engineAccelOf("bastion"));
     // Turn rate now orders with speed rather than against it — see the note above.
     expect(turnRateOf("mirage")).toBeGreaterThan(turnRateOf("bullseye"));
     expect(turnRateOf("bullseye")).toBeGreaterThan(turnRateOf("bastion"));
@@ -365,21 +366,26 @@ describe("the three types (T5/T6)", () => {
 });
 
 describe("per-car coast and brake", () => {
-  it("resolves a coast multiplier for every active chassis", () => {
+  // DELETED: "resolves a coast multiplier for every active chassis". `coastPerTick` is gone —
+  // there is no coast-specific field any more, only `dragPerTick`, the same rate that also sets
+  // top speed and wind-up (U4). `dragPerTick` is exercised directly below.
+  it("resolves a drag multiplier for every active chassis", () => {
     for (const id of activeCarIds()) {
-      const coast = driveOf(id).coastPerTick;
-      expect(coast).toBeGreaterThan(0);
-      expect(coast).toBeLessThan(1);
+      const drag = driveOf(id).dragPerTick;
+      expect(drag).toBeGreaterThan(0);
+      expect(drag).toBeLessThan(1);
     }
   });
 
   it("keeps the brake ahead of coasting on every chassis, measured where drag is strongest", () => {
-    // Proportional drag is fiercest at top speed. The instantaneous coast deceleration there is
-    // (1 - coastPerTick) * maxSpeed * TICK_RATE_HZ. The brake pedal must beat lifting off, or the
-    // control reads as broken rather than degraded.
+    // RE-PINNED for the Unity drive-model port: `coastPerTick` -> `dragPerTick`. The invariant is
+    // unchanged — proportional drag is fiercest at top speed, and the instantaneous decel there is
+    // (1 - dragPerTick) * maxSpeed * TICK_RATE_HZ — only the field name and the mechanism behind it
+    // moved (coasting was a dedicated decay knob; now it's the same drag rate that also sets top
+    // speed). The brake pedal must still beat lifting off, or the control reads as broken.
     for (const id of activeCarIds()) {
       const drive = driveOf(id);
-      const coastDecelAtTop = (1 - drive.coastPerTick) * forwardMaxSpeedOf(id) * TICK_RATE_HZ;
+      const coastDecelAtTop = (1 - drive.dragPerTick) * forwardMaxSpeedOf(id) * TICK_RATE_HZ;
       expect(drive.brakeDecel).toBeGreaterThan(coastDecelAtTop);
     }
   });

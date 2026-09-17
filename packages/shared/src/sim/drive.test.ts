@@ -36,6 +36,15 @@ const GOLDEN_CHASSIS: ChassisDrive = Object.freeze({
   spinPerTick: 1,
 });
 
+/**
+ * The exact-integrator command factor at `mods.accel: 1` (so the effective rate is just
+ * `dragRate`), duplicated from drive.ts's own `commandFactorOf` since that helper is
+ * drive.ts-private. Every command channel (throttle, brake, reverse) is scaled by this over one
+ * tick, not by `DT` — see `commandFactorOf`'s own doc comment for why a flat `DT` multiply is the
+ * wrong integrator and would depend on tick rate.
+ */
+const COMMAND_FACTOR = (1 - GOLDEN_CHASSIS.dragPerTick) / GOLDEN_CHASSIS.dragRate;
+
 function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputMessage {
   return { seq: 0, steer, throttle, fireSlots: 0 };
 }
@@ -78,18 +87,13 @@ describe("stepDrive", () => {
     expect(out.y).toBe(0);
   });
 
-  it("approaches its own discrete equilibrium after sustained throttle (asymptotic, not a clamp)", () => {
-    // The equilibrium THIS discrete recurrence settles at is `engineAccel*DT / (1 - dragPerTick)`,
-    // not the continuous `engineAccel / dragRate` (`chassis.maxSpeed`) — a semi-implicit step applies
-    // the WHOLE tick's drag before adding a plain `command * dt` forcing term, so at a finite tick
-    // rate the fixed point sits slightly ABOVE the continuous ceiling (about 1.7% here, at 30Hz with
-    // `dragRate: 1`). See the task report for this as a discrepancy against `drive-vector.test.ts`'s
-    // own "approaches top speed asymptotically instead of clamping to it" case, which assumes the
-    // continuous figure and is left failing rather than silently retuned.
+  it("approaches forwardMaxSpeedOf(carId) after sustained throttle (asymptotic, not a clamp)", () => {
+    // `stepDrive` solves drag and the command TOGETHER over each tick (`commandFactorOf`), which is
+    // the exact closed form for `dv/dt = a - k*v` — its fixed point is exactly the CONTINUOUS
+    // equilibrium `engineAccel / dragRate` (`chassis.maxSpeed`), not a discretization-biased number
+    // above it, and that holds at any tick rate (U7).
     const out = drive(rest(), input(0, 1), 1000);
-    const discreteEquilibrium =
-      (GOLDEN_CHASSIS.engineAccel * DT) / (1 - GOLDEN_CHASSIS.dragPerTick);
-    expect(fwd(out)).toBeCloseTo(discreteEquilibrium, 2);
+    expect(fwd(out)).toBeCloseTo(GOLDEN_CHASSIS.maxSpeed, 6);
   });
 
   it("from high +speed, holding Down brakes the speed down before it goes negative", () => {
@@ -115,7 +119,8 @@ describe("stepDrive", () => {
     const down = input(0, -1);
     const engaged = stepDrive(rest(), down, DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(fwd(engaged)).toBeLessThan(0);
-    expect(fwd(engaged)).toBeCloseTo(-GOLDEN_CHASSIS.reverseAccel * DT, 9);
+    // Exact-integrator command factor, not a flat `* DT` (see `COMMAND_FACTOR`'s own comment).
+    expect(fwd(engaged)).toBeCloseTo(-GOLDEN_CHASSIS.reverseAccel * COMMAND_FACTOR, 9);
   });
 
   it("brakes from a forward speed into reverse, settling near its own reverse equilibrium", () => {
@@ -137,13 +142,15 @@ describe("stepDrive", () => {
     expect(fwd(body)).toBeLessThan(0);
 
     const pinned = drive(body, down, 500);
-    const reverseEquilibrium = -(GOLDEN_CHASSIS.reverseAccel * DT) / (1 - GOLDEN_CHASSIS.dragPerTick);
-    expect(fwd(pinned)).toBeCloseTo(reverseEquilibrium, 1);
+    // The exact integrator's fixed point is the CONTINUOUS equilibrium, `reverseAccel / dragRate`
+    // — 500 ticks lands within ~5e-5 of it (measured), not closer, since `atRest` never fires while
+    // throttle is held and the approach stays asymptotic rather than snapping.
+    expect(fwd(pinned)).toBeCloseTo(-GOLDEN_CHASSIS.reverseAccel / GOLDEN_CHASSIS.dragRate, 3);
   });
 
   it("holding Up from reverse brings the car back through zero and on to accelerating forward", () => {
     const up = input(0, 1);
-    const reverseEquilibrium = -(GOLDEN_CHASSIS.reverseAccel * DT) / (1 - GOLDEN_CHASSIS.dragPerTick);
+    const reverseEquilibrium = -GOLDEN_CHASSIS.reverseAccel / GOLDEN_CHASSIS.dragRate;
     let body: SimBody = { ...rest(), vx: reverseEquilibrium, vy: 0 };
     for (let tick = 0; tick < 15; tick++) body = stepDrive(body, up, DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(fwd(body)).toBeGreaterThan(0);
