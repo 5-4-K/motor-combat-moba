@@ -43,12 +43,22 @@ code has changed.
 
 ## What is known before any of it runs
 
-- **Three bot tests are already red** on this branch, from the 2026-09-16 top-speed cut and the
-  aim-lock merge: `controller.test.ts`'s OFF-AXIS mean offset (1.36 against a bar of 0.2),
-  `tiers.test.ts` P49 (hard fires at range 6 against a bar of 7.17) and P50 (hit rate inverted
-  between hard and medium). **This work does not fix them and must not silently re-pin them.** Record
-  their readings at the start of stage 1 and again at the end of stage 5 — the `bot-tuner` pass in
-  stage 5 is where they are addressed.
+- **Three tests are already red** on this branch, **measured on 2026-09-18 at `139f6a1`**, before any
+  of this work ran — `npm install`, `npm run build`, `npm test` from the repo root:
+
+  | Suite | Failing case |
+  |---|---|
+  | `src/bot/brain/controller.test.ts` | "keeps the body on the aim line when the target is OFF-AXIS" |
+  | `src/bot/brain/tiers.test.ts` | P49, "hard fires at its preferred range rather than parking and weaving" |
+  | `balance/match.test.ts` | "shortening matchSeconds still lets the deathmatch clock fire, so a winner can appear" |
+
+  Everything else passes: 985 shared tests (53 files), 704 server (46 of 49 files), 69 client files.
+  **Note this differs from the root `CLAUDE.md`, which names `tiers.test.ts` P50 as the third.** P50
+  passes here; the deathmatch-clock canary is red instead. Trust this measurement over that prose.
+  **This work does not fix any of them and must not silently re-pin them** — stage 5's `bot-tuner`
+  pass is where they are addressed. Re-run and compare at the end of stage 5.
+- **The worktree is wired correctly**: the server bundle inlines `// ../shared/dist/…`, not an
+  escaped path, so `npm install` has already been run here.
 - **Every balance report from before this work is incomparable.** `configFingerprint` hashes
   `CAR_TABLE`, `DRIVE_CONFIG` and `RAM_CONFIG` whole; `BOT_BRAIN_VERSION` moves to `6.0.0` in stage 1.
 - **`balanceStamp` does NOT hash `RAM_CONFIG`** but does hash `DRIVE_CONFIG`, the active `CAR_TABLE`
