@@ -1,5 +1,5 @@
 import { RoomPhase } from "@motor-combat-moba/shared";
-import { SLOT_KEYS } from "../config/slot-keys.js";
+import { HINT_SLOT_ORDER, SLOT_KEYS } from "../config/slot-keys.js";
 
 /**
  * The "how do I drive this" line along the bottom of the arena — key pills for both bindings and a
@@ -32,9 +32,18 @@ export const MOVEMENT_LABEL = "to move";
  * keys the game stopped listening to. This countdown row is where the letter bindings are printed —
  * the gutter pill carries only the mouse-hand `glyph` — so between the two, every binding a slot
  * holds is on screen somewhere, which is what the no-hidden-alternates rule demands.
+ *
+ * Ordered by `HINT_SLOT_ORDER`, not by fire-slot index (BA19): the hint TEACHES the basic attack
+ * first, because it is the first thing a new player should press, and because — unlike the three
+ * ability slots — the gutter pill never teaches it at all. Slot order and teaching order have
+ * diverged since the basic attack claimed slot 3 in the wire mask but reads first here.
  */
-export const ACTION_KEYS: readonly string[] = SLOT_KEYS.map((key) => key.keyGlyph);
-export const ACTION_ALTS: readonly string[] = SLOT_KEYS.map((key) => key.glyph);
+export const ACTION_KEYS: readonly string[] = HINT_SLOT_ORDER.map(
+  (slot) => SLOT_KEYS[slot]!.keyGlyph,
+);
+export const ACTION_ALTS: readonly string[] = HINT_SLOT_ORDER.map(
+  (slot) => SLOT_KEYS[slot]!.glyph,
+);
 export const ACTION_LABEL = "to fire";
 
 /**

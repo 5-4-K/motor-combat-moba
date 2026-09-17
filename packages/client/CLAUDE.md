@@ -140,9 +140,10 @@ warning and never fails the suite. Every weapon but `tremor` carries an icon tod
 
 Three tables own how a shot looks, split by what the weapon's hitbox is, and each returns `[]` for a
 weapon it does not own so the flat `weaponFillOf` fill stays the fallback: `WEAPON_GLOW_STYLES`
-(circles, nested by radius) is currently **empty** — the 2026-09-01 roster cutover retired the row
-that used it and nothing has replaced it yet, so every round projectile draws the flat fallback fill.
-`WEAPON_BEAM_STYLES` (beams, nested by extent and cross-section) styles `afterburner`, `lance` and `tremor`
+(circles, nested by radius) holds ten rows — `magmablast`'s explosion disc plus all nine
+`basic-attack-<carId>` rows, each given a lit core so a flat near-black disc reads as a sphere
+rather than a hole on this game's light floors (BA8) — and every round projectile with no entry
+still draws the flat fallback fill. `WEAPON_BEAM_STYLES` (beams, nested by extent and cross-section) styles `afterburner`, `lance` and `tremor`
 (`bulwark` retired with the cutover). `WEAPON_PROJECTILE_STYLES` (the ellipse and capsule projectiles)
 styles `thumper` and `predator` (`needler` and `skewer` retired); `pepperbox` still draws the flat
 hitbox fill for its BODY, but as of 2026-09-13 it carries a shaped **halo** — an entry whose `layers`
@@ -207,9 +208,9 @@ the suite. That is fine and deliberate: nothing
 in the sim reads it, and `instanceGlowBands` already animates off the same clock. `beamDrawLayers`
 takes `nowMs` as a defaulted last parameter, so every other caller keeps drawing a frozen frame.
 
-How a shot is *shaped* is `WEAPON_GLOW_STYLES` in `scenes/combat-visual.ts`: per weapon, and today
-empty for every row (see above), so every weapon currently draws the flat `weaponFillOf` disc or
-polygon. Bands are fractions of the hitbox radius and the flicker only shrinks, so a drawn shot can
+How a shot is *shaped* is `WEAPON_GLOW_STYLES` in `scenes/combat-visual.ts`: per weapon, holding ten
+rows today (see above) — every weapon without one of those ten still draws the flat `weaponFillOf`
+disc or polygon. Bands are fractions of the hitbox radius and the flicker only shrinks, so a drawn shot can
 never exceed the hitbox — that is the invariant `instanceGlowBands` is tested against, and the reason
 the maths lives in `combat-visual.ts` rather than in `ArenaScene`, which no test can load.
 

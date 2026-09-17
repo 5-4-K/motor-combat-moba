@@ -48,7 +48,7 @@ describe("isInputMessage", () => {
 
   // Structural validity only: a negative or over-wide mask is still a legal *shape* on the wire.
   // Sanitising it to what the car may actually use is `serverTick`'s job, not this guard's — it
-  // needs `maxWeaponSlots`, which is a sim concern, not a wire-shape one.
+  // needs `maxAbilitySlots`, which is a sim concern, not a wire-shape one.
   it("accepts a negative or oversized fireSlots as structurally valid", () => {
     expect(isInputMessage({ ...valid, fireSlots: -5 })).toBe(true);
     expect(isInputMessage({ ...valid, fireSlots: 0b1111_1111 })).toBe(true);

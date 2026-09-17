@@ -264,6 +264,11 @@ describe("layout", () => {
   it("draws nothing for a car with no slots", () => {
     expect(slotBarLayout(0, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH, 0)).toEqual([]);
   });
+
+  it("draws the ability kit only, never the basic attack, however many slots a car carries (BA15)", () => {
+    // A car's schema `weapons` array carries four rows now. The bar is the ABILITY panel.
+    expect(slotBarLayout(4, 1280, 720, 200, 0)).toHaveLength(WEAPON_SLOT_CONFIG.maxAbilitySlots);
+  });
 });
 
 describe("layout with a roster panel above it", () => {
@@ -302,7 +307,7 @@ describe("layout with a roster panel above it", () => {
 describe("the gutter budget", () => {
   const panel = rosterPanelLayout(MAX_PLAYERS, VIEW_WIDTH, HUD_GUTTER_WIDTH);
   const slots = slotBarLayout(
-    WEAPON_SLOT_CONFIG.maxWeaponSlots,
+    WEAPON_SLOT_CONFIG.maxAbilitySlots,
     VIEW_WIDTH,
     VIEW_HEIGHT,
     HUD_GUTTER_WIDTH,

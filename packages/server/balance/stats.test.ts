@@ -176,8 +176,9 @@ describe("aggregate (B30, B31)", () => {
 
   it("gives every chassis a full set of weapon rows regardless of what any match's events mention", () => {
     const out = aggregate([synthetic({ fired: [], damaged: [] })]);
-    // 3 chassis x 3 slots each, per CAR_TABLE — every row present, none invented, none missing.
-    expect(out.weapons).toHaveLength(9);
+    // 3 chassis x 4 slots each (3-weapon kit plus the basic attack every chassis carries, per
+    // `fireSlotsOf` — BA30) — every row present, none invented, none missing.
+    expect(out.weapons).toHaveLength(12);
   });
 });
 

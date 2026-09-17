@@ -86,10 +86,12 @@ describe("movementHintItems", () => {
   it("teaches every fire binding: the letters live here, the mouse glyphs match the gutter", () => {
     // The gutter pill prints only the mouse-hand glyph, so this countdown row is the one place the
     // J/K/L letters are shown. Derived from SLOT_KEYS, so a rebind cannot leave the hint stale.
-    expect(ACTION_KEYS).toEqual(["J", "K", "L"]);
-    expect(ACTION_ALTS).toEqual(["LMB", "RMB", "SPACE"]);
-    expect(ACTION_ALTS).toEqual(SLOT_KEYS.map((key) => key.glyph));
-    expect(ACTION_KEYS).toEqual(SLOT_KEYS.map((key) => key.keyGlyph));
+    // Teaching order, not slot order (BA19): the basic attack comes first, because it is the first
+    // thing a new player should press — and because the gutter pill never teaches it.
+    expect(ACTION_KEYS).toEqual(["H", "J", "K", "L"]);
+    expect(ACTION_ALTS).toEqual(["LMB", "RMB", "SHIFT", "SPACE"]);
+    expect(new Set(ACTION_ALTS)).toEqual(new Set(SLOT_KEYS.map((key) => key.glyph)));
+    expect(new Set(ACTION_KEYS)).toEqual(new Set(SLOT_KEYS.map((key) => key.keyGlyph)));
   });
 });
 

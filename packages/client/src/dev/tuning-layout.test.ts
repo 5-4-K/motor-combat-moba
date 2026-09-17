@@ -107,15 +107,28 @@ describe("orphanWeaponIds", () => {
    * noticed here rather than as a silently absent cell.
    */
   it("reports exactly the sanctioned orphan set on the shipped roster", () => {
-    // `tremor` is deliberately authored-but-uncarried (loadout decision pending), and the overlay
-    // caption names it rather than hiding it. Pinning the exact set keeps the original guarantee:
-    // a weapon accidentally dropped from a kit still shows up here as an unexpected orphan.
+    // `tremor` is deliberately authored-but-uncarried (loadout decision pending), and the nine
+    // basic attacks occupy no KIT SLOT — they are carried through `CarDef.basicAttack`, which this
+    // grid has no column for (a fourth column would centre at 1336 on a 1280-wide scene). Both
+    // sets are sanctioned; pinning the exact list keeps the original guarantee, that a weapon
+    // accidentally dropped from a kit still shows up here as an unexpected orphan.
     expect(
       orphanWeaponIds(
         Object.keys(WEAPON_TABLE),
         Object.values(CAR_TABLE).map((car) => car.weapons),
       ),
-    ).toEqual(["tremor"]);
+    ).toEqual([
+      "tremor",
+      "basic-attack-bullseye",
+      "basic-attack-mirage",
+      "basic-attack-bastion",
+      "basic-attack-taurus",
+      "basic-attack-anvil",
+      "basic-attack-prowler",
+      "basic-attack-cleaver",
+      "basic-attack-skorpios",
+      "basic-attack-caprico",
+    ]);
   });
 });
 

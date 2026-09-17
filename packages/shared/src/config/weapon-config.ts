@@ -2,23 +2,62 @@ import { TICK_RATE_HZ } from "../constants.js";
 import type { BeamWeaponDef, ExplosionDamageMode, WeaponDef, WeaponId } from "./weapon-types.js";
 
 /**
+ * Everything every basic attack has in common (BA3, BA4).
+ *
+ * Nine rows spread this and add only their own `id`, so "all nine are identical" is structural
+ * rather than nine copies somebody has to keep in sync — and a later per-chassis divergence is one
+ * field appended after the spread, which is the whole reason nine ids exist instead of one.
+ *
+ * A round near-black bolt: magmablast's 12-unit radius so it reads at a familiar size, predator's
+ * 900 u/s so it arrives fast, and 960 units of reach — authored as three quarters of `arena-01`'s
+ * frame width, and knowingly long for a weapon with no ammunition (BA36).
+ *
+ * `recoveryMs: 0` is load-bearing (BA20): the basic attack shares the fire state machine with the
+ * three ability slots, and a non-zero recovery here would lock an ability out every time a player
+ * pressed the weapon they press most.
+ */
+const BASIC_ATTACK_BASE = {
+  kind: "projectile",
+  name: "Basic Attack",
+  // Shared by all nine on purpose — see BA7 and the colour test. Dark, but never the flat fill:
+  // a flat #101014 disc is already highly visible on this game's light arena floors, it just reads
+  // as a hole rather than an object — `WEAPON_GLOW_STYLES` gives it a lit core so it reads as one.
+  color: "#101014",
+  unlocksAt: 1,
+  damage: 20,
+  damageFrequencyMs: 0,
+  speed: 900,
+  range: 960,
+  startUpMs: 0,
+  cooldownMs: 800,
+  recoveryMs: 0,
+  hitbox: { shape: "circle", radius: 12 },
+  pierce: 0,
+  volley: { volleys: 1, volleyIntervalMs: 0 },
+  pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
+} as const;
+
+/**
  * Every weapon in the game, mirroring `CAR_TABLE`. Balance lives here and nowhere else.
  *
  * `color` is the one render-only number here besides `name`. It is per weapon on purpose: every
- * car firing a given weapon fires the same shot colour. All nine shipped colours are picked to be
- * unmistakable against any `COLOR_TABLE` player colour, so a shot never reads as somebody's car
- * paint.
+ * car firing a given weapon fires the same shot colour. All ten shipped ability colours are picked
+ * to be unmistakable against any `COLOR_TABLE` player colour, so a shot never reads as somebody's
+ * car paint — the basic attack rows are the deliberate exception, all nine sharing one dark colour
+ * on purpose (BA7), since a basic attack is meant to read as the same weapon regardless of chassis.
  *
  * `damage` is what the weapon deals from a chassis at `COMBAT_CONFIG.attackBaseline` — an *average*
  * car, not every car. `damageFor` (`sim/damage.ts`) moves it +/-50% with the firing chassis's
  * `attack` rating.
  *
- * This is the nine-row roster from the 2026-09-01 weapon-status overhaul (O1-O17): `fireball`,
+ * This is the ten-ability roster from the 2026-09-01 weapon-status overhaul (O1-O17) — `fireball`,
  * `needler`, `skewer` and `bulwark` are retired outright, their comment history living in git
- * rather than here. See
- * `docs/superpowers/specs/2026-08-29-weapon-roster-design.md` for the original roster rules and
+ * rather than here — plus the nine `basic-attack-<carId>` rows every chassis carries beside its kit
+ * (BA1-BA38). See
+ * `docs/superpowers/specs/2026-08-29-weapon-roster-design.md` for the original roster rules,
  * `docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md` for the
- * type triangle these numbers now serve.
+ * type triangle these numbers now serve, and
+ * `docs/superpowers/specs/2026-09-17-basic-attack-design.md` for the basic attack.
  */
 export const WEAPON_TABLE = {
   /**
@@ -512,6 +551,20 @@ export const WEAPON_TABLE = {
       { statusId: "fortified", target: "ownerInside", durationMs: 300 },
     ],
   },
+  // --- Basic attacks: one per chassis, all nine identical today (BA1-BA5) -----------------------
+  //
+  // Written out rather than spread in from a generated object: this table is
+  // `as const satisfies Record<WeaponId, WeaponDef>` and several call sites depend on a bare index
+  // yielding one specific union member, which a computed spread would collapse to the union.
+  "basic-attack-bullseye": { ...BASIC_ATTACK_BASE, id: "basic-attack-bullseye" },
+  "basic-attack-mirage": { ...BASIC_ATTACK_BASE, id: "basic-attack-mirage" },
+  "basic-attack-bastion": { ...BASIC_ATTACK_BASE, id: "basic-attack-bastion" },
+  "basic-attack-taurus": { ...BASIC_ATTACK_BASE, id: "basic-attack-taurus" },
+  "basic-attack-anvil": { ...BASIC_ATTACK_BASE, id: "basic-attack-anvil" },
+  "basic-attack-prowler": { ...BASIC_ATTACK_BASE, id: "basic-attack-prowler" },
+  "basic-attack-cleaver": { ...BASIC_ATTACK_BASE, id: "basic-attack-cleaver" },
+  "basic-attack-skorpios": { ...BASIC_ATTACK_BASE, id: "basic-attack-skorpios" },
+  "basic-attack-caprico": { ...BASIC_ATTACK_BASE, id: "basic-attack-caprico" },
 } as const satisfies Record<WeaponId, WeaponDef>;
 
 /**

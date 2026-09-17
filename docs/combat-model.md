@@ -383,7 +383,7 @@ banner reads it as self-inflicted, exactly as an environment death should.
 
 Every car carries an ordered list of weapons, `CAR_TABLE[car].weapons` — index 0 is slot 1, and
 order *is* the slot mapping, so a chassis's whole identity (speed, attack, hp, guns) lives in one
-table row. `WEAPON_SLOT_CONFIG.maxWeaponSlots` (3) caps how many slots any chassis may present; a
+table row. `WEAPON_SLOT_CONFIG.maxAbilitySlots` (3) caps how many slots any chassis may present; a
 car listing more logs one `console.warn` naming the car and truncates the extras, never a thrown
 error or a failed test. Today's roster ships three exclusive kits, one per chassis, redistributed on
 2026-08-30 and then re-authored outright by the 2026-09-01 weapon-status overhaul so each kit serves
@@ -429,7 +429,7 @@ on the server, not the client, because a hand-rolled client could otherwise puls
 back auto-fire — and the weapon cooldown still bounds the rate on top of it.
 
 `InputMessage.fireSlots` is a **uint8 bitmask** (bit 0 = slot 1), the successor to the old single
-`fire: boolean`. The server masks it to `maxWeaponSlots` bits and to the car's actual slot count
+`fire: boolean`. The server masks it to `maxAbilitySlots` bits and to the car's actual slot count
 before the sim ever sees it, so a hand-rolled client cannot fire a slot it does not own. Multiple
 bits set on the same tick resolve to the **lowest** slot. Each slot's key binding is client-only
 (`config/slot-keys.ts`) — the server never sees a key, only an index — so rebinding a key is a local
@@ -508,6 +508,39 @@ unlocked; no shipped weapon has that shape today (every row's `cooldownMs` excee
 `refireDelayMs` lives only inside `stock` (below), because for a single-stock weapon the next shot
 is already gated by the recharge — any value below `cooldownMs` would do nothing and any value above
 it could have been a `cooldownMs` edit, so the field is not even writable outside `stock`.
+
+### Basic attack
+
+Every car carries a fourth weapon that is not in `weapons` at all: `CarDef.basicAttack`, a single
+`WeaponId` field sitting **beside** the three-weapon kit rather than inside it
+(`basicAttackOf(carId)` is its accessor). Nine `basic-attack-<carId>` rows in `WEAPON_TABLE`, all
+nine identical, all spread from one `BASIC_ATTACK_BASE` — 20 damage, 800 ms cooldown, 900 u/s,
+960-unit range, a 12-unit circle hitbox, `#101014`. It carries no `applies`, no `impulse` and no
+`explosion`: a plain, unlimited-ammo poke, not a mechanic.
+
+`fireSlotsOf(carId)` is the kit plus the basic attack, in that order — `[...slotsOf(carId),
+basicAttackOf(carId)]` — so **the basic attack is always fire slot 3**, one past the three ability
+indices `slotsOf` and `weapons` still mean on their own. Its binding is `H` on keyboard and left
+mouse button on the mouse hand; the three abilities shifted to make room, to `J`/right mouse button,
+`K`/SHIFT and `L`/SPACE.
+
+It fires through the **same** fire state machine described above — spent, recharged, refire-locked
+and switch-locked by exactly the code every other weapon runs — and authors `recoveryMs: 0`, so
+firing it never locks an ability out. The one place it loses is a same-tick tie: `beginFire` takes
+the lowest set bit the car can fire, and slot 3 is the highest index, so pressing an ability and the
+basic attack on one input fires the ability and drops the basic-attack press, exactly like any other
+press this game has ever refused. An ability's own `recoveryMs` briefly blocks it right back, for the
+same reason — `switchLockUntilTick` does not care which slot is locking which.
+
+**It never reaches the HUD's weapon panel, and that is a decision, not the three-slot truncation
+you'd get from listing a fourth entry in `weapons`.** `slotsOf`/`weapons` cap a chassis's KIT at
+`WEAPON_SLOT_CONFIG.maxAbilitySlots` (3) and would silently drop and warn about a fourth entry
+listed there — but the basic attack was never *in* `weapons` to be dropped. It is a separate field
+that only `fireSlotsOf`'s three named readers (the sim's fire state, the balance harness's per-weapon
+seeding, and `npm run ttk`) ever read alongside the kit; the HUD, the players' guide, the playground's
+loadout picker and everything else that draws or lists "this chassis's weapons" keeps calling
+`slotsOf` and keeps seeing three. Its binding is taught only in the countdown action hint, which is
+the one place the "a binding nobody printed breaks quietly" controls rule is knowingly bent.
 
 ### Stocks
 
@@ -751,7 +784,7 @@ a cone `angleDeg` strictly inside 0–180 and the `color` rules above. A row tha
 suite immediately rather than misbehaving at run time.
 
 **3. Give it to a car.** Add the id to that chassis's `weapons` array in `CAR_TABLE` — array index
-is the slot index, and `maxWeaponSlots` (3) is the cap. A weapon in the table that no car carries is
+is the slot index, and `maxAbilitySlots` (3) is the cap. A weapon in the table that no car carries is
 inert but legal — `tremor` is the shipped example, authored in full but assigned to nobody while its
 loadout decision is pending. `weapon-slots.test.ts` names the deliberately-uncarried set, so an id
 accidentally dropped from a kit still fails while a conscious "not yet" passes.

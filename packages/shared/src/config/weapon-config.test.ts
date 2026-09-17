@@ -69,17 +69,55 @@ describe("WEAPON_TABLE", () => {
     }
   });
 
-  it("gives every weapon its own `#RRGGBB` colour, and never a player's", () => {
+  it("carries nineteen weapons — ten authored rows plus one basic attack per chassis", () => {
+    const rows = Object.values(WEAPON_TABLE);
+    expect(rows).toHaveLength(19);
+    const basics = rows.filter((def) => def.id.startsWith("basic-attack-"));
+    expect(basics).toHaveLength(Object.keys(CAR_TABLE).length);
+  });
+
+  it("gives every ABILITY weapon its own `#RRGGBB` colour, one shared colour to the basic attacks, and never a player's", () => {
     const rows: WeaponDef[] = Object.values(WEAPON_TABLE);
     const colors = rows.map((def) => def.color.toUpperCase());
     for (const color of colors) expect(color).toMatch(/^#[0-9A-F]{6}$/);
-    // Unique per weapon: the colour is the only thing telling two shots apart on screen, since
-    // every instance draws as a plain filled hitbox.
-    expect(new Set(colors).size).toBe(rows.length);
+
+    // Uniqueness is about telling two WEAPONS apart on screen, since every instance draws as a
+    // plain filled hitbox. The nine basic attacks are one weapon wearing nine ids — a player must
+    // not be able to tell Mirage's bolt from Bastion's — so they share one colour on purpose, and
+    // this asserts BOTH halves rather than loosening the rule (BA7).
+    const abilities = rows.filter((def) => !def.id.startsWith("basic-attack-"));
+    const basics = rows.filter((def) => def.id.startsWith("basic-attack-"));
+    const abilityColors = abilities.map((def) => def.color.toUpperCase());
+    expect(new Set(abilityColors).size).toBe(abilities.length);
+    expect(new Set(basics.map((def) => def.color.toUpperCase())).size).toBe(1);
+    expect(abilityColors).not.toContain(basics[0]!.color.toUpperCase());
+
     // And never a player colour. A shot is not owner-coloured, so one wearing a player's paint
     // would claim an identity it does not carry.
     const players = new Set(COLOR_TABLE.map((c) => c.hex.toUpperCase()));
     for (const color of colors) expect(players.has(color)).toBe(false);
+  });
+
+  it("keeps every basic attack identical, boring, and mechanic-free (BA3, BA34)", () => {
+    const basics = Object.values(WEAPON_TABLE).filter((def) => def.id.startsWith("basic-attack-"));
+    for (const def of basics) {
+      expect(def.kind, def.id).toBe("projectile");
+      expect(def.applies, def.id).toBeUndefined();
+      expect(def.impulse, def.id).toBeUndefined();
+      expect(def.stock, def.id).toBeUndefined();
+      expect(def.muzzles, def.id).toBeUndefined();
+      if (def.kind === "projectile") {
+        expect(def.explosion, def.id).toBeUndefined();
+        expect(def.homing, def.id).toBeUndefined();
+        expect(def.pierce, def.id).toBe(0);
+      }
+      // Every row carries the same numbers as every other. A later per-car balance pass is
+      // expected to break this test deliberately, one field at a time (spec section 10).
+      expect(
+        { damage: def.damage, cooldownMs: def.cooldownMs, speed: def.speed, range: def.range },
+        def.id,
+      ).toEqual({ damage: 20, cooldownMs: 800, speed: 900, range: 960 });
+    }
   });
 
   it("rejects prototype names as weapon ids", () => {
@@ -233,12 +271,6 @@ describe("WEAPON_TABLE", () => {
     // one more tick of `lifetimeMs` would even it out. Documented in the row's comment.
     expect(pulsesFrom(ticks.flight)).toBe(3);
     expect(pulsesFrom(ticks.flight) * lance.damage).toBe(129);
-  });
-
-  it("carries ten weapons — nine on the roster plus the unassigned tremor — every one a different colour", () => {
-    const rows = Object.values(WEAPON_TABLE);
-    expect(rows).toHaveLength(10);
-    expect(new Set(rows.map((def) => def.color.toUpperCase())).size).toBe(10);
   });
 
   it("puts ownerInside applications on beams only — a zone is a place to stand", () => {

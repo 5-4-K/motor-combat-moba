@@ -18,8 +18,13 @@ function idle(state: FireState, from: number, ticks: number): FireState {
 describe("slots", () => {
   it("starts with one stock in every slot", () => {
     const state = fresh();
-    expect(state.slots).toHaveLength(3);
-    expect(state.slots.map((s) => s.weaponId)).toEqual(["predator", "pepperbox", "lance"]);
+    expect(state.slots).toHaveLength(4);
+    expect(state.slots.map((s) => s.weaponId)).toEqual([
+      "predator",
+      "pepperbox",
+      "lance",
+      "basic-attack-bullseye",
+    ]);
     expect(state.slots.every((s) => s.stocks === 1)).toBe(true);
   });
 
@@ -29,7 +34,12 @@ describe("slots", () => {
 
   it("takes an explicit weaponIds loadout in place of the roster's, for the playground (PG13)", () => {
     const state = newFireState("mirage", 1, ["lance", "pepperbox", "thumper"]);
-    expect(state.slots.map((s) => s.weaponId)).toEqual(["lance", "pepperbox", "thumper"]);
+    expect(state.slots.map((s) => s.weaponId)).toEqual([
+      "lance",
+      "pepperbox",
+      "thumper",
+      "basic-attack-mirage",
+    ]);
   });
 
   it("falls back to the roster's slots when weaponIds is omitted, matching a plain call", () => {
@@ -381,5 +391,58 @@ describe("beginFire pressId (B7)", () => {
     const a = beginFire("p1", newFireState("mirage", 1), 0b1, 10);
     const b = beginFire("p1", newFireState("mirage", 1), 0b1, 11);
     expect(a.pending?.pressId).not.toBe(b.pending?.pressId);
+  });
+});
+
+describe("the basic attack slot", () => {
+  it("sits last in the fire state, behind an unmoved kit (BA13)", () => {
+    const state = newFireState("bastion", 1);
+    expect(state.slots.map((s) => s.weaponId)).toEqual([
+      "thumper",
+      "roadblock",
+      "wildcharge",
+      "basic-attack-bastion",
+    ]);
+  });
+
+  it("fires on bit 3", () => {
+    const fired = beginFire("p1", newFireState("bastion", 1), 1 << 3, 0);
+    expect(fired.pending?.weaponId).toBe("basic-attack-bastion");
+    expect(fired.pending?.slot).toBe(3);
+  });
+
+  it("loses a same-tick tie to an ability, because the lowest usable bit wins (BA21)", () => {
+    const fired = beginFire("p1", newFireState("bastion", 1), (1 << 0) | (1 << 3), 0);
+    expect(fired.pending?.weaponId).toBe("thumper");
+  });
+
+  it("rides an explicit playground loadout too, and is not overridable by it (BA14)", () => {
+    const state = newFireState("mirage", 1, ["predator", "lance", "thumper"]);
+    expect(state.slots.map((s) => s.weaponId)).toEqual([
+      "predator",
+      "lance",
+      "thumper",
+      "basic-attack-mirage",
+    ]);
+  });
+
+  it("leaves no switch lock behind, so pressing it never locks an ability out (BA20)", () => {
+    const pressed = beginFire("p1", newFireState("bastion", 1), 1 << 3, 0);
+    const { state } = releaseShots(pressed, 0);
+    expect(state.switchLockUntilTick).toBe(0);
+  });
+
+  it("is blocked by an ability's own recovery, because the lock is not per slot (BA22)", () => {
+    // `afterburner` authors `recoveryMs: 200` == 6 ticks at 30 Hz. This is the shared machinery
+    // doing its job, not a bug: a future reader tempted to carve the basic attack out of the switch
+    // lock should change the spec first, because that carve-out is a second press pipeline (BA22).
+    const pressed = beginFire("p1", newFireState("mirage", 1), 1 << 2, 0);
+    const { state } = releaseShots(pressed, 0);
+    expect(state.switchLockUntilTick).toBeGreaterThan(0);
+    expect(beginFire("p1", state, 1 << 3, 1).pending).toBeNull();
+    // ...and it is free again the moment that recovery lapses.
+    expect(beginFire("p1", state, 1 << 3, state.switchLockUntilTick).pending?.weaponId).toBe(
+      "basic-attack-mirage",
+    );
   });
 });

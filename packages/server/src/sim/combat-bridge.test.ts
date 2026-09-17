@@ -133,7 +133,12 @@ describe("toCombatPlayers", () => {
     const memory = newCombatMemory();
 
     const players = toCombatPlayers(state, new Set(["aaa"]), new Map([["aaa", 0b001]]), memory);
-    expect(players[0]!.fireState.slots.map((s) => s.weaponId)).toEqual(["magmablast", "thunderclap", "afterburner"]);
+    expect(players[0]!.fireState.slots.map((s) => s.weaponId)).toEqual([
+      "magmablast",
+      "thunderclap",
+      "afterburner",
+      "basic-attack-mirage",
+    ]);
     expect(players[0]!.fireMask).toBe(0b001);
   });
 
@@ -192,7 +197,12 @@ describe("toCombatPlayers", () => {
 
     player.carId = "mirage";
     const afterReveal = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
-    expect(afterReveal.slots.map((s) => s.weaponId)).toEqual(["magmablast", "thunderclap", "afterburner"]);
+    expect(afterReveal.slots.map((s) => s.weaponId)).toEqual([
+      "magmablast",
+      "thunderclap",
+      "afterburner",
+      "basic-attack-mirage",
+    ]);
   });
 });
 
@@ -204,10 +214,25 @@ describe("explicit loadouts", () => {
   const CUSTOM: readonly WeaponId[] = ["lance", "thumper", "magmablast"];
 
   it("loadoutFor prefers the explicit list and falls back to the chassis kit", () => {
-    expect(loadoutFor("mirage", CUSTOM)).toEqual(["lance", "thumper", "magmablast"]);
-    expect(loadoutFor("mirage", undefined)).toEqual(slotsOf("mirage"));
+    expect(loadoutFor("mirage", CUSTOM)).toEqual(["lance", "thumper", "magmablast", "basic-attack-mirage"]);
+    expect(loadoutFor("mirage", undefined)).toEqual([...slotsOf("mirage"), "basic-attack-mirage"]);
     // The empty-carId fallback the pre-reveal path relies on is unchanged.
     expect(loadoutFor("", undefined)).toEqual([]);
+  });
+
+  it("resolves a loadout as the kit plus the chassis's basic attack (BA14)", () => {
+    expect(loadoutFor("bastion", undefined)).toEqual([
+      "thumper",
+      "roadblock",
+      "wildcharge",
+      "basic-attack-bastion",
+    ]);
+    expect(loadoutFor("mirage", ["predator", "lance", "thumper"])).toEqual([
+      "predator",
+      "lance",
+      "thumper",
+      "basic-attack-mirage",
+    ]);
   });
 
   it("builds a fire state from the explicit loadout rather than the chassis kit", () => {
@@ -217,7 +242,12 @@ describe("explicit loadouts", () => {
     memory.loadouts.set("aaa", CUSTOM);
 
     const fireState = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
-    expect(fireState.slots.map((s) => s.weaponId)).toEqual(["lance", "thumper", "magmablast"]);
+    expect(fireState.slots.map((s) => s.weaponId)).toEqual([
+      "lance",
+      "thumper",
+      "magmablast",
+      "basic-attack-mirage",
+    ]);
   });
 
   it("does not call a fire state stale while it matches the explicit loadout, so it survives a tick", () => {
@@ -233,7 +263,12 @@ describe("explicit loadouts", () => {
     memory.fireStates.set("aaa", { ...first, switchLockUntilTick: 77 });
 
     const second = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
-    expect(second.slots.map((s) => s.weaponId)).toEqual(["lance", "thumper", "magmablast"]);
+    expect(second.slots.map((s) => s.weaponId)).toEqual([
+      "lance",
+      "thumper",
+      "magmablast",
+      "basic-attack-mirage",
+    ]);
     expect(second.switchLockUntilTick).toBe(77); // reused, not rebuilt
   });
 
@@ -262,6 +297,7 @@ describe("explicit loadouts", () => {
       "lance",
       "thumper",
       "magmablast",
+      "basic-attack-mirage",
     ]);
     // And the rest of the respawn is unchanged: full hp for the chassis, back on the field.
     expect(player.hp).toBe(hpOf("mirage"));
@@ -379,10 +415,11 @@ describe("applyCombatResult", () => {
       memory,
     );
     const player = state.players.get("aaa")!;
-    expect(player.weapons.length).toBe(3);
+    expect(player.weapons.length).toBe(4);
     expect(player.weapons.at(0)!.weaponId).toBe("magmablast");
     expect(player.weapons.at(1)!.weaponId).toBe("thunderclap");
     expect(player.weapons.at(2)!.weaponId).toBe("afterburner");
+    expect(player.weapons.at(3)!.weaponId).toBe("basic-attack-mirage");
     expect(player.weapons.at(0)!.stocks).toBe(1);
   });
 
@@ -417,13 +454,13 @@ describe("applyCombatResult", () => {
   });
 
   it("resizes the slot array down when a rebuilt fire state has fewer slots", () => {
-    // Every chassis now carries the same three-slot kit size, so no pair of real chassis differs in
-    // slot count -- the only real transition that shrinks the array is the reveal in reverse (a real
-    // chassis losing its car, i.e. `carId` going back to ""), which is what this drives. That still
-    // exercises the exact mechanism under test: `writeSlots`'s `while (weapons.length >
-    // fireState.slots.length) weapons.pop()` loop does not special-case a zero target, it just pops
-    // until the lengths match, so shrinking 3 -> 0 pops three times and proves the loop actually
-    // loops, which the old single-pop 1 -> 0 case did not.
+    // Every chassis now carries the same three-slot kit plus its basic attack, so no pair of real
+    // chassis differs in slot count -- the only real transition that shrinks the array is the reveal
+    // in reverse (a real chassis losing its car, i.e. `carId` going back to ""), which is what this
+    // drives. That still exercises the exact mechanism under test: `writeSlots`'s `while
+    // (weapons.length > fireState.slots.length) weapons.pop()` loop does not special-case a zero
+    // target, it just pops until the lengths match, so shrinking 4 -> 0 pops four times and proves
+    // the loop actually loops, which the old single-pop 1 -> 0 case did not.
     const state = new ArenaState();
     const player = playerIn(state, "a");
     const memory = newCombatMemory();
@@ -432,7 +469,7 @@ describe("applyCombatResult", () => {
       result({ players: [combatPlayerFor(player, { fireState: newFireState("mirage", 1) })] }),
       memory,
     );
-    expect(player.weapons.length).toBe(3);
+    expect(player.weapons.length).toBe(4);
 
     applyCombatResult(
       state,

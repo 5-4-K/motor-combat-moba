@@ -20,7 +20,7 @@
 import {
   CAR_TABLE,
   TICK_RATE_HZ,
-  slotsOf,
+  fireSlotsOf,
   type CarId,
   type DamagedEvent,
   type StatusId,
@@ -223,7 +223,10 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
   const weaponKills = new Map<WeaponId, number>();
   const weaponFirstUseSeconds = new Map<WeaponId, number[]>();
   for (const carId of carIds) {
-    for (const weaponId of slotsOf(carId)) {
+    // `fireSlotsOf`, not `slotsOf` (BA30): the bots press the basic attack, and a weapon nobody
+    // seeded accumulates into maps that `weaponCarOf.entries()` never reads — silently absent from
+    // the report, which is the exact failure this up-front seeding exists to prevent.
+    for (const weaponId of fireSlotsOf(carId)) {
       weaponCarOf.set(weaponId, carId);
       weaponPresses.set(weaponId, 0);
       weaponConnecting.set(weaponId, 0);

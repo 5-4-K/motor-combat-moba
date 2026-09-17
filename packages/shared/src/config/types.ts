@@ -65,6 +65,20 @@ export interface CarDef {
   brakeDecel: number;
   /** Ordered loadout: index 0 is slot 1. Order IS the slot mapping. */
   weapons: readonly WeaponId[];
+  /**
+   * This chassis's basic attack (BA9) — the fourth weapon it always carries, fired from its own
+   * input and never drawn in the HUD slot bar.
+   *
+   * Deliberately NOT a fourth entry in `weapons`. That field means "the three-weapon kit this
+   * chassis was designed around", and roughly fifteen readers depend on it meaning exactly that:
+   * the HUD, the guide, the playground's loadout editor, the balance harness's armed filter, ttk's
+   * attacker axis, the bot's reach model. `fireSlotsOf` is where the two are joined, and its
+   * readers are named in `weapon-slots.ts`.
+   *
+   * Required on every row, including the unreleased prototypes: a chassis that cannot shoot cannot
+   * be judged in the playground, and `isActive: true` stays a one-field change.
+   */
+  basicAttack: WeaponId;
   /** Selectable in real matches. The playground ignores this — that is how a car is tested before release (spec PG18). */
   isActive: boolean;
 }

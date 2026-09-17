@@ -1,5 +1,5 @@
 import type { CarId, PlaygroundSetup, TunableField, TuningValue, WeaponId } from "@motor-combat-moba/shared";
-import { ARENAS, CAR_TABLE, WEAPON_TABLE, slotsOf, tunableFields } from "@motor-combat-moba/shared";
+import { ARENAS, CAR_TABLE, WEAPON_TABLE, basicAttackOf, slotsOf, tunableFields } from "@motor-combat-moba/shared";
 import { CAR_EVENT_IDS, type CarEventId } from "../../fx/table.js";
 
 /**
@@ -89,9 +89,15 @@ export function carOptions(): { id: CarId; name: string }[] {
   return Object.values(CAR_TABLE).map((row) => ({ id: row.id, name: row.name }));
 }
 
-/** Every weapon row, for the six loadout `<select>`s. */
+/**
+ * The weapons a playground seat may be given. ABILITY rows only (BA37): the basic attack is a
+ * property of the chassis, not of the loadout, so it is never picked — `newFireState` appends the
+ * driven car's own.
+ */
 export function weaponOptions(): { id: WeaponId; name: string }[] {
-  return Object.values(WEAPON_TABLE).map((row) => ({ id: row.id, name: row.name }));
+  return Object.values(WEAPON_TABLE)
+    .filter((row) => !row.id.startsWith("basic-attack-"))
+    .map((row) => ({ id: row.id, name: row.name }));
 }
 
 /** How each `CarEventId` reads in the VFX panel's weapon/subject select. */
@@ -164,12 +170,22 @@ export function statsTabs(setup: PlaygroundSetup): StatsTab[] {
     if (carFields.length > 0) carGroups.push({ title: CAR_TABLE[carId].name, fields: carFields });
   }
 
-  const weaponIds = [...new Set(seats.flatMap((car) => car.weapons))];
+  // Each seat's three abilities AND its chassis's basic attack (BA38). The panel is built from the
+  // seats' own loadouts rather than from `WEAPON_TABLE`, so a weapon nobody seated has no group —
+  // and a basic attack would have no group at all unless it is added here, which would leave BA36's
+  // expected retune with no knob to reach for.
+  const weaponIds = [
+    ...new Set(seats.flatMap((car) => [...car.weapons, basicAttackOf(car.carId)])),
+  ];
   const weaponGroups: StatsGroup[] = [];
   for (const weaponId of weaponIds) {
     const weaponFields = fields.filter((f) => f.group === "weapon" && f.ownerId === weaponId);
     if (weaponFields.length > 0) {
-      weaponGroups.push({ title: WEAPON_TABLE[weaponId].name, fields: weaponFields });
+      // Nine rows share the name "Basic Attack" (BA5), so a shared name falls back to the id — the
+      // smallest fix, and one that needs no second name field on `WEAPON_TABLE`.
+      const name = WEAPON_TABLE[weaponId].name;
+      const shared = Object.values(WEAPON_TABLE).filter((row) => row.name === name).length > 1;
+      weaponGroups.push({ title: shared ? weaponId : name, fields: weaponFields });
     }
   }
 

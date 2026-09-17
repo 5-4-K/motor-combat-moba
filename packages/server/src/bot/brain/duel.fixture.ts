@@ -39,8 +39,8 @@
  * the `FiredEvent`s combat actually committed. No field ever changes meaning between modes.
  */
 import {
-  NEUTRAL_MODIFIERS, TICK_RATE_HZ, boundsOf, driveOf, expireStatuses, hasStatus, hpOf,
-  newCombatEvents, newFireState, runCombat, slotsOf, stepDrive, weaponDamageOf,
+  NEUTRAL_MODIFIERS, TICK_RATE_HZ, boundsOf, driveOf, expireStatuses, fireSlotsOf, hasStatus, hpOf,
+  newCombatEvents, newFireState, runCombat, stepDrive, weaponDamageOf,
   weaponDefOf, type CarId, type CombatEvents, type CombatPlayer, type SimBody, type WeaponInstance,
 } from "@motor-combat-moba/shared";
 import type { BotCarView, BotInstanceView, BotSlotView, BotView } from "../types.js";
@@ -117,7 +117,7 @@ export interface DuelResult {
  */
 export function bestSustainedDpsOf(carId: CarId): number {
   let best = 0;
-  for (const weaponId of slotsOf(carId)) {
+  for (const weaponId of fireSlotsOf(carId)) {
     const def = weaponDefOf(weaponId);
     const pellets = def.kind === "projectile" ? def.pellets.pelletsPerVolley : 1;
     best = Math.max(best, (weaponDamageOf(carId, weaponId) * pellets) / (def.cooldownMs / 1000));
@@ -142,7 +142,7 @@ export function bestSustainedDpsOf(carId: CarId): number {
 export function pressCeilingOf(carId: CarId, ticks: number, burstGapTicks: number): number {
   const seconds = ticks / TICK_RATE_HZ;
   let fromCooldowns = 0;
-  for (const weaponId of slotsOf(carId)) fromCooldowns += seconds / (weaponDefOf(weaponId).cooldownMs / 1000);
+  for (const weaponId of fireSlotsOf(carId)) fromCooldowns += seconds / (weaponDefOf(weaponId).cooldownMs / 1000);
   return Math.min(ticks / burstGapTicks, fromCooldowns);
 }
 

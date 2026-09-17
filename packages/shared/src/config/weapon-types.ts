@@ -1,7 +1,8 @@
+import type { CarId } from "./types.js";
 import type { StatusId } from "./status-types.js";
 
-/** Every weapon in the game. Add an id here and a row in `WEAPON_TABLE`. */
-export type WeaponId =
+/** Every ABILITY weapon in the game. Add an id here and a row in `WEAPON_TABLE`. */
+export type AbilityWeaponId =
   | "magmablast"
   | "pepperbox"
   | "lance"
@@ -12,6 +13,23 @@ export type WeaponId =
   | "roadblock"
   | "wildcharge"
   | "tremor";
+
+/**
+ * Every chassis's basic attack (BA1) — the fourth weapon every car carries, fired from its own
+ * input and never drawn in the HUD slot bar.
+ *
+ * Derived from `CarId` rather than listed, so `Record<WeaponId, WeaponDef>` refuses to compile the
+ * day a tenth chassis is authored without one. Nine ids rather than one shared row because they are
+ * expected to diverge per chassis later; until then every row spreads one base (`BASIC_ATTACK_BASE`)
+ * and `weapon-config.test.ts` holds them identical.
+ *
+ * The `import type { CarId }` above closes a TYPE-ONLY cycle with `types.ts` (which imports
+ * `WeaponId` from here). Both are erased at compile time, so no runtime import is emitted and there
+ * is no module cycle to resolve.
+ */
+export type BasicAttackId = `basic-attack-${CarId}`;
+
+export type WeaponId = AbilityWeaponId | BasicAttackId;
 
 /**
  * Optional charge system. Absent means single-stock, which is exactly the pre-weapon-system

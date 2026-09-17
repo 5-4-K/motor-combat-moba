@@ -796,10 +796,15 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // term out of `punish`/`fight`/`close`/`reset`. MAJOR, not minor: `BOT_PROFILES` again did not move,
 // but this is the largest single change to what the pilot values since the situation brain shipped,
 // and no `--baseline` comparison across it is meaningful.
-// 5.1.0 (2026-09-17): the merge of the two above. 4.7.0 (the 60x40 hull margins) and 5.0.0 (the
-// lock removal) were cut on separate branches, so no pilot ran with both until this line; a
-// `--baseline` comparison against a 5.0.0 report compares a 48x32-hull brain with this one.
-export const BOT_BRAIN_VERSION = "5.1.0";
+// 5.1.0 WAS CUT TWICE, on two parallel lines off 5.0.0, and names two different pilots:
+// 5.1.0 (2026-09-17, bigger cars): the merge of the two above. 4.7.0 (the 60x40 hull margins) and
+// 5.0.0 (the lock removal) were cut on separate branches, so no pilot ran with both until this line;
+// a `--baseline` comparison against a 5.0.0 report compares a 48x32-hull brain with this one.
+// 5.1.0 (2026-09-17, basic attack): the basic attack (BA24) — a fourth per-slot weight moved every
+// bot's RNG stream.
+// 5.2.0 (2026-09-17): the merge of both 5.1.0 lines — the 60x40 hull and the basic attack together.
+// A 5.1.0 report from either line is not comparable with this one, which is why the string moved.
+export const BOT_BRAIN_VERSION = "5.2.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency
