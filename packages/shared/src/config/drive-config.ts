@@ -1,3 +1,5 @@
+import { TICK_RATE_HZ } from "../constants.js";
+
 /**
  * Arcade drive tuning. Every value here is read by `stepSim`, so server tick and client prediction
  * both depend on them agreeing — these are networked balance, not render preferences.
@@ -32,6 +34,18 @@
  * fails that test until the page is updated with it. Its "Keeping this page honest" section carries
  * the field list and a snippet that prints the new values.
  */
+
+/**
+ * A per-second decay rate as the factor one tick multiplies by: `exp(-rate / TICK_RATE_HZ)`.
+ *
+ * Every rate in the Unity drive model is authored per SECOND and converted here exactly once, which
+ * is what makes the model tick-rate independent (U7): raising `TICK_RATE_HZ` re-derives every factor
+ * and changes no behaviour. Never type a per-tick number into config.
+ */
+export function perTickDecay(ratePerSecond: number): number {
+  return Math.exp(-ratePerSecond / TICK_RATE_HZ);
+}
+
 export const DRIVE_CONFIG = {
   /**
    * Halved from 180 together with `speedPerRating` (4.5 -> 2.25) on 2026-09-01 — a roster-wide 50%
@@ -223,6 +237,41 @@ export const DRIVE_CONFIG = {
    * bigger knocks is reaching for the wrong knob and makes every wall graze feel rubbery.
    */
   restitution: 0.15,
+  /**
+   * Velocity decay rate at `accel` rating 0, in 1/s. Unity's `DriveConfig.linearDrag` (1.0).
+   *
+   * THIS ONE NUMBER SETS THREE THINGS at once, which is the whole content of the Unity model (U4):
+   * top speed (`engineAccel / dragRate`), the time constant of the wind-up, and how far the car
+   * rolls off the throttle. A car cannot launch quickly and roll a long way.
+   */
+  baseDrag: 0.768,
+  /** Added drag per point of `accel` rating, 1/s. Anchored so rating 85 reaches ~90% of top speed in ~1.8 s. */
+  dragPerRating: 0.00608,
+  /**
+   * How fast sideways velocity bleeds off, 1/s. Unity's `DriveConfig.lateralGripStrength` (6.0).
+   *
+   * Global rather than per-car (U10). The steady-state slip angle while holding full lock is
+   * `atan(turnRate / lateralGripRate)` at ANY speed, so this is the drift knob: lower drifts more,
+   * and 0 is a hockey puck. 3.0 gives ~35° at the sharpest turn on the roster — a real drift, looser
+   * than Unity's grippy 6.0.
+   *
+   * **This rate is the DRIVER's drift only.** How long an IMPOSED shove carries a victim is the
+   * `grip` status multiplier on `reeling` (spec §5), because one number could not answer both
+   * questions once the base rate came down this far.
+   */
+  lateralGripRate: 3.0,
+  /**
+   * Forward speed below which Down reverses instead of braking, u/s. Unity's
+   * `DriveConfig.reverseEpsilon` (0.5 m/s). It is also the threshold the steering flip reads, which
+   * is why there is one of it and not two.
+   */
+  reverseEpsilon: 6.0,
+  /**
+   * Invert the steering sense while genuinely travelling backwards, the way a real car behaves.
+   * Unity's `DriveConfig.flipSteeringInReverse`. Off gives tank-style absolute steering. Turning on
+   * the spot is unaffected either way, because the flip needs `forwardSpeed < -reverseEpsilon`.
+   */
+  flipSteeringInReverse: true,
 } as const;
 
 /**

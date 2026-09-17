@@ -20,7 +20,7 @@ import {
 import type { CarId } from "./types.js";
 import { COLOR_TABLE } from "./color-config.js";
 import { COMBAT_CONFIG } from "./combat-config.js";
-import { CAMERA_CONFIG, DRIVE_CONFIG } from "./drive-config.js";
+import { CAMERA_CONFIG, DRIVE_CONFIG, perTickDecay } from "./drive-config.js";
 import { FLOW_CONFIG } from "./flow-config.js";
 import { NET_CONFIG } from "./net-config.js";
 import { RAM_CONFIG } from "./ram-config.js";
@@ -429,4 +429,22 @@ describe("ram ratings", () => {
     expect(RAM_CONFIG.defencePushScale).toBeGreaterThan(0);
     expect(RAM_CONFIG.globalScale).toBeGreaterThan(0);
   });
+});
+
+describe("the Unity drive knobs", () => {
+  it("turns a per-second rate into a per-tick factor", () => {
+    expect(perTickDecay(0)).toBe(1);
+    // A rate of ln(2) per second halves in exactly one second, whatever the tick rate is.
+    const oneSecond = perTickDecay(Math.LN2) ** TICK_RATE_HZ;
+    expect(oneSecond).toBeCloseTo(0.5, 12);
+  });
+
+  it("authors drag, grip and the reverse threshold as per-second rates", () => {
+    expect(DRIVE_CONFIG.baseDrag).toBeGreaterThan(0);
+    expect(DRIVE_CONFIG.dragPerRating).toBeGreaterThan(0);
+    expect(DRIVE_CONFIG.lateralGripRate).toBeGreaterThan(0);
+    expect(DRIVE_CONFIG.reverseEpsilon).toBeGreaterThan(DRIVE_CONFIG.stopEpsilon);
+    expect(DRIVE_CONFIG.flipSteeringInReverse).toBe(true);
+  });
+
 });
