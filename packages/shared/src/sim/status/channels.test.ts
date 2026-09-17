@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ChassisDrive } from "../../config/car-config.js";
 import { ramDefenceOf } from "../../config/car-config.js";
 import { DRIVE_CONFIG } from "../../config/drive-config.js";
-import { STATUS_TABLE } from "../../config/status-config.js";
+import { STATUS_LIMITS, STATUS_TABLE } from "../../config/status-config.js";
 import type { CarId } from "../../config/types.js";
 import { scaleTicks, weaponTicksOf } from "../../config/weapon-ticks.js";
 import { MS_PER_TICK } from "../../constants.js";
@@ -15,7 +15,7 @@ import type { SimBody } from "../step.js";
 import { newFireState, releaseShots, tickRecharge } from "../weapons/fire.js";
 import { spawnInstances } from "../weapons/instances.js";
 import { forwardOf, lateralOf } from "../velocity.js";
-import { NEUTRAL_MODIFIERS, type Modifiers } from "./modifiers.js";
+import { modifiersOf, NEUTRAL_MODIFIERS, type Modifiers } from "./modifiers.js";
 
 /**
  * Every channel and flag, proved to reach the sim call site it names.
@@ -355,4 +355,24 @@ describe("the ramDefence channel reaches the ram, both as the victim's solidity 
   // one. That empty-table fact is also what makes stage 3 Task 4's `ramMass` → `ramDefence` rename
   // purely a rename: with no row authoring the channel, `modifiersFor` returns the neutral 1 for
   // every car in the game either way, so nothing the sim reads could move.
+});
+
+describe("the Unity ability flags and the grip channel", () => {
+  it("is neutral on every new modifier for a car in no status", () => {
+    expect(NEUTRAL_MODIFIERS.spinFree).toBe(false);
+    expect(NEUTRAL_MODIFIERS.ramBlocked).toBe(false);
+    expect(NEUTRAL_MODIFIERS.grip).toBe(1);
+  });
+
+  it("leaves them neutral for a row that declares none of them", () => {
+    const mods = modifiersOf([{ statusId: "stunned", startTick: 0, endsTick: 10, sourceSessionId: "" }], 0);
+    expect(mods.spinFree).toBe(false);
+    expect(mods.ramBlocked).toBe(false);
+    expect(mods.grip).toBe(1);
+  });
+
+  it("clamps grip to STATUS_LIMITS, so no stack of debuffs turns a car into a puck", () => {
+    expect(STATUS_LIMITS.grip.min).toBeGreaterThan(0);
+    expect(STATUS_LIMITS.grip.max).toBeGreaterThanOrEqual(1);
+  });
 });

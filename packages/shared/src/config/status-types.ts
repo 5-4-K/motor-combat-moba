@@ -76,7 +76,13 @@ export type StatusChannel =
    * There is deliberately no offence channel (spec R11): a status may make a car harder to move, but
    * never make its rams hit harder.
    */
-  | "ramDefence";
+  | "ramDefence"
+  /**
+   * Scales the lateral grip RATE this car is subject to (spec §5). 1 is the drive config's own rate.
+   * Below 1 a sideways slide lasts longer, which is what a ram's victim gets; 0 would be Unity's
+   * grip-off Reeling, and the `STATUS_LIMITS` floor deliberately keeps it out of reach.
+   */
+  | "grip";
 
 /**
  * Rule switches a status may flip. Booleans, OR-ed across every source: one jam is a jam, and a
@@ -118,7 +124,15 @@ export type StatusFlag =
    * instead of needing a second mechanism here. `damageTaken: 0` was rejected: it clamps to 0.4, and
    * even at zero a shot still connects, consuming pierce and landing its on-hit statuses.
    */
-  | "phased";
+  | "phased"
+  /**
+   * Steering does not write the car's yaw rate, so an injected spin survives and decays on its own.
+   * Unity's `CarAbility.YawHold` blocked. Outside this flag `angVel` IS the steering's yaw rate
+   * (U16), so a spin ends the moment control returns.
+   */
+  | "spinFree"
+  /** This car cannot qualify as a ram attacker. Unity's `CarAbility.Ram` blocked. */
+  | "ramBlocked";
 
 /**
  * What happens when a status that is already running is applied again.

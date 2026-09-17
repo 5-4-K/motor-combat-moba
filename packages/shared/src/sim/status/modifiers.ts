@@ -31,6 +31,20 @@ export interface Modifiers {
   invulnerable: boolean;
   /** Not present in the world: no collision, no ram, no weapon target. See StatusFlag. */
   phased: boolean;
+  /**
+   * Steering does not write the car's yaw rate, so an injected spin survives and decays on its own.
+   * Unity's `CarAbility.YawHold` blocked. Outside this flag `angVel` IS the steering's yaw rate
+   * (U16), so a spin ends the moment control returns.
+   */
+  spinFree: boolean;
+  /** This car cannot qualify as a ram attacker. Unity's `CarAbility.Ram` blocked. */
+  ramBlocked: boolean;
+  /**
+   * Scales the lateral grip RATE this car is subject to (spec §5). 1 is the drive config's own rate.
+   * Below 1 a sideways slide lasts longer, which is what a ram's victim gets; 0 would be Unity's
+   * grip-off Reeling, and the `STATUS_LIMITS` floor deliberately keeps it out of reach.
+   */
+  grip: number;
 }
 
 /**
@@ -57,6 +71,9 @@ export const NEUTRAL_MODIFIERS: Readonly<Modifiers> = Object.freeze({
   fullStop: false,
   invulnerable: false,
   phased: false,
+  spinFree: false,
+  ramBlocked: false,
+  grip: 1,
 });
 
 const CHANNELS = Object.keys(STATUS_LIMITS) as StatusChannel[];
@@ -111,5 +128,7 @@ export function modifiersOf(statuses: readonly ActiveStatus[], tick: number): Mo
   mods.fullStop = flags.has("fullStop");
   mods.invulnerable = flags.has("invulnerable");
   mods.phased = flags.has("phased");
+  mods.spinFree = flags.has("spinFree");
+  mods.ramBlocked = flags.has("ramBlocked");
   return mods;
 }

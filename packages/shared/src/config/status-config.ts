@@ -63,6 +63,7 @@ export const STATUS_LIMITS: Readonly<Record<StatusChannel, { min: number; max: n
     damageTaken: Object.freeze({ min: 0.4, max: 2.5 }),
     weaponCooldown: Object.freeze({ min: 0.4, max: 3 }),
     ramDefence: Object.freeze({ min: 0.5, max: 2 }),
+    grip: Object.freeze({ min: 0.25, max: 2 }),
   });
 
 /**
