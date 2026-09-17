@@ -99,10 +99,14 @@ The never-a-player-colour half of the rule still applies to all nineteen rows.
 
 **BA8. "Shiny black" is authored, not implied.** A weapon with no `WEAPON_GLOW_STYLES` entry draws as
 a flat fill of its `color`, and a flat `#101014` disc on dark asphalt is close to invisible. One
-shared `GlowStyle` — a near-black rim, a lighter core band, and a small off-centre pale specular
-band — is registered for all nine ids from a single authored constant, the same one-source shape the
-table rows use. No halo and no flicker: `magmablast`'s comment about a 12-unit disc's pulsing outline
-reading as a rendering fault applies here exactly.
+shared `GlowStyle` — a near-black rim on the hitbox edge, a dark grey mid band, and a small pale
+core — is registered for all nine ids from a single authored constant, the same one-source shape the
+table rows use. The highlight is a CORE rather than an off-centre specular because a band is a radius
+and not a position: concentric rings are all this renderer has, so the bolt reads as a polished
+sphere lit from inside. The outermost solid band must sit at `radiusScale: 1` — a `combat-visual`
+test holds every style to that, since a band outside the hitbox would draw a silhouette larger than
+the thing that can hurt you. No halo and no flicker: `magmablast`'s comment about a 12-unit disc's
+pulsing outline reading as a rendering fault applies here exactly.
 
 ## 3. The slot model
 
@@ -293,11 +297,14 @@ attacks, one of them another chassis's — and nine entries all reading "Basic A
 unusable anyway. The pickers list ability weapons only. This is the same distinction as BA12 wearing
 a UI hat: the dropdown is choosing a KIT.
 
-**BA38. The playground's tuning panel keeps them, titled by chassis.** `tunableFields` walks
-`WEAPON_TABLE` whole, and live-tuning a basic attack's damage or range in the sandbox is exactly the
-knob this spec's BA36 expects someone to reach for. Nine groups all titled "Basic Attack" are not
-usable, so the group title falls back to the weapon id when two rows share a name — the smallest fix,
-and one that needs no second name field on the table.
+**BA38. The playground's tuning panel gains them per seat, titled by id.** `statsTabs` builds its
+weapons tab from the ENABLED SEATS' own loadouts (`seats.flatMap((car) => car.weapons)`), not from
+`WEAPON_TABLE`, so a basic attack reaches the panel only if it is added — and it should be, because
+live-tuning its damage or range is exactly the knob BA36 expects someone to reach for. Each enabled
+seat contributes `basicAttackOf(car.carId)` alongside its three abilities. Two seats on different
+chassis then produce two groups both titled "Basic Attack" (BA5), so a group whose name is shared by
+more than one `WEAPON_TABLE` row is titled by its id instead — the smallest fix, and one that needs
+no second name field on the table.
 
 ## 9. Known risk, stated rather than solved
 
