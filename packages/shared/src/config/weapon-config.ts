@@ -20,6 +20,41 @@ import type { BeamWeaponDef, ExplosionDamageMode, WeaponDef, WeaponId } from "./
  * `docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md` for the
  * type triangle these numbers now serve.
  */
+/**
+ * Everything every basic attack has in common (BA3, BA4).
+ *
+ * Nine rows spread this and add only their own `id`, so "all nine are identical" is structural
+ * rather than nine copies somebody has to keep in sync — and a later per-chassis divergence is one
+ * field appended after the spread, which is the whole reason nine ids exist instead of one.
+ *
+ * A round near-black bolt: magmablast's 12-unit radius so it reads at a familiar size, predator's
+ * 900 u/s so it arrives fast, and 960 units of reach — authored as three quarters of `arena-01`'s
+ * frame width, and knowingly long for a weapon with no ammunition (BA36).
+ *
+ * `recoveryMs: 0` is load-bearing (BA20): the basic attack shares the fire state machine with the
+ * three ability slots, and a non-zero recovery here would lock an ability out every time a player
+ * pressed the weapon they press most.
+ */
+const BASIC_ATTACK_BASE = {
+  kind: "projectile",
+  name: "Basic Attack",
+  // Shared by all nine on purpose — see BA7 and the colour test. Dark, but never the flat fill:
+  // `WEAPON_GLOW_STYLES` gives it a lit core so it reads on dark asphalt.
+  color: "#101014",
+  unlocksAt: 1,
+  damage: 20,
+  damageFrequencyMs: 0,
+  speed: 900,
+  range: 960,
+  startUpMs: 0,
+  cooldownMs: 800,
+  recoveryMs: 0,
+  hitbox: { shape: "circle", radius: 12 },
+  pierce: 0,
+  volley: { volleys: 1, volleyIntervalMs: 0 },
+  pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
+} as const;
+
 export const WEAPON_TABLE = {
   /**
    * Bullseye's slot 1 as of the 2026-09-02 loadout swap (it was Mirage's before): the proximity
@@ -512,6 +547,20 @@ export const WEAPON_TABLE = {
       { statusId: "fortified", target: "ownerInside", durationMs: 300 },
     ],
   },
+  // --- Basic attacks: one per chassis, all nine identical today (BA1-BA5) -----------------------
+  //
+  // Written out rather than spread in from a generated object: this table is
+  // `as const satisfies Record<WeaponId, WeaponDef>` and several call sites depend on a bare index
+  // yielding one specific union member, which a computed spread would collapse to the union.
+  "basic-attack-bullseye": { ...BASIC_ATTACK_BASE, id: "basic-attack-bullseye" },
+  "basic-attack-mirage": { ...BASIC_ATTACK_BASE, id: "basic-attack-mirage" },
+  "basic-attack-bastion": { ...BASIC_ATTACK_BASE, id: "basic-attack-bastion" },
+  "basic-attack-taurus": { ...BASIC_ATTACK_BASE, id: "basic-attack-taurus" },
+  "basic-attack-anvil": { ...BASIC_ATTACK_BASE, id: "basic-attack-anvil" },
+  "basic-attack-prowler": { ...BASIC_ATTACK_BASE, id: "basic-attack-prowler" },
+  "basic-attack-cleaver": { ...BASIC_ATTACK_BASE, id: "basic-attack-cleaver" },
+  "basic-attack-skorpios": { ...BASIC_ATTACK_BASE, id: "basic-attack-skorpios" },
+  "basic-attack-caprico": { ...BASIC_ATTACK_BASE, id: "basic-attack-caprico" },
 } as const satisfies Record<WeaponId, WeaponDef>;
 
 /**
