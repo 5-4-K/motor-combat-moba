@@ -331,9 +331,16 @@ describe("predicting an observed car, against an independent ground truth", () =
   };
 
   // Mirage's resolved drive numbers, so the rows below are FRACTIONS OF the chassis's real caps
-  // rather than round numbers that happen to sit near them. `maxSpeed` is 189.03 and
-  // `reverseMaxSpeed` is 122.8695 as of the 2026-09-16 speed cut (449.5 / 292.175 when this table
-  // was written, 267 / 173.55 after the 2026-09-06 heavy-car pass).
+  // rather than round numbers that happen to sit near them. `maxSpeed` is 189.03.
+  //
+  // `reverseMaxSpeed` is gone from `ChassisDrive` (the Unity drive-model port, car-physics-port
+  // stage 1 Task 3): there is no separately-authored reverse top speed any more, only the emergent
+  // equilibrium `reverseAccel / dragRate` — computed below as `REVERSE_MAX_SPEED`, since it is not
+  // a field this table can read off `driveOf` directly. It is 113.418 for Mirage today (122.8695
+  // under the pre-port `forwardMaxSpeedOf * reverseSpeedRatio` model this comment used to cite;
+  // 449.5 * 0.65 = 292.175 when this table was first written, 267 * 0.65 = 173.55 after the
+  // 2026-09-06 heavy-car pass) — a real, different number under a genuinely different formula, not
+  // a retune.
   //
   // The middle rows became cap-relative on 2026-09-16 for the reason the two extremes always were:
   // typed as 150 and 250 they described a "crawling" car at 79% of the cap and a "mid speed" car
@@ -341,6 +348,7 @@ describe("predicting an observed car, against an independent ground truth", () =
   // instead of the scene each label names. The fractions reproduce what those figures meant against
   // the 449.5 cap they were authored for (150/449.5 ~= 1/3, 250/449.5 ~= 5/9, -150/292.175 ~= 0.51).
   const MIRAGE = driveOf("mirage");
+  const REVERSE_MAX_SPEED = MIRAGE.reverseAccel / MIRAGE.dragRate;
 
   // Every scene a bot actually faces, not just the one the model reproduces by construction -- the
   // old suite was full lock AND full speed in every case, which is why the over-lead walked
@@ -356,10 +364,10 @@ describe("predicting an observed car, against an independent ground truth", () =
   // rolling-backward branch is `brakeDecel`, not `accel`, which is why zeroing one channel was not
   // enough -- see `OBSERVATION_MODIFIERS`.
   const SCENES: readonly { speed: number; steer: -1 | 0 | 1; label: string }[] = [
-    { speed: -MIRAGE.reverseMaxSpeed, steer: 0, label: "reversing at the cap, straight" },
-    { speed: -MIRAGE.reverseMaxSpeed, steer: 1, label: "reversing at the cap, wheel over" },
-    { speed: -MIRAGE.reverseMaxSpeed * 0.51, steer: 0, label: "reversing, straight" },
-    { speed: -MIRAGE.reverseMaxSpeed * 0.51, steer: 1, label: "reversing, wheel over" },
+    { speed: -REVERSE_MAX_SPEED, steer: 0, label: "reversing at the cap, straight" },
+    { speed: -REVERSE_MAX_SPEED, steer: 1, label: "reversing at the cap, wheel over" },
+    { speed: -REVERSE_MAX_SPEED * 0.51, steer: 0, label: "reversing, straight" },
+    { speed: -REVERSE_MAX_SPEED * 0.51, steer: 1, label: "reversing, wheel over" },
     { speed: 0, steer: 0, label: "stunned, wheel straight" },
     { speed: 0, steer: 1, label: "stunned, wheel over" },
     { speed: MIRAGE.maxSpeed / 3, steer: 0, label: "crawling, straight" },
