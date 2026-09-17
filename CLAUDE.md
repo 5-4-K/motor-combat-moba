@@ -128,6 +128,38 @@ re-pitch inherits a spin budget that is a quarter unspent, and `globalScale`/`sp
 measured against the old ceiling-hugging case. See
 [`docs/turn-tuning.md`](docs/turn-tuning.md#current-values).
 
+**The 2026-09-16 hull resize made every car 1.25x bigger — for real, not just in the drawing.**
+`DRIVE_CONFIG.carWidth`/`carHeight` went 48 × 32 → **60 × 40**; the arenas did not grow, so the field
+is relatively more crowded. **It was first built at 1.5x (72 × 48) and revised down on 2026-09-17**
+because that played too large against arenas that did not grow — the spec's §12 restates every clause
+at the new factor, and the 72 × 48 build never reached `development/main`, so it is not history to
+preserve. Every reader derives from the hull, so the logic edits were small, and three of
+them are worth knowing: `RAM_CONFIG.spinScale` went 10 → **12.5** by derivation (a 1.25x lever over a
+1.5625x `inertiaCoefficient`), which keeps every ram's spin exactly where it was — stage 5 of the
+car-physics rework re-pitches from 12.5, not 10; both arenas' FFA spawn rows moved inward (arena-01
+y 180/540, arena-02 y 187/543) to clear the spikes by ~106 u rather than a car diagonal (72.1) —
+forced on arena-02, whose old rows sat *inside* the diagonal at 69 u; and the client's countdown
+arrow and hp bar length scaled 1.25x with the car (the lock bracket did too, on the branch, but the
+aim-lock removal deleted it before the two met). Weapon balance was deliberately **not**
+touched: a bigger target is easier to hit, so hit rates are expected to rise, and that is for the
+balance harness to measure. `BOT_BRAIN_VERSION` went to 4.7.0 on the branch and to **5.1.0**
+when it merged over the aim-lock removal's 5.0.0, so balance reports across this change are not
+comparable. The car art the 1.5x pass imported at 144 px was re-imported at 120 px for the 60 × 40 hull
+(`1189a08`), and `check:cars` reads `ok` on all nine rows. Three bot tests were already failing before this resize (the 2026-09-16
+top-speed cut) and still need a `BOT_PROFILES` retune; measured on base `0904012` at 48 × 32, at
+72 × 48, and at the shipped 60 × 40: `controller.test.ts`'s OFF-AXIS mean offset reads 0.2386 →
+0.6939 → **0.2017** against a bar of < 0.2 — still red, but now better than base — alongside the hard
+bot's preferred standoff growing from 470 to 570 (the two moved together; a causal link was not
+measured); `tiers.test.ts`'s P49, a **time-to-kill** case, **passes at 60 × 40** (no kill within the
+run at base, 18.7 s against a 17.87 s cap at 72 × 48); and P50, a hit-rate case, is still inverted —
+hard vs medium hit rate 0.778 vs 0.8 at base, 0.632 vs 0.857 at 72 × 48, **0.765 vs 0.857** at
+60 × 40. **Those figures are the branch's, measured before it merged over the aim-lock removal
+(2026-09-17), and the merge moved all three:** P49 and P50 both pass on the merged line, but the
+OFF-AXIS offset reads **1.58** — against 0.2017 on the branch alone, and a pass on `development/main`
+alone. Neither parent shows it; it is the lock removal's longer engagement reach meeting the bigger
+hull, not a mis-resolved conflict, and it is a `bot-tuner` question. See
+[`docs/superpowers/specs/2026-09-16-bigger-cars-design.md`](docs/superpowers/specs/2026-09-16-bigger-cars-design.md).
+
 Turn rates themselves were last touched on **2026-08-31, when the whole roster's turn rate was raised
 1.5x** — `DRIVE_CONFIG.baseTurnRate` and `turnRatePerRating` scaled together, speeds untouched at the
 time — because driving and aiming read as too heavy; neither the 2026-09-02 rebalance nor the

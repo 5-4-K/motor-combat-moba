@@ -46,7 +46,8 @@ function velocityAt(speed: number, angle: number): { vx: number; vy: number } {
 }
 
 /**
- * Attacker at the origin driving +x into a victim just ahead of it.
+ * Attacker at the origin driving +x into a victim just ahead of it: 58.75 u apart, a grazing 1.25 u
+ * overlap of the 60x40 hulls (47 u, a 1 u overlap, against 48x32 before the 2026-09-16 resize).
  *
  * The victim's OWN heading decides which face is struck, and it is easy to get backwards: the
  * attacker always arrives from the victim's -x side, so a victim facing +x (angle 0) is hit in the
@@ -54,7 +55,7 @@ function velocityAt(speed: number, angle: number): { vx: number; vy: number } {
  */
 function headOn(attackerSpeed: number, victimAngle = 0) {
   const attacker = car({ sessionId: "a", x: 0, y: 0, angle: 0, ...velocityAt(attackerSpeed, 0) });
-  const victim = car({ sessionId: "b", x: 47, y: 0, angle: victimAngle });
+  const victim = car({ sessionId: "b", x: 58.75, y: 0, angle: victimAngle });
   return { attacker, victim };
 }
 
@@ -123,7 +124,7 @@ describe("resolveRam", () => {
     // keeps meaning something if the gate is ever retuned back on. At 0 this coincides with "neither
     // car has any actual drive-in," which is exactly the boundary `<=` is meant to catch.
     const attacker = car({ sessionId: "a", x: 0, angle: 0, vx: RAM_CONFIG.minApproachSpeed, vy: 0 });
-    const victim = car({ sessionId: "b", x: 47, angle: 0 });
+    const victim = car({ sessionId: "b", x: 58.75, angle: 0 });
     expect(resolveRam(attacker, victim, "ffa")).toBeNull();
   });
 
@@ -135,7 +136,7 @@ describe("resolveRam", () => {
 
   it("names the faster approacher the attacker and the other the victim", () => {
     const a = car({ sessionId: "a", x: 0, angle: 0, ...velocityAt(400, 0) });
-    const b = car({ sessionId: "b", x: 47, angle: Math.PI, ...velocityAt(100, Math.PI) });
+    const b = car({ sessionId: "b", x: 58.75, angle: Math.PI, ...velocityAt(100, Math.PI) });
     const hit = resolveRam(a, b, "ffa");
     expect(hit?.attackerId).toBe("a");
     expect(hit?.victimId).toBe("b");
@@ -145,7 +146,7 @@ describe("resolveRam", () => {
     // `a` is travelling in -x (negative velocity along its own +x heading) so it is not driving into
     // `b`, and `b` never moves at all: combined drive-in is 0, at (not below) `minApproachSpeed`.
     const a = car({ sessionId: "a", x: 0, angle: 0, vx: -400, vy: 0 });
-    const b = car({ sessionId: "b", x: 47, angle: 0, vx: 0, vy: 0 });
+    const b = car({ sessionId: "b", x: 58.75, angle: 0, vx: 0, vy: 0 });
     expect(resolveRam(a, b, "ffa")).toBeNull();
   });
 
@@ -161,7 +162,7 @@ describe("resolveRam", () => {
     // no separate isolation of the two ratings is needed to prove that ordering.
     const light = car({ sessionId: "a", vx: 100, vy: 0, carId: "bullseye" as CarId });
     const heavy = car({ sessionId: "a", vx: 100, vy: 0, carId: "bastion" as CarId });
-    const victim = car({ sessionId: "b", x: 47 });
+    const victim = car({ sessionId: "b", x: 58.75 });
     const lightHit = resolveRam(light, victim, "ffa")!;
     const heavyHit = resolveRam(heavy, victim, "ffa")!;
     expect(ramAttackOf("bastion")).toBeGreaterThan(ramAttackOf("bullseye"));
@@ -201,8 +202,8 @@ describe("resolveRam", () => {
   });
 
   it("spins opposite ways for flank hits forward of and aft of centre", () => {
-    const attackerFwd = car({ sessionId: "a", x: 12, y: -30, angle: Math.PI / 2, ...velocityAt(500, Math.PI / 2) });
-    const attackerAft = car({ sessionId: "a", x: -12, y: -30, angle: Math.PI / 2, ...velocityAt(500, Math.PI / 2) });
+    const attackerFwd = car({ sessionId: "a", x: 15, y: -37.5, angle: Math.PI / 2, ...velocityAt(500, Math.PI / 2) });
+    const attackerAft = car({ sessionId: "a", x: -15, y: -37.5, angle: Math.PI / 2, ...velocityAt(500, Math.PI / 2) });
     const victim = car({ sessionId: "b", x: 0, y: 0, angle: 0 });
     const fwd = resolveRam(attackerFwd, victim, "ffa")!;
     const aft = resolveRam(attackerAft, victim, "ffa")!;
@@ -219,7 +220,7 @@ describe("resolveRam", () => {
     // high now that the contest has no ceiling (spec R9) — unlike the old severity-clamped model,
     // reaching the spin ceiling no longer needs a swept-and-tuned geometry, only a genuine off-axis
     // lever arm (a dead-centre hit stays zero regardless of magnitude, by construction).
-    const attacker = car({ sessionId: "a", x: 22.5, y: 8.5, angle: 3.25, carId: "bastion" as CarId, ...velocityAt(100000, 3.25) });
+    const attacker = car({ sessionId: "a", x: 28.125, y: 10.625, angle: 3.25, carId: "bastion" as CarId, ...velocityAt(100000, 3.25) });
     const victim = car({ sessionId: "b", x: 0, y: 0, angle: 0, carId: "bullseye" as CarId });
     const hit = resolveRam(attacker, victim, "ffa")!;
     const next = applyImpulse(bodyAt(victim.x, victim.y, victim.angle), ramDefenceOf(victim.carId), hit.impulse);
@@ -241,7 +242,7 @@ describe("resolveRam", () => {
     // which is not a band worth pinning. The approach speed is now a realistic **267 u/s — Mirage's
     // own shipped top speed** — so this measures what a full-speed ordinary flank ram actually does,
     // and the value that falls out is the same 1.028 rad/s the composed-pipeline sweep behind
-    // `RAM_CONFIG.spinScale`'s table measured independently for a 12 u lever arm. Two derivations,
+    // `RAM_CONFIG.spinScale`'s table measured independently for a 15 u lever arm. Two derivations,
     // one by hand and one through `serverTick` -> `contactTick`, agreeing to three decimals is what
     // makes this a re-derivation rather than a paste of whatever the code now emits.
     //
@@ -250,10 +251,10 @@ describe("resolveRam", () => {
     // while the hand-derivation kept claiming the old answer. Frozen fixture, deliberately.
     //
     // Hand-derivation (both cars are mirage: ramAttack 55, ramDefence 50; from `RAM_CONFIG`,
-    // defencePushScale 35, globalScale 0.4, bonusFlank 1.0, spinScale 10; inertiaCoefficient =
-    // (carWidth^2 + carHeight^2)/12 = (48^2+32^2)/12 = 3328/12):
+    // defencePushScale 35, globalScale 0.4, bonusFlank 1.0, spinScale 12.5; inertiaCoefficient =
+    // (carWidth^2 + carHeight^2)/12 = (60^2+40^2)/12 = 5200/12):
     //
-    //   Geometry: attacker at (12,-30) facing +y (angle pi/2) closes on the stationary victim at
+    //   Geometry: attacker at (15,-37.5) facing +y (angle pi/2) closes on the stationary victim at
     //   (0,0) facing +x (angle 0). The two hulls' axes are world-axis-aligned (attacker rotated
     //   exactly 90 deg), the overlap is shallower along y than x, and the attacker sits on the -y
     //   side, so the contact normal (pointing victim -> attacker) is (0,-1); the victim is pushed
@@ -269,19 +270,19 @@ describe("resolveRam", () => {
     //                 = 16435 * (16435/18185) * 1.0 * 0.4 / 50 ~= 118.8272 u/s
     //
     //   The recovered contact point clamps the attacker's offset into the victim's hull half-extents
-    //   (24 long, 16 wide): local (12, -30) clamps to (12, -16) — the y lever arm is capped at the
+    //   (30 long, 20 wide): local (15, -37.5) clamps to (15, -20) — the y lever arm is capped at the
     //   hull's half-width. The push is (0, impulse.speed) in the victim's own (unrotated, angle 0)
     //   frame, so:
-    //     torque = rx*fy - ry*fx = 12 * impulse.speed - (-16) * 0 = 12 * 118.8272 ~= 1425.926
-    //     inertia = ramDefence * inertiaCoefficient = 50 * 3328/12 = 41600/3 ~= 13866.667
+    //     torque = rx*fy - ry*fx = 15 * impulse.speed - (-20) * 0 = 15 * 118.8272 ~= 1782.408
+    //     inertia = ramDefence * inertiaCoefficient = 50 * 5200/12 = 65000/3 ~= 21666.667
     //     spin (unclamped) = torque / inertia * spinScale
-    //                      = (1425.926 / 13866.667) * 10 ~= 1.0283 rad/s
+    //                      = (1782.408 / 21666.667) * 12.5 ~= 1.0283 rad/s
     //
     //   Well inside spinMaxRate (6.0), with headroom on both sides that the band below converts into
-    //   a real guard: reverting `spinScale` toward 100 pushes this past 10 and into the clamp, and
-    //   halving `globalScale` drops it to 0.51 — both fail. Note it is sensitive to BOTH re-pitched
-    //   constants, which is the property the round-1 version lost by sitting on the clamp.
-    const attacker = car({ sessionId: "a", x: 12, y: -30, angle: Math.PI / 2, ...velocityAt(267, Math.PI / 2) });
+    //   a real guard: reverting `spinScale` toward 125 (10x) pushes this past 10 and into the clamp,
+    //   and halving `globalScale` drops it to 0.51 — both fail. Note it is sensitive to BOTH
+    //   re-pitched constants, which is the property the round-1 version lost by sitting on the clamp.
+    const attacker = car({ sessionId: "a", x: 15, y: -37.5, angle: Math.PI / 2, ...velocityAt(267, Math.PI / 2) });
     const victim = car({ sessionId: "b", x: 0, y: 0, angle: 0 });
     const hit = resolveRam(attacker, victim, "ffa")!;
     expect(hit.side).toBe("flank");
@@ -302,8 +303,8 @@ describe("resolveRam", () => {
     // a ram, rather than asserting on `impulse.speed` directly (`impulse.test.ts` covers
     // `applyImpulse`'s own `ramDefence` scaling in isolation, on impulses where it actually applies).
     const attacker = car({ sessionId: "a", carId: "bastion" as CarId, ...velocityAt(540, 0) });
-    const light = car({ sessionId: "b", x: 47, carId: "mirage" as CarId });
-    const heavy = car({ sessionId: "b", x: 47, carId: "bastion" as CarId });
+    const light = car({ sessionId: "b", x: 58.75, carId: "mirage" as CarId });
+    const heavy = car({ sessionId: "b", x: 58.75, carId: "bastion" as CarId });
     const lightHit = resolveRam(attacker, light, "ffa")!;
     const heavyHit = resolveRam(attacker, heavy, "ffa")!;
     const lightNext = applyImpulse(bodyAt(light.x, light.y, light.angle), ramDefenceOf(light.carId), lightHit.impulse);
@@ -320,19 +321,19 @@ describe("resolveRam", () => {
 
   it("spares teammates in team mode entirely", () => {
     const a = car({ sessionId: "a", team: 0, ...velocityAt(540, 0) });
-    const mate = car({ sessionId: "b", team: 0, x: 47 });
+    const mate = car({ sessionId: "b", team: 0, x: 58.75 });
     expect(resolveRam(a, mate, "team")).toBeNull();
   });
 
   it("still rams opponents in team mode", () => {
     const a = car({ sessionId: "a", team: 0, ...velocityAt(540, 0) });
-    const foe = car({ sessionId: "b", team: 1, x: 47 });
+    const foe = car({ sessionId: "b", team: 1, x: 58.75 });
     expect(resolveRam(a, foe, "team")).not.toBeNull();
   });
 
   it("rams everyone in ffa regardless of team number", () => {
     const a = car({ sessionId: "a", team: 0, ...velocityAt(540, 0) });
-    const other = car({ sessionId: "b", team: 0, x: 47 });
+    const other = car({ sessionId: "b", team: 0, x: 58.75 });
     expect(resolveRam(a, other, "ffa")).not.toBeNull();
   });
 });
@@ -362,17 +363,17 @@ describe("the ram contest", () => {
     const expectedImpact =
       (attackerPush * (attackerPush / (attackerPush + victimPush)) * RAM_CONFIG.bonusFlank * RAM_CONFIG.globalScale) /
       ramDefenceOf("mirage");
-    const hit = resolveRam(attackerAt(600, 300), victimAt(640, 300), "ffa");
+    const hit = resolveRam(attackerAt(600, 300), victimAt(650, 300), "ffa");
     expect(hit).not.toBeNull();
     expect(hit!.attackerId).toBe("a");
     expect(hit!.impulse.speed).toBeCloseTo(expectedImpact, 6);
   });
 
   it("takes less impact when you drive into the hit than when you are stopped", () => {
-    const stopped = resolveRam(attackerAt(600, 300), victimAt(640, 300), "ffa");
+    const stopped = resolveRam(attackerAt(600, 300), victimAt(650, 300), "ffa");
     const driving = resolveRam(
       attackerAt(600, 300),
-      { ...victimAt(640, 300), vx: -200, vy: 0 },
+      { ...victimAt(650, 300), vx: -200, vy: 0 },
       "ffa",
     );
     // The attacker's own 300 u/s drive-in still exceeds the victim's 200, so the roles below are the
@@ -384,10 +385,10 @@ describe("the ram contest", () => {
   });
 
   it("ignores a victim fleeing along the normal rather than crediting it negative push", () => {
-    const stopped = resolveRam(attackerAt(600, 300), victimAt(640, 300), "ffa");
+    const stopped = resolveRam(attackerAt(600, 300), victimAt(650, 300), "ffa");
     const fleeing = resolveRam(
       attackerAt(600, 300),
-      { ...victimAt(640, 300), vx: 400, vy: 0 },
+      { ...victimAt(650, 300), vx: 400, vy: 0 },
       "ffa",
     );
     // driveIn clamps at 0, so a fleeing car brings only its standing defence push — identical to a
@@ -423,8 +424,8 @@ describe("the ram contest", () => {
     //
     // A materially different curve would miss this band: exactly linear lands at 2.0, and the old
     // "just monotonic" assumption (`> 1.5`) covers almost anything in between.
-    const slow = resolveRam({ ...attackerAt(600, 300), vx: 100, vy: 0 }, victimAt(640, 300), "ffa");
-    const fast = resolveRam({ ...attackerAt(600, 300), vx: 200, vy: 0 }, victimAt(640, 300), "ffa");
+    const slow = resolveRam({ ...attackerAt(600, 300), vx: 100, vy: 0 }, victimAt(650, 300), "ffa");
+    const fast = resolveRam({ ...attackerAt(600, 300), vx: 200, vy: 0 }, victimAt(650, 300), "ffa");
     expect(slow!.attackerId).toBe("a");
     expect(fast!.attackerId).toBe("a");
     const ratio = fast!.impulse.speed / slow!.impulse.speed;
@@ -433,8 +434,8 @@ describe("the ram contest", () => {
   });
 
   it("costs the attacker more for hitting a solid car than a flimsy one", () => {
-    const vsFlimsy = resolveRam(attackerAt(600, 300), victimAt(640, 300, "bullseye"), "ffa");
-    const vsSolid = resolveRam(attackerAt(600, 300), victimAt(640, 300, "bastion"), "ffa");
+    const vsFlimsy = resolveRam(attackerAt(600, 300), victimAt(650, 300, "bullseye"), "ffa");
+    const vsSolid = resolveRam(attackerAt(600, 300), victimAt(650, 300, "bastion"), "ffa");
     expect(vsFlimsy!.attackerId).toBe("a");
     expect(vsSolid!.attackerId).toBe("a");
     expect(vsSolid!.attackerImpulse.speed).toBeGreaterThan(vsFlimsy!.attackerImpulse.speed);
@@ -449,11 +450,11 @@ describe("the ram contest", () => {
     // geometry: mirage attacking mirage, both defaults, so `ramAttackOf`/`ramDefenceOf` are 55/50 for
     // both cars.
     //
-    // Geometry: the attacker sits at x=-35, y=0, facing +y (angle pi/2 — perpendicular to its own
+    // Geometry: the attacker sits at x=-43.75, y=0, facing +y (angle pi/2 — perpendicular to its own
     // velocity), and drives along +x at 300 u/s into a stationary victim at the origin facing +x
-    // (angle 0). The attacker's x-half-width (`carHeight`/2 = 16, since its long axis is rotated onto
-    // world y) and the victim's x-half-length (`carWidth`/2 = 24) overlap by 5 u — a real contact —
-    // while the attacker's y-half-length (24) fully contains the victim's y-half-width (16), so x is
+    // (angle 0). The attacker's x-half-width (`carHeight`/2 = 20, since its long axis is rotated onto
+    // world y) and the victim's x-half-length (`carWidth`/2 = 30) overlap by 6.25 u — a real contact —
+    // while the attacker's y-half-length (30) fully contains the victim's y-half-width (20), so x is
     // the separating axis and the contact normal is world-axis-aligned: `towardVictim` = (1,0).
     // `impactSideOf((1,0), pi/2)` rotates that normal into the attacker's own frame and finds it
     // perpendicular to the attacker's heading (+y) — a FLANK, not a front, even though the attacker is
@@ -469,7 +470,7 @@ describe("the ram contest", () => {
     // Had the attacker's face been (wrongly) hardcoded to `bonusFront` (0.3) instead of the flank it
     // actually presents, the same arithmetic would give 1750 * 0.0875 * 0.3 * 0.4 / 50 = 0.3675 u/s —
     // over 3x too cheap, which is exactly the shape of bug this test exists to catch.
-    const attacker = car({ sessionId: "a", x: -35, y: 0, angle: Math.PI / 2, vx: 300, vy: 0 });
+    const attacker = car({ sessionId: "a", x: -43.75, y: 0, angle: Math.PI / 2, vx: 300, vy: 0 });
     const victim = car({ sessionId: "b", x: 0, y: 0, angle: 0 });
     const hit = resolveRam(attacker, victim, "ffa")!;
     expect(hit).not.toBeNull();
@@ -488,21 +489,23 @@ describe("the ram contest", () => {
     // its flank (bonusFlank 1.0); the attacker presents its nose (bonusFront 0.3).
     //
     // The two fixtures sit at DIFFERENT separations on purpose, and it does not skew the comparison:
-    // a broadside victim reaches only 16 u along x from its centre — its HALF-width on that axis,
-    // `carHeight`/2 — against the head-on victim's 24 (`carWidth`/2), so 47 u (the head-on's contact
-    // distance, the two half-extents plus the pad) leaves the T-bone pair 7 u apart and
-    // firing no ram at all. Separation feeds nothing in `pushOf`/`impactOn` beyond the contact test
+    // a broadside victim reaches only 20 u along x from its centre — its HALF-width on that axis,
+    // `carHeight`/2 — against the head-on victim's 30 (`carWidth`/2), so 58.75 u (the head-on's
+    // contact distance, the two half-extents less a grazing 1.25 u overlap) would leave the T-bone
+    // pair 8.75 u apart and firing no ram at all; the T-bone sits at 48.75 u, the same 1.25 u graze.
+    // (16 / 24 / 47 / 7 u, with the T-bone at 39, against the 48x32 hull before the 2026-09-16
+    // resize; every offset in this file scaled 1.25x with it, spec BC9.) Separation feeds nothing in `pushOf`/`impactOn` beyond the contact test
     // and the contact normal, both identical here, so only the faces and the drive-ins differ.
     const tBone = resolveRam(
       car({ sessionId: "a", x: 0, y: 0, angle: 0, vx: 200, vy: 0 }),
-      car({ sessionId: "b", x: 39, y: 0, angle: Math.PI / 2 }),
+      car({ sessionId: "b", x: 48.75, y: 0, angle: Math.PI / 2 }),
       "ffa",
     );
     // Head-on: the same 200 u/s of closing speed, split 100/100 so both cars face each other along
     // the same line and BOTH score `bonusFront` — the credit R6 gives that revision 1 never did.
     const headOn = resolveRam(
       car({ sessionId: "a", x: 0, y: 0, angle: 0, vx: 100, vy: 0 }),
-      car({ sessionId: "b", x: 47, y: 0, angle: Math.PI, vx: -100, vy: 0 }),
+      car({ sessionId: "b", x: 58.75, y: 0, angle: Math.PI, vx: -100, vy: 0 }),
       "ffa",
     );
 
@@ -521,7 +524,7 @@ describe("the ram contest", () => {
   it("never fires on a pair that is not closing at all", () => {
     const apart = resolveRam(
       { ...attackerAt(600, 300), vx: 0, vy: 0 },
-      { ...victimAt(640, 300), vx: 0, vy: 0 },
+      { ...victimAt(650, 300), vx: 0, vy: 0 },
       "ffa",
     );
     // Both bring only standing defence push, and neither is driving in: no contact event.
@@ -550,7 +553,7 @@ describe("resolveRam produces an Impulse", () => {
     // Off-axis on both dimensions (same fixture as the flank-spin tests above), so the recovered
     // point must differ from the victim's centre in x AND y — a stub that always returned the
     // victim's own position, or the attacker's unclamped position, would fail one of these two.
-    const attacker = car({ sessionId: "a", x: 12, y: -30, angle: Math.PI / 2, ...velocityAt(500, Math.PI / 2) });
+    const attacker = car({ sessionId: "a", x: 15, y: -37.5, angle: Math.PI / 2, ...velocityAt(500, Math.PI / 2) });
     const victim = car({ sessionId: "b", x: 0, y: 0, angle: 0 });
     const hit = resolveRam(attacker, victim, "ffa")!;
     expect(hit.impulse.contactX).not.toBe(0);
@@ -560,7 +563,7 @@ describe("resolveRam produces an Impulse", () => {
 
 describe("applyRams", () => {
   const attacker = () => car({ sessionId: "a", x: 0, angle: 0, ...velocityAt(540, 0) });
-  const victim = () => car({ sessionId: "b", x: 47, angle: 0 });
+  const victim = () => car({ sessionId: "b", x: 58.75, angle: 0 });
 
   it("fires on the tick a pair enters contact", () => {
     const out = applyRams([attacker(), victim()], new Set(), "ffa");
@@ -593,9 +596,12 @@ describe("applyRams", () => {
   it("keeps only the hardest impulse when one car is hit by two others in a tick", () => {
     // Both attackers hit the SAME side (flank, bonus 1.0 either way) so which one is "hardest" is
     // decided by speed and chassis alone, not by the front/rear bonus table.
-    const soft = car({ sessionId: "a", x: 12, y: -30, angle: Math.PI / 2, ...velocityAt(200, Math.PI / 2) });
+    // y = ±37.5, not ±30: at the 60x40 hull the two attackers (60 long along y) must stay clear of
+    // EACH OTHER, or they ram one another and a second impulse appears for a reason unrelated to
+    // this test.
+    const soft = car({ sessionId: "a", x: 15, y: -37.5, angle: Math.PI / 2, ...velocityAt(200, Math.PI / 2) });
     const hard = car({
-      sessionId: "c", x: 12, y: 30, angle: -Math.PI / 2, carId: "bastion" as CarId,
+      sessionId: "c", x: 15, y: 37.5, angle: -Math.PI / 2, carId: "bastion" as CarId,
       ...velocityAt(540, -Math.PI / 2),
     });
     const middle = car({ sessionId: "b", x: 0, y: 0, angle: 0 });

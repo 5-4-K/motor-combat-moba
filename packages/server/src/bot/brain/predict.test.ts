@@ -197,7 +197,7 @@ describe("a car that is SLIDING, not driving (car-physics merge, 2026-09-07)", (
     expect(Math.hypot(guess.x - end.x, guess.y - end.y)).toBeLessThan(1e-3);
   });
 
-  it("and the pre-rework scalar read would have been 76 units wrong — over 1.5 car lengths", () => {
+  it("and the pre-rework scalar read would have been 76 units wrong — more than a car length", () => {
     // What `cos(angle) * speed` would have produced: the forward component kept, the 200 u/s of
     // lateral motion silently discarded. Pinned as a REGRESSION GUARD -- if someone reintroduces a
     // scalar reconstruction anywhere on this path, this is the assertion that fails and names why.

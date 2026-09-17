@@ -46,7 +46,7 @@ Three things about it are load-bearing and were each learned by looking at the s
 a test:
 
 - **The rim is a copy of the car's own ART**, tinted and nudged toward the light behind the body —
-  not a stroked outline. The hull is a 48x32 box the sprites do not fill, so stroking it drew a
+  not a stroked outline. The hull is a 60x40 box the sprites do not fill, so stroking it drew a
   picture frame around the car. Only the art knows where a car's edge is. A chassis falling back to
   the procedural silhouette simply goes without a rim rather than earning a second code path.
 - **Every car's shadow is one ellipse**, sized by `carLook.footprint` to well inside the hull, and

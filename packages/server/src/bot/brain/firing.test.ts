@@ -78,7 +78,7 @@ describe("preferredRangeOf", () => {
     // falling — so the maximum is a plateau whose NEAR edge is always `minEngageUnits`. Keeping the
     // first sample to beat a running best would return 70 for every chassis at every tier and the
     // solver-derived range would be a no-op with an expensive loop in front of it. Bullseye at hard
-    // is the loudest case: 470 units, nearly seven times the floor.
+    // is the loudest case: 570 units at the 60x40 hull (470 at 48x32), over eight times the floor.
     expect(preferredRangeOf(self("bullseye"), BOT_PROFILES.hard, ones, 0)).toBeGreaterThan(300);
   });
 
@@ -106,6 +106,16 @@ describe("preferredRangeOf", () => {
     // The claim "`slotWeights` reach the standoff" is true and much narrower than it reads, and the
     // narrowness is what a tuner needs. Sweeping `rollPersonality`'s own 0.5-1.5 draw over all
     // three chassis at all three tiers, exactly one cell returns more than one standoff.
+    //
+    // RE-MEASURED 2026-09-16 (bigger cars, 48x32 -> 60x40): still ONE cell, `mirage/hard`, and at
+    // the same pair of standoffs (220 / 386.7). `proxyValue`'s subtense is
+    // `atan2(carHeight / 2, distance)`, so a taller hull keeps hit chance saturated further out and
+    // every plateau edge moves outward — enough to move the neutral standoffs (now bullseye
+    // 70 / 220 / 570, mirage 103.3 / 220 / 220, bastion 111.7 / 132.5 / 132.5, against
+    // 120 / 270 / 470, 136.7 / 220 / 220, 132.5 / 132.5 / 132.5 at 48x32), but not enough to bring
+    // a second cell alive. It does at 72x48, where `mirage/medium` joins: this count is sensitive to
+    // the hull size and the 1.25x resize lands under that threshold, which is worth knowing before
+    // reading "one cell" as a structural fact.
     //
     // THIS TEST IS ALLOWED TO FAIL ON AN IMPROVEMENT. If a roster change, a new chassis or a
     // `proxyValue` correction moves the count either way, the right response is to update this

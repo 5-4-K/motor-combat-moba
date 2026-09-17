@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DRIVE_CONFIG } from "@motor-combat-moba/shared";
 import {
   ARROW_BLINK_PERIOD_MS,
   ARROW_BOB_AMPLITUDE_PX,
@@ -65,8 +66,9 @@ describe("countdownArrowPoints", () => {
   });
 
   it("clears the hull at the bottom of the bob", () => {
-    // Worst case is the 48 x 32 hull's half-diagonal, 29 units, whichever way the car is pointing.
-    const hullHalfDiagonal = Math.hypot(48, 32) / 2;
+    // Worst case is the hull's half-diagonal, whichever way the car is pointing. Read from DRIVE_CONFIG
+    // so a chassis resize moves this assertion instead of silently leaving the arrow inside the car.
+    const hullHalfDiagonal = Math.hypot(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight) / 2;
     const [, , apex] = countdownArrowPoints(0, 0, ARROW_BOB_AMPLITUDE_PX);
     expect(Math.abs(apex.y)).toBeGreaterThan(hullHalfDiagonal);
   });

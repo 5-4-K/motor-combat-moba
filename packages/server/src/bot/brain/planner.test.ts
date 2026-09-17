@@ -355,7 +355,8 @@ describe("plan", () => {
     const self = selfAt(5, 360, Math.PI);
 
     const neutral = plan({ ...scene, self, commitPenalty: 0, lastAction: undefined });
-    // The genuine best play here is to brake rather than drive further into the wall.
+    // HISTORICAL (true until 2026-09-16, see the last RE-PINNED note below, which is the current
+    // state): the genuine best play here was to brake rather than drive further into the wall.
     //
     // RE-PINNED at the 2026-09-07 merge of the car-physics rework: the winner was `steer: 0`
     // under the pre-rework drive model and is `steer: -1` under the vector one. Both brake — the
@@ -365,7 +366,32 @@ describe("plan", () => {
     // for this scene under the new physics. This assertion only names the winner so the two
     // `sticky` assertions below have something to compare against; R-P16's actual subject is that
     // a commit bonus toward `clearlyWorse` cannot latch the planner onto it, and that is untouched.
-    expect(neutral.action).toEqual({ steer: -1, throttle: -1 });
+    //
+    // RE-PINNED 2026-09-16 (bigger cars, 48x32 -> 60x40): the winner is now `{ steer: 1,
+    // throttle: 1 }`, a tight forward U-turn off the wall rather than a reverse. At 48x32 the
+    // reverse-while-steering pair beat the forward-while-steering pair by 0.02 points (-15.47
+    // against -15.49), and all of that edge was `wallPenalty`: `boundsPenalty` normalises the
+    // overshoot by a margin of `max(carWidth, carHeight)`, which grew 48 -> 60 with the hull (spec
+    // BC15), so the same world-unit difference between the two arcs' overshoots now costs less while
+    // the U-turn's better `rangeError` toward the waypoint is unchanged. Measured at 60x40:
+    // -14.708664766265755 forward against -14.738622591350230 reversed. So the winner no longer
+    // brakes; it wins on `rangeError`, in a rollout that runs no `resolveWorld`, so neither arc is
+    // stopped by the wall it overshoots.
+    //
+    // THE STEER SIGN IS A TIE-BREAK, NOT A PLAY, and that is the part to read before trusting this
+    // assertion. The scene is exactly symmetric about y = 360 — nose square into the left wall,
+    // waypoint straight ahead at (700, 360) — so `{ 1, 1 }` and `{ -1, 1 }` score BIT-IDENTICALLY
+    // here (both -14.708664766265755, measured, not rounded). `plan`'s `>` comparison therefore
+    // keeps whichever comes first in `ALL_ACTIONS`, which is `{ 1, 1 }`. The 2026-09-07 note above
+    // already recorded that left and right are symmetric in this scene; at 48x32 and 72x48 they came
+    // out a last-bit apart and the sign landed the other way, which is why this pin has now moved
+    // twice for no behavioural reason. What IS behavioural, and what this line is really standing in
+    // for, is `throttle: 1` — forward over reverse.
+    // Not a placement artifact: sweeping the start x over 0-30 at 60x40, `throttle: 1` wins at every
+    // sampled x and only the (tied) steer sign flips between them. Both halves of the pair turn OFF
+    // the wall and neither is the out-of-arena outlier, so the scene's R-P16 premise is intact — the
+    // two `sticky` assertions below still pass with the gap measured there.
+    expect(neutral.action).toEqual({ steer: 1, throttle: 1 });
 
     // A SANE candidate that is nonetheless clearly worse than the winner — reversed hard while
     // steering, not the wall-crashing outlier. Under the old `max - min` normalisation the outlier
@@ -387,6 +413,9 @@ describe("plan", () => {
     // is 1.78. It is still a SANE candidate rather than the out-of-arena outlier the scene is built
     // around — that is `{ steer: 0, throttle: 1 }`, 203 points down, and using it would test the
     // easy case instead of R-P16's real one.
+    // At the 60x40 hull (2026-09-16) the gap is ~65.5 points (-14.71 against -80.26) with a
+    // `max - median` of 0.771, so hard's shipped 0.18 buys a bonus of ~0.139: still nowhere near
+    // covering it. The outlier is ~78.5 points down.
     const clearlyWorse = { steer: 0, throttle: 0 } as const;
     expect(clearlyWorse).not.toEqual(neutral.action);
 
@@ -487,7 +516,7 @@ describe("plan", () => {
   describe("wallPenalty on a polygon arena", () => {
     const bare = { width: ARENA_01.width, height: ARENA_01.height, obstacles: [] };
     const octagon = { ...bare, planes: boundsOf(ARENA_01).planes };
-    // Inside the top-left chamfer and clear of every rect edge by more than the 48-unit margin:
+    // Inside the top-left chamfer and clear of every rect edge by more than the 60-unit margin:
     // x=120 and y=100 are both far from 0, and from 1280/720.
     const nearChamfer = selfAt(120, 100, 0);
 

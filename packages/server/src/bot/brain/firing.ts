@@ -67,6 +67,14 @@ export function isUlt(slot: BotSlotView): boolean {
  * the accepted-loss note on `proxyValue` in `solution.ts`, which records that fixing it takes the
  * sweep to 0 of 9 and why it was reverted anyway.
  *
+ * STILL ONE CELL AFTER THE HULL GREW (2026-09-16, 48x32 -> 60x40), BUT THE DISTANCES MOVED.
+ * `proxyValue`'s subtense reads `DRIVE_CONFIG.carHeight`, so a taller target keeps hit chance
+ * saturated further out and moves every plateau edge outward. The same sweep still returns more than
+ * one standoff for Mirage at hard alone, at the same 220 / 386.7. What did move is every neutral
+ * standoff: the 470 quoted in the paragraph above was measured at 48x32, and a neutral hard Bullseye
+ * now stands at 570. (The count is sensitive to hull size rather than structural — at 72x48 a second
+ * cell, Mirage at medium, comes alive.)
+ *
  * IT TAKES TWO PASSES OVER THE SAMPLES, but only ONE evaluation of each (M7, fix wave 3,
  * 2026-09-07). The two-pass STRUCTURE is forced: the bar is a fraction of the maximum, so the
  * maximum has to be known before any range can be tested against it, and a running best has not

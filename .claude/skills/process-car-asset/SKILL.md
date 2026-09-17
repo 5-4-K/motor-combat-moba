@@ -50,7 +50,7 @@ node .claude/skills/process-car-asset/scripts/preflight.mjs <image> <carId>
 ```
 
 It prints one JSON object: the source's format and alpha, the trimmed art, the size the importer
-will write, how much of the 48x32 hull the result will cover, any existing manifest row, and three
+will write, how much of the 60x40 hull the result will cover, any existing manifest row, and three
 buckets of findings — `blockers`, `warnings`, `notes`. Exit code is 0 when there are no blockers.
 
 The fit numbers come from the importer's own helpers, so what the preflight predicts is what the
@@ -150,7 +150,7 @@ When there is no source image yet, the prompt lives in
 **[`generation-prompt.md`](generation-prompt.md)**, next to this file. Read it and use it verbatim,
 substituting `[CAR_CHASIS_DESCRIPTION]`; it is the only copy, so do not paste it back in here.
 
-Four of its demands — greyscale, pointing right, no margin, legible at 48×32 — are this pipeline's
+Four of its demands — greyscale, pointing right, no margin, legible at 60×40 — are this pipeline's
 requirements rather than taste, and art that ignores one imports without complaint and looks broken
 in game. That file says which failure each one prevents; the preflight in step 2 catches some of
 them after the fact, but generating it right is cheaper than keying and hand-tuning it after.

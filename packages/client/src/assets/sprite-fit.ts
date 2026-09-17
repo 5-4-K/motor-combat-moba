@@ -21,7 +21,7 @@ export interface SpriteFit {
  * `rotationOffset` is applied before the sprite lands in hull space. Comparing the unrotated
  * dimensions would make `"fit"` fail at exactly the case it exists for — art drawn facing up, the
  * most common pack mismatch, which `public/art/README.md` documents as needing `1.5707963`. A
- * 64x128 up-facing sprite would contain 128 against the hull's 32 rather than against its 48 and
+ * 64x128 up-facing sprite would contain 128 against the hull's 40 rather than against its 60 and
  * render at two thirds the size it should. At `rotationOffset: 0` the formula collapses back to
  * the plain texture dimensions.
  *

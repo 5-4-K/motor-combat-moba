@@ -80,15 +80,20 @@ export const ARENA_01 = {
    * The four corners and the midpoint of each long wall, one margin off the playable edge. Corner
    * cars face across the arena and the two midpoint cars face each other, so wherever the shuffle
    * in `assignSpawns` puts you, you open the match looking at the fight rather than at a wall.
-   * Re-measured against the octagon in 2026-09-11 (AS27); the facing rule is unchanged.
+   * Re-measured against the octagon in 2026-09-11 (AS27); the facing rule is unchanged. The rows
+   * moved inward on 2026-09-16 for the 60x40 hull (y 150/570 -> 180/540, spec BC10), so every
+   * spawn clears the spike strips by about 106 u, well past a car diagonal (72.1); `x` and
+   * `angle` did not move. The old rows cleared by 76 u — enough to pass the diagonal at this hull,
+   * but by under four units, and the point of the move is to sit level with the team spawns'
+   * 106 u rather than to scrape the bar.
    */
   ffaSpawns: [
-    { x: 200, y: 150, angle: 0 },
-    { x: 1080, y: 150, angle: Math.PI },
-    { x: 200, y: 570, angle: 0 },
-    { x: 1080, y: 570, angle: Math.PI },
-    { x: 640, y: 150, angle: Math.PI / 2 },
-    { x: 640, y: 570, angle: -Math.PI / 2 },
+    { x: 200, y: 180, angle: 0 },
+    { x: 1080, y: 180, angle: Math.PI },
+    { x: 200, y: 540, angle: 0 },
+    { x: 1080, y: 540, angle: Math.PI },
+    { x: 640, y: 180, angle: Math.PI / 2 },
+    { x: 640, y: 540, angle: -Math.PI / 2 },
   ],
   /**
    * A line down each side, facing the other team. The y values divide the playable height into four

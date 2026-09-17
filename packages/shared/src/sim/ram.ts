@@ -86,7 +86,7 @@ export function pairKey(a: string, b: string): string {
  * Which face of this car was struck, measured in this car's own frame.
  *
  * `n` points from this car toward the other car (see `contactNormalBetween`), so a positive local x
- * means the other car is off this car's nose. The hull is 48 long by 32 wide, so front and rear are
+ * means the other car is off this car's nose. The hull is 60 long by 40 wide, so front and rear are
  * the narrow faces and the flanks are the long ones — which is the geometry the bonus table assumes.
  *
  * Called once per car in a ram contest — for the victim to determine its struck face bonus and for

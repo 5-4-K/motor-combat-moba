@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChassisDrive } from "../config/car-config.js";
+import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { InputMessage } from "../net/input.js";
 import { resolveWorld } from "./collide.js";
 import { stepDrive } from "./drive.js";
@@ -221,7 +222,8 @@ describe("golden: resolveWorld against the vector-drive rework", () => {
   // The obstacle case is genuinely off-axis, and this is the one case in the block that needs its
   // `lateral` argument spelled out rather than defaulting to 0:
   //   - "separates from an obstacle": the MTV here is a single contact along world -x (n = (-1, 0),
-  //     matching the unchanged push that put x at 291.663842667), while the car's heading is 0.4
+  //     matching the unchanged push that put x at 289.5798033337405 — 291.663842667 before the
+  //     2026-09-16 hull resize, see below), while the car's heading is 0.4
   //     rad — off-axis from the wall normal. vx = 180cos(0.4) = 165.7909789205193,
   //     vy = 180sin(0.4) = 70.09530161555709. Only vx reflects (n has no y component):
   //     vx' = -0.15 * vx = -24.868646838077897, vy' = vy UNCHANGED. Re-projected onto the car's
@@ -250,29 +252,47 @@ describe("golden: resolveWorld against the vector-drive rework", () => {
   // pre-Task-3 fixture used). Every other case below resolves against bounds or an obstacle, neither
   // of which yields — `OBSTACLE_SHARE` is 1 unconditionally — so their positions and the
   // `selfRamDefence` passed in are unrelated; `FILLER_RAM_DEFENCE` above documents that.
+  //
+  // RE-PINNED for the 2026-09-16 hull resize (60x40, spec BC14): the wall cases now settle at the
+  // new half-extents — 30 ("bounces off the left wall") and (30 + 20)/2 * √2 = 35.36 at the corner
+  // ("reflects off both walls at a corner"), both unchanged in `forward` since the reflection
+  // algebra never touches geometry. The car case ("separates from another car") scaled its 30-unit
+  // centre gap to 37.5, so depth `60 - 37.5 = 22.5` is 1.25x the old 18, and
+  // `x' = 500 - 22.5 * 0.6428571428571429`. The obstacle case ("separates from an obstacle") was
+  // RESCALED, not re-measured: its obstacle scaled 1.25x about the car's centre,
+  // `{ x: 320, y: 290, w: 60, h: 60 }` -> `{ x: 325, y: 287.5, w: 75, h: 75 }`, so the MTV still
+  // resolves along world -x against the same face and the off-axis reflection above is untouched —
+  // forward 4.390855582568385 and lateral 74.24635540810061 are the pre-resize values exactly, and
+  // only `x` moved (291.663842667 -> 289.5798033337405, depth 1.25x). Reading the pose off a
+  // failing run of the UN-scaled obstacle instead would turn this into a dead-on hit
+  // (forward -27, lateral 0) that a scalar bounce would also pass, losing the one off-axis case
+  // this block exists to guard.
   it("bounces off the left wall", () => {
     const out = resolveWorld(bodyAt(10, 400, Math.PI, 200), [], [], bounds, FILLER_RAM_DEFENCE);
-    expectPose(out, 24, 400, Math.PI, -30);
+    expectPose(out, 30, 400, Math.PI, -30);
   });
 
   it("reflects off both walls at a corner", () => {
     const out = resolveWorld(bodyAt(5, 4, Math.PI * 1.25, 150), [], [], bounds, FILLER_RAM_DEFENCE);
-    expectPose(out, 28.2842712475, 28.2842712475, 3.926990817, -22.5);
+    expectPose(out, 35.3553390593, 35.3553390593, 3.926990817, -22.5);
   });
 
   it("separates from another car", () => {
     // mirage (ramDefence 50) driving into a stationary bastion (ramDefence 90) — real roster
     // ratings, not filler, since this is the one case in this block pinning the positional split
     // rather than merely surviving it.
-    const other = { hull: { x: 530, y: 400, angle: 0, w: 48, h: 32 }, ramDefence: 90 };
+    const other = {
+      hull: { x: 537.5, y: 400, angle: 0, w: DRIVE_CONFIG.carWidth, h: DRIVE_CONFIG.carHeight },
+      ramDefence: 90,
+    };
     const out = resolveWorld(bodyAt(500, 400, 0, 250), [other], [], bounds, 50);
-    expectPose(out, 488.4285714285714, 400, 0, -37.5);
+    expectPose(out, 485.5357142857143, 400, 0, -37.5);
   });
 
   it("separates from an obstacle", () => {
-    const obstacle = { x: 320, y: 290, w: 60, h: 60 };
+    const obstacle = { x: 325, y: 287.5, w: 75, h: 75 };
     const out = resolveWorld(bodyAt(300, 300, 0.4, 180), [], [obstacle], bounds, FILLER_RAM_DEFENCE);
-    expectPose(out, 291.663842667, 300, 0.4, 4.390855582568385, 74.24635540810061);
+    expectPose(out, 289.5798033337405, 300, 0.4, 4.390855582568385, 74.24635540810061);
   });
 
   it("leaves a free body untouched", () => {

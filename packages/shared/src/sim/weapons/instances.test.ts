@@ -10,6 +10,7 @@ import {
   bounceOffWorld,
   fanOffset,
   instanceExpired,
+  MUZZLE_STEP_UNITS,
   muzzleOffset,
   spawnInstances,
   stepInstance,
@@ -218,8 +219,14 @@ describe("beam growth and expiry", () => {
         ctx({ bounds: ROOMY, obstacles: [box], ownerPose: { x: 500, y: 300, angle } }),
       ).extent;
     // Facing the box: the muzzle is a nose-length ahead of the car centre, so the reach is the gap
-    // from the muzzle to the near face, not from the car to it.
-    expect(at(0)).toBe(700 - (500 + muzzleOffset()));
+    // from the muzzle to the near face, not from the car to it — QUANTISED, because
+    // `wallClipDistance` marches the centre axis in `MUZZLE_STEP_UNITS` steps and reports the first
+    // blocked sample, so it answers the gap rounded UP to a multiple of that step. Written as a bare
+    // gap until the 2026-09-16 hull resize: at 48x32 the gap was 176 and at 72x48 it was 164, both
+    // exact multiples of 4, and the 60x40 hull's 170 is the first one that is not (this reads 172).
+    // Derived rather than pinned at 172 so the next hull edit cannot make it wrong again.
+    const gap = 700 - (500 + muzzleOffset());
+    expect(at(0)).toBe(Math.ceil(gap / MUZZLE_STEP_UNITS) * MUZZLE_STEP_UNITS);
     // Turned 90 degrees away, the same beam reaches its full range again — the clip is recomputed
     // from the owner's CURRENT pose every tick, not frozen at the tick it was fired.
     expect(at(Math.PI / 2)).toBe(900);
