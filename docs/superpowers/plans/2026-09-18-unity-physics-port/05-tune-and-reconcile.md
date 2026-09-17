@@ -1011,6 +1011,10 @@ before editing** — line numbers drift.
 
 - **Lines 25-37** — the flags paragraph. `stunned` is untouched (U19), but the sentence at 27-28 says
   `bleedLateral` "still resolves" on the lateral component — `bleedLateral` is deleted (U20). The
+  same sentence's conclusion — that a slammed-then-stunned car still slides into the wall — is now
+  false too: stage 1 Task 3 made `fullStop` zero the lateral component as well as the forward one, so
+  a STUNNED car stops dead. A rammed car still slides, because `reeling` sets no `fullStop`. Say both.
+  The
   paragraph should gain the three new flags and the fact that `reeling` is now the roster's most
   flag-heavy row. The "every flag-carrying DEBUFF is required to be `reapply: "ignore"`" rule at 30-33
   is what forces `reeling` and `ramLock` to `"ignore"` — worth saying, since it is the rule that costs
@@ -1021,7 +1025,7 @@ before editing** — line numbers drift.
   Task 3 Step 5 and that "the only row in the table declaring an `impulse` at all" is still true.
 - **Lines 97-107** — **"It takes a resolved `ChassisDrive` — eight fields: `maxSpeed`,
   `reverseMaxSpeed`, `accel`, `reverseAccel`, `turnRate`, `turnRateAtStop`, … `coastPerTick` …
-  `brakeDecel`"**. Seven now, and four of those eight names no longer exist. The paragraph's actual
+  `brakeDecel`"**. **Nine** now (see `interfaces.md`), and four of those eight names no longer exist. The paragraph's actual
   point — that `stepDrive` reads no roster and `golden.test.ts` pins the equation against a frozen
   fixture — survives and is more true than before, since every per-tick factor now arrives on the
   struct.
