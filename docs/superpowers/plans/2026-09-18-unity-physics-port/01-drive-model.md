@@ -71,18 +71,17 @@ describe("the Unity drive knobs", () => {
     expect(DRIVE_CONFIG.flipSteeringInReverse).toBe(true);
   });
 
-  it("drifts rather than cornering on rails: grip is finite against the sharpest turn", () => {
-    // Slip angle at full lock is atan(turnRate / lateralGripRate); a rate high enough to make that
-    // ~0 would be the deleted `steeringGrip: 1` under another name (U3).
-    const sharpest = DRIVE_CONFIG.baseTurnRate + 100 * DRIVE_CONFIG.turnRatePerRating;
-    const slipDeg = (Math.atan(sharpest / DRIVE_CONFIG.lateralGripRate) * 180) / Math.PI;
-    expect(slipDeg).toBeGreaterThan(5);
-    expect(slipDeg).toBeLessThan(45);
-  });
 });
 ```
 
 Add `perTickDecay` and `TICK_RATE_HZ` to that file's imports.
+
+> **The slip-angle assertion is deliberately NOT in this task.** Slip at full lock is
+> `atan(turnRate / lateralGripRate)`, and `baseTurnRate`/`turnRatePerRating` do not reach their
+> ported values until Task 6 — against today’s 3.6/0.054 the sharpest turn slips 71.6°, so any
+> bound that passed here would be measuring the OLD turn model, and the only way to satisfy it
+> would be to falsify `lateralGripRate`. **`lateralGripRate` is 3.0 verbatim (spec §9.2, a user
+> decision).** Task 6 asserts the slip angle, in the same edit that lands the new rates.
 
 - [ ] **Step 2: Run the test and watch it fail**
 
@@ -877,6 +876,16 @@ In `config.test.ts`, delete the rating-50 anchor for `accelOf` and the `stopTurn
 `reverseSpeedRatio`, `steeringGrip`, `impactGripDecel` and `coastPerTick` cases, then add:
 
 ```ts
+it("drifts rather than cornering on rails: grip is finite against the sharpest turn", () => {
+  // Slip angle at full lock is atan(turnRate / lateralGripRate), the same at any speed. A grip rate
+  // high enough to drive that to ~0 would be the deleted `steeringGrip: 1` under another name (U3).
+  // This can only be asserted once the turn rates above are the ported ones — see Task 1.
+  const sharpest = DRIVE_CONFIG.baseTurnRate + 100 * DRIVE_CONFIG.turnRatePerRating;
+  const slipDeg = (Math.atan(sharpest / DRIVE_CONFIG.lateralGripRate) * 180) / Math.PI;
+  expect(slipDeg).toBeGreaterThan(5);
+  expect(slipDeg).toBeLessThan(45);
+});
+
 it("anchors the new pairs at rating 50", () => {
   expect(DRIVE_CONFIG.baseTurnRate + 50 * DRIVE_CONFIG.turnRatePerRating).toBeCloseTo(1.512, 3);
   expect(DRIVE_CONFIG.baseDrag + 50 * DRIVE_CONFIG.dragPerRating).toBeCloseTo(1.072, 3);
