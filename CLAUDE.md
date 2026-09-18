@@ -314,6 +314,24 @@ arena, since the art already carries them. The bot also learned the polygon and 
 [`docs/superpowers/specs/2026-09-11-arena-sprite-and-spike-hazard-design.md`](docs/superpowers/specs/2026-09-11-arena-sprite-and-spike-hazard-design.md)
 (AS1–AS31).
 
+## Reporting a finding: claim first, then offer the evidence
+
+**Lead with the claim, in one plain sentence.** Then say how confident you are and how you checked
+it. Then stop, and ask whether the reasoning or the measurements would help. Do not open with
+tables, formulas, simulation output or a swept parameter study.
+
+Backing a claim with data and logic is wanted — it is why findings here get trusted, and it should
+not stop. **Only the order changes.** A one-line claim can be refuted in one line; a wall of evidence
+looks authoritative and has to be waded through before it can be argued with, so leading with it
+*delays* the correction in exactly the case where the claim was wrong. This rule was written after a
+supposed brake bug was explained over four messages with tables, simulations and analogies, and the
+one-sentence version would have been corrected on sight — the behaviour was intended design.
+
+The compression is the work, not a shortcut past it: stating a finding in one sentence means
+understanding it well enough to discard everything inessential. And when asked to *discuss*
+something, discuss it — do not answer with a parameter sweep.
+
+
 ## Hard invariants
 
 1. `TICK_RATE_HZ` lives once in `@motor-combat-moba/shared`.
