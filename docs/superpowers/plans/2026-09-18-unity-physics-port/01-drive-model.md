@@ -1105,8 +1105,8 @@ npm test
 grep -n "shared/dist" packages/server/dist/index.js | head -3
 ```
 
-Expected: build green; `npm test` green except the three already-red bot tests; the inlined path
-reads `// ../shared/dist/…`, not an escaped worktree path.
+Expected: build green; `npm test` green except the bot-behaviour suites named in the exit criteria
+below; the inlined path reads `// ../shared/dist/…`, not an escaped worktree path.
 
 - [ ] **Step 5: Commit and update the tracker**
 
@@ -1124,9 +1124,15 @@ readings), and which stage is next.
 ## Stage 1 exit criteria
 
 - [ ] `npm run build` (root) succeeds and the server bundle inlines `// ../shared/dist/…`.
-- [ ] `npm test` passes except the three bot tests that were already red, whose readings are recorded.
+- [ ] `npm test` passes except the bot-behaviour suites, whose per-file readings are recorded. That is
+  NOT "the three already-red tests" any more: the drive model moved the bot, and the count at the end
+  of Task 7 is `predict.test.ts` 9, `controller.test.ts` 2, `planner.test.ts` 2, `tiers.test.ts` 2.
+  Record whatever Task 8 measures, not this list. Two of the three originally-recorded red tests
+  (`tiers.test.ts` P49 and `balance/match.test.ts`) were found to be green at the pre-work commit
+  itself — the baseline in `EXECUTION.md` was stale on arrival and Task 8 corrects it.
 - [ ] `stepDrive` reads no module-level rate: every per-tick factor arrives on `ChassisDrive`.
 - [ ] A car approaches its top speed asymptotically and never clamps to it.
-- [ ] Holding full lock leaves a measurable slip angle matching `atan(turnRate / lateralGripRate)`.
+- [ ] Holding full lock leaves a measurable slip angle matching `atan(turnRate / (dragRate + lateralGripRate))`
+  — drag bleeds the lateral component too, so grip is the EXTRA sideways rate.
 - [ ] `docs/turn-tuning.md` recomputes clean, and its prose no longer claims cornering has no grip knob.
 - [ ] `manual.html` is rebuilt and contains no `NaN`.
