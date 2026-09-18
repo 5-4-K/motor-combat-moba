@@ -1,5 +1,13 @@
 import type { CarId, PlaygroundSetup, TunableField, TuningValue, WeaponId } from "@motor-combat-moba/shared";
-import { ARENAS, CAR_TABLE, WEAPON_TABLE, basicAttackOf, slotsOf, tunableFields } from "@motor-combat-moba/shared";
+import {
+  ARENAS,
+  CAR_TABLE,
+  WEAPON_TABLE,
+  basicAttackIds,
+  basicAttackOf,
+  slotsOf,
+  tunableFields,
+} from "@motor-combat-moba/shared";
 import { CAR_EVENT_IDS, type CarEventId } from "../../fx/table.js";
 
 /**
@@ -90,13 +98,17 @@ export function carOptions(): { id: CarId; name: string }[] {
 }
 
 /**
- * The weapons a playground seat may be given. ABILITY rows only (BA37): the basic attack is a
- * property of the chassis, not of the loadout, so it is never picked — `newFireState` appends the
- * driven car's own.
+ * The weapons a playground seat may be given in an ABILITY slot (BA37). A weapon some chassis
+ * carries as its basic attack is left out: that slot is a property of the chassis, not of the
+ * loadout, so it is never picked here — `newFireState` appends the driven car's own.
+ *
+ * The excluded set comes from `CAR_TABLE`, not from the shape of an id. Which weapons are basic
+ * attacks is a fact about the roster's slots, and the roster is the only thing that knows it.
  */
 export function weaponOptions(): { id: WeaponId; name: string }[] {
+  const basics = basicAttackIds();
   return Object.values(WEAPON_TABLE)
-    .filter((row) => !row.id.startsWith("basic-attack-"))
+    .filter((row) => !basics.has(row.id))
     .map((row) => ({ id: row.id, name: row.name }));
 }
 

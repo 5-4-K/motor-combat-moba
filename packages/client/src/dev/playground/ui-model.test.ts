@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { CAR_TABLE, WEAPON_TABLE, ARENAS, activeCarIds, defaultPlaygroundSetup } from "@motor-combat-moba/shared";
+import {
+  CAR_TABLE,
+  WEAPON_TABLE,
+  ARENAS,
+  activeCarIds,
+  basicAttackIds,
+  defaultPlaygroundSetup,
+} from "@motor-combat-moba/shared";
 import type { CarId, PlaygroundSetup, TunableField, WeaponId } from "@motor-combat-moba/shared";
 import { CAR_EVENT_IDS } from "../../fx/table.js";
 import {
@@ -63,14 +70,14 @@ describe("carOptions", () => {
 });
 
 describe("weaponOptions", () => {
-  it("lists every ABILITY row of WEAPON_TABLE, and no basic attack (BA37)", () => {
+  it("lists every ABILITY row of WEAPON_TABLE, and no chassis's basic attack (BA37)", () => {
     // A tester could otherwise seat another chassis's basic attack as Mirage's slot 1 — a car with
     // two basic attacks, one of them borrowed — and nine options all reading "Basic Attack" would
-    // be unusable anyway. The basic attack is a property of the chassis, not of the loadout.
+    // be unusable anyway. Which slot a weapon sits in is a property of the chassis, not of the
+    // loadout, so the exclusion is read from `CAR_TABLE` here exactly as the source does.
     const options = weaponOptions();
-    const expectedIds = (Object.keys(WEAPON_TABLE) as WeaponId[]).filter(
-      (id) => !id.startsWith("basic-attack-"),
-    );
+    const basics = basicAttackIds();
+    const expectedIds = (Object.keys(WEAPON_TABLE) as WeaponId[]).filter((id) => !basics.has(id));
     expect(options.map((o) => o.id).sort()).toEqual([...expectedIds].sort());
     for (const id of expectedIds) {
       expect(options.find((o) => o.id === id)?.name).toBe(WEAPON_TABLE[id].name);

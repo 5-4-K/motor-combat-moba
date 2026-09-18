@@ -52,7 +52,7 @@ const BASIC_ATTACK_BASE = {
  *
  * This is the ten-ability roster from the 2026-09-01 weapon-status overhaul (O1-O17) — `fireball`,
  * `needler`, `skewer` and `bulwark` are retired outright, their comment history living in git
- * rather than here — plus the nine `basic-attack-<carId>` rows every chassis carries beside its kit
+ * rather than here — plus the nine plain-bolt rows the chassis currently carry beside their kits
  * (BA1-BA38). See
  * `docs/superpowers/specs/2026-08-29-weapon-roster-design.md` for the original roster rules,
  * `docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md` for the

@@ -150,6 +150,7 @@ export {
   CAR_TABLE,
   DEFAULT_CAR_ID,
   activeCarIds,
+  basicAttackIds,
   basicAttackOf,
   dragRateOf,
   driveOf,

@@ -19,10 +19,13 @@ duration, and (since the car-physics rework's stage 4) a hard slam for
 through the `ImpulseDef` seam rather than through `applies`. See the car-physics section below. See
 [`docs/combat-model.md`](docs/combat-model.md#statuses).
 
-**Every car carries a fourth weapon it never sees in the HUD: its basic attack.** Nine
-`basic-attack-<carId>` rows in `WEAPON_TABLE`, all nine identical today and all spreading one
-`BASIC_ATTACK_BASE`, held on a `CarDef.basicAttack` field **beside** the three-weapon kit rather
-than inside it. **`CarDef.weapons` and `slotsOf` still mean the three ABILITY slots** — the HUD, the
+**Every car carries a fourth weapon it never sees in the HUD: its basic attack.** It is an
+ordinary `WEAPON_TABLE` row wired into a second slot — `CarDef.basicAttack`, a plain `WeaponId`
+sitting **beside** the three-weapon kit rather than inside it — and **any weapon may occupy it**.
+Nothing constrains which row a chassis points it at, or what that row's id is spelled like; a
+weapon is a basic attack because a chassis slots it there, and `basicAttackIds()` is the only
+honest way to ask which ones are. The nine rows the chassis carry there today are identical seeds
+spreading one `BASIC_ATTACK_BASE`, which is a balance state, not a rule. **`CarDef.weapons` and `slotsOf` still mean the three ABILITY slots** — the HUD, the
 guide, the playground's loadout picker, the balance seat filter, ttk's attacker axis and the bot's
 reach model all depend on that and are the reason it did not widen. `fireSlotsOf(carId)` is where
 the two are joined, and its live readers are `packages/server/balance/stats.ts`'s accumulator
@@ -819,7 +822,7 @@ alpha fails the suite instead of reaching the HUD as an opaque square. **Warning
 suite** — an icon is allowed more than one colour, and only a person looking at the screen can say
 whether a pair reads as one weapon. `npm run check:weapons` warns on ten of the roster's nineteen
 rows today: `tremor` (no manifest row yet) and, since the basic attack landed, all nine
-`basic-attack-<carId>` rows alongside it — same reason, same fallback to the procedural glyph, and
+basic-attack rows alongside it — same reason, same fallback to the procedural glyph, and
 expected until someone draws an icon (BA32). **The nine other carried weapons read `ok`**, most of
 them at a colour distance of 0-9, because the 2026-09-02 icon pass repainted every
 `WEAPON_TABLE.color` from its own icon rather than from a per-chassis palette. `thunderclap`'s 66 is

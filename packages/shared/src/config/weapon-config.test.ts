@@ -6,8 +6,31 @@ import type { StatusId } from "./status-types.js";
 import { WEAPON_TABLE, explosionDamageModeOf, instanceDefOf, isWeaponId, weaponDefOf } from "./weapon-config.js";
 import { slotsOf } from "./weapon-slots.js";
 import { WEAPON_TICKS, msToTicks, weaponTicksOf } from "./weapon-ticks.js";
-import type { WeaponDef } from "./weapon-types.js";
+import type { WeaponDef, WeaponId } from "./weapon-types.js";
 import { STATUS_CONFIG } from "./status-config.js";
+
+/**
+ * The nine rows that are one weapon wearing nine ids: a plain bolt, authored once as
+ * `BASIC_ATTACK_BASE` and spread nine times so a later per-chassis divergence is a one-field edit.
+ *
+ * **Listed here, not filtered by the shape of an id and not read out of `CAR_TABLE`.** These
+ * assertions are about these nine WEAPON rows — what they are — and not about the basic-attack
+ * SLOT, which any `WEAPON_TABLE` row may occupy. Pointing a chassis's `basicAttack` at some other
+ * weapon must not drag that weapon in here and demand it be a plain bolt too.
+ */
+const PLAIN_BOLT_IDS = [
+  "basic-attack-bullseye",
+  "basic-attack-mirage",
+  "basic-attack-bastion",
+  "basic-attack-taurus",
+  "basic-attack-anvil",
+  "basic-attack-prowler",
+  "basic-attack-cleaver",
+  "basic-attack-skorpios",
+  "basic-attack-caprico",
+] as const satisfies readonly WeaponId[];
+
+const plainBolts = (): WeaponDef[] => PLAIN_BOLT_IDS.map((id) => WEAPON_TABLE[id]);
 
 describe("WEAPON_TABLE", () => {
   it("pins the overhaul roster's load-bearing numbers (spec 2026-09-01)", () => {
@@ -69,14 +92,12 @@ describe("WEAPON_TABLE", () => {
     }
   });
 
-  it("carries nineteen weapons — ten authored rows plus one basic attack per chassis", () => {
-    const rows = Object.values(WEAPON_TABLE);
-    expect(rows).toHaveLength(19);
-    const basics = rows.filter((def) => def.id.startsWith("basic-attack-"));
-    expect(basics).toHaveLength(Object.keys(CAR_TABLE).length);
+  it("carries nineteen weapons — ten abilities plus the nine plain bolts", () => {
+    expect(Object.values(WEAPON_TABLE)).toHaveLength(19);
+    for (const id of PLAIN_BOLT_IDS) expect(WEAPON_TABLE, id).toHaveProperty(id);
   });
 
-  it("gives every ABILITY weapon its own `#RRGGBB` colour, one shared colour to the basic attacks, and never a player's", () => {
+  it("gives every ability weapon its own `#RRGGBB` colour, one shared colour to the nine plain bolts, and never a player's", () => {
     const rows: WeaponDef[] = Object.values(WEAPON_TABLE);
     const colors = rows.map((def) => def.color.toUpperCase());
     for (const color of colors) expect(color).toMatch(/^#[0-9A-F]{6}$/);
@@ -85,8 +106,9 @@ describe("WEAPON_TABLE", () => {
     // plain filled hitbox. The nine basic attacks are one weapon wearing nine ids — a player must
     // not be able to tell Mirage's bolt from Bastion's — so they share one colour on purpose, and
     // this asserts BOTH halves rather than loosening the rule (BA7).
-    const abilities = rows.filter((def) => !def.id.startsWith("basic-attack-"));
-    const basics = rows.filter((def) => def.id.startsWith("basic-attack-"));
+    const bolts = new Set<string>(PLAIN_BOLT_IDS);
+    const abilities = rows.filter((def) => !bolts.has(def.id));
+    const basics = plainBolts();
     const abilityColors = abilities.map((def) => def.color.toUpperCase());
     expect(new Set(abilityColors).size).toBe(abilities.length);
     expect(new Set(basics.map((def) => def.color.toUpperCase())).size).toBe(1);
@@ -98,8 +120,8 @@ describe("WEAPON_TABLE", () => {
     for (const color of colors) expect(players.has(color)).toBe(false);
   });
 
-  it("keeps every basic attack identical, boring, and mechanic-free (BA3, BA34)", () => {
-    const basics = Object.values(WEAPON_TABLE).filter((def) => def.id.startsWith("basic-attack-"));
+  it("keeps the nine plain bolts identical, boring, and mechanic-free (BA3, BA34)", () => {
+    const basics = plainBolts();
     for (const def of basics) {
       expect(def.kind, def.id).toBe("projectile");
       expect(def.applies, def.id).toBeUndefined();

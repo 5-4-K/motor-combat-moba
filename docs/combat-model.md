@@ -516,8 +516,10 @@ it could have been a `cooldownMs` edit, so the field is not even writable outsid
 
 Every car carries a fourth weapon that is not in `weapons` at all: `CarDef.basicAttack`, a single
 `WeaponId` field sitting **beside** the three-weapon kit rather than inside it
-(`basicAttackOf(carId)` is its accessor). Nine `basic-attack-<carId>` rows in `WEAPON_TABLE`, all
-nine identical, all spread from one `BASIC_ATTACK_BASE` — 20 damage, 800 ms cooldown, 900 u/s,
+(`basicAttackOf(carId)` is its accessor). The field takes any `WeaponId`: the slot constrains
+nothing about the weapon in it, and a chassis may point it at a row another chassis carries as an
+ability. The nine rows the chassis carry there today are identical, all spread from one
+`BASIC_ATTACK_BASE` — 20 damage, 800 ms cooldown, 900 u/s,
 960-unit range, a 12-unit circle hitbox, `#101014`. It carries no `applies`, no `impulse` and no
 `explosion`: a plain, unlimited-ammo poke, not a mechanic.
 

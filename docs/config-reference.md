@@ -82,8 +82,8 @@ the flag, and what does not:
 - **An inactive chassis may carry no weapons at all — but it still needs its own `basicAttack`.**
   `weapon-slots.test.ts` applies the at-least-one-weapon floor to active cars' `weapons` only — a
   prototype exists to be driven long before its kit is authored, so `weapons: []` is legal. `CarDef`
-  compiles `basicAttack` as required on every row regardless of `isActive`, so a prototype is authored
-  with its own `basic-attack-<carId>` row from day one, the same as the three shipped chassis — there
+  compiles `basicAttack` as required on every row regardless of `isActive`, so a prototype names a
+  weapon there from day one, the same as the three shipped chassis — there
   is no inactive exemption for that field. The `weapons` floor applies the moment `isActive` flips.
 - **Weapon exclusivity (L1) is unconditional and covers inactive rows.** No weapon may sit on two
   chassis, active or not, so a prototype cannot borrow a shipped kit. That is the deliberate trade
@@ -191,9 +191,12 @@ mapping. `slotsOf(carId)` (`config/weapon-slots.ts`) is what actually reads it, 
 that consumes it.
 
 **`basicAttack: WeaponId` is a separate `CarDef` field, required on every row and distinct from
-`weapons`.** It names that chassis's `basic-attack-<carId>` row and is required so the compiler
-enforces one per car (BA2, BA9); `basicAttackOf(carId)` (`config/car-config.ts`) is its accessor,
-beside `slotsOf`.
+`weapons`.** It names **any** `WEAPON_TABLE` row — the slot puts no condition on the weapon in it,
+and a chassis may point it at a row another chassis carries as an ability. Required, not optional,
+which is what makes "every car can shoot" a compile error rather than a surprise (BA2, BA9);
+`basicAttackOf(carId)` (`config/car-config.ts`) is its accessor, beside `slotsOf`, and
+`basicAttackIds()` is how a reader asks which weapons are somebody's basic attack — the question is
+about the slot, so `CAR_TABLE` is the only thing that can answer it.
 It is never counted toward `maxAbilitySlots` and never truncated the way an over-long `weapons` list
 is — it is a structurally separate slot, joined to the kit only through `fireSlotsOf(carId)` (=
 `[...slotsOf(carId), basicAttackOf(carId)]`), which has exactly three readers named in
@@ -236,9 +239,10 @@ once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually r
 `weapon-slots.test.ts` names it in the sanctioned-uncarried set, and the players' guide only shows
 carried weapons, so it is invisible to players until a kit lists it).
 
-**Nine more rows, `basic-attack-<carId>`, sit beside the ten above** (nineteen total) — one per
-chassis, shipped and unreleased alike, all identical and all spread from one shared
-`BASIC_ATTACK_BASE`:
+**Nine more rows sit beside the ten above** (nineteen total) — the weapon each chassis carries in
+its basic-attack slot today, shipped and unreleased alike, all identical and all spread from one
+shared `BASIC_ATTACK_BASE`. They are nine because nine chassis each got a seed of their own, not
+because the slot demands a dedicated row: any of the ten above could be slotted there instead.
 
 | Field | Value |
 |---|---|

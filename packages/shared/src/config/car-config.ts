@@ -121,6 +121,22 @@ export function basicAttackOf(id: CarId): WeaponId {
   return CAR_TABLE[id].basicAttack;
 }
 
+/**
+ * Every weapon some chassis carries in its basic-attack slot.
+ *
+ * The one honest way to ask "is this weapon a basic attack": it is a question about the SLOT, so
+ * the answer comes from `CAR_TABLE` and never from the weapon's id. Nothing may infer it by
+ * pattern-matching a name — a chassis is free to carry any `WEAPON_TABLE` row here, including one
+ * another chassis carries as an ability, and an id-shaped test would answer wrongly in both
+ * directions the day that happens.
+ *
+ * Note the consequence, since it is the point rather than a side effect: a weapon that appears in
+ * BOTH some chassis's kit and some chassis's basic-attack slot is in this set.
+ */
+export function basicAttackIds(): ReadonlySet<WeaponId> {
+  return new Set(Object.values(CAR_TABLE).map((car) => car.basicAttack));
+}
+
 export function forwardMaxSpeedOf(id: CarId): number {
   return DRIVE_CONFIG.baseMaxSpeed + CAR_TABLE[id].speed * DRIVE_CONFIG.speedPerRating;
 }
