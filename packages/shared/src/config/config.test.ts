@@ -473,8 +473,12 @@ describe("ram ratings", () => {
     expect(spread(atk)).toBeLessThan(spread(def));
   });
 
-  it("has a positive defence push scale and global scale", () => {
-    expect(RAM_CONFIG.defencePushScale).toBeGreaterThan(0);
+  it("has a positive global scale", () => {
+    // `defencePushScale` (revision 2's separate defence-side scale on the two-sided contest) was
+    // deleted outright by the Unity ram rule (spec §7, S3-j) rather than renamed: `shoveOf` now
+    // divides by the victim's `ramDefenceOf(...) * defenceMult` directly, with nothing left to
+    // scale that division. `globalScale` is the one surviving calibration knob, reconciling Unity's
+    // 1-vs-1 strength/resistance scale with this roster's ramAttack/ramDefence (see `ram-config.ts`).
     expect(RAM_CONFIG.globalScale).toBeGreaterThan(0);
   });
 });

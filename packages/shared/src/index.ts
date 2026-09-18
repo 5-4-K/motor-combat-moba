@@ -115,7 +115,6 @@ export type {
   ContactCar,
   ContactEvents,
   ContactHit,
-  ImpulseEntry,
   SlamEvent,
   SpikeContact,
   SpikeHit,

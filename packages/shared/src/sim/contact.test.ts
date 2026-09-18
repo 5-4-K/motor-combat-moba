@@ -65,17 +65,19 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     expect(Math.hypot(slam.dirX, slam.dirY)).toBeCloseTo(1, 6);
     expect(slam.contactX).toBe(58.75);
     expect(slam.contactY).toBe(0);
-    // Nothing at all in the impulses map: a slam does not compete with a ram for the per-victim
-    // slot any more, and the pair produced no ram of its own either (`resolvePair` short-circuits).
-    expect(r.impulses.size).toBe(0);
+    // Nothing at all on the events' `rams` list: a slam does not compete with a ram for a slot any
+    // more (there is no slot), and the pair produced no ram of its own either (`resolvePair`
+    // short-circuits on `anyEvent`).
+    expect(r.events.rams).toHaveLength(0);
   });
 
-  it("only the ram fallback still builds an Impulse here", () => {
+  it("only the ram fallback still produces a RamResolution here", () => {
     // The contrast that keeps the assertion above meaningful: the SAME geometry with no charge
-    // running falls through to an ordinary ram, which does write into `impulses` — so an empty map
-    // above is evidence about the slam branch, not about the fixture failing to touch at all. A
-    // ram's impulse always authors `spin: 1` (`resolveRam`'s hard-coded contract), where a slam's
-    // `spin` is whatever its weapon row says (0 for `wildcharge`, "a clean straight punt").
+    // running falls through to an ordinary ram, which does land on `events.rams` — so an empty list
+    // above is evidence about the slam branch, not about the fixture failing to touch at all. The
+    // attacker (behind, matching heading — a rear hit) stops dead (`replacesVelocity: true`, zero
+    // shove) and is locked; the victim is flung along the attacker's heading and left reeling —
+    // Unity's rule (spec §7.2), not a computed contest.
     const ram = resolveContacts(
       [car({ sessionId: "a", x: 0, y: 0, angle: 0, vx: 300, vy: 0, carId: "bastion" as CarId }), victimAt(58.75)],
       new Set(),
@@ -86,9 +88,18 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
       bounds,
     );
     expect(ram.events.slams).toHaveLength(0);
-    const ramImp = ram.impulses.get("b")!.impulse;
-    expect(ramImp.defenceScaled).toBe(false); // the contest already divided by the victim's ramDefence
-    expect(ramImp.spin).toBe(1);
+    expect(ram.events.rams).toHaveLength(1);
+    const resolution = ram.events.rams[0]!;
+    expect(resolution.type).toBe("rear");
+    expect(resolution.attackerId).toBe("a");
+    expect(resolution.locked).toEqual(["a"]);
+    expect(resolution.reeled).toEqual(["b"]);
+    const attackerSide = resolution.sides.find((s) => s.sessionId === "a")!;
+    expect(attackerSide.replacesVelocity).toBe(true);
+    expect(attackerSide.shoveX).toBe(0);
+    const victimSide = resolution.sides.find((s) => s.sessionId === "b")!;
+    expect(victimSide.replacesVelocity).toBe(false);
+    expect(victimSide.shoveX).toBeGreaterThan(0);
   });
 
   it("slams a stunned victim only when the weapon says so (O3)", () => {
@@ -124,14 +135,15 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     const touching = new Set([pairKey("a", "b")]);
     const r = resolveContacts([charger(), victimAt(58.75)], touching, "ffa", 10, new Map(), [], bounds);
     expect(r.events.slams).toHaveLength(0);
-    expect(r.impulses.size).toBe(0);
+    expect(r.events.rams).toHaveLength(0);
   });
 
   it("no longer displaces a concurrent ordinary ram on the same victim", () => {
     // Three cars: a rammer and a charger touch the SAME victim from opposite sides in one tick.
-    // Until stage 4 both pairs competed for the one per-victim slot in `best` and the slam won it,
-    // on an ordering nothing enforced — the ram was simply thrown away. Now the slam does not enter
-    // that map at all, so the ram survives as its own entry and both land downstream.
+    // Through stage 3 (the old `best` map) both pairs competed for the one per-victim slot and the
+    // slam won it, on an ordering nothing enforced — the ram was simply thrown away. Now there is no
+    // slot at all: `events.rams` and `events.slams` are two independent lists, so the ram survives
+    // as its own entry and both land downstream.
     //
     // Session ids are chosen so the RAM pair is enumerated BEFORE the SLAM pair: `resolveContacts`
     // sorts by session id ("aRam" < "victim" < "zCharge"), so the nested pair loop visits
@@ -153,12 +165,12 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
 
     expect(r.events.slams).toHaveLength(1);
     expect(r.events.slams[0]).toMatchObject({ attackerSessionId: "zCharge", targetSessionId: "victim" });
-    // The ram is still here, still attributed to the rammer, and still an ordinary ram (`spin: 1`,
-    // `resolveRam`'s structural contract) rather than something a slam overwrote.
-    expect(r.impulses.size).toBe(1);
-    const entry = r.impulses.get("victim")!;
-    expect(entry.attackerId).toBe("aRam");
-    expect(entry.impulse.spin).toBe(1);
+    // The ram is still here, still attributed to the rammer, as its own resolution rather than
+    // something a slam overwrote.
+    expect(r.events.rams).toHaveLength(1);
+    const resolution = r.events.rams[0]!;
+    expect(resolution.attackerId).toBe("aRam");
+    expect(resolution.reeled).toEqual(["victim"]);
   });
 
   it("reports BOTH slams when two chargers land on one victim in a tick", () => {
@@ -176,7 +188,53 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     // carried rather than a constant copied onto both events.
     expect(r.events.slams[0]!.dirX).toBeCloseTo(1, 6);
     expect(r.events.slams[1]!.dirX).toBeCloseTo(-1, 6);
-    expect(r.impulses.size).toBe(0);
+    // Both pairs produced a slam (anyEvent), so neither one falls through to the ram arm at all —
+    // not "no ram survived a contest", but "no ram was ever attempted" for either pair.
+    expect(r.events.rams).toHaveLength(0);
+  });
+});
+
+describe("resolveContacts carries rams on events, not as an impulse map", () => {
+  it("reports an ordinary ram on the events, not as an impulse map", () => {
+    // A flank: the attacker drives in along the victim's side rather than its nose or tail (spec
+    // §7.1) — see `ramTypeOf`, which calls a side-region hit a flank regardless of heading.
+    const attacker = car({
+      sessionId: "a",
+      x: 0,
+      y: -48.75,
+      angle: Math.PI / 2,
+      vx: 0,
+      vy: 300,
+      carId: "bastion" as CarId,
+    });
+    const victim = car({ sessionId: "b", x: 0, y: 0, angle: 0, vx: 0, vy: 0, carId: "mirage" as CarId });
+    const { events } = resolveContacts([attacker, victim], new Set(), "ffa", 0, new Map(), [], {
+      width: 4000,
+      height: 4000,
+    });
+    expect(events.rams).toHaveLength(1);
+    expect(events.rams[0]!.type).toBe("flank");
+  });
+
+  it("still leaves a dash a ContactHit, with no ram alongside it", () => {
+    const dasher = car({
+      sessionId: "a",
+      x: 0,
+      y: 0,
+      angle: 0,
+      vx: 1600,
+      vy: 0,
+      carId: "mirage" as CarId,
+      maneuver: ManeuverKind.DASH,
+      maneuverWeaponId: "thunderclap",
+    });
+    const other = car({ sessionId: "b", x: 58.75, y: 0, angle: 0, vx: 0, vy: 0, carId: "bastion" as CarId });
+    const { events } = resolveContacts([dasher, other], new Set(), "ffa", 0, new Map(), [], {
+      width: 4000,
+      height: 4000,
+    });
+    expect(events.dashHits).toHaveLength(1);
+    expect(events.rams).toHaveLength(0);
   });
 });
 
@@ -203,7 +261,7 @@ describe("dash contact", () => {
       { width: 4000, height: 4000 },
     );
     expect(r.events.dashHits).toEqual([{ attackerSessionId: "a", targetSessionId: "b", weaponId: "thunderclap" }]);
-    expect(r.impulses.size).toBe(0);
+    expect(r.events.rams).toHaveLength(0);
   });
 
   it("reports a dasher pressed into level geometry", () => {
