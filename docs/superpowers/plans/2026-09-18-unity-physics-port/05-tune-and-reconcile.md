@@ -788,7 +788,7 @@ physics change and before a bot retune.
 
 ---
 
-### Task 8: The `bot-tuner` pass, and the three tests that were already red
+### Task 8: The `bot-tuner` pass, and the red suites stage 1 left behind
 
 **Files:**
 - Modify: `packages/server/src/config/bot-profiles.ts` (only if the skill's process says so)
@@ -821,6 +821,18 @@ itself records in capitals, and **this port is the pass those warnings were writ
 **Both doc comments must be rewritten**, not patched, because their argument's premise is gone. Read
 `objectives.ts`'s header table of measured term scales before touching a row, and **re-derive rather
 than nudge** — that is that file's own standing instruction.
+
+> **"The three already-red tests" is obsolete — do not go looking for that list.** Stage 1 measured
+> two of the three GREEN at the pre-work commit itself, so the baseline was stale on arrival, and the
+> drive model then moved the bot considerably. What this task actually inherits, measured at the end
+> of stage 1: `predict.test.ts` 9 cases, `controller.test.ts` 2, `planner.test.ts` 2, `tiers.test.ts`
+> 2. Stages 2-4 will have moved those again — take a fresh reading rather than trusting this one.
+>
+> **Plus one that is not a bot test at all:** `packages/server/balance/match.test.ts`'s
+> deathmatch-clock canary lands seed 1 on a kills/deaths ranking TIE, so a winner never appears. It
+> is a fixture-seed collision that stage 1's retune surfaced, not a defect in the clock — that
+> file's own history records reseeding past this shape before. Reseed it here, in this task, where
+> the drive and ram numbers are final; reseeding earlier would only have to be redone.
 
 - [ ] **Step 2: Record the three already-red tests' readings before you change anything**
 

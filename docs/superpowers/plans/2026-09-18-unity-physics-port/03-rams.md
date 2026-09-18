@@ -880,6 +880,19 @@ Record both numbers in `EXECUTION.md`. Stage 5 re-pitches `globalScale` and `spi
 them. A shove that carries the victim more than about four car lengths (240 u) means it crosses most
 of the arena — flag that to the user now rather than after the tuning pass.
 
+- [ ] **Step 2b: Restore the `angVel` round-trip coverage stage 1 could not keep**
+
+Stage 1 Task 8 re-pinned `packages/server/src/sim/tick.test.ts`'s "carries angVel/vx/vy through
+bodyOf → stepDrive → writeBody" case and reported that it **lost real coverage**: under the ported
+`stepDrive`, steering SETS the yaw rate rather than adding to it, so an injected `angVel` is
+overwritten every tick unless `spinFree` is set — and no `STATUS_TABLE` row set `spinFree` until
+this stage's Task 4. The round trip was therefore unreachable and the case was pinned at the
+degenerate value.
+
+`reeling` now carries `spinFree`. Restore the case: give the car `reeling`, inject an `angVel`, and
+assert it survives the round trip and decays by `spinPerTick` rather than being zeroed. This is the
+coverage the stage-1 comment promised would come back here — check that comment still reads true
+and update it once it has.
 - [ ] **Step 2a: `docs/turn-tuning.md`'s `reeling` prose — it is now wrong, and no test can see it**
 
 Task 4 of this stage redefined `reeling` to `modifiers: { grip: 0.6 }`, dropping the `turnRate: 0.4`
