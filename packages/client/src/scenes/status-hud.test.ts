@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  RAM_CONFIG,
   STATUS_CONFIG,
   STATUS_TABLE,
   TICK_RATE_HZ,
@@ -121,5 +122,27 @@ describe("statusStripLayout", () => {
     expect(statusStripLayout(99, VIEW_W, VIEW_H, GUTTER, SLOT_TOP)).toHaveLength(
       STATUS_CONFIG.maxActive,
     );
+  });
+});
+
+describe("the ram statuses", () => {
+  it("draws a badge for each straight off the table, with no client-side branch", () => {
+    for (const id of ["reeling", "ramLock"] as const) {
+      const badge = statusBadges([row(id, 0, 15)], 0)[0]!;
+      expect(badge.name).toBe(STATUS_TABLE[id].name);
+      expect(badge.kind).toBe("debuff");
+      expect(badge.fill).toBe(Number.parseInt(STATUS_TABLE[id].color.replace("#", ""), 16));
+    }
+  });
+
+  it("never shows 0s on a live half-second lock", () => {
+    // `attackerLockMs` is 500 — 15 ticks at 30 Hz, less than one whole second for its entire life.
+    // The chip is the only thing telling a player why their car went dead the moment they connected,
+    // so it must read `1s` throughout rather than rounding itself away.
+    const ticks = Math.round((RAM_CONFIG.attackerLockMs / 1000) * TICK_RATE_HZ);
+    for (let t = 0; t < ticks; t++) {
+      expect(statusBadges([row("ramLock", 0, ticks)], t)[0]!.secondsLeft).toBe(1);
+    }
+    expect(statusBadges([row("ramLock", 0, ticks)], ticks)).toHaveLength(0);
   });
 });
