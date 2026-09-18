@@ -849,7 +849,7 @@ git commit -m "feat(ram): the bridge writes ram velocities directly"
 ### Task 6: Close the stage
 
 **Files:**
-- Modify: `EXECUTION.md`
+- Modify: `EXECUTION.md`, `docs/turn-tuning.md` (prose only — its tables are stage 5's)
 
 - [ ] **Step 1: Full verification**
 
@@ -879,6 +879,25 @@ console.log('shove u/s:', Math.hypot(v.shoveX, v.shoveY).toFixed(1), 'spin rad/s
 Record both numbers in `EXECUTION.md`. Stage 5 re-pitches `globalScale` and `spinScale` against
 them. A shove that carries the victim more than about four car lengths (240 u) means it crosses most
 of the arena — flag that to the user now rather than after the tuning pass.
+
+- [ ] **Step 2a: `docs/turn-tuning.md`'s `reeling` prose — it is now wrong, and no test can see it**
+
+Task 4 of this stage redefined `reeling` to `modifiers: { grip: 0.6 }`, dropping the `turnRate: 0.4`
+and `accel: 0.4` multipliers it used to carry. Three places on that page still argue from the old
+pair, in prose the parser test cannot reach:
+
+- the **"Getting rammed to feel less helpless"** row — its whole "the multipliers only move in ONE
+  direction, both already sit AT their `STATUS_LIMITS` floors (0.4 / 0.4)" argument is void. What
+  replaces it: severity is now the `grip` multiplier (how far the shove carries) plus the flags
+  (`immobilised`, `steeringLocked`, `spinFree`, `ramBlocked`), and duration is still
+  `RAM_CONFIG.ramUncontrolMs` with its falloff knobs.
+- the **"I lose control when hit"** symptom row, which names the same two multipliers.
+- the paragraph retiring the old **"Rate while reeling"** derived row, written during stage 1, which
+  correctly said at the time that `reeling` "still carries one (0.4)". It does not any more.
+
+Re-read the whole page for any other sentence naming `reeling`'s `turnRate` or `accel`. Build a flat
+`file:line` checklist and verdict each line individually rather than summarising by section — a
+sibling task in stage 1 lost three stale lines exactly by batching them.
 
 - [ ] **Step 3: Commit and update the tracker**
 
