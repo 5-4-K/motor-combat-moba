@@ -179,6 +179,40 @@ command as well as the figure.
 
 ## Deferred, and who owns it
 
+- **`DRIVE_CONFIG.flipSteeringInReverse` is OFF from 2026-09-18, and the predicate behind it is the
+  thing to fix before it goes back on.** A playtest at `baseTurnRate` 1.0005 / `turnRatePerRating`
+  0.02535 found the car juddering for about a second after releasing the throttle mid-corner — most
+  of the time on Mirage, sometimes on Bullseye, never on Bastion. Cause: `steerSenseOf` asks "am I
+  reversing?" by reading the car-frame FORWARD component of velocity, which was the car's speed
+  before this port welded nothing to the nose, and is now `speed * cos(slip)`. A corner that swings
+  the nose past sideways drives it negative at speed, it then sits on the `-reverseEpsilon`
+  threshold, and the steering sense inverts and reverts several times a second. Reproduced exactly:
+  **Mirage 12 sense flips, Bullseye 6, Bastion 0.** The shipped turn rates clear it by only 5 u/s, so
+  this is latent rather than absent there, and any handling buff walks into it.
+  **Candidates tested and REJECTED — do not re-propose these without new evidence:**
+  - *Raise `lateralGripRate`* (3 → 4 clears it): a 5% turn-rate nudge brings it straight back, and
+    the grip needed always lands steady-state slip at ~30°, so it silently caps the drift dial.
+  - *A reverse-only drag knob*: needs ~50/s against a normal drag of 1.28, is non-monotonic (more
+    drag sometimes made it worse, because it parks the value ON the threshold), and at that strength
+    it destroys real reversing.
+  - *An alignment test* (`|lateral| < |forward|`): still 8 flips — a spin-out sweeps the velocity all
+    the way round, so it passes through aligned-backwards anyway.
+  - *A speed gate*: spin-out and genuine reverse occupy the same speed range, and at higher turn
+    rates the ranges cross over entirely. **No threshold on velocity MAGNITUDE can work.**
+  **The fix that does work is intent:** `throttle === -1 && forward < -reverseEpsilon`. Stateless, no
+  schema change, measured clean on the spin-out and correct on a genuine reverse. Its one cost is
+  that releasing reverse while still rolling backwards un-flips the sense once — today that case
+  chatters 7 times, so it is an improvement either way. A latched variant removes even that, but the
+  latch must BE the sense: keeping `forward < -reverseEpsilon` as a live per-tick term re-inherits the
+  chatter (measured worse than stateless), and the latch needs a networked schema field to satisfy
+  invariant 8.
+  **Also noticed while measuring, and NOT a bug:** pressing reverse while sliding backwards
+  accelerates you backwards instead of stopping you. That is the intended control scheme — one pedal
+  per direction, each doubling as the other's brake — confirmed by the project owner. What is worth a
+  look in the tuning pass is that the two directions do not stop equally hard: forward braking uses
+  the authored `CarDef.brakeDecel`, backward braking uses ordinary forward engine thrust, which is
+  1.4x weaker on Mirage, 2.1x on Bullseye and 2.4x on Bastion — and that backward figure is
+  `topSpeed * dragRate`, so nobody ever chose it and it moves every time top speed is tuned.
 - **Ram spin is currently completely INERT — a rammed car does not tumble at all. Stage 3 owns it.**
   `packages/shared/src/sim/impulse.ts`'s `applyImpulse` still accumulates spin into `body.angVel` and
   clamps it to `RAM_CONFIG.spinMaxRate`, exactly as before; but under U16 the ordinary `stepDrive`
