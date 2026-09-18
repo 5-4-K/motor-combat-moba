@@ -67,6 +67,10 @@ export function slotsOf(carId: CarId): readonly WeaponId[] {
  *    `bestSustainedDpsOf`. The latter is deliberate, not an oversight: a sustained-DPS ceiling
  *    should count every trigger a car can pull, and including the basic attack moved Bastion's
  *    figure from 18.3 (thumper alone) to 22.5.
+ * 4. `packages/server/playtest/` — `carrierOf` and `slotBitFor` in `weapons.ts`, `weapons2.ts` and
+ *    `geometry.ts`. Those probes sweep `WEAPON_TABLE` whole and press each row through the real
+ *    slot pipeline, so "who can fire this, and on which slot" is exactly their question; asking
+ *    `slotsOf` threw on the first basic-attack row and killed the run.
  *
  * `newFireState` (`sim/weapons/fire.ts`) does **not** call this — its explicit-loadout path builds
  * the same `[...kit, basicAttackOf(carId)]` list inline, because it also has to accept a caller-given
@@ -74,8 +78,8 @@ export function slotsOf(carId: CarId): readonly WeaponId[] {
  *
  * Everything else wants `slotsOf`. The rule: **`fireSlotsOf` answers "what can this car fire",
  * `slotsOf` answers "what kit was this chassis designed around".** The HUD, the guide, the
- * playground's loadout editor, the balance seat filter, ttk's attacker axis, the bot's reach model
- * and the playtest probes all ask the second question.
+ * playground's loadout editor, the balance seat filter, ttk's attacker axis and the bot's reach
+ * model all ask the second question.
  */
 export function fireSlotsOf(carId: CarId): readonly WeaponId[] {
   return [...slotsOf(carId), basicAttackOf(carId)];

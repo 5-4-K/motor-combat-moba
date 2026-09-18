@@ -13,8 +13,8 @@ import {
   forwardMaxSpeedOf,
   getArena,
   muzzleOffset,
-  slotsOf,
-  CAR_TABLE,
+  activeCarIds,
+  fireSlotsOf,
   type ArenaDef,
   type CarId,
   type WeaponId,
@@ -28,19 +28,26 @@ const reporter = new Reporter(
 );
 const report = reporter.report.bind(reporter);
 const ARENA = getArena("arena-02");
+/**
+ * The chassis this probe seats to fire a row. Only ever asked about abilities here (G6 names
+ * `afterburner` and `lance`), but it asks `fireSlotsOf` over `activeCarIds()` like the two weapon
+ * probes do: the same helper written three ways is how the next sweep over `WEAPON_TABLE` walks
+ * back into the "no chassis carries" crash a basic-attack row caused here.
+ */
 function carrierOf(w: WeaponId): CarId {
-  const id = (Object.keys(CAR_TABLE) as CarId[]).find((c) => slotsOf(c).includes(w));
-  if (!id) throw new Error(`no chassis carries ${w}`);
+  const id = activeCarIds().find((c) => fireSlotsOf(c).includes(w));
+  if (!id) throw new Error(`no active chassis can fire ${w}`);
   return id;
 }
 /**
- * Which slot index (1-based bitmask) carries this weapon on its chassis. Throws rather than
- * silently returning a garbage bit: `1 << -1` is `-2147483648`, which would fire a nonsense mask
- * and let a scenario naming a weapon its chassis no longer carries report a clean, empty result.
+ * Which FIRE slot (bitmask) this chassis presses to fire this weapon — the kit's three abilities,
+ * then the basic attack at index 3. Throws rather than silently returning a garbage bit:
+ * `1 << -1` is `-2147483648`, which would press a nonsense mask and let a scenario naming a weapon
+ * its chassis cannot fire report a clean, empty result.
  */
 function slotBitFor(c: CarId, w: WeaponId): number {
-  const i = slotsOf(c).indexOf(w);
-  if (i < 0) throw new Error(`${c} does not carry ${w}`);
+  const i = fireSlotsOf(c).indexOf(w);
+  if (i < 0) throw new Error(`${c} cannot fire ${w}`);
   return 1 << i;
 }
 

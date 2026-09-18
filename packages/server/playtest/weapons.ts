@@ -11,9 +11,10 @@ import {
   STATUS_CONFIG,
   STATUS_TABLE,
   getArena,
+  activeCarIds,
+  fireSlotsOf,
   hpOf,
   muzzleOffset,
-  slotsOf,
   weaponDamageOf,
   weaponDefOf,
   weaponTicksOf,
@@ -26,24 +27,55 @@ import { Reporter } from "./reporter.js";
 
 const reporter = new Reporter(
   "weapons",
-  "All nine weapons: damage, point-blank, friendly fire, death, cooldowns, statuses, leaks, pierce.",
+  "Every fireable row — each active chassis's three abilities and its basic attack: damage, point-blank, friendly fire, death, cooldowns, statuses, leaks, pierce.",
 );
 const report = reporter.report.bind(reporter);
 
-/** Which slot index (1-based bitmask) carries this weapon on its chassis. */
+/**
+ * Which FIRE slot (bitmask) this chassis presses to fire this weapon.
+ *
+ * `fireSlotsOf`, not `slotsOf`: a car fires four weapons — its three abilities, then its basic
+ * attack at index 3 (BA13). The two lists agree on every ability, since the kit comes first in
+ * fire-slot order, so this only widens what can be asked for; it never moves an existing bit.
+ *
+ * `indexOf` takes the FIRST match on purpose. A chassis may carry one row both as an ability and in
+ * its basic-attack slot (`basicAttackIds()` documents that as deliberate), and this then presses the
+ * ability — which is what the sim does with that press anyway, since the lowest set bit wins a
+ * same-tick tie.
+ */
 function slotBitFor(carId: CarId, weaponId: WeaponId): number {
-  const i = slotsOf(carId).indexOf(weaponId);
-  if (i < 0) throw new Error(`${carId} does not carry ${weaponId}`);
+  const i = fireSlotsOf(carId).indexOf(weaponId);
+  if (i < 0) throw new Error(`${carId} cannot fire ${weaponId}`);
   return 1 << i;
 }
+/**
+ * The chassis these probes seat to fire a row. `activeCarIds()`, not the whole `CAR_TABLE`: the six
+ * unreleased prototypes carry `weapons: []` but each still fills its basic-attack slot, so sweeping
+ * the whole table would start seating a chassis no player can pick. That is not a behaviour this
+ * lookup ever had — an empty kit made an inactive chassis un-carriable while `slotsOf` was the
+ * question — and the balance harness and the players' guide gate on the same flag.
+ */
 function carrierOf(weaponId: WeaponId): CarId {
-  const id = (Object.keys(CAR_TABLE) as CarId[]).find((c) => slotsOf(c).includes(weaponId));
-  if (!id) throw new Error(`no chassis carries ${weaponId}`);
+  const id = activeCarIds().find((c) => fireSlotsOf(c).includes(weaponId));
+  if (!id) throw new Error(`no active chassis can fire ${weaponId}`);
   return id;
 }
-/** An authored row no chassis carries (`tremor` today) cannot be fired through the real slot pipeline. */
+/** A row no ACTIVE chassis can fire cannot be pressed through the real slot pipeline. */
 function hasCarrier(weaponId: WeaponId): boolean {
-  return (Object.keys(CAR_TABLE) as CarId[]).some((c) => slotsOf(c).includes(weaponId));
+  return activeCarIds().some((c) => fireSlotsOf(c).includes(weaponId));
+}
+/**
+ * Why a skipped row was skipped. Two reasons, kept apart because they mean different things to a
+ * reader: `tremor` is authored but in no chassis's kit OR basic-attack slot, while a row an
+ * unreleased prototype alone carries sits on a loadout no player can field. Asked of `CAR_TABLE`
+ * through `fireSlotsOf`, never of the weapon's id — a basic attack is one because a chassis slots
+ * it there, not because of how it is spelled.
+ */
+function skipReasonFor(weaponId: WeaponId): string {
+  const onSomeChassis = (Object.keys(CAR_TABLE) as CarId[]).some((c) => fireSlotsOf(c).includes(weaponId));
+  return onSomeChassis
+    ? "SKIPPED — carried only by an INACTIVE chassis; no player can field the car that fires it"
+    : "SKIPPED — authored but on no chassis's loadout; nothing can fire it through the real slot pipeline";
 }
 
 /**
@@ -102,9 +134,11 @@ function shootAt(opts: {
   };
 }
 
-// Every probe here fires through the real slot pipeline, so the sweep covers CARRIED rows only.
-// `tremor` (the 2026-09-01 overhaul's unassigned presence zone) is authored but on no loadout;
-// W1 names every skipped row loudly rather than iterating it into a crash.
+// Every probe here fires through the real slot pipeline, so the sweep covers the rows an ACTIVE
+// chassis can actually press: its three abilities and its basic attack (fire slot 3). Two kinds of
+// row fall out — `tremor` (the 2026-09-01 overhaul's unassigned presence zone), on no loadout at
+// all, and the basic attacks of the unreleased prototypes. W1 names every skipped row and its
+// reason loudly rather than iterating it into a crash.
 const ALL_WEAPONS = (Object.keys(WEAPON_TABLE) as WeaponId[]).filter(hasCarrier);
 const UNCARRIED_WEAPONS = (Object.keys(WEAPON_TABLE) as WeaponId[]).filter((id) => !hasCarrier(id));
 
@@ -136,7 +170,7 @@ function baseline(): void {
     );
   }
   for (const id of UNCARRIED_WEAPONS) {
-    rows.push(`${id.padEnd(11)} SKIPPED — authored but on no chassis's loadout; nothing can fire it through the real slot pipeline`);
+    rows.push(`${id.padEnd(11)} ${skipReasonFor(id)}`);
   }
   report(
     "W1. Every weapon connects at half its range",

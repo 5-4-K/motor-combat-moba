@@ -14,7 +14,8 @@ import {
   CAR_TABLE,
   DRIVE_CONFIG,
   forwardMaxSpeedOf,
-  slotsOf,
+  activeCarIds,
+  fireSlotsOf,
   type CarId,
   type WeaponId,
 } from "@motor-combat-moba/shared";
@@ -26,21 +27,44 @@ const reporter = new Reporter(
   "Pellet spread vs tunneling, crossing targets, point-blank angles, spin, dead cars as cover.",
 );
 const report = reporter.report.bind(reporter);
+/**
+ * The chassis these probes seat to fire a row. `fireSlotsOf`, not `slotsOf`: a car fires four
+ * weapons — its three abilities and its basic attack — and a sweep over `WEAPON_TABLE` asking
+ * `slotsOf` who carries a row threw on the first basic-attack row it reached, which stopped this
+ * probe measuring anything after it. `activeCarIds()`, not the whole `CAR_TABLE`, for the other
+ * half: the six unreleased prototypes carry `weapons: []` but each still fills its basic-attack
+ * slot, and seating a chassis no player can pick is not a behaviour this lookup ever had.
+ */
 function carrierOf(weaponId: WeaponId): CarId {
-  const id = (Object.keys(CAR_TABLE) as CarId[]).find((c) => slotsOf(c).includes(weaponId));
-  if (!id) throw new Error(`no chassis carries ${weaponId}`);
+  const id = activeCarIds().find((c) => fireSlotsOf(c).includes(weaponId));
+  if (!id) throw new Error(`no active chassis can fire ${weaponId}`);
   return id;
 }
+/** A row no ACTIVE chassis can fire cannot be pressed through the real slot pipeline. */
+function hasCarrier(weaponId: WeaponId): boolean {
+  return activeCarIds().some((c) => fireSlotsOf(c).includes(weaponId));
+}
 /**
- * Which slot index (1-based bitmask) carries this weapon on its chassis. Throws rather than
- * silently returning a garbage bit: `1 << -1` is `-2147483648`, and a scenario naming a weapon its
- * chassis no longer carries would otherwise fire that mask and report a clean, empty result —
- * exactly the failure T8 found in three scenarios here and in weapons.ts. A setup mistake like
- * this is allowed to be loud; only the measurement loop over live scenarios has to keep going.
+ * Why a skipped row was skipped. Asked of `CAR_TABLE` through `fireSlotsOf`, never of the weapon's
+ * id — a basic attack is one because a chassis slots it there, not because of how it is spelled.
+ */
+function skipReasonFor(weaponId: WeaponId): string {
+  const onSomeChassis = (Object.keys(CAR_TABLE) as CarId[]).some((c) => fireSlotsOf(c).includes(weaponId));
+  return onSomeChassis
+    ? "SKIPPED — carried only by an INACTIVE chassis"
+    : "SKIPPED — authored but on no chassis's loadout";
+}
+/**
+ * Which FIRE slot (bitmask) this chassis presses to fire this weapon — the kit's three abilities,
+ * then the basic attack at index 3. Throws rather than silently returning a garbage bit:
+ * `1 << -1` is `-2147483648`, and a scenario naming a weapon its chassis cannot fire would
+ * otherwise press that mask and report a clean, empty result — exactly the failure T8 found in
+ * three scenarios here and in weapons.ts. A setup mistake like this is allowed to be loud; only
+ * the measurement loop over live scenarios has to keep going.
  */
 function slotBitFor(carId: CarId, weaponId: WeaponId): number {
-  const i = slotsOf(carId).indexOf(weaponId);
-  if (i < 0) throw new Error(`${carId} does not carry ${weaponId}`);
+  const i = fireSlotsOf(carId).indexOf(weaponId);
+  if (i < 0) throw new Error(`${carId} cannot fire ${weaponId}`);
   return 1 << i;
 }
 
@@ -111,6 +135,11 @@ function trueTunneling(): void {
     const def = WEAPON_TABLE[id];
     if (def.kind !== "projectile") continue;
     if (def.pellets.pelletsPerVolley > 1) continue; // covered by W3b
+    // A row no active chassis can press has no measurement here — named, not silently dropped.
+    if (!hasCarrier(id)) {
+      rows.push(`${id.padEnd(10)} ${skipReasonFor(id)}`);
+      continue;
+    }
     const carrier = carrierOf(id);
     const bit = slotBitFor(carrier, id);
     let misses = 0;
@@ -197,10 +226,10 @@ function angledPointBlank(): void {
   const rows: string[] = [];
   let misses = 0;
   for (const id of Object.keys(WEAPON_TABLE) as WeaponId[]) {
-    // `tremor` (unassigned since the 2026-09-01 overhaul) is on no loadout, so nothing can press it
-    // through the real slot pipeline — skipped loudly rather than iterated into a crash.
-    if (!(Object.keys(CAR_TABLE) as CarId[]).some((c) => slotsOf(c).includes(id))) {
-      rows.push(`${id.padEnd(11)} SKIPPED — authored but on no chassis's loadout`);
+    // A row no active chassis can press — `tremor`, and the unreleased prototypes' basic attacks —
+    // cannot reach the real slot pipeline, so it is skipped loudly rather than crashed on.
+    if (!hasCarrier(id)) {
+      rows.push(`${id.padEnd(11)} ${skipReasonFor(id)}`);
       continue;
     }
     // A maneuver row has no muzzle to bury in the victim — the bug this probe exists to catch.
