@@ -3,64 +3,50 @@ import {
   ArenaState,
   PlayerState,
   PlayerStatus,
-  RAM_CONFIG,
   RoomPhase,
   forwardMaxSpeedOf,
-  ramAttackOf,
-  ramDefenceOf,
+  hasStatus,
   type Modifiers,
   type WeaponId,
 } from "@motor-combat-moba/shared";
 import { serverTick } from "./tick.js";
 import { contactTick, newContactMemory } from "./ram-bridge.js";
+import { readStatuses } from "./status-bridge.js";
 
 /**
  * The one thing NOTHING in the suite covered before this fix: `serverTick` and `contactTick` driven
  * in the REAL order for a ram, on the SAME tick.
  *
- * `ram-bridge.test.ts` calls `contactTick` alone, feeding it a hand-built `approachVelocities` map that
- * equals `player.vx/vy` because nothing ever moved the player first. `tick.test.ts` calls `serverTick`
- * alone and never looks at a ram. Neither exercises the fact that `tick-pipeline.ts`'s `runPipeline`
- * runs `serverTick` (drive + `resolveWorld`) BEFORE `contactTick` on the very same tick — so by the
- * time a ram's `Impulse` lands, the attacker's velocity has ALREADY been resolved once by
- * `resolveWorld`'s contact pass. The two effects compose (resolve the contact, then recoil on top),
- * and every existing test measures only one of them in isolation.
+ * `ram-bridge.test.ts` calls `contactTick` alone, feeding it a hand-built `approachVelocities` map
+ * that equals `player.vx/vy` because nothing ever moved the player first. `tick.test.ts` calls
+ * `serverTick` alone and never looks at a ram. Neither exercises the fact that
+ * `tick-pipeline.ts`'s `runPipeline` runs `serverTick` (drive + `resolveWorld`) BEFORE `contactTick`
+ * on the very same tick — so by the time a ram resolves, the attacker's velocity has ALREADY been
+ * reflected once by `resolveWorld`'s contact pass, and the drive-in the ram rule reads has to come
+ * from somewhere else.
  *
- * **Stage 2 (walls-and-bumps, `DRIVE_CONFIG.restitution` 0.15 -> 0) changed what "resolved once"
- * means, and this file is what had to change with it.** This test used to pin a REFLECTION — the
- * attacker's dead-on velocity flipped sign and shrank to `-(topSpeed * 0.15)` before the ram's own
- * impulse landed on top. At `restitution: 0`, `applyContact`'s `v' = v - (1 + e)(v·n)n` removes the
- * into-surface component and adds nothing back: a dead-on hit, where the WHOLE velocity is
- * into-surface, leaves the attacker at an exact 0 — stopped, not bounced, not merely damped. That is
- * gone-not-smaller, per the stage brief: there is no rebound left for the ram's own contest impulse
- * to land on top of, only rest. The composition this test exists to pin is now "the contact pass
- * zeroes the dead-on component; the ram contest's own (independently tiny) impulse is then the
- * ENTIRE reason the attacker ends the tick moving backwards at all" — worth pinning in its own right,
- * because a regression that made the contact pass merely damp (instead of fully absorb) the dead-on
- * component would silently reintroduce a residual reflection for the contest impulse to stack onto,
- * exactly the bug this file was written to catch in the first place.
+ * **This file asserts the ORDER, and deliberately pins no ram magnitudes.** It used to hand-derive
+ * the attacker's own recoil from the ram contest's formula and pin the composed number to six
+ * decimals, and its header declared itself the sequence `RAM_CONFIG.globalScale` and `spinScale`
+ * were measured through. Both of those went with the contest: the Unity port's stage 3 replaced it
+ * with a rule — the attacker STOPS, whatever it was carrying — so there is no composed recoil number
+ * left to derive, and re-measuring the two constants against the new model is stage 5's, not this
+ * file's. What survives is the ordering claim, which was always the reason the file exists.
  *
- * This is the gap the stage-2 whole-stage review found: the recoil numbers written into
- * `RAM_CONFIG.knockMaxSpeed`'s and the hard slam's own doc comments were computed by
- * adding the recoil straight onto the PRE-collision speed, which is what `ram-bridge.test.ts` alone
- * would lead you to believe happens. (The slam half of that sentence was written against
- * `SLAM_CONFIG.knockSpeed`. Stage 4 dissolved `SLAM_CONFIG` down to `wallContactPad`, so the comment
- * carrying that measurement now lives on `WEAPON_TABLE.wildcharge.impulse.speed` — same number, same
- * caveat, new home.) It is not what ships: `runPipeline`'s own comment at
- * `tick-pipeline.ts:110` says the order is the rule. This test pins the REAL composed number, so a
- * retune is checked against what the attacker actually ends up doing, not against a number that
- * skips a step.
- *
- * **Stage 3 Task 4 measured `RAM_CONFIG.globalScale` and `spinScale` through exactly this sequence**
- * (spec R5/P25b), sweeping the sub-tick phase, and both constants' doc comments carry the resulting
- * tables. Re-measure here, never through `contactTick` alone, if either is retuned — measuring in
- * isolation is precisely the mistake that shipped revision 1's 5x error.
+ * **The assertion that carries it is a NEGATIVE CONTROL, not a threshold.** Running the same tick
+ * twice — once handing `contactTick` the carried-in velocities `serverTick` returned, once handing
+ * it the velocities the bodies are left holding afterwards — produces a ram in the first case and
+ * NO ram at all in the second, because `resolveWorld` has already zeroed the attacker's dead-on
+ * velocity and a stopped car is below `RAM_CONFIG.minRamSpeed`. That is the real trigger bug this
+ * file was written about (it shipped, and it cost 80-90% of all rams), stated as a claim that can
+ * only be satisfied by threading the right map — never by a number that happens to be nonzero.
  *
  * Placed beside `tick.test.ts` and `ram-bridge.test.ts` — the two "half" tests this fixes the gap
  * between — rather than inventing a `rooms/tick-pipeline.test.ts`: nothing already exercises
  * `runPipeline` itself (it is only driven indirectly through full `ArenaRoom`/`PlaygroundRoom`/
  * `PracticeRoom` tests), and pinning the order needs only `serverTick` + `contactTick`, not the
- * combat half `runPipeline` also drives.
+ * combat half `runPipeline` also drives. Combat's place in the order (last, reading the
+ * `ContactHit`s and `StatusRequest`s contact produced) is covered by `combat-bridge`'s own tests.
  */
 
 const NO_EFFECTS = new Map<string, Modifiers>();
@@ -84,78 +70,90 @@ function addPlayer(state: ArenaState, id: string, over: Partial<PlayerState> = {
   return p;
 }
 
-describe("the real serverTick -> contactTick order (stage 2 whole-stage review, Fix 2)", () => {
-  it("charges the attacker with its own contest impulse against a contact pass that already zeroed it, not the pre-collision speed", () => {
-    const state = arena();
-    // Bastion rear-ends a stationary Bullseye at Bastion's own top speed, dead straight along +x —
-    // both cars facing +x, attacker behind, so this is a REAR hit for the victim (RAM_CONFIG.bonusRear)
-    // and a FRONT hit for the attacker too (RAM_CONFIG.bonusFront) — the attacker's own face is
-    // computed from its own geometry (spec R6), and it genuinely is nose-first here, not an assumed
-    // constant. Stage 3 Task 2 replaced the severity grade this test used to saturate with the ram
-    // contest — the attacker's own impulse is now hand-derived from that contest below rather than
-    // read off a single saturated constant.
-    const topSpeed = forwardMaxSpeedOf("bastion");
-    // Positioned edge-to-edge (0 clearance) so this tick's drive translation drives the hulls into a
-    // real overlap — `resolveWorld`'s contact pass is a velocity-space correction, not
-    // depth-dependent, so the exact clearance does not matter (see the sub-tick-phase sweep in the
-    // review), but it must be small enough that this ONE tick both overlaps AND rams; 0 clearance
-    // guarantees both.
-    const attacker = addPlayer(state, "a", { x: 952, y: 400, angle: 0, carId: "bastion", vx: topSpeed, vy: 0 });
-    addPlayer(state, "b", { x: 1000, y: 400, angle: 0, carId: "bullseye" });
+/** Whatever the bodies are holding right now — the WRONG map to hand `contactTick`, by construction. */
+function currentVelocities(state: ArenaState): Map<string, { vx: number; vy: number }> {
+  const out = new Map<string, { vx: number; vy: number }>();
+  state.players.forEach((p, id) => out.set(id, { vx: p.vx, vy: p.vy }));
+  return out;
+}
 
-    const queues = new Map([
-      ["a", [{ seq: 1, steer: 0, throttle: 1, fireSlots: 0 }]],
-      ["b", [{ seq: 1, steer: 0, throttle: 0, fireSlots: 0 }]],
-    ]);
+/**
+ * One whole tick in the pipeline's real order: drive and `resolveWorld` through `serverTick`, then
+ * `contactTick`. `driveIn` chooses which velocity map the ram rule is allowed to read.
+ *
+ * Bastion rear-ends a stationary Bullseye at Bastion's own top speed, dead straight along +x — both
+ * cars facing +x, attacker behind, so the victim is struck on the REAR with the two headings
+ * agreeing, and the attacker meets it nose-first.
+ */
+function runTick(driveIn: "carried-in" | "post-resolution") {
+  const state = arena();
+  const topSpeed = forwardMaxSpeedOf("bastion");
+  // Close enough that this ONE tick's drive translation both overlaps the hulls and rams.
+  const attacker = addPlayer(state, "a", { x: 952, y: 400, angle: 0, carId: "bastion", vx: topSpeed, vy: 0 });
+  const victim = addPlayer(state, "b", { x: 1000, y: 400, angle: 0, carId: "bullseye" });
 
-    // Step 1: the REAL `serverTick` — drive, then `resolveWorld`'s contact pass.
-    const { approachVelocities } = serverTick(state, queues, 1 / 30, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
+  const queues = new Map([
+    ["a", [{ seq: 1, steer: 0, throttle: 1, fireSlots: 0 }]],
+    ["b", [{ seq: 1, steer: 0, throttle: 0, fireSlots: 0 }]],
+  ]);
 
-    const afterResolveWorld = attacker.vx;
+  // Step 1: the REAL `serverTick` — drive, then `resolveWorld`'s contact pass.
+  const { approachVelocities } = serverTick(state, queues, 1 / 30, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
+  const afterResolveWorld = attacker.vx;
+
+  // Step 2: the REAL `contactTick`, on the same tick.
+  contactTick(
+    state,
+    new Set(["a", "b"]),
+    newContactMemory(),
+    "ffa",
+    NO_EFFECTS,
+    driveIn === "carried-in" ? approachVelocities : currentVelocities(state),
+    NO_MANEUVER_WEAPONS,
+    10,
+  );
+
+  return { attacker, victim, afterResolveWorld };
+}
+
+describe("the real serverTick -> contactTick order", () => {
+  it("resolves the ram from the CARRIED-IN velocity, which the same tick's contact pass has already erased", () => {
+    const real = runTick("carried-in");
+
     // At `DRIVE_CONFIG.restitution` 0, `applyContact`'s `v' = v - (1 + e)(v·n)n` removes exactly the
     // into-surface component and adds nothing back. This hit is dead-on, so the WHOLE pre-collision
-    // velocity is into-surface: the contact pass leaves the attacker at an exact stop, not a
-    // reflection and not a partial damping. (Stage 1 pinned `restitution` at 0; this is stage 2's own
-    // proof that a dead-on contact really does zero out rather than merely shrink.)
-    expect(afterResolveWorld).toBeCloseTo(0, 6);
+    // velocity is into-surface and the contact pass leaves the attacker at an exact stop — not a
+    // reflection and not a partial damping. This is the runtime measurement the negative control
+    // below depends on: a stopped car is under `RAM_CONFIG.minRamSpeed` and cannot qualify to ram.
+    expect(real.afterResolveWorld).toBeCloseTo(0, 6);
 
-    // Step 2: the REAL `contactTick`, fed the carried-in (pre-collision) approach VELOCITY exactly as
-    // `runPipeline` feeds it — this is the trigger fix `TickResult.approachVelocities` exists for.
-    contactTick(
-      state,
-      new Set(["a", "b"]),
-      newContactMemory(),
-      "ffa",
-      NO_EFFECTS,
-      approachVelocities,
-      NO_MANEUVER_WEAPONS,
-      10,
-    );
+    // The ram landed. Three independent witnesses, none of them a magnitude: the victim is reeling,
+    // the attacker is locked, and the victim was thrown the way the attacker was pointing.
+    expect(hasStatus(readStatuses(real.victim), "reeling", 10)).toBe(true);
+    expect(hasStatus(readStatuses(real.attacker), "ramLock", 10)).toBe(true);
+    expect(real.victim.vx).toBeGreaterThan(0);
 
-    // Hand-derived from the contest formula in `sim/ram.ts` (`pushOf`/`impactOn`), not pasted, so a
-    // retune of `ramAttack`/`ramDefence`/`defencePushScale`/`globalScale`/`bonusFront` moves this
-    // expectation with it. The victim (bullseye) brings 0 drive-in (it never moved), so its own
-    // `ramAttack` never enters either push term.
-    const attack = ramAttackOf("bastion");
-    const defence = ramDefenceOf("bastion");
-    const victimPush = ramDefenceOf("bullseye") * RAM_CONFIG.defencePushScale;
-    const attackerPush = attack * topSpeed + defence * RAM_CONFIG.defencePushScale;
-    const attackerImpact =
-      (victimPush * (victimPush / (attackerPush + victimPush)) * RAM_CONFIG.bonusFront * RAM_CONFIG.globalScale) /
-      defence;
-    // The composed result: the contest's own (independently computed) attackerImpulse charged ON TOP
-    // of the contact pass's already-zeroed velocity from step 1 — not on top of the pre-collision
-    // `topSpeed`. Because `approachVelocities` still carries the pre-collision speed, `attackerImpact`
-    // itself is unaffected by the zeroing; only what it lands on top of changed.
-    const expected = afterResolveWorld - attackerImpact;
-    expect(attacker.vx).toBeCloseTo(expected, 6);
-    // Sanity floor, re-pitched for zero restitution: the attacker ends the tick moving BACKWARDS by
-    // some nonzero amount, but that amount is now ENTIRELY the contest's own impulse — there is no
-    // leftover reflection for it to stack onto. If this regresses to `>= 0`, the contest stopped
-    // charging the attacker anything; if it regresses to a large negative (on the order of `-topSpeed`
-    // rather than a few u/s), the contact pass stopped fully absorbing the dead-on hit and a residual
-    // reflection crept back in underneath the contest impulse.
-    expect(attacker.vx).toBeLessThan(0);
-    expect(attacker.vx).toBeGreaterThan(-topSpeed * 0.1);
+    // THE NEGATIVE CONTROL. Identical tick, identical geometry — the only difference is that the ram
+    // rule reads the velocities the bodies were left holding instead of the ones `serverTick`
+    // carried out of the pre-collision state. Nothing rams: no reeling, no lock, no shove. If the
+    // production thread ever regresses to the post-resolution map, the block above becomes this.
+    const wrong = runTick("post-resolution");
+    expect(hasStatus(readStatuses(wrong.victim), "reeling", 10)).toBe(false);
+    expect(hasStatus(readStatuses(wrong.attacker), "ramLock", 10)).toBe(false);
+    expect(wrong.victim.vx).toBe(0);
+  });
+
+  it("drives before it measures contact, so the ram is classified against the poses the tick ended at", () => {
+    // The other half of the order. `serverTick` translates the attacker along +x before
+    // `contactTick` reads a single pose, which is why the ram's region and contact point describe
+    // where the cars ENDED the tick rather than where they began it. A contact pass hoisted above
+    // driving would classify last tick's geometry.
+    const real = runTick("carried-in");
+    expect(real.attacker.x).toBeGreaterThan(952);
+    // …and the attacker ends the tick stopped, not travelling backwards. Under the deleted contest
+    // it ended every dead-on ram moving in reverse — an exit criterion the rework could not meet and
+    // the Unity rule closes by construction. Kept as a sign, not a number.
+    expect(real.attacker.vx).toBe(0);
+    expect(real.attacker.vy).toBe(0);
   });
 });

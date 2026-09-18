@@ -25,6 +25,7 @@ import {
   type Impulse,
   type Modifiers,
   type PlayerState,
+  type RamResolution,
   type SpikeHit,
   type StatusRequest,
   type WeaponId,
@@ -177,9 +178,10 @@ export function clearKnock(player: PlayerState): void {
  * Zero the four maneuver fields alone, touching no velocity. Split out of `endDash` (below) for the
  * slam-attacker case: a slam is authored, not contested, so its attacker takes nothing from its own
  * hit — nothing pushes it, and a maneuver end must not stomp that back to a forced-forward speed the
- * way `endDash` deliberately does for a dash. (Through stage 3 the same outcome was spelled as a
- * zero-magnitude `attackerImpulse` applied by the impulses loop; stage 4 stopped building one at
- * all, which changes nothing here.)
+ * way `endDash` deliberately does for a dash. (Through the car-physics rework's stage 3 the same
+ * outcome was spelled as a zero-magnitude `attackerImpulse` applied by a per-victim impulses loop;
+ * its stage 4 stopped building one, and the Unity ram port deleted that loop outright. None of it
+ * changes anything here — the slam attacker has never been pushed by its own hit.)
  */
 function endManeuverOnly(player: PlayerState): void {
   player.maneuver = 0;
@@ -262,6 +264,7 @@ function contactCarsOf(
     if (!roster.has(sessionId)) return;
     if (!isSolid(player, tick)) return;
     const maneuverWeaponId = maneuverWeapons.get(sessionId) ?? "";
+    const mods = modifiersFor(statusMods, sessionId);
     cars.push({
       sessionId,
       team: player.team === 1 ? 1 : 0,
@@ -276,7 +279,11 @@ function contactCarsOf(
       // covers a session the cache has never seen, which `serverTick` records unconditionally.
       ...(approachVelocities.get(sessionId) ?? { vx: player.vx, vy: player.vy }),
       carId: carIdOf(player),
-      defenceMult: modifiersFor(statusMods, sessionId).ramDefence,
+      defenceMult: mods.ramDefence,
+      // Spec §8: may this car throw a punch at all? One flag covers both a car still reeling from a
+      // ram it took and one inside its own attacker lock, which is what stops a ram chain paying its
+      // winner twice. It gates the ATTACKER side only — a blocked car can still be rammed.
+      ramBlocked: mods.ramBlocked,
       maneuver: player.maneuver,
       maneuverWeaponId,
       stunned: hasStatus(readStatuses(player), "stunned", tick),
@@ -288,19 +295,117 @@ function contactCarsOf(
 
 /**
  * This player's `ramDefence` as `applyImpulse` sees it: chassis rating scaled by whatever `ramDefence`
- * effect it carries. Renamed from `massFor` in stage 3 Task 3 — reads `ramDefenceOf` instead of
- * `massOf` now, which is what actually delivers the ~10x inertia-denominator drop `nextSpin`'s doc
- * comment (`sim/impulse.ts`) describes: this is production's only caller of `applyImpulse` for a ram
- * or slam, so until this function changed, the real game was still feeding it `mass`-shaped numbers
- * regardless of what the parameter was named. Both ram impulses are `defenceScaled: false` (the
- * contest already divided by `ramDefence`), so this value only reaches `applyImpulse`'s `nextSpin`
- * inertia term today. `0` for a session with no player, which `defenceFactorOf` (`sim/impulse.ts`)
- * treats as "unscaled" rather than dividing by it.
+ * effect it carries. Renamed from `massFor` in stage 3 Task 3 of the car-physics rework — it reads
+ * `ramDefenceOf` instead of `massOf`, which is what actually delivers the ~10x inertia-denominator
+ * drop `nextSpin`'s doc comment (`sim/impulse.ts`) describes.
+ *
+ * **Only the SLAM path reaches this now.** Its doc used to add that "both ram impulses are
+ * `defenceScaled: false`, so this value only reaches `applyImpulse`'s `nextSpin` inertia term" — the
+ * Unity port's stage 3 deleted the ram contest and with it every `Impulse` a ram ever built, so
+ * `sim/ram.ts` produces no impulse at all today and a ram divides by the victim's `ramDefence` inside
+ * `shoveOf` instead. What survives here is `wildcharge`'s authored push, whose own `defenceScaled`
+ * flag decides whether this value scales it. `0` for a session with no player, which
+ * `defenceFactorOf` (`sim/impulse.ts`) treats as "unscaled" rather than dividing by it.
  */
 function ramDefenceFor(state: ArenaState, statusMods: ReadonlyMap<string, Modifiers>, sessionId: string): number {
   const player = state.players.get(sessionId);
   if (!player) return 0;
   return ramDefenceOf(carIdOf(player)) * modifiersFor(statusMods, sessionId).ramDefence;
+}
+
+/** The other car named by a head-on resolution — the one that put this car where it is. */
+function otherSideOf(ram: RamResolution, sessionId: string): string {
+  const other = ram.sides.find((s) => s.sessionId !== sessionId);
+  return other?.sessionId ?? sessionId;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return value < min ? min : value > max ? max : value;
+}
+
+/**
+ * Write one ram onto the cars it names (spec §7.2). This is the whole of what a ram does: no damage
+ * (U28), no `Impulse`, no contest — `sim/ram.ts` already decided who is shoved and by how much, and
+ * everything here is the application of that decision plus the three things the spec deliberately
+ * keeps out of a pure classifier (the spin clamp, diminishing returns, and the statuses themselves).
+ *
+ * Three rows, one loop:
+ *
+ * - **Attacker** (flank/rear): `replacesVelocity` with a zero shove, so it stops DEAD — not slowed,
+ *   not bounced. `ramLock` for `RAM_CONFIG.attackerLockMs`. Its spin is untouched.
+ * - **Victim** (flank/rear): pre-collision velocity plus the shove, pre-collision spin plus the spin
+ *   delta, `reeling` for a falloff-scaled `ramUncontrolMs`, and the shove credited for the spikes.
+ * - **Head-on**: both cars replace their velocity with the shove the OTHER authored, both lock,
+ *   neither spins and neither reels (U27).
+ *
+ * Deliberately takes no `statusMods`: a ram's only status input is the victim's `ramDefence`
+ * multiplier, and that was already divided out inside `shoveOf` from the `defenceMult` this file
+ * threads onto every `ContactCar`. Reading it a second time here would double-count it.
+ */
+function applyRamResolution(
+  state: ArenaState,
+  memory: ContactMemory,
+  approachVelocities: ReadonlyMap<string, { vx: number; vy: number }>,
+  ram: RamResolution,
+  tick: number,
+): void {
+  for (const side of ram.sides) {
+    const player = state.players.get(side.sessionId);
+    if (!player) continue;
+
+    const shoved = side.shoveX !== 0 || side.shoveY !== 0;
+    // Falloff is READ only for a car that actually takes a push, so an attacker's own dead stop
+    // never counts a ram against its stack — and an attacker therefore pays full cost for every
+    // punch it throws. Discounting its half too would make chain-ramming a worn-down victim
+    // progressively SAFER for the aggressor, the exact inverse of what diminishing returns are for.
+    // It scales the shove AND the spin (spec §7.3): a chained ram neither throws nor spins at full
+    // strength.
+    const scales = shoved
+      ? nextFalloff(memory.falloff, side.sessionId, tick)
+      : { impulseScale: 1, durationScale: 1 };
+
+    // The PRE-COLLISION velocity, from the same cache `contactCarsOf` reads — NOT whatever
+    // `resolveWorld` left on the body earlier this tick. A shove added to a post-resolution velocity
+    // would be added to a number the contact pass has already reflected or zeroed.
+    const pre = approachVelocities.get(side.sessionId) ?? { vx: player.vx, vy: player.vy };
+    player.vx = (side.replacesVelocity ? 0 : pre.vx) + side.shoveX * scales.impulseScale;
+    player.vy = (side.replacesVelocity ? 0 : pre.vy) + side.shoveY * scales.impulseScale;
+    // `RamSide.spin` is always a DELTA and is always ADDED, whatever `replacesVelocity` says — that
+    // flag governs velocity alone (controller ruling S3-g). §7.2's attacker row reads "spin
+    // unchanged" and its head-on row "neither car spins", and since `spin` is 0 in both of those
+    // cases, adding is exactly what preserves the yaw the car was already carrying. The clamp is
+    // this file's (U26): a playability guard, applied where a value is written onto a body, because
+    // a clamp inside the pure classifier would make a resolution's meaning depend on the car it is
+    // later applied to.
+    player.angVel = clamp(
+      player.angVel + side.spin * scales.impulseScale,
+      -RAM_CONFIG.spinMaxRate,
+      RAM_CONFIG.spinMaxRate,
+    );
+
+    if (ram.reeled.includes(side.sessionId)) {
+      const ticks = Math.max(
+        ramTicks().durationFloor,
+        Math.round(ramTicks().uncontrol * scales.durationScale),
+      );
+      writeStatuses(player, applyStatus(readStatuses(player), "reeling", tick, ticks, ram.attackerId));
+    }
+
+    if (ram.locked.includes(side.sessionId)) {
+      writeStatuses(
+        player,
+        applyStatus(readStatuses(player), "ramLock", tick, ramTicks().attackerLock, ram.attackerId),
+      );
+    }
+
+    // AS20: whoever put you here owns what happens to you in the spikes. On a head-on that is the
+    // other car, which is why this reads the shover off the resolution rather than off `attackerId`
+    // — a head-on has none, and `recordShove` would drop an empty id on the floor (U38).
+    if (shoved) {
+      const shover = ram.attackerId !== "" ? ram.attackerId : otherSideOf(ram, side.sessionId);
+      recordShove(memory.spikes, side.sessionId, shover, tick);
+    }
+  }
 }
 
 /**
@@ -326,7 +431,7 @@ export function contactTick(
   const bounds = boundsOf(arena);
 
   const cars = contactCarsOf(state, roster, statusMods, approachVelocities, maneuverWeapons, tick);
-  const { impulses, contacts, events } = resolveContacts(
+  const { contacts, events } = resolveContacts(
     cars,
     memory.contacts,
     mode,
@@ -338,72 +443,27 @@ export function contactTick(
   memory.contacts = contacts;
   sweepFalloff(memory.falloff, tick);
 
-  // Stage 3 Task 2 (car-physics rework): both halves of the pair land through `Impulse` now, EACH
-  // computed independently by the contest (spec R7) rather than one being a negated, mass-scaled
-  // copy of the other. `impulses` is keyed by VICTIM id and carries `attackerId` alongside both
-  // resolved pushes (`ImpulseEntry.impulse`/`attackerImpulse`) — no separate lookup is needed to
-  // find who threw it, since only `resolveContacts`'s own pair loop is in a position to say. The
-  // victim receives `entry.impulse`; the attacker receives `entry.attackerImpulse` directly —
-  // `reactionOf` would have been dead code on this path (handing the attacker a negated copy of a
-  // contest-derived impulse is incoherent: the contest already decided what the attacker takes,
-  // independently of what the victim took), which is why stage 3 Task 3 deletes it outright rather
-  // than leaving it unreachable.
+  // Every ram this tick. The loop writes velocities DIRECTLY rather than through `applyImpulse`,
+  // because Unity's model SETS velocity where ours added to it: an attacker stops dead, a head-on
+  // replaces both cars' velocity with the shove they took, and only a flank or rear victim keeps
+  // what it was carrying. `applyImpulse` still serves the slam path below, unchanged — and after
+  // this stage the slam is its ONLY production caller.
   //
-  // `knock.authority` had no successor for one release; stage 3b is what reinstates ram control-loss,
-  // as the `reeling` status below, scaled by the victim's own diminishing-returns stack.
+  // (Through the car-physics rework this was a loop over a per-victim `Impulse` map, where the ram
+  // contest handed each side its own independently computed push. The Unity port deleted the
+  // contest: the attacker's outcome is a rule — "you stop" — not a number, so there is nothing left
+  // to accumulate and `resolveContacts` returns a `RamResolution` per pair instead. Keeping the
+  // `Impulse` seam here would have meant expressing "set to" as "add the difference", which is the
+  // dishonesty spec §7.4 moved the write out of the classifier to avoid.)
   //
-  // **Every entry in this map is a RAM** (stage 4), so falloff and `reeling` — ram-only by spec P24
-  // — apply unconditionally here with nothing to disambiguate. A slam no longer writes an `Impulse`
-  // at all: `contact.ts`'s charge branch emits a `SlamEvent` and the `events.slams` loop below
-  // assembles the push from the weapon's own `ImpulseDef`. What that deletes is not just a
-  // predicate but a dependency: the old `!slammedVictims.has(victimId)` inference was only correct
-  // while a slam's magnitude outranked every possible ram, an ordering `resolveContacts` never
-  // enforced (spec R9 forbids the ceiling that would), and it would have silently misclassified a
-  // ram as a slam the day a retune inverted it.
-  for (const [victimId, entry] of impulses) {
-    const scales = nextFalloff(memory.falloff, victimId, tick);
-    const scaledImpulse: Impulse = {
-      ...entry.impulse,
-      speed: entry.impulse.speed * scales.impulseScale,
-      uncontrolTicks: Math.max(
-        ramTicks().durationFloor,
-        Math.round(ramTicks().uncontrol * scales.durationScale),
-      ),
-    };
-
-    const victim = state.players.get(victimId);
-    if (victim) {
-      const next = applyImpulse(victim, ramDefenceFor(state, statusMods, victimId), scaledImpulse);
-      victim.vx = next.vx;
-      victim.vy = next.vy;
-      victim.angVel = next.angVel;
-      // Falloff scales only the victim's half, above, and `reeling` only ever lands on the victim,
-      // here — never on `entry.attackerImpulse`. Falloff exists to stop a *victim* being ram-locked,
-      // chained into a stunlock by repeated hits that each land at full strength. The attacker's own
-      // impulse is the cost of throwing the punch: it is charged in full every time, regardless of
-      // how many rams the victim has recently absorbed. Discounting it too would mean spamming rams
-      // into an already-worn-down victim gets progressively *safer* for the attacker, which is the
-      // opposite of what a diminishing-returns mechanic should do to the aggressor. Nothing in the
-      // victim's falloff stack is even visible from the attacker's side of the contest —
-      // `nextFalloff` is keyed by victim id and never consulted when building `entry.attackerImpulse`
-      // — so this is not a flag to remember to check; there is no path by which the attacker's
-      // impulse could be scaled by it.
-      writeStatuses(
-        victim,
-        applyStatus(readStatuses(victim), "reeling", tick, scaledImpulse.uncontrolTicks, entry.attackerId),
-      );
-      // AS20: any push counts toward the spike shove-credit window, ordinary ram or slam alike — the
-      // mechanic is "you put them there", not "you rammed them".
-      recordShove(memory.spikes, victimId, entry.attackerId, tick);
-    }
-
-    const attacker = state.players.get(entry.attackerId);
-    if (attacker) {
-      const next = applyImpulse(attacker, ramDefenceFor(state, statusMods, entry.attackerId), entry.attackerImpulse);
-      attacker.vx = next.vx;
-      attacker.vy = next.vy;
-      attacker.angVel = next.angVel;
-    }
+  // **Every entry is a RAM**, so falloff and `reeling` — ram-only by spec §7.3 — apply here with
+  // nothing to disambiguate. A slam writes no `RamResolution`: `contact.ts`'s charge branch emits a
+  // `SlamEvent` and the `events.slams` loop below assembles the push from the weapon's own
+  // `ImpulseDef`. That separation is not merely tidy — the old `!slammedVictims.has(victimId)`
+  // inference it replaced was only correct while a slam's magnitude outranked every possible ram, an
+  // ordering nothing enforced, and would have misclassified a ram the day a retune inverted it.
+  for (const ram of events.rams) {
+    applyRamResolution(state, memory, approachVelocities, ram, tick);
   }
 
   // ---- the slams pass, FIRST HALF: the push and the `reeling` that rides with it ----
@@ -571,11 +631,14 @@ export function contactTick(
     if (attacker) {
       // O2: the charge ends on its first slam, taking its own self-applied statuses with it — a
       // power whose window closes early cannot leave a buff running past the thing that ended it.
-      // The attacker is deliberately given NO impulse of its own: a slam is authored, not contested
-      // (spec R7's independence has no "other side"), so it takes nothing from its own hit. That
-      // used to be spelled as a zero-magnitude `attackerImpulse` riding the impulses map purely so
-      // the bridge had one code path; with the slam off that map there is nothing to build, and the
-      // absence here IS the rule — it is not an omission. `SLAM_CONFIG.selfKeepFactor`'s hand-tuned
+      // The attacker is deliberately given NO impulse of its own: a slam is authored, not contested,
+      // so it takes nothing from its own hit. That used to be spelled as a zero-magnitude
+      // `attackerImpulse` riding a per-victim impulses map purely so the bridge had one code path;
+      // the car-physics rework's stage 4 took the slam off that map and the Unity ram port removed
+      // the map itself, so there is nothing left to build and the absence here IS the rule — it is
+      // not an omission. (A RAM attacker does now have an authored outcome, but it is the opposite
+      // one: spec §7.2 stops it dead. A slam attacker keeps its velocity; the two must not be
+      // conflated.) `SLAM_CONFIG.selfKeepFactor`'s hand-tuned
       // forward-only restore was replaced outright rather than reproduced, so the attacker's
       // post-slam velocity is entirely whatever `resolveWorld`'s restitution already reflected off
       // it this tick. Only the maneuver fields need clearing, so `endManeuverOnly`, not `endDash`.
