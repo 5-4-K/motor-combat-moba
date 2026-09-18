@@ -295,7 +295,9 @@ to driving, projectiles and the bot, with one more behaviour layered on top (nex
 gated on a **fresh push into the surface** — speed into the wall above `triggerSpeed`, so resting
 against spikes is free — and rate-limited by a `retriggerMs` lockout so being held in them under
 pressure bleeds rather than deletes. **A self-driven car pays exactly once, on arrival**: measured
-against `DRIVE_CONFIG.restitution` 0.15, holding throttle into a wall settles at ~5 u/s inward, far
+against `DRIVE_CONFIG.restitution` 0 (re-measured for the Unity physics port's zero-restitution pass;
+it was 0.15 when this figure was ~5 u/s flat), holding throttle into a wall settles at a per-chassis
+steady-state inward speed of roughly 4-8 u/s (mirage 7.92, bullseye 5.41, bastion 3.97), still far
 under `triggerSpeed`'s 25, so only an **externally shoved** car keeps paying. (Whether that number
 should drop is a tuning question for the user, not a bug.) This does **not** change the standing rule that cars never
 damage each other by contact: a ram still deals zero HP, and spike damage is environmental, charged

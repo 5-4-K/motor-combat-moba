@@ -347,7 +347,11 @@ them is what gets billed.
 **A self-driven car pays once, on arrival; sustained payment is what being shoved and held
 produces.** This is measured, not inferred: with `DRIVE_CONFIG.restitution` at 0.15, a car holding
 throttle into a wall settles at a steady-state pre-collision inward speed of roughly 5 u/s, far below
-`triggerSpeed`'s 25. So the arrival hit lands and then nothing more does, however long the player
+`triggerSpeed`'s 25. Re-measured at `DRIVE_CONFIG.restitution` 0 (stage 2 of the Unity physics port,
+2026-09-18) against `stepDrive`/`resolveWorld` from built shared: the steady-state pre-collision
+inward speed is per-chassis rather than one round figure — mirage 7.92 u/s, bullseye 5.41 u/s,
+bastion 3.97 u/s — and every one of them is still far below `triggerSpeed`, so the claim holds
+unchanged. So the arrival hit lands and then nothing more does, however long the player
 leans on the throttle. It takes an EXTERNAL push — a ram or a slam driving the car back into the
 strip above the trigger speed, repeatedly — to collect a second hit and a third, which is also why the
 attribution rule below credits the shover. Whether `triggerSpeed` should be lower so that grinding
