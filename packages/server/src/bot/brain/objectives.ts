@@ -149,10 +149,22 @@ import type { PlanWeights } from "./planner.js";
  *
  * That is F12's principle — the term must not FORBID correct play — in a situation F12 never
  * examined; its headroom argument names `fight` and `reset` only, and `fight` was the only row
- * ever swept. It matters more here than anywhere else because `DRIVE_CONFIG.steeringGrip` is
- * 1.0, so in the planner's rollout `facingError` is effectively BINARY (0 or 1, never the 0.5
- * band — see `facingErrorOf` in `planner.ts`): the weight is a FLAT TOLL on every reversing
+ * ever swept. It mattered more here than anywhere else because `DRIVE_CONFIG.steeringGrip` was
+ * 1.0, so in the planner's rollout `facingError` was effectively BINARY (0 or 1, never the 0.5
+ * band — see `facingErrorOf` in `planner.ts`): the weight was a FLAT TOLL on every reversing
  * candidate, not a ceiling one rarely reaches.
+ *
+ * ⚠ **THAT PREMISE IS GONE, AND EVERY WEIGHT DERIVED ON IT IS OWED A RE-DERIVATION.**
+ * `DRIVE_CONFIG.steeringGrip` does not exist any more: the 2026-09-18 Unity drive-model port deleted
+ * it outright (U13), which is that knob taken all the way to its 0 end. Lateral velocity is now
+ * always present — it IS the drift — so `facingError` is CONTINUOUS rather than binary, and the
+ * terminal pose of an ordinary TURN scores in (0, 0.5] where it used to score exactly 0. Both rows
+ * below argued from binariness (`evade`'s 10 and `fight`'s 30, each set against the term it competes
+ * with under the headroom rule), so both derivations have to be re-RUN, not nudged — this file's own
+ * standing instruction. That work is a correctness obligation owned by the port's stage 5, Task 8
+ * Step 1 (`docs/superpowers/plans/2026-09-18-unity-physics-port/05-tune-and-reconcile.md`), which is
+ * sequenced after the drive feel is settled; it is deliberately NOT a `bot-tuner` question, and no
+ * weight in this table moves before then.
  *
  * The derivation, not a sweep. `fight` ships facing at ~1/3 of the term it competes with (30
  * against `rangeError`'s ~90) — "a tie-breaker, never a veto". One third of `evade`'s 24 is 8;

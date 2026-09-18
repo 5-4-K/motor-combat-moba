@@ -887,25 +887,35 @@ function threatAvoidOf(
  * `targetAt` falls back to the car's own pose. Velocity is always defined, so no situation needs a
  * special case.
  *
- * ⚠ THIS TERM SILENTLY DEPENDS ON `DRIVE_CONFIG.steeringGrip`, WHICH IS 1.0 TODAY. Named neither in
- * the spec nor in the plan; recorded here because it is the one number that decides what this
- * function's OUTPUT DISTRIBUTION looks like, and a future physics pass is free to move it without
- * ever opening this file.
+ * ⚠ **THE TRIP-WIRE THIS COMMENT USED TO CARRY HAS FIRED, AND THE RE-DERIVATION IT DEMANDS IS STILL
+ * OWED.** It read "THIS TERM SILENTLY DEPENDS ON `DRIVE_CONFIG.steeringGrip`, WHICH IS 1.0 TODAY …
+ * IF A FUTURE PHYSICS PASS LOWERS `steeringGrip`, RE-DERIVE EVERY WEIGHT IN THAT TABLE." The
+ * 2026-09-18 Unity drive-model port did not lower that knob — it **deleted** it (U13), which is the
+ * same move taken all the way to its 0 end. Nothing about that was noticed at the time, which is
+ * exactly the failure the warning was written to prevent.
  *
- * At `steeringGrip` 1.0 `stepDrive` rebuilds the whole velocity vector in the NEW heading every
- * tick, so a driven car's lateral velocity is 0 absent a ram. `forwardOf / speed` is then +1 or −1
- * and nothing else: in the planner's rollout this term is effectively **BINARY, exactly 0 or
- * exactly 1**, and the 0.5 sliding-sideways band the formula admits is unreachable. A weight in
- * `objectives.ts` is therefore a FLAT TOLL charged to every reversing candidate, not a ceiling that
- * is rarely approached — which is how `evade`'s first weight (40) came to sit above the whole 0-24
- * range of the `threatAvoid` it competes with, and dominate correct reverse dodges outright.
+ * What changed, concretely. At `steeringGrip` 1.0 `stepDrive` rebuilt the whole velocity vector in
+ * the NEW heading every tick, so a driven car's lateral velocity was 0 absent a ram; `forwardOf /
+ * speed` was then +1 or −1 and nothing else, this term was effectively **BINARY** in the planner's
+ * rollout, and the 0.5 sliding-sideways band the formula admits was unreachable. A weight in
+ * `objectives.ts` was therefore a FLAT TOLL charged to every reversing candidate rather than a
+ * ceiling rarely approached — which is how `evade`'s first weight (40) came to sit above the whole
+ * 0-24 range of the `threatAvoid` it competes with, and dominate correct reverse dodges outright.
  *
- * IF A FUTURE PHYSICS PASS LOWERS `steeringGrip`, RE-DERIVE EVERY WEIGHT IN THAT TABLE. Below 1.0 a
- * turning car's velocity trails its nose through the whole arc, so the terminal pose of an ordinary
- * TURN — not a reversal — starts scoring somewhere in (0, 0.5]. This term would then charge a toll
- * on turning itself, which re-creates "turning is pure cost" (F1-F3), the exact defect it exists to
- * delete, by a new route and with no test naming it. The symptom to watch for is the bot collapsing
- * back to straight-line inputs, the same one F2 describes.
+ * Under the port, lateral velocity is **always present**: it is the drift, and a car holding full
+ * lock settles at a real slip angle (Mirage ~26°, the roster's widest). So `forwardOf / speed` is
+ * now a genuinely CONTINUOUS quantity, and the terminal pose of an ordinary TURN — not a reversal —
+ * scores somewhere in (0, 0.5]. That is precisely the case this comment predicted: the term now
+ * charges a toll on turning itself, which re-creates "turning is pure cost" (F1-F3), the exact
+ * defect it exists to delete, by a new route and with no test naming it. The symptom to watch for
+ * is the bot collapsing back to straight-line inputs, the same one F2 describes.
+ *
+ * **Re-deriving the weights is NOT a `bot-tuner` question and is not this function's to do.** It is
+ * a correctness obligation owned by the port's stage 5, Task 8 Step 1
+ * (`docs/superpowers/plans/2026-09-18-unity-physics-port/05-tune-and-reconcile.md`), which is
+ * sequenced after the drive feel is settled — tuning against provisional numbers would only have to
+ * be redone. Do not nudge a weight here in the meantime; re-derive the table there, against
+ * `objectives.ts`'s own measured term scales.
  */
 export function facingErrorOf(body: SimBody): number {
   const speed = speedOf(body.vx, body.vy);
