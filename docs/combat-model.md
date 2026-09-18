@@ -37,9 +37,19 @@ dead for 80 ms". Prediction covers the local car's motion and nothing else.
 >
 > **Everything below that describes a graded 0-1 SEVERITY is superseded**, not merely renamed: there
 > is no severity, no `RAM_REFERENCE` to normalise against, and no ceiling for a ram to be a fraction
-> of. Sections still written that way are stale and stage 5 rewrites them; the authority meanwhile is
-> [`superpowers/specs/2026-09-06-car-physics-rework-design.md`](superpowers/specs/2026-09-06-car-physics-rework-design.md)
-> and `sim/ram.ts`'s own `pushOf`/`impactOn`.
+> of. Sections still written that way are stale and stage 5 rewrites them.
+
+> **Superseded again as of 2026-09-18 by the Unity physics port, and this paragraph is the one to
+> read first.** The contest the paragraphs above describe is deleted in its turn: `pushOf` and
+> `impactOn` no longer exist, and a ram is a one-way rule — nose-first above `RAM_CONFIG.minRamSpeed`,
+> the attacker stops dead and takes `ramLock`, the victim takes the shove, the spin and `reeling`
+> (`sim/ram.ts` classifies, `packages/server/src/sim/ram-bridge.ts` writes). `restitution` is **0**,
+> not the 0.15 named above: the port's stage 2 dropped it, so a car no longer rebounds off anything.
+> Everything below this banner still describes the contest and is stage 5's to rewrite — **the
+> current authority is
+> [`superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md`](superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md)**
+> and the spec beside it,
+> [`superpowers/specs/2026-09-18-unity-driving-and-ram-physics-port-design.md`](superpowers/specs/2026-09-18-unity-driving-and-ram-physics-port-design.md).
 
 Ram is a separate pass, not part of `combatTick`: `rooms/tick-pipeline.ts`'s `runPipeline` runs
 `statusTick` → `serverTick` (drive + collision resolution) → `contactTick`

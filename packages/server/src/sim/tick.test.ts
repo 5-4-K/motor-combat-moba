@@ -806,14 +806,17 @@ describe("serverTick coasts a player whose client has gone quiet", () => {
 
   it("zeroes a coasting car's angVel on its first stepped tick, and never rotates it", () => {
     // RENAMED. This was "carries every knock component, not just shove", which by the end of the
-    // drive-model port asserted `angVel` lands on exactly 0 — the negation of its own name. The
-    // behaviour is real and is stage 3's to change, not this file's to hide: under U16 the ordinary
+    // drive-model port asserted `angVel` lands on exactly 0 — the negation of its own name.
+    //
+    // **This is the NO-STATUS case, and it is unchanged by stage 3.** Under U16 the ordinary
     // `stepDrive` branch computes `angVel` entirely from steering input and never reads the incoming
-    // `body.angVel` unless a status sets `spinFree`, which nothing does yet (`sim/impulse.ts` still
-    // writes ram spin into the field, and the next ordinary tick overwrites it). `COAST_INPUT` has
-    // `steer: 0`, so an injected spin resolves to 0 on the first stepped tick rather than decaying,
-    // and with `angVel` 0 the `angle` never moves off its start either. Recorded in the port's
-    // EXECUTION.md as "ram spin is inert", owned by stage 3.
+    // `body.angVel` unless a status sets `spinFree`. `reeling` now carries that flag and
+    // `chassis.spinPerTick` is a real decay (`reelingSpinPerTick()`), so a rammed car DOES tumble and
+    // wind down — but this fixture applies no status at all, so none of that reaches it. `COAST_INPUT`
+    // has `steer: 0`, so an injected spin resolves to 0 on the first stepped tick rather than
+    // decaying, and with `angVel` 0 the `angle` never moves off its start either. The decay path is
+    // covered by this file's "carries angVel/vx/vy" round trip and by `drive-vector.test.ts`'s
+    // "keeps its spin while spinFree".
     const player = knocked({ vx: 0, vy: 0, angVel: 3 });
     goSilent(stateWith(player), GRACE_TICKS + 1);
     expect(player.angVel).toBe(0);

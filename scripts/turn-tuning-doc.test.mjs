@@ -210,6 +210,7 @@ describe("docs/turn-tuning.md", () => {
       baseTurnRate: DRIVE_CONFIG.baseTurnRate,
       turnRatePerRating: DRIVE_CONFIG.turnRatePerRating,
       spinMaxRate: RAM_CONFIG.spinMaxRate,
+      reelingSpinDecayRate: RAM_CONFIG.reelingSpinDecayRate,
       baseMaxSpeed: DRIVE_CONFIG.baseMaxSpeed,
       speedPerRating: DRIVE_CONFIG.speedPerRating,
       baseDrag: DRIVE_CONFIG.baseDrag,
@@ -286,6 +287,12 @@ describe("docs/turn-tuning.md", () => {
       // per-car one, so every chassis's cell is the same number. `d` is unused on purpose — the
       // formula is still keyed per-column so a fourth chassis still gets a cell to check.
       ["Grip while reeling", () => DRIVE_CONFIG.lateralGripRate * reelingGrip()],
+      // `ChassisDrive.spinPerTick` — read off the resolved chassis rather than recomputed from
+      // `RAM_CONFIG.reelingSpinDecayRate` here, for the same reason every other row reads `driveOf`:
+      // the page must be checked against what the sim actually multiplies by, and `car-config.ts` is
+      // where that conversion happens. Uniform across the roster today because the rate is global,
+      // but keyed per-column like the rest so a per-car decay would still be checked cell by cell.
+      ["Spin kept per tick while reeling", (d) => d.spinPerTick],
     ];
     assert.deepEqual(
       rows.map(labelOf),

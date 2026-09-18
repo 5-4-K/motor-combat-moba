@@ -33,7 +33,12 @@ started.
 ## In flight
 
 **Nothing is in flight.** Stage 3 (rams) landed in full on 2026-09-18 — see "Stage 3 exit: measured
-test state" below. Start stage 4 next; its dependency (stage 3) is now `Landed`.
+test state" below — and a **whole-branch review of stages 2-3 has been swept**, one behavioural fix
+(two rams on one victim in a tick lost a push) plus a documentation sweep; see "Stages 2-3
+whole-branch review" below, and read controller ruling **S3-o** there before touching
+`ram-bridge.ts`'s ram loop. Start stage 4 next; its dependency (stage 3) is now `Landed`, and stage 4
+inherits two recorded findings of its own (rulings **S3-p** and the §7.4 `ramLock` argument, both
+under "Deferred, and who owns it").
 
 Stage 1 landed (all eight tasks committed, `test(drive): pin tick-rate
 independence; rebuild the guide` closing it) and a **whole-branch review of stage 1 has been swept**
@@ -218,6 +223,61 @@ it, exactly as stage 2's exit note above records):
   criterion, met.
 - **`packages/server/src/sim/tick.test.ts`'s angVel round-trip case is restored**, not just re-pinned
   (see Task 6's own paragraph above): 51/51 tests pass in that file.
+
+### Stages 2-3 whole-branch review, swept 2026-09-18
+
+Ten task-scoped reviews had been clean; a review of the whole branch found what they structurally
+could not — defects at the **seams between tasks**. One behavioural fix, the rest documentation.
+
+**The behavioural one: two rams on one victim in a tick lost a push.** `applyRamResolution` ASSIGNED
+each side's velocity from the same immutable `approachVelocities` entry, so a car named by two
+`RamResolution`s in one tick was written twice from the same base and the second replaced the first.
+`nextFalloff` still ran per shoved side, so the survivor was scaled: a victim rammed by two attackers
+on one tick ended at `pre + 0.5 × shove_B`, **less than a single ram**, with A's push gone. Measured
+on the new regression fixture: **123.75 u/s from two simultaneous rams against 356.4 u/s from one**;
+it now reads 377.3 u/s. Spin was never affected — it read the live `player.angVel` and accumulated
+correctly, which is what made the bug invisible in every existing test. Three `sim/contact.ts`
+comments asserted the correct behaviour and were the stated justification for deleting the per-victim
+`best` map; they now describe what ships.
+
+**Controller ruling S3-o — the composition rule, and it is an implementation decision with no spec
+backing.** A car can be an attacker in one resolution and a victim in another on the same tick (A
+rams B while B rams C — `ramBlocked` comes from `statusMods`, computed before `serverTick`, so B is
+not yet blocked). §7.2 answers what one ram does to one car and says nothing about this. The rule
+adopted, and written into `flushRamWrites`' own doc comment so the next reader does not mistake it for
+a ported Unity rule:
+
+> Zero the base if **any** resolution for that car sets `replacesVelocity`, then add **every** shove.
+
+Order-independent, and it reads as the two statements composing — "your own ram stops you" and "the
+shove you took is added". The previous behaviour was decided by the alphabetical order of session
+ids. Falloff keeps its per-shoved-side behaviour (§7.3 is per victim and across attackers), so the
+second push inside one tick is legitimately discounted; the sum is still more than one ram, which is
+what `contact.ts` promises. The bridge now accumulates into a `RamWrite` per car and `flushRamWrites`
+lands it, which also means exactly one spin clamp per car per tick instead of one per resolution.
+
+Two tests cover it in `ram-bridge.test.ts`, both verified red against `f404bb7`: two attackers
+converging on one stationary victim, and the A-rams-B-rams-C composition.
+
+The rest were documentation: `docs/combat-model.md`'s ram banner (it still named
+`restitution: 0.15` and pointed at the deleted `pushOf`/`impactOn` as the current authority); five
+places still saying ram spin decay is inert (`drive.ts` ×2 — the worst of them sitting on
+`nextSpinOf` itself — `packages/shared/CLAUDE.md` ×2, `tick.test.ts`'s justification, and
+`channels.test.ts`, which the review had not listed); `ram-config.ts`'s `durationDrScale` doc still
+calling `reeling` `reapply: "refresh"`; the players' guide under-describing `reeling` (no `spinFree`
+or `ramBlocked` wording, and the raw channel id `grip` printed at a player); `docs/turn-tuning.md`
+owing a row for `RAM_CONFIG.reelingSpinDecayRate` and `ChassisDrive.spinPerTick`, with
+`turn-tuning-doc.test.mjs` extended to recompute both; and `status-config.ts`'s `ramLock` comment
+("a rammer stops, it does not slide") being false on a head-on, where both cars are replaced with a
+small non-zero shove and slide at full grip.
+
+Three findings were recorded rather than fixed — see "Deferred, and who owns it": ruling S3-p
+(`reeling`'s `"ignore"` deletes `wildcharge`'s control loss), §7.4's unsound `ramLock` safety
+argument, and the zero-restitution × edge-triggered-contact re-ram feel.
+
+**Measured test state after the wave** (root `npm run build`, `npm test`, `npm run test:scripts`):
+unchanged from stage 3's exit in every workspace, with the server at exactly the same 15 red across
+the same five files. See the run recorded in that fix wave's commit message.
 
 ## Stages
 
@@ -451,6 +511,52 @@ command as well as the figure.
   stage 2. Untouched by this port; stage 5 judges it with the user.
 - **`wildcharge.impulse.speed` (520) and `uncontrolMs` (1400)** were provisional before this work and
   still are. Stage 4 makes their doc comments true; stage 5 pitches the numbers.
+- **`reeling`'s `reapply: "ignore"` DELETES `wildcharge`'s entire 1.4 s control loss whenever the
+  victim was rammed in the preceding second (whole-branch review, controller ruling S3-p). Owner:
+  stage 4.** Not a discount — a total loss, and in the most common setup for the ult.
+  - **The mechanism.** `applyStatus` returns the status list unchanged for an `"ignore"` row that is
+    already running. `RAM_CONFIG.ramUncontrolMs` is 1000 and the slam authors 1400, so a slam landing
+    at any point inside a live reel writes nothing and the victim keeps the ram's shorter window.
+    Under the old `reapply: "refresh"` (`endsTick = max(existing, now + duration)`) the longer slam
+    window would have extended it, so this is new as of stage 3 Task 4.
+  - **Including on the same tick**, and that is the common case rather than a corner: `contactTick`'s
+    ram loop runs before its slam loop, so ram-then-charge — drive in, then charge the stunned target
+    — reliably lands the ram's reel first and throws the slam's away. `ram-bridge.test.ts`'s "applies
+    a slam AND a concurrent ram to the same victim" already documents that whichever lands first owns
+    the window; what nobody had noticed is that the ram always does.
+  - **It is NOT fixable by editing the status system.** `"ignore"` is FORCED: `StatusDef` requires it
+    of any flag-carrying debuff (`status-config.test.ts` polices it), and `reeling` carries four
+    flags. The only fixes are a per-source reel or a new chaining variant — a design decision for the
+    project owner, not a mid-stage patch, which is why the review recorded it rather than fixing it.
+  - **Stage 4 owns it because stage 4 owns `wildcharge`'s impulse re-pitch** (spec P31) and cannot
+    pitch a duration that is unreachable in the setup it is pitched for. `weapon-config.ts`'s
+    `uncontrolMs` doc argued the exact opposite until the whole-branch fix wave corrected it; it now
+    points here.
+  - **Spec §8's rationale for `"ignore"` is INCOMPLETE and must not be read as clearing this.** It
+    says the choice "costs exactly one behaviour: a re-ram landing while a reel is still running no
+    longer extends it" — true of ram-on-ram, where both windows are `ramUncontrolMs` and falloff
+    already discarded every scaled duration, so nothing is lost. It does not consider a SECOND,
+    LONGER source of the same status, which is exactly what the slam is. The spec is not edited (this
+    file is where an incomplete clause is recorded); the clause is not wrong, it is under-scoped.
+- **Spec §7.4's `ramLock` safety argument is unsound: a charging car CAN take `ramLock` mid-charge.
+  Owner: stage 4**, which owns the slam path and `ramLock`. §7.4 asserts "a car in any maneuver
+  therefore never reaches the ram arm, which is why `ramLock` can never strand a dashing or charging
+  car". `sim/contact.ts` says otherwise in as many words: blocked slams fall through to an ordinary
+  ram, and `resolvePair` only sets `anyEvent` when a slam is actually pushed — so a `CHARGE` car
+  whose slam is refused by `slamImmuneUntil` reaches `resolveRam`, can qualify as an attacker
+  (nose-first, above `minRamSpeed` — a charging car is both), and takes `ramLock` with its velocity
+  zeroed while `tickCharge` counts the maneuver down underneath it. Narrow: it needs two chargers in
+  one match, so the same victim is inside a live re-slam immunity. Self-limiting at
+  `RAM_CONFIG.attackerLockMs` (500 ms). The spec is not edited.
+- **Zero restitution plus edge-triggered contact makes "roll up, then floor it" harder to ram from —
+  a stage-2 × stage-3 interaction neither plan anticipated. Owner: stage 5, and the playtest run.**
+  `resolveWorld` pushes cars to exactly the separation boundary and `RAM_CONFIG.contactPad` is 1, so
+  a pair that touches without ramming stays in `memory.contacts` indefinitely; stage 2 removed the
+  rebound that used to break that contact apart. `applyRams`' own doc already says accelerating while
+  already touching cannot re-trigger — this branch made that condition much easier to sit in, and a
+  player who nudges into someone and then floors it gets nothing until they back off and re-approach.
+  A feel/tuning question, not a defect: the edge trigger is the intended anti-stunlock rule and the
+  knob is `contactPad`, not restitution.
 - **The netcode rewrite's phase 1 plan is stale** — its fixtures still name `speed`, `shoveX`,
   `shoveY` and `authority`, deleted by the car-physics rework's stage 1. Not this work's to fix, but
   whoever starts that rewrite must refresh it against the model this port leaves behind.

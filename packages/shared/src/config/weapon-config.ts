@@ -493,8 +493,19 @@ export const WEAPON_TABLE = {
        * `victimAuthority` (0.35), the pre-`Impulse` steering floor that was meant to express it, had
        * been inert since the vector-drive rework's stage 2 and was deleted here rather than revived.
        * A ram's control loss is `RAM_CONFIG.ramUncontrolMs` scaled by the victim's diminishing-returns
-       * stack; a slam's is this, unscaled — falloff is ram-only (spec P24), so an ult never gets
-       * quietly discounted by how many ordinary rams the victim has recently absorbed.
+       * stack; a slam's is this, unscaled — falloff is ram-only (spec P24), so this number is never
+       * *shortened* by how many ordinary rams the victim has recently absorbed.
+       *
+       * **It is, however, routinely DELETED by one, and that is a live defect this row cannot fix.**
+       * The Unity ram port's stage 3 made `reeling` `reapply: "ignore"` (forced by its flags), so
+       * `applyStatus` returns the list unchanged when a reel is already running: a victim rammed
+       * inside the last second — including on the same tick, since `contactTick`'s ram loop runs
+       * before its slam loop — takes NONE of this 1400 ms, and keeps the ram's shorter window
+       * instead. Ram-then-charge is the most common setup for this weapon, so the number below is
+       * unreachable in exactly the case it was pitched for. Recorded for stage 4, which owns the
+       * re-pitch, in the Unity port's `EXECUTION.md` under "Deferred, and who owns it"; the fix is a
+       * per-source reel or a new chaining variant, which is a design decision rather than a tuning
+       * one.
        */
       uncontrolMs: 1400,
       wallStun: { windowMs: 500, durationMs: 500 },

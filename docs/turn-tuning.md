@@ -97,6 +97,7 @@ about, and because changing either now obliges an edit to this page (see
 | `baseTurnRate` | `DRIVE_CONFIG` | 0.667 | Flat part of every car's turn rate |
 | `turnRatePerRating` | `DRIVE_CONFIG` | 0.0169 | What one point of `handling` buys |
 | `spinMaxRate` | `RAM_CONFIG` | 6 rad/s | Cap on ram-imposed rotation |
+| `reelingSpinDecayRate` | `RAM_CONFIG` | 2.0 /s | How fast a ram's imposed spin winds down while the victim is reeling |
 | `baseMaxSpeed` | `DRIVE_CONFIG` | 60 | Flat part of every car's top speed — radius only, no effect on turn rate |
 | `speedPerRating` | `DRIVE_CONFIG` | 1.518 | Radius only — what one point of `speed` buys |
 | `baseDrag` | `DRIVE_CONFIG` | 0.768 | Drag rate at `accel` 0 — sets top speed, wind-up time and roll together |
@@ -172,6 +173,15 @@ is the one rate the Unity drive-model port uses to set top speed, wind-up and ro
 | 180° while moving | `π / turnRate` | 1.78 s | 1.49 s | 2.08 s | 2.08 s | 2.08 s | 1.49 s | 1.49 s | 1.78 s | 2.08 s |
 | 360° while moving | `2π / turnRate` | 3.56 s | 2.99 s | 4.16 s | 4.16 s | 4.16 s | 2.99 s | 2.99 s | 3.56 s | 4.16 s |
 | Grip while reeling | `lateralGripRate × STATUS_TABLE.reeling.grip` | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s |
+| Spin kept per tick while reeling | `exp(−reelingSpinDecayRate / TICK_RATE_HZ)` | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 |
+
+**"Spin kept per tick while reeling" is `ChassisDrive.spinPerTick`**, the last member of that struct
+to get a row here. It is `RAM_CONFIG.reelingSpinDecayRate` (2.0/s) put through `perTickDecay` —
+`exp(−2/30)` at 30 Hz — and it is the same for every chassis because the rate is global, like `grip`
+above. It reaches a car only while a status grants `spinFree` (`reeling` is the one row that does) or
+the car is in a HOLD: under U16 ordinary steering SETS `angVel` every tick, so an ungated injected
+spin is overwritten rather than decayed. It is a drive-model number with no other page, and a
+spin-decay retune would move how a ram reads without failing anything until this row existed.
 
 **Four rows above replace ones the Unity drive-model port made meaningless.** "Turn rate at rest"
 (and its degrees row) and "180° from standstill" used to read `turnRateAtStop`, a field `ChassisDrive`
@@ -308,7 +318,7 @@ unchecked.
 |---|---|
 | `CAR_TABLE` | any car's `handling`, `speed`, `accel` or `brakeDecel` |
 | `DRIVE_CONFIG` | `baseTurnRate`, `turnRatePerRating`, `baseMaxSpeed`, `speedPerRating`, `baseDrag`, `dragPerRating`, `lateralGripRate`, `reverseAccelFactor`, `reverseEpsilon` |
-| `RAM_CONFIG` | `spinMaxRate` |
+| `RAM_CONFIG` | `spinMaxRate`, `reelingSpinDecayRate` |
 | `STATUS_TABLE` | any row's `turnRate` OR `grip` multiplier that reaches the drive model — `reeling`'s `grip` (0.6) is the one shipped today, and it has its own "Grip while reeling" row |
 | shared | `TICK_RATE_HZ` (the per-tick rows only) |
 
@@ -338,7 +348,7 @@ npm run build -w @motor-combat-moba/shared
 ```
 
 ```bash
-node -e "import('./packages/shared/dist/index.js').then(({CAR_TABLE,DRIVE_CONFIG,TICK_RATE_HZ,driveOf,modifiersOf})=>{const reelingGrip=modifiersOf([{statusId:'reeling',startTick:0,endsTick:1,sourceSessionId:''}],0).grip;for(const id of Object.keys(CAR_TABLE)){const d=driveOf(id),deg=(r)=>r*180/Math.PI,rev=d.maxSpeed*DRIVE_CONFIG.reverseAccelFactor;console.log(id,{rate:+d.turnRate.toFixed(3),deg:+deg(d.turnRate).toFixed(1),perTick:+(d.turnRate/TICK_RATE_HZ).toFixed(4),engineAccel:+d.engineAccel.toFixed(2),timeTo90:+(Math.log(10)/d.dragRate).toFixed(2),top:+d.maxSpeed.toFixed(2),roll:+(d.maxSpeed/d.dragRate).toFixed(1),rev:+rev.toFixed(1),radius:+(d.maxSpeed/d.turnRate).toFixed(1),revRadius:+(rev/d.turnRate).toFixed(1),slip:+deg(Math.atan(d.turnRate/(d.dragRate+DRIVE_CONFIG.lateralGripRate))).toFixed(1),s180:+(Math.PI/d.turnRate).toFixed(2),s360:+(2*Math.PI/d.turnRate).toFixed(2),reelingGrip:+(DRIVE_CONFIG.lateralGripRate*reelingGrip).toFixed(3)});}})"
+node -e "import('./packages/shared/dist/index.js').then(({CAR_TABLE,DRIVE_CONFIG,TICK_RATE_HZ,driveOf,modifiersOf})=>{const reelingGrip=modifiersOf([{statusId:'reeling',startTick:0,endsTick:1,sourceSessionId:''}],0).grip;for(const id of Object.keys(CAR_TABLE)){const d=driveOf(id),deg=(r)=>r*180/Math.PI,rev=d.maxSpeed*DRIVE_CONFIG.reverseAccelFactor;console.log(id,{rate:+d.turnRate.toFixed(3),deg:+deg(d.turnRate).toFixed(1),perTick:+(d.turnRate/TICK_RATE_HZ).toFixed(4),engineAccel:+d.engineAccel.toFixed(2),timeTo90:+(Math.log(10)/d.dragRate).toFixed(2),top:+d.maxSpeed.toFixed(2),roll:+(d.maxSpeed/d.dragRate).toFixed(1),rev:+rev.toFixed(1),radius:+(d.maxSpeed/d.turnRate).toFixed(1),revRadius:+(rev/d.turnRate).toFixed(1),slip:+deg(Math.atan(d.turnRate/(d.dragRate+DRIVE_CONFIG.lateralGripRate))).toFixed(1),s180:+(Math.PI/d.turnRate).toFixed(2),s360:+(2*Math.PI/d.turnRate).toFixed(2),reelingGrip:+(DRIVE_CONFIG.lateralGripRate*reelingGrip).toFixed(3),spinPerTick:+d.spinPerTick.toFixed(4)});}})"
 ```
 
 The same edits almost always owe a `npm run build:manual` too — that page is generated and

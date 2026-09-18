@@ -144,10 +144,13 @@ export const RAM_CONFIG = {
    * Unchanged by the Unity port (U5).
    *
    * **This knob does LESS than it reads, and the reason is structural.** `reeling` is
-   * `reapply: "refresh"`, which `applyStatus` implements as `endsTick = max(existing, now + duration)`
-   * — the status system's D4 rule, "the clock is extended, never shortened", written so a weak short
-   * source cannot cut a long one down. A scaled duration is by definition the shorter value, so a
-   * re-ram landing while `reeling` is STILL RUNNING has its scaled duration discarded outright.
+   * `reapply: "ignore"` (the Unity ram port's stage 3 Task 4 — forced, because `StatusDef` requires
+   * it of any flag-carrying debuff and `reeling` now carries four flags), which `applyStatus`
+   * implements by returning the list untouched while a reel is already running. So a re-ram landing
+   * while `reeling` is STILL RUNNING has its scaled duration discarded outright — more completely
+   * than under the old `reapply: "refresh"`, where `endsTick = max(existing, now + duration)` at
+   * least let a FULL-strength re-ram extend the window. Either way a scaled duration is by
+   * definition the shorter value and never survived that comparison.
    *
    * What this value actually governs is the window between `ramUncontrolMs` and `drWindowMs`: a ram
    * landing after the previous `reeling` has lapsed but while the falloff stack is still counting.

@@ -138,6 +138,11 @@ function statusBlurb(def) {
   if ((def.flags ?? []).includes("fullStop")) parts.push("total stop");
   if ((def.flags ?? []).includes("immobilised")) parts.push("no control");
   if ((def.flags ?? []).includes("steeringLocked")) parts.push("no steering");
+  // The two the 2026-09-18 Unity ram port added. `spinFree` is what makes a ram read as a spin-out
+  // rather than a shove, and `ramBlocked` is the whole anti-chain rule — a reeling car cannot ram
+  // back — so a page that printed neither told a player nothing about what being rammed costs them.
+  if ((def.flags ?? []).includes("spinFree")) parts.push("spins freely");
+  if ((def.flags ?? []).includes("ramBlocked")) parts.push("cannot ram");
   if ((def.flags ?? []).includes("disarmed")) parts.push("cannot fire");
   if ((def.flags ?? []).includes("invulnerable")) parts.push("takes no damage");
   if ((def.flags ?? []).includes("phased")) parts.push("cannot be hit or rammed");
@@ -157,6 +162,10 @@ const CHANNEL_WORDS = {
   accel: "acceleration",
   turnRate: "steering",
   brakeDecel: "brakes",
+  // How fast sideways motion scrubs off. A player feels it as how far a hit carries them, which is
+  // why "traction" and not the sim's "grip" — and without a row here the page printed the channel
+  // id straight out of the table.
+  grip: "traction",
   damageDealt: "damage out",
   damageTaken: "damage taken",
   weaponCooldown: "recharge",

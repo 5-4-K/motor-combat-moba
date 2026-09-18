@@ -21,18 +21,20 @@ import { modifiersOf, NEUTRAL_MODIFIERS, type Modifiers } from "./modifiers.js";
  * of those multipliers is actually read by the thing it is supposed to scale. Between them, "does
  * this channel do anything" is answerable without running the game.
  *
- * **Two of the members the Unity drive-model port added are DECLARED AHEAD OF USE, and this file
- * says which.** That contract above is about reaching a call site, so a member whose call site is
- * not wired yet cannot satisfy it and must not be allowed to look as if it does:
+ * **Every member the Unity drive-model port added is now wired — but two of them are proved
+ * elsewhere, and this file says which and where.** Two of the three below were declared ahead of use
+ * when this comment was first written; the ram port's stage 3 wired both, so what is left to record
+ * is where each one's real proof lives rather than which one is still inert:
  *
  * - **`grip`** is fully wired: it reaches `gripFactorOf` in `stepDrive` and is proved below the same
  *   way every other channel here is, against `drive-vector.test.ts`'s expression for the lateral
  *   bleed. It is not an exception.
- * - **`spinFree`** reaches `nextSpinOf`, but `chassis.spinPerTick` is the placeholder 1 until
- *   **stage 3** of the port sets `RAM_CONFIG.reelingSpinDecayRate`, so that branch is the identity
- *   today: the flag genuinely gates something, and what it gates does not yet decay. Proved here as
- *   neutrality and clamping only; `drive-vector.test.ts`'s "keeps its spin while spinFree" covers
- *   the branch against a hand-set `spinPerTick`.
+ * - **`spinFree`** reaches `nextSpinOf`, and what it gates is a REAL decay as of the Unity ram
+ *   port's stage 3: `RAM_CONFIG.reelingSpinDecayRate` is 2.0/s and `chassis.spinPerTick` resolves to
+ *   `reelingSpinPerTick()` rather than the identity placeholder this comment used to describe.
+ *   Proved here as neutrality and clamping only; `drive-vector.test.ts`'s "keeps its spin while
+ *   spinFree" covers the branch against a hand-set `spinPerTick`, which is why this file's own
+ *   fixture is free to keep 1.
  * - **`ramBlocked`** reaches `participantOf`'s `qualifies` check in `ram.ts` — wired by stage 3
  *   Tasks 2-3's Unity ram rewrite, which also deleted the two-sided contest that comment used to
  *   name. Proved there, in `ram.test.ts`'s own suite ("will not let a reeling or locked car

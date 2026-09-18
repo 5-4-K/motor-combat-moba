@@ -239,8 +239,11 @@ export const STATUS_TABLE = {
    * attacker lock (`RammingModule.LockMask`), and the reason ramming is a commitment rather than a
    * free hit — you stop, and for half a second you cannot drive, steer or ram again.
    *
-   * Deliberately WITHOUT `spinFree` and with grip untouched: a rammer stops, it does not slide. Both cars
-   * take it on a head-on.
+   * Deliberately WITHOUT `spinFree` and with grip untouched: a rammer stops, it does not slide. That
+   * is exact for a flank or rear attacker, whose side carries a zero shove — but **on a head-on both
+   * cars ARE given a small non-zero shove** (each along the other's heading, on the order of
+   * 10-25 u/s at top speed, since `headOnScale` is 0.2), and they do slide it off, at full grip,
+   * because this row leaves the channel alone. Both cars take it on a head-on.
    */
   ramLock: {
     id: "ramLock",
