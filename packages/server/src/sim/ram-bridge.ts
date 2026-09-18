@@ -338,9 +338,12 @@ function clamp(value: number, min: number, max: number): number {
  * - **Head-on**: both cars replace their velocity with the shove the OTHER authored, both lock,
  *   neither spins and neither reels (U27).
  *
- * Deliberately takes no `statusMods`: a ram's only status input is the victim's `ramDefence`
- * multiplier, and that was already divided out inside `shoveOf` from the `defenceMult` this file
- * threads onto every `ContactCar`. Reading it a second time here would double-count it.
+ * Deliberately takes no `statusMods`. A ram has two status inputs and BOTH are consumed before a
+ * resolution exists: `ramBlocked` gated who was allowed to attack, back in `participantOf`, and the
+ * victim's `ramDefence` multiplier was already divided out inside `shoveOf`. Both reached
+ * `sim/ram.ts` on the `ContactCar` this file builds (`ramBlocked` and `defenceMult`), so by the time
+ * a `RamResolution` arrives here there is nothing left for a modifier to change — reading either one
+ * again would double-count it.
  */
 function applyRamResolution(
   state: ArenaState,

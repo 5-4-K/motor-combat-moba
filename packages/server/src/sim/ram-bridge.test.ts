@@ -929,9 +929,10 @@ function runRam(
   fixture: { state: ArenaState; memory: ReturnType<typeof newContactMemory>; roster: Set<string> },
   tick: number,
   approach: Map<string, { vx: number; vy: number }> = approachVelocities(fixture.state),
+  statusMods: ReadonlyMap<string, Modifiers> = NO_EFFECTS,
 ): void {
   contactTick(
-    fixture.state, fixture.roster, fixture.memory, "ffa", NO_EFFECTS, approach, NO_MANEUVER_WEAPONS, tick,
+    fixture.state, fixture.roster, fixture.memory, "ffa", statusMods, approach, NO_MANEUVER_WEAPONS, tick,
   );
 }
 
@@ -1021,6 +1022,33 @@ describe("contactTick (Unity ram, spec §7.2)", () => {
     expect(fixture.attacker.hp).toBe(400);
   });
 
+  it("refuses a ram from a ramBlocked car, which is the bridge JOINING the flag to the rule", () => {
+    // The seam nothing else covers. `sim/ram.ts` honours `RamCar.ramBlocked` and `STATUS_TABLE`
+    // raises `Modifiers.ramBlocked` on `reeling` and `ramLock`, and both halves have their own
+    // tests in shared — but the two only ever meet on `contactCarsOf`'s `ramBlocked: mods.ramBlocked`
+    // line. Get that expression wrong (drop it, negate it, read a neighbouring flag) and it
+    // compiles, every other suite stays green, and a car walks out of its own attacker lock straight
+    // into the next ram: the whole mechanism fails silently and only a player notices.
+    const blocked = ramScenario();
+    runRam(blocked, 10, approachVelocities(blocked.state), new Map([["a", { ...NEUTRAL_MODIFIERS, ramBlocked: true }]]));
+    // Nothing happened at all: `resolveRam` returns null when no car qualifies, so there is no
+    // resolution to write and the would-be attacker is not even stopped.
+    expect(hasStatus(readStatuses(blocked.victim), "reeling", 10)).toBe(false);
+    expect(hasStatus(readStatuses(blocked.attacker), "ramLock", 10)).toBe(false);
+    expect(blocked.victim.vx).toBe(0);
+    expect(blocked.attacker.vx).toBe(540);
+
+    // The positive control, on the identical fixture: with the flag down the very same tick rams.
+    // Without this the block above would also pass on a fixture that could never ram in the first
+    // place — the failure mode this test exists to catch is silence, so it has to prove the noise.
+    const free = ramScenario();
+    runRam(free, 10);
+    expect(hasStatus(readStatuses(free.victim), "reeling", 10)).toBe(true);
+    expect(hasStatus(readStatuses(free.attacker), "ramLock", 10)).toBe(true);
+    expect(free.victim.vx).toBeGreaterThan(0);
+    expect(free.attacker.vx).toBe(0);
+  });
+
   it("counts only the car that took a push into the falloff stack", () => {
     // The attacker's dead stop must never count a ram against its own stack: falloff exists to stop a
     // VICTIM being chained, and an attacker that had paid into it would make its next ram weaker for
@@ -1093,8 +1121,9 @@ describe("contactTick (diminishing returns, spec §7.3)", () => {
     const fixture = ramScenario({ offsetY: 20 });
     const first = chainedRam(fixture, 10);
     // Tick 45 is after the first `reeling` lapses but well inside `ramTicks().drWindow`, which is the
-    // only window a shortened duration is observable in: `applyStatus`'s `refresh` takes the LONGER
-    // of the two end ticks, so a re-ram while the first is still running cannot claw a window back.
+    // only window a shortened duration is observable in: `reeling` is `reapply: "ignore"`, so a
+    // second application writes nothing at all while one is standing, and a re-ram before the first
+    // window lapses cannot claw it back.
     const second = chainedRam(fixture, 45);
 
     expect(second.shove).toBeCloseTo(first.shove * RAM_CONFIG.impulseDrScale, 6);
