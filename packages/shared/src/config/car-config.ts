@@ -1,5 +1,6 @@
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG, perTickDecay } from "./drive-config.js";
+import { reelingSpinPerTick } from "./ram-config.js";
 import type { CarDef, CarId } from "./types.js";
 import type { WeaponId } from "./weapon-types.js";
 
@@ -195,7 +196,7 @@ export interface ChassisDrive {
   dragRate: number; // 1/s — the authored rate, for docs and status scaling
   dragPerTick: number; // perTickDecay(dragRate)
   gripPerTick: number; // perTickDecay(DRIVE_CONFIG.lateralGripRate)
-  spinPerTick: number; // perTickDecay(RAM_CONFIG.reelingSpinDecayRate) — 1 until stage 3
+  spinPerTick: number; // reelingSpinPerTick() — perTickDecay(RAM_CONFIG.reelingSpinDecayRate)
 }
 
 function resolveChassisDrive(): Readonly<Record<CarId, ChassisDrive>> {
@@ -212,10 +213,7 @@ function resolveChassisDrive(): Readonly<Record<CarId, ChassisDrive>> {
           dragRate: dragRateOf(id),
           dragPerTick: perTickDecay(dragRateOf(id)),
           gripPerTick: perTickDecay(DRIVE_CONFIG.lateralGripRate),
-          // Placeholder for exactly one stage: stage 3 replaces this with
-          // `perTickDecay(RAM_CONFIG.reelingSpinDecayRate)` once that knob exists. 1 means "no
-          // decay", and nothing sets `spinFree` until that same stage, so it is unreachable here.
-          spinPerTick: 1,
+          spinPerTick: reelingSpinPerTick(),
         }),
       ]),
     ) as Record<CarId, ChassisDrive>,

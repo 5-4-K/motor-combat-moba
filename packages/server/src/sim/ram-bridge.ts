@@ -1,6 +1,6 @@
 import {
   RAM_CONFIG,
-  RAM_TICKS,
+  ramTicks,
   SLAM_CONFIG,
   applyImpulse,
   applyStatus,
@@ -112,11 +112,11 @@ export function nextFalloff(stack: FalloffStack, victimId: string, tick: number)
   const live = standing !== undefined && tick < standing.expiresAtTick;
   const count = live ? standing.count : 0;
 
-  stack.set(victimId, { count: count + 1, expiresAtTick: tick + RAM_TICKS.drWindow });
+  stack.set(victimId, { count: count + 1, expiresAtTick: tick + ramTicks().drWindow });
 
   return {
     durationScale: Math.max(
-      RAM_TICKS.durationFloor / RAM_TICKS.uncontrol,
+      ramTicks().durationFloor / ramTicks().uncontrol,
       RAM_CONFIG.durationDrScale ** count,
     ),
     impulseScale: Math.max(RAM_CONFIG.impulseDrFloor, RAM_CONFIG.impulseDrScale ** count),
@@ -366,8 +366,8 @@ export function contactTick(
       ...entry.impulse,
       speed: entry.impulse.speed * scales.impulseScale,
       uncontrolTicks: Math.max(
-        RAM_TICKS.durationFloor,
-        Math.round(RAM_TICKS.uncontrol * scales.durationScale),
+        ramTicks().durationFloor,
+        Math.round(ramTicks().uncontrol * scales.durationScale),
       ),
     };
 
@@ -503,7 +503,7 @@ export function contactTick(
     victim.vx = next.vx;
     victim.vy = next.vy;
     victim.angVel = next.angVel;
-    // The slam's own control-loss window, off its own row — NOT `RAM_TICKS.uncontrol`, and not
+    // The slam's own control-loss window, off its own row — NOT `ramTicks().uncontrol`, and not
     // scaled by anything. New behaviour as of stage 4: until now a slam left its victim with full
     // steering, because `contact.ts` hardcoded `uncontrolTicks: 0`. `applyStatus` refuses a
     // non-positive duration outright, so a row authoring `uncontrolMs: 0` writes nothing.

@@ -72,7 +72,14 @@ export { ChatMessageState } from "./schema/ChatMessageState.js";
 export { PlaygroundState } from "./schema/PlaygroundState.js";
 export { PracticeState } from "./schema/PracticeState.js";
 
-export { RAM_CONFIG, RAM_DECAY, RAM_TICKS, halfLifeToPerTick } from "./config/ram-config.js";
+export {
+  RAM_CONFIG,
+  halfLifeToPerTick,
+  inertiaRadiusSquared,
+  ramTicks,
+  rebuildRamTicks,
+  reelingSpinPerTick,
+} from "./config/ram-config.js";
 export { applyDamage, applyHeal, damageFor, scaleDamage, weaponDamageOf } from "./sim/damage.js";
 export { stepSim } from "./sim/step.js";
 export type { SimBody, StepContext } from "./sim/step.js";

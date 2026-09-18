@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { TICK_RATE_HZ } from "../constants.js";
-import { applyImpulse } from "../sim/impulse.js";
-import { resolveRam, type RamCar } from "../sim/ram.js";
-import type { SimBody } from "../sim/step.js";
 import { CAR_TABLE, forwardMaxSpeedOf, ramAttackOf, ramDefenceOf } from "./car-config.js";
-import { RAM_CONFIG, RAM_DECAY, halfLifeToPerTick } from "./ram-config.js";
+import { DRIVE_CONFIG } from "./drive-config.js";
+import { msToTicks } from "./weapon-ticks.js";
+import {
+  RAM_CONFIG,
+  halfLifeToPerTick,
+  inertiaRadiusSquared,
+  ramTicks,
+  reelingSpinPerTick,
+} from "./ram-config.js";
 import type { CarId } from "./types.js";
 
 describe("halfLifeToPerTick", () => {
@@ -33,88 +38,36 @@ describe("halfLifeToPerTick", () => {
   });
 });
 
-describe("RAM_CONFIG", () => {
-  it("pins the authored knobs", () => {
-    expect(RAM_CONFIG.contactPad).toBe(1);
-    expect(RAM_CONFIG.minApproachSpeed).toBe(0);
-    expect(RAM_CONFIG.bonusFront).toBe(0.3);
-    expect(RAM_CONFIG.bonusFlank).toBe(1.0);
-    expect(RAM_CONFIG.bonusRear).toBe(1.3);
-    expect(RAM_CONFIG.knockMaxSpeed).toBe(260);
-    // The stage's three MEASURED constants (`globalScale`'s own comment: "MEASURED, NOT DERIVED"),
-    // pinned alongside the authored ones above. Nothing else in the suite catches a silent retune of
-    // these — `balanceStamp` does not cover `RAM_CONFIG` — and the whole point of measuring them
-    // instead of deriving them is that a future edit here should not be able to sail through quietly.
-    expect(RAM_CONFIG.defencePushScale).toBe(35);
-    expect(RAM_CONFIG.globalScale).toBe(0.4);
-    // 10 -> 12.5 on 2026-09-16 (bigger cars, spec BC7): the hull grew 1.25x, so the maximum lever
-    // arm grew 1.25x and `inertiaCoefficient` 1.5625x; 1.25 * 1.25 / 1.5625 = 1 keeps every ram's
-    // spin identical.
-    expect(RAM_CONFIG.spinScale).toBe(12.5);
+describe("RAM_CONFIG under the Unity ram rule", () => {
+  it("authors Unity's shove scales, with a flank the hardest hit", () => {
+    expect(RAM_CONFIG.headOnScale).toBe(0.2);
+    expect(RAM_CONFIG.flankScale).toBe(1.5);
+    expect(RAM_CONFIG.rearScale).toBe(1.2);
+    expect(RAM_CONFIG.flankScale).toBeGreaterThan(RAM_CONFIG.rearScale);
+    expect(RAM_CONFIG.rearScale).toBeGreaterThan(RAM_CONFIG.headOnScale);
   });
 
-  it("orders the side bonuses front < flank < rear, which is the whole positional read", () => {
-    expect(RAM_CONFIG.bonusFront).toBeLessThan(RAM_CONFIG.bonusFlank);
-    expect(RAM_CONFIG.bonusFlank).toBeLessThan(RAM_CONFIG.bonusRear);
+  it("gates a ram on a real approach speed", () => {
+    expect(RAM_CONFIG.minRamSpeed).toBeGreaterThan(0);
+    // A ram is a deliberate act: well over a drift, well under a chassis top speed.
+    expect(RAM_CONFIG.minRamSpeed).toBeLessThan(forwardMaxSpeedOf("bastion") / 2);
   });
 
-  it("derives inertiaCoefficient from the hull, never typed", () => {
-    expect(RAM_CONFIG.inertiaCoefficient).toBeCloseTo((60 ** 2 + 40 ** 2) / 12, 9);
+  it("derives the spin inertia from the hull, so it cannot drift from it", () => {
+    const expected = (DRIVE_CONFIG.carWidth ** 2 + DRIVE_CONFIG.carHeight ** 2) / 12;
+    expect(inertiaRadiusSquared()).toBeCloseTo(expected, 9);
   });
 
-  it("keeps the roster's hardest possible ram strictly under spinMaxRate", () => {
-    // `spinScale`'s own comment table names this exact case the hardest the roster can produce:
-    // Bastion (the roster's highest `ramAttack`/`ramDefence`) flanking a stationary Bullseye (the
-    // roster's lowest `ramDefence`, so it absorbs the most) at Bastion's own top speed, hit at the
-    // maximum lever arm `contactPointOn` can recover (the hull's half-length, 30 u). At `spinScale`
-    // 10 that measured 5.95 rad/s against a 6.0 ceiling — 99% of it, approaching saturation without
-    // clipping. The 2026-09-16 speed cut (Bastion 190 -> 135.9 u/s) dropped it to 4.50 rad/s, 75% of
-    // the ceiling: `attackerPush` is linear in the attacker's closing speed, so a top-speed cut moves
-    // this directly. There is real headroom under `spinMaxRate` again, and `globalScale`/`spinScale`
-    // were MEASURED against the old ceiling-hugging case — stage 5's re-pitch inherits a spin budget
-    // that is a quarter unspent. This is run through the REAL pipeline (`resolveRam` then
-    // `applyImpulse`) rather than re-derived by hand, to also catch a regression in the code path
-    // itself, not only in the constants.
-    //
-    // Geometry: attacker (Bastion) at (30, -37.5) facing +y, driving straight at its own top speed
-    // toward a stationary victim (Bullseye) at the origin facing +x. `contactPointOn` clamps the
-    // recovered contact point to the victim's local (30, -20) — x at the hull's half-length, 30 u
-    // (the attacker's own x sits exactly on that boundary), y at the half-width, 20 u (since the
-    // attacker's y offset of 37.5 exceeds it) — the same maximal-lever geometry `spinScale`'s table
-    // measured. The 2026-09-16 hull resize scaled this geometry 1.25x and moved `spinScale` to 12.5,
-    // which is why the figure did not move.
-    //
-    // Hand-derived, cross-checked against the pipeline output below (ramAttack/ramDefence: bastion
-    // 70/90, bullseye 45/30; RAM_CONFIG: defencePushScale 35, bonusFlank 1.0, globalScale 0.4,
-    // inertiaCoefficient (60^2+40^2)/12 = 5200/12):
-    //   attackerPush = 70*135.9 + 90*35 = 12663       victimPush = 30*35 = 1050
-    //   share = attackerPush/(attackerPush+victimPush) = 12663/13713 ~= 0.92343
-    //   impulse.speed = attackerPush * share * bonusFlank * globalScale / ramDefence(bullseye)
-    //                 = 12663 * 0.92343 * 1.0 * 0.4 / 30 ~= 155.912 u/s
-    //   torque = rx*fy - ry*fx = 30*155.912 - (-20)*0 ~= 4677.36
-    //   inertia = ramDefence(bullseye) * inertiaCoefficient = 30 * 5200/12 = 13000
-    //   spin = torque/inertia * spinScale = (4677.36/13000) * 12.5 ~= 4.4975 rad/s
-    const attacker: RamCar = {
-      sessionId: "a", team: 0, x: 30, y: -37.5, angle: Math.PI / 2,
-      vx: 0, vy: forwardMaxSpeedOf("bastion"), carId: "bastion" as CarId, defenceMult: 1,
-    };
-    const victim: RamCar = {
-      sessionId: "b", team: 0, x: 0, y: 0, angle: 0,
-      vx: 0, vy: 0, carId: "bullseye" as CarId, defenceMult: 1,
-    };
-    const hit = resolveRam(attacker, victim, "ffa")!;
-    expect(hit.side).toBe("flank");
-    const restingBody: SimBody = {
-      x: victim.x, y: victim.y, angle: victim.angle, vx: 0, vy: 0, angVel: 0,
-      maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
-    };
-    const next = applyImpulse(restingBody, ramDefenceOf(victim.carId), hit.impulse);
-    expect(Math.abs(next.angVel)).toBeCloseTo(4.4975, 3);
-    expect(Math.abs(next.angVel)).toBeLessThan(RAM_CONFIG.spinMaxRate);
+  it("decays a reeling car's spin as a per-second rate", () => {
+    expect(RAM_CONFIG.reelingSpinDecayRate).toBeGreaterThan(0);
+    expect(reelingSpinPerTick()).toBeCloseTo(
+      Math.exp(-RAM_CONFIG.reelingSpinDecayRate / TICK_RATE_HZ), 12);
   });
 
-  it("bleeds spin faster when countersteering than when coasting", () => {
-    expect(RAM_DECAY.counterSteer).toBeLessThan(RAM_DECAY.spin);
+  it("locks the attacker for less time than it reels the victim", () => {
+    expect(RAM_CONFIG.attackerLockMs).toBeGreaterThan(0);
+    expect(RAM_CONFIG.attackerLockMs).toBeLessThan(RAM_CONFIG.ramUncontrolMs);
+    expect(ramTicks().attackerLock).toBe(msToTicks(RAM_CONFIG.attackerLockMs));
   });
 });
 
