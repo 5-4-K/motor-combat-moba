@@ -22,6 +22,22 @@ import { modifiersOf, NEUTRAL_MODIFIERS, type Modifiers } from "./modifiers.js";
  * `modifiers.test.ts` pins how a status list becomes a set of multipliers; this file pins that each
  * of those multipliers is actually read by the thing it is supposed to scale. Between them, "does
  * this channel do anything" is answerable without running the game.
+ *
+ * **Two of the members the Unity drive-model port added are DECLARED AHEAD OF USE, and this file
+ * says which.** That contract above is about reaching a call site, so a member whose call site is
+ * not wired yet cannot satisfy it and must not be allowed to look as if it does:
+ *
+ * - **`grip`** is fully wired: it reaches `gripFactorOf` in `stepDrive` and is proved below the same
+ *   way every other channel here is, against `drive-vector.test.ts`'s expression for the lateral
+ *   bleed. It is not an exception.
+ * - **`spinFree`** reaches `nextSpinOf`, but `chassis.spinPerTick` is the placeholder 1 until
+ *   **stage 3** of the port sets `RAM_CONFIG.reelingSpinDecayRate`, so that branch is the identity
+ *   today: the flag genuinely gates something, and what it gates does not yet decay. Proved here as
+ *   neutrality and clamping only; `drive-vector.test.ts`'s "keeps its spin while spinFree" covers
+ *   the branch against a hand-set `spinPerTick`.
+ * - **`ramBlocked`** reaches NOTHING at all yet. No sim call site reads it. **Stage 3** wires it into
+ *   the ram contest. Until then only its neutrality is assertable, and asserting more would be
+ *   asserting a fiction.
  */
 
 const DT = MS_PER_TICK / 1000;
@@ -416,5 +432,33 @@ describe("the Unity ability flags and the grip channel", () => {
   it("clamps grip to STATUS_LIMITS, so no stack of debuffs turns a car into a puck", () => {
     expect(STATUS_LIMITS.grip.min).toBeGreaterThan(0);
     expect(STATUS_LIMITS.grip.max).toBeGreaterThanOrEqual(1);
+  });
+
+  /**
+   * `grip` reaching `gripFactorOf`, to this file's own standard rather than the neutrality-only
+   * standard the other two new members are held to.
+   *
+   * The expression is `drive-vector.test.ts`'s, deliberately: the lateral component takes drag on the
+   * whole vector AND grip on top of it, and the modifier enters grip as a POWER (`gripPerTick **
+   * mods.grip`) the same way `accel` enters drag — `dragFactorOf`'s own trick, so `grip: 0`
+   * degenerates to no grip at all rather than to an instant stop.
+   */
+  it("scales the lateral bleed through gripFactorOf, as a power", () => {
+    const sliding = body({ vx: 0, vy: 100 }); // pure lateral at angle 0: 100 u/s to the car's left
+    const neutral = stepDrive(sliding, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
+    expect(lateralOf(neutral.vx, neutral.vy, neutral.angle)).toBeCloseTo(
+      100 * GOLDEN_CHASSIS.dragPerTick * GOLDEN_CHASSIS.gripPerTick, 9);
+
+    const loose = stepDrive(sliding, input(0, 0), DT, GOLDEN_CHASSIS, mods({ grip: 0.6 }));
+    expect(lateralOf(loose.vx, loose.vy, loose.angle)).toBeCloseTo(
+      100 * GOLDEN_CHASSIS.dragPerTick * GOLDEN_CHASSIS.gripPerTick ** 0.6, 9);
+    // Less grip means the slide carries further — the direction a knockback-lengthening debuff wants.
+    expect(lateralOf(loose.vx, loose.vy, loose.angle)).toBeGreaterThan(
+      lateralOf(neutral.vx, neutral.vy, neutral.angle));
+
+    // `grip: 0` is Unity's "no grip at all": drag alone, no extra sideways bleed. Out of
+    // `STATUS_LIMITS`' reach for an authored row, and the degenerate case the power form must hit.
+    const puck = stepDrive(sliding, input(0, 0), DT, GOLDEN_CHASSIS, mods({ grip: 0 }));
+    expect(lateralOf(puck.vx, puck.vy, puck.angle)).toBeCloseTo(100 * GOLDEN_CHASSIS.dragPerTick, 9);
   });
 });
