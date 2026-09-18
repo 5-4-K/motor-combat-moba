@@ -372,6 +372,7 @@ something, discuss it — do not answer with a parameter sweep.
 | Spec + tracker | [`docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`](docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md), [`docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md`](docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md) |
 | **Online netcode and client rendering — the fourteen-phase rewrite in progress** | **start at [`docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md`](docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md)** — see below |
 | **Car physics rework — stages 1-4 landed, spec now on revision 2** | **start at [`docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md`](docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md)** — see below |
+| **Unity physics port — stages 1-3 landed (drive model, walls/bumps, rams), 4-5 not started; supersedes the car-physics rework's contest model** | **start at [`docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md`](docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md)** |
 | Weapon system decisions (D1–D22), online-play review, future work — plus the **retired** aim assist and target lock (A1–A14), removed 2026-09-17 and kept only as a record | [`docs/superpowers/specs/2026-08-27-weapon-system-design.md`](docs/superpowers/specs/2026-08-27-weapon-system-design.md), [`docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md), [`docs/superpowers/plans/2026-08-27-weapon-system.md`](docs/superpowers/plans/2026-08-27-weapon-system.md) |
 | The ten-ability-weapon roster (nine shipped plus dormant `tremor`), per-chassis kits (L1–L7) — now alongside nine identical basic-attack rows (BA1–BA38, see above) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
 | The three chassis types and their triangle, the `accel`/`handling` ratings, the weapon redistribution (T1–T22) — **supersedes L1–L7's assignments** | [`docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md`](docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md) |
@@ -501,6 +502,18 @@ ordering it silently depended on. `speed: 520` was carried across unchanged and 
 
 Stage 5 (plus the approved restitution stage before it) is planned against revision 2 and
 **not started**.
+
+> **Superseded as of 2026-09-18 by the Unity physics port's stage 3.** The contest this section
+> describes above — `sim/ram.ts`'s `pushOf`/`impactOn` resolving each side independently, with no
+> `reactionOf` and no negation — is deleted. A ram is no longer two pushes shared out; it is a
+> one-way rule: nose-first above `RAM_CONFIG.minRamSpeed`, the attacker stops dead and takes
+> `ramLock`, the victim takes the shove, the spin and `reeling`. `reeling`'s description just above
+> (`turnRate: 0.4`, `accel: 0.4`, `reapply: "refresh"`, `flags: []`) is false for the same reason:
+> `reeling` is now `modifiers: { grip: 0.6 }`, `reapply: "ignore"`, and carries
+> `["immobilised", "steeringLocked", "spinFree", "ramBlocked"]`. This paragraph is a pointer, not a
+> rewrite — the section above stays as a record of the 2026-09-06 rework, which stage 5 of *that*
+> plan still owns rewriting. For the current rule, start at
+> [`docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md`](docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md).
 
 **Start at
 [`EXECUTION.md`](docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md)** — the state file. It

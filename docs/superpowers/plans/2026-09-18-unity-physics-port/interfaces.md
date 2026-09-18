@@ -18,7 +18,10 @@ export const DRIVE_CONFIG = {
   turnRatePerRating: 0.0169,   // RETUNED from 0.054
   reverseAccelFactor: 0.4,     // RETUNED from 0.6
   reverseEpsilon: 6.0,         // NEW  u/s — brake-vs-reverse AND steering-flip threshold
-  flipSteeringInReverse: true, // NEW  (U8)
+  flipSteeringInReverse: false, // NEW (U8); shipped OFF — the user switched it off for a tuning
+                                 // pass after this ledger was written (see EXECUTION.md's Deferred
+                                 // list for why and the four rejected fixes). The ledger is corrected
+                                 // to match the code; nothing "restores" `true`.
   stopEpsilon: 1e-3,           // unchanged, widened job (U17)
   carWidth: 60,                // unchanged
   carHeight: 40,               // unchanged
@@ -216,11 +219,18 @@ writes velocities directly:
 
 ```ts
 function applyRamResolution(
-  state: ArenaState, memory: ContactMemory, statusMods: ReadonlyMap<string, Modifiers>,
+  state: ArenaState, memory: ContactMemory,
   approachVelocities: ReadonlyMap<string, { vx: number; vy: number }>,
   ram: RamResolution, tick: number,
 ): void;
 ```
+
+**`statusMods` is deliberately omitted, not dropped by oversight (controller ruling S3-m).** The
+`ramDefence` multiplier this function would have read from it is already consumed upstream, in
+`shoveOf` via `ContactCar.defenceMult` (spec §7.2 divides by `victimDefenceMult` there) — a second
+read here would double-count. The function is module-private with one call site, and nothing else
+in this plan set binds its arity. If a later stage needs status context inside this function, adding
+the parameter back is a one-line change.
 
 `newFalloffStack`, `nextFalloff`, `sweepFalloff`, `FalloffStack`, `FalloffScales`, `ContactMemory`,
 `clearKnock`, `forgetContactPlayer` and the slam half are unchanged.
