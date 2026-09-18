@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   ArenaState,
-  DRIVE_CONFIG,
   PlayerState,
   PlayerStatus,
   RAM_CONFIG,
@@ -23,9 +22,23 @@ import { contactTick, newContactMemory } from "./ram-bridge.js";
  * equals `player.vx/vy` because nothing ever moved the player first. `tick.test.ts` calls `serverTick`
  * alone and never looks at a ram. Neither exercises the fact that `tick-pipeline.ts`'s `runPipeline`
  * runs `serverTick` (drive + `resolveWorld`) BEFORE `contactTick` on the very same tick — so by the
- * time a ram's `Impulse` lands, the attacker's velocity has ALREADY been reflected once by
- * `DRIVE_CONFIG.restitution` inside `resolveWorld`. The two effects compose (reflect, then recoil on
- * top), and every existing test measures only one of them in isolation.
+ * time a ram's `Impulse` lands, the attacker's velocity has ALREADY been resolved once by
+ * `resolveWorld`'s contact pass. The two effects compose (resolve the contact, then recoil on top),
+ * and every existing test measures only one of them in isolation.
+ *
+ * **Stage 2 (walls-and-bumps, `DRIVE_CONFIG.restitution` 0.15 -> 0) changed what "resolved once"
+ * means, and this file is what had to change with it.** This test used to pin a REFLECTION — the
+ * attacker's dead-on velocity flipped sign and shrank to `-(topSpeed * 0.15)` before the ram's own
+ * impulse landed on top. At `restitution: 0`, `applyContact`'s `v' = v - (1 + e)(v·n)n` removes the
+ * into-surface component and adds nothing back: a dead-on hit, where the WHOLE velocity is
+ * into-surface, leaves the attacker at an exact 0 — stopped, not bounced, not merely damped. That is
+ * gone-not-smaller, per the stage brief: there is no rebound left for the ram's own contest impulse
+ * to land on top of, only rest. The composition this test exists to pin is now "the contact pass
+ * zeroes the dead-on component; the ram contest's own (independently tiny) impulse is then the
+ * ENTIRE reason the attacker ends the tick moving backwards at all" — worth pinning in its own right,
+ * because a regression that made the contact pass merely damp (instead of fully absorb) the dead-on
+ * component would silently reintroduce a residual reflection for the contest impulse to stack onto,
+ * exactly the bug this file was written to catch in the first place.
  *
  * This is the gap the stage-2 whole-stage review found: the recoil numbers written into
  * `RAM_CONFIG.knockMaxSpeed`'s and the hard slam's own doc comments were computed by
@@ -72,7 +85,7 @@ function addPlayer(state: ArenaState, id: string, over: Partial<PlayerState> = {
 }
 
 describe("the real serverTick -> contactTick order (stage 2 whole-stage review, Fix 2)", () => {
-  it("charges the attacker with restitution AND its own contest impulse, not the reflection alone", () => {
+  it("charges the attacker with its own contest impulse against a contact pass that already zeroed it, not the pre-collision speed", () => {
     const state = arena();
     // Bastion rear-ends a stationary Bullseye at Bastion's own top speed, dead straight along +x —
     // both cars facing +x, attacker behind, so this is a REAR hit for the victim (RAM_CONFIG.bonusRear)
@@ -83,9 +96,10 @@ describe("the real serverTick -> contactTick order (stage 2 whole-stage review, 
     // read off a single saturated constant.
     const topSpeed = forwardMaxSpeedOf("bastion");
     // Positioned edge-to-edge (0 clearance) so this tick's drive translation drives the hulls into a
-    // real overlap — `resolveWorld`'s bounce is a velocity-space reflection, not depth-dependent, so
-    // the exact clearance does not matter (see the sub-tick-phase sweep in the review), but it must
-    // be small enough that this ONE tick both overlaps AND rams; 0 clearance guarantees both.
+    // real overlap — `resolveWorld`'s contact pass is a velocity-space correction, not
+    // depth-dependent, so the exact clearance does not matter (see the sub-tick-phase sweep in the
+    // review), but it must be small enough that this ONE tick both overlaps AND rams; 0 clearance
+    // guarantees both.
     const attacker = addPlayer(state, "a", { x: 952, y: 400, angle: 0, carId: "bastion", vx: topSpeed, vy: 0 });
     addPlayer(state, "b", { x: 1000, y: 400, angle: 0, carId: "bullseye" });
 
@@ -94,16 +108,16 @@ describe("the real serverTick -> contactTick order (stage 2 whole-stage review, 
       ["b", [{ seq: 1, steer: 0, throttle: 0, fireSlots: 0 }]],
     ]);
 
-    // Step 1: the REAL `serverTick` — drive, then `resolveWorld`'s restitution reflection.
+    // Step 1: the REAL `serverTick` — drive, then `resolveWorld`'s contact pass.
     const { approachVelocities } = serverTick(state, queues, 1 / 30, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
 
     const afterResolveWorld = attacker.vx;
-    // The reflection alone: `resolveWorld` reflects the WHOLE pre-collision velocity by
-    // `DRIVE_CONFIG.restitution`, dead-on here so it is a pure sign flip and scale.
-    expect(afterResolveWorld).toBeCloseTo(-(topSpeed * DRIVE_CONFIG.restitution), 6);
-    // And it must have actually reflected, not merely slowed — this is the fact the old
-    // ram-bridge-only test could never see, because it never ran `serverTick` at all.
-    expect(afterResolveWorld).toBeLessThan(0);
+    // At `DRIVE_CONFIG.restitution` 0, `applyContact`'s `v' = v - (1 + e)(v·n)n` removes exactly the
+    // into-surface component and adds nothing back. This hit is dead-on, so the WHOLE pre-collision
+    // velocity is into-surface: the contact pass leaves the attacker at an exact stop, not a
+    // reflection and not a partial damping. (Stage 1 pinned `restitution` at 0; this is stage 2's own
+    // proof that a dead-on contact really does zero out rather than merely shrink.)
+    expect(afterResolveWorld).toBeCloseTo(0, 6);
 
     // Step 2: the REAL `contactTick`, fed the carried-in (pre-collision) approach VELOCITY exactly as
     // `runPipeline` feeds it — this is the trigger fix `TickResult.approachVelocities` exists for.
@@ -129,15 +143,19 @@ describe("the real serverTick -> contactTick order (stage 2 whole-stage review, 
     const attackerImpact =
       (victimPush * (victimPush / (attackerPush + victimPush)) * RAM_CONFIG.bonusFront * RAM_CONFIG.globalScale) /
       defence;
-    // The composed result: the reflection from step 1, with the contest's own (independently
-    // computed) attackerImpulse charged ON TOP of it — not on top of the pre-collision `topSpeed`.
+    // The composed result: the contest's own (independently computed) attackerImpulse charged ON TOP
+    // of the contact pass's already-zeroed velocity from step 1 — not on top of the pre-collision
+    // `topSpeed`. Because `approachVelocities` still carries the pre-collision speed, `attackerImpact`
+    // itself is unaffected by the zeroing; only what it lands on top of changed.
     const expected = afterResolveWorld - attackerImpact;
     expect(attacker.vx).toBeCloseTo(expected, 6);
-    // Sanity floor: the attacker ends up travelling BACKWARDS, not merely slowed — driven almost
-    // entirely by the reflection now that the attacker's own contest impulse
-    // (`attackerImpact`, tiny here: the victim brings almost no push of its own) barely moves it
-    // further. If this regresses to `> 0`, either the pipeline order broke or someone changed
-    // `contactTick` to charge the attacker's impulse against the pre-collision speed again.
+    // Sanity floor, re-pitched for zero restitution: the attacker ends the tick moving BACKWARDS by
+    // some nonzero amount, but that amount is now ENTIRELY the contest's own impulse — there is no
+    // leftover reflection for it to stack onto. If this regresses to `>= 0`, the contest stopped
+    // charging the attacker anything; if it regresses to a large negative (on the order of `-topSpeed`
+    // rather than a few u/s), the contact pass stopped fully absorbing the dead-on hit and a residual
+    // reflection crept back in underneath the contest impulse.
     expect(attacker.vx).toBeLessThan(0);
+    expect(attacker.vx).toBeGreaterThan(-topSpeed * 0.1);
   });
 });

@@ -109,10 +109,12 @@ export const RAM_CONFIG = {
    *
    * **What this constant does NOT control, and a reader will otherwise blame it for.** An attacker
    * still ends a dead-on ram travelling backwards — Bastion 190 -> -28.6 u/s above. All but 0.1 of
-   * that is `resolveWorld`'s restitution reflection (`DRIVE_CONFIG.restitution`, 0.15), which lands
-   * BEFORE contact runs and which no value here can reach. Stage 3 could only remove the contest's
-   * share of the cost, and did: raising or lowering `globalScale` moves the victim's throw and the
-   * head-on column, and leaves that -28.5 exactly where it is.
+   * that is `resolveWorld`'s restitution reflection (`DRIVE_CONFIG.restitution`), which lands
+   * BEFORE contact runs and which no value here can reach. (Stage 2 dropped `restitution` to 0; the
+   * table below was measured at the pre-stage-2 0.15, and stage 3 re-pitches these constants against
+   * the new value anyway, so the table is not re-measured here.) Stage 3 could only remove the
+   * contest's share of the cost, and did: raising or lowering `globalScale` moves the victim's throw
+   * and the head-on column, and leaves that -28.5 exactly where it is.
    *
    * Re-measure through the composed order, never through `contactTick` alone, if this is retuned:
    * `packages/server/src/sim/pipeline-order.test.ts` drives the sequence these numbers came from.
@@ -142,7 +144,8 @@ export const RAM_CONFIG = {
    * **Why the historical comparison is worth keeping at all.** Revision 1 of this rework charged the
    * attacker a `reactionOf` recoil derived by ARITHMETIC rather than measured, and it was wrong by
    * 5x. Measured through the composed pipeline order (`serverTick` then `contactTick`, so the
-   * `DRIVE_CONFIG.restitution` reflection lands FIRST and the recoil goes on top of it) against
+   * `DRIVE_CONFIG.restitution` reflection lands FIRST and the recoil goes on top of it — at the
+   * pre-stage-2 restitution of 0.15, not the 0 it is today) against
    * stage 1's cut top speeds, a dead-on rear hit left every chassis travelling BACKWARDS — Bastion
    * 190 -> -184.5 u/s, Bullseye 223 -> -304.5, Mirage 267 -> -310.9 — two of the three past their own
    * top speed in reverse, for the crime of landing a ram. That is the defect this whole stage exists
