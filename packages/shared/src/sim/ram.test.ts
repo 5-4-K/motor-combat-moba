@@ -190,6 +190,7 @@ describe("resolveRam", () => {
     expect(hit.attackerId).toBe("a");
     expect(hit.locked).toEqual(["a"]);
     expect(hit.reeled).toEqual(["b"]);
+    expect(hit.sides).toHaveLength(2);
 
     const attacker = sideOf(hit, "a");
     expect(attacker.replacesVelocity).toBe(true);
@@ -388,6 +389,9 @@ describe("applyRams", () => {
     const cars = [attacker(), victim()];
     const forward = applyRams(cars, new Set(), "ffa");
     const backward = applyRams([...cars].reverse(), new Set(), "ffa");
+    // Pinned non-empty first: two empty lists are equal too, and that would be a green test with
+    // nothing left to say.
+    expect(forward.rams).toHaveLength(1);
     expect(backward.rams).toEqual(forward.rams);
   });
 });
