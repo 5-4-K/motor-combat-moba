@@ -217,12 +217,14 @@ export type StatusTarget = "self" | "opponents" | "ownerInside";
 /**
  * One push a weapon imparts, and to whom, and how hard. The declarative sibling of `applies`.
  *
- * Ram and weapons derive their impulses completely differently and share only how one LANDS
- * (`applyImpulse`). This type is the *authored* half — fixed numbers a designer writes on a row —
- * while ram builds its `Impulse` from a contest between both cars' `ramAttack`/`ramDefence` (stage
- * 3, spec R1–R9), a side bonus, and a falloff stack (stage 3b, spec P24). Neither derivation
- * constrains the other, which is what keeps ram feel and weapon feel independently tunable. See
- * spec principle D.
+ * **This is now the only thing that produces an `Impulse`.** It is the *authored* half — fixed
+ * numbers a designer writes on a row — and since the 2026-09-18 Unity ram port (spec §7.4) it is
+ * also the whole of it: ordinary ramming left `applyImpulse` entirely and hands the bridge a
+ * `RamResolution` instead, because "the attacker stops dead" cannot be said in a struct whose whole
+ * meaning is "add this to what you had". (It used to share the applier, deriving its magnitude from
+ * a contest between both cars' `ramAttack`/`ramDefence`, a side bonus and a falloff stack.) Ram feel
+ * and weapon feel stay independently tunable, now by not sharing a derivation at all. See spec
+ * principle D.
  */
 export interface ImpulseDef {
   /** Magnitude as a Δv in u/s. Negative pulls the victim toward the source. */
@@ -261,13 +263,17 @@ export interface ImpulseDef {
    * The designer's escape hatch, and the place where "weapons get to break physics" becomes a
    * checkbox instead of a special case.
    *
-   * **Do not confuse this with the runtime `Impulse.defenceScaled` field ram itself produces.** Ram's
-   * own `Impulse`s (`sim/ram.ts`) are always built with `defenceScaled: false`, even though the
-   * *concept* above says "ram: yes" — the contest already divides by the victim's own `ramDefence`
-   * while computing the impulse's magnitude (spec R5), so letting `applyImpulse` divide a second time
-   * would apply it twice. This `ImpulseDef` field is the authored escape hatch for a WEAPON's own
-   * fixed push (wildcharge's slam, and any future explosion or shell); it has no reader in `ram.ts`
-   * at all. See `03-ram.md`'s Task 2, Step 5 note ("Why `defenceScaled: false` on a ram").
+   * **`sim/ram.ts` builds no `Impulse` at all any more, so "ram: yes" above is the concept, not a
+   * flag anyone sets.** An ordinary ram already divides by the victim's `ramDefence` inside
+   * `shoveOf`, and since the 2026-09-18 Unity ram port (spec §7.4) it hands the bridge a
+   * `RamResolution` — velocities to write — rather than a push to be applied, so there is no
+   * `defenceScaled` on that path to be `false`. (Under the contest there was, and it was `false`, for
+   * the same no-double-division reason.)
+   *
+   * This `ImpulseDef` field is therefore the authored escape hatch for a WEAPON's own fixed push —
+   * `wildcharge`'s slam, and any future explosion or shell — and the only thing that still reaches
+   * `applyImpulse.defenceScaled`. `wildcharge` authors it `false`: a slam punts every chassis
+   * identically.
    */
   defenceScaled: boolean;
   /** How long the victim is left `reeling`. Converted to ticks once, in `WEAPON_TICKS`. */

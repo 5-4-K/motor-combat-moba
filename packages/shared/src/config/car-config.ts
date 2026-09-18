@@ -1,5 +1,6 @@
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG, perTickDecay } from "./drive-config.js";
+import { reelingSpinPerTick } from "./ram-config.js";
 import type { CarDef, CarId } from "./types.js";
 import type { WeaponId } from "./weapon-types.js";
 
@@ -42,8 +43,11 @@ import type { WeaponId } from "./weapon-types.js";
  * a higher ceiling. `accel` is likewise fed straight into `accelOf`.
  *
  * `ramAttack` and `ramDefence` are not durability, and they are not one rating split in two. They
- * are read only by the ram contest (`pushOf`/`impactOn` in `sim/ram.ts`) and by `resolveWorld`'s
- * separation split, and they touch nothing else — never acceleration, never top speed (spec P7).
+ * are read only by the ram shove (`shoveOf` in `sim/ram.ts` — `ramAttack` multiplies the attacker's,
+ * `ramDefence` divides the victim's), by `applyImpulse`'s inertia term for a slam, and by
+ * `resolveWorld`'s separation split; they touch nothing else — never acceleration, never top speed
+ * (spec P7). Until the 2026-09-18 Unity ram port both fed a two-sided contest (`pushOf`/`impactOn`),
+ * which is why `ramDefence` used to be described as adding to your own push as well.
  * They replaced the single `mass` rating on 2026-09-06: one number could not say "hits hard but is
  * also easy to shove", and could not be tuned on either half without moving the other.
  *
@@ -186,10 +190,13 @@ export function ramDefenceOf(id: CarId): number {
  *
  * The severity model this file used to anchor (`RAM_REFERENCE_MASS` — an average chassis's mass —
  * and `RAM_REFERENCE` — that mass at the roster's highest top speed) graded every ram as a 0-1
- * fraction of one global maximum, which is exactly the shape spec revision 2 rejects: a contest has
- * no ceiling to be a fraction OF. `pushOf`/`impactOn` (`sim/ram.ts`) are open-ended and linear, so
- * the only global constant left is `RAM_CONFIG.globalScale`, and it converts rather than normalises.
- * Do not reintroduce a reference: an anchor is a clamp wearing a different name (spec R9).
+ * fraction of one global maximum, which is exactly the shape spec revision 2 rejected: there is no
+ * ceiling to be a fraction OF. `shoveOf` (`sim/ram.ts`) is open-ended and linear in drive-in speed,
+ * so the only global constant left is `RAM_CONFIG.globalScale`, and it converts rather than
+ * normalises. The Unity ram port replaced revision 2's contest without changing that: it is still
+ * open-ended, and `RAM_CONFIG.spinMaxRate` remains a playability clamp on spin rather than an anchor
+ * on magnitude. Do not reintroduce a reference: an anchor is a clamp wearing a different name
+ * (spec R9).
  */
 
 /**
@@ -211,7 +218,7 @@ export interface ChassisDrive {
   dragRate: number; // 1/s — the authored rate, for docs and status scaling
   dragPerTick: number; // perTickDecay(dragRate)
   gripPerTick: number; // perTickDecay(DRIVE_CONFIG.lateralGripRate)
-  spinPerTick: number; // perTickDecay(RAM_CONFIG.reelingSpinDecayRate) — 1 until stage 3
+  spinPerTick: number; // reelingSpinPerTick() — perTickDecay(RAM_CONFIG.reelingSpinDecayRate)
 }
 
 function resolveChassisDrive(): Readonly<Record<CarId, ChassisDrive>> {
@@ -228,10 +235,7 @@ function resolveChassisDrive(): Readonly<Record<CarId, ChassisDrive>> {
           dragRate: dragRateOf(id),
           dragPerTick: perTickDecay(dragRateOf(id)),
           gripPerTick: perTickDecay(DRIVE_CONFIG.lateralGripRate),
-          // Placeholder for exactly one stage: stage 3 replaces this with
-          // `perTickDecay(RAM_CONFIG.reelingSpinDecayRate)` once that knob exists. 1 means "no
-          // decay", and nothing sets `spinFree` until that same stage, so it is unreachable here.
-          spinPerTick: 1,
+          spinPerTick: reelingSpinPerTick(),
         }),
       ]),
     ) as Record<CarId, ChassisDrive>,
@@ -263,10 +267,12 @@ export function driveOf(id: CarId): ChassisDrive {
  * this module: asking it back would be an import cycle.
  *
  * This used to rebuild two ram reference values alongside the drive table. They are gone with the
- * severity model that needed them (see the note above `ChassisDrive`), and the contest needs no
- * rebuild step of its own: `pushOf`/`impactOn` read `CAR_TABLE` and `RAM_CONFIG` live on every
- * contact rather than through a resolved-once snapshot, so a playground override of `ramAttack`,
- * `ramDefence` or a `RAM_CONFIG` knob is already in effect on the next tick with nothing to refresh.
+ * severity model that needed them (see the note above `ChassisDrive`), and the ram needs no rebuild
+ * step of its own: `sim/ram.ts` reads `CAR_TABLE` and `RAM_CONFIG` live on every contact rather than
+ * through a resolved-once snapshot, so a playground override of `ramAttack`, `ramDefence` or a
+ * `RAM_CONFIG` knob is already in effect on the next tick with nothing to refresh. (`RAM_CONFIG`'s
+ * DURATIONS are the exception and always were — `ramTicks()` resolves those once, and
+ * `rebuildRamTicks` is their equivalent of this function.)
  */
 export function rebuildResolvedDrive(hasOverrides: boolean): void {
   ACTIVE_DRIVE = hasOverrides ? resolveChassisDrive() : CHASSIS_DRIVE;

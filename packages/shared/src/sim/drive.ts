@@ -159,11 +159,13 @@ function steerSenseOf(forward: number): number {
 /**
  * Injected spin, decaying on its own while nothing holds the yaw.
  *
- * NOT YET A DECAY: until stage 3 sets `RAM_CONFIG.reelingSpinDecayRate` and `chassis.spinPerTick`
- * resolves to something other than the placeholder 1 (`resolveChassisDrive`, car-config.ts), this
- * function is the identity — a car rammed into a HOLD (or handed off through `spinFree` any other
- * way) spins at a constant rate rather than winding down. Not a bug to fix here; a later stage's
- * knob to set.
+ * **A REAL DECAY since the Unity ram port's stage 3.** `RAM_CONFIG.reelingSpinDecayRate` is 2.0/s
+ * and `chassis.spinPerTick` (`resolveChassisDrive`, car-config.ts) resolves to `reelingSpinPerTick()`
+ * — `exp(-2/30)` ≈ 0.9355 at 30 Hz — so a rammed car's spin winds down instead of running forever.
+ * It was the identity through stages 1-2, while the knob was still a placeholder 1; that is history,
+ * not the current behaviour. The decay only reaches a car whose status grants `spinFree` (`reeling`
+ * is the one row that does) or one in a HOLD: under U16 ordinary steering SETS `angVel` every tick,
+ * so an ungated injected spin is overwritten rather than decayed.
  */
 function nextSpinOf(angVel: number, chassis: ChassisDrive): number {
   const next = angVel * chassis.spinPerTick;
@@ -254,10 +256,10 @@ function stepDash(body: SimBody, dt: number, chassis: ChassisDrive, mods: Readon
  * IS last tick's steering rate. This branch survived the port still reading
  * `steer * turnRate * mods.turnRate + body.angVel` — the pre-port form, correct only while `angVel`
  * held injected ram spin alone — which double-counted the steering term for the whole hold and, since
- * it also returned `nextSpinOf(body.angVel, ...)` (the identity until stage 3 sets `spinPerTick`),
- * never wound down: entering `lance`'s ~2.2 s hold while steering rotated the car at TWICE its turn
- * rate for the entire hold, and kept rotating it at full rate after the key was released or while
- * `steeringLocked`. The only correct statement of "the wheel still works" is the ordinary branch's
+ * it also returned `nextSpinOf(body.angVel, ...)` (the identity at the time, before stage 3 set
+ * `spinPerTick` to a real decay), never wound down: entering `lance`'s ~2.2 s hold while steering
+ * rotated the car at TWICE its turn rate for the entire hold, and kept rotating it at full rate
+ * after the key was released or while `steeringLocked`. The only correct statement of "the wheel still works" is the ordinary branch's
  * own line, which is what this now is.
  *
  * `steerSenseOf` is deliberately NOT applied: forward is pinned to 0 here, so there is no reverse

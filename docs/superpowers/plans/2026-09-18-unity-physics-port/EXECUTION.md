@@ -8,8 +8,11 @@
 > below. Nothing here is written from memory at the end of a session — a session can stop at any
 > moment, and the last commit must already say where it stopped.
 
-**Status as of 2026-09-18: stage 1 (the drive model) has landed.** The spec and all five stage plans
-were written first; stage 1's eight tasks are now committed. Stages 2-5 have not started.
+**Status as of 2026-09-18: stage 1 (the drive model), stage 2 (walls and bumps) and stage 3 (rams)
+have all landed.** The spec and all five stage plans were written first; stage 1's eight tasks,
+stage 2's four tasks and stage 3's six tasks are all committed, on **`physics/stage2-and-3`** — a
+worktree cut from `feature/movement` after the user merged stage 1 there. Stages 4-5 have not
+started.
 
 **Spec:** [`docs/superpowers/specs/2026-09-18-unity-driving-and-ram-physics-port-design.md`](../../specs/2026-09-18-unity-driving-and-ram-physics-port-design.md)
 **Ledger:** [`interfaces.md`](interfaces.md) — outranks any one plan, is outranked by the spec.
@@ -29,9 +32,79 @@ were written first; stage 1's eight tasks are now committed. Stages 2-5 have not
 
 ## In flight
 
-*Nothing in flight.* Stage 1 landed (all eight tasks committed, `test(drive): pin tick-rate
-independence; rebuild the guide` closing it), stage 2's first commit (restitution → 0) is in, and a
-**whole-branch review of stage 1 has been swept** — see below. Next: stage 2, Task 1 onwards.
+**Nothing is in flight.** Stage 3 (rams) landed in full on 2026-09-18 — see "Stage 3 exit: measured
+test state" below — and a **whole-branch review of stages 2-3 has been swept**, one behavioural fix
+(two rams on one victim in a tick lost a push) plus a documentation sweep; see "Stages 2-3
+whole-branch review" below, and read controller ruling **S3-o** there before touching
+`ram-bridge.ts`'s ram loop. Start stage 4 next; its dependency (stage 3) is now `Landed`, and stage 4
+inherits two recorded findings of its own (rulings **S3-p** and the §7.4 `ramLock` argument, both
+under "Deferred, and who owns it").
+
+Stage 1 landed (all eight tasks committed, `test(drive): pin tick-rate
+independence; rebuild the guide` closing it) and a **whole-branch review of stage 1 has been swept**
+— see below. **Stage 2 landed in full, on `physics/stage2-and-3`** — a worktree cut
+from `feature/movement` after the user merged stage 1 there. Its four tasks: Task 1, restitution
+0.15 → 0 (`59c5bcc` on this branch — the whole-branch-review section just below measured this same
+change as `bb69f26`, the commit it carried on the abandoned branch this work was cut from before the
+recut; treat the two hashes as the same content, not two different changes); Task 2, re-pinning the
+contact expectations at zero restitution (`1dca2c7`); Task 3, re-measuring the spike self-trigger
+(`c74f46e`); and Task 4, this tracker update. See "Stage 2 exit: measured test state" below for the
+post-landing numbers.
+
+### Stage 3 landed on 2026-09-18, all six tasks committed
+
+Same branch, `physics/stage2-and-3`.
+
+| Task | State | Commits |
+|---|---|---|
+| 1 — reshape `RAM_CONFIG` (and U40's frozen tick table) | Landed, reviewed, fixed | `def93c0`, `19af13a` |
+| 2 — `sim/ram.ts`, the Unity classifier | Landed, reviewed, fixed | `612cb9c`, `f1353c3`, `597b14a` |
+| 3 — `ContactEvents.rams` replaces the impulse map | Landed, reviewed clean | `f9039f9` |
+| 4 — `reeling` redefined, `ramLock` added | Landed, reviewed clean | `cd2db73` |
+| 5 — the bridge writes ram velocities directly | Landed, reviewed, fixed | `3b2c99b`, `4a93f6e` |
+| 6 — close the stage | Landed (this commit) | — |
+
+**The tree typechecks and builds clean, and the server is back to exactly the pre-existing
+bot/balance baseline** — see "Stage 3 exit: measured test state" below. The mid-stage typecheck
+break Tasks 3-4 left open (`contactCarsOf` missing `ramBlocked`, `ram-bridge.ts:329`'s `impulses`
+destructure) was closed by Task 5, along with the wider RUNTIME breakage that break implied (67 red
+across 10 files at its worst, not just the two typecheck errors — see the correction to ruling S3-c
+in `.superpowers/sdd/03-rams/progress.md`).
+
+`applyImpulse` has exactly one production caller left: the slam path in `ram-bridge.ts`
+(`applyImpulse` import at line 5, call at line 565) — a stage exit criterion.
+
+**Two rulings made during execution changed what a later task had to do, and they are repeated here
+because their home is git-ignored.** The controller's full record — a pre-flight conflict scan,
+thirteen rulings (S3-a through S3-m), and every per-task review outcome — is in
+`.superpowers/sdd/03-rams/progress.md`, which `git clean -fdx` would destroy. The two structural ones:
+
+- **Task 4 owns the whole of `docs/turn-tuning.md`, its derived table as well as its prose**, and
+  absorbed Task 6's own Step 2a. Dropping `reeling`'s `turnRate: 0.4` breaks
+  `scripts/turn-tuning-doc.test.mjs:280`, which computes a "Rate while reeling" row from
+  `modifiersOf([...reeling]).turnRate` — the plan scopes that page to "prose only, its tables are
+  stage 5's" and so assigns the breakage to nobody. The row becomes **"Grip while reeling"**,
+  `DRIVE_CONFIG.lateralGripRate × STATUS_TABLE.reeling.grip` = 1.8 /s, with the doc test's helper
+  updated to match. Swapping rather than deleting because stage 1 restored this row after it was
+  deleted on a false premise: the guard — a `STATUS_TABLE` multiplier that reaches the drive model
+  must be tabulated and tested — is still live, just through `grip` now. Task 6 re-swept the whole
+  page for any remaining `turnRate`/`accel` sentence about `reeling` and found none — Task 4's sweep
+  held.
+- **Task 5's spin line is `player.angVel + side.spin * scales.impulseScale`, clamped, with no
+  `replacesVelocity` branch.** The plan's sketch writes
+  `(side.replacesVelocity ? 0 : player.angVel) + …`, which zeroes an attacker's spin and contradicts
+  spec §7.2's "Spin unchanged" for the attacker and "neither spins" for a head-on. `replacesVelocity`
+  is scoped to velocity by its own doc comment. Since `spin` is 0 in both those cases, dropping the
+  branch is both simpler and spec-correct. Pinned by a test that fails under the brief's version
+  (`ram-bridge.test.ts:1000-1008` gives the attacker 1.5 rad/s and asserts 1.5 out).
+
+**Task 6 also restored the `angVel` round-trip coverage stage 1 could not keep**
+(`packages/server/src/sim/tick.test.ts`'s "carries angVel/vx/vy through bodyOf -> stepDrive ->
+writeBody" case): it now runs under a `reeling`-shaped `Modifiers` map rather than `NO_EFFECTS`, so
+the round trip reaches the `spinFree` branch `nextSpinOf` lives behind, and asserts the injected
+`angVel` (2) decays to exactly `2 * chassis.spinPerTick` rather than being zeroed. This is the
+coverage stage 1 Task 8's comment promised would come back once stage 3 wired `spinFree` onto a real
+status — it now has, and the comment is rewritten to say so rather than to promise it.
 
 ### Stage 1's whole-branch review, swept 2026-09-18
 
@@ -75,13 +148,160 @@ all from the repo root):
   `pipeline-order.test.ts`'s attacker-restitution case went **red** in that same commit (stage 2's
   restitution → 0), and stage 2 owns it. Measured red at `bb69f26` before any of this wave ran.
 
+### Stage 2 exit: measured test state (Tasks 3-4, 2026-09-18)
+
+`npm run build` and `npm test` (root), then `npm run test:scripts` (root) separately — the combined
+`npm test` script chains `&&`, so the server workspace's expected-red exit stops it before
+`test:scripts` runs; that is a property of the chain, not a new failure. All three from the repo
+root, against this stage's final commit:
+
+- **shared: green.** 54 files, 981 passed, 6 skipped — unchanged from the whole-branch-review wave
+  above.
+- **client: green.** 69 files, 1019 passed, 5 skipped — unchanged.
+- **`npm run test:scripts`: green.** 39 suites, 155 tests, 153 passed, 2 skipped, 0 failed — an
+  improvement over the whole-branch-review wave's 1 red, not something Tasks 3-4 did: Task 2
+  (`1dca2c7`) rebuilt `manual.html` and closed `manual-page.test.mjs`'s stale-fingerprint case before
+  Task 3 started. Tasks 3-4 touched no table the stamp hashes, so they owed nothing here and kept it
+  green.
+- **server: 15 red of 711**, a **different count from the whole-branch-review wave's 16** — Task 2
+  (`1dca2c7`, already landed before Task 3 started) re-pinned `pipeline-order.test.ts`'s
+  attacker-restitution case, so it is green again here; that happened before this dispatch and is not
+  something Tasks 3-4 did. All 15 are the same cases named in this dispatch's stated baseline, in the
+  same five files:
+
+  | Suite | Red count | Cases |
+  |---|---|---|
+  | `src/bot/brain/predict.test.ts` | 9 | same nine as the whole-branch-review wave |
+  | `src/bot/brain/controller.test.ts` | 2 | both G12 |
+  | `src/bot/brain/planner.test.ts` | 1 | R-P16 (this wave's other planner case, R-P7, is green here — a second consequence of the same re-pin) |
+  | `src/bot/brain/tiers.test.ts` | 2 | H25, and S13 evade |
+  | `balance/match.test.ts` | 1 | the seed-1 ranking tie, a legitimate outcome its own reseed history already describes |
+
+  Tasks 3-4 touched no production code — `docs/combat-model.md`, the root `CLAUDE.md` and this file
+  only — so an unchanged bot/balance baseline is exactly the expected outcome. Stage 5's `bot-tuner`
+  pass still owns all five files; nothing here re-pins any of them.
+- **The energy-gain sweep (scenario 7) and the glancing-sign-flip sweep (scenario 8) in
+  `packages/server/playtest/collision.ts` both still typecheck** (`playtest/tsconfig.json`, part of
+  `npm run typecheck` inside `npm test`) and still run — see the deferred note below for what
+  scenario 8 no longer measures now that stage 2 has landed.
+
+### Stage 3 exit: measured test state (Task 6, 2026-09-18)
+
+`npm run build`, `npm run typecheck`, `npm test` and `npm run test:scripts` all from the repo root,
+against this task's own closing commit (`npm test` chains shared → typecheck → `test --workspaces` →
+`test:scripts` with `&&`, so the server workspace's expected-red exit stops that chain before
+`test:scripts` runs — `test:scripts` and the client suite were run as their own commands to see past
+it, exactly as stage 2's exit note above records):
+
+- **`npm run build`: clean.** Shared, then server (`tsup`), then client (`vite build`).
+- **`npm run typecheck`: clean.** All three workspaces, including `playtest/tsconfig.json` and
+  `balance/tsconfig.json` inside the server workspace's script — the two errors Task 5 owed
+  (`contactCarsOf`'s missing `ramBlocked`, `ram-bridge.ts:329`'s dead `impulses` destructure) are
+  both gone.
+- **shared: green.** 54 files, 991 passed, 6 skipped — unchanged from stage 2's exit; Task 4's
+  `reeling`/`ramLock` work and Task 2's classifier both landed inside this count already.
+- **client: green.** 69 files, 1019 passed, 5 skipped — unchanged.
+- **`npm run test:scripts`: green.** 39 suites, 155 tests, 153 passed, 2 skipped, 0 failed —
+  `scripts/turn-tuning-doc.test.mjs` included, against Task 4's "Grip while reeling" row.
+- **server: 15 red of 725, in exactly the five pre-existing files, same cases as stage 2's exit —
+  the stage-closing target, hit exactly:**
+
+  | Suite | Red count | Cases |
+  |---|---|---|
+  | `src/bot/brain/predict.test.ts` | 9 | same nine as stage 2's exit |
+  | `src/bot/brain/controller.test.ts` | 2 | both G12 |
+  | `src/bot/brain/planner.test.ts` | 1 | R-P16 |
+  | `src/bot/brain/tiers.test.ts` | 2 | H25, and S13 evade |
+  | `balance/match.test.ts` | 1 | the seed-1 ranking tie |
+
+  Stage 3 touched `sim/ram.ts`, `sim/contact.ts`, `sim/impulse.ts`, the ram/status/drive config
+  files, `ram-bridge.ts` and `tick.test.ts` — no bot brain file and no balance seed — so an unchanged
+  baseline is the expected outcome, not a coincidence. Stage 5's `bot-tuner` pass still owns all five
+  files.
+- **`applyImpulse` has exactly one production caller** (`grep -rn "applyImpulse" packages/server/src
+  | grep -v test`): `ram-bridge.ts`'s slam path (import at line 5, call at line 565) — a stage exit
+  criterion, met.
+- **`packages/server/src/sim/tick.test.ts`'s angVel round-trip case is restored**, not just re-pinned
+  (see Task 6's own paragraph above): 51/51 tests pass in that file.
+
+### Stages 2-3 whole-branch review, swept 2026-09-18
+
+Ten task-scoped reviews had been clean; a review of the whole branch found what they structurally
+could not — defects at the **seams between tasks**. One behavioural fix, the rest documentation.
+
+**The behavioural one: two rams on one victim in a tick lost a push.** `applyRamResolution` ASSIGNED
+each side's velocity from the same immutable `approachVelocities` entry, so a car named by two
+`RamResolution`s in one tick was written twice from the same base and the second replaced the first.
+`nextFalloff` still ran per shoved side, so the survivor was scaled: a victim rammed by two attackers
+on one tick ended at `pre + 0.5 × shove_B`, **less than a single ram**, with A's push gone. Measured
+on the new regression fixture: **123.75 u/s from two simultaneous rams against 356.4 u/s from one**;
+it now reads 377.3 u/s. Spin was never affected — it read the live `player.angVel` and accumulated
+correctly, which is what made the bug invisible in every existing test. Three `sim/contact.ts`
+comments asserted the correct behaviour and were the stated justification for deleting the per-victim
+`best` map; they now describe what ships.
+
+**Controller ruling S3-o — the composition rule, and it is an implementation decision with no spec
+backing.** A car can be an attacker in one resolution and a victim in another on the same tick (A
+rams B while B rams C — `ramBlocked` comes from `statusMods`, computed before `serverTick`, so B is
+not yet blocked). §7.2 answers what one ram does to one car and says nothing about this. The rule
+adopted, and written into `flushRamWrites`' own doc comment so the next reader does not mistake it for
+a ported Unity rule:
+
+> Zero the base if **any** resolution for that car sets `replacesVelocity`, then add **every** shove.
+
+It reads as the two statements composing — "your own ram stops you" and "the shove you took is
+added". Falloff keeps its per-shoved-side behaviour (§7.3 is per victim and across attackers), so the
+second push inside one tick is legitimately discounted; the sum is still more than one ram, which is
+what `contact.ts` promises. The bridge accumulates into a `RamWrite` per car and `flushRamWrites`
+lands it, which also means exactly one spin clamp per car per tick instead of one per resolution.
+
+**The RULE is order-independent. The VELOCITY it produces is NOT** — read that distinction before
+quoting either half. *Which* resolution is visited first cannot change how the pushes compose: a
+replace anywhere zeroes the base, and addition commutes. It does change their MAGNITUDE, because
+`nextFalloff` is a stateful counter — of two shoves landing on one car in one tick, the first visited
+is scaled by 1 and the second by `RAM_CONFIG.impulseDrScale`. On this wave's own two-attacker
+fixture, swapping the two resolutions moves the victim from **377.3 u/s** (`hypot(356.4, 123.75)`) to
+**305.0** (`hypot(178.2, 247.5)` = 304.978; the re-review quoted 304.0 for this, which is the only
+figure of its I could not reproduce — the two components, 356.4 and 247.5, are both measured). That
+is the mechanic working, not a leak, and it is
+**deterministic rather than arbitrary** because `resolveContacts` walks its pair loop over sorted
+session ids. What the sequential write did before this fix was a different and worse thing: the
+alphabetical order decided which pushes existed at all, not merely how they were weighted.
+
+Two tests cover it in `ram-bridge.test.ts`, both verified red against `f404bb7`: two attackers
+converging on one stationary victim, and the A-rams-B-rams-C composition. Note that the first test's
+exact-composition pair (`expect(both.victim.vx).toBeCloseTo(aOnly.victim.vx)` and its `vy` partner,
+`ram-bridge.test.ts:1116-1117`) pins the a-before-z VISIT ORDER — that is the falloff weighting
+above, not the composition rule — so do not read it as evidence the order does not matter. See also
+the coverage note under "Deferred, and who owns it".
+
+The rest were documentation: `docs/combat-model.md`'s ram banner (it still named
+`restitution: 0.15` and pointed at the deleted `pushOf`/`impactOn` as the current authority); five
+places still saying ram spin decay is inert (`drive.ts` ×2 — the worst of them sitting on
+`nextSpinOf` itself — `packages/shared/CLAUDE.md` ×2, `tick.test.ts`'s justification, and
+`channels.test.ts`, which the review had not listed); `ram-config.ts`'s `durationDrScale` doc still
+calling `reeling` `reapply: "refresh"`; the players' guide under-describing `reeling` (no `spinFree`
+or `ramBlocked` wording, and the raw channel id `grip` printed at a player); `docs/turn-tuning.md`
+owing a row for `RAM_CONFIG.reelingSpinDecayRate` and `ChassisDrive.spinPerTick`, with
+`turn-tuning-doc.test.mjs` extended to recompute both; and `status-config.ts`'s `ramLock` comment
+("a rammer stops, it does not slide") being false on a head-on, where both cars are replaced with a
+small non-zero shove and slide at full grip.
+
+Three findings were recorded rather than fixed — see "Deferred, and who owns it": ruling S3-p
+(`reeling`'s `"ignore"` deletes `wildcharge`'s control loss), §7.4's unsound `ramLock` safety
+argument, and the zero-restitution × edge-triggered-contact re-ram feel.
+
+**Measured test state after the wave** (root `npm run build`, `npm test`, `npm run test:scripts`):
+unchanged from stage 3's exit in every workspace, with the server at exactly the same 15 red across
+the same five files. See the run recorded in that fix wave's commit message.
+
 ## Stages
 
 | # | Plan | State | Gate |
 |---|---|---|---|
 | 1 | [`01-drive-model.md`](01-drive-model.md) | **Landed** | Asymptotic top speed; measurable slip angle; `stepDrive` reads no module-level rate; 30/60 Hz equivalence test green |
-| 2 | [`02-walls-and-bumps.md`](02-walls-and-bumps.md) | Not started | Restitution 0; a car slides along a wall and never gains speed; the spike self-trigger re-measured |
-| 3 | [`03-rams.md`](03-rams.md) | Not started | Attacker stops and locks; victim flung, spun, reeling; head-on stops both; `applyImpulse` has one production caller |
+| 2 | [`02-walls-and-bumps.md`](02-walls-and-bumps.md) | **Landed** | Restitution 0; a car slides along a wall and never gains speed; the spike self-trigger re-measured |
+| 3 | [`03-rams.md`](03-rams.md) | **Landed** | Attacker stops and locks; victim flung, spun, reeling; head-on stops both; `applyImpulse` has one production caller |
 | 4 | [`04-slam-and-effects.md`](04-slam-and-effects.md) | Not started | `wildcharge` still clearly harder than the best ordinary ram; `ramLock` published to players |
 | 5 | [`05-tune-and-reconcile.md`](05-tune-and-reconcile.md) | Not started | Playground pass done with the user; probes honest; fresh balance baseline; docs true |
 
@@ -172,9 +392,9 @@ command as well as the figure.
 | Roll distance from top speed, per chassis | Mirage 147.1 u, Bullseye 152.3 u, Bastion 152.8 u (`maxSpeed / dragRate`) | stage 1 |
 | Slip angle at full lock, per chassis (target ~35° at `lateralGripRate` 3.0) | Mirage 26.1°, Bullseye 23.6°, Bastion 21.2° — below the ~35° target because the formula is `atan(turnRate / (dragRate + lateralGripRate))`, not `atan(turnRate / lateralGripRate)` alone: each car's own `dragRate` adds to the sideways bleed, so a car with more `accel` corners tighter as a side effect (see `docs/turn-tuning.md#grip-and-drift`) | stage 1 |
 | U7 30-vs-60 Hz equivalence, one second of full-lock turn+throttle on a synthetic `ChassisDrive` (`sim/drive-rate.test.ts`) | position delta 0.87 u (bound: `carWidth`/10 = 6 u); angle delta ~2.9e-15 rad (bit-exact — `turnRate * 1s` sums identically regardless of tick count); speed delta 0.0014 u/s. A same-length straight-line run (no steer) shows speed match to ~14 digits but a position delta of ~1.04 u — velocity is exactly rate-independent under the closed-form integrator, position is a first-order accumulation of it and is not, though it stays well inside the test's tolerance | stage 1 |
-| How far a ram's shove carries a reeling victim (`grip: 0.6`, target ~2.2 car lengths) | — | stage 3 |
-| Settled speed into a wall, self-driven, vs `SPIKE_CONFIG.triggerSpeed` | — | stage 2 |
-| Reference flank ram: shove and spin (Bastion → parked Bullseye) | — | stage 3 |
+| How far a ram's shove carries a reeling victim (`grip: 0.6`, target ~2.2 car lengths) | **~79.8 u ≈ 1.33 car lengths, measured by stepping the reference ram below to rest** (`stepDrive` in a loop under `reeling`'s modifiers, `dt = 1/30`, until `hypot(vx, vy) < 1e-3`: 130 ticks). Well clear of the ~240 u (four car length) flag threshold. The 237.8 u/s shove lands entirely on the victim's LATERAL axis in this geometry (attacker approaches dead-on along the victim's side-normal), so it decays under BOTH factors `stepDrive` applies to that component, not grip alone: the whole-vector drag `dragRateOf('bullseye')` (1.0416 /s, step 2) **and then** the reeling-scaled lateral grip `DRIVE_CONFIG.lateralGripRate × STATUS_TABLE.reeling.grip` = 3.0 × 0.6 = 1.8 /s (step 3). The continuous approximation `v0 / (dragRate + gripRate)` = 237.8 / 2.8416 ≈ 83.7 u agrees with the stepped simulation to within discretisation error. **This is measurably short of the ~2.2-car-length figure this row's own placeholder named**: 132.1 u = 237.8 / 1.8 is exactly what grip ALONE would give, which is the number a reader gets by reasoning from `grip` in isolation — the placeholder's implicit assumption. Drag also acting on the lateral component (not just forward) is what `stepDrive`'s own doc comment calls "the drift"; stage 5 should read the shipped ~1.3, not the ~2.2 guess, when it pitches `grip` or `globalScale` | stage 3 |
+| Settled speed into a wall, self-driven, vs `SPIKE_CONFIG.triggerSpeed` | Steady-state pre-collision inward speed (`stepDrive`/`resolveWorld` from built shared, restitution 0, sampled the way `contactTick`'s `speedIn` actually samples it — before that tick's bounce resolves): mirage 7.92 u/s, bullseye 5.41 u/s, bastion 3.97 u/s. All three sit well under the 25 u/s trigger, so the documented "pays once, on arrival" behaviour holds unchanged | stage 2 |
+| Reference flank ram: shove and spin (Bastion → parked Bullseye) | **shove 237.8 u/s, spin 0.00 rad/s** — `resolveRam(a, b, "ffa")` with `a` (bastion) at its own top speed (135.9 u/s) approaching `b` (bullseye, parked, rotated 90°) dead-on through its centreline. Spin reads ~1.5e-16 (floating-point noise, i.e. exactly 0) because this geometry — attacker approaching along the exact midline of the victim's side face — puts the contact point dead-centre on the victim's hull, so `contactPointOn`'s lever arm is 0. This is the brief's own reference scenario, not a bug in it: it is the "clean, centred" flank hit, and it is a legitimate ~0 data point (an OFF-CENTRE flank hit spins much harder — see the `spinScale` deferred item below for two independent off-centre derivations, ~0.86-3.24 rad/s, that stage 5 should read alongside this one rather than instead of it) | stage 3 |
 | `wildcharge` slam against the best ordinary ram | — | stage 4 |
 
 ## Deferred, and who owns it
@@ -213,18 +433,55 @@ command as well as the figure.
   the authored `CarDef.brakeDecel`, backward braking uses ordinary forward engine thrust, which is
   1.4x weaker on Mirage, 2.1x on Bullseye and 2.4x on Bastion — and that backward figure is
   `topSpeed * dragRate`, so nobody ever chose it and it moves every time top speed is tuned.
-- **Ram spin is currently completely INERT — a rammed car does not tumble at all. Stage 3 owns it.**
-  `packages/shared/src/sim/impulse.ts`'s `applyImpulse` still accumulates spin into `body.angVel` and
-  clamps it to `RAM_CONFIG.spinMaxRate`, exactly as before; but under U16 the ordinary `stepDrive`
-  branch OVERWRITES `angVel` from the steer input on the very next tick, and the only thing that
-  preserves an injected spin is `mods.spinFree`, which nothing sets until stage 3 wires it through
-  `reeling`. So every ram's spin lives for zero ticks of driving. `chassis.spinPerTick` is the
-  matching placeholder (1, the identity) until the same stage sets
-  `RAM_CONFIG.reelingSpinDecayRate`. Two tests pin the degenerate reality rather than hiding it:
-  `tick.test.ts`'s "zeroes a coasting car's angVel on its first stepped tick, and never rotates it"
-  (renamed from "carries every knock component, not just shove", which by the end of stage 1 asserted
-  the negation of its own name) and `drive-vector.test.ts`'s "keeps its spin while spinFree and
-  erases it the moment control returns".
+- **RESOLVED at stage 3 — ram spin was completely inert; it is not any more.** (Was: "a rammed car
+  does not tumble at all. Stage 3 owns it.") Task 4 set `RAM_CONFIG.reelingSpinDecayRate: 2.0` and put
+  `spinFree` on `reeling`'s flags, so `chassis.spinPerTick` (`car-config.ts`) now resolves to
+  `reelingSpinPerTick()` instead of the identity placeholder, and a rammed car's injected `angVel`
+  decays for real instead of being overwritten to 0 on the next tick. `tick.test.ts`'s "zeroes a
+  coasting car's angVel on its first stepped tick, and never rotates it" and `drive-vector.test.ts`'s
+  "keeps its spin while spinFree and erases it the moment control returns" both still pass and both
+  still correctly describe the DEFAULT (no-status) case, which is unchanged. The round-trip coverage
+  this loss of fidelity had cost — proving `bodyOf` → `stepDrive` → `writeBody` carries a REAL decay,
+  not just the identity — is what Task 6 restored in `tick.test.ts`'s "carries angVel/vx/vy..." case
+  (see this file's Task 6 paragraph above).
+- **`ramLock` is applied with `ram.attackerId` as its status source, which for a flank or rear ram is
+  the LOCKED CAR ITSELF — so the slam path can cut a car's own lock short (controller ruling S3-l).**
+  There is exactly one `expireStatusesFromSource` production call site (`ram-bridge.ts:648`), invoked
+  with the attacker's own id, so a car that rams at tick T and lands a `wildcharge` slam before T+15
+  clears its own `ramLock` early. No clause in the spec covers a status's source, so fixing it means
+  inventing a rule; the implementer and reviewer both declined to invent one. **Owner: stage 4**,
+  which owns the slam path and `ramLock`'s publication.
+- **`RAM_CONFIG.spinScale: 0.3` is un-validated, not a checked starting point.** Two independent
+  derivations agree it undershoots spec §9's "~4 rad/s on a typical flank ram": a 150 u/s
+  mirage-on-mirage flank shove with a 10 u lever gives 0.857 rad/s (`inertiaRadiusSquared()` =
+  433.33), and even a maximum-lever (30 u) hit at Mirage's 189 u/s top speed reaches only ~3.24. This
+  task's own OWN reference ram (see the Measurements table) landed a THIRD data point at the opposite
+  extreme — a dead-centre hit, lever arm 0, spin 0.00 — which is not a counter-example to the above,
+  it is the geometry that makes `spinScale` irrelevant: any off-centre flank ram is where the constant
+  matters, and every off-centre measurement taken so far reads low against the spec's target.
+  **Owner: stage 5.**
+- **`ramDefence` no longer compounds, and that is a real balance change, not comment rot.** It used to
+  scale the speed-independent term a car brought *into* the contest AND divide the push it took under
+  the pushOf/impactOn contest; under the Unity model it has one effect, on the receiving side only,
+  in `shoveOf`'s divisor. The roster's 30-90 `ramDefence` spread is priced against an effect that no
+  longer exists. **Owner: stage 5.**
+- **`SLAM_CONFIG.spinScale: 12.5` is a NEW knob**, added by this stage's Task 2 (controller ruling
+  S3-i). `applyImpulse` used to read `RAM_CONFIG.spinScale` for both the ram and the slam; this stage
+  retuned that constant 12.5 → 0.3 for a formula of a different shape (the ram divides by
+  `inertiaRadiusSquared()` alone; the slam divides by `ramDefence × inertiaRadiusSquared()`). Sharing
+  it would have cut `wildcharge`'s slam spin to 1/41.7 silently — instead the slam kept the shipped
+  12.5 verbatim on its own constant, so its spin is bit-identical across this stage.
+  `SLAM_CONFIG` is not a `tuning.ts` root (`ROOTS` is car/drive/ram/combat/weapon), so this knob is
+  **not** a playground slider today — the playground's `ram.spinScale` slider no longer reaches the
+  slam at all, and stage 5's tunable-field checklist does not currently ask for one. **Owner: stages
+  4 and 5** — 4 if the slam's spin needs a playground slider of its own, 5 when it re-pitches the
+  ram's `spinScale` and needs to remember the slam no longer shares it.
+- **Two deferred minors, both test-quality, neither behavioural:**
+  - `pipeline-order.test.ts:74-90` asserts the composition of `serverTick` then `contactTick` rather
+    than production's `runPipeline` ordering — a pre-existing hole, but this stage's rewritten header
+    comment now overstates what the assertions reach.
+  - `ram-bridge.test.ts:709-730` ("also shrinks the shove on a re-ram") is largely subsumed by the
+    stronger §7.3 test at `:1146`, which pins the scaled value rather than asserting `second < first`.
 - **A silent knocked player used to freeze holding 96% of the shove; that is FIXED, and the fix is a
   behaviour change stages 2-5 should know about.** `serverTick`'s coast gate was `hasKnock`, which
   read `lateralOf(vx, vy, angle)` against `stopEpsilon` on the premise that `steeringGrip` was 1.0 —
@@ -237,13 +494,101 @@ command as well as the figure.
   stages:** the server now steps a genuinely-absent player's car to rest whatever pushed it, and
   `packages/server/playtest/collision.ts`'s scenarios 4 and 5 both measure that path and will report
   different numbers — their comments say so, and stage 5's probe-honesty task should re-read them.
-- **`packages/server/playtest/collision.ts`'s energy-gain sweep** computes its predicted flip angle
-  from `atan(sqrt(DRIVE_CONFIG.restitution))`, which is zero once stage 2 lands, so the probe sweeps
-  nothing. Stage 5 owns rethinking it — not re-aiming it.
+- **`packages/server/playtest/ram.ts` measures the wrong thing for its "R3" case, and every shove
+  figure in the file comes from a different formula than the one shipping.** `packages/server/playtest/ram.ts`
+  stopped compiling on `minApproachSpeed` mid-stage; Task 5 made the one permitted fix — the compile
+  break only, leaving thresholds and verdicts alone, per this stage's instruction not to touch the
+  probes. `speedBeforeAndAfterResolve` ("R3. The fix: ram reads the carried-in speed, not the
+  post-resolve rebound") asserts `rebounded = afterResolve < 0` — the attacker ending the contact
+  tick travelling BACKWARDS — which was true of the old contest (a mass-blind restitution reflection)
+  and is now **impossible under the Unity rule**: `oneWayResolution` (`sim/ram.ts`) sets the
+  attacker's velocity to exactly 0 (`replacesVelocity: true`, zero shove), never negative, whenever a
+  ram actually fires. So R3 will read `FINDING` for intended design, not a regression, the next time
+  it runs. More broadly: this stage moved the trigger rule itself (nose-first above `minRamSpeed`,
+  not "whoever drives in harder") and the shove/spin formulas underneath every OTHER probe in the
+  file (`drivenRam`, the knock-magnitude and collision-depth cases), so their reported numbers come
+  from a genuinely different physics than whatever a prior report recorded — likely wrong rather
+  than merely stale. **`npm run playtest` is recommended at this stage's exit, and running it is the
+  user's call** (root `CLAUDE.md`'s rule); deferring the run until stage 5 has re-pitched
+  `globalScale`/`spinScale` against this stage's measured reference ram is the sensible order, so the
+  probes are read once against numbers worth keeping rather than twice.
+- **`packages/server/playtest/collision.ts`'s scenario 8, "Reported speed sign flip on a glancing
+  wall contact" (`glancingSignFlip`), is now confirmed to sweep nothing — stage 2 has landed.**
+  `predictedFlipDeg` (line 410) computes `atan(sqrt(DRIVE_CONFIG.restitution))`, which is `atan(0)` =
+  0 degrees now that restitution is 0. The probe still only sweeps 5-45 degrees, so the one angle
+  where the sign could flip sits at the sweep's boundary rather than inside it, and every angle it
+  actually samples now reports the same (non-negative) sign — confirmed by re-running it against
+  built shared, not just derived. It still compiles and still runs (it is exercised by
+  `npm run typecheck`'s `playtest/tsconfig.json` pass inside `npm test`, and that stayed green), it
+  just no longer measures the discontinuity it was written to catch. **Not fixed here** — Task 4 was
+  told explicitly not to touch the probes, and stage 5 owns rethinking this one rather than re-aiming
+  it.
 - **`DRIVE_CONFIG.dashSubstepMaxUnits` 16 → 8**, inherited from the 2026-09-06 car-physics rework's
   stage 2. Untouched by this port; stage 5 judges it with the user.
 - **`wildcharge.impulse.speed` (520) and `uncontrolMs` (1400)** were provisional before this work and
   still are. Stage 4 makes their doc comments true; stage 5 pitches the numbers.
+- **`reeling`'s `reapply: "ignore"` DELETES `wildcharge`'s entire 1.4 s control loss whenever the
+  victim was rammed in the preceding second (whole-branch review, controller ruling S3-p). Owner:
+  stage 4.** Not a discount — a total loss, and in the most common setup for the ult.
+  - **The mechanism.** `applyStatus` returns the status list unchanged for an `"ignore"` row that is
+    already running. `RAM_CONFIG.ramUncontrolMs` is 1000 and the slam authors 1400, so a slam landing
+    at any point inside a live reel writes nothing and the victim keeps the ram's shorter window.
+    Under the old `reapply: "refresh"` (`endsTick = max(existing, now + duration)`) the longer slam
+    window would have extended it, so this is new as of stage 3 Task 4.
+  - **Including on the same tick**, and that is the common case rather than a corner: `contactTick`'s
+    ram loop runs before its slam loop, so ram-then-charge — drive in, then charge the stunned target
+    — reliably lands the ram's reel first and throws the slam's away. `ram-bridge.test.ts`'s "applies
+    a slam AND a concurrent ram to the same victim" already documents that whichever lands first owns
+    the window; what nobody had noticed is that the ram always does.
+  - **It is NOT fixable by editing the status system.** `"ignore"` is FORCED: `StatusDef` requires it
+    of any flag-carrying debuff (`status-config.test.ts` polices it), and `reeling` carries four
+    flags. The only fixes are a per-source reel or a new chaining variant — a design decision for the
+    project owner, not a mid-stage patch, which is why the review recorded it rather than fixing it.
+  - **Stage 4 owns it because stage 4 owns `wildcharge`'s impulse re-pitch** (spec P31) and cannot
+    pitch a duration that is unreachable in the setup it is pitched for. `weapon-config.ts`'s
+    `uncontrolMs` doc argued the exact opposite until the whole-branch fix wave corrected it; it now
+    points here.
+  - **Spec §8's rationale for `"ignore"` is INCOMPLETE and must not be read as clearing this.** It
+    says the choice "costs exactly one behaviour: a re-ram landing while a reel is still running no
+    longer extends it" — true of ram-on-ram, where both windows are `ramUncontrolMs` and falloff
+    already discarded every scaled duration, so nothing is lost. It does not consider a SECOND,
+    LONGER source of the same status, which is exactly what the slam is. The spec is not edited (this
+    file is where an incomplete clause is recorded); the clause is not wrong, it is under-scoped.
+- **Coverage note, not a risk: neither S3-o test separates "ANY resolution replaced" from "the LAST
+  resolution replaced".** `resolveContacts` walks sorted session ids, so the a–b pair is always
+  visited before b–c and the car that is both attacker and victim always takes its replace last. Both
+  readings of the rule therefore produce the same number on both fixtures. The implementation is
+  `write.replaced ||= side.replacesVelocity` and is unambiguous about which one it means, which is
+  why this is recorded as a gap rather than fixed: a fixture that distinguishes them needs a pair
+  ordering the sorted loop cannot produce. **Nobody should assume it is covered.**
+- **The spin clamp moved from once-per-resolution to once-per-car-per-tick, and the re-review
+  accepted it as strictly better. Recorded so it is not re-litigated.** Both forms leave
+  `|angVel| <= RAM_CONFIG.spinMaxRate` after the write, which is all U26 asks, and **neither has spec
+  backing** — nothing in §7.2 or §7.3 speaks to it. The tie breaks on the same one-write-per-car rule
+  the rest of `flushRamWrites` rests on, and on this: the OLD per-resolution form was itself
+  order-dependent whenever an intermediate total was clipped and a later opposite-signed addend would
+  have pulled it back inside (`+8` then `−3` gave 3, `−3` then `+8` gave 5; the sum gives 5 either
+  way). It is **deliberately untested in either direction** — pinning it would author a rule the spec
+  does not have.
+- **Spec §7.4's `ramLock` safety argument is unsound: a charging car CAN take `ramLock` mid-charge.
+  Owner: stage 4**, which owns the slam path and `ramLock`. §7.4 asserts "a car in any maneuver
+  therefore never reaches the ram arm, which is why `ramLock` can never strand a dashing or charging
+  car". `sim/contact.ts` says otherwise in as many words: blocked slams fall through to an ordinary
+  ram, and `resolvePair` only sets `anyEvent` when a slam is actually pushed — so a `CHARGE` car
+  whose slam is refused by `slamImmuneUntil` reaches `resolveRam`, can qualify as an attacker
+  (nose-first, above `minRamSpeed` — a charging car is both), and takes `ramLock` with its velocity
+  zeroed while `tickCharge` counts the maneuver down underneath it. Narrow: it needs two chargers in
+  one match, so the same victim is inside a live re-slam immunity. Self-limiting at
+  `RAM_CONFIG.attackerLockMs` (500 ms). The spec is not edited.
+- **Zero restitution plus edge-triggered contact makes "roll up, then floor it" harder to ram from —
+  a stage-2 × stage-3 interaction neither plan anticipated. Owner: stage 5, and the playtest run.**
+  `resolveWorld` pushes cars to exactly the separation boundary and `RAM_CONFIG.contactPad` is 1, so
+  a pair that touches without ramming stays in `memory.contacts` indefinitely; stage 2 removed the
+  rebound that used to break that contact apart. `applyRams`' own doc already says accelerating while
+  already touching cannot re-trigger — this branch made that condition much easier to sit in, and a
+  player who nudges into someone and then floors it gets nothing until they back off and re-approach.
+  A feel/tuning question, not a defect: the edge trigger is the intended anti-stunlock rule and the
+  knob is `contactPad`, not restitution.
 - **The netcode rewrite's phase 1 plan is stale** — its fixtures still name `speed`, `shoveX`,
   `shoveY` and `authority`, deleted by the car-physics rework's stage 1. Not this work's to fix, but
   whoever starts that rewrite must refresh it against the model this port leaves behind.

@@ -4,6 +4,7 @@ import {
   DRIVE_CONFIG,
   ManeuverKind,
   MS_PER_TICK,
+  NEUTRAL_MODIFIERS,
   NET_CONFIG,
   PlayerState,
   PlayerStatus,
@@ -495,37 +496,37 @@ describe("serverTick", () => {
       // No steer, no throttle: any rotation or translation below comes solely from the knock state,
       // not from ordinary driving.
       const queues = new Map<string, InputMessage[]>([["p1", coasts(1)]]);
+      // RESTORED at stage 3 Task 6. Between stage 1 Task 8 and here, `angVel`'s half of this test was
+      // pinned at a degenerate value: under U16 ("steering SETS the yaw rate"), the ordinary
+      // `stepDrive` branch computes `angVel` entirely from `steer * turnRate * ...` every tick, and
+      // reads the incoming `body.angVel` only while a status sets `spinFree` — a flag nothing set
+      // until this stage's Task 4 put it on `reeling`. So the round trip needs `reeling` in play to
+      // reach the branch that reads `body.angVel` at all; `NO_EFFECTS` can no longer exercise it.
+      const reeling: ReadonlyMap<string, Modifiers> = new Map([
+        ["p1", { ...NEUTRAL_MODIFIERS, spinFree: true, grip: 0.6, immobilised: true, steeringLocked: true, ramBlocked: true }],
+      ]);
 
-      serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
+      serverTick(state, queues, DT, RoomPhase.MATCH, reeling, new Map(), new Map());
 
-      // RE-PINNED for stage 1 Task 8 (Unity drive-model port). The car still moves — vx/vy still
-      // round-trip through `bodyOf` -> `stepDrive` -> `writeBody` and decay by drag, so that half of
-      // this test's job still holds. `angle`/`angVel` do NOT, and the cause is architectural, not a
-      // numeric drift: under U16 ("steering SETS the yaw rate"), `stepDrive`'s ordinary branch
-      // computes `angVel` ENTIRELY from `steer * turnRate * ...` every tick (`drive.ts`) — the
-      // incoming `body.angVel` is read only inside a HOLD/DASH branch or while a status sets
-      // `spinFree` (neither applies here: this player is in no maneuver and `NO_EFFECTS` yields
-      // `NEUTRAL_MODIFIERS`, `spinFree: false`). `coasts(1)` sends `steer: 0`, so `angVel` resolves
-      // to exactly 0 on this very first tick rather than decaying gradually from the injected 2 — and
-      // with `angVel` 0, `angle` never moves off its starting 0 either. This is not a bug to fix in
-      // this stage: it is stage 3's own gap, which is what wires a real ram's spin onto `spinFree`
-      // (via `reeling`) so it has a decay path to test again. Old figures: `angle` nonzero, `angVel`
-      // in (0, 2). New, traced: `angle` 0, `angVel` 0 exactly.
-      expect(player.angle).toBe(0);
+      // angle/angVel: survive the round trip and decay rather than being dropped. `spinFree` reads
+      // the incoming `body.angVel` (2) and decays it by `chassis.spinPerTick` (`nextSpinOf`,
+      // drive.ts) — `RAM_CONFIG.reelingSpinDecayRate` wired to a real per-chassis rate by this
+      // stage's Task 4, where stage 1 left `spinPerTick` at the identity placeholder. `angle`
+      // integrates from the DECAYED `angVel`, so it moves off 0 too.
+      const chassis = driveOf("mirage");
+      expect(player.angVel).toBeCloseTo(2 * chassis.spinPerTick, 6);
+      expect(player.angVel).toBeGreaterThan(0);
+      expect(player.angVel).toBeLessThan(2);
+      expect(player.angle).not.toBe(0);
       expect(player.x).toBeGreaterThan(300);
       expect(player.y).toBeLessThan(CORRIDOR_Y);
 
-      // angVel: dropped to exactly 0 in one tick (see above), not decayed — this no longer
-      // distinguishes "bodyOf/writeBody carried it" from "stepDrive ignored it regardless", which is
-      // a real loss of coverage this test used to have. Flagged, not silently patched over: stage 3's
-      // `spinFree` wiring is what restores a genuine decay path for this scenario to re-test.
-      expect(player.angVel).toBe(0);
-      // vx/vy: still round-trip through drag (and, for the lateral half, grip) exactly as before —
-      // only the NUMBERS moved, from the new closed-form integrator (Task 3) and the final anchors
-      // (Task 6). Traced: vx 120 -> 114.969 (forward component decayed by `dragPerTick` alone, since
-      // `angle` never rotates off 0 this tick, so no lateral-to-forward fold-in occurs the way the old
-      // comment described under the old "steeringGrip" rails model). vy -60 -> -52.014 (decayed by
-      // `dragPerTick * gripPerTick`, the lateral component's own two-factor decay).
+      // vx/vy: round-trip through drag (and, for the lateral half, grip) exactly as before. `vx` is
+      // unaffected by `reeling`'s `grip` channel (it only scales the LATERAL bleed, and `immobilised`
+      // costs nothing here since `coasts(1)` already sends `throttle: 0`), so it lands on the same
+      // traced figure as the neutral case: 120 -> 114.969. `vy`'s decay is slower than the neutral
+      // case (grip: 0.6 loosens the lateral bleed, per spec §5 — that is the whole point of the
+      // channel), but the loose bounds below hold either way.
       expect(player.vx).toBeCloseTo(114.969, 3);
       expect(player.vy).toBeLessThan(0);
       expect(player.vy).toBeGreaterThan(-60);
@@ -805,14 +806,17 @@ describe("serverTick coasts a player whose client has gone quiet", () => {
 
   it("zeroes a coasting car's angVel on its first stepped tick, and never rotates it", () => {
     // RENAMED. This was "carries every knock component, not just shove", which by the end of the
-    // drive-model port asserted `angVel` lands on exactly 0 — the negation of its own name. The
-    // behaviour is real and is stage 3's to change, not this file's to hide: under U16 the ordinary
+    // drive-model port asserted `angVel` lands on exactly 0 — the negation of its own name.
+    //
+    // **This is the NO-STATUS case, and it is unchanged by stage 3.** Under U16 the ordinary
     // `stepDrive` branch computes `angVel` entirely from steering input and never reads the incoming
-    // `body.angVel` unless a status sets `spinFree`, which nothing does yet (`sim/impulse.ts` still
-    // writes ram spin into the field, and the next ordinary tick overwrites it). `COAST_INPUT` has
-    // `steer: 0`, so an injected spin resolves to 0 on the first stepped tick rather than decaying,
-    // and with `angVel` 0 the `angle` never moves off its start either. Recorded in the port's
-    // EXECUTION.md as "ram spin is inert", owned by stage 3.
+    // `body.angVel` unless a status sets `spinFree`. `reeling` now carries that flag and
+    // `chassis.spinPerTick` is a real decay (`reelingSpinPerTick()`), so a rammed car DOES tumble and
+    // wind down — but this fixture applies no status at all, so none of that reaches it. `COAST_INPUT`
+    // has `steer: 0`, so an injected spin resolves to 0 on the first stepped tick rather than
+    // decaying, and with `angVel` 0 the `angle` never moves off its start either. The decay path is
+    // covered by this file's "carries angVel/vx/vy" round trip and by `drive-vector.test.ts`'s
+    // "keeps its spin while spinFree".
     const player = knocked({ vx: 0, vy: 0, angVel: 3 });
     goSilent(stateWith(player), GRACE_TICKS + 1);
     expect(player.angVel).toBe(0);

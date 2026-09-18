@@ -6,15 +6,16 @@ import {
   PlayerState,
   PlayerStatus,
   RAM_CONFIG,
-  RAM_TICKS,
   WEAPON_TABLE,
   WEAPON_TICKS,
   applyStatus,
   forwardMaxSpeedOf,
   forwardOf,
+  hasStatus,
   pairKey,
   ramAttackOf,
   ramDefenceOf,
+  ramTicks,
   type Modifiers,
   type WeaponId,
 } from "@motor-combat-moba/shared";
@@ -86,7 +87,7 @@ function approachVelocities(state: ArenaState): Map<string, { vx: number; vy: nu
   return out;
 }
 
-describe("contactTick (ordinary ram, unchanged behaviour)", () => {
+describe("contactTick (ordinary ram)", () => {
   it("knocks a victim that was just rammed", () => {
     const state = arena();
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
@@ -95,51 +96,35 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
       state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 10,
     );
-    // The impulse is added straight into the victim's velocity (Task 4 — see `contactTick`'s own
-    // comment on `Impulse` application). The victim starts at rest and is rammed along +x by an
-    // attacker approaching from -x, so the shove has a known sign, not merely a nonzero magnitude.
+    // The victim starts at rest and is rammed along +x by an attacker approaching from -x, so the
+    // shove has a known sign, not merely a nonzero magnitude.
     expect(victim.vx).toBeGreaterThan(0);
   });
 
-  it("charges the attacker by the contest's own independently-computed attackerImpulse", () => {
-    // Renamed from "recoils the attacker via Newton's third law" (stage 3 Task 2): the contest
-    // computes both outcomes independently (spec R7) rather than negating the victim's own impulse
-    // back onto the attacker — `reactionOf` was dead code on this path as of stage 3 Task 2, and
-    // stage 3 Task 3 deleted it outright, replacing it with each car's own independently computed
-    // `attackerImpulse` from the contest — so the attacker's cost is no longer symmetric with what
-    // the victim took.
+  it("shoves the victim by the §7.2 formula, along the attacker's heading", () => {
+    // Was "charges the attacker by the contest's own independently-computed attackerImpulse". The
+    // contest is gone: the attacker's outcome is a rule ("you stop", pinned in the §7.2 block below)
+    // and no longer a number, so the number worth pinning here is the VICTIM's — the one thing on
+    // this path still derived from the tables rather than stated outright.
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
-    addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
+    const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
     contactTick(
       state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 10,
     );
-    // Both cars are the default "mirage" chassis, dead-straight along +x, victim stationary — a REAR
-    // hit (the attacker approaches from behind the victim's own heading). Hand-derived from the
-    // contest formula in `sim/ram.ts` (`pushOf`/`impactOn`), not pasted, so a retune of
-    // `ramAttack`/`ramDefence`/`defencePushScale`/`globalScale`/`bonusFront` moves this expectation
-    // with it:
-    const attack = ramAttackOf("mirage");
-    const defence = ramDefenceOf("mirage");
-    const attackerPush = attack * 540 + defence * RAM_CONFIG.defencePushScale; // victim brings 0 drive-in
-    const victimPush = defence * RAM_CONFIG.defencePushScale; // the victim's own drive-in is 0
-    // The attacker's own presented face is computed the same way the victim's is (spec R6 — the
-    // bonus applies to each car's OWN struck face, not only the victim's): both cars are dead-straight
-    // along +x here, so the attacker is genuinely nose-first into the contact and `bonusFront` is what
-    // its own geometry produces, not an assumption. Its impulse is
-    // `defenceScaled: false` (the contest already divided by its OWN ramDefence) — no separate defence
-    // factor to apply on top.
-    const attackerImpact =
-      (victimPush * (victimPush / (attackerPush + victimPush)) * RAM_CONFIG.bonusFront * RAM_CONFIG.globalScale) /
-      defence;
-    expect(attacker.vx).toBeCloseTo(540 - attackerImpact, 6);
-    // The geometry is dead-straight along +x: nothing should give the push a lateral component.
-    expect(attacker.vy).toBe(0);
-    // A dead-on hit puts the recovered contact point and the push direction on the same line, so the
-    // torque `applyImpulse` derives from them is genuinely zero even though `resolveRam` authors
-    // `spin: 1` on both impulses.
-    expect(attacker.angVel).toBe(0);
+    // Both cars are the default "mirage" chassis, dead-straight along +x, victim stationary — the
+    // attacker strikes the victim's REAR with their headings agreeing, so `rearScale` is what
+    // classification produces here, not an assumption. Hand-derived from `shoveOf`, not pasted, so a
+    // retune of `ramAttack`/`ramDefence`/`rearScale`/`globalScale` moves this expectation with it.
+    const expected =
+      (540 * RAM_CONFIG.rearScale * RAM_CONFIG.globalScale * ramAttackOf("mirage")) / ramDefenceOf("mirage");
+    expect(victim.vx).toBeCloseTo(expected, 6);
+    // The geometry is dead-straight along +x: nothing should give the shove a lateral component…
+    expect(victim.vy).toBeCloseTo(0, 6);
+    // …and a dead-on hit puts the recovered contact point and the shove on the same line, so
+    // `spinOf`'s cross product is zero by construction rather than by tuning.
+    expect(victim.angVel).toBe(0);
   });
 
   it("never changes hp", () => {
@@ -225,15 +210,15 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
   });
 
   // `authority` and its "no rescue" precedence rule (a weaker knock could never overwrite a
-  // stronger standing one) are gone entirely — there never was, and still is not, an authority
-  // field on `Impulse` (see `contactTick`'s own comment on `Impulse` application). Stage 3b
-  // reinstated control loss as the `reeling` status, but it did NOT reinstate precedence:
-  // `applyImpulse` still adds every impulse straight into the victim's velocity — two rams landing
-  // on the same victim across different ticks stack rather than one being discarded, and there is
-  // no "standing knock" to protect. What limits a chained ram now is the per-victim falloff stack,
-  // not a precedence rule. These two tests used to prove no-rescue; they now prove the additive
-  // replacement, which stayed unchanged for the victim's own half of the exchange (only the
-  // attacker's side gained a reaction).
+  // stronger standing one) are gone entirely, and nothing replaced them. A flank or rear victim's
+  // velocity is SET to its own PRE-COLLISION velocity plus the shove (spec §7.2), and the
+  // pre-collision velocity is whatever it was already carrying — so two rams landing across
+  // different ticks compound rather than one being discarded, and there is no "standing knock" to
+  // protect. What limits a chained ram is the per-victim falloff stack, not a precedence rule.
+  // These two tests used to prove no-rescue; they now prove that compounding. (The wording moved
+  // from "added into the velocity" to "set to pre-collision plus shove" with the Unity port's stage
+  // 3 — the observable is the same for a victim across ticks, but it is no longer an accumulation:
+  // an ATTACKER's velocity is replaced outright, which is what the §7.2 block below pins.)
   it("stacks a later ram's knock onto a victim's still-decaying velocity from an earlier one", () => {
     const state = arena();
     addPlayer(state, "strong", { x: 0, y: 400, angle: 0, vx: 540 });
@@ -255,7 +240,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     // hull overlaps the victim's by 11.25 u along y, and it clears "strong" by 8.75 u along x (7 before)
     // — it touches the victim alone. Left unscaled at (47, 431) the wider hull made it overlap
     // "strong" too, a third contact this test never meant to have.
-    addPlayer(state, "second", { x: 58.75, y: 438.75, angle: -Math.PI / 2, vy: -(RAM_CONFIG.minApproachSpeed + 200) });
+    addPlayer(state, "second", { x: 58.75, y: 438.75, angle: -Math.PI / 2, vy: -(RAM_CONFIG.minRamSpeed + 200) });
     contactTick(
       state, new Set(["strong", "b", "second"]), memory, "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 11,
@@ -267,11 +252,10 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     // only float-zero (`Math.cos(-Math.PI / 2)` is ~6e-17, not exactly 0), so exact equality would
     // fail for the wrong reason on any geometry change that perturbs that residual.
     expect(victim.vx).toBeCloseTo(afterFirstRam);
-    // The knock's SIGN is purely geometric (`resolveRam` authors `dirX`/`dirY` as the unit normal
-    // pointing away from the attacker, and `impactOn` can never return a negative magnitude),
-    // so a directional assertion is exact, not an approximation. "second" sits at y=438.75 approaching
-    // along -y toward the victim at y=400, so `away.y < 0` and the knock must push the victim's vy
-    // negative.
+    // The knock's SIGN is purely geometric: `shoveOf` pushes along the ATTACKER'S OWN HEADING and
+    // its magnitude can never be negative, so a directional assertion is exact rather than an
+    // approximation. "second" faces -y (angle -π/2) driving down onto the victim at y=400, so the
+    // shove must push the victim's vy negative.
     expect(victim.vy).toBeLessThan(0);
   });
 
@@ -287,10 +271,10 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     const afterMediumRam = victim.vx;
     expect(afterMediumRam).toBeGreaterThan(0);
 
-    // A heavier attacker (bastion) rams the same victim from a different axis, at its own top speed,
-    // on a later tick. Under the old `authority`-based precedence a stronger ram could overwrite a
-    // standing one; that mechanism is gone (temporary shim, stage 1), so this just adds a fresh
-    // knock component rather than overwriting or being blocked.
+    // A harder-hitting attacker (bastion, the roster's highest `ramAttack`) rams the same victim from
+    // a different axis, at its own top speed, on a later tick. Under the old `authority`-based
+    // precedence a stronger ram could overwrite a standing one; that mechanism was deleted and never
+    // replaced, so this simply lands on top of what the victim was already carrying.
     addPlayer(state, "hexy", { x: 58.75, y: 438.75, angle: -Math.PI / 2, vy: -320, carId: "bastion" });
     contactTick(
       state, new Set(["medium", "b", "hexy"]), memory, "ffa", NO_EFFECTS, approachVelocities(state),
@@ -300,9 +284,9 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     // Same float-zero caveat as the test above: the second attacker's shove is nominally along y
     // alone, but its x contribution is only float-zero, not exactly 0.
     expect(victim.vx).toBeCloseTo(afterMediumRam);
-    // Same geometric-sign reasoning as the test above: "hexy" sits at y=438.75 approaching along -y
-    // toward the victim at y=400, so `away.y < 0` and the knock must push the victim's vy negative,
-    // independent of the attacker's ramDefence or drive-in.
+    // Same geometric-sign reasoning as the test above: "hexy" faces -y driving down onto the victim
+    // at y=400, so the shove along its own heading must push the victim's vy negative, independent
+    // of either car's ratings or drive-in.
     expect(victim.vy).toBeLessThan(0);
   });
 });
@@ -363,12 +347,13 @@ describe("contactTick (dash, O12)", () => {
 
 describe("contactTick (hard slam, O2/O3/O18)", () => {
   it("ends a charge on its first slam: fields cleared, self statuses expired, and the attacker keeps its velocity", () => {
-    // Renamed from "...the attacker recoils under equal-and-opposite reaction" (stage 3 Task 2): a
-    // slam is authored, not contested, so its attacker takes nothing from its own hit. Stage 3
-    // expressed that as a zero-magnitude `attackerImpulse` riding the impulses map; stage 4 stopped
-    // building one at all and simply never pushes the attacker. `SLAM_CONFIG.selfKeepFactor`'s
+    // Renamed from "...the attacker recoils under equal-and-opposite reaction" (car-physics stage 3
+    // Task 2): a slam is authored, not contested, so its attacker takes nothing from its own hit.
+    // That was once a zero-magnitude `attackerImpulse` riding a per-victim impulses map; stage 4
+    // stopped building one and the Unity ram port removed the map. `SLAM_CONFIG.selfKeepFactor`'s
     // hand-tuned forward-only restore and the old `reactionOf`-based equal-and-opposite reaction are
-    // both gone; the attacker keeps whatever velocity it already had.
+    // both gone; the attacker keeps whatever velocity it already had. A RAM attacker does NOT — it
+    // stops dead (spec §7.2) — and that asymmetry between the two is the point of this assertion.
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
     addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
@@ -505,7 +490,7 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     // NEW BEHAVIOUR in stage 4. A slam used to impose no control loss at all: `contact.ts` authored
     // `uncontrolTicks: 0` and `SLAM_CONFIG.victimAuthority`, the pre-`Impulse` knob meant to express
     // it, had been inert since the rework's stage 2. The duration is the weapon's, and the assertion
-    // pins that it is NOT `RAM_TICKS.uncontrol` — otherwise the ram path leaking onto a slam would
+    // pins that it is NOT `ramTicks().uncontrol` — otherwise the ram path leaking onto a slam would
     // read as a pass.
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
@@ -519,7 +504,7 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     const reeling = readStatuses(victim).find((s) => s.statusId === "reeling");
     expect(reeling).toBeDefined();
     expect(reeling!.endsTick - 10).toBe(SLAM_IMPULSE_TICKS.uncontrol);
-    expect(SLAM_IMPULSE_TICKS.uncontrol).not.toBe(RAM_TICKS.uncontrol);
+    expect(SLAM_IMPULSE_TICKS.uncontrol).not.toBe(ramTicks().uncontrol);
     expect(reeling!.sourceSessionId).toBe("a");
   });
 
@@ -659,7 +644,7 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
 });
 
 describe("contactTick applies reeling to a ram victim, scaled by falloff", () => {
-  it("gives a freshly rammed victim the full RAM_TICKS.uncontrol duration", () => {
+  it("gives a freshly rammed victim the full ramTicks().uncontrol duration", () => {
     const state = arena();
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
     const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
@@ -669,13 +654,13 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     );
     const reeling = readStatuses(victim).find((s) => s.statusId === "reeling");
     expect(reeling).toBeDefined();
-    expect(reeling!.endsTick - 10).toBe(RAM_TICKS.uncontrol);
+    expect(reeling!.endsTick - 10).toBe(ramTicks().uncontrol);
   });
 
   it("gives a re-rammed victim a shorter reeling duration than the first ram", () => {
     const state = arena();
     const memory = newContactMemory();
-    addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
+    const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
     const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
     contactTick(
       state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS,
@@ -684,38 +669,44 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     const first = readStatuses(victim).find((s) => s.statusId === "reeling")!.endsTick - 10;
 
     // The second ram lands at tick 45: AFTER the first `reeling` has lapsed (it ends at tick 40)
-    // but well inside the falloff window (`RAM_TICKS.drWindow` runs to tick 70), which is the
+    // but well inside the falloff window (`ramTicks().drWindow` runs to tick 70), which is the
     // window duration falloff is actually observable in. That is not incidental to the setup — a
-    // re-ram while the first `reeling` is still running cannot shorten anything, because
-    // `applyStatus`'s `refresh` rule takes `Math.max(existing.endsTick, endsTick)` and a scaled
-    // duration is by construction the smaller of the two. Falloff still bites on that path, on the
-    // impulse (the next test) and on the status the ram AFTER it writes; it simply cannot claw back
-    // a window already granted. An earlier version of this test re-rammed at tick 11 and asserted
-    // only `second < first`, which the one-tick offset satisfied on its own — it would have passed
-    // with falloff switched off entirely.
+    // re-ram while the first `reeling` is still running cannot shorten anything, because `reeling`
+    // is `reapply: "ignore"` and a second application writes nothing at all while one is standing.
+    // (Before the Unity port's status overhaul it was `refresh`, which took the LONGER of the two
+    // end ticks — a different rule, same consequence for this test.) Falloff still bites on that
+    // path, on the shove (the next test) and on the status the ram AFTER it writes; it simply cannot
+    // claw back a window already granted. An earlier version of this test re-rammed at tick 11 and
+    // asserted only `second < first`, which the one-tick offset satisfied on its own — it would have
+    // passed with falloff switched off entirely.
     //
     // Force a fresh contact episode on the SAME memory (and so the same falloff stack) without
     // re-deriving the geometry a real separate-and-return would need: `resolveContacts` keys the
     // "fresh touch" edge-trigger off `memory.contacts`, so clearing it is the direct way to
-    // simulate re-approach.
+    // simulate re-approach. The attacker must also be RE-ARMED: under Unity's rule a ram leaves it
+    // stopped dead, and a car at rest is below `minRamSpeed` and no longer qualifies to throw one.
     memory.contacts = new Set();
+    attacker.vx = 540;
+    attacker.vy = 0;
+    victim.vx = 0;
+    victim.vy = 0;
     contactTick(
       state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS,
       approachVelocities(state), NO_MANEUVER_WEAPONS, 45,
     );
     const second = readStatuses(victim).find((s) => s.statusId === "reeling")!.endsTick - 45;
 
-    expect(first).toBe(RAM_TICKS.uncontrol);
+    expect(first).toBe(ramTicks().uncontrol);
     // Pin the SCALED duration itself, not merely `second < first`. This is the number
     // `nextFalloff`'s second read owes — one application of `durationDrScale`, floored — so a change
     // to either knob has to be typed here too.
     expect(second).toBe(
-      Math.max(RAM_TICKS.durationFloor, Math.round(RAM_TICKS.uncontrol * RAM_CONFIG.durationDrScale)),
+      Math.max(ramTicks().durationFloor, Math.round(ramTicks().uncontrol * RAM_CONFIG.durationDrScale)),
     );
     expect(second).toBeLessThan(first);
   });
 
-  it("also shrinks the impulse on a re-ram, not only the duration", () => {
+  it("also shrinks the shove on a re-ram, not only the duration", () => {
     const state = arena();
     const memory = newContactMemory();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
@@ -738,40 +729,42 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     expect(second).toBeLessThan(first);
   });
 
-  // The spec-load-bearing counterpart to the test above, and the reason it is worth a test at all
-  // even though it is structurally unreachable today (`nextFalloff`'s `scales` binding is scoped
-  // inside the IIFE that builds the VICTIM's `scaledImpulse`; `entry.attackerImpulse` is applied
-  // untouched). Falloff exists to stop a victim being ram-locked. If it ever discounted the
-  // attacker's own half too, spamming rams into an already-worn-down victim would get progressively
-  // SAFER for the aggressor — the exact inverse of what a diminishing-returns mechanic should do to
-  // the one throwing the punches. Pinning it here means a future refactor that hoists `scales` out
-  // of that IIFE cannot quietly acquire the inversion.
-  it("does NOT shrink the attacker's own impulse on a re-ram", () => {
-    const state = arena();
-    const memory = newContactMemory();
-    const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
-    const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
-    contactTick(
-      state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS,
-      approachVelocities(state), NO_MANEUVER_WEAPONS, 10,
-    );
-    const firstAttackerDelta = Math.hypot(attacker.vx - 540, attacker.vy);
-    const firstVictimKnock = Math.hypot(victim.vx, victim.vy);
+  // The spec-load-bearing counterpart to the test above. Was "does NOT shrink the attacker's own
+  // impulse on a re-ram", which measured a number the contest computed for the attacker; under
+  // Unity's rule the attacker's outcome is a fixed statement ("you stop") and there is no magnitude
+  // left to discount. What CAN still go wrong is the stack itself: read falloff for a car that took
+  // no push and the attacker starts spending its own entries by throwing punches — so the next ram
+  // it TAKES arrives pre-diminished, and chaining into a worn-down victim gets progressively safer
+  // for the aggressor, the exact inverse of what diminishing returns are for. That is what this
+  // pins, and it is the observable `applyRamResolution`'s `shoved` guard exists for.
+  it("never spends the attacker's own falloff stack, so a ram it later TAKES lands at full strength", () => {
+    const shoveTakenByA = (ramFirst: boolean): number => {
+      const state = arena();
+      const a = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
+      const b = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
+      const memory = newContactMemory();
+      const roster = new Set(["a", "b"]);
+      if (ramFirst) {
+        contactTick(
+          state, roster, memory, "ffa", NO_EFFECTS, approachVelocities(state), NO_MANEUVER_WEAPONS, 10,
+        );
+      }
+      // Now "c" rear-ends "a" at tick 11 — well inside `drWindow`, so an entry the first ram had
+      // wrongly filed under "a" would still be live and would halve what lands here. Both earlier
+      // cars are parked at rest so neither of them qualifies to throw a second punch of its own.
+      a.vx = 0; a.vy = 0; b.vx = 0; b.vy = 0;
+      addPlayer(state, "c", { x: -58.75, y: 400, angle: 0, vx: 540 });
+      roster.add("c");
+      memory.contacts = new Set();
+      contactTick(
+        state, roster, memory, "ffa", NO_EFFECTS, approachVelocities(state), NO_MANEUVER_WEAPONS, 11,
+      );
+      return Math.hypot(a.vx, a.vy);
+    };
 
-    // Restore the exact opening geometry and both approach velocities, so the ONLY thing that
-    // differs between the two rams is the falloff stack `memory` is now carrying.
-    attacker.x = 0; attacker.y = 400; attacker.vx = 540; attacker.vy = 0;
-    victim.x = 58.75; victim.y = 400; victim.vx = 0; victim.vy = 0;
-    memory.contacts = new Set();
-    contactTick(
-      state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS,
-      approachVelocities(state), NO_MANEUVER_WEAPONS, 11,
-    );
-
-    // Falloff DID engage across these two ticks — without this the equality below could pass
-    // trivially on a run where the stack never counted the first ram at all.
-    expect(Math.hypot(victim.vx, victim.vy)).toBeLessThan(firstVictimKnock);
-    expect(Math.hypot(attacker.vx - 540, attacker.vy)).toBeCloseTo(firstAttackerDelta, 9);
+    // Nonzero first, or the equality below could pass on a fixture where no ram landed at all.
+    expect(shoveTakenByA(false)).toBeGreaterThan(0);
+    expect(shoveTakenByA(true)).toBeCloseTo(shoveTakenByA(false), 9);
   });
 
   it("does not apply reeling to the attacker", () => {
@@ -824,18 +817,25 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
 
     // Restore the opening geometry and re-arm the charge the first slam ended (O2), then force a
     // fresh contact episode on the SAME memory — and so the same falloff stack — the way the ram
-    // falloff tests above do. Tick 11 is well inside `RAM_TICKS.drWindow`, which is the window a
-    // second ram WOULD be diminished in.
+    // falloff tests above do.
+    //
+    // Tick 55, not 11, and for the same reason the ram DR test above lands its second ram late:
+    // `reeling` is `reapply: "ignore"` since the Unity port's status overhaul, so a second slam
+    // arriving while the first `reeling` still runs writes no status at all and the duration half of
+    // this claim would be measuring the FIRST slam's window counted from the wrong tick. The slam's
+    // window is the weapon's own — 42 ticks, ending at 52 — and tick 55 is clear of it while still
+    // inside `ramTicks().drWindow` (which runs to tick 70), the window a second RAM would be
+    // diminished in.
     victim.x = 58.75; victim.y = 400; victim.vx = 0; victim.vy = 0;
     attacker.x = 0; attacker.y = 400; attacker.vx = 300; attacker.vy = 0;
     attacker.maneuver = ManeuverKind.CHARGE;
     attacker.maneuverTicksLeft = 200;
     memory.contacts = new Set();
     memory.slammed.delete("b"); // clear the re-slam immunity the first slam opened (O18)
-    contactTick(state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS, approach, CHARGING_WILDCHARGE, 11);
+    contactTick(state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS, approach, CHARGING_WILDCHARGE, 55);
 
     expect(Math.hypot(victim.vx, victim.vy)).toBeCloseTo(firstKnock, 6);
-    expect(readStatuses(victim).find((s) => s.statusId === "reeling")!.endsTick - 11).toBe(firstReeling);
+    expect(readStatuses(victim).find((s) => s.statusId === "reeling")!.endsTick - 55).toBe(firstReeling);
     expect(memory.falloff.size).toBe(0);
   });
 
@@ -877,19 +877,364 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     const slamOnly = build(false, true).victim;
     const both = build(true, true);
 
-    // `applyImpulse` adds into the velocity, so "took BOTH" is exactly the vector sum of the two
-    // pushes measured in isolation — a strictly stronger claim than "moved on both axes".
+    // The ram runs first and SETS the victim's velocity to its pre-collision value plus the shove;
+    // the slam's `applyImpulse` then adds on top. The victim came in at rest, so "took BOTH" is
+    // exactly the vector sum of the two pushes measured in isolation — a strictly stronger claim
+    // than "moved on both axes".
     expect(both.victim.vx).toBeCloseTo(ramOnly.vx + slamOnly.vx, 6);
     expect(both.victim.vy).toBeCloseTo(ramOnly.vy + slamOnly.vy, 6);
     expect(ramOnly.vx).toBeGreaterThan(0);
     expect(slamOnly.vy).toBeLessThan(0);
 
     // The ram half was classified as a ram: it was COUNTED into the victim's falloff stack, which is
-    // the observable the old `slammedVictims` inference got wrong. (Both pushes grant `reeling` and
-    // `refresh` keeps the longer of the two, so the status alone cannot distinguish them — the stack
-    // can, and it is empty under the old behaviour.)
+    // the observable the old `slammedVictims` inference got wrong. (Both pushes grant `reeling`, and
+    // whichever lands first owns the window under `reapply: "ignore"`, so the status alone cannot
+    // distinguish them — the stack can, and it is empty under the old behaviour.)
     expect(both.memory.falloff.get("victim")?.count).toBe(1);
     expect(readStatuses(both.victim).find((s) => s.statusId === "reeling")).toBeDefined();
+  });
+});
+
+/**
+ * The canonical flank/rear ram fixture: "a" (mirage, facing +x) drives into the back of a stationary
+ * "b" (mirage, facing +x). Both hulls overlap by 1.25 u along x — the 60x40 hull's scaling of the
+ * margin every other touching test in this file uses.
+ *
+ * `offsetY` slides the victim up so the recovered contact point sits off the victim's centre line,
+ * which is the only way to give the shove a lever arm and so a nonzero spin: dead-on, the cross
+ * product in `spinOf` is exactly zero by construction.
+ */
+function ramScenario(over: { speed?: number; offsetY?: number } = {}) {
+  const speed = over.speed ?? 540;
+  const state = arena();
+  const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: speed });
+  const victim = addPlayer(state, "b", { x: 58.75, y: 400 + (over.offsetY ?? 0), angle: 0 });
+  return { state, attacker, victim, memory: newContactMemory(), roster: new Set(["a", "b"]) };
+}
+
+/**
+ * Two mirages nose to nose, each driving into the other at `speed`. Both qualify as attackers and
+ * both read the contact as a front hit within `headOnAngleDeg`, so `resolveRam` returns a head-on:
+ * no attacker, both velocities replaced, both locked, neither reeled (U27).
+ */
+function headOnScenario(speed = 200) {
+  const state = arena();
+  const a = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: speed });
+  const b = addPlayer(state, "b", { x: 58.75, y: 400, angle: Math.PI, vx: -speed });
+  return { state, a, b, memory: newContactMemory(), roster: new Set(["a", "b"]) };
+}
+
+/** One `contactTick` on a fixture, with the approach map defaulting to the cars' current velocity. */
+function runRam(
+  fixture: { state: ArenaState; memory: ReturnType<typeof newContactMemory>; roster: Set<string> },
+  tick: number,
+  approach: Map<string, { vx: number; vy: number }> = approachVelocities(fixture.state),
+  statusMods: ReadonlyMap<string, Modifiers> = NO_EFFECTS,
+): void {
+  contactTick(
+    fixture.state, fixture.roster, fixture.memory, "ffa", statusMods, approach, NO_MANEUVER_WEAPONS, tick,
+  );
+}
+
+describe("contactTick (Unity ram, spec §7.2)", () => {
+  it("stops the attacker dead and locks it", () => {
+    const { attacker, ...fixture } = ramScenario();
+    runRam(fixture, 10);
+    // `ApplyRam` SETS the attacker's velocity to zero: it does not slow it and it does not bounce it
+    // back. Nothing about this is derived from the victim — the attacker's outcome is a rule.
+    expect(attacker.vx).toBe(0);
+    expect(attacker.vy).toBe(0);
+    expect(hasStatus(readStatuses(attacker), "ramLock", 10)).toBe(true);
+    expect(readStatuses(attacker).find((s) => s.statusId === "ramLock")!.endsTick - 10).toBe(
+      ramTicks().attackerLock,
+    );
+  });
+
+  it("leaves the attacker's own spin untouched by its stop", () => {
+    // Controller ruling S3-g: §7.2's attacker row reads "spin unchanged", and `RamSide.spin` is a
+    // DELTA the bridge always adds. `replacesVelocity` governs velocity alone, so an attacker
+    // carrying yaw into a ram keeps it rather than having it erased alongside its velocity.
+    const { attacker, ...fixture } = ramScenario();
+    attacker.angVel = 1.5;
+    runRam(fixture, 10);
+    expect(attacker.angVel).toBe(1.5);
+  });
+
+  it("adds the shove to the victim's PRE-COLLISION velocity, not to what resolveWorld left", () => {
+    const baseline = ramScenario();
+    runRam(baseline, 10);
+    const shove = baseline.victim.vx; // the victim came in at rest, so this IS the shove
+
+    const fixture = ramScenario();
+    // What `resolveWorld` happened to leave on the body this tick — deliberately absurd, so reading
+    // it instead of the approach map is unmissable.
+    fixture.victim.vx = 999;
+    const approach = new Map([
+      ["a", { vx: 540, vy: 0 }],
+      ["b", { vx: 100, vy: 0 }],
+    ]);
+    runRam(fixture, 10, approach);
+    expect(fixture.victim.vx).toBeCloseTo(100 + shove, 6);
+  });
+
+  it("reels the victim and never the attacker", () => {
+    const { attacker, victim, ...fixture } = ramScenario();
+    runRam(fixture, 10);
+    expect(hasStatus(readStatuses(victim), "reeling", 10)).toBe(true);
+    expect(readStatuses(victim).find((s) => s.statusId === "reeling")!.endsTick - 10).toBe(
+      ramTicks().uncontrol,
+    );
+    expect(hasStatus(readStatuses(attacker), "reeling", 10)).toBe(false);
+    // …and the attacker is the one locked, never the victim: the two statuses are not interchangeable.
+    expect(hasStatus(readStatuses(victim), "ramLock", 10)).toBe(false);
+  });
+
+  it("adds the spin delta to the victim's own rotation and clamps the written value to spinMaxRate", () => {
+    // U26: the clamp is the BRIDGE's, a playability guard, and lives where the spin is written onto a
+    // body — `sim/ram.ts` authors an unclamped delta on purpose.
+    const modest = ramScenario({ offsetY: 20 });
+    modest.victim.angVel = 1;
+    runRam(modest, 10);
+    // Off-centre, so there is a real lever arm and a real delta — added on top of the 1 rad/s the
+    // victim was already carrying, per §7.2's "pre-collision spin + spinDelta".
+    expect(modest.victim.angVel).toBeGreaterThan(1);
+    expect(Math.abs(modest.victim.angVel)).toBeLessThan(RAM_CONFIG.spinMaxRate);
+
+    const absurd = ramScenario({ offsetY: 20, speed: 10_000 });
+    runRam(absurd, 10);
+    expect(Math.abs(absurd.victim.angVel)).toBe(RAM_CONFIG.spinMaxRate);
+  });
+
+  it("credits the shover for the spikes, and never credits the attacker's own stop", () => {
+    const fixture = ramScenario();
+    runRam(fixture, 10);
+    expect(fixture.memory.spikes.lastShover.get("b")?.id).toBe("a");
+    // The attacker took no push, so nobody shoved it — a stop is not a shove (AS20).
+    expect(fixture.memory.spikes.lastShover.has("a")).toBe(false);
+  });
+
+  it("deals no damage (U28)", () => {
+    const fixture = ramScenario();
+    fixture.attacker.hp = 400;
+    fixture.victim.hp = 400;
+    runRam(fixture, 10);
+    expect(fixture.victim.hp).toBe(400);
+    expect(fixture.attacker.hp).toBe(400);
+  });
+
+  it("refuses a ram from a ramBlocked car, which is the bridge JOINING the flag to the rule", () => {
+    // The seam nothing else covers. `sim/ram.ts` honours `RamCar.ramBlocked` and `STATUS_TABLE`
+    // raises `Modifiers.ramBlocked` on `reeling` and `ramLock`, and both halves have their own
+    // tests in shared — but the two only ever meet on `contactCarsOf`'s `ramBlocked: mods.ramBlocked`
+    // line. Get that expression wrong (drop it, negate it, read a neighbouring flag) and it
+    // compiles, every other suite stays green, and a car walks out of its own attacker lock straight
+    // into the next ram: the whole mechanism fails silently and only a player notices.
+    const blocked = ramScenario();
+    runRam(blocked, 10, approachVelocities(blocked.state), new Map([["a", { ...NEUTRAL_MODIFIERS, ramBlocked: true }]]));
+    // Nothing happened at all: `resolveRam` returns null when no car qualifies, so there is no
+    // resolution to write and the would-be attacker is not even stopped.
+    expect(hasStatus(readStatuses(blocked.victim), "reeling", 10)).toBe(false);
+    expect(hasStatus(readStatuses(blocked.attacker), "ramLock", 10)).toBe(false);
+    expect(blocked.victim.vx).toBe(0);
+    expect(blocked.attacker.vx).toBe(540);
+
+    // The positive control, on the identical fixture: with the flag down the very same tick rams.
+    // Without this the block above would also pass on a fixture that could never ram in the first
+    // place — the failure mode this test exists to catch is silence, so it has to prove the noise.
+    const free = ramScenario();
+    runRam(free, 10);
+    expect(hasStatus(readStatuses(free.victim), "reeling", 10)).toBe(true);
+    expect(hasStatus(readStatuses(free.attacker), "ramLock", 10)).toBe(true);
+    expect(free.victim.vx).toBeGreaterThan(0);
+    expect(free.attacker.vx).toBe(0);
+  });
+
+  it("counts only the car that took a push into the falloff stack", () => {
+    // The attacker's dead stop must never count a ram against its own stack: falloff exists to stop a
+    // VICTIM being chained, and an attacker that had paid into it would make its next ram weaker for
+    // having thrown one.
+    const fixture = ramScenario();
+    runRam(fixture, 10);
+    expect(fixture.memory.falloff.get("b")?.count).toBe(1);
+    expect(fixture.memory.falloff.has("a")).toBe(false);
+  });
+});
+
+/**
+ * The canonical fixture plus a SECOND attacker, "z", diving onto the same victim from +y in the SAME
+ * tick — the case `contact.ts` has always claimed the bridge handles ("a victim rammed by two
+ * attackers in one tick takes both") and did not.
+ *
+ * `z` sits 38.75 u above the victim facing -y, so its hull overlaps the victim's by 11.25 u along y
+ * and clears "a" by 8.75 u along x: each attacker touches the victim alone, and the two shoves are
+ * on different axes so they can be told apart in the result. The same offsets the slam-plus-ram test
+ * further up uses, for the same reason.
+ *
+ * Either attacker is disarmed by giving it a drive-in of 0 rather than by removing it from the
+ * state: below `RAM_CONFIG.minRamSpeed` it cannot qualify, so the pair still touches and still
+ * occupies `memory.contacts`, and the single-ram control measures the identical geometry.
+ *
+ * "z" drives in slower than "a" on purpose. The two shoves are perpendicular and the second is
+ * halved by the victim's own falloff, so a "z" at full speed would give a combined magnitude SMALLER
+ * than "z" alone — true, intended, and useless as a test, because it cannot tell the composition
+ * apart from a rule that merely kept the bigger push. At 300 the sum is larger than either single
+ * ram, so "two at once beats one" is a claim the geometry actually supports.
+ */
+function twoAttackerScenario(over: { aSpeed?: number; zSpeed?: number } = {}) {
+  const fixture = ramScenario({ speed: over.aSpeed ?? 540 });
+  const z = addPlayer(fixture.state, "z", {
+    x: 58.75, y: 438.75, angle: -Math.PI / 2, vy: -(over.zSpeed ?? 300),
+  });
+  fixture.roster.add("z");
+  return { ...fixture, z };
+}
+
+const speedOf = (p: PlayerState) => Math.hypot(p.vx, p.vy);
+
+describe("contactTick (two rams on one car in a tick, controller ruling S3-o)", () => {
+  it("adds BOTH attackers' shoves, so being rammed twice at once beats being rammed once", () => {
+    // The regression this file never had. Each side used to be ASSIGNED from the same immutable
+    // pre-collision cache entry, so the second resolution overwrote the first instead of adding to
+    // it — and because falloff still counted both, the victim ended at `0.5 × shove_z` and "a"'s
+    // push vanished: strictly LESS than a single ram, from being hit by two cars.
+    const both = twoAttackerScenario();
+    const aOnly = twoAttackerScenario({ zSpeed: 0 });
+    const zOnly = twoAttackerScenario({ aSpeed: 0 });
+    runRam(both, 10);
+    runRam(aOnly, 10);
+    runRam(zOnly, 10);
+
+    // The headline, stated the way a player would: two cars hitting you at once must move you more
+    // than either one of them alone.
+    expect(speedOf(both.victim)).toBeGreaterThan(speedOf(aOnly.victim));
+    expect(speedOf(both.victim)).toBeGreaterThan(speedOf(zOnly.victim));
+
+    // And exactly how much more, derived rather than pasted: "a" lands first and at full strength,
+    // "z" lands second and is scaled by the victim's own falloff — spec §7.3 is per victim and
+    // across attackers, so the second push inside one tick is legitimately discounted. The sum is
+    // still more than either ram alone, which is the whole claim.
+    expect(both.victim.vx).toBeCloseTo(aOnly.victim.vx, 6);
+    expect(both.victim.vy).toBeCloseTo(zOnly.victim.vy * RAM_CONFIG.impulseDrScale, 6);
+    // Both pushes were counted, which is what makes the scaling above the intended discount rather
+    // than an accident of which write happened to land last.
+    expect(both.memory.falloff.get("b")?.count).toBe(2);
+  });
+
+  it("zeroes the base once and adds every shove when a car rams and is rammed on one tick", () => {
+    // Controller ruling S3-o, the composition rule. "a" rams "b" while "b" rams "c", all three in
+    // line: "b" is a VICTIM in one resolution (it takes a shove) and an ATTACKER in the other (its
+    // own ram stops it dead). `ramBlocked` is sampled from `statusMods` computed before the tick, so
+    // "b" is not yet blocked by the reel it takes here.
+    //
+    // The rule composes the two statements — "your own ram stops you" and "the shove you took is
+    // added" — so "b" keeps neither its 300 u/s drive-in nor nothing at all. It ends at exactly the
+    // shove "a" gave it. Before the fix the answer was decided by which resolution the loop wrote
+    // last, which alphabetical session ids made "b"'s own ram: exactly 0.
+    const chain = (withC: boolean) => {
+      const state = arena();
+      const a = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
+      const b = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0, vx: 300 });
+      const roster = new Set(["a", "b"]);
+      if (withC) {
+        addPlayer(state, "c", { x: 117.5, y: 400, angle: 0 });
+        roster.add("c");
+      }
+      const fixture = { state, memory: newContactMemory(), roster };
+      runRam(fixture, 10);
+      return { a, b };
+    };
+
+    // The control: "b" is rammed by "a" and rams nobody, so it keeps its drive-in and adds the shove.
+    const rammedOnly = chain(false).b;
+    const shove = rammedOnly.vx - 300;
+    expect(shove).toBeGreaterThan(0);
+
+    const middle = chain(true).b;
+    expect(middle.vx).toBeCloseTo(shove, 6);
+    // Both halves of the composition, stated separately so a failure says which one broke: the
+    // drive-in is gone (its own ram stopped it) and the shove is not (it was still rammed).
+    expect(middle.vx).toBeLessThan(rammedOnly.vx);
+    expect(middle.vx).toBeGreaterThan(0);
+  });
+});
+
+describe("contactTick (head-on, U27/U38)", () => {
+  it("replaces BOTH cars' velocities with the shove the other one authored", () => {
+    const { a, b, ...fixture } = headOnScenario();
+    runRam(fixture, 10);
+    // Each car is thrown the way the OTHER was travelling: "b" faces -x, so "a" ends going -x, and
+    // vice versa. Replacement, not addition — neither keeps the 200 u/s it drove in with.
+    expect(a.vx).toBeLessThan(0);
+    expect(b.vx).toBeGreaterThan(0);
+    expect(Math.abs(a.vx)).toBeLessThan(200);
+    expect(Math.abs(b.vx)).toBeLessThan(200);
+  });
+
+  it("locks both, reels neither, and spins neither", () => {
+    const { a, b, ...fixture } = headOnScenario();
+    a.angVel = 0.75;
+    b.angVel = -0.75;
+    runRam(fixture, 10);
+    expect(hasStatus(readStatuses(a), "ramLock", 10)).toBe(true);
+    expect(hasStatus(readStatuses(b), "ramLock", 10)).toBe(true);
+    // U27: a head-on is a mutual stop, not a mutual delete.
+    expect(hasStatus(readStatuses(a), "reeling", 10)).toBe(false);
+    expect(hasStatus(readStatuses(b), "reeling", 10)).toBe(false);
+    expect(a.angVel).toBe(0.75);
+    expect(b.angVel).toBe(-0.75);
+  });
+
+  it("credits each car to the other for the spikes (U38)", () => {
+    // `attackerId` is `""` on a head-on, so a bridge that credited it would record nobody. Each car
+    // was put where it ends up by the other, which is what `otherSideOf` reads off the resolution.
+    const fixture = headOnScenario();
+    runRam(fixture, 10);
+    expect(fixture.memory.spikes.lastShover.get("a")?.id).toBe("b");
+    expect(fixture.memory.spikes.lastShover.get("b")?.id).toBe("a");
+  });
+});
+
+describe("contactTick (diminishing returns, spec §7.3)", () => {
+  /** One fresh ram on a re-armed fixture, returning what the victim took from it. */
+  function chainedRam(fixture: ReturnType<typeof ramScenario>, tick: number) {
+    fixture.attacker.x = 0; fixture.attacker.y = 400; fixture.attacker.vx = 540; fixture.attacker.vy = 0;
+    fixture.attacker.angVel = 0;
+    fixture.victim.x = 58.75; fixture.victim.y = 420; fixture.victim.vx = 0; fixture.victim.vy = 0;
+    fixture.victim.angVel = 0;
+    // `resolveContacts` edge-triggers off `memory.contacts`, so clearing it is the direct way to
+    // simulate separating and re-approaching without re-deriving the geometry.
+    fixture.memory.contacts = new Set();
+    runRam(fixture, tick);
+    return {
+      shove: Math.hypot(fixture.victim.vx, fixture.victim.vy),
+      spin: Math.abs(fixture.victim.angVel),
+      reelTicks: readStatuses(fixture.victim).find((s) => s.statusId === "reeling")!.endsTick - tick,
+      attackerStoppedDead: fixture.attacker.vx === 0 && fixture.attacker.vy === 0,
+    };
+  }
+
+  it("scales a chained ram's shove, spin and reel, and charges the attacker in full", () => {
+    // `offsetY: 20` so the spin is nonzero and can be measured shrinking alongside the shove — U5
+    // scales BOTH, which a dead-on fixture (spin exactly 0 either way) could never prove.
+    const fixture = ramScenario({ offsetY: 20 });
+    const first = chainedRam(fixture, 10);
+    // Tick 45 is after the first `reeling` lapses but well inside `ramTicks().drWindow`, which is the
+    // only window a shortened duration is observable in: `reeling` is `reapply: "ignore"`, so a
+    // second application writes nothing at all while one is standing, and a re-ram before the first
+    // window lapses cannot claw it back.
+    const second = chainedRam(fixture, 45);
+
+    expect(second.shove).toBeCloseTo(first.shove * RAM_CONFIG.impulseDrScale, 6);
+    expect(second.spin).toBeCloseTo(first.spin * RAM_CONFIG.impulseDrScale, 6);
+    expect(second.reelTicks).toBe(
+      Math.max(ramTicks().durationFloor, Math.round(ramTicks().uncontrol * RAM_CONFIG.durationDrScale)),
+    );
+    expect(second.reelTicks).toBeLessThan(first.reelTicks);
+    // The attacker pays full cost for every punch it throws: its stop is a rule, not a scaled push,
+    // so no amount of falloff on the victim ever softens it. Chain-ramming a worn-down victim must
+    // not get progressively safer for the aggressor.
+    expect(first.attackerStoppedDead).toBe(true);
+    expect(second.attackerStoppedDead).toBe(true);
   });
 });
 
@@ -960,7 +1305,7 @@ describe("ram falloff", () => {
 
   it("rolls the window forward from each ram, not from the first", () => {
     const stack = newFalloffStack();
-    const window = RAM_TICKS.drWindow; // never recompute from ms and a literal tick rate
+    const window = ramTicks().drWindow; // never recompute from ms and a literal tick rate
     nextFalloff(stack, VICTIM, 0);
     nextFalloff(stack, VICTIM, window - 1);        // just inside
     const third = nextFalloff(stack, VICTIM, window + 1); // past the FIRST window, inside the second

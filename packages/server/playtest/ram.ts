@@ -184,14 +184,18 @@ function speedBeforeAndAfterResolve(): void {
     rows.push(
       `t${i + 1}: carried in ${carriedIn.toFixed(1)} -> ${afterResolve.toFixed(1)} after resolveWorld; ` +
         `ram's approach term is the carried-in ${carriedIn.toFixed(1)} ` +
-        `${carriedIn >= RAM_CONFIG.minApproachSpeed ? "(>= minApproachSpeed)" : "(below minApproachSpeed)"}; ` +
+        `${carriedIn >= RAM_CONFIG.minRamSpeed ? "(>= minRamSpeed)" : "(below minRamSpeed)"}; ` +
         `victim shove ${shove.toFixed(1)}`,
     );
   }
   report(
     "R3. The fix: ram reads the carried-in speed, not the post-resolve rebound",
     firedOnContactTick && rebounded ? "OK" : "FINDING",
-    `minApproachSpeed is ${RAM_CONFIG.minApproachSpeed}; restitution ` +
+    // Renamed with the knob, not re-pitched: `minRamSpeed` is the Unity port's successor to
+    // `minApproachSpeed` and gates WHO may attack rather than whether the old contest fired at all.
+    // This probe's expectation and verdict logic still describe the deleted contest and are stage
+    // 5's to re-measure; only the compile break is fixed here.
+    `minRamSpeed is ${RAM_CONFIG.minRamSpeed}; restitution ` +
       `${DRIVE_CONFIG.restitution} still rebounds a head-on contact to ` +
       `-${(DRIVE_CONFIG.restitution * 100).toFixed(0)}% of impact speed.\n` +
       rows.join("\n") +

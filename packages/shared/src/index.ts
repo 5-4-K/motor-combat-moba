@@ -72,7 +72,14 @@ export { ChatMessageState } from "./schema/ChatMessageState.js";
 export { PlaygroundState } from "./schema/PlaygroundState.js";
 export { PracticeState } from "./schema/PracticeState.js";
 
-export { RAM_CONFIG, RAM_DECAY, RAM_TICKS, halfLifeToPerTick } from "./config/ram-config.js";
+export {
+  RAM_CONFIG,
+  halfLifeToPerTick,
+  inertiaRadiusSquared,
+  ramTicks,
+  rebuildRamTicks,
+  reelingSpinPerTick,
+} from "./config/ram-config.js";
 export { applyDamage, applyHeal, damageFor, scaleDamage, weaponDamageOf } from "./sim/damage.js";
 export { stepSim } from "./sim/step.js";
 export type { SimBody, StepContext } from "./sim/step.js";
@@ -100,15 +107,14 @@ export type {
   StatusRequest,
 } from "./sim/combat.js";
 export { applyImpulse, type Impulse } from "./sim/impulse.js";
-export { applyRams, impactSideOf, pairKey, resolveRam } from "./sim/ram.js";
-export type { ImpactSide, RamCar, RamHit, RamImpulseEntry } from "./sim/ram.js";
+export { applyRams, contactPointOn, pairKey, ramTypeOf, regionOf, resolveRam } from "./sim/ram.js";
+export type { RamCar, RamRegion, RamResolution, RamSide, RamType } from "./sim/ram.js";
 export { SLAM_CONFIG } from "./config/slam-config.js";
 export { hullTouchesWorld, resolveContacts } from "./sim/contact.js";
 export type {
   ContactCar,
   ContactEvents,
   ContactHit,
-  ImpulseEntry,
   SlamEvent,
   SpikeContact,
   SpikeHit,

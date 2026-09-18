@@ -204,58 +204,55 @@ export const STATUS_TABLE = {
     flags: ["phased"],
   },
   /**
-   * Rammed: flung, sliding and fighting for grip. **Not a stun, and close to its opposite.**
+   * Rammed: flung, sliding, spinning and along for the ride. Unity's `ReelingEffect` exactly —
+   * `CarAbility.Throttle | Steer | YawHold | Grip | Ram` blocked for `RAM_CONFIG.ramUncontrolMs`.
    *
-   * `stunned` is `immobilised + steeringLocked + disarmed + fullStop` — you stop dead and sit there,
-   * which is the bumper-car-that-stops behaviour this rework exists to reject. `reeling` carries no
-   * flags at all: you are moving fast in the wrong direction with your tyres saturated, you can
-   * still shoot, and you can still fight the spin. That is what keeps ramming a setup rather than a
-   * delete.
+   * **Inputs off, not numbers worsened, since the 2026-09-18 Unity port.** It used to be
+   * `turnRate: 0.4, accel: 0.4` — a car that handled badly. It is now a car with no inputs at all,
+   * and the helplessness is the physics: `spinFree` leaves the spin running, and `grip: 0.6` slows
+   * how fast the shove it just took scrubs off, so it rides further than a driver would slide. You
+   * can still shoot, which is what keeps a ram a setup rather than a delete.
    *
-   * **`flags: []` is load-bearing, not incidental.** `StatusDef` forces flag-carrying rows to
-   * `reapply: "ignore"` so hard CC can never be chained. Because this row carries none, it escapes
-   * that rule and a second ram may write a new (already-reduced) duration at all — which is what
-   * the falloff stack (Task 2) needs. Adding a flag here would silently break diminishing returns.
+   * **`grip` is a multiplier and not Unity's on/off `Grip` ability, deliberately (spec §5).** Unity
+   * kills grip outright while reeling, which is survivable there because its base grip is high and
+   * its arena is large. This game runs a much looser base rate for drift, so switching grip off would
+   * carry a victim most of the way across the arena. 0.6 of 3/s is 1.8/s: a ~2.2 car length ride.
    *
-   * Note what `refresh` does and does not do: `applyStatus` takes `Math.max(existing.endsTick,
-   * endsTick)`, so a re-ram landing while `reeling` is STILL RUNNING can only extend the window,
-   * never shorten it — a falloff-scaled duration is by construction the smaller of the two and is
-   * discarded on that path. The scaled duration is what a ram lands once the previous instance has
-   * lapsed but the falloff window has not (between `ramUncontrolMs` and `drWindowMs` since the last
-   * hit). Falloff's impulse half has no such caveat: it scales every re-ram.
-   *
-   * Both multipliers sit AT the `STATUS_LIMITS` floors, deliberately (spec P22). Do not lower those
-   * floors to make this harsher: they are documented guarantees, and widening one for a single row
-   * is how a guarantee stops guaranteeing. The helplessness here comes from the physics rather than
-   * the debuff — a car sliding sideways with saturated tyres is already a passenger, courtesy of
-   * `lateralGripRate` (`DRIVE_CONFIG`, U10) doing the real work through `gripFactorOf` in
-   * `stepDrive` — the ordinary per-tick drift bleed every car already runs, not a knock-specific
-   * rate (the flat-rate `impactGripDecel` (P11) this used to name is gone outright, deleted
-   * alongside the other superseded knobs, drive-model port stage 1 Task 6).
-   *
-   * **`accel: 0.4` no longer does what this row's fiction says, and the inversion is worth knowing
-   * before anyone "fixes" it.** It was authored as the friction-circle stagger — while the tyres
-   * fight the slide there is little grip left for the engine, so a big hit visibly bogs you. Under
-   * the Unity drive-model port (U18/U36) the `accel` channel scales the drag exponent as well as the
-   * engine push, so it CANCELS out of the equilibrium: it does not touch top speed at any value, and
-   * what it actually sets is the time constant, in both directions at once. Measured on Mirage
-   * (`dragRate` 1.2848): top speed 189.0 u/s at `accel` 1.0 and 189.0 at 0.4, time to 90% 1.79 s →
-   * 4.48 s (the intended half), and **roll distance from top speed 147.1 u → 367.8 u** (not
-   * intended). So the status a ram applies to its victim makes that same ram's knockback carry 2.5x
-   * further — 368 u against a playable area 1132 u wide. See the `accel` channel's own doc in
-   * `status-types.ts` for the full table.
-   *
-   * The 0.4 is the project owner's number and is NOT to be changed here; stage 3 of the port removes
-   * `accel` from this row outright, which is where that decision lives.
+   * `reapply: "ignore"` is FORCED by the flags (a flag-carrying debuff may never chain) and costs
+   * exactly one behaviour: a re-ram landing while a reel is still running no longer extends it.
+   * `applyStatus`'s `Math.max(endsTick, …)` already discarded every falloff-scaled duration on that
+   * path, so the only case lost is a full-strength re-ram extending a live reel — precisely what
+   * diminishing returns exists to discourage. Falloff still scales the shove, the spin, and the
+   * duration of a ram landing after a reel has lapsed.
    */
   reeling: {
     id: "reeling",
     name: "Reeling",
     kind: "debuff",
     color: "#e8590c",
-    reapply: "refresh",
-    modifiers: { turnRate: 0.4, accel: 0.4 },
-    flags: [],
+    reapply: "ignore",
+    modifiers: { grip: 0.6 },
+    flags: ["immobilised", "steeringLocked", "spinFree", "ramBlocked"],
+  },
+  /**
+   * The price of landing a ram: your own car goes dead for `RAM_CONFIG.attackerLockMs`. Unity's
+   * attacker lock (`RammingModule.LockMask`), and the reason ramming is a commitment rather than a
+   * free hit — you stop, and for half a second you cannot drive, steer or ram again.
+   *
+   * Deliberately WITHOUT `spinFree` and with grip untouched: a rammer stops, it does not slide. That
+   * is exact for a flank or rear attacker, whose side carries a zero shove — but **on a head-on both
+   * cars ARE given a small non-zero shove** (each along the other's heading, on the order of
+   * 10-25 u/s at top speed, since `headOnScale` is 0.2), and they do slide it off, at full grip,
+   * because this row leaves the channel alone. Both cars take it on a head-on.
+   */
+  ramLock: {
+    id: "ramLock",
+    name: "Ram Lock",
+    kind: "debuff",
+    color: "#adb5bd",
+    reapply: "ignore",
+    modifiers: {},
+    flags: ["immobilised", "steeringLocked", "ramBlocked"],
   },
 } as const satisfies Record<StatusId, StatusDef>;
 

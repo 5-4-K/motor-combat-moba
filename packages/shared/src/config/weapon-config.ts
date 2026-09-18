@@ -462,14 +462,14 @@ export const WEAPON_TABLE = {
       /**
        * Was `SLAM_CONFIG.knockSpeed`, authored as "2x RAM_CONFIG.knockMaxSpeed" — a by-hand
        * relationship, not a derived one, and now doubly stale. `RAM_CONFIG.knockMaxSpeed` itself is
-       * gone (deleted with `mass`, spec R1): ram impulses no longer come from a capped speed at all,
-       * they come from the `ramAttack`/`ramDefence` contest (R2–R5), whose whole point is to be
-       * open-ended rather than saturating (R9). "2x the ram maximum" is not merely a stale number now
-       * — it names a quantity ("the ram maximum") that the contest does not produce, since nothing in
-       * it saturates. NOTHING FAILS if this is left alone: a 20-second ult can quietly end up weaker
-       * than an ordinary flank ram. Stage 5 re-pitches it — against a measured typical/strong contest
-       * outcome, not against a maximum that no longer exists. Until then, treat this number as
-       * provisional.
+       * gone (deleted with `mass`, spec R1): a ram's push no longer comes from a capped speed at all.
+       * It comes from `sim/ram.ts`'s `shoveOf` — drive-in speed times the type scale times
+       * `ramAttack`/`ramDefence` — which is open-ended rather than saturating (R9), and stayed that
+       * way through the 2026-09-18 Unity ram port. "2x the ram maximum" is not merely a stale number
+       * now: it names a quantity ("the ram maximum") that nothing produces, since nothing saturates.
+       * NOTHING FAILS if this is left alone: a 20-second ult can quietly end up weaker than an
+       * ordinary flank ram. Stage 5 re-pitches it — against a measured typical/strong ram outcome,
+       * not against a maximum that no longer exists. Until then, treat this number as provisional.
        */
       speed: 520,
       direction: "radial",
@@ -493,8 +493,19 @@ export const WEAPON_TABLE = {
        * `victimAuthority` (0.35), the pre-`Impulse` steering floor that was meant to express it, had
        * been inert since the vector-drive rework's stage 2 and was deleted here rather than revived.
        * A ram's control loss is `RAM_CONFIG.ramUncontrolMs` scaled by the victim's diminishing-returns
-       * stack; a slam's is this, unscaled — falloff is ram-only (spec P24), so an ult never gets
-       * quietly discounted by how many ordinary rams the victim has recently absorbed.
+       * stack; a slam's is this, unscaled — falloff is ram-only (spec P24), so this number is never
+       * *shortened* by how many ordinary rams the victim has recently absorbed.
+       *
+       * **It is, however, routinely DELETED by one, and that is a live defect this row cannot fix.**
+       * The Unity ram port's stage 3 made `reeling` `reapply: "ignore"` (forced by its flags), so
+       * `applyStatus` returns the list unchanged when a reel is already running: a victim rammed
+       * inside the last second — including on the same tick, since `contactTick`'s ram loop runs
+       * before its slam loop — takes NONE of this 1400 ms, and keeps the ram's shorter window
+       * instead. Ram-then-charge is the most common setup for this weapon, so the number below is
+       * unreachable in exactly the case it was pitched for. Recorded for stage 4, which owns the
+       * re-pitch, in the Unity port's `EXECUTION.md` under "Deferred, and who owns it"; the fix is a
+       * per-source reel or a new chaining variant, which is a design decision rather than a tuning
+       * one.
        */
       uncontrolMs: 1400,
       wallStun: { windowMs: 500, durationMs: 500 },

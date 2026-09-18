@@ -634,6 +634,37 @@ describe("resolveWorld - the leading bounds pass is load-bearing", () => {
   });
 });
 
+describe("Unity's zero-bounce contact", () => {
+  // Reuses this file's existing `body(patch)` and `BOUNDS` fixtures rather than adding new ones, per
+  // the task brief. The brief's own snippet named its local fixture `restingBody()`/`body`, but this
+  // file already has a top-level `body()` helper and every other test in it names the local pose
+  // `start` to avoid shadowing it — followed here too.
+  it("removes the speed into a wall and keeps the speed along it", () => {
+    // Driving at 45 degrees into the left wall: the x component dies, the y component is untouched.
+    const start = body({ x: 5, y: 300, angle: 0, vx: -100, vy: 100 });
+    const out = resolveWorld(start, [], [], BOUNDS, 50);
+    expect(out.vx).toBeCloseTo(0, 9);
+    expect(out.vy).toBeCloseTo(100, 9);
+  });
+
+  it("never returns more speed than it was given, at any approach angle", () => {
+    for (let deg = 5; deg <= 85; deg += 5) {
+      const rad = (deg * Math.PI) / 180;
+      const start = body({ x: 5, y: 300, angle: 0, vx: -200 * Math.cos(rad), vy: 200 * Math.sin(rad) });
+      const out = resolveWorld(start, [], [], BOUNDS, 50);
+      expect(Math.hypot(out.vx, out.vy)).toBeLessThanOrEqual(200 + 1e-9);
+    }
+  });
+
+  it("is idempotent: resolving an already-resolved contact changes nothing", () => {
+    const start = body({ x: 5, y: 300, angle: 0, vx: -100, vy: 0 });
+    const once = resolveWorld(start, [], [], BOUNDS, 50);
+    const twice = resolveWorld(once, [], [], BOUNDS, 50);
+    expect(twice.vx).toBeCloseTo(once.vx, 9);
+    expect(twice.vy).toBeCloseTo(once.vy, 9);
+  });
+});
+
 describe("resolveWorld - one restitution per distinct surface", () => {
   const r = DRIVE_CONFIG.restitution;
   // Obstacle flush against the right wall: it spans x[925,1000] in a 1000-wide arena, so its right
@@ -650,12 +681,22 @@ describe("resolveWorld - one restitution per distinct surface", () => {
   // Car spans [957.5,1017.5]: past the wall at 1000 and overlapping the obstacle at 925.
   const wedged = () => body({ x: 987.5, y: 500, angle: 0, ...alongHeading(0, 100) });
 
-  it("damps once per contact: wall then obstacle is r^2, never r^3", () => {
-    const out = resolveWorld(wedged(), [], [hugging], BOUNDS, FILLER_RAM_DEFENCE);
+  // REPLACED for stage 2 Task 1 (2026-09-18, restitution 0.15 -> 0): this used to assert
+  // `fwd(out) toBeCloseTo(100 * r ** 2)` and then that the same figure was NOT close to `100 * r
+  // ** 3`, distinguishing "each of the two distinct surfaces damps once" (r^2) from a bug that let
+  // the trailing clamp take a third, uncounted bite (r^3). At `r = 0` those two numbers are both
+  // exactly zero, so the property the test guarded — once per surface, never a third time — became
+  // unfalsifiable: any number of applications of a zero restitution still yields zero, whether the
+  // bug is present or not. Replaced with the equivalent idempotence check across this same
+  // two-distinct-surface fixture: re-resolving an already-resolved wall+obstacle contact must not
+  // remove any further speed, which is what "no uncounted third bite" now looks like at r = 0.
+  // A future non-zero restitution needs the old r^2-vs-r^3 form back.
+  it("is idempotent across two distinct surfaces: re-resolving a wall+obstacle contact removes no further speed", () => {
+    const once = resolveWorld(wedged(), [], [hugging], BOUNDS, FILLER_RAM_DEFENCE);
+    const twice = resolveWorld(once, [], [hugging], BOUNDS, FILLER_RAM_DEFENCE);
 
-    expect(fwd(out)).toBeCloseTo(100 * r ** 2, 6);
-    // The trailing clamp must not take a third bite: that is the r^3 bug.
-    expect(Math.abs(fwd(out))).not.toBeCloseTo(100 * r ** 3, 3);
+    expect(fwd(once)).toBeCloseTo(0, 9);
+    expect(fwd(twice)).toBeCloseTo(fwd(once), 9);
   });
 
   it("leaves the wedged body deeply embedded, and stably so -- the fixture's real outcome", () => {
@@ -925,9 +966,15 @@ describe("applyContact reflects the whole velocity, not just driven speed", () =
   // car sliding sideways into a wall bounces back along the axis it actually struck, exactly the
   // way the old code's second, shove-specific reflection pass used to. See `applyContact`'s doc
   // comment in `collide.ts` for the full account.
-  it("rebounds a car whose only velocity is externally imposed (no throttle) off a wall", () => {
+  // RE-PINNED for stage 2 Task 1 (2026-09-18, restitution 0.15 -> 0): "rebounds ... off a wall" no
+  // longer holds — nothing rebounds off anything now, so the magnitude drops straight to a dead
+  // stop. What this test still guards, and the reason the describe block exists, survives
+  // unchanged: a car with NO throttle and only an externally imposed velocity is resolved through
+  // the exact same `applyContact` path a driven one is, so its into-wall component is removed the
+  // same way — there is no separate "driven speed" the reflection is blind to.
+  it("removes an externally imposed velocity's into-wall component (no throttle), the same as a driven one", () => {
     const out = resolveWorld(body({ x: 10, y: 400, vx: -300, vy: 0 }), [], [], BOUNDS, FILLER_RAM_DEFENCE);
-    expect(fwd(out)).toBeGreaterThan(0);
+    expect(fwd(out)).toBeCloseTo(0, 9);
   });
 
   it("does not amplify velocity that is already moving away from the surface", () => {
@@ -939,8 +986,10 @@ describe("applyContact reflects the whole velocity, not just driven speed", () =
     // Pure lateral motion (angle 0, so lateral = vy) sliding into the top wall: the push normal is
     // axis-aligned with the velocity itself (n = (0, 1)), so the reflection is a plain 1-D bounce —
     // the surviving velocity stays entirely lateral, damped by exactly one restitution factor:
-    // vy' = -(-300) * restitution = 300 * 0.15 = 45. Under the old discard this came back as pure
-    // forward speed (`out.vy` close to 0); it no longer does.
+    // vy' = -(-300) * restitution. Under the old discard this came back as pure forward speed
+    // (`out.vy` close to 0); it no longer does. This assertion reads `DRIVE_CONFIG.restitution`
+    // rather than a literal, so it self-adjusted when the constant moved 0.15 -> 0 in stage 2 Task
+    // 1 (2026-09-18): vy' = 300 * 0 = 0 now, was 300 * 0.15 = 45 before.
     const out = resolveWorld(body({ x: 500, y: 5, angle: 0, vx: 0, vy: -300 }), [], [], BOUNDS, FILLER_RAM_DEFENCE);
     expect(out.vx).toBeCloseTo(0, 9);
     expect(out.vy).toBeCloseTo(300 * DRIVE_CONFIG.restitution, 9);
@@ -981,12 +1030,15 @@ describe("contact reflection preserves direction", () => {
     expect(Math.abs(lateralOf(next.vx, next.vy, next.angle))).toBeGreaterThan(50);
   });
 
-  it("still barely rebounds head-on, because cars are not billiard balls", () => {
+  // RE-PINNED for stage 2 Task 1 (2026-09-18, restitution 0.15 -> 0): this used to assert a small
+  // positive rebound (0 < vx < 50, "not billiard balls" — 15% of impact speed, down from a
+  // pre-2026-09-06 35%). At zero restitution there is no rebound left at all to be "barely" — a
+  // head-on hit is an exact dead stop, so the describe name's own claim ("still barely rebounds")
+  // is retired along with the value; renamed to say what actually happens now.
+  it("stops dead head-on, at zero restitution", () => {
     const b = body({ x: 10, y: 300, angle: Math.PI, vx: -200, vy: 0 });
     const next = resolveWorld(b, [], [], { width: 1280, height: 720 }, FILLER_RAM_DEFENCE);
-    // restitution 0.15: it comes back at about 15% of what it arrived with, not 35%.
-    expect(next.vx).toBeGreaterThan(0);
-    expect(next.vx).toBeLessThan(200 * 0.25);
+    expect(next.vx).toBeCloseTo(0, 9);
   });
 });
 
@@ -1036,12 +1088,18 @@ describe("polygon bounds", () => {
     //
     // Derived by hand: at (90, 60) the diagonal plane's penetration is 34*sqrt(2), so the push
     // resolves to exactly (34, 34) (pen projected onto n). intoSurface = dot((-100, 0), n) =
-    // -100/sqrt2; with DRIVE_CONFIG.restitution = 0.15, scale = 1.15 * intoSurface, and
-    // vx' = vx - scale*n.x, vy' = vy - scale*n.y works out to vx' = -42.5, vy' = 57.5 exactly.
+    // -100/sqrt2.
+    //
+    // RE-PINNED for stage 2 Task 1 (2026-09-18, restitution 0.15 -> 0): scale = (1 + restitution) *
+    // intoSurface = 1 * (-100/sqrt2) now (was 1.15 * intoSurface), and vx' = vx - scale*n.x, vy' =
+    // vy - scale*n.y works out to vx' = -50, vy' = 50 exactly (was -42.5, 57.5). Re-run and read
+    // from the actual failure rather than re-derived by hand alone: `npm test -w
+    // @motor-combat-moba/shared -- collide.test` reported `out.vx` as
+    // `-50.000000000000014`, matching the hand derivation to float precision.
     const b = { ...bodyAt(90, 60), vx: -100, vy: 0 };
     const out = resolveWorld(b, [], [], OCTAGON, 50);
-    expect(out.vx).toBeCloseTo(-42.5, 6);
-    expect(out.vy).toBeCloseTo(57.5, 6);
+    expect(out.vx).toBeCloseTo(-50, 6);
+    expect(out.vy).toBeCloseTo(50, 6);
   });
 });
 

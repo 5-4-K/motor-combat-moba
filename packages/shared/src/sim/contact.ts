@@ -15,16 +15,17 @@ import {
   type Vec2,
 } from "./collide.js";
 import { carHullOf } from "./context.js";
-import type { Impulse } from "./impulse.js";
 import { ManeuverKind } from "./maneuver.js";
-import { pairKey, resolveRam, type RamCar } from "./ram.js";
+import { pairKey, resolveRam, type RamCar, type RamResolution } from "./ram.js";
 import { canDamage } from "./weapons/targets.js";
 
 /**
  * The contact pass (spec S3). Extends `applyRams`'s pair loop with two maneuver-driven cases that
  * fire ahead of an ordinary ram: a DASH pair reports a hit, and a CHARGE pair reports a hard slam.
  * Neither writes an `Impulse` — a dash's damage and stun ride combat, and a slam's push is assembled
- * from its own weapon row in `ram-bridge.ts` (stage 4). Only the ram fallback still builds one here.
+ * from its own weapon row in `ram-bridge.ts` (stage 4). Only the ram fallback still produces
+ * anything for a car to be pushed by, and since stage 3 of the Unity port that is a `RamResolution`
+ * on the events, not an `Impulse` this pass builds itself.
  * Pure: no schema, no room, no wall clock. Table-free: every def-derived fact (`slamsStunned`, the
  * maneuver weapon id) arrives already resolved on `ContactCar`.
  *
@@ -87,21 +88,6 @@ export interface SlamEvent extends ContactHit {
   contactY: number;
 }
 
-/**
- * One resolved contact and who threw it. Keyed by VICTIM id in the returned map.
- *
- * `attackerId` rides in the entry rather than being reconstructed downstream — the caller
- * (`ram-bridge.ts`) needs it to know which player each impulse belongs to, and only
- * `resolveRam`/`resolvePair` are in a position to say which of a pair was the attacker.
- */
-export interface ImpulseEntry {
-  attackerId: string;
-  /** What the victim takes. */
-  impulse: Impulse;
-  /** What the attacker takes. Computed independently by the contest, not a negated copy (R7). */
-  attackerImpulse: Impulse;
-}
-
 /** One car found overlapping a `kind: "spike"` obstacle this tick — raw observation, no judgment. */
 export interface SpikeContact {
   sessionId: string;
@@ -130,6 +116,15 @@ export interface SpikeHit {
 export interface ContactEvents {
   dashHits: ContactHit[];
   slams: SlamEvent[];
+  /**
+   * Every ordinary ram this pass resolved, fully classified. One entry per PAIR (spec §7.4, U39,
+   * controller ruling S3-j's neighbour in this file) — there is no per-victim slot to win any more,
+   * so a car rammed by two others in one tick takes both; `ram-bridge.ts` expresses that by
+   * ACCUMULATING every resolution that names a car and writing the sum once (`flushRamWrites`,
+   * controller ruling S3-o). It used to write each side straight onto the body as it came, which
+   * silently dropped every push but the last — this claim was false for the whole of stage 3.
+   */
+  rams: RamResolution[];
   /** Session ids of every DASH car found pressed into level geometry this tick. */
   wallBlockedDashers: string[];
   /**
@@ -184,16 +179,18 @@ function isCharger(c: ContactCar): boolean {
 }
 
 /**
- * One tick of contact resolution over every pair, mirroring `applyRams`: sorted session ids,
- * edge-triggered contact set, best-impulse-per-victim — ranked by `impulse.speed` now that the
- * contest replaces a single 0-1 severity grade.
+ * One tick of contact resolution over every pair, mirroring `applyRams`'s own pair loop: sorted
+ * session ids, an edge-triggered contact set.
  *
- * **That `best` map holds RAMS ONLY** (stage 4). A slam used to write into it too and win the single
- * per-victim slot on raw magnitude — an ordering nothing enforced structurally (R9 forbids the
- * ceiling that once did), resting only on the measured fact that the roster's hardest ram tops out
- * at 268 u/s against a slam's fixed 520. One consequence of dropping it is deliberate: a victim
- * slammed by A *and* rammed by B on one tick now takes BOTH pushes rather than whichever won the
- * slot. Within a pair nothing changed — still exactly one of dash/slam/ram.
+ * **There is no per-victim slot any more** (stage 3 of the Unity port, spec §7.4, U39). Through
+ * revision 2 of the car-physics rework a `best` map kept only the largest impulse per victim — a
+ * slam competed with a ram for that slot, and a car rammed by two others in one tick kept only the
+ * larger push. `resolveRam` now returns a `RamResolution` that already names every car it acts on,
+ * so there is nothing left to contest a slot for: `events.rams` collects one entry per PAIR, and a
+ * victim rammed by two attackers in one tick takes both — `ram-bridge.ts`'s accumulate-then-write
+ * pass (`flushRamWrites`) is what expresses that, and a bridge that wrote each side onto the body as
+ * it arrived would still be throwing every push but the last away. Within a pair nothing changed —
+ * still exactly one of dash/slam/ram.
  *
  * Classification per fresh touching pair, checked from each car's own side:
  *
@@ -204,11 +201,6 @@ function isCharger(c: ContactCar): boolean {
  * 3. **Ram** — `resolveRam(a, b, mode)`, exactly as today.
  *
  * After the pair loop, every DASH car is swept against level geometry for `wallBlockedDashers`.
- *
- * `impulses` is keyed by VICTIM id, each entry carrying the `attackerId` alongside the resolved
- * push (`ImpulseEntry`) — the caller needs to know who threw it to apply the matching
- * `attackerImpulse` to the right player, and only this pass is in a position to say which side of a
- * pair was the attacker.
  */
 export function resolveContacts(
   cars: readonly ContactCar[],
@@ -218,12 +210,12 @@ export function resolveContacts(
   slamImmuneUntil: ReadonlyMap<string, number>,
   obstacles: readonly Aabb[],
   bounds: Bounds,
-): { impulses: Map<string, ImpulseEntry>; contacts: Set<string>; events: ContactEvents } {
+): { contacts: Set<string>; events: ContactEvents } {
   const ordered = [...cars].sort((x, y) => (x.sessionId < y.sessionId ? -1 : x.sessionId > y.sessionId ? 1 : 0));
   const contacts = new Set<string>();
-  const best = new Map<string, ImpulseEntry>();
   const dashHits: ContactHit[] = [];
   const slams: SlamEvent[] = [];
+  const rams: RamResolution[] = [];
 
   for (let i = 0; i < ordered.length; i++) {
     const a = ordered[i]!;
@@ -238,7 +230,7 @@ export function resolveContacts(
       contacts.add(key);
       if (previous.has(key)) continue;
 
-      resolvePair(a, b, mode, tick, slamImmuneUntil, dashHits, slams, best);
+      resolvePair(a, b, mode, tick, slamImmuneUntil, dashHits, slams, rams);
     }
   }
 
@@ -275,9 +267,8 @@ export function resolveContacts(
   }
 
   return {
-    impulses: best,
     contacts,
-    events: { dashHits, slams, wallBlockedDashers, spikeContacts },
+    events: { dashHits, slams, rams, wallBlockedDashers, spikeContacts },
   };
 }
 
@@ -295,7 +286,7 @@ function resolvePair(
   slamImmuneUntil: ReadonlyMap<string, number>,
   dashHits: ContactHit[],
   slams: SlamEvent[],
-  best: Map<string, ImpulseEntry>,
+  rams: RamResolution[],
 ): void {
   let anyEvent = false;
 
@@ -328,9 +319,9 @@ function resolvePair(
       // inline `Impulse` encoded is authored on the weapon row now: no ramDefence divisor
       // (`defenceScaled: false`, principle C's escape hatch), no spin (P28/P31), and a real
       // `uncontrolMs` where this branch hardcoded `uncontrolTicks: 0` and left a slam with no
-      // control loss at all. The attacker's half is gone rather than zeroed: it existed only so the
-      // bridge had one code path for both halves of an `ImpulseEntry`, and with the slam off that
-      // map "the attacker takes nothing from its own slam" is expressed by not pushing it.
+      // control loss at all. The attacker's half is gone rather than zeroed: a slam's attacker is
+      // simply never pushed, so "the attacker takes nothing from its own slam" is expressed by not
+      // pushing it rather than by writing a zero somewhere.
       slams.push({
         attackerSessionId: attacker.sessionId,
         targetSessionId: other.sessionId,
@@ -346,11 +337,10 @@ function resolvePair(
 
   if (anyEvent) return;
 
-  // Case 3: ordinary ram, exactly as `applyRams` resolves it.
-  const hit = resolveRam(a, b, mode);
-  if (hit === null) return;
-  const standing = best.get(hit.victimId);
-  if (standing === undefined || hit.impulse.speed > standing.impulse.speed) {
-    best.set(hit.victimId, { attackerId: hit.attackerId, impulse: hit.impulse, attackerImpulse: hit.attackerImpulse });
-  }
+  // Case 3: ordinary ram, exactly as `applyRams` resolves it. One resolution per PAIR — unlike the
+  // old impulse map there is no per-victim slot to win, because a resolution names every car it acts
+  // on. A car rammed by two others in one tick therefore takes both, which `ram-bridge.ts` expresses
+  // by summing every resolution that names it and writing the total once (`flushRamWrites`).
+  const ram = resolveRam(a, b, mode);
+  if (ram !== null) rams.push(ram);
 }

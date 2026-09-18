@@ -322,29 +322,47 @@ describe("phased", () => {
 });
 
 describe("reeling", () => {
-  it("is not a stun: it never freezes or disarms the victim", () => {
+  // Redefined by the 2026-09-18 Unity ram port (spec §8, U31): a car with no inputs at all rather
+  // than one that merely handles badly.
+  it("is not a stun: the trigger still works, but every drive input is gone", () => {
     const row = STATUS_TABLE.reeling;
-    expect(row.flags ?? []).toEqual([]);
+    expect(row.flags).toEqual(["immobilised", "steeringLocked", "spinFree", "ramBlocked"]);
+    expect(row.flags).not.toContain("disarmed");
+    expect(row.flags).not.toContain("fullStop");
   });
 
-  it("refreshes rather than ignoring, so falloff can shorten a chained ram", () => {
-    expect(STATUS_TABLE.reeling.reapply).toBe("refresh");
+  it("is forced to ignore by its own flags, since a flag-carrying debuff can never chain", () => {
+    expect(STATUS_TABLE.reeling.reapply).toBe("ignore");
   });
 
-  it("degrades steering and the engine without breaching the global clamps", () => {
-    const mods = STATUS_TABLE.reeling.modifiers;
-    expect(mods.turnRate).toBeGreaterThanOrEqual(STATUS_LIMITS.turnRate.min);
-    expect(mods.accel).toBeGreaterThanOrEqual(STATUS_LIMITS.accel.min);
-    expect(mods.turnRate).toBeLessThan(1);
-    expect(mods.accel).toBeLessThan(1);
+  it("scrubs the shove, rather than switching grip off outright (spec §5)", () => {
+    expect(STATUS_TABLE.reeling.modifiers.grip).toBe(0.6);
+    expect(STATUS_TABLE.reeling.modifiers.grip).toBeGreaterThan(STATUS_LIMITS.grip.min);
+    expect(STATUS_TABLE.reeling.modifiers.grip).toBeLessThan(1);
   });
 
-  it("sits exactly at the STATUS_LIMITS floors, not below them (spec P22)", () => {
-    expect(STATUS_TABLE.reeling.modifiers.turnRate).toBe(STATUS_LIMITS.turnRate.min);
-    expect(STATUS_TABLE.reeling.modifiers.accel).toBe(STATUS_LIMITS.accel.min);
+  it("carries no turnRate or accel penalty any more — the helplessness is the flags, not a number", () => {
+    expect(STATUS_TABLE.reeling.modifiers.turnRate).toBeUndefined();
+    expect(STATUS_TABLE.reeling.modifiers.accel).toBeUndefined();
   });
 
   it("leaves top speed alone, so a reeling car is slowed by physics not by a debuff", () => {
     expect(STATUS_TABLE.reeling.modifiers.topSpeed ?? 1).toBe(1);
+  });
+});
+
+describe("ramLock", () => {
+  // New in the 2026-09-18 Unity ram port (spec §8, U32): the price of landing a ram.
+  it("stops a rammer cold without setting it sliding", () => {
+    expect(STATUS_TABLE.ramLock.flags).toEqual(["immobilised", "steeringLocked", "ramBlocked"]);
+    expect(STATUS_TABLE.ramLock.flags).not.toContain("spinFree");
+  });
+
+  it("is forced to ignore by its own flags", () => {
+    expect(STATUS_TABLE.ramLock.reapply).toBe("ignore");
+  });
+
+  it("touches no channel — grip stays full, so a locked car does not slide", () => {
+    expect(STATUS_TABLE.ramLock.modifiers).toEqual({});
   });
 });

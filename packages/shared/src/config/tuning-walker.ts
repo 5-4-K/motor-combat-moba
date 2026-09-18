@@ -62,11 +62,16 @@ const CAR_RATINGS = ["speed", "accel", "handling", "attack", "hp", "ramAttack", 
 const SKIP_KEYS = new Set(["id", "name", "kind", "color", "shape", "type"]);
 
 /**
- * `drive.carWidth`/`drive.carHeight` are the OBB hitbox model — out of tuning scope by spec — and
- * `RAM_CONFIG.inertiaCoefficient` is derived from them once at module load
- * (`(carWidth**2 + carHeight**2) / 12`, see `ram-config.ts`). `ram.inertiaCoefficient` itself stays
- * tunable below (it is read live every ram, so overriding it directly works); overriding the hull
- * dimensions instead would not move it, so the two would silently disagree — a half-applied edit.
+ * `drive.carWidth`/`drive.carHeight` are the OBB hitbox model — out of tuning scope by spec. That is
+ * the whole reason now.
+ *
+ * It used to carry a second reason too: `RAM_CONFIG.inertiaCoefficient` was a `RAM_CONFIG` field
+ * derived from these once at module load, and `ram.inertiaCoefficient` stayed tunable below as the
+ * live-reading escape hatch (overriding it directly worked; overriding the hull dimensions instead
+ * would not move a value already frozen at load, so the two would silently disagree). The Unity
+ * ram-model port deleted `inertiaCoefficient` outright — the hull-derived inertia term is now
+ * `inertiaRadiusSquared()` (`ram-config.ts`), a plain function with no `RAM_CONFIG` leaf of its own
+ * for this walker to expose, so there is no `ram.*` path left to disagree with either.
  */
 const DRIVE_SKIP_KEYS = new Set(["carWidth", "carHeight"]);
 

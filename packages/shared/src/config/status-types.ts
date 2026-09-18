@@ -20,7 +20,8 @@ export type StatusId =
   | "overhauled"
   | "armored"
   | "phased"
-  | "reeling";
+  | "reeling"
+  | "ramLock";
 
 /**
  * Every number in the sim a status may scale. One channel per thing the sim already reads, and a
@@ -61,7 +62,7 @@ export type StatusChannel =
    * the same factor how fast it sheds any speed it is already carrying. Measured on Mirage
    * (`dragRate` 1.2848):
    *
-   * | | `accel` 1.0 | 0.4 (`reeling`, the `STATUS_LIMITS` floor) | 2.5 (the ceiling) |
+   * | | `accel` 1.0 | 0.4 (the `STATUS_LIMITS` floor) | 2.5 (the ceiling) |
    * |---|---|---|---|
    * | Top speed | 189.0 u/s | **189.0 — unchanged** | **189.0 — unchanged** |
    * | Time to 90% of it | 1.79 s | 4.48 s | 0.72 s |
@@ -73,6 +74,11 @@ export type StatusChannel =
    * its momentum, so it stops almost the instant the throttle comes off. Neither direction is
    * necessarily wrong, but both are a decision, and a row that wanted "bogged down" or "peppy"
    * without the roll consequence wants `topSpeed`, `brakeDecel` or `grip` instead.
+   *
+   * `reeling` carried the 0.4 floor above until the 2026-09-18 Unity ram port dropped `accel` from
+   * that row outright — a reeling car now loses its inputs entirely rather than having them
+   * worsened, and the 368 u overshoot this channel measured is exactly why `grip` (below) scrubs a
+   * shove rather than switching grip off. No row authors this channel today.
    */
   | "accel"
   /** Steering rate, alongside — never instead of — the ram's `authority`. Above 1 corners tighter. */
@@ -99,13 +105,18 @@ export type StatusChannel =
    */
   | "weaponCooldown"
   /**
-   * Effective `ramDefence` (`ramDefenceOf`), which reaches the contest on BOTH sides: it scales the
-   * speed-independent term this car brings to `pushOf`, and it is the divisor `impactOn` softens
-   * what this car takes by. So one multiplier makes a car both harder to shift and more solid to hit
-   * — the two halves of "solidity" the rating names.
+   * Effective `ramDefence` (`ramDefenceOf`). **One effect, on the receiving side only: it is the
+   * divisor `sim/ram.ts`'s `shoveOf` softens the shove this car takes by.** Buffing it makes a car
+   * harder to throw. It does nothing to how hard that car's own rams hit.
    *
-   * There is deliberately no offence channel (spec R11): a status may make a car harder to move, but
-   * never make its rams hit harder.
+   * It used to do both. Under the two-sided contest this channel also scaled the speed-independent
+   * term a car brought to `pushOf`, so one multiplier made you harder to shift AND more solid to hit
+   * — "the two halves of solidity". The 2026-09-18 Unity ram port deleted the contest (spec §7.4): an
+   * attacker's outcome is now a rule ("you stop"), not a push to be scaled, so there is no attacker
+   * side left for this to reach. Read that half as history, not as behaviour to expect.
+   *
+   * There is still deliberately no offence channel (spec R11): a status may make a car harder to
+   * move, but never make its rams hit harder.
    */
   | "ramDefence"
   /**

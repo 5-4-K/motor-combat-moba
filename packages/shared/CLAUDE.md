@@ -29,8 +29,8 @@ change the 2026-09-18 Unity drive-model port made**: it used to zero the forward
 leave an imposed sideways velocity to bleed off through `bleedLateral`, so a slammed-then-stunned car
 kept sliding into the wall. It does not any more — a stunned car pushed sideways by a slam stops dead
 where it stands. (`bleedLateral` and `DRIVE_CONFIG.impactGripDecel` are both deleted; one grip model
-covers the whole car now.) Injected ram spin is a separate story and is currently inert for a
-different reason — see the `angVel` note under `stepDrive` below. `armored` is `invulnerable` alone: 0 damage from every source, weapon hits,
+covers the whole car now.) Injected ram spin is a separate story with a rule of its own — see the
+`angVel` note under `stepDrive` below. `armored` is `invulnerable` alone: 0 damage from every source, weapon hits,
 contact hits and pulses alike — status riders still land, only hp loss stops. A flag is boolean and
 has no counterplay gradient, so every flag-carrying DEBUFF is required to be `reapply: "ignore"`,
 and a flag-carrying buff may be `refresh` only by declaring `chainable: true` on its own row
@@ -109,11 +109,14 @@ and `coastPerTick` are gone**, along with `CarDef.coastHalfLifeSeconds`: yaw is 
 there is no at-rest rate, reverse top speed is the emergent `maxSpeed × reverseAccelFactor`, and one
 always-on drag rate sets top speed, wind-up and roll together in place of a separate coast curve.
 
-**`spinPerTick` is a placeholder (1, the identity) and ram spin is currently INERT.** Stage 3 of the
-port replaces it with `perTickDecay(RAM_CONFIG.reelingSpinDecayRate)`. Until then: `sim/impulse.ts`
-still accumulates a ram's spin into `body.angVel`, but steering SETS `angVel` every tick (U16) and
-only `mods.spinFree` preserves an injected one — and nothing sets that flag yet, so a rammed car does
-not tumble at all. Do not read that as a bug in `applyImpulse`; it is a knob a later stage sets.
+**`spinPerTick` is a real decay, and ram spin reaches the car through `spinFree` alone.** The Unity
+ram port's stage 3 set `RAM_CONFIG.reelingSpinDecayRate` to 2.0/s and `spinPerTick` to
+`reelingSpinPerTick()` — `perTickDecay(2.0)` ≈ 0.9355 per tick at 30 Hz — replacing stage 1's
+identity placeholder, and put `spinFree` on `reeling`'s flags. Steering SETS `angVel` every tick
+(U16), so an injected spin survives only while a status carries `spinFree` (`reeling`, for
+`RAM_CONFIG.ramUncontrolMs`) or the car is in a HOLD; outside that window the next ordinary tick
+overwrites it, which is the model rather than a bug. `docs/turn-tuning.md` tabulates both the knob
+and the per-tick factor, and its doc test recomputes them.
 
 The resolved fields come from `driveOf(carId)` (`config/car-config.ts`, frozen per car at module load in `CHASSIS_DRIVE`), and
 `stepSim` resolves it at the single production call site. Every other caller of `stepDrive` here is

@@ -208,12 +208,17 @@ export const DRIVE_CONFIG = {
   /**
    * Coefficient of restitution for every contact — walls, obstacles and cars alike.
    *
-   * 0.15, down from 0.35 on 2026-09-06. Real cars are built to crush, not bounce, and sit around
-   * 0.1-0.15; a T-bone is a shunt, not a billiard shot. The knockback this game wants comes from
-   * momentum transfer through `applyImpulse`, not from springiness here — raising this to get
-   * bigger knocks is reaching for the wrong knob and makes every wall graze feel rubbery.
+   * **0: nothing in this game bounces.** Unity's cars carry a zero-friction, zero-bounce contact
+   * material (`CarFactory.Frictionless`), and this is that material: `applyContact` removes the
+   * velocity INTO a surface and leaves the velocity ALONG it, so a car angled at a wall slides down
+   * it instead of rebounding. It was 0.35, then 0.15 from 2026-09-06, on the argument that real cars
+   * crush rather than bounce — the Unity port finishes that argument.
+   *
+   * Two things follow. The reflection is now idempotent, so the relaxation passes cannot compound a
+   * rebound. And knockback in this game comes from ramming alone (`sim/ram.ts`), never from
+   * springiness here — raising this to get bigger knocks is reaching for the wrong knob.
    */
-  restitution: 0.15,
+  restitution: 0,
   /**
    * Velocity decay rate at `accel` rating 0, in 1/s. Unity's `DriveConfig.linearDrag` (1.0).
    *

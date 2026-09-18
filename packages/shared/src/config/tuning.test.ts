@@ -7,7 +7,7 @@ import {
 } from "./car-config.js";
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
-import { RAM_DECAY, ramDecay } from "./ram-config.js";
+import { RAM_CONFIG, ramTicks } from "./ram-config.js";
 import { instanceDefOf, WEAPON_TABLE } from "./weapon-config.js";
 import { WEAPON_TICKS, weaponTicksOf } from "./weapon-ticks.js";
 import { activeTuning, setTuning } from "./tuning.js";
@@ -16,9 +16,16 @@ afterEach(() => setTuning(null));
 
 describe("tuning store", () => {
   it("null tuning resolves to the identical frozen defaults, by reference", () => {
+    // `DEFAULT_RAM_TICKS` is not exported (unlike `CHASSIS_DRIVE`/`WEAPON_TICKS`, the ledger gives
+    // `ram-config.ts` no such export), so the by-reference check captures `ramTicks()` before this
+    // test touches tuning at all — at that point `afterEach` has already reset every prior test back
+    // to null, so this IS the module-load default — and asserts a null `setTuning` reassigns the
+    // identical object rather than a value-equal recomputation.
+    const shippedRamTicks = ramTicks();
     setTuning(null);
     expect(driveOf("mirage")).toBe(CHASSIS_DRIVE.mirage);
     expect(weaponTicksOf("pepperbox")).toBe(WEAPON_TICKS.pepperbox);
+    expect(ramTicks()).toBe(shippedRamTicks);
     expect(activeTuning()).toBeNull();
   });
 
@@ -98,25 +105,24 @@ describe("tuning store", () => {
     expect([...weapons]).toEqual(["thumper", "roadblock", "wildcharge"]);
   });
 
-  it("a half-life override moves the decay the sim reads, not just the seconds it is authored in", () => {
-    const shipped = RAM_DECAY.spin;
-    setTuning({ "ram.spinHalfLifeSeconds": 2 });
-    expect(ramDecay().spin).toBeGreaterThan(shipped);
-    // The untouched channel must come back value-for-value: an override of one half-life re-resolves
-    // the WHOLE struct, so this is what catches a rebuild that quietly moves a knob nobody overrode.
-    // It read `shove` until stage 3b deleted that channel; `counterSteer` is the surviving sibling
-    // and asks the identical question.
-    expect(ramDecay().counterSteer).toBe(RAM_DECAY.counterSteer);
+  it("rebuilds the ram durations when tuning moves them", () => {
+    // The bug this replaces (spec U40): `RAM_TICKS` used to be a plain frozen `const` resolved once
+    // at module load, and `setTuning` never rebuilt it — so `ramUncontrolMs` (among others) was
+    // already a playground slider that moved `RAM_CONFIG` and changed nothing the sim read.
+    const before = ramTicks().uncontrol;
+    setTuning({ "ram.ramUncontrolMs": RAM_CONFIG.ramUncontrolMs * 2 });
+    expect(ramTicks().uncontrol).toBeGreaterThan(before);
 
     setTuning(null);
-    expect(ramDecay()).toBe(RAM_DECAY);
+    expect(ramTicks().uncontrol).toBe(before);
   });
 
   it("a no-op override re-resolves to the shipped derivations, value for value", () => {
     const shippedSpeed: number = CAR_TABLE.bastion.speed;
+    const shippedRamTicks = ramTicks();
     setTuning({ "car.bastion.speed": shippedSpeed });
     expect(driveOf("bastion")).toEqual(CHASSIS_DRIVE.bastion);
-    expect(ramDecay()).toEqual(RAM_DECAY);
+    expect(ramTicks()).toEqual(shippedRamTicks);
   });
 
   // There is deliberately no "an override moves the ram reference" test any more. The two ram

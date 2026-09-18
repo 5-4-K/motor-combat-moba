@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import type { ChassisDrive } from "../../config/car-config.js";
-import { ramDefenceOf } from "../../config/car-config.js";
 import { STATUS_LIMITS, STATUS_TABLE } from "../../config/status-config.js";
 import type { CarId } from "../../config/types.js";
 import { scaleTicks, weaponTicksOf } from "../../config/weapon-ticks.js";
@@ -8,7 +7,6 @@ import { MS_PER_TICK } from "../../constants.js";
 import type { InputMessage } from "../../net/input.js";
 import { applyHeal, scaleDamage } from "../damage.js";
 import { stepDrive } from "../drive.js";
-import { applyImpulse } from "../impulse.js";
 import { resolveRam, type RamCar } from "../ram.js";
 import type { SimBody } from "../step.js";
 import { newFireState, releaseShots, tickRecharge } from "../weapons/fire.js";
@@ -23,21 +21,25 @@ import { modifiersOf, NEUTRAL_MODIFIERS, type Modifiers } from "./modifiers.js";
  * of those multipliers is actually read by the thing it is supposed to scale. Between them, "does
  * this channel do anything" is answerable without running the game.
  *
- * **Two of the members the Unity drive-model port added are DECLARED AHEAD OF USE, and this file
- * says which.** That contract above is about reaching a call site, so a member whose call site is
- * not wired yet cannot satisfy it and must not be allowed to look as if it does:
+ * **Every member the Unity drive-model port added is now wired — but two of them are proved
+ * elsewhere, and this file says which and where.** Two of the three below were declared ahead of use
+ * when this comment was first written; the ram port's stage 3 wired both, so what is left to record
+ * is where each one's real proof lives rather than which one is still inert:
  *
  * - **`grip`** is fully wired: it reaches `gripFactorOf` in `stepDrive` and is proved below the same
  *   way every other channel here is, against `drive-vector.test.ts`'s expression for the lateral
  *   bleed. It is not an exception.
- * - **`spinFree`** reaches `nextSpinOf`, but `chassis.spinPerTick` is the placeholder 1 until
- *   **stage 3** of the port sets `RAM_CONFIG.reelingSpinDecayRate`, so that branch is the identity
- *   today: the flag genuinely gates something, and what it gates does not yet decay. Proved here as
- *   neutrality and clamping only; `drive-vector.test.ts`'s "keeps its spin while spinFree" covers
- *   the branch against a hand-set `spinPerTick`.
- * - **`ramBlocked`** reaches NOTHING at all yet. No sim call site reads it. **Stage 3** wires it into
- *   the ram contest. Until then only its neutrality is assertable, and asserting more would be
- *   asserting a fiction.
+ * - **`spinFree`** reaches `nextSpinOf`, and what it gates is a REAL decay as of the Unity ram
+ *   port's stage 3: `RAM_CONFIG.reelingSpinDecayRate` is 2.0/s and `chassis.spinPerTick` resolves to
+ *   `reelingSpinPerTick()` rather than the identity placeholder this comment used to describe.
+ *   Proved here as neutrality and clamping only; `drive-vector.test.ts`'s "keeps its spin while
+ *   spinFree" covers the branch against a hand-set `spinPerTick`, which is why this file's own
+ *   fixture is free to keep 1.
+ * - **`ramBlocked`** reaches `participantOf`'s `qualifies` check in `ram.ts` — wired by stage 3
+ *   Tasks 2-3's Unity ram rewrite, which also deleted the two-sided contest that comment used to
+ *   name. Proved there, in `ram.test.ts`'s own suite ("will not let a reeling or locked car
+ *   attack"), not here: this file only carries its neutrality and clamping, the same standard as
+ *   `spinFree` above.
  */
 
 const DT = MS_PER_TICK / 1000;
@@ -363,56 +365,45 @@ describe("weaponCooldown reaches the three refire clocks and no others", () => {
   });
 });
 
-describe("the ramDefence channel reaches the ram, both as the victim's solidity AND as its own push term", () => {
-  // Both cases below stay end-to-end through `resolveRam` + `applyImpulse` on purpose, even though
-  // only the first case's claim actually needs the composition: see that test's own comment for why
-  // `defenceMult` reaching `pushOf`'s attacker term is the whole story there, and `applyImpulse`
-  // contributes nothing to it.
+describe("the ramDefence channel reaches the ram, as the victim's own resistance", () => {
+  // The two-sided contest (`pushOf`'s attacker term, `impactOn`'s divisor, `applyImpulse`'s
+  // `defenceFactorOf`) is gone since the 2026-09-18 Unity ram port (spec §7.4): a ram is no longer a
+  // push `applyImpulse` reconciles between two cars, it is `shoveOf` dividing straight by the
+  // RECEIVING car's own resistance, `ramDefenceOf(victim.carId) * victim.defenceMult`. `ramDefence`
+  // therefore has exactly one effect now, on the receiving side only — buffing the ATTACKER's
+  // `defenceMult` does nothing, because `shoveOf` never reads it.
   function car(over: Partial<RamCar> = {}): RamCar {
-    return { sessionId: "a", team: 0, x: 0, y: 0, angle: 0, vx: 0, vy: 0, carId: CAR, defenceMult: 1, ...over };
+    return {
+      sessionId: "a", team: 0, x: 0, y: 0, angle: 0, vx: 0, vy: 0, carId: CAR,
+      defenceMult: 1, ramBlocked: false, ...over,
+    };
   }
 
-  it("makes a buffed attacker hit harder", () => {
-    // The `ramDefence` status channel (named `ramMass` until stage 3 Task 4 renamed it to match the
-    // rating it actually scales) feeds `RamCar.defenceMult`, which scales the DEFENCE term of
-    // `pushOf` (spec R2). A buffed attacker brings more push into the contest purely through that
-    // term, driving in at the same speed, so the victim's impulse must come out larger.
-    const victim = car({ sessionId: "b", x: 58.75 });
-    const buffed = resolveRam(car({ vx: 100, vy: 0, defenceMult: 1.5 }), victim, "ffa")!;
-    const plain = resolveRam(car({ vx: 100, vy: 0 }), victim, "ffa")!;
-    expect(buffed.impulse.speed).toBeGreaterThan(plain.impulse.speed);
-  });
+  function shoveMagnitude(resolution: ReturnType<typeof resolveRam>, sessionId: string): number {
+    const side = resolution!.sides.find((s) => s.sessionId === sessionId)!;
+    return Math.hypot(side.shoveX, side.shoveY);
+  }
 
   it("makes a buffed victim harder to shove", () => {
-    // `resolveRam` divides by the victim's `ramDefence` itself, inside `impactOn`. The impulse is
-    // therefore authored `defenceScaled: false` (the
-    // contest already divided by `ramDefence`), so `applyImpulse`'s `defenceFactorOf` returns 1
-    // regardless of what `ramDefence` it is handed — the `* defenceMult` on the argument below is
-    // inert, NOT a second application of the buff via `applyImpulse`. The whole effect measured here
-    // comes from `resolveRam` alone: raising the victim's `defenceMult` raises its own `pushOf` term
-    // (more of the total contest is now "its" push, shrinking the SHARE of the attacker's push
-    // `impactOn` charges it) and separately raises the divisor `impactOn` scales by
-    // (`ramDefenceOf(victim) * victim.defenceMult`). Both effects point the same direction (a buffed
-    // victim moves less), so this proves `pushOf`+`impactOn`'s composed behaviour, still run
-    // end-to-end through `applyImpulse`, passing each victim's real `ramDefenceOf`, to match how
-    // `ram-bridge.ts`'s `ramDefenceFor` actually applies a ram.
-    const attacker = car({ vx: 400, vy: 0 });
+    const attacker = car({ vx: 100, vy: 0 });
     const plainVictim = car({ sessionId: "b", x: 58.75 });
     const heavyVictim = car({ sessionId: "b", x: 58.75, defenceMult: 1.5 });
-    const plain = resolveRam(attacker, plainVictim, "ffa")!;
-    const heavy = resolveRam(attacker, heavyVictim, "ffa")!;
-    const restBody = body({ x: 58.75, y: 0, angle: 0 });
-    const plainNext = applyImpulse(restBody, ramDefenceOf(plainVictim.carId) * plainVictim.defenceMult, plain.impulse);
-    const heavyNext = applyImpulse(restBody, ramDefenceOf(heavyVictim.carId) * heavyVictim.defenceMult, heavy.impulse);
-    expect(Math.hypot(heavyNext.vx, heavyNext.vy)).toBeLessThan(Math.hypot(plainNext.vx, plainNext.vy));
+    const plain = resolveRam(attacker, plainVictim, "ffa");
+    const heavy = resolveRam(attacker, heavyVictim, "ffa");
+    expect(shoveMagnitude(heavy, "b")).toBeLessThan(shoveMagnitude(plain, "b"));
+  });
+
+  it("leaves the attacker's own defenceMult with no effect on the shove it lands", () => {
+    const victim = car({ sessionId: "b", x: 58.75 });
+    const plain = resolveRam(car({ vx: 100, vy: 0 }), victim, "ffa");
+    const buffed = resolveRam(car({ vx: 100, vy: 0, defenceMult: 1.5 }), victim, "ffa");
+    expect(shoveMagnitude(buffed, "b")).toBeCloseTo(shoveMagnitude(plain, "b"), 9);
   });
 
   // The channel left `fortified`'s row in the 2026-09-01 overhaul (O5: pure damage reduction now)
-  // and no other row has picked it up, so "one channel doing both" has no live row to demonstrate
-  // today — the mechanism above still proves the channel itself cuts both ways for whoever authors
-  // one. That empty-table fact is also what makes stage 3 Task 4's `ramMass` → `ramDefence` rename
-  // purely a rename: with no row authoring the channel, `modifiersFor` returns the neutral 1 for
-  // every car in the game either way, so nothing the sim reads could move.
+  // and no other row has picked it up, so no live row demonstrates a car buffing its own
+  // `ramDefence` today — the mechanism above still proves the channel itself reaches `shoveOf` for
+  // whoever authors one.
 });
 
 describe("the Unity ability flags and the grip channel", () => {
@@ -460,5 +451,51 @@ describe("the Unity ability flags and the grip channel", () => {
     // `STATUS_LIMITS`' reach for an authored row, and the degenerate case the power form must hit.
     const puck = stepDrive(sliding, input(0, 0), DT, GOLDEN_CHASSIS, mods({ grip: 0 }));
     expect(lateralOf(puck.vx, puck.vy, puck.angle)).toBeCloseTo(100 * GOLDEN_CHASSIS.dragPerTick, 9);
+  });
+});
+
+describe("reeling and ramLock, redefined by the 2026-09-18 Unity ram port", () => {
+  it("makes a reeling car a passenger: no throttle, no steering, no grip, free spin, no ramming", () => {
+    const mods = modifiersOf([{ statusId: "reeling", endsTick: 10, sourceSessionId: "a" }], 0);
+    expect(mods.immobilised).toBe(true);
+    expect(mods.steeringLocked).toBe(true);
+    expect(mods.spinFree).toBe(true);
+    expect(mods.ramBlocked).toBe(true);
+    // It is not a stun: the trigger still works.
+    expect(mods.disarmed).toBe(false);
+    // Grip is REDUCED, not switched off (spec §5): a shove scrubs, only slower.
+    expect(mods.grip).toBeCloseTo(0.6, 9);
+    expect(mods.grip).toBeGreaterThan(0);
+    // The contest-era multipliers are gone.
+    expect(mods.turnRate).toBe(1);
+    expect(mods.accel).toBe(1);
+  });
+
+  it("puts grip on the clamped channel path, and says so while the clamp is unreachable", () => {
+    // Stage 1 Task 2 added the `grip` channel with a clamp test that could only assert the SHAPE of
+    // STATUS_LIMITS: no row declared `grip`, so nothing drove a value through multiply-then-clamp.
+    // `reeling` is the first row that does. It still cannot REACH either limit — a single 0.6 sits
+    // inside 0.25..2, and `reapply: "ignore"` stops it stacking with itself — so the honest thing to
+    // assert is that the value rides the generic channel path, plus a guard that fails the day a
+    // second `grip` row makes the clamp reachable and a real clamp test becomes possible.
+    const mods = modifiersOf([{ statusId: "reeling", endsTick: 10, sourceSessionId: "a" }], 0);
+    expect(mods.grip).toBeCloseTo(STATUS_TABLE.reeling.modifiers.grip!, 9);
+    expect(mods.grip).toBeGreaterThanOrEqual(STATUS_LIMITS.grip.min);
+    expect(mods.grip).toBeLessThanOrEqual(STATUS_LIMITS.grip.max);
+
+    const gripRows = Object.values(STATUS_TABLE).filter((row) => row.modifiers.grip !== undefined);
+    expect(gripRows.map((row) => row.id)).toEqual(["reeling"]);
+    // If THAT line fails, a second row now scales grip: write a test that actually drives the product
+    // past a limit and checks it is clamped, then delete this guard.
+  });
+
+  it("kills a rammer's own controls without making it a passenger", () => {
+    const mods = modifiersOf([{ statusId: "ramLock", endsTick: 10, sourceSessionId: "a" }], 0);
+    expect(mods.immobilised).toBe(true);
+    expect(mods.steeringLocked).toBe(true);
+    expect(mods.ramBlocked).toBe(true);
+    // A rammer stops; it does not slide, and it keeps full grip.
+    expect(mods.grip).toBe(1);
+    expect(mods.spinFree).toBe(false);
   });
 });
