@@ -171,15 +171,18 @@ is the one rate the Unity drive-model port uses to set top speed, wind-up and ro
 | Slip angle at full lock | `atan(turnRate / (dragRate + lateralGripRate))` | 23.6° | **26.1°** | 21.2° | 21.2° | 21.2° | 26.1° | 26.1° | 23.6° | 21.2° |
 | 180° while moving | `π / turnRate` | 1.78 s | 1.49 s | 2.08 s | 2.08 s | 2.08 s | 1.49 s | 1.49 s | 1.78 s | 2.08 s |
 | 360° while moving | `2π / turnRate` | 3.56 s | 2.99 s | 4.16 s | 4.16 s | 4.16 s | 2.99 s | 2.99 s | 3.56 s | 4.16 s |
+| Rate while reeling | `turnRate × STATUS_TABLE.reeling.turnRate` | 0.706 rad/s | **0.841 rad/s** | 0.605 rad/s | 0.605 rad/s | 0.605 rad/s | 0.841 rad/s | 0.841 rad/s | 0.706 rad/s | 0.605 rad/s |
 
 **Four rows above replace ones the Unity drive-model port made meaningless.** "Turn rate at rest"
 (and its degrees row) and "180° from standstill" used to read `turnRateAtStop`, a field `ChassisDrive`
 no longer has: yaw is speed-independent under this model, so there is no separate at-rest rate any
-more — a car turns at the same `turnRate` parked or at top speed, full stop. "Rate while reeling"
-used to read `STATUS_TABLE.reeling`'s `turnRate` multiplier through `modifiersOf`; that status still
-carries one (0.4 — a rammed car really does turn 0.4x as fast while reeling), it is simply no longer
-tabulated on this page, the same way most individual status effects never got a row here. If a
-future status needs its own scaled-rate row, it does not have a home on this page today.
+more — a car turns at the same `turnRate` parked or at top speed, full stop.
+
+**"Rate while reeling" is not one of them.** It reads `STATUS_TABLE.reeling`'s `turnRate` multiplier
+(0.4) through `modifiersOf` and scales `turnRate`, which still exists — so it was always computable
+and always meaningful. It was deleted alongside the three above during the port, on the stated
+grounds that the row it scaled no longer existed, which was simply not true of this row. Restored;
+see [Keeping this page honest](#keeping-this-page-honest).
 
 **Top speed is no longer a ceiling anyone hits.** It is the equilibrium where the engine's push
 ("Engine push" above, `engineAccel`) exactly balances drag (`dragRate`) — `engineAccel === topSpeed ×
@@ -297,17 +300,21 @@ unchecked.
 | `CAR_TABLE` | any car's `handling`, `speed`, `accel` or `brakeDecel` |
 | `DRIVE_CONFIG` | `baseTurnRate`, `turnRatePerRating`, `baseMaxSpeed`, `speedPerRating`, `baseDrag`, `dragPerRating`, `lateralGripRate`, `reverseAccelFactor`, `reverseEpsilon` |
 | `RAM_CONFIG` | `spinMaxRate` |
+| `STATUS_TABLE` | any row's `turnRate` multiplier — `reeling`'s (0.4) is the one shipped today, and it has its own "Rate while reeling" row |
 | shared | `TICK_RATE_HZ` (the per-tick rows only) |
 
 Adding a fourth chassis means a new column in all three per-car tables (ratings, direct values, and
 derived) — all three are test-checked; see above.
 
-`STATUS_TABLE.reeling`'s `turnRate` multiplier used to owe this page a "Rate while reeling" row. That
-row — and the doc test's `modifiersOf` read behind it — is gone as of the 2026-09-18 Unity
-drive-model port, because the row it scaled (`turnRateAtStop`) no longer exists. `reeling` still
-slows a car's turning exactly as before; that number simply is not tabulated here any more, and a
-future status carrying its own `turnRate` multiplier does not automatically owe this page a row the
-way it used to.
+`STATUS_TABLE.reeling`'s `turnRate` multiplier owes this page its "Rate while reeling" row, and any
+future status carrying a `turnRate` multiplier owes one the same way. **That row was briefly deleted
+during the 2026-09-18 Unity drive-model port on a factually wrong premise** — the stated reason was
+that the row it scaled, `turnRateAtStop`, no longer exists, but the deleted line scaled `d.turnRate`,
+which does. Root `CLAUDE.md` names this row as the guard a `STATUS_TABLE.turnRate` edit owes, so
+deleting it left that contract unenforced immediately before the stage that retunes `reeling`. It is
+restored, along with the doc test's `modifiersOf` read behind it — the number is taken through
+`modifiersOf`, not off the row, so a value authored past a `STATUS_LIMITS` floor prints what the sim
+actually applies rather than what someone typed.
 
 Do not retype the derived numbers by hand — build shared and print them:
 
@@ -316,7 +323,7 @@ npm run build -w @motor-combat-moba/shared
 ```
 
 ```bash
-node -e "import('./packages/shared/dist/index.js').then(({CAR_TABLE,DRIVE_CONFIG,TICK_RATE_HZ,driveOf})=>{for(const id of Object.keys(CAR_TABLE)){const d=driveOf(id),deg=(r)=>r*180/Math.PI,rev=d.maxSpeed*DRIVE_CONFIG.reverseAccelFactor;console.log(id,{rate:+d.turnRate.toFixed(3),deg:+deg(d.turnRate).toFixed(1),perTick:+(d.turnRate/TICK_RATE_HZ).toFixed(4),engineAccel:+d.engineAccel.toFixed(2),timeTo90:+(Math.log(10)/d.dragRate).toFixed(2),top:+d.maxSpeed.toFixed(2),roll:+(d.maxSpeed/d.dragRate).toFixed(1),rev:+rev.toFixed(1),radius:+(d.maxSpeed/d.turnRate).toFixed(1),revRadius:+(rev/d.turnRate).toFixed(1),slip:+deg(Math.atan(d.turnRate/(d.dragRate+DRIVE_CONFIG.lateralGripRate))).toFixed(1),s180:+(Math.PI/d.turnRate).toFixed(2),s360:+(2*Math.PI/d.turnRate).toFixed(2)});}})"
+node -e "import('./packages/shared/dist/index.js').then(({CAR_TABLE,DRIVE_CONFIG,TICK_RATE_HZ,driveOf,modifiersOf})=>{const reeling=modifiersOf([{statusId:'reeling',startTick:0,endsTick:1,sourceSessionId:''}],0).turnRate;for(const id of Object.keys(CAR_TABLE)){const d=driveOf(id),deg=(r)=>r*180/Math.PI,rev=d.maxSpeed*DRIVE_CONFIG.reverseAccelFactor;console.log(id,{rate:+d.turnRate.toFixed(3),deg:+deg(d.turnRate).toFixed(1),perTick:+(d.turnRate/TICK_RATE_HZ).toFixed(4),engineAccel:+d.engineAccel.toFixed(2),timeTo90:+(Math.log(10)/d.dragRate).toFixed(2),top:+d.maxSpeed.toFixed(2),roll:+(d.maxSpeed/d.dragRate).toFixed(1),rev:+rev.toFixed(1),radius:+(d.maxSpeed/d.turnRate).toFixed(1),revRadius:+(rev/d.turnRate).toFixed(1),slip:+deg(Math.atan(d.turnRate/(d.dragRate+DRIVE_CONFIG.lateralGripRate))).toFixed(1),s180:+(Math.PI/d.turnRate).toFixed(2),s360:+(2*Math.PI/d.turnRate).toFixed(2),reeling:+(d.turnRate*reeling).toFixed(3)});}})"
 ```
 
 The same edits almost always owe a `npm run build:manual` too — that page is generated and

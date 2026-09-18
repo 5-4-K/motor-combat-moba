@@ -9,7 +9,16 @@ import {
   RAM_CONFIG,
   TICK_RATE_HZ,
   driveOf,
+  modifiersOf,
 } from "@motor-combat-moba/shared";
+
+/**
+ * The `turnRate` multiplier a reeling car ACTUALLY drives with — the authored `STATUS_TABLE.reeling`
+ * value put through the same `modifiersOf` clamp `stepDrive` reads it through, rather than lifted raw
+ * off the row. See the note on the derived table's spec list for why the difference matters.
+ */
+const reelingTurnRate = () =>
+  modifiersOf([{ statusId: "reeling", startTick: 0, endsTick: 1, sourceSessionId: "" }], 0).turnRate;
 
 /**
  * The staleness guard on `docs/turn-tuning.md`.
@@ -224,14 +233,24 @@ describe("docs/turn-tuning.md", () => {
     );
     const columns = carColumns(header, "derived values");
 
-    // "Turn rate at rest" (and its degrees row), "180° from standstill" and "Rate while reeling" are
-    // gone: `turnRateAtStop` no longer exists on `ChassisDrive` (the Unity drive-model port, car-
-    // physics-port stage 1) — yaw is speed-independent, so there is no separate at-rest rate for any
-    // of those three rows to scale. That is why the ROW is gone, not why `reeling` stopped mattering:
-    // `STATUS_TABLE.reeling`'s `turnRate` multiplier is untouched by this stage and still ships at
-    // 0.4 today (`status-config.ts`) — a rammed car still turns at 0.4x while reeling, exactly as
-    // before. It simply has nothing left to be tabulated AGAINST (no at-rest rate to multiply), so
-    // there is no replacement row for it here. "Engine push", "Time to 90% of top speed", "Roll
+    // "Turn rate at rest" (and its degrees row) and "180° from standstill" are gone: `turnRateAtStop`
+    // no longer exists on `ChassisDrive` (the Unity drive-model port, car-physics-port stage 1) —
+    // yaw is speed-independent, so there is no separate at-rest rate for either row to scale.
+    //
+    // **"Rate while reeling" is NOT one of them, and was deleted alongside them by mistake.** The
+    // line read `["Rate while reeling", (d) => d.turnRate * reelingTurnRate()]` — it scaled
+    // `d.turnRate`, which still exists; the justification recorded for its removal (that the row it
+    // scaled, `turnRateAtStop`, was gone) was simply false. Root `CLAUDE.md` names this row as the
+    // guard any `STATUS_TABLE.turnRate` edit owes, so deleting it left that contract unenforced
+    // immediately before a stage that retunes `reeling`. Restored.
+    //
+    // It is read through `modifiersOf`, NOT off `STATUS_TABLE.reeling.modifiers.turnRate` directly:
+    // the raw number is what the row AUTHORS, and `modifiersOf` clamps it against `STATUS_LIMITS`
+    // before `stepDrive` ever multiplies by it. The two agree today only because 0.4 IS the floor.
+    // Author a harsher value and a raw read would put a number on the page that the sim never
+    // applies — the exact staleness this row exists to catch, arriving through the guard itself.
+    //
+    // "Engine push", "Time to 90% of top speed", "Roll
     // distance from top speed" and "Slip angle at full lock" are new: top speed is no longer an
     // authored clamp but the equilibrium of the engine's push against drag, so those are the numbers
     // that actually describe wind-up and roll under that model. "Reverse top speed" now reads the
@@ -258,6 +277,7 @@ describe("docs/turn-tuning.md", () => {
       ["Slip angle at full lock", (d) => deg(Math.atan(d.turnRate / (d.dragRate + DRIVE_CONFIG.lateralGripRate)))],
       ["180° while moving", (d) => Math.PI / d.turnRate],
       ["360° while moving", (d) => (2 * Math.PI) / d.turnRate],
+      ["Rate while reeling", (d) => d.turnRate * reelingTurnRate()],
     ];
     assert.deepEqual(
       rows.map(labelOf),
