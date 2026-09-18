@@ -94,9 +94,11 @@ root, against this stage's final commit:
 - **shared: green.** 54 files, 981 passed, 6 skipped — unchanged from the whole-branch-review wave
   above.
 - **client: green.** 69 files, 1019 passed, 5 skipped — unchanged.
-- **`npm run test:scripts`: green.** 39 suites, 155 tests, 153 passed, 2 skipped, 0 failed —
-  unchanged, and this includes `scripts/manual-page.test.mjs` (the guide's fingerprint), which Tasks
-  3-4 owed nothing to since neither touched a table the stamp hashes.
+- **`npm run test:scripts`: green.** 39 suites, 155 tests, 153 passed, 2 skipped, 0 failed — an
+  improvement over the whole-branch-review wave's 1 red, not something Tasks 3-4 did: Task 2
+  (`1dca2c7`) rebuilt `manual.html` and closed `manual-page.test.mjs`'s stale-fingerprint case before
+  Task 3 started. Tasks 3-4 touched no table the stamp hashes, so they owed nothing here and kept it
+  green.
 - **server: 15 red of 711**, a **different count from the whole-branch-review wave's 16** — Task 2
   (`1dca2c7`, already landed before Task 3 started) re-pinned `pipeline-order.test.ts`'s
   attacker-restitution case, so it is green again here; that happened before this dispatch and is not
