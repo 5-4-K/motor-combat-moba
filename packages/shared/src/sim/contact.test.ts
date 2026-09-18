@@ -20,14 +20,15 @@ function car(over: Partial<ContactCar> = {}): ContactCar {
     carId: "mirage" as CarId,
     defenceMult: 1,
     maneuver: ManeuverKind.NONE,
-    slamsStunned: false,
+    pushesStunned: false,
+    pushesOnContact: false,
     stunned: false,
     maneuverWeaponId: "",
     ...over,
   };
 }
 
-describe("hard slam (spec S3, O2/O3/O18)", () => {
+describe("maneuver push (spec S3, O2/O3/O18)", () => {
   const bounds = { width: 4000, height: 4000 };
   const charger = (over = {}) =>
     car({
@@ -40,33 +41,40 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
       carId: "bastion" as CarId,
       maneuver: ManeuverKind.CHARGE,
       maneuverWeaponId: "wildcharge",
-      slamsStunned: true,
+      pushesStunned: true,
+      pushesOnContact: true,
       ...over,
     });
   const victimAt = (x: number, over = {}) =>
     car({ sessionId: "b", x, y: 0, angle: 0, vx: 0, vy: 0, carId: "mirage" as CarId, ...over });
 
   it("reports the contact geometry on the event and writes NO impulse (stage 4)", () => {
-    // The whole payload of the charge branch now. A slam's magnitude, spin, defence-scaling and
+    // The whole payload of the charge branch now. A push's magnitude, spin, defence-scaling and
     // control-loss all live on `wildcharge`'s own `ImpulseDef` and are assembled by `ram-bridge.ts`;
     // what only this pass can produce is the OBB contact normal and the contact point, so that is
     // what the event carries and all this file can assert about the push.
     const r = resolveContacts([charger(), victimAt(58.75)], new Set(), "ffa", 10, new Map(), [], bounds);
-    expect(r.events.slams).toHaveLength(1);
-    const slam = r.events.slams[0]!;
-    expect(slam).toMatchObject({ attackerSessionId: "a", targetSessionId: "b", weaponId: "wildcharge" });
+    expect(r.events.contactHits).toHaveLength(1);
+    const hit = r.events.contactHits[0]!;
+    expect(hit).toMatchObject({ attackerSessionId: "a", targetSessionId: "b", weaponId: "wildcharge" });
+    const push = hit.push!;
     // The charger sits at x=0 facing +x and the victim at x=58.75 (a grazing 1.25 u overlap against
     // the 60x40 hull; 47, a 1 u overlap, at 48x32 before the 2026-09-16 resize — every ±58.75 in
     // this file is that same scaled touch), so the push points along +x, and it is a UNIT vector —
     // `applyImpulse` multiplies it by the def's `speed`, so a non-unit direction would silently
     // rescale the ult.
-    expect(slam.dirX).toBeCloseTo(1, 6);
-    expect(slam.dirY).toBeCloseTo(0, 6);
-    expect(Math.hypot(slam.dirX, slam.dirY)).toBeCloseTo(1, 6);
-    expect(slam.contactX).toBe(58.75);
-    expect(slam.contactY).toBe(0);
-    // Nothing at all on the events' `rams` list: a slam does not compete with a ram for a slot any
-    // more (there is no slot), and the pair produced no ram of its own either (`resolvePair`
+    expect(push.dirX).toBeCloseTo(1, 6);
+    expect(push.dirY).toBeCloseTo(0, 6);
+    expect(Math.hypot(push.dirX, push.dirY)).toBeCloseTo(1, 6);
+    // A GENUINE point on the victim's hull (`contactPointOn`), not its centre: the attacker's centre
+    // (0,0) clamped into the victim's half-extents (±30 long, ±20 wide) around x=58.75 lands on the
+    // victim's near face, x = 58.75 - 30 = 28.75 — 30 u short of the victim's own centre. Until
+    // 2026-09-19 this field was hardcoded to the victim's centre (58.75), which zeroed the lever arm;
+    // see `ContactHit.push`'s doc comment.
+    expect(push.contactX).toBe(28.75);
+    expect(push.contactY).toBe(0);
+    // Nothing at all on the events' `rams` list: a maneuver hit does not compete with a ram for a
+    // slot any more (there is no slot), and the pair produced no ram of its own either (`resolvePair`
     // short-circuits on `anyEvent`).
     expect(r.events.rams).toHaveLength(0);
   });
@@ -74,7 +82,7 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
   it("only the ram fallback still produces a RamResolution here", () => {
     // The contrast that keeps the assertion above meaningful: the SAME geometry with no charge
     // running falls through to an ordinary ram, which does land on `events.rams` — so an empty list
-    // above is evidence about the slam branch, not about the fixture failing to touch at all. The
+    // above is evidence about the maneuver branch, not about the fixture failing to touch at all. The
     // attacker (behind, matching heading — a rear hit) stops dead (`replacesVelocity: true`, zero
     // shove) and is locked; the victim is flung along the attacker's heading and left reeling —
     // Unity's rule (spec §7.2), not a computed contest.
@@ -87,7 +95,7 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
       [],
       bounds,
     );
-    expect(ram.events.slams).toHaveLength(0);
+    expect(ram.events.contactHits).toHaveLength(0);
     expect(ram.events.rams).toHaveLength(1);
     const resolution = ram.events.rams[0]!;
     expect(resolution.type).toBe("rear");
@@ -102,9 +110,9 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     expect(victimSide.shoveX).toBeGreaterThan(0);
   });
 
-  it("slams a stunned victim only when the weapon says so (O3)", () => {
+  it("pushes a stunned victim only when the weapon says so (O3)", () => {
     const blocked = resolveContacts(
-      [charger({ slamsStunned: false }), victimAt(58.75, { stunned: true })],
+      [charger({ pushesStunned: false }), victimAt(58.75, { stunned: true })],
       new Set(),
       "ffa",
       10,
@@ -112,9 +120,9 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
       [],
       bounds,
     );
-    expect(blocked.events.slams).toHaveLength(0); // falls back to an ordinary ram
+    expect(blocked.events.contactHits).toHaveLength(0); // falls back to an ordinary ram
     const exempt = resolveContacts(
-      [charger({ slamsStunned: true }), victimAt(58.75, { stunned: true })],
+      [charger({ pushesStunned: true }), victimAt(58.75, { stunned: true })],
       new Set(),
       "ffa",
       10,
@@ -122,33 +130,34 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
       [],
       bounds,
     );
-    expect(exempt.events.slams).toHaveLength(1);
+    expect(exempt.events.contactHits).toHaveLength(1);
+    expect(exempt.events.contactHits[0]!.push).toBeDefined();
   });
 
-  it("respects re-slam immunity, falling back to an ordinary ram (O18)", () => {
+  it("respects re-push immunity, falling back to an ordinary ram (O18)", () => {
     const immune = new Map([["b", 25]]); // immune until tick 25
     const r = resolveContacts([charger(), victimAt(58.75)], new Set(), "ffa", 10, immune, [], bounds);
-    expect(r.events.slams).toHaveLength(0);
+    expect(r.events.contactHits).toHaveLength(0);
   });
 
   it("stays edge-triggered like the ram it extends", () => {
     const touching = new Set([pairKey("a", "b")]);
     const r = resolveContacts([charger(), victimAt(58.75)], touching, "ffa", 10, new Map(), [], bounds);
-    expect(r.events.slams).toHaveLength(0);
+    expect(r.events.contactHits).toHaveLength(0);
     expect(r.events.rams).toHaveLength(0);
   });
 
   it("no longer displaces a concurrent ordinary ram on the same victim", () => {
     // Three cars: a rammer and a charger touch the SAME victim from opposite sides in one tick.
     // Through stage 3 (the old `best` map) both pairs competed for the one per-victim slot and the
-    // slam won it, on an ordering nothing enforced — the ram was simply thrown away. Now there is no
-    // slot at all: `events.rams` and `events.slams` are two independent lists, so the ram survives
-    // as its own entry and both land downstream.
+    // push won it, on an ordering nothing enforced — the ram was simply thrown away. Now there is no
+    // slot at all: `events.rams` and `events.contactHits` are two independent lists, so the ram
+    // survives as its own entry and both land downstream.
     //
-    // Session ids are chosen so the RAM pair is enumerated BEFORE the SLAM pair: `resolveContacts`
+    // Session ids are chosen so the RAM pair is enumerated BEFORE the CHARGE pair: `resolveContacts`
     // sorts by session id ("aRam" < "victim" < "zCharge"), so the nested pair loop visits
     // (aRam, victim) ahead of (victim, zCharge). Under the old `best` comparison that ordering was
-    // what gave the slam something to overwrite.
+    // what gave the push something to overwrite.
     const rammer = car({ sessionId: "aRam", x: -58.75, y: 0, angle: 0, vx: 100, vy: 0, carId: "bastion" as CarId });
     const victim = car({ sessionId: "victim", x: 0, y: 0, angle: 0, carId: "mirage" as CarId });
     const charger2 = car({
@@ -159,21 +168,22 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
       carId: "bastion" as CarId,
       maneuver: ManeuverKind.CHARGE,
       maneuverWeaponId: "wildcharge",
-      slamsStunned: true,
+      pushesStunned: true,
+      pushesOnContact: true,
     });
     const r = resolveContacts([rammer, victim, charger2], new Set(), "ffa", 10, new Map(), [], bounds);
 
-    expect(r.events.slams).toHaveLength(1);
-    expect(r.events.slams[0]).toMatchObject({ attackerSessionId: "zCharge", targetSessionId: "victim" });
+    expect(r.events.contactHits).toHaveLength(1);
+    expect(r.events.contactHits[0]).toMatchObject({ attackerSessionId: "zCharge", targetSessionId: "victim" });
     // The ram is still here, still attributed to the rammer, as its own resolution rather than
-    // something a slam overwrote.
+    // something a push overwrote.
     expect(r.events.rams).toHaveLength(1);
     const resolution = r.events.rams[0]!;
     expect(resolution.attackerId).toBe("aRam");
     expect(resolution.reeled).toEqual(["victim"]);
   });
 
-  it("reports BOTH slams when two chargers land on one victim in a tick", () => {
+  it("reports BOTH pushes when two chargers land on one victim in a tick", () => {
     // Two chargers hit the SAME victim from opposite sides. There is no per-victim slot for them to
     // contest any more, so neither is dropped: both events are reported, in pair-enumeration order,
     // and `ram-bridge.ts` applies both pushes. Under the old `best` map one of the two was silently
@@ -183,14 +193,70 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     const charger2 = charger({ sessionId: "zCharge", x: 58.75, y: 0, angle: Math.PI });
     const r = resolveContacts([charger1, victim, charger2], new Set(), "ffa", 10, new Map(), [], bounds);
 
-    expect(r.events.slams.map((s) => s.attackerSessionId)).toEqual(["aCharge", "zCharge"]);
+    expect(r.events.contactHits.map((h) => h.attackerSessionId)).toEqual(["aCharge", "zCharge"]);
     // Opposite approaches produce opposite push directions, which is the geometry actually being
     // carried rather than a constant copied onto both events.
-    expect(r.events.slams[0]!.dirX).toBeCloseTo(1, 6);
-    expect(r.events.slams[1]!.dirX).toBeCloseTo(-1, 6);
-    // Both pairs produced a slam (anyEvent), so neither one falls through to the ram arm at all —
+    expect(r.events.contactHits[0]!.push!.dirX).toBeCloseTo(1, 6);
+    expect(r.events.contactHits[1]!.push!.dirX).toBeCloseTo(-1, 6);
+    // Both pairs produced a hit (anyEvent), so neither one falls through to the ram arm at all —
     // not "no ram survived a contest", but "no ram was ever attempted" for either pair.
     expect(r.events.rams).toHaveLength(0);
+  });
+});
+
+describe("one contact event, and a real contact point (2026-09-19)", () => {
+  const bounds = { width: 4000, height: 4000 };
+  const dasher = car({
+    sessionId: "a",
+    x: 0,
+    y: 0,
+    angle: 0,
+    vx: 1600,
+    vy: 0,
+    carId: "mirage" as CarId,
+    maneuver: ManeuverKind.DASH,
+    maneuverWeaponId: "thunderclap",
+  });
+  const charger = car({
+    sessionId: "a",
+    x: 0,
+    y: 0,
+    angle: 0,
+    vx: 300,
+    vy: 0,
+    carId: "bastion" as CarId,
+    maneuver: ManeuverKind.CHARGE,
+    maneuverWeaponId: "wildcharge",
+    pushesStunned: true,
+    pushesOnContact: true,
+  });
+  const victim = car({ sessionId: "b", x: 58.75, y: 0, angle: 0, carId: "bastion" as CarId });
+
+  it("reports a dash and a charge as the same kind of event, in one list", () => {
+    const { events } = resolveContacts([dasher, victim], new Set(), "ffa", 0, new Map(), [], bounds);
+    expect(events.contactHits).toHaveLength(1);
+    expect(events.contactHits[0]!.push).toBeUndefined();
+  });
+
+  it("carries push geometry only when the row declares an impulse", () => {
+    const { events } = resolveContacts([charger, victim], new Set(), "ffa", 0, new Map(), [], bounds);
+    expect(events.contactHits).toHaveLength(1);
+    const push = events.contactHits[0]!.push!;
+    expect(Math.hypot(push.dirX, push.dirY)).toBeCloseTo(1, 9);
+  });
+
+  it("derives a real contact point, not the victim's centre, so an authored spin can rotate", () => {
+    // This is why `ImpulseDef.spin` could never do anything: a lever arm of exactly zero.
+    const { events } = resolveContacts([charger, victim], new Set(), "ffa", 0, new Map(), [], bounds);
+    const push = events.contactHits[0]!.push!;
+    expect(Math.hypot(push.contactX - victim.x, push.contactY - victim.y)).toBeGreaterThan(0);
+  });
+
+  it("still keeps a car in any maneuver out of the ram arm", () => {
+    // `anyEvent`'s real job. `ramLock` immobilises for half a second, and stranding a mid-ult charger
+    // with it would be the worst bug this stage could ship.
+    const { events } = resolveContacts([charger, victim], new Set(), "ffa", 0, new Map(), [], bounds);
+    expect(events.rams).toHaveLength(0);
   });
 });
 
@@ -233,7 +299,8 @@ describe("resolveContacts carries rams on events, not as an impulse map", () => 
       width: 4000,
       height: 4000,
     });
-    expect(events.dashHits).toHaveLength(1);
+    expect(events.contactHits).toHaveLength(1);
+    expect(events.contactHits[0]!.push).toBeUndefined();
     expect(events.rams).toHaveLength(0);
   });
 });
@@ -260,7 +327,9 @@ describe("dash contact", () => {
       [],
       { width: 4000, height: 4000 },
     );
-    expect(r.events.dashHits).toEqual([{ attackerSessionId: "a", targetSessionId: "b", weaponId: "thunderclap" }]);
+    expect(r.events.contactHits).toEqual([
+      { attackerSessionId: "a", targetSessionId: "b", weaponId: "thunderclap", push: undefined },
+    ]);
     expect(r.events.rams).toHaveLength(0);
   });
 

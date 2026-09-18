@@ -115,7 +115,6 @@ export type {
   ContactCar,
   ContactEvents,
   ContactHit,
-  SlamEvent,
   SpikeContact,
   SpikeHit,
 } from "./sim/contact.js";
