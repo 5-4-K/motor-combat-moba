@@ -492,7 +492,11 @@ describe("the Unity drive knobs", () => {
     expect(DRIVE_CONFIG.dragPerRating).toBeGreaterThan(0);
     expect(DRIVE_CONFIG.lateralGripRate).toBeGreaterThan(0);
     expect(DRIVE_CONFIG.reverseEpsilon).toBeGreaterThan(DRIVE_CONFIG.stopEpsilon);
-    expect(DRIVE_CONFIG.flipSteeringInReverse).toBe(true);
+    // OFF for the tuning pass, not permanently: the flip reads the car-frame forward component,
+    // which drift drives negative mid-corner, so it chatters and inverts the steering several
+    // times a second. The machinery is kept; the predicate needs gating on COMMANDED reverse
+    // before this goes back to true. See the knob’s doc comment in `drive-config.ts`.
+    expect(DRIVE_CONFIG.flipSteeringInReverse).toBe(false);
   });
 
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChassisDrive } from "../config/car-config.js";
-import { perTickDecay } from "../config/drive-config.js";
+import { DRIVE_CONFIG, perTickDecay } from "../config/drive-config.js";
 import { TICK_RATE_HZ } from "../constants.js";
 import type { InputMessage } from "../net/input.js";
 import { stepDrive } from "./drive.js";
@@ -97,11 +97,24 @@ describe("vector drive: the Unity drag/grip model", () => {
     expect(rolling.angle).toBeCloseTo(CHASSIS.turnRate * DT, 9);
   });
 
-  it("flips the steering sense once genuinely reversing, and not at rest", () => {
+  it("leaves the steering sense alone while the reverse flip is switched off", () => {
+    // `DRIVE_CONFIG.flipSteeringInReverse` is OFF for the tuning pass (see its doc comment): the
+    // predicate reads the car-frame forward component, which drift drives negative mid-corner, so
+    // it chattered and inverted the steering several times a second. The machinery is kept, so this
+    // case reads the knob rather than hard-coding an answer — it stays true whichever way it is set,
+    // and it is what will catch the flip silently not working if someone turns it back on without
+    // fixing the predicate first.
     const reversing = stepDrive(body({ ...toWorld(0, -50, 0) }), input(1, 0), DT, CHASSIS, NEUTRAL_MODIFIERS);
-    expect(reversing.angle).toBeLessThan(0);
     const atRest = stepDrive(body({ vx: 0, vy: 0 }), input(1, 0), DT, CHASSIS, NEUTRAL_MODIFIERS);
+    // At rest the sense is never flipped, whatever the knob says: the flip needs `forward < -reverseEpsilon`.
     expect(atRest.angle).toBeGreaterThan(0);
+    if (DRIVE_CONFIG.flipSteeringInReverse) {
+      expect(reversing.angle).toBeLessThan(0);
+    } else {
+      // Same steer input, same sense as going forwards — tank-style absolute steering.
+      expect(reversing.angle).toBeGreaterThan(0);
+      expect(reversing.angle).toBeCloseTo(atRest.angle, 12);
+    }
   });
 
   it("brakes while rolling forward and reverses once nearly stopped, with no hold delay", () => {

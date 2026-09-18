@@ -260,8 +260,24 @@ export const DRIVE_CONFIG = {
    * Invert the steering sense while genuinely travelling backwards, the way a real car behaves.
    * Unity's `DriveConfig.flipSteeringInReverse`. Off gives tank-style absolute steering. Turning on
    * the spot is unaffected either way, because the flip needs `forwardSpeed < -reverseEpsilon`.
+   *
+   * **OFF for the tuning pass, deliberately, and this is not a permanent decision.** The flip reads
+   * the car-frame FORWARD component of velocity to ask "am I reversing?". That was sound before the
+   * Unity port, when `steeringGrip: 1.0` welded velocity to the nose and the component simply WAS
+   * the car's speed. With drift it is `speed * cos(slip)`, so a hard corner that swings the nose past
+   * sideways drives it negative while the car is still moving fast — and it then sits on the
+   * `-reverseEpsilon` threshold and chatters, inverting the steering several times a second. Measured
+   * at `baseTurnRate` 1.0005 / `turnRatePerRating` 0.02535: Mirage 12 sense flips, Bullseye 6,
+   * Bastion 0 — which is exactly the "mostly Mirage, sometimes Bullseye, never Bastion" a player
+   * reported. The shipped turn rates clear it only by 5 u/s, so any handling buff walks back into it.
+   *
+   * **Do not simply flip this back to `true`.** The machinery is kept on purpose, but the predicate
+   * needs replacing first: gate the flip on the driver having COMMANDED reverse
+   * (`throttle === -1 && forward < -reverseEpsilon`) rather than on the velocity component alone.
+   * No threshold on velocity MAGNITUDE can work — spin-out and genuine reverse occupy the same speed
+   * range, and at higher turn rates the ranges cross over entirely.
    */
-  flipSteeringInReverse: true,
+  flipSteeringInReverse: false,
 } as const;
 
 /**
