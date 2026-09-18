@@ -1,4 +1,11 @@
-import { RAM_CONFIG, canDamage, carHullOf, obbsInContact } from "@motor-combat-moba/shared";
+import {
+  RAM_CONFIG,
+  carHullOf,
+  obbsInContact,
+  resolveRam,
+  speedOf,
+  type RamCar,
+} from "@motor-combat-moba/shared";
 
 /**
  * Local contact detection for impact feedback ONLY — a camera shake and a spark.
@@ -27,13 +34,16 @@ import { RAM_CONFIG, canDamage, carHullOf, obbsInContact } from "@motor-combat-m
  * precise hit indicator; it is a perceptual cover for network delay; nothing more.
  */
 
-export interface ImpactPose {
-  sessionId: string;
-  x: number;
-  y: number;
-  angle: number;
-  team: 0 | 1;
-}
+/**
+ * What this pass needs to know about one car — which is exactly what the sim's own ram resolver
+ * needs, so it is that type rather than a parallel one.
+ *
+ * It was a bare pose (`{sessionId, x, y, angle, team}`) while the gate was "are these hulls
+ * touching and are they enemies". The Unity ram rule reads velocity, heading and the ram flags too
+ * (spec §7.1), and a second copy of that rule on the client is precisely the drift this alias
+ * exists to make impossible.
+ */
+export type ImpactPose = RamCar;
 
 export interface ImpactTracker {
   contacts: Set<string>;
@@ -43,6 +53,8 @@ export interface Impact {
   sessionId: string;
   x: number;
   y: number;
+  /** The shove the sim will apply, in u/s — what the shake scales with. */
+  closingSpeed: number;
 }
 
 export function newImpactTracker(): ImpactTracker {
@@ -56,12 +68,15 @@ export function newImpactTracker(): ImpactTracker {
  * that vanish from `others` drop out of the tracker, so a reconnecting player is not remembered as
  * still touching and silently denied their next spark.
  *
- * Gated by the same `canDamage` predicate `resolveRam` itself is gated by (R15): a ram is
- * structurally impossible between teammates, so a teammate must never produce this feedback either.
- * Without this, pushing an ally through ordinary collision shakes the screen and sparks as if a ram
- * had landed, contradicting `docs/combat-model.md`'s promise that friendly contact "produces no spin,
- * no shove, and no authority loss." A teammate is still tracked as touching (so a later swap to an
- * opponent, e.g. a team change, does not misread as a fresh contact) — it simply never sparks.
+ * The team gate is no longer this file's own — it lives inside `resolveRam`, which is gated by the
+ * same friendly-fire predicate a ram itself is gated by (R15): a ram is structurally impossible
+ * between teammates, so a teammate must never produce this feedback either. `resolveRam` returning
+ * `null` for a teammate pair is the stronger version of that same claim, since it also covers
+ * everything else that disqualifies a contact as a ram. Without it, pushing an ally through ordinary
+ * collision would shake the screen and spark as if a ram had landed, contradicting
+ * `docs/combat-model.md`'s promise that friendly contact "produces no spin, no shove, and no
+ * authority loss." A teammate is still tracked as touching (so a later swap to an opponent, e.g. a
+ * team change, does not misread as a fresh contact) — it simply never sparks.
  */
 export function freshImpacts(
   self: ImpactPose,
@@ -75,6 +90,10 @@ export function freshImpacts(
 
   for (const other of others) {
     if (other.sessionId === self.sessionId) continue;
+    // Tracking is still plain hull contact, deliberately WIDER than the spark: `applyRams` records
+    // a contact for every touching pair, ram or not, so that holding against someone and then
+    // accelerating cannot re-trigger without separating first. Narrowing this to rams would hand
+    // back exactly that exploit.
     const inContact = obbsInContact(
       selfHull,
       carHullOf(other.x, other.y, other.angle),
@@ -83,11 +102,33 @@ export function freshImpacts(
     if (!inContact) continue;
     touching.add(other.sessionId);
     if (tracker.contacts.has(other.sessionId)) continue;
-    if (!canDamage(self.sessionId, self.team, other.sessionId, other.team, mode)) continue;
+
+    // The sim's own answer, not a second reading of it. `resolveRam` applies the friendly-fire
+    // check, the front/frontCorner attack region, `RAM_CONFIG.minRamSpeed` and the ram-blocked check
+    // itself — so a flank-first slide, a crawl and a car inside its own `ramLock` all come back
+    // `null`, and the spark stays a cue for the one contact that actually costs somebody something.
+    const ram = resolveRam(self, other, mode);
+    if (ram === null) continue;
+    // Neither "the other car's side" (`s.sessionId !== self.sessionId`) nor "the non-attacker side"
+    // (`s.sessionId !== ram.attackerId`) is safe here. Both break on a head-on: `attackerId` is `""`
+    // there (U27), and a head-on's two sides are NOT a shoved/unshoved pair the way a one-way ram's
+    // are — each side's shove is attributed from the OTHER car's speed (`headOnResolution`'s
+    // `ontoA`/`ontoB`), so either one can land on zero depending on who was actually moving. A
+    // stationary car head-on'd by a fast one is a real example: its own side carries the real shove
+    // while the other side (keyed off the stationary car's own zero speed) is exactly zero, and
+    // `sides.find` against either `self.sessionId` or `attackerId` can return that zero side first —
+    // whichever side happens to sit at index 0 — regardless of who "self" is. Taking the LARGER of
+    // the two magnitudes is correct for every shape `RamResolution` produces instead: a one-way ram's
+    // attacker side is architecturally always zero, so the max is always the victim's real shove
+    // (whichever car that is); a head-on's max is whichever car actually got hit hardest.
+    const closingSpeed = Math.max(
+      ...ram.sides.map((s) => speedOf(s.shoveX, s.shoveY)),
+    );
     fresh.push({
       sessionId: other.sessionId,
       x: (self.x + other.x) / 2,
       y: (self.y + other.y) / 2,
+      closingSpeed,
     });
   }
 

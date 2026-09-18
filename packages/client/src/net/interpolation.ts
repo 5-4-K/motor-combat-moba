@@ -24,8 +24,10 @@ function lerpAngle(from: number, to: number, alpha: number): number {
 
 /**
  * A render pose part-way between two sim poses. Position and angle blend (angle the short way);
- * `vx`/`vy` come from `to` untouched because nothing that draws reads them and a
- * half-blended value must never flow back into a step. Used to draw the local car between predicted
+ * `vx`/`vy` come from `to` un-blended: a half-blended velocity must never flow back into a step. The
+ * impact-spark pass (`scenes/impact-feedback.ts`) does read them, to ask `resolveRam` whether a
+ * contact is a ram, and the latest patched velocity is the right input for that — it is the server's
+ * own number, where a blend would be an invention. Used to draw the local car between predicted
  * ticks: prediction advances on the 30 Hz sim clock while frames come at the display rate, so
  * without this the local car holds for a frame and jumps a whole tick while the camera and remotes
  * glide — which the eye reads as a doubled, smeared sprite.
