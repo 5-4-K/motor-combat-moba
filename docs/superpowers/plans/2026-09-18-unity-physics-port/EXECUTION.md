@@ -57,13 +57,23 @@ makes a ram's own knockback carry 2.5x further, 368 u); `channels.test.ts` provi
 naming `spinFree`/`ramBlocked` as declared ahead of use; and the spec's Changelog, slip formula and
 `ChassisDrive` field count.
 
-**Measured test state after the sweep** (root `npm test` plus `npm run test:scripts`): shared green
-(54 files, 981 passed), client green (69 files, 1019 passed), scripts 1 red
-(`manual-page.test.mjs`'s stale-guide fingerprint, stage 2's rebuild to own), server 16 red of 711 —
-**the same 16 cases as stage 1's exit**, unmoved: the four bot suites below plus
-`pipeline-order.test.ts`'s "charges the attacker with restitution AND its own contest impulse", which
-stage 2's restitution → 0 commit turned red and stage 2 owns. `balance/match.test.ts` is green again
-at this commit.
+**Measured test state after the sweep** (root `npm run build`, `npm test`, `npm run test:scripts`,
+all from the repo root):
+
+- **shared green** — 54 files, 981 passed, 6 skipped (up 11 from stage 1's exit: the new HOLD-yaw
+  cases and the `grip` channel proof).
+- **client green** — 69 files, 1019 passed, 5 skipped. Unchanged.
+- **`npm run test:scripts`: 1 red of 155** — `manual-page.test.mjs`'s stale-guide fingerprint, which
+  stage 2's rebuild owns. Its computed stamp is `104b5f3c9e9fa7a6` **before and after this wave**, so
+  nothing here moved `balanceStamp`; the sweep changed comments and prose only.
+- **server: 16 red of 711** — the same count as stage 1's exit and the **same 16 cases as this wave's
+  own starting point (`bb69f26`)**. Nothing moved: the four bot suites below (`predict.test.ts` 9,
+  `controller.test.ts` 2, `planner.test.ts` 2, `tiers.test.ts` 2), plus `pipeline-order.test.ts`'s
+  "charges the attacker with restitution AND its own contest impulse, not the reflection alone".
+- **The composition differs from stage 1's exit by one swap, and neither half of it is this wave's.**
+  `balance/match.test.ts`'s seed-1 ranking tie is **green again** at `bb69f26` and stayed green;
+  `pipeline-order.test.ts`'s attacker-restitution case went **red** in that same commit (stage 2's
+  restitution → 0), and stage 2 owns it. Measured red at `bb69f26` before any of this wave ran.
 
 ## Stages
 
