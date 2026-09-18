@@ -32,13 +32,21 @@ started.
 
 ## In flight
 
-**Nothing is in flight.** Stage 3 (rams) landed in full on 2026-09-18 — see "Stage 3 exit: measured
+**Nothing is in flight.** Stage 4 (slam and effects) landed in full on 2026-09-19, all eight tasks
+committed on `physics/stage2-and-3` — see "Stage 4 landed" and "Stage 4 exit: measured test state"
+below. Start stage 5 next; its dependency (stage 4) is now `Landed`, and stage 5 inherits the
+deferred items already on file (rulings **S3-p**, §7.4's `ramLock` argument, `spinScale`,
+`ramDefence`'s changed effect, the `wildcharge.impulse` numbers, and the rest under "Deferred, and
+who owns it") plus two more stage 4 added: the **`ramLock` status-source defect (controller ruling
+S3-l / P5), explicitly moved from stage 4 to stage 5 by this commit**, and the playground call on
+whether `wildcharge.impulse.speed` (520) still feels right now that `reeling` is a total loss of
+control (spec §9.3).
+
+Stage 3 (rams) landed in full on 2026-09-18 — see "Stage 3 exit: measured
 test state" below — and a **whole-branch review of stages 2-3 has been swept**, one behavioural fix
 (two rams on one victim in a tick lost a push) plus a documentation sweep; see "Stages 2-3
 whole-branch review" below, and read controller ruling **S3-o** there before touching
-`ram-bridge.ts`'s ram loop. Start stage 4 next; its dependency (stage 3) is now `Landed`, and stage 4
-inherits two recorded findings of its own (rulings **S3-p** and the §7.4 `ramLock` argument, both
-under "Deferred, and who owns it").
+`ram-bridge.ts`'s ram loop.
 
 Stage 1 landed (all eight tasks committed, `test(drive): pin tick-rate
 independence; rebuild the guide` closing it) and a **whole-branch review of stage 1 has been swept**
@@ -295,6 +303,157 @@ argument, and the zero-restitution × edge-triggered-contact re-ram feel.
 unchanged from stage 3's exit in every workspace, with the server at exactly the same 15 red across
 the same five files. See the run recorded in that fix wave's commit message.
 
+### Stage 4 landed on 2026-09-19, all eight tasks committed
+
+Same branch, `physics/stage2-and-3`.
+
+| Task | State | Commits |
+|---|---|---|
+| 1 — `ImpulseDef` declares its statuses, `SLAM_CONFIG` -> `IMPULSE_CONFIG` | Landed, reviewed, fixed | `5076476`..`790ad4b` |
+| 2 — one contact event, and a real contact point | Landed, reviewed clean | `790ad4b`..`38db216` |
+| 3 — the bridge applies what the row declared | Landed, reviewed clean | `38db216`..`7f3566c` |
+| 4 — re-pitch `wildcharge`'s `ImpulseDef` against the new ram scale | Landed, reviewed clean | `7f3566c`..`636702f` |
+| 5 — publish `ramLock` in the players' guide | Landed, reviewed clean | `636702f`..`af0222b` |
+| 6 — the HUD status chips: verify, then pin what the verification found | Landed, reviewed, fixed | `af0222b`..`2d266ac` |
+| 7 — make the impact spark agree with the new ram rule | Landed, reviewed, fixed | `2d266ac`..`34bf7f7` |
+| 8 — rebuild the guide, verify the stage, update the tracker | Landed (this commit) | — |
+
+The controller's full record — a pre-flight conflict scan against Tasks 1-8, twelve rulings
+(P1-P12), and every per-task review outcome — is in `.superpowers/sdd/04-slam-and-effects/progress.md`,
+which `git clean -fdx` would destroy. Seven of those rulings changed what shipped and are worth
+repeating here because their home is git-ignored:
+
+- **P2 — the word "slam" is renamed out of the sim seam, but `WEAPON_TABLE`'s authored
+  `maneuver.slamsStunned` field stays.** `ContactCar.slamsStunned` became `pushesStunned` and
+  `ram-bridge.ts`'s `slamsStunnedOf` became `pushesStunnedOf` (the sim seam, ~8 sites), but
+  `def.maneuver.slamsStunned` (`weapon-types.ts:458`, `weapon-config.ts:458`,
+  `weapon-config.test.ts:24`, `tuning-walker.ts:53`) is the project owner's authored config surface
+  describing a genuinely slam-specific rule (O3), and no spec clause touches it. It is the one
+  surviving "slam" in authored config, named explicitly rather than silently exempted. **Cost if
+  wrong:** one field name, one commit to rename.
+- **P5 — the `ramLock` status-source defect (stage 3's ruling S3-l) is deferred to stage 5, not
+  fixed in stage 4, overriding this file's own line that had assigned it to stage 4** (now corrected
+  in place under "Deferred, and who owns it"). No spec clause covers a status's source, so fixing it
+  means inventing a rule stage 4's implementer and reviewer both declined to invent mid-restructure.
+  **Cost if wrong:** a rare self-shortening of the rammer's own 500 ms lock survives one more stage.
+- **P7 — exit criterion 8 permits past-tense history, and three such references ship.** The
+  criterion bars a comment in `wildcharge.impulse` from arguing FROM deleted machinery
+  (`SLAM_CONFIG`, `knockMaxSpeed`, the ram contest, `pushOf`, `impactOn`, `victimAuthority`,
+  `selfKeepFactor`) — but the plan's own mandated replacement prose (Task 4) narrates the number's
+  history in past tense ("it **was** authored as…", "then **orphaned** twice", "the ram contest
+  that replaced it **was** open-ended", "carried across from the **deleted** `SLAM_CONFIG`"), which
+  its sibling exit criterion 2 explicitly permits ("comments describing history"). Inspected the
+  shipped text (`weapon-config.ts:467-469`, `:514`): every hit narrates that the thing is gone,
+  none presents it as live authority. **Cost if wrong:** three history sentences, one edit to
+  delete, with the history then living only in git.
+- **P8 — the guide now publishes a weapon's `impulse.applies` as chips, so Wild Charge shows
+  `Reeling 1.4s` for the first time.** The restructure makes a weapon's applied statuses
+  declarative; Wild Charge's most consequential property — 1.4 s of total control loss under U31 —
+  was invisible on its stat card while the Effects section already credited it, so the page
+  contradicted itself. Guarded against double-crediting Wild Charge in the Effects "From" line
+  (verified clean: `effectSources()`/`EFFECT_SOURCE_MAP` untouched, so the authored sentence alone
+  renders there). **Cost if wrong:** one extra true chip on one weapon card, one edit to remove.
+- **P9 — `EFFECT_SOURCES.reeling` IS tightened, overriding the plan's own claim (spec §8) that the
+  line "stays true and needs no edit".** Under §7.2 the old wording ("Every ram, and Wild Charge's
+  slam.") is false — a head-on is a ram type that reels nobody. Shipped wording: **"Any ram but a
+  head-on, and Wild Charge's slam."** A players' guide stating something false outweighs a spec
+  clause being one revision stale. **Cost if wrong:** one sentence of prose, one rebuild to revert.
+- **P10 — the Reeling card reads "low grip", not "no grip".** The plan's own brief contradicted
+  itself (code sample vs. prose); `STATUS_TABLE.reeling` carries `modifiers: { grip: 0.6 }` — grip
+  is REDUCED to 60%, not removed — so "no grip" would be false on a page players read. Shipped:
+  `Reeling — no control · no steering · low grip · spins freely · cannot ram`. **Cost if wrong:**
+  two words on one status card.
+- **P12 — the camera shake reads the larger of the two `RamSide` magnitudes, not "the other car's"
+  side.** The plan's selector (`s.sessionId !== self.sessionId`) and the controller's first-proposed
+  fix (`s.sessionId !== ram.attackerId`) both read zero on a head-on, where each side's shove is
+  cross-attributed from the OTHER car's speed rather than split into a clean shoved/unshoved pair.
+  The implementer proved this empirically against `resolveRam`'s real output and shipped
+  `Math.max` across both sides' shove magnitudes instead, which is the only one of the three
+  selectors that passes for both a one-way ram and a head-on. **Cost if wrong:** camera-shake
+  intensity alone, visual, no sim effect.
+
+### Stage 4 exit: measured test state (Task 8, 2026-09-19)
+
+`npm install`, `npm run build`, `npm run typecheck`, `npm test` (root; backgrounded past the 120 s
+foreground timeout — the bot-brain suites alone run several minutes), then `npm run test:scripts`
+and `npm test -w @motor-combat-moba/client` as their own commands (the combined `npm test` chains
+`build -w shared && typecheck --workspaces && test --workspaces && test:scripts` with `&&`, so the
+server workspace's expected-red exit stops that chain before `test:scripts` runs — the same property
+stage 2's and stage 3's exit notes already record, not a new failure):
+
+- **`npm install`: up to date**, 370 packages audited — pre-existing advisories only.
+- **`npm run build`: clean.** Shared (`tsc`), server (`tsup` → `dist/index.js` 376.68 KB), client
+  (`vite build`, 219 modules, built in 6.02s).
+- **`npm run typecheck`: clean.** All three workspaces, including `playtest/tsconfig.json` and
+  `balance/tsconfig.json` inside the server workspace's script.
+- **shared: green.** 54 files, 999 passed, 6 skipped.
+- **client: green.** 69 files, 1028 passed, 5 skipped — matches the stage's stated target exactly.
+- **`npm run test:scripts`: green.** 39 suites, 155 tests, 153 passed, 2 skipped, 0 failed —
+  includes `manual-page.test.mjs`'s stamp check against the freshly rebuilt page.
+- **server: 15 red of 730, in exactly the five pre-existing files — the stage's stated target, hit
+  exactly:**
+
+  | Suite | Red count | Cases |
+  |---|---|---|
+  | `src/bot/brain/predict.test.ts` | 9 | same nine as stage 3's exit |
+  | `src/bot/brain/controller.test.ts` | 2 | both G12 |
+  | `src/bot/brain/planner.test.ts` | 1 | R-P16 |
+  | `src/bot/brain/tiers.test.ts` | 2 | H25, and S13 evade |
+  | `balance/match.test.ts` | 1 | the seed-1 ranking tie |
+
+  Tasks 1-7 touched `sim/impulse.ts`, the weapon/ram/status config files, `ram-bridge.ts`, the
+  players' guide, the HUD status test and the client's impact-feedback module — no bot brain file
+  and no balance seed — so an unchanged baseline is the expected outcome. Stage 5's `bot-tuner`
+  pass still owns all five files; this task re-pins none of them. **No 16th failure — nothing to
+  report as a defect.**
+- **`grep -n "shared/dist" packages/server/dist/index.js | head -3`** reads `// ../shared/dist/…`
+  three times (`constants.js`, `net/input.js`, `net/lobby-messages.js`) — the correct inlined path,
+  not an escaped worktree path.
+- **`npm run check:art`: the same set stage 3 recorded.** Ten `check:weapons` warnings (`tremor`
+  plus the nine `basic-attack-<carId>` rows, none of which has an icon yet), no blockers.
+- **`npm run build:manual`, then `git diff --stat packages/client/public/manual.html`: no diff at
+  all.** Task 5 already rebuilt the page against Task 4's final `WEAPON_TABLE` and the builder's
+  `statusBlurb` change; nothing moved. No weapon stat cell moved, so no investigation was owed.
+
+**The Measurements table's `wildcharge` row is now filled** (see the table above): the guard's bar
+is `hardestOrdinaryRam()` = 259.91625 u/s (Mirage flanking Bullseye at Mirage's own top speed), and
+`wildcharge.impulse.speed` (520) is 2.00× it, 3.33× a mirror-match flank (155.95), and 8.00× the
+hardest ram once diminishing returns bottom out (64.98). Measured by `hardestOrdinaryRam()` in
+`packages/shared/src/config/weapon-config.test.ts`, derived from live `RAM_CONFIG` + `CAR_TABLE`,
+proven non-vacuous during Task 4 (a temporary `speed: 300` fails the guard with "expected 300 to be
+greater than 389.874375"; `520` restored and confirmed in the committed diff).
+
+**`wildcharge.impulse.speed` is still provisional, in the one respect arithmetic cannot settle.**
+Under the redefined `reeling` (U31: `immobilised`, `steeringLocked`, `spinFree`, `ramBlocked`,
+`grip: 0.6`, no lateral grip left to fight), a 520 u/s punt carries its victim into walls — and
+often the spikes — far more reliably than the same number did under the old `turnRate: 0.4,
+accel: 0.4` version of `reeling`, where the victim still steered. The number did not move this
+stage; whether it should is the playground call, and that belongs to stage 5, with the user in the
+loop.
+
+**The guard over `wildcharge.impulse.speed`, and why it exists as a guard rather than a typed
+number:** `weapon-config.test.ts` pins the RELATIONSHIP (1.5× `hardestOrdinaryRam()`), not the
+number, because **`RAM_CONFIG` is not hashed by `balanceStamp`** — a retune of `globalScale` or
+`flankScale` moves every ram in the game with no page rebuild and nothing else in the suite failing
+to say so. The guard bites once `globalScale` passes roughly 0.667 (at which point
+`hardestOrdinaryRam()` alone would clear 520 without `wildcharge` changing at all).
+
+**The HUD needed no change at all, proven rather than asserted.** Task 6 confirmed the status strip
+is fully table-driven: both new `STATUS_TABLE` rows (`reeling`, `ramLock`) render correctly with no
+client source file modified. Two regression tests in `packages/client/src/scenes/status-hud.test.ts`
+say why — "draws a badge for each straight off the table, with no client-side branch" (asserts
+`badge.kind === STATUS_TABLE[id].kind`, not a hardcoded literal, so a per-status branch returning a
+wrong hardcoded kind would fail it) and "never shows 0s on a live half-second lock" (pins
+`ramLock`'s single-digit-second display over its whole 500 ms life).
+
+### Stage 5 is next
+
+It inherits every item already listed under "Deferred, and who owns it" below, plus two stage 4
+added: the **`ramLock` status-source defect** (ruling P5, moved from stage 4 to stage 5 in this
+commit — see the corrected entry below) and the **playground call on `wildcharge.impulse.speed`**
+under the redefined `reeling` (this section, above). Stage 5 is the reconcile-and-tune stage; both
+are design calls for the project owner, not arithmetic this stage could settle on its own.
+
 ## Stages
 
 | # | Plan | State | Gate |
@@ -302,7 +461,7 @@ the same five files. See the run recorded in that fix wave's commit message.
 | 1 | [`01-drive-model.md`](01-drive-model.md) | **Landed** | Asymptotic top speed; measurable slip angle; `stepDrive` reads no module-level rate; 30/60 Hz equivalence test green |
 | 2 | [`02-walls-and-bumps.md`](02-walls-and-bumps.md) | **Landed** | Restitution 0; a car slides along a wall and never gains speed; the spike self-trigger re-measured |
 | 3 | [`03-rams.md`](03-rams.md) | **Landed** | Attacker stops and locks; victim flung, spun, reeling; head-on stops both; `applyImpulse` has one production caller |
-| 4 | [`04-slam-and-effects.md`](04-slam-and-effects.md) | Not started | `wildcharge` still clearly harder than the best ordinary ram; `ramLock` published to players |
+| 4 | [`04-slam-and-effects.md`](04-slam-and-effects.md) | **Landed** | `wildcharge` still clearly harder than the best ordinary ram; `ramLock` published to players |
 | 5 | [`05-tune-and-reconcile.md`](05-tune-and-reconcile.md) | Not started | Playground pass done with the user; probes honest; fresh balance baseline; docs true |
 
 ## What is known before any of it runs
@@ -395,7 +554,7 @@ command as well as the figure.
 | How far a ram's shove carries a reeling victim (`grip: 0.6`, target ~2.2 car lengths) | **~79.8 u ≈ 1.33 car lengths, measured by stepping the reference ram below to rest** (`stepDrive` in a loop under `reeling`'s modifiers, `dt = 1/30`, until `hypot(vx, vy) < 1e-3`: 130 ticks). Well clear of the ~240 u (four car length) flag threshold. The 237.8 u/s shove lands entirely on the victim's LATERAL axis in this geometry (attacker approaches dead-on along the victim's side-normal), so it decays under BOTH factors `stepDrive` applies to that component, not grip alone: the whole-vector drag `dragRateOf('bullseye')` (1.0416 /s, step 2) **and then** the reeling-scaled lateral grip `DRIVE_CONFIG.lateralGripRate × STATUS_TABLE.reeling.grip` = 3.0 × 0.6 = 1.8 /s (step 3). The continuous approximation `v0 / (dragRate + gripRate)` = 237.8 / 2.8416 ≈ 83.7 u agrees with the stepped simulation to within discretisation error. **This is measurably short of the ~2.2-car-length figure this row's own placeholder named**: 132.1 u = 237.8 / 1.8 is exactly what grip ALONE would give, which is the number a reader gets by reasoning from `grip` in isolation — the placeholder's implicit assumption. Drag also acting on the lateral component (not just forward) is what `stepDrive`'s own doc comment calls "the drift"; stage 5 should read the shipped ~1.3, not the ~2.2 guess, when it pitches `grip` or `globalScale` | stage 3 |
 | Settled speed into a wall, self-driven, vs `SPIKE_CONFIG.triggerSpeed` | Steady-state pre-collision inward speed (`stepDrive`/`resolveWorld` from built shared, restitution 0, sampled the way `contactTick`'s `speedIn` actually samples it — before that tick's bounce resolves): mirage 7.92 u/s, bullseye 5.41 u/s, bastion 3.97 u/s. All three sit well under the 25 u/s trigger, so the documented "pays once, on arrival" behaviour holds unchanged | stage 2 |
 | Reference flank ram: shove and spin (Bastion → parked Bullseye) | **shove 237.8 u/s, spin 0.00 rad/s** — `resolveRam(a, b, "ffa")` with `a` (bastion) at its own top speed (135.9 u/s) approaching `b` (bullseye, parked, rotated 90°) dead-on through its centreline. Spin reads ~1.5e-16 (floating-point noise, i.e. exactly 0) because this geometry — attacker approaching along the exact midline of the victim's side face — puts the contact point dead-centre on the victim's hull, so `contactPointOn`'s lever arm is 0. This is the brief's own reference scenario, not a bug in it: it is the "clean, centred" flank hit, and it is a legitimate ~0 data point (an OFF-CENTRE flank hit spins much harder — see the `spinScale` deferred item below for two independent off-centre derivations, ~0.86-3.24 rad/s, that stage 5 should read alongside this one rather than instead of it) | stage 3 |
-| `wildcharge` slam against the best ordinary ram | — | stage 4 |
+| `wildcharge` slam against the best ordinary ram | **`hardestOrdinaryRam()` = 259.91625 u/s**, produced by Mirage flanking Bullseye at Mirage's own top speed (`forwardMaxSpeedOf("mirage")` × `RAM_CONFIG.flankScale` × `RAM_CONFIG.globalScale` × `ramAttackOf("mirage")` / `ramDefenceOf("bullseye")` = 189.03 × 1.5 × 0.5 × 55/30). `wildcharge.impulse.speed` (520) is **2.00×** that, 3.33× a mirror-match flank (155.95, 156.0 in the row's own rounded prose), and 8.00× the hardest ram once diminishing returns bottom out at `impulseDrFloor` (64.98, 64.979 unrounded) | stage 4 |
 
 ## Deferred, and who owns it
 
@@ -449,8 +608,13 @@ command as well as the figure.
   There is exactly one `expireStatusesFromSource` production call site (`ram-bridge.ts:648`), invoked
   with the attacker's own id, so a car that rams at tick T and lands a `wildcharge` slam before T+15
   clears its own `ramLock` early. No clause in the spec covers a status's source, so fixing it means
-  inventing a rule; the implementer and reviewer both declined to invent one. **Owner: stage 4**,
-  which owns the slam path and `ramLock`'s publication.
+  inventing a rule; the implementer and reviewer both declined to invent one. **Owner: stage 5, not
+  stage 4** (revised by stage 4's own controller ruling P5, `.superpowers/sdd/04-slam-and-effects/progress.md`
+  — stage 4's plan never assigned any task to this defect, and stage 4's Task 3 explicitly kept the
+  attacker's self-status expiry as it is, so landing stage 4 without a fix does not reopen it, it
+  just confirms it). Fixing it means inventing a rule about a status's source, which is squarely
+  stage 5's reconcile-and-tune territory, with the owner in the loop for the design call. Narrow: the
+  same car must ram, then wind up and land a 20 s-cooldown charge, inside 15 ticks.
 - **`RAM_CONFIG.spinScale: 0.3` is un-validated, not a checked starting point.** Two independent
   derivations agree it undershoots spec §9's "~4 rad/s on a typical flank ram": a 150 u/s
   mirage-on-mirage flank shove with a 10 u lever gives 0.857 rad/s (`inertiaRadiusSquared()` =
