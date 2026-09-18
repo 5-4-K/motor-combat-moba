@@ -358,11 +358,20 @@ repeating here because their home is git-ignored:
   slam.") is false — a head-on is a ram type that reels nobody. Shipped wording: **"Any ram but a
   head-on, and Wild Charge's slam."** A players' guide stating something false outweighs a spec
   clause being one revision stale. **Cost if wrong:** one sentence of prose, one rebuild to revert.
-- **P10 — the Reeling card reads "low grip", not "no grip".** The plan's own brief contradicted
-  itself (code sample vs. prose); `STATUS_TABLE.reeling` carries `modifiers: { grip: 0.6 }` — grip
-  is REDUCED to 60%, not removed — so "no grip" would be false on a page players read. Shipped:
-  `Reeling — no control · no steering · low grip · spins freely · cannot ram`. **Cost if wrong:**
-  two words on one status card.
+- **P10 — the Reeling card reads "low grip", not "no grip". SUPERSEDED BY P13 below; neither wording
+  ships.** The plan's own brief contradicted itself (code sample vs. prose);
+  `STATUS_TABLE.reeling` carries `modifiers: { grip: 0.6 }` — grip is REDUCED to 60%, not removed —
+  so "no grip" would have been false on a page players read. Both options turned out to be worse
+  than the one already in the builder.
+- **P13 — the Reeling card renders the generic channel word, reversing the visible half of P10.**
+  The final whole-branch review found that the `low grip` special case P10 settled on **shadowed a
+  more precise renderer that was already there**: the card read `traction −40%` before stage 4,
+  `CHANNEL_WORDS.grip` had become dead code, and a `grip > 1` buff would have printed nothing at
+  all. P10 chose between two hand-written phrasings without knowing a third, better option was being
+  suppressed. The special case was reverted and the page rebuilt. Shipped:
+  `Reeling — no control · no steering · spins freely · cannot ram · traction −40%` — flags
+  worst-first, then the channel percentage, which is how every other status card on the page is
+  ordered. **Cost if wrong:** one line in `scripts/build-cars-and-weapons.mjs` and a rebuild.
 - **P12 — the camera shake reads the larger of the two `RamSide` magnitudes, not "the other car's"
   side.** The plan's selector (`s.sessionId !== self.sessionId`) and the controller's first-proposed
   fix (`s.sessionId !== ram.attackerId`) both read zero on a head-on, where each side's shove is
@@ -572,7 +581,12 @@ command as well as the figure.
   sub-tick phases with a 20 Hz patch model: **0 of 40 spark**, and feeding the older interpolation
   bracket's velocity instead recovers only 18 of 40 — and the status gate would still veto those.
   **What a player sees:** ramming someone yourself flashes and shakes correctly; being rammed by
-  another player does neither, and the only feedback is the knock itself arriving a round trip later.
+  **any other car** does neither — this is a property of not being the local car, so a practice or
+  playground BOT ramming you is just as silent as a remote human — and the only feedback is the knock
+  itself arriving a round trip later. Note also that the client reads `ramBlocked` from
+  `modifiersFromRows(player.statuses, room.state.tick)`, i.e. the newest patched tick rather than the
+  render bracket, so the "18 of 40" an older-bracket velocity recovers is unreachable in any case:
+  the status gate is evaluated against a tick where the attacker is already locked.
   Cosmetic only — nothing here reaches `stepSim`, the schema or the server. **Owner: stage 5.** A
   real fix needs a client-side pre-contact history per remote (velocity AND statuses, sampled before
   the patch that resolved the ram), which is a netcode-shaped change and is the same territory as
