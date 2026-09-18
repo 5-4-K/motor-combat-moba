@@ -107,8 +107,8 @@ export type {
   StatusRequest,
 } from "./sim/combat.js";
 export { applyImpulse, type Impulse } from "./sim/impulse.js";
-export { applyRams, impactSideOf, pairKey, resolveRam } from "./sim/ram.js";
-export type { ImpactSide, RamCar, RamHit, RamImpulseEntry } from "./sim/ram.js";
+export { applyRams, contactPointOn, pairKey, ramTypeOf, regionOf, resolveRam } from "./sim/ram.js";
+export type { RamCar, RamRegion, RamResolution, RamSide, RamType } from "./sim/ram.js";
 export { SLAM_CONFIG } from "./config/slam-config.js";
 export { hullTouchesWorld, resolveContacts } from "./sim/contact.js";
 export type {
