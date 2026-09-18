@@ -131,25 +131,33 @@ const secs = (ms) => `${round(ms / 1000, ms % 1000 === 0 ? 0 : 2)}s`;
  */
 function statusBlurb(def) {
   const parts = [];
-  // `fullStop` (stunned) and `invulnerable` (armored) are the two flags a flag-only row can carry
-  // with nothing else in `modifiers` — before this, either row printed no effect line at all: an
-  // empty `parts` array joins to "". Worst-first, so the total stop (the roster's only hard CC)
-  // leads even over "no control".
+  // `fullStop` (stunned) and `invulnerable` (armored) used to be the two flags a flag-only row
+  // could carry with nothing else in `modifiers` — before this, either row printed no effect line
+  // at all: an empty `parts` array joins to "". The 2026-09-18 Unity ram port makes that false:
+  // `reeling` and `ramLock` are both flag-carrying rows too, and they are the reason this vocabulary
+  // had to grow. Worst-first, so the total stop (the roster's only hard CC) leads even over
+  // "no control".
   if ((def.flags ?? []).includes("fullStop")) parts.push("total stop");
   if ((def.flags ?? []).includes("immobilised")) parts.push("no control");
   if ((def.flags ?? []).includes("steeringLocked")) parts.push("no steering");
-  // The two the 2026-09-18 Unity ram port added. `spinFree` is what makes a ram read as a spin-out
-  // rather than a shove, and `ramBlocked` is the whole anti-chain rule — a reeling car cannot ram
-  // back — so a page that printed neither told a player nothing about what being rammed costs them.
+  // The two movement words the Unity ram port added. `grip` below 1 reads as "low grip" rather
+  // than a percentage — `reeling` is the only row that ever sets it, and the generic modifiers loop
+  // below skips `grip` so it is never printed twice. `spinFree` is what makes a ram read as a
+  // spin-out rather than a shove.
+  if ((def.modifiers?.grip ?? 1) < 1) parts.push("low grip");
   if ((def.flags ?? []).includes("spinFree")) parts.push("spins freely");
-  if ((def.flags ?? []).includes("ramBlocked")) parts.push("cannot ram");
   if ((def.flags ?? []).includes("disarmed")) parts.push("cannot fire");
+  // `ramBlocked` is the whole anti-chain rule — a reeling or ram-locked car cannot ram back. Placed
+  // after `disarmed`, not with the other two above: being unable to fire reads as worse than being
+  // unable to ram.
+  if ((def.flags ?? []).includes("ramBlocked")) parts.push("cannot ram");
   if ((def.flags ?? []).includes("invulnerable")) parts.push("takes no damage");
   if ((def.flags ?? []).includes("phased")) parts.push("cannot be hit or rammed");
   if (def.pulse?.damage) parts.push(`${def.pulse.damage} hp per ${secs(def.pulse.intervalMs)}`);
   if (def.pulse?.heal) parts.push(`repairs ${def.pulse.heal} hp per ${secs(def.pulse.intervalMs)}`);
   if (def.onApply?.cleanse) parts.push(`clears every ${def.onApply.cleanse}`);
   for (const [channel, value] of Object.entries(def.modifiers)) {
+    if (channel === "grip") continue; // said above as "low grip", never a percentage
     const pct = Math.round(Math.abs(value - 1) * 100);
     parts.push(`${CHANNEL_WORDS[channel] ?? channel} ${value > 1 ? "+" : "−"}${pct}%`);
   }
@@ -446,10 +454,10 @@ const EFFECT_SOURCE_MAP = effectSources();
  * The statuses the page publishes, in `STATUS_TABLE` order.
  *
  * A row appears only if something can actually apply it: a weapon an active chassis carries, or an
- * authored `EFFECT_SOURCES` line for the two that reach a player outside the weapon tables
- * (`reeling` from the contact pass, `phased` from the deathmatch respawn). `armored` and
- * `overhauled` have neither today and so do not appear — publishing a status no shipped code can
- * inflict would be describing a game the player is not playing. Giving one a source is what
+ * authored `EFFECT_SOURCES` line for the three that reach a player outside the weapon tables
+ * (`reeling` and `ramLock` from the contact pass, `phased` from the deathmatch respawn). `armored`
+ * and `overhauled` have neither today and so do not appear — publishing a status no shipped code
+ * can inflict would be describing a game the player is not playing. Giving one a source is what
  * publishes it.
  */
 const PUBLISHED_EFFECTS = Object.keys(STATUS_TABLE).filter(
@@ -570,6 +578,13 @@ function effectChips(w) {
     push(a.statusId, a.durationMs, [a.target === "self" ? "on you" : "", wave].filter(Boolean).join(", "));
   }
   for (const a of w.def.explosion?.applies ?? []) push(a.statusId, a.durationMs, "from the blast");
+  // `impulse.applies` lands the moment the push does — unlike `onWallImpact.applies` below, it is
+  // not conditional on anything, so it gets no qualifier. Wild Charge's slam is the only row that
+  // authors one today (`reeling`), and without this loop its most consequential property never
+  // reached the card at all. Deliberately NOT fed into `EFFECT_SOURCE_MAP` in `effectSources()`
+  // below — `EFFECT_SOURCES.reeling` already credits "Wild Charge's slam" in prose, and crediting it
+  // again here would double up the Effects section's "From" line for the one weapon that has both.
+  for (const a of w.def.impulse?.applies ?? []) push(a.statusId, a.durationMs, "");
   for (const a of w.def.impulse?.onWallImpact?.applies ?? []) {
     push(a.statusId, a.durationMs, "slammed into a wall");
   }
