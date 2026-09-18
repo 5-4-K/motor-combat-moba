@@ -276,9 +276,12 @@ export function halfLifeToPerTick(halfLifeSeconds: number): number {
  * The two per-tick multipliers `stepDrive` actually reads, and no others. This struct carried four
  * until stage 3b: `shove` and `authority` were computed here for a `stepDrive` that stopped reading
  * either at the 2026-09-06 vector-drive rework, and both are now deleted along with the
- * `RAM_CONFIG` half-lives that produced them. Lateral knock bleeds off through the flat-rate
- * `DRIVE_CONFIG.impactGripDecel`, and ram control-loss is the `reeling` status
- * (`RAM_CONFIG.ramUncontrolMs`), so neither channel has anything left to decay.
+ * `RAM_CONFIG` half-lives that produced them. Lateral knock now bleeds off the same way every other
+ * lateral velocity does — `dragFactorOf(chassis, mods) * gripFactorOf(chassis, mods)` in
+ * `stepDrive` (`sim/drive.ts`), the ordinary drag-then-grip pass every tick already runs, not a
+ * knock-specific rate. `DRIVE_CONFIG.impactGripDecel` this used to name is gone outright (deleted
+ * alongside the other superseded knobs, drive-model port stage 1 Task 6). Ram control-loss is the
+ * `reeling` status (`RAM_CONFIG.ramUncontrolMs`), so neither channel has anything left to decay.
  */
 export interface RamDecay {
   spin: number;

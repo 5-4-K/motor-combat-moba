@@ -494,12 +494,18 @@ function medianOf(values: readonly number[]): number {
  * THE STRENGTH OF THAT CLAIM WEAKENED at the 2026-09-06 car-physics rework and the wording follows
  * it. This used to read "genuinely BRAKES: `DRIVE_CONFIG.drag` is 900 u/s², about 0.32 s from top
  * speed to rest" — a coasting car really did stop inside the horizon, so the terminus was a
- * standstill. That global knob is gone, replaced by per-car proportional coast
- * (`CarDef.coastHalfLifeSeconds`), and Mirage's half-life is 36 ticks: a coasting car sheds about
- * half its speed over the horizon rather than all of it. The terminus is therefore a ROLLING pose
- * now, not a stopped one. It is still a pose the car reaches by letting go — which is what makes it
+ * standstill. That global knob went through two more identities after that and neither survives
+ * today: the 2026-09-06 rework replaced it with a per-car half-life (`CarDef.coastHalfLifeSeconds`,
+ * Mirage's was 36 ticks), and the Unity drive-model port (drive-model port stage 1) deleted that
+ * field outright and folded coasting into the single always-on drag rate that also sets top speed
+ * and wind-up (U4) — there is no separate coast branch or coast-specific number any more, only
+ * `ChassisDrive.dragRate`/`dragPerTick`, applied every tick whether or not the throttle is held.
+ * Mirage's `dragPerTick` now halves a coasting car's speed in about 16 ticks (~0.54 s at
+ * `TICK_RATE_HZ` 30) rather than 36 — faster decay, same shape: a coasting car sheds a large
+ * fraction of its speed over the horizon rather than all of it, so the terminus is still a ROLLING
+ * pose, not a stopped one. It is still a pose the car reaches by letting go — which is what makes it
  * an honest reading for `rangeError` and `threatAvoid` — but it is no longer a place the car comes
- * to rest, and a re-read of R-P10's measurement against the new coast is owed. That is what makes the terminus an honest reading for `rangeError` and
+ * to rest, and a re-read of R-P10's measurement against the current drag rate is owed. That is what makes the terminus an honest reading for `rangeError` and
  * `threatAvoid`: it is a destination the bot could actually stop at, not an extrapolation of a
  * 22-tick hold it never performs.
  *

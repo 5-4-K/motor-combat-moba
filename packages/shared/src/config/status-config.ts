@@ -228,9 +228,12 @@ export const STATUS_TABLE = {
    * floors to make this harsher: they are documented guarantees, and widening one for a single row
    * is how a guarantee stops guaranteeing. The helplessness here comes from the physics rather than
    * the debuff — a car sliding sideways with saturated tyres is already a passenger, courtesy of
-   * `DRIVE_CONFIG.impactGripDecel` (P11) doing the real work. `accel: 0.4` is the friction-circle
-   * stagger on top: while the tyres fight the slide there is little grip left for the engine, so a
-   * big hit visibly bogs you.
+   * `lateralGripRate` (`DRIVE_CONFIG`, U10) doing the real work through `gripFactorOf` in
+   * `stepDrive` — the ordinary per-tick drift bleed every car already runs, not a knock-specific
+   * rate (the flat-rate `impactGripDecel` (P11) this used to name is gone outright, deleted
+   * alongside the other superseded knobs, drive-model port stage 1 Task 6). `accel: 0.4` is the
+   * friction-circle stagger on top: while the tyres fight the slide there is little grip left for
+   * the engine, so a big hit visibly bogs you.
    */
   reeling: {
     id: "reeling",
