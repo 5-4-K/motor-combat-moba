@@ -215,6 +215,22 @@ interface WeaponBase {
 export type StatusTarget = "self" | "opponents" | "ownerInside";
 
 /**
+ * One status an impulse applies.
+ *
+ * **Deliberately NOT `StatusApplication`.** That type carries `target` and `wave`, and on this path
+ * both can only ever hold one value: an impulse acts on exactly one car — the one it pushed — and
+ * lands exactly once, so there is no volley to select and no second target to name. A field that can
+ * hold one value is a rule hiding as a knob, and policing it with a config test is the defect this
+ * restructure exists to remove, not a mitigation of it. The field NAMES match
+ * `StatusApplication`'s on purpose, so the two read as kin.
+ */
+export interface ImpulseStatusApplication {
+  statusId: StatusId;
+  /** Converted to whole ticks once, in `WEAPON_TICKS`. */
+  durationMs: number;
+}
+
+/**
  * One push a weapon imparts, and to whom, and how hard. The declarative sibling of `applies`.
  *
  * **This is now the only thing that produces an `Impulse`.** It is the *authored* half — fixed
@@ -241,18 +257,22 @@ export interface ImpulseDef {
   /**
    * Torque scale from the contact-point lever arm. 0 = a clean straight punt, no rotation.
    *
-   * **INERT on the one path implemented today, and a test enforces that no row relies on it.** The
-   * only `ImpulseDef` that is ever actually applied is a maneuver's contact impulse (wildcharge's
-   * hard slam), and the contact point `sim/contact.ts` carries on its `SlamEvent` is the VICTIM'S
-   * OWN CENTRE — so the lever arm `applyImpulse` measures is exactly zero, and any non-zero value
-   * here would produce exactly zero rotation with nothing to say so. `wildcharge` authors `0`
-   * deliberately (spec P28/P31), so no shipped behaviour depends on this, but the field would be a
-   * silent trap for the next author: `weapon-config.test.ts` asserts every authored `impulse` has
-   * `spin === 0` and names the missing lever arm when that stops being true.
+   * **LIVE since 2026-09-19 (stage 4, Task 2): a non-zero value here rotates the victim for real.**
+   * `sim/contact.ts` derives `ContactHit.push.contactX/Y` with `contactPointOn` — the same helper
+   * every ordinary ram uses — so `applyImpulse` measures a genuine lever arm off the victim's hull
+   * and `nextSpin` turns it into yaw. This was inert until then, because the event carried the
+   * victim's own centre and the arm was exactly zero; that is history, and **authoring a spinning
+   * contact impulse is now a table edit, not a physics change.**
    *
-   * Authoring a spinning contact impulse means deriving a real contact point first — the way
-   * `resolveRam` already does with `contactPointOn`, which is why an ordinary ram spins its victims
-   * and a slam does not. That is a physics change, not a table edit.
+   * `wildcharge` still authors `0`, and that is a BALANCE decision rather than a limitation: a clean
+   * straight punt is the ult's signature (spec P28/P31). `weapon-config.test.ts` holds every row at
+   * `0` for the same reason — it pins the shipped roster, and re-pitching the slam's feel means
+   * moving the assertion and the row together, deliberately.
+   *
+   * One asymmetry to know before authoring one: `applyImpulse` divides the torque by the victim's
+   * `ramDefence` whatever `defenceScaled` says, so a row that punts every chassis identically
+   * (`defenceScaled: false`) still SPINS each chassis differently. `defenceScaled` governs the
+   * linear Δv alone.
    */
   spin: number;
   /**
@@ -276,10 +296,28 @@ export interface ImpulseDef {
    * identically.
    */
   defenceScaled: boolean;
-  /** How long the victim is left `reeling`. Converted to ticks once, in `WEAPON_TICKS`. */
-  uncontrolMs: number;
-  /** Being driven into level geometry by this push stuns. Omit for an impulse that cannot. */
-  wallStun?: { windowMs: number; durationMs: number };
+  /**
+   * Applied to the pushed car the moment the push lands. An empty list is legal and means a push
+   * that only pushes.
+   *
+   * **The bridge names no status of its own.** Until the 2026-09-19 restructure this was
+   * `uncontrolMs: number` and `ram-bridge.ts` supplied the id `"reeling"` in code, so a row could
+   * say how long but not which — the one place a weapon's effect was decided outside its row.
+   */
+  applies: ImpulseStatusApplication[];
+  /**
+   * Applied if the pushed car meets level geometry within `windowMs` of taking the push.
+   *
+   * A **deferred conditional application**: unlike `applies`, whose statuses land at once, these
+   * wait and may never land at all. `ram-bridge.ts` arms a per-victim record when the push lands and
+   * sweeps it each tick until the window closes; the first tick the car's hull is within
+   * `IMPULSE_CONFIG.wallContactPad` of an obstacle or boundary, these apply and the window shuts, so
+   * one push can stun at most once.
+   *
+   * Omit for a push that cannot. Absent must mean absent — a `windowMs: 0` would arm a sweep that
+   * can never fire, which is worse than not arming one.
+   */
+  onWallImpact?: { windowMs: number; applies: ImpulseStatusApplication[] };
   /** A car pushed by this cannot be pushed by it again within this. */
   retriggerImmunityMs?: number;
 }

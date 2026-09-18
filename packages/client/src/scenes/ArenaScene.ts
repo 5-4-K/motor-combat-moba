@@ -26,6 +26,7 @@ import {
   PRACTICE_CONFIG,
   PRACTICE_IDLE_CLOSE_CODE,
   PRACTICE_IDLE_ERROR,
+  carIdOf,
   muzzleOf,
   RoomPhase,
   TICK_RATE_HZ,
@@ -81,7 +82,12 @@ import { controlledCarOf, isPlaygroundRoom, isPracticeRoom, isSimPaused } from "
 import { arenaBorderRect, arenaColorsOf, arenaDecoration, drawableObstacles } from "./arena-visual.js";
 import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
-import { freshImpacts, newImpactTracker, type ImpactTracker } from "./impact-feedback.js";
+import {
+  freshImpacts,
+  newImpactTracker,
+  type ImpactPose,
+  type ImpactTracker,
+} from "./impact-feedback.js";
 import { pts } from "./graphics-points.js";
 import {
   carFillFor,
@@ -1871,10 +1877,10 @@ export class ArenaScene extends Phaser.Scene {
     arrow?.clear();
     maneuver?.clear();
     const poses = new Map<string, SimBody>();
-    // Teams alongside poses so the impact-spark pass below can gate on them without a second walk of
-    // `room.state.players` (and without carrying `team` through `SimBody`, which has no business
-    // knowing about it).
-    const teams = new Map<string, 0 | 1>();
+    // Everything `freshImpacts` needs, assembled where the render pose is already in hand. This
+    // replaces the old `teams` map: the spark gate went from "are they an enemy" to "is this a ram",
+    // and a ram reads velocity, chassis and the ram flags as well.
+    const impactCars = new Map<string, ImpactPose>();
     // Whose side each bar is on is answered once per frame, against the LOCAL player and never
     // against `cameraTarget(room)`: a wreck can cycle the spectate camera through living cars, and
     // green must stay your team's green while you watch an enemy fill the screen (D2).
@@ -1928,7 +1934,41 @@ export class ArenaScene extends Phaser.Scene {
       this.cars.get(sessionId)?.setAlpha(alpha);
       this.drawCarLook(shadow, sessionId, player.carId, player.colorId, pose, alpha);
       poses.set(sessionId, pose);
-      teams.set(sessionId, player.team === 1 ? 1 : 0);
+      const mods = modifiersFromRows(player.statuses, room.state.tick);
+      // **NOT `pose.vx`/`pose.vy`.** `RamCar`'s own doc requires the PRE-COLLISION velocity — the
+      // one the car carried INTO the tick — and says why: collision resolution runs before ram, so
+      // reading the resolved velocity makes every drive-in wrong on exactly the ticks a hull
+      // overlapped. It shipped once on the server and cost 80-90% of all rams. The render pose
+      // carries the resolved number (`stepSim` has already run `resolveWorld` on it, and `blendPose`
+      // takes `vx`/`vy` from the newest tick un-blended), so feeding it here reproduces that bug in
+      // the spark gate.
+      //
+      // `predictedPrev` is the client's exact analogue of `serverTick`'s `approachVelocities`: it is
+      // the body `predict` stepped FROM, so on the tick a hull first overlapped it still holds the
+      // free-flight velocity. Measured over the sub-tick phase (40 offsets, one mirage driving into a
+      // parked one): the render pose sparks 11/40, `predictedPrev` sparks 40/40.
+      //
+      // A REMOTE keeps the interpolated velocity, and that is a known divergence rather than an
+      // oversight — the client has nothing better for one. By the time a remote's interpolated
+      // POSITION reaches contact, every patch the buffer holds is already post-ram: the attacker is
+      // published at zero velocity (`replacesVelocity`, zero shove) AND wearing `ramLock`, whose
+      // `ramBlocked` flag `resolveRam` refuses on its own. So a remote's ram sparks 0/40 and no
+      // velocity this file can reach recovers it. Recorded as a stage-5 item in the Unity physics
+      // port's EXECUTION.md; the cost is cosmetic (no spark, no shake when someone rams YOU) and the
+      // authoritative knock still arrives.
+      const approach = isLocal ? (this.predictedPrev ?? pose) : pose;
+      impactCars.set(sessionId, {
+        sessionId,
+        team: player.team === 1 ? 1 : 0,
+        x: pose.x,
+        y: pose.y,
+        angle: pose.angle,
+        vx: approach.vx,
+        vy: approach.vy,
+        carId: carIdOf(player),
+        defenceMult: mods.ramDefence,
+        ramBlocked: mods.ramBlocked,
+      });
       if (hp && player.alive) {
         const allegiance = viewer
           ? allegianceOf(viewer, { sessionId, team: player.team }, mode)
@@ -1947,31 +1987,17 @@ export class ArenaScene extends Phaser.Scene {
     // local car, interpolated for remotes, raw for a wreck — so contact is tested against exactly
     // what is on screen, not a pose that will still move this frame.
     //
-    // Team-gated: a ram is structurally impossible between teammates (R15), so the spark must not
-    // fire on one either — see `freshImpacts`'s doc comment.
+    // Gated by `resolveRam` itself now, not a bare team check — see `freshImpacts`'s doc comment.
     // The driven car, so the spark fires on the car the player is steering rather than on the seat
     // their connection happens to hold. `drivenSid` always answers an id — the previous
-    // `this.room?.sessionId` could not — so the pose and team lookups are the only guards left.
+    // `this.room?.sessionId` could not — so the `impactCars` lookup is the only guard left.
     const selfId = this.drivenSid(room);
     const selfPose = poses.get(selfId);
-    const selfTeam = teams.get(selfId);
-    if (selfPose && selfTeam !== undefined) {
-      const others = [...poses.entries()]
-        .filter(([id]) => id !== selfId)
-        .map(([id, pose]) => ({
-          sessionId: id,
-          x: pose.x,
-          y: pose.y,
-          angle: pose.angle,
-          team: teams.get(id) ?? 0,
-        }));
-      for (const impact of freshImpacts(
-        { sessionId: selfId, team: selfTeam, ...selfPose },
-        others,
-        this.impacts,
-        mode,
-      )) {
-        this.showImpact(impact.x, impact.y);
+    const selfCar = impactCars.get(selfId);
+    if (selfCar) {
+      const others = [...impactCars.values()].filter((car) => car.sessionId !== selfId);
+      for (const impact of freshImpacts(selfCar, others, this.impacts, mode)) {
+        this.showImpact(impact.x, impact.y, impact.closingSpeed);
       }
     }
 
@@ -2157,11 +2183,12 @@ export class ArenaScene extends Phaser.Scene {
    * locally observed contact, not to an authoritative ram, so it must never change anything the sim
    * or the schema can see.
    *
-   * `closingSpeed` defaults to 0 because no caller has one to give: `freshImpacts` (`impact-feedback.
-   * ts`) reports only the contact point, not a relative velocity, so `ramShake` falls back to its own
-   * floor — the same fixed feel this method always had before `camera.ts` existed.
+   * `closingSpeed` has no default: its one caller (the impact-spark pass above) always has a real
+   * value to give now — `freshImpacts` asks `resolveRam` for the shove this contact is about to
+   * apply and reports it, so `ramShake` scales with the hit the sim is about to land rather than
+   * falling back to its own fixed floor.
    */
-  private showImpact(x: number, y: number, closingSpeed = 0): void {
+  private showImpact(x: number, y: number, closingSpeed: number): void {
     this.tryShake(ramShake(closingSpeed, this.resolveEnv()));
     const spark = this.add.circle(x, y, 10, 0xffffff, 0.9);
     this.hudCamera?.ignore(spark);

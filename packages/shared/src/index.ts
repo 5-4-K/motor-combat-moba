@@ -109,13 +109,12 @@ export type {
 export { applyImpulse, type Impulse } from "./sim/impulse.js";
 export { applyRams, contactPointOn, pairKey, ramTypeOf, regionOf, resolveRam } from "./sim/ram.js";
 export type { RamCar, RamRegion, RamResolution, RamSide, RamType } from "./sim/ram.js";
-export { SLAM_CONFIG } from "./config/slam-config.js";
+export { IMPULSE_CONFIG } from "./config/impulse-config.js";
 export { hullTouchesWorld, resolveContacts } from "./sim/contact.js";
 export type {
   ContactCar,
   ContactEvents,
   ContactHit,
-  SlamEvent,
   SpikeContact,
   SpikeHit,
 } from "./sim/contact.js";

@@ -250,7 +250,7 @@ experiment, which is a weaker claim.
 
 - the **config fingerprint** differs (anything the sim or this harness's own match/respawn pipeline
   reads — `WEAPON_TABLE`, `CAR_TABLE`, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `STATUS_TABLE`, `RAM_CONFIG`,
-  `SLAM_CONFIG`, `WEAPON_SLOT_CONFIG`, `DEATHMATCH_CONFIG`, `TICK_RATE_HZ`, or any
+  `IMPULSE_CONFIG`, `WEAPON_SLOT_CONFIG`, `DEATHMATCH_CONFIG`, `TICK_RATE_HZ`, or any
   registered arena — changed between the two runs, i.e. this genuinely is not the isolated
   one-number edit it needs to be; `fingerprint.ts`'s header comment is the source of truth for the
   exact list), or

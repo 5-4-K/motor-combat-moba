@@ -151,6 +151,27 @@ describe("tuning store", () => {
     expect(activeTuning()).toEqual({ "car.mirage.speed": 99 });
   });
 
+  it("refuses an unknown status id on every statusId leaf, and accepts a real one", () => {
+    // The type check alone lets any string through, and a `statusId` is the one string in these
+    // tables that is LOOKED UP rather than read: `applyStatus` takes it to `statusDefOf(...)!` and
+    // throws mid-tick, which in the playground kills the room the tester is standing in. The
+    // impulse paths are stage 4's new surface — no `statusId` lived under `impulse` before it.
+    expect(() =>
+      setTuning({ "weapon.wildcharge.impulse.applies.0.statusId": "nonsense" }),
+    ).toThrow(/not a status id/);
+    expect(() =>
+      setTuning({ "weapon.wildcharge.impulse.onWallImpact.applies.0.statusId": "nonsense" }),
+    ).toThrow(/not a status id/);
+    expect(() => setTuning({ "weapon.roadblock.applies.0.statusId": "nonsense" })).toThrow(
+      /not a status id/,
+    );
+    expect(activeTuning()).toBeNull();
+
+    setTuning({ "weapon.wildcharge.impulse.applies.0.statusId": "spiked" });
+    expect(WEAPON_TABLE.wildcharge.impulse!.applies[0]!.statusId).toBe("spiked");
+    expect(weaponTicksOf("wildcharge").impulse!.applies[0]!.statusId).toBe("spiked");
+  });
+
   it("throws when the value's type does not match the shipped one, and on a non-leaf path", () => {
     expect(() => setTuning({ "car.mirage.speed": "fast" })).toThrow();
     expect(() => setTuning({ "weapon.pepperbox.hitbox": 3 })).toThrow();

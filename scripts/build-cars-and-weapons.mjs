@@ -131,19 +131,27 @@ const secs = (ms) => `${round(ms / 1000, ms % 1000 === 0 ? 0 : 2)}s`;
  */
 function statusBlurb(def) {
   const parts = [];
-  // `fullStop` (stunned) and `invulnerable` (armored) are the two flags a flag-only row can carry
-  // with nothing else in `modifiers` — before this, either row printed no effect line at all: an
-  // empty `parts` array joins to "". Worst-first, so the total stop (the roster's only hard CC)
-  // leads even over "no control".
+  // `fullStop` (stunned) and `invulnerable` (armored) used to be the two flags a flag-only row
+  // could carry with nothing else in `modifiers` — before this, either row printed no effect line
+  // at all: an empty `parts` array joins to "". The 2026-09-18 Unity ram port makes that false:
+  // `reeling` and `ramLock` are both flag-carrying rows too, and they are the reason this vocabulary
+  // had to grow. Worst-first, so the total stop (the roster's only hard CC) leads even over
+  // "no control".
   if ((def.flags ?? []).includes("fullStop")) parts.push("total stop");
   if ((def.flags ?? []).includes("immobilised")) parts.push("no control");
   if ((def.flags ?? []).includes("steeringLocked")) parts.push("no steering");
-  // The two the 2026-09-18 Unity ram port added. `spinFree` is what makes a ram read as a spin-out
-  // rather than a shove, and `ramBlocked` is the whole anti-chain rule — a reeling car cannot ram
-  // back — so a page that printed neither told a player nothing about what being rammed costs them.
+  // `spinFree` is what makes a ram read as a spin-out rather than a shove. `grip` deliberately has
+  // NO special case beside it: ruling P10 ("no grip" vs "low grip") was adjudicated without noticing
+  // that the generic modifiers loop below already rendered `reeling`'s 0.6 as `traction −40%`,
+  // which is both more precise and the only form that survives a future `grip > 1` buff — a `< 1`
+  // test prints nothing at all for one, which is exactly the empty-`parts` failure this function's
+  // own comment warns about. P10 is reversed; the channel word does the work.
   if ((def.flags ?? []).includes("spinFree")) parts.push("spins freely");
-  if ((def.flags ?? []).includes("ramBlocked")) parts.push("cannot ram");
   if ((def.flags ?? []).includes("disarmed")) parts.push("cannot fire");
+  // `ramBlocked` is the whole anti-chain rule — a reeling or ram-locked car cannot ram back. Placed
+  // after `disarmed`, not with the other two above: being unable to fire reads as worse than being
+  // unable to ram.
+  if ((def.flags ?? []).includes("ramBlocked")) parts.push("cannot ram");
   if ((def.flags ?? []).includes("invulnerable")) parts.push("takes no damage");
   if ((def.flags ?? []).includes("phased")) parts.push("cannot be hit or rammed");
   if (def.pulse?.damage) parts.push(`${def.pulse.damage} hp per ${secs(def.pulse.intervalMs)}`);
@@ -411,9 +419,11 @@ const effectAnchor = (statusId) => `fx-${statusId}`;
  * Three application paths, and a status is only as published as the paths that reach it:
  *  - `WeaponDef.applies` — the ordinary one, `self` or `opponents`.
  *  - `ExplosionDef.applies` — magmablast's blast is the only user, and it is `opponents` only.
- *  - `ImpulseDef.wallStun` — wildcharge's hard slam stuns a car it drives into a wall. It is a
- *    duration on a push rather than a status application, so nothing else on this page would find
- *    it; before the 2026-09-17 restructure the guide never mentioned it at all.
+ *  - `ImpulseDef.onWallImpact.applies` — wildcharge's hard slam stuns a car it drives into a wall. It
+ *    is a duration on a push rather than an ordinary status application, so nothing else on this page
+ *    would find it; before the 2026-09-17 restructure the guide never mentioned it at all. Renamed
+ *    from `ImpulseDef.wallStun` (a single `{ windowMs, durationMs }`, always `"stunned"`) by the
+ *    2026-09-19 restructure to a list, so this reads every entry rather than assuming one.
  *
  * Returns `Map<statusId, { weaponId, durationMs, note }[]>` in `WEAPONS` order, so the Effects
  * section credits the sources a player will meet first.
@@ -431,12 +441,8 @@ function effectSources() {
     for (const a of w.def.explosion?.applies ?? []) {
       add(a.statusId, { weaponId: w.id, durationMs: a.durationMs, note: "from the blast" });
     }
-    if (w.def.impulse?.wallStun) {
-      add("stunned", {
-        weaponId: w.id,
-        durationMs: w.def.impulse.wallStun.durationMs,
-        note: "slammed into a wall",
-      });
+    for (const a of w.def.impulse?.onWallImpact?.applies ?? []) {
+      add(a.statusId, { weaponId: w.id, durationMs: a.durationMs, note: "slammed into a wall" });
     }
   }
   return sources;
@@ -448,10 +454,10 @@ const EFFECT_SOURCE_MAP = effectSources();
  * The statuses the page publishes, in `STATUS_TABLE` order.
  *
  * A row appears only if something can actually apply it: a weapon an active chassis carries, or an
- * authored `EFFECT_SOURCES` line for the two that reach a player outside the weapon tables
- * (`reeling` from the contact pass, `phased` from the deathmatch respawn). `armored` and
- * `overhauled` have neither today and so do not appear — publishing a status no shipped code can
- * inflict would be describing a game the player is not playing. Giving one a source is what
+ * authored `EFFECT_SOURCES` line for the three that reach a player outside the weapon tables
+ * (`reeling` and `ramLock` from the contact pass, `phased` from the deathmatch respawn). `armored`
+ * and `overhauled` have neither today and so do not appear — publishing a status no shipped code
+ * can inflict would be describing a game the player is not playing. Giving one a source is what
  * publishes it.
  */
 const PUBLISHED_EFFECTS = Object.keys(STATUS_TABLE).filter(
@@ -572,8 +578,15 @@ function effectChips(w) {
     push(a.statusId, a.durationMs, [a.target === "self" ? "on you" : "", wave].filter(Boolean).join(", "));
   }
   for (const a of w.def.explosion?.applies ?? []) push(a.statusId, a.durationMs, "from the blast");
-  if (w.def.impulse?.wallStun) {
-    push("stunned", w.def.impulse.wallStun.durationMs, "slammed into a wall");
+  // `impulse.applies` lands the moment the push does — unlike `onWallImpact.applies` below, it is
+  // not conditional on anything, so it gets no qualifier. Wild Charge's slam is the only row that
+  // authors one today (`reeling`), and without this loop its most consequential property never
+  // reached the card at all. Deliberately NOT fed into `EFFECT_SOURCE_MAP` in `effectSources()`
+  // below — `EFFECT_SOURCES.reeling` already credits "Wild Charge's slam" in prose, and crediting it
+  // again here would double up the Effects section's "From" line for the one weapon that has both.
+  for (const a of w.def.impulse?.applies ?? []) push(a.statusId, a.durationMs, "");
+  for (const a of w.def.impulse?.onWallImpact?.applies ?? []) {
+    push(a.statusId, a.durationMs, "slammed into a wall");
   }
   return chips.join("");
 }

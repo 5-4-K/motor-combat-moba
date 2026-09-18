@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { CAR_TABLE } from "./car-config.js";
+import { CAR_TABLE, forwardMaxSpeedOf, ramAttackOf, ramDefenceOf } from "./car-config.js";
 import { COLOR_TABLE } from "./color-config.js";
 import type { CarId } from "./types.js";
 import type { StatusId } from "./status-types.js";
 import { WEAPON_TABLE, explosionDamageModeOf, instanceDefOf, isWeaponId, weaponDefOf } from "./weapon-config.js";
 import { slotsOf } from "./weapon-slots.js";
 import { WEAPON_TICKS, msToTicks, weaponTicksOf } from "./weapon-ticks.js";
-import type { WeaponDef, WeaponId } from "./weapon-types.js";
-import { STATUS_CONFIG } from "./status-config.js";
+import type { ImpulseDef, WeaponDef, WeaponId } from "./weapon-types.js";
+import { STATUS_CONFIG, isStatusId } from "./status-config.js";
+import { RAM_CONFIG } from "./ram-config.js";
+import { setTuning } from "./tuning.js";
 
 /**
  * The nine rows that are one weapon wearing nine ids: a plain bolt, authored once as
@@ -469,24 +471,90 @@ describe("WEAPON_TABLE", () => {
 });
 
 describe("ImpulseDef", () => {
-  it("converts every authored duration to ticks exactly once, for any row that declares an impulse", () => {
-    // Written generically rather than hardcoded to `wildcharge` so a second row opting in is
-    // covered with no rewrite owed to this file. It ran vacuously when Task 1 landed the type and
-    // the conversion alone; since Task 2 authored `wildcharge.impulse` it asserts for real, and
-    // `wildcharge` is the one row it currently reaches.
-    for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
-      const impulse = def.impulse;
-      const ticks = WEAPON_TICKS[def.id].impulse;
-      if (impulse === undefined) {
-        expect(ticks, def.id).toBeUndefined();
-        continue;
+  it("declares every status an impulse applies, naming none in code", () => {
+    const imp = WEAPON_TABLE.wildcharge.impulse!;
+    expect(imp.applies.map((a) => a.statusId)).toEqual(["reeling"]);
+    expect(imp.applies[0]!.durationMs).toBe(1400);
+    expect(imp.onWallImpact!.windowMs).toBe(500);
+    expect(imp.onWallImpact!.applies.map((a) => a.statusId)).toEqual(["stunned"]);
+    expect(imp.onWallImpact!.applies[0]!.durationMs).toBe(500);
+  });
+
+  it("accepts any real status id on either list — that is the point of the restructure", () => {
+    for (const def of Object.values(WEAPON_TABLE)) {
+      if (def.impulse === undefined) continue;
+      for (const a of def.impulse.applies) expect(isStatusId(a.statusId), def.id).toBe(true);
+      for (const a of def.impulse.onWallImpact?.applies ?? []) {
+        expect(isStatusId(a.statusId), def.id).toBe(true);
       }
-      expect(ticks, def.id).toBeDefined();
-      expect(ticks!.uncontrol).toBe(msToTicks(impulse.uncontrolMs));
-      expect(ticks!.wallStunWindow).toBe(msToTicks(impulse.wallStun?.windowMs ?? 0));
-      expect(ticks!.wallStunDuration).toBe(msToTicks(impulse.wallStun?.durationMs ?? 0));
-      expect(ticks!.retriggerImmunity).toBe(msToTicks(impulse.retriggerImmunityMs ?? 0));
     }
+  });
+
+  it("bounds every impulse application's duration, on both lists", () => {
+    // The restructure replaced a single `uncontrolMs` field with two lists and took its bound with
+    // it, which left an impulse application the only status application in the table under no
+    // bound at all — a row could author 60 s against a 10 s ceiling with the suite green.
+    // `status-config.test.ts` walks `WEAPON_TABLE[id].applies` and does not reach here, so this is
+    // where the same rule is asserted over the new shape.
+    //
+    // The LOWER bound is what `ram-bridge.ts` relies on: `applyStatus` refuses a non-positive
+    // duration outright, so a row authoring 0 would push its victim and silently apply nothing.
+    // The UPPER bound is the one `weapon-ticks.ts` now clamps — asserted here as well as clamped,
+    // because a clamp that silently rewrites an author's number is a worse way to find out than a
+    // failing test naming the row.
+    for (const def of Object.values(WEAPON_TABLE)) {
+      if (def.impulse === undefined) continue;
+      const lists: [string, readonly { statusId: StatusId; durationMs: number }[]][] = [
+        ["applies", def.impulse.applies],
+        ["onWallImpact.applies", def.impulse.onWallImpact?.applies ?? []],
+      ];
+      for (const [where, list] of lists) {
+        for (const a of list) {
+          const label = `${def.id} impulse.${where} ${a.statusId}`;
+          expect(a.durationMs, label).toBeGreaterThan(0);
+          expect(a.durationMs, label).toBeLessThanOrEqual(STATUS_CONFIG.maxDurationMs);
+        }
+      }
+    }
+  });
+
+  it("clamps an over-long impulse duration to the status ceiling, as every sibling list does", () => {
+    // No shipped row authors an over-long duration — the guard above forbids it — so the clamp can
+    // only be proved through the one path that can author one at runtime. This is also exactly how
+    // its ABSENCE would have reached a player: the playground is where a tuner types a big number.
+    const over = STATUS_CONFIG.maxDurationMs + 5000;
+    try {
+      setTuning({
+        "weapon.wildcharge.impulse.applies.0.durationMs": over,
+        "weapon.wildcharge.impulse.onWallImpact.applies.0.durationMs": over,
+      });
+      const ticks = weaponTicksOf("wildcharge");
+      expect(ticks.impulse!.applies[0]!.durationTicks).toBe(msToTicks(STATUS_CONFIG.maxDurationMs));
+      expect(ticks.impulse!.onWallImpact!.applies[0]!.durationTicks).toBe(
+        msToTicks(STATUS_CONFIG.maxDurationMs),
+      );
+      // The window is not a status duration and is deliberately left alone.
+      expect(ticks.impulse!.onWallImpact!.windowTicks).toBe(msToTicks(500));
+    } finally {
+      setTuning(null);
+    }
+  });
+
+  it("converts every impulse duration to ticks exactly once", () => {
+    const ticks = WEAPON_TICKS.wildcharge.impulse!;
+    expect(ticks.applies[0]!.statusId).toBe("reeling");
+    expect(ticks.applies[0]!.durationTicks).toBe(msToTicks(1400));
+    expect(ticks.onWallImpact!.windowTicks).toBe(msToTicks(500));
+    expect(ticks.onWallImpact!.applies[0]!.durationTicks).toBe(msToTicks(500));
+  });
+
+  it("leaves onWallImpact absent rather than zeroed when a row declares none", () => {
+    // Absent must mean absent — the same rule `WeaponTicks.impulse` already follows. A zero-length
+    // window would arm a sweep that can never fire, which is worse than not arming one.
+    const bare: ImpulseDef = {
+      speed: 1, direction: "radial", spin: 0, defenceScaled: false, applies: [],
+    };
+    expect(bare.onWallImpact).toBeUndefined();
   });
 
   it("leaves rows without an impulse undefined rather than defaulted", () => {
@@ -510,29 +578,23 @@ describe("ImpulseDef", () => {
     }
   });
 
-  it("keeps every authored spin at 0, because the one implemented path has no lever arm", () => {
-    // `spin` is a public authoring field whose JSDoc promises torque from the contact-point lever
-    // arm — and on the only path that applies an `ImpulseDef` today (a maneuver's contact impulse)
-    // there is no lever arm to take it from: `contact.ts` puts the VICTIM'S OWN CENTRE on the
-    // `SlamEvent`, so `applyImpulse` measures `contactX - body.x` as exactly zero and any authored
-    // spin produces exactly zero rotation, silently. `wildcharge` authors 0 deliberately (a clean
-    // straight punt is the ult's signature, spec P28/P31), so nothing is broken today; this guard
-    // exists so the day someone authors a spinning charge it fails HERE, naming the missing contact
-    // point, instead of shipping a weapon that quietly spins nobody.
+  it("keeps every authored spin at 0, which is a balance decision and no longer a physics one", () => {
+    // This guard used to say a maneuver impulse HAD no lever arm: `contact.ts` put the victim's own
+    // centre on the `ContactHit`, so any authored spin produced exactly zero rotation, silently.
+    // Task 2 of this stage ended that — `push.contactX/Y` is a genuine hull point from
+    // `contactPointOn`, so `applyImpulse` now measures a real arm and an authored spin rotates.
     //
-    // The fix, if that day comes, is to derive a real contact point in `contact.ts` the way
-    // `resolveRam` already does with `contactPointOn` — not to relax this assertion.
+    // What survives is the BALANCE claim: the roster's one impulse row is `wildcharge`, a clean
+    // straight punt is the ult's signature (spec P28/P31), and nothing has re-pitched it. So this
+    // pins the shipped table rather than a missing mechanism, and the day someone wants a spinning
+    // charge they move this assertion and the row together — deliberately, with the slam's feel
+    // re-measured — instead of discovering the change in a playtest.
     for (const row of Object.values(WEAPON_TABLE)) {
       if (row.impulse === undefined) continue;
-      expect(row.impulse.spin, `${row.id}: a maneuver impulse has a zero lever arm — see SlamEvent`).toBe(0);
-    }
-  });
-
-  it("requires a non-negative uncontrol duration on every impulse", () => {
-    for (const row of Object.values(WEAPON_TABLE)) {
-      if (row.impulse === undefined) continue;
-      expect(row.impulse.uncontrolMs).toBeGreaterThanOrEqual(0);
-      expect(row.impulse.uncontrolMs).toBeLessThanOrEqual(STATUS_CONFIG.maxDurationMs);
+      expect(
+        row.impulse.spin,
+        `${row.id}: a spinning slam is a balance change — see ImpulseDef.spin`,
+      ).toBe(0);
     }
   });
 
@@ -556,5 +618,56 @@ describe("ImpulseDef", () => {
         expect(def.explosion?.impulse, `${def.id}'s explosion`).toBeUndefined();
       }
     }
+  });
+
+  /**
+   * The hardest ordinary ram the roster can produce, in u/s of victim Δv, derived from the live
+   * config rather than typed (spec §7.2's shove formula at its extremes).
+   *
+   * The maximum is reachable because every term is bounded: `driveIn` by the attacker's own top
+   * speed, the type scale by the largest of the three, and the rating ratio by the roster's own
+   * spread. The deleted contest had no such number — it was open-ended on purpose (R9) — which is
+   * exactly why `wildcharge.impulse.speed`'s old "2x the ram maximum" comment had become a claim
+   * about a quantity that did not exist.
+   *
+   * The whole table, not `activeCarIds()`: the question is what the game's physics can produce, and a
+   * prototype chassis is driven in the playground long before it is published.
+   */
+  function hardestOrdinaryRam(): number {
+    const ids = Object.keys(CAR_TABLE) as CarId[];
+    const typeScale = Math.max(RAM_CONFIG.flankScale, RAM_CONFIG.rearScale, RAM_CONFIG.headOnScale);
+    let hardest = 0;
+    for (const attacker of ids) {
+      for (const victim of ids) {
+        const shove =
+          forwardMaxSpeedOf(attacker) *
+          typeScale *
+          RAM_CONFIG.globalScale *
+          (ramAttackOf(attacker) / ramDefenceOf(victim));
+        if (shove > hardest) hardest = shove;
+      }
+    }
+    return hardest;
+  }
+
+  it("punts meaningfully harder than the hardest ordinary ram in the roster", () => {
+    // The ult's whole identity, and the one property `RAM_CONFIG` can silently take away: it is NOT
+    // hashed by `balanceStamp`, so a stage-5 retune of `globalScale` or `flankScale` moves every ram
+    // in the game with no page rebuild and no other failing test. This is what notices.
+    //
+    // 1.5x rather than the 2.00x the shipped values actually land (520 vs 259.92), so an ordinary
+    // tuning nudge does not trip it and a real inversion does: the bar bites once `globalScale`
+    // passes ~0.667, a third above its authored 0.5.
+    const slam = WEAPON_TABLE.wildcharge.impulse!;
+    expect(slam.speed).toBeGreaterThan(hardestOrdinaryRam() * 1.5);
+  });
+
+  it("leaves its victim reeling for longer than a full-strength ram does", () => {
+    // Both durations mean the same thing since spec U31: `reeling` is a total loss of control, not a
+    // 60% steering debuff. An ult on a 20 s cooldown must outlast the thing anyone can do by driving.
+    // A slam is also never falloff-scaled (U6), so this is the floor as well as the ceiling.
+    const slam = WEAPON_TABLE.wildcharge.impulse!;
+    const reel = slam.applies.find((a) => a.statusId === "reeling")!;
+    expect(reel.durationMs).toBeGreaterThan(RAM_CONFIG.ramUncontrolMs);
   });
 });

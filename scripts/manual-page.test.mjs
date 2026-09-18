@@ -240,9 +240,12 @@ describe("the generated manual page", () => {
     const published = [...html.matchAll(/\sid="(fx-[^"]+)"/g)].map((m) => m[1]);
     const linked = new Set([...html.matchAll(/href="#(fx-[^"]+)"/g)].map((m) => m[1]));
     assert.ok(published.length > 0, "the manual publishes no effects");
-    // `reeling` and `phased` come from ramming and from the deathmatch respawn, not from a weapon
-    // row, so nothing in the Cars section links to them by construction. They are named in
-    // EFFECT_SOURCES, which is exactly what publishes them.
+    // `ramLock` and `phased` come from the contact pass and from the deathmatch respawn, not from a
+    // weapon row, so nothing in the Cars section links to them by construction. `reeling` is named
+    // here too even though Wild Charge's own impulse chip links to it now (its slam's immediate
+    // push, not the wall-impact one) — the exemption still covers the contact pass's ordinary-ram
+    // source, which no weapon card names. All three are named in EFFECT_SOURCES, which is exactly
+    // what publishes them.
     const fromCopy = new Set(Object.keys(EFFECT_SOURCES).map((id) => `fx-${id}`));
     const orphans = published.filter((id) => !linked.has(id) && !fromCopy.has(id));
     assert.deepEqual(

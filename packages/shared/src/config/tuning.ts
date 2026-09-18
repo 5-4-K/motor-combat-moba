@@ -2,6 +2,7 @@ import { CAR_TABLE, rebuildResolvedDrive } from "./car-config.js";
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
 import { RAM_CONFIG, rebuildRamTicks } from "./ram-config.js";
+import { isStatusId } from "./status-config.js";
 import { rebuildBurstDefs, WEAPON_TABLE } from "./weapon-config.js";
 import { rebuildWeaponTicks } from "./weapon-ticks.js";
 
@@ -117,6 +118,17 @@ function assertAssignable(path: string, value: TuningValue): void {
   const shipped = container[key];
   if (typeof shipped !== typeof value) {
     throw new Error(`tuning path ${path} is ${typeof shipped}, not ${typeof value}`);
+  }
+  // The one VALUE check in an otherwise shape-only validator, and it earns its exception: a
+  // `statusId` leaf is the only string in these tables that is looked up in another table rather
+  // than read as data. `applyStatus` takes an unknown id straight to `statusDefOf(...)!.onApply` and
+  // throws a bare TypeError mid-tick, killing the room — so an unknown id has to be refused HERE,
+  // before the store is written, which is also what keeps `setTuning`'s all-or-nothing promise.
+  // Every such leaf is reachable: `weapon.<id>.applies.N.statusId`, `...explosion.applies.N.statusId`
+  // and — new in stage 4 of the Unity physics port — `...impulse.applies.N.statusId` and
+  // `...impulse.onWallImpact.applies.N.statusId`.
+  if (key === "statusId" && !isStatusId(value)) {
+    throw new Error(`tuning path ${path} is not a status id: ${String(value)}`);
   }
 }
 

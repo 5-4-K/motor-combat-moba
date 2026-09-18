@@ -1,5 +1,6 @@
 import { TICK_RATE_HZ } from "../constants.js";
 import { STATUS_CONFIG } from "./status-config.js";
+import type { StatusId } from "./status-types.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
 import type { WeaponDef, WeaponId } from "./weapon-types.js";
 
@@ -57,14 +58,14 @@ export interface WeaponTicks {
   /**
    * The row's `ImpulseDef` durations, converted to ticks once. `undefined` when the row declares no
    * `impulse` — absent must mean absent, never a zero-valued default, or every weapon would read as
-   * a nudge. `wallStunWindow`/`wallStunDuration` are 0 when the source `wallStun` is itself absent,
-   * and `retriggerImmunity` is 0 when `retriggerImmunityMs` is absent — both mirror the sibling
-   * conversions elsewhere in this file (e.g. `refireDelay` and `lifetime`, which each become 0 when absent).
+   * a nudge. `onWallImpact` is `undefined` when the source `ImpulseDef.onWallImpact` is itself
+   * absent — mirroring the sibling conversions elsewhere in this file (e.g. `refireDelay` and
+   * `lifetime`, which each become 0 when absent) — and `retriggerImmunity` is 0 when
+   * `retriggerImmunityMs` is absent.
    */
   impulse?: {
-    uncontrol: number;
-    wallStunWindow: number;
-    wallStunDuration: number;
+    applies: { statusId: StatusId; durationTicks: number }[];
+    onWallImpact?: { windowTicks: number; applies: { statusId: StatusId; durationTicks: number }[] };
     retriggerImmunity: number;
   };
 }
@@ -109,9 +110,27 @@ function ticksFor(def: WeaponDef): WeaponTicks {
       def.impulse === undefined
         ? undefined
         : Object.freeze({
-            uncontrol: msToTicks(def.impulse.uncontrolMs),
-            wallStunWindow: msToTicks(def.impulse.wallStun?.windowMs ?? 0),
-            wallStunDuration: msToTicks(def.impulse.wallStun?.durationMs ?? 0),
+            // Clamped to `STATUS_CONFIG.maxDurationMs` exactly as `WeaponDef.applies` and
+            // `ExplosionDef.applies` are above. An impulse application is an ordinary status
+            // application — it is `applyStatus` at the far end of it — so the ceiling that governs
+            // every other authored duration governs this one, and the restructure that gave impulses
+            // their own `applies` list must not have quietly bought them an exemption.
+            applies: def.impulse.applies.map((a) => ({
+              statusId: a.statusId,
+              durationTicks: msToTicks(Math.min(a.durationMs, STATUS_CONFIG.maxDurationMs)),
+            })),
+            onWallImpact:
+              def.impulse.onWallImpact === undefined
+                ? undefined
+                : {
+                    // The window is NOT clamped: it is how long the sweep watches for a wall, not a
+                    // status duration, so `STATUS_CONFIG.maxDurationMs` has nothing to say about it.
+                    windowTicks: msToTicks(def.impulse.onWallImpact.windowMs),
+                    applies: def.impulse.onWallImpact.applies.map((a) => ({
+                      statusId: a.statusId,
+                      durationTicks: msToTicks(Math.min(a.durationMs, STATUS_CONFIG.maxDurationMs)),
+                    })),
+                  },
             retriggerImmunity: msToTicks(def.impulse.retriggerImmunityMs ?? 0),
           }),
   };

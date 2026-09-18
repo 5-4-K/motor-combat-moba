@@ -71,15 +71,19 @@ export const WEAPON_COPY = {
  * Where an effect comes from when no weapon row says so.
  *
  * The Effects section derives each row's sources from `WEAPON_TABLE` — which weapon applies it, and
- * for how long — and that covers every status a gun can inflict. Two reach a player another way
- * entirely: the contact pass writes `reeling`, and the deathmatch respawn writes `phased`. Neither
- * is in a weapon table to be read, so the source line is authored here.
+ * for how long — and that covers every status a gun can inflict. Three reach a player another way
+ * entirely: the contact pass writes `reeling` and `ramLock`, and the deathmatch respawn writes
+ * `phased`. None of the three is in a weapon table to be read, so the source line is authored here.
+ * `ramLock` is the interesting one — it is the first status a player is put in **by succeeding**:
+ * you take it for landing a ram yourself, not for losing one, which is exactly why it has to be on
+ * the page.
  *
  * A status with no weapon source and no line here does not appear on the page at all, which is the
  * intended behaviour for a `STATUS_TABLE` row nothing in the shipped game can apply (`armored` and
  * `overhauled` today). Adding a source for one is how it gets published.
  */
 export const EFFECT_SOURCES = {
-  reeling: "Every ram, and Wild Charge's slam.",
+  reeling: "Any ram but a head-on, and Wild Charge's slam.",
+  ramLock: "Landing a ram yourself, and both cars in a head-on.",
   phased: "The moment after you respawn in Deathmatch.",
 };

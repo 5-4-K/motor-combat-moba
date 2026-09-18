@@ -4,24 +4,30 @@
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Reconcile everything that sits *beside* the new ram model with the model stage 3 landed:
-`wildcharge`'s authored push, the guide's Effects section, the HUD's status chips, and the client's
-impact-spark gate.
+**Goal:** Make every impulse behaviour a thing a weapon row *declares* rather than a thing the sim
+hardcodes for one weapon — then reconcile everything that sits beside the new ram model with the
+model stage 3 landed: `wildcharge`'s authored push, the guide's Effects section, the HUD's status
+chips, and the client's impact-spark gate.
 
-**Architecture:** Stage 3 made the ram a rule rather than a contest, and made `reeling` a total loss
-of control. Four things were written against the old model and now describe a game that does not
-exist: a weapon row whose doc comments argue from deleted knobs, a players' guide that cannot name
-the new status or read the new flags, a HUD that draws whatever `STATUS_TABLE` says (and is therefore
-already correct — this stage proves that rather than changing it), and a client-side copy of the ram
-contact test that sparks on contacts the sim now ignores. Nothing here changes the sim.
+**Architecture:** Stage 3 made the ram a rule rather than a contest. This stage does two things in
+sequence. **First (Tasks 1-3) it restructures the impulse seam.** Two status applications are
+currently hardcoded in `ram-bridge.ts` — `"reeling"` for `ImpulseDef.uncontrolMs`, `"stunned"` for
+`ImpulseDef.wallStun` — so the row says how long but the bridge says which; two `ImpulseDef` fields
+exist but drive nothing; and two event types describe one thing. After Tasks 1-3 the row names every
+status, `spin` works, the word "slam" is gone, and no branch anywhere asks "is this a slam" — it asks
+"does this row declare a push". **Then (Tasks 4-8) it reconciles the rest.** Nothing in this stage
+changes what the game does: `wildcharge` keeps `spin: 0`, keeps its 1.4 s reeling and keeps its wall
+stun, all now authored instead of implied.
 
 **Tech Stack:** TypeScript, npm workspaces, vitest, `node --test` for the `scripts/*.test.mjs`
 suite. `@motor-combat-moba/shared` is consumed as built `dist` — rebuild it after editing
 (`npm run build -w @motor-combat-moba/shared`).
 
 **Spec:** [`docs/superpowers/specs/2026-09-18-unity-driving-and-ram-physics-port-design.md`](../../specs/2026-09-18-unity-driving-and-ram-physics-port-design.md)
-— §11 item 4, constrained by §7.2 (what a ram writes), §8 (the two status rows), §9.3 (the ram
-starting values and the `wildcharge` re-pitch obligation), and §12 (`impact-feedback.ts`, the guide).
+— **the 2026-09-19 changelog entry is the authority for Tasks 1-3** and supersedes §7.4's two event
+types, §11 item 4's task order and §13's "any change to weapons". Tasks 4-8 are constrained by §7.2
+(what a ram writes), §8 (the two status rows), §9.3 (the ram starting values and the `wildcharge`
+re-pitch obligation), and §12 (`impact-feedback.ts`, the guide).
 
 **Ledger:** [`interfaces.md`](interfaces.md) — outranks this plan for every shared name.
 
@@ -30,41 +36,535 @@ starting values and the `wildcharge` re-pitch obligation), and §12 (`impact-fee
 - **Stages 1, 2 and 3 must have landed before this stage starts.** Every task here reads a name that
   stage 3 creates: `RAM_CONFIG.flankScale`/`rearScale`/`headOnScale`/`minRamSpeed`/`globalScale` (new
   meaning), `STATUS_TABLE.ramLock`, the redefined `STATUS_TABLE.reeling`, the `spinFree`/
-  `ramBlocked` flags, and `resolveRam`'s `RamResolution` return. Check
+  `ramBlocked` flags, `resolveRam`'s `RamResolution` return, and the exported `contactPointOn`. Check
   [`EXECUTION.md`](EXECUTION.md) says stage 3 is **Landed** before beginning.
 - **`npm test` from the repo root**, never per-workspace: a per-workspace run silently skips the
   server suite, and the root script is the only one that also runs `test:scripts`.
 - **`npm install` in this worktree before the first build**, or the build inlines the main checkout's
   shared `dist`.
-- **Build with root `npm run build`**, never `npm run build --workspaces` (ordering).
-- **No magic numbers in logic.** The test in Task 1 derives its bar from `RAM_CONFIG` and
-  `CAR_TABLE`; it must never type `260` or `520`.
+- **Build with root `npm run build`**, never `npm run build --workspaces` (ordering). Note the
+  server's build is `tsup`/esbuild and does **not** typecheck — use `npm run typecheck` or
+  `npm test` to see a type error in `packages/server`.
+- **No magic numbers in logic.** Task 4's test derives its bar from `RAM_CONFIG` and `CAR_TABLE`; it
+  must never type `260` or `520`.
+- **`contact.ts` is table-free and stays that way.** Every def-derived fact it needs is passed in on
+  `ContactCar` — `slamsStunned` already is, and Task 2 adds `pushesOnContact` the same way. Do not
+  import `WEAPON_TABLE` or a def lookup into that file.
+- **Nothing in Tasks 1-3 may change what the game does.** They are a restructure. `wildcharge` keeps
+  `speed: 520`, `spin: 0`, 1400 ms of `reeling` and a 500/500 wall stun; Task 4 is the only task
+  allowed to move a number, and it moves exactly one.
 - **Which edits owe `npm run build:manual`.** `balanceStamp` hashes `WEAPON_TABLE`, the active
   `CAR_TABLE` rows, `COMBAT_CONFIG`, `STATUS_TABLE`, `DRIVE_CONFIG`, `TICK_RATE_HZ`, the arena width
-  and the rendered copy — and **not** `RAM_CONFIG`
-  (`scripts/build-cars-and-weapons.mjs:301-318`). For this stage:
-  - Task 1 owes a rebuild **only if a `wildcharge.impulse` VALUE moves**. The stamp hashes
-    `JSON.stringify(WEAPON_TABLE)`, which does not see comments, so a comment-only rewrite moves
-    nothing and owes nothing.
-  - Task 2 owes a rebuild: `EFFECT_SOURCES` is inside `copy`.
-  - Task 2's `statusBlurb` edit owes a rebuild that **no test will demand**. The builder script is
+  and the rendered copy — and **not** `RAM_CONFIG` (`scripts/build-cars-and-weapons.mjs:301-318`).
+  For this stage:
+  - Task 1 owes a rebuild: it reshapes `WEAPON_TABLE.wildcharge.impulse`, and the stamp hashes
+    `JSON.stringify(WEAPON_TABLE)`. Restructuring the object moves the stamp even though no value
+    changes.
+  - Task 4 owes one **only if a `wildcharge.impulse` VALUE moves**. The stamp does not see comments,
+    so a comment-only rewrite owes nothing.
+  - Task 5 owes a rebuild: `EFFECT_SOURCES` is inside `copy`.
+  - Task 5's `statusBlurb` edit owes a rebuild that **no test will demand**. The builder script is
     not hashed, so changing what it renders leaves the stamp identical and the committed page stale
-    with every suite green. This is the one silent-staleness hole in the guard, and Task 5's rebuild
+    with every suite green. This is the one silent-staleness hole in the guard, and Task 8's rebuild
     is what closes it.
-  - Tasks 3 and 4 are client-only and owe nothing.
+  - Tasks 6 and 7 are client-only and owe nothing.
 - **Do not touch `docs/combat-model.md`, `docs/config-reference.md`, `docs/glossary.md`,
   `docs/turn-tuning.md` or the root `CLAUDE.md`.** Every one of them is stage 5's (§11 item 5).
 - **Do not settle `wildcharge`'s number by feel.** §3 and §9.3 both hand the playground re-pitch to
   stage 5. This stage re-pitches it *analytically* against a quantity the new model makes computable
   again, and installs the guard that will fail if stage 5's retune invalidates it.
+- **Do not decouple the weapon and ram modules.** `sim/impulse.ts` importing `ram-config.js`,
+  `ImpulseDef.defenceScaled` meaning "divided by `ramDefence`", and the push being applied inside
+  `ram-bridge.ts` are all known and deliberately out of scope — the owner reviewed the audit and
+  declined it. `EXECUTION.md`'s deferred list carries all seven sites.
 - Do not touch `docs/ideas/` or `docs/invariants/`.
-- **Three bot tests were already red** before this work started (`controller.test.ts` OFF-AXIS,
-  `tiers.test.ts` P49 and P50), plus whatever stages 1–3 recorded. Read their readings out of
-  `EXECUTION.md`; do not re-pin them.
+- **The server suite is not green and must not be made green.** At stage 3's exit it is **15 failed /
+  712 passed across 5 files** — `predict.test.ts` 9, `controller.test.ts` 2 (both G12),
+  `planner.test.ts` 1 (R-P16), `tiers.test.ts` 2 (H25 and S13 evade), `balance/match.test.ts` 1.
+  All five are stage-1 fallout owned by stage 5's `bot-tuner` pass. Do not touch them, do not re-pin
+  them, do not investigate them. Any older "three already-red bot tests" phrasing is obsolete.
 
 ---
 
-### Task 1: Re-pitch `wildcharge`'s `ImpulseDef` against the new ram scale
+### Task 1: `ImpulseDef` declares its statuses, and `SLAM_CONFIG` becomes `IMPULSE_CONFIG`
+
+**Files:**
+- Modify: `packages/shared/src/config/weapon-types.ts` (add `ImpulseStatusApplication`; reshape
+  `ImpulseDef`)
+- Modify: `packages/shared/src/config/weapon-config.ts:461-520` (the `wildcharge.impulse` block)
+- Modify: `packages/shared/src/config/weapon-ticks.ts:100-120` (the impulse conversion)
+- Rename: `packages/shared/src/config/slam-config.ts` -> `packages/shared/src/config/impulse-config.ts`
+- Modify: `packages/shared/src/index.ts` (the export line), `packages/shared/src/sim/impulse.ts` and
+  `packages/shared/src/sim/contact.ts` (the two import sites)
+- Test: `packages/shared/src/config/weapon-config.test.ts:448-545`
+
+**Interfaces:**
+- Consumes: `StatusId`, `isStatusId`, `msToTicks`.
+- Produces: `ImpulseStatusApplication = { statusId: StatusId; durationMs: number }`; `ImpulseDef`
+  with `applies: ImpulseStatusApplication[]` and `onWallImpact?: { windowMs: number; applies:
+  ImpulseStatusApplication[] }` in place of `uncontrolMs` and `wallStun`; `IMPULSE_CONFIG`
+  (`wallContactPad`, `spinScale`); `WEAPON_TICKS[id].impulse` gaining
+  `applies: { statusId: StatusId; durationTicks: number }[]` and
+  `onWallImpact?: { windowTicks: number; applies: { statusId: StatusId; durationTicks: number }[] }`.
+
+- [ ] **Step 1: Write the failing test**
+
+Replace the status assertions in `weapon-config.test.ts`'s `describe("ImpulseDef")` block with these,
+keeping the file's existing helpers:
+
+```ts
+it("declares every status an impulse applies, naming none in code", () => {
+  const imp = WEAPON_TABLE.wildcharge.impulse!;
+  expect(imp.applies.map((a) => a.statusId)).toEqual(["reeling"]);
+  expect(imp.applies[0]!.durationMs).toBe(1400);
+  expect(imp.onWallImpact!.windowMs).toBe(500);
+  expect(imp.onWallImpact!.applies.map((a) => a.statusId)).toEqual(["stunned"]);
+  expect(imp.onWallImpact!.applies[0]!.durationMs).toBe(500);
+});
+
+it("accepts any real status id on either list — that is the point of the restructure", () => {
+  for (const def of Object.values(WEAPON_TABLE)) {
+    if (def.impulse === undefined) continue;
+    for (const a of def.impulse.applies) expect(isStatusId(a.statusId), def.id).toBe(true);
+    for (const a of def.impulse.onWallImpact?.applies ?? []) {
+      expect(isStatusId(a.statusId), def.id).toBe(true);
+    }
+  }
+});
+
+it("converts every impulse duration to ticks exactly once", () => {
+  const ticks = WEAPON_TICKS.wildcharge.impulse!;
+  expect(ticks.applies[0]!.statusId).toBe("reeling");
+  expect(ticks.applies[0]!.durationTicks).toBe(msToTicks(1400));
+  expect(ticks.onWallImpact!.windowTicks).toBe(msToTicks(500));
+  expect(ticks.onWallImpact!.applies[0]!.durationTicks).toBe(msToTicks(500));
+});
+
+it("leaves onWallImpact absent rather than zeroed when a row declares none", () => {
+  // Absent must mean absent — the same rule `WeaponTicks.impulse` already follows. A zero-length
+  // window would arm a sweep that can never fire, which is worse than not arming one.
+  const bare: ImpulseDef = {
+    speed: 1, direction: "radial", spin: 0, defenceScaled: false, applies: [],
+  };
+  expect(bare.onWallImpact).toBeUndefined();
+});
+```
+
+- [ ] **Step 2: Run it and watch it fail**
+
+```bash
+npm test -w @motor-combat-moba/shared -- weapon-config.test
+```
+
+Expected: FAIL — `imp.applies` is undefined; `ImpulseDef` still has `uncontrolMs` and `wallStun`.
+
+- [ ] **Step 3: Add the type**
+
+In `weapon-types.ts`, immediately above `ImpulseDef`:
+
+```ts
+/**
+ * One status an impulse applies.
+ *
+ * **Deliberately NOT `StatusApplication`.** That type carries `target` and `wave`, and on this path
+ * both can only ever hold one value: an impulse acts on exactly one car — the one it pushed — and
+ * lands exactly once, so there is no volley to select and no second target to name. A field that can
+ * hold one value is a rule hiding as a knob, and policing it with a config test is the defect this
+ * restructure exists to remove, not a mitigation of it. The field NAMES match
+ * `StatusApplication`'s on purpose, so the two read as kin.
+ */
+export interface ImpulseStatusApplication {
+  statusId: StatusId;
+  /** Converted to whole ticks once, in `WEAPON_TICKS`. */
+  durationMs: number;
+}
+```
+
+- [ ] **Step 4: Reshape `ImpulseDef`**
+
+Replace `uncontrolMs` and `wallStun` with:
+
+```ts
+  /**
+   * Applied to the pushed car the moment the push lands. An empty list is legal and means a push
+   * that only pushes.
+   *
+   * **The bridge names no status of its own.** Until the 2026-09-19 restructure this was
+   * `uncontrolMs: number` and `ram-bridge.ts` supplied the id `"reeling"` in code, so a row could
+   * say how long but not which — the one place a weapon's effect was decided outside its row.
+   */
+  applies: ImpulseStatusApplication[];
+  /**
+   * Applied if the pushed car meets level geometry within `windowMs` of taking the push.
+   *
+   * A **deferred conditional application**: unlike `applies`, whose statuses land at once, these
+   * wait and may never land at all. `ram-bridge.ts` arms a per-victim record when the push lands and
+   * sweeps it each tick until the window closes; the first tick the car's hull is within
+   * `IMPULSE_CONFIG.wallContactPad` of an obstacle or boundary, these apply and the window shuts, so
+   * one push can stun at most once.
+   *
+   * Omit for a push that cannot. Absent must mean absent — a `windowMs: 0` would arm a sweep that
+   * can never fire, which is worse than not arming one.
+   */
+  onWallImpact?: { windowMs: number; applies: ImpulseStatusApplication[] };
+```
+
+- [ ] **Step 5: Migrate `wildcharge` and rename the config**
+
+In `weapon-config.ts`, replace `uncontrolMs: 1400` and `wallStun: { windowMs: 500, durationMs: 500 }`
+with:
+
+```ts
+      applies: [{ statusId: "reeling", durationMs: 1400 }],
+      onWallImpact: { windowMs: 500, applies: [{ statusId: "stunned", durationMs: 500 }] },
+```
+
+Keep every surrounding doc comment; only those two fields move. Then `git mv slam-config.ts
+impulse-config.ts`, rename the export `SLAM_CONFIG` -> `IMPULSE_CONFIG`, and rewrite that file's
+header comment to say what it is now:
+
+```ts
+/**
+ * Constants every contact-applied weapon impulse reads. Named `SLAM_CONFIG` until 2026-09-19, when
+ * both members turned out never to have been slam-specific:
+ *
+ * - `wallContactPad` — how close a hull counts as touching level geometry. It already had a non-slam
+ *   consumer before the rename (`contact.ts`'s wall-blocked dash), and it is what every
+ *   `ImpulseDef.onWallImpact` sweep measures against.
+ * - `spinScale` — how much an authored push rotates its target. Inert until the same date, because
+ *   the contact point handed to `applyImpulse` was the victim's own centre and the lever arm was
+ *   therefore always exactly zero; Task 2 passes a real point and this became live.
+ */
+```
+
+Update the three import sites (`index.ts`, `sim/impulse.ts`, `sim/contact.ts`).
+
+- [ ] **Step 6: Convert the durations in `WEAPON_TICKS`**
+
+In `weapon-ticks.ts`, replace the `uncontrol` / `wallStunWindow` / `wallStunDuration` fields:
+
+```ts
+            applies: def.impulse.applies.map((a) => ({
+              statusId: a.statusId,
+              durationTicks: msToTicks(a.durationMs),
+            })),
+            onWallImpact:
+              def.impulse.onWallImpact === undefined
+                ? undefined
+                : {
+                    windowTicks: msToTicks(def.impulse.onWallImpact.windowMs),
+                    applies: def.impulse.onWallImpact.applies.map((a) => ({
+                      statusId: a.statusId,
+                      durationTicks: msToTicks(a.durationMs),
+                    })),
+                  },
+```
+
+Widen the `WeaponTicks.impulse` type to match, and leave `retriggerImmunity` unchanged.
+
+- [ ] **Step 7: Run, rebuild the guide, commit**
+
+```bash
+npm test -w @motor-combat-moba/shared -- weapon-config.test
+npm run build -w @motor-combat-moba/shared && npm run build:manual
+```
+
+Expected: the four cases PASS. `ram-bridge.ts` does NOT compile yet — Task 3 fixes it, and its errors
+are the ones to record in your report.
+
+```bash
+git add packages/shared/src/config packages/shared/src/sim/impulse.ts packages/shared/src/sim/contact.ts packages/shared/src/index.ts packages/client/public/manual.html
+git commit -m "refactor(impulse): a weapon row names the statuses its push applies"
+```
+
+---
+
+### Task 2: One contact event, and a real contact point
+
+**Files:**
+- Modify: `packages/shared/src/sim/contact.ts` (`ContactHit`, `SlamEvent` deleted, `ContactCar`,
+  `ContactEvents`, `resolvePair`'s two maneuver branches)
+- Modify: `packages/shared/src/index.ts`
+- Test: `packages/shared/src/sim/contact.test.ts`
+
+**Interfaces:**
+- Consumes: Task 1's `ImpulseDef`; stage 3's exported `contactPointOn(victim, attacker): Vec2`.
+- Produces: `ContactHit` gaining `push?: { dirX, dirY, contactX, contactY }`; `SlamEvent` **deleted**;
+  `ContactEvents.contactHits: ContactHit[]` replacing `dashHits` and `slams`; `ContactCar` gaining
+  `pushesOnContact: boolean`.
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+it("reports a dash and a charge as the same kind of event, in one list", () => {
+  const { events } = resolveContacts(dashingPair, new Set(), "ffa", 0, new Map(), [], BOUNDS);
+  expect(events.contactHits).toHaveLength(1);
+  expect(events.contactHits[0]!.push).toBeUndefined();
+});
+
+it("carries push geometry only when the row declares an impulse", () => {
+  const { events } = resolveContacts(chargingPair, new Set(), "ffa", 0, new Map(), [], BOUNDS);
+  expect(events.contactHits).toHaveLength(1);
+  const push = events.contactHits[0]!.push!;
+  expect(Math.hypot(push.dirX, push.dirY)).toBeCloseTo(1, 9);
+});
+
+it("derives a real contact point, not the victim's centre, so an authored spin can rotate", () => {
+  // This is why `ImpulseDef.spin` could never do anything: a lever arm of exactly zero.
+  const { events } = resolveContacts(chargingPair, new Set(), "ffa", 0, new Map(), [], BOUNDS);
+  const push = events.contactHits[0]!.push!;
+  const victim = chargingPair[1]!;
+  expect(Math.hypot(push.contactX - victim.x, push.contactY - victim.y)).toBeGreaterThan(0);
+});
+
+it("still keeps a car in any maneuver out of the ram arm", () => {
+  // `anyEvent`'s real job. `ramLock` immobilises for half a second, and stranding a mid-ult charger
+  // with it would be the worst bug this stage could ship.
+  const { events } = resolveContacts(chargingPair, new Set(), "ffa", 0, new Map(), [], BOUNDS);
+  expect(events.rams).toHaveLength(0);
+});
+```
+
+- [ ] **Step 2: Run it and watch it fail**
+
+```bash
+npm test -w @motor-combat-moba/shared -- contact.test
+```
+
+Expected: FAIL — `events.contactHits` is undefined.
+
+- [ ] **Step 3: Merge the two event types**
+
+Delete `SlamEvent` entirely. On `ContactHit`:
+
+```ts
+  /**
+   * The contact geometry this push needs, or `undefined` for a hit that pushes nobody.
+   *
+   * Present when the car's maneuver weapon declares an `ImpulseDef` (`ContactCar.pushesOnContact`)
+   * AND the two hulls were far enough apart to measure a normal. Absent covers a dash, a charge
+   * whose row declares no impulse, and the degenerate exact overlap where `awayFrom` returns null.
+   *
+   * **`ram-bridge.ts` cannot recompute either field** — the normal is measured between two moving
+   * OBBs at the moment they touched, and this pass is the only place holding both. That is why the
+   * geometry rides the event rather than being looked up later.
+   *
+   * `contactX`/`contactY` is a GENUINE point on the hull, from `contactPointOn` — the same helper
+   * every ordinary ram uses. Until 2026-09-19 it was the victim's own centre, which made
+   * `applyImpulse`'s lever arm exactly zero and `ImpulseDef.spin` incapable of rotating anyone at
+   * any authored value.
+   */
+  push?: { dirX: number; dirY: number; contactX: number; contactY: number };
+```
+
+On `ContactCar`, beside `slamsStunned`:
+
+```ts
+  /**
+   * Does this car's active maneuver weapon declare an `ImpulseDef`? Resolved by the bridge, like
+   * every other def-derived fact on this type — this file stays table-free.
+   */
+  pushesOnContact: boolean;
+```
+
+On `ContactEvents`, replace `dashHits` and `slams` with:
+
+```ts
+  /**
+   * Every maneuver contact this pass resolved — dashes and charges in one list. They were two lists
+   * of two types until 2026-09-19, when the only difference left between them became "does this row
+   * declare a push", which is a property of the weapon rather than of the event.
+   */
+  contactHits: ContactHit[];
+```
+
+- [ ] **Step 4: Collapse the two branches into one**
+
+Replace both arms of `resolvePair`'s maneuver loop with:
+
+```ts
+    if (!inManeuver(attacker)) continue;
+    if (!canDamage(attacker.sessionId, attacker.team, other.sessionId, other.team, mode)) continue;
+
+    // The three gates below are the PUSH's, not the maneuver's: a hit that pushes nobody has no
+    // victim to protect from re-pushing and no stun to land, so it is never gated by them.
+    let push: ContactHit["push"];
+    if (attacker.pushesOnContact) {
+      if (other.stunned && !attacker.slamsStunned) continue;
+      if (tick < (pushImmuneUntil.get(other.sessionId) ?? 0)) continue;
+      const away = awayFrom(attacker, other);
+      if (away !== null) {
+        const point = contactPointOn(other, attacker);
+        push = { dirX: away.x, dirY: away.y, contactX: point.x, contactY: point.y };
+      }
+    }
+
+    contactHits.push({
+      attackerSessionId: attacker.sessionId,
+      targetSessionId: other.sessionId,
+      weaponId: attacker.maneuverWeaponId as WeaponId,
+      push,
+    });
+    anyEvent = true;
+```
+
+`inManeuver` replaces `isDasher`/`isCharger` as the loop's gate:
+
+```ts
+function inManeuver(c: ContactCar): boolean {
+  return (
+    (c.maneuver === ManeuverKind.DASH || c.maneuver === ManeuverKind.CHARGE) &&
+    c.maneuverWeaponId !== ""
+  );
+}
+```
+
+Keep `isDasher` — `wallBlockedDashers` still needs it. Rename the `slamImmuneUntil` parameter to
+`pushImmuneUntil` throughout. `anyEvent`'s short-circuit at the end of the loop is unchanged, and it
+is load-bearing for the reason the fourth test states.
+
+- [ ] **Step 5: Run and commit**
+
+```bash
+npm test -w @motor-combat-moba/shared -- contact.test
+```
+
+Expected: PASS. `ram-bridge.ts` still does not compile.
+
+```bash
+git add packages/shared/src/sim/contact.ts packages/shared/src/sim/contact.test.ts packages/shared/src/index.ts
+git commit -m "refactor(contact): one maneuver contact event, with a real contact point"
+```
+
+---
+
+### Task 3: The bridge applies what the row declared
+
+**Files:**
+- Modify: `packages/server/src/sim/ram-bridge.ts` (the pushes loop, the wall sweep, `contactCarsOf`,
+  `ContactMemory.slammed`)
+- Test: `packages/server/src/sim/ram-bridge.test.ts`
+
+**Interfaces:**
+- Consumes: Tasks 1 and 2.
+- Produces: `ContactMemory.pushed` replacing `.slammed`, carrying
+  `{ bySessionId, wallWindowUntilTick, immuneUntilTick, wallApplies }`.
+
+- [ ] **Step 1: Write the failing tests**
+
+Reuse the file's existing scenario helpers; add one only if none fits.
+
+```ts
+it("applies exactly the statuses the row declared, by id", () => {
+  const { state } = slamScenario();
+  contactTick(/* … */);
+  expect(hasStatus(readStatuses(state.players.get("b")!), "reeling", TICK)).toBe(true);
+});
+
+it("would apply a different status if the row named one", () => {
+  // The restructure's whole point: nothing in the bridge knows the word "reeling".
+  const { state } = slamScenario({ applies: [{ statusId: "spiked", durationMs: 1400 }] });
+  contactTick(/* … */);
+  const victim = readStatuses(state.players.get("b")!);
+  expect(hasStatus(victim, "spiked", TICK)).toBe(true);
+  expect(hasStatus(victim, "reeling", TICK)).toBe(false);
+});
+
+it("stuns on a wall impact inside the window, once, for the row's own duration", () => {
+  const { state, memory } = slamScenario({ victimAgainstWall: true });
+  contactTick(/* … */);
+  expect(hasStatus(readStatuses(state.players.get("b")!), "stunned", TICK)).toBe(true);
+  expect(memory.pushed.get("b")!.wallWindowUntilTick).toBe(TICK);
+});
+
+it("arms no live wall window when the row declares no onWallImpact", () => {
+  const { memory } = slamScenario({ onWallImpact: undefined });
+  contactTick(/* … */);
+  expect(memory.pushed.get("b")!.wallApplies).toHaveLength(0);
+});
+
+it("rotates a victim when the row authors a spin, and not when it does not", () => {
+  const still = runSlam({ spin: 0 });
+  const spun = runSlam({ spin: 3 });
+  expect(Math.abs(still.victim.angVel)).toBeCloseTo(0, 9);
+  expect(Math.abs(spun.victim.angVel)).toBeGreaterThan(0);
+});
+```
+
+`slamScenario`'s options are new — extend the existing helper to take an `ImpulseDef` override rather
+than writing a second fixture builder. If it cannot accept one cheaply, say so in your report and
+build the override inline.
+
+- [ ] **Step 2: Run them and watch them fail**
+
+```bash
+npm test -w @motor-combat-moba/server -- ram-bridge.test
+```
+
+Expected: FAIL to compile — `authored.ticks.uncontrol` no longer exists.
+
+- [ ] **Step 3: Apply the declared statuses**
+
+Replace the hardcoded `"reeling"` write in the pushes loop:
+
+```ts
+    for (const applied of authored.ticks.applies) {
+      writeStatuses(
+        victim,
+        applyStatus(
+          readStatuses(victim), applied.statusId, tick, applied.durationTicks, hit.attackerSessionId,
+        ),
+      );
+    }
+```
+
+and the wall sweep's hardcoded `"stunned"`:
+
+```ts
+    for (const applied of entry.wallApplies) {
+      statusRequests.push({
+        targetSessionId: victimId,
+        statusId: applied.statusId,
+        durationTicks: applied.durationTicks,
+        sourceSessionId: entry.bySessionId,
+      });
+    }
+```
+
+Rename `memory.slammed` -> `memory.pushed`, and its record fields to
+`{ bySessionId, wallWindowUntilTick, immuneUntilTick, wallApplies }`, armed from
+`authored.ticks.onWallImpact` — and when the row declares none, arm `wallApplies: []` with the window
+already closed, so the sweep skips it immediately rather than carrying a live window that can never
+fire. Read the contact geometry off `hit.push` and skip any hit whose `push` is `undefined`.
+
+Keep the last-push-wins arbitration, the re-slam immunity clock, the `recordShove` spike credit, and
+`endManeuverOnly` plus the attacker's self-status expiry exactly as they are — those are maneuver
+rules, not impulse rules, and the existing comments say so.
+
+In `contactCarsOf`, add `pushesOnContact: impulseOf(maneuverWeaponId) !== null` beside the existing
+`slamsStunned: slamsStunnedOf(maneuverWeaponId)`.
+
+- [ ] **Step 4: Verify the whole tree**
+
+```bash
+npm run build && npm run typecheck && npm test && npm run test:scripts
+grep -rniE "\bslam" packages/shared/src packages/server/src --include=*.ts | grep -v "\.test\."
+```
+
+Expected: build and typecheck clean; shared, client and `test:scripts` green; the server at exactly
+its 15 pre-existing failures. The grep should return **nothing but comments describing history** — if
+a live identifier still says "slam", rename it.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/server/src/sim/ram-bridge.ts packages/server/src/sim/ram-bridge.test.ts
+git commit -m "feat(impulse): the bridge applies the statuses the row declared"
+```
+
+---
+
+### Task 4: Re-pitch `wildcharge`'s `ImpulseDef` against the new ram scale
 
 **Files:**
 - Modify: `packages/shared/src/config/weapon-config.ts:461-502` (the `wildcharge.impulse` block)
@@ -265,7 +765,7 @@ git commit -m "docs(weapons): re-pitch wildcharge's slam against the Unity ram s
 
 ---
 
-### Task 2: Publish `ramLock` in the players' guide
+### Task 5: Publish `ramLock` in the players' guide
 
 **Files:**
 - Modify: `scripts/cars-and-weapons-copy.mjs:72-85` (`EFFECT_SOURCES` and its doc comment),
@@ -378,7 +878,7 @@ git commit -m "docs(manual): publish ramLock and read the new status flags"
 
 ---
 
-### Task 3: The HUD status chips — verify, then pin what the verification found
+### Task 6: The HUD status chips — verify, then pin what the verification found
 
 **Files:**
 - Read only: `packages/client/src/scenes/status-hud.ts`,
@@ -468,7 +968,7 @@ git commit -m "test(hud): pin reeling and ramLock rendering from the table"
 
 ---
 
-### Task 4: Make the impact spark agree with the new ram rule
+### Task 7: Make the impact spark agree with the new ram rule
 
 **Files:**
 - Modify: `packages/client/src/scenes/impact-feedback.ts`,
@@ -723,7 +1223,7 @@ git commit -m "fix(client): spark only on contacts the Unity ram rule calls a ra
 
 ---
 
-### Task 5: Rebuild the guide, verify the stage, and update the tracker
+### Task 8: Rebuild the guide, verify the stage, and update the tracker
 
 **Files:**
 - Modify: `packages/client/public/manual.html` (generated), [`EXECUTION.md`](EXECUTION.md)
@@ -734,7 +1234,7 @@ git commit -m "fix(client): spark only on contacts the Unity ram rule calls a ra
 
 - [ ] **Step 1: Rebuild the page**
 
-Task 2 already rebuilt it, but Task 1 may have moved `WEAPON_TABLE` and the builder's `statusBlurb`
+Task 5 already rebuilt it, but Task 4 may have moved `WEAPON_TABLE` and the builder's `statusBlurb`
 change is invisible to `balanceStamp`, so rebuild once more at the end of the stage. Cheap, and the
 alternative is a page that is stale with every suite green.
 
@@ -743,9 +1243,9 @@ npm run build:manual
 git diff --stat packages/client/public/manual.html
 ```
 
-Expected: either no diff (Task 2's build already captured everything) or a diff confined to the
+Expected: either no diff (Task 5's build already captured everything) or a diff confined to the
 Effects section and the stamp meta tag. A diff touching weapon stat cells means a `WEAPON_TABLE`
-value moved in Task 1 — check that was intended.
+value moved in Task 4 — check that was intended.
 
 - [ ] **Step 2: Full verification**
 
@@ -779,9 +1279,9 @@ git commit -m "chore(manual): rebuild the guide for the Unity port's effects"
 ```
 
 Update [`EXECUTION.md`](EXECUTION.md) **in this same commit**: stage 4 row to **Landed**; the figures
-Task 1 measured (`hardestOrdinaryRam()` at the shipped config, and `520 /` it); that
+Task 4 measured (`hardestOrdinaryRam()` at the shipped config, and `520 /` it); that
 `wildcharge.impulse.speed` is still provisional and is stage 5's playground call; the
-`EFFECT_SOURCES.reeling` head-on wording question from Task 2 Step 2, as an open item for the user;
+`EFFECT_SOURCES.reeling` head-on wording question from Task 5 Step 2, as an open item for the user;
 that the HUD needed no change and why; and which stage is next.
 
 - [ ] **Step 5: Say it out loud in the summary**
@@ -801,6 +1301,16 @@ behalf:
 
 ## Stage 4 exit criteria
 
+- [ ] No status id appears as a string literal in `packages/server/src/sim/ram-bridge.ts`. Every
+      status a weapon applies is named on its own row.
+- [ ] `grep -rniE "slam" packages/*/src --include=*.ts` returns nothing but comments describing
+      history. `SLAM_CONFIG`, `slam-config.ts` and `SlamEvent` are gone.
+- [ ] `ContactEvents` has one maneuver-contact list, not two, and no branch asks whether a hit is a
+      slam — only whether its row declares a push.
+- [ ] `ImpulseDef.spin` rotates a victim when a row authors one, proven by a test; `wildcharge`
+      still authors `0` and still punts straight.
+- [ ] `wildcharge` still applies 1400 ms of `reeling` and still stuns on a wall inside 500 ms —
+      both now read off the row rather than out of the bridge.
 - [ ] `npm run build` (root) succeeds and the server bundle inlines `// ../shared/dist/…`.
 - [ ] `npm test` passes except the bot tests `EXECUTION.md` records as already red.
 - [ ] No comment in `WEAPON_TABLE.wildcharge.impulse` names `SLAM_CONFIG`, `knockMaxSpeed`, the ram
