@@ -707,8 +707,9 @@ export function contactTick(
     // The bridge names no status of its own: every application is the row's own id and its own
     // duration, off `authored.ticks.applies` (positionally parallel to `ImpulseDef.applies`).
     // `applyStatus` refuses a non-positive duration outright, so a row authoring `durationMs: 0`
-    // would write nothing — not reachable today, since `weapon-config.test.ts` requires a positive
-    // duration on every authored application.
+    // would write nothing — not reachable today, since `weapon-config.test.ts`'s
+    // "bounds every impulse application's duration, on both lists" holds every entry above 0 and at
+    // or under `STATUS_CONFIG.maxDurationMs`, and `weapon-ticks.ts` clamps the upper end besides.
     for (const applied of authored.ticks.applies) {
       writeStatuses(
         victim,
@@ -771,8 +772,15 @@ export function contactTick(
     // A charge weapon that declares no `impulse` opens neither clock — but still ends its maneuver
     // and expires its own statuses below, because those are maneuver rules, not impulse rules.
     // Unreachable today; see `impulseOf`.
+    //
+    // `hit.push !== undefined` is the second half of the same rule, and it is about a hit whose
+    // WEAPON declares an impulse but whose push never landed (`awayFrom` returned null on a
+    // degenerate exact overlap — see `ContactHit.push`). No push means no shove to carry a car into
+    // a wall, so there is nothing for an `onWallImpact` window to price; arming one would let a
+    // victim be stunned by a wall impact from a push it never took. Unreachable today for the same
+    // reason `ContactHit.push`'s doc gives, and gated anyway so the two halves cannot drift.
     const authored = impulseOf(hit.weaponId);
-    if (authored !== null) {
+    if (authored !== null && hit.push !== undefined) {
       memory.pushed.set(hit.targetSessionId, {
         bySessionId: hit.attackerSessionId,
         // Absent must mean absent (see `PushRecord.wallApplies`): a row with no `onWallImpact`

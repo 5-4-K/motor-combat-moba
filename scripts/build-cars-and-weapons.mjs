@@ -140,11 +140,12 @@ function statusBlurb(def) {
   if ((def.flags ?? []).includes("fullStop")) parts.push("total stop");
   if ((def.flags ?? []).includes("immobilised")) parts.push("no control");
   if ((def.flags ?? []).includes("steeringLocked")) parts.push("no steering");
-  // The two movement words the Unity ram port added. `grip` below 1 reads as "low grip" rather
-  // than a percentage — `reeling` is the only row that ever sets it, and the generic modifiers loop
-  // below skips `grip` so it is never printed twice. `spinFree` is what makes a ram read as a
-  // spin-out rather than a shove.
-  if ((def.modifiers?.grip ?? 1) < 1) parts.push("low grip");
+  // `spinFree` is what makes a ram read as a spin-out rather than a shove. `grip` deliberately has
+  // NO special case beside it: ruling P10 ("no grip" vs "low grip") was adjudicated without noticing
+  // that the generic modifiers loop below already rendered `reeling`'s 0.6 as `traction −40%`,
+  // which is both more precise and the only form that survives a future `grip > 1` buff — a `< 1`
+  // test prints nothing at all for one, which is exactly the empty-`parts` failure this function's
+  // own comment warns about. P10 is reversed; the channel word does the work.
   if ((def.flags ?? []).includes("spinFree")) parts.push("spins freely");
   if ((def.flags ?? []).includes("disarmed")) parts.push("cannot fire");
   // `ramBlocked` is the whole anti-chain rule — a reeling or ram-locked car cannot ram back. Placed
@@ -157,7 +158,6 @@ function statusBlurb(def) {
   if (def.pulse?.heal) parts.push(`repairs ${def.pulse.heal} hp per ${secs(def.pulse.intervalMs)}`);
   if (def.onApply?.cleanse) parts.push(`clears every ${def.onApply.cleanse}`);
   for (const [channel, value] of Object.entries(def.modifiers)) {
-    if (channel === "grip") continue; // said above as "low grip", never a percentage
     const pct = Math.round(Math.abs(value - 1) * 100);
     parts.push(`${CHANNEL_WORDS[channel] ?? channel} ${value > 1 ? "+" : "−"}${pct}%`);
   }

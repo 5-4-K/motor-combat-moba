@@ -558,6 +558,29 @@ command as well as the figure.
 
 ## Deferred, and who owns it
 
+- **A ram landed by a REMOTE car never sparks or shakes on your screen, and no velocity the client
+  can reach fixes it.** `packages/client/src/scenes/ArenaScene.ts` (the `impactCars` assembly) →
+  `scenes/impact-feedback.ts`'s `freshImpacts` → shared `resolveRam`. Stage 4's final fix wave
+  corrected the LOCAL half of this — the local car is now given `predictedPrev`'s tick-entry
+  velocity instead of the rendered, post-`resolveWorld` one, taking a nose-first drive-in from 11 of
+  40 sub-tick phases sparking to 40 of 40 — and deliberately left the remote half alone, because it
+  is not a wiring mistake. A remote's pose is interpolated `NET_CONFIG.interpolationDelayMs` in the
+  past, so by the time its POSITION is drawn at contact, every patch the buffer holds already
+  describes the resolved ram: spec §7.2 stops the attacker dead, so it is published at zero velocity
+  (`replacesVelocity` with a zero shove), and it is wearing `ramLock`, whose `ramBlocked` flag
+  `resolveRam` refuses on the attacker side regardless of velocity. Measured over the same 40
+  sub-tick phases with a 20 Hz patch model: **0 of 40 spark**, and feeding the older interpolation
+  bracket's velocity instead recovers only 18 of 40 — and the status gate would still veto those.
+  **What a player sees:** ramming someone yourself flashes and shakes correctly; being rammed by
+  another player does neither, and the only feedback is the knock itself arriving a round trip later.
+  Cosmetic only — nothing here reaches `stepSim`, the schema or the server. **Owner: stage 5.** A
+  real fix needs a client-side pre-contact history per remote (velocity AND statuses, sampled before
+  the patch that resolved the ram), which is a netcode-shaped change and is the same territory as
+  `docs/superpowers/specs/2026-09-04-online-netcode-and-client-architecture-design.md` §9.1; it is
+  not a `resolveRam` question. The divergence is written down at both ends —
+  `ArenaScene`'s `approach` comment and `ImpactPose`'s doc — so the next reader meets it before the
+  code.
+
 - **`DRIVE_CONFIG.flipSteeringInReverse` is OFF from 2026-09-18, and the predicate behind it is the
   thing to fix before it goes back on.** A playtest at `baseTurnRate` 1.0005 / `turnRatePerRating`
   0.02535 found the car juddering for about a second after releasing the throttle mid-corner — most
@@ -605,7 +628,7 @@ command as well as the figure.
   (see this file's Task 6 paragraph above).
 - **`ramLock` is applied with `ram.attackerId` as its status source, which for a flank or rear ram is
   the LOCKED CAR ITSELF — so the slam path can cut a car's own lock short (controller ruling S3-l).**
-  There is exactly one `expireStatusesFromSource` production call site (`ram-bridge.ts:648`), invoked
+  There is exactly one `expireStatusesFromSource` production call site (`ram-bridge.ts:815`), invoked
   with the attacker's own id, so a car that rams at tick T and lands a `wildcharge` slam before T+15
   clears its own `ramLock` early. No clause in the spec covers a status's source, so fixing it means
   inventing a rule; the implementer and reviewer both declined to invent one. **Owner: stage 5, not

@@ -3,7 +3,6 @@ import type { Room } from "colyseus.js";
 import type {
   ArenaDef,
   ArenaState,
-  CarId,
   InputMessage,
   PlayerState,
   SimBody,
@@ -27,6 +26,7 @@ import {
   PRACTICE_CONFIG,
   PRACTICE_IDLE_CLOSE_CODE,
   PRACTICE_IDLE_ERROR,
+  carIdOf,
   muzzleOf,
   RoomPhase,
   TICK_RATE_HZ,
@@ -1935,15 +1935,37 @@ export class ArenaScene extends Phaser.Scene {
       this.drawCarLook(shadow, sessionId, player.carId, player.colorId, pose, alpha);
       poses.set(sessionId, pose);
       const mods = modifiersFromRows(player.statuses, room.state.tick);
+      // **NOT `pose.vx`/`pose.vy`.** `RamCar`'s own doc requires the PRE-COLLISION velocity — the
+      // one the car carried INTO the tick — and says why: collision resolution runs before ram, so
+      // reading the resolved velocity makes every drive-in wrong on exactly the ticks a hull
+      // overlapped. It shipped once on the server and cost 80-90% of all rams. The render pose
+      // carries the resolved number (`stepSim` has already run `resolveWorld` on it, and `blendPose`
+      // takes `vx`/`vy` from the newest tick un-blended), so feeding it here reproduces that bug in
+      // the spark gate.
+      //
+      // `predictedPrev` is the client's exact analogue of `serverTick`'s `approachVelocities`: it is
+      // the body `predict` stepped FROM, so on the tick a hull first overlapped it still holds the
+      // free-flight velocity. Measured over the sub-tick phase (40 offsets, one mirage driving into a
+      // parked one): the render pose sparks 11/40, `predictedPrev` sparks 40/40.
+      //
+      // A REMOTE keeps the interpolated velocity, and that is a known divergence rather than an
+      // oversight — the client has nothing better for one. By the time a remote's interpolated
+      // POSITION reaches contact, every patch the buffer holds is already post-ram: the attacker is
+      // published at zero velocity (`replacesVelocity`, zero shove) AND wearing `ramLock`, whose
+      // `ramBlocked` flag `resolveRam` refuses on its own. So a remote's ram sparks 0/40 and no
+      // velocity this file can reach recovers it. Recorded as a stage-5 item in the Unity physics
+      // port's EXECUTION.md; the cost is cosmetic (no spark, no shake when someone rams YOU) and the
+      // authoritative knock still arrives.
+      const approach = isLocal ? (this.predictedPrev ?? pose) : pose;
       impactCars.set(sessionId, {
         sessionId,
         team: player.team === 1 ? 1 : 0,
         x: pose.x,
         y: pose.y,
         angle: pose.angle,
-        vx: pose.vx,
-        vy: pose.vy,
-        carId: player.carId as CarId,
+        vx: approach.vx,
+        vy: approach.vy,
+        carId: carIdOf(player),
         defenceMult: mods.ramDefence,
         ramBlocked: mods.ramBlocked,
       });

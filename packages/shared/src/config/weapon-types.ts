@@ -212,18 +212,6 @@ interface WeaponBase {
 export type StatusTarget = "self" | "opponents" | "ownerInside";
 
 /**
- * One push a weapon imparts, and to whom, and how hard. The declarative sibling of `applies`.
- *
- * **This is now the only thing that produces an `Impulse`.** It is the *authored* half — fixed
- * numbers a designer writes on a row — and since the 2026-09-18 Unity ram port (spec §7.4) it is
- * also the whole of it: ordinary ramming left `applyImpulse` entirely and hands the bridge a
- * `RamResolution` instead, because "the attacker stops dead" cannot be said in a struct whose whole
- * meaning is "add this to what you had". (It used to share the applier, deriving its magnitude from
- * a contest between both cars' `ramAttack`/`ramDefence`, a side bonus and a falloff stack.) Ram feel
- * and weapon feel stay independently tunable, now by not sharing a derivation at all. See spec
- * principle D.
- */
-/**
  * One status an impulse applies.
  *
  * **Deliberately NOT `StatusApplication`.** That type carries `target` and `wave`, and on this path
@@ -239,6 +227,18 @@ export interface ImpulseStatusApplication {
   durationMs: number;
 }
 
+/**
+ * One push a weapon imparts, and to whom, and how hard. The declarative sibling of `applies`.
+ *
+ * **This is now the only thing that produces an `Impulse`.** It is the *authored* half — fixed
+ * numbers a designer writes on a row — and since the 2026-09-18 Unity ram port (spec §7.4) it is
+ * also the whole of it: ordinary ramming left `applyImpulse` entirely and hands the bridge a
+ * `RamResolution` instead, because "the attacker stops dead" cannot be said in a struct whose whole
+ * meaning is "add this to what you had". (It used to share the applier, deriving its magnitude from
+ * a contest between both cars' `ramAttack`/`ramDefence`, a side bonus and a falloff stack.) Ram feel
+ * and weapon feel stay independently tunable, now by not sharing a derivation at all. See spec
+ * principle D.
+ */
 export interface ImpulseDef {
   /** Magnitude as a Δv in u/s. Negative pulls the victim toward the source. */
   speed: number;
@@ -254,18 +254,22 @@ export interface ImpulseDef {
   /**
    * Torque scale from the contact-point lever arm. 0 = a clean straight punt, no rotation.
    *
-   * **INERT on the one path implemented today, and a test enforces that no row relies on it.** The
-   * only `ImpulseDef` that is ever actually applied is a maneuver's contact impulse (wildcharge's
-   * hard slam), and the contact point `sim/contact.ts` carries on its `ContactHit` is the VICTIM'S
-   * OWN CENTRE — so the lever arm `applyImpulse` measures is exactly zero, and any non-zero value
-   * here would produce exactly zero rotation with nothing to say so. `wildcharge` authors `0`
-   * deliberately (spec P28/P31), so no shipped behaviour depends on this, but the field would be a
-   * silent trap for the next author: `weapon-config.test.ts` asserts every authored `impulse` has
-   * `spin === 0` and names the missing lever arm when that stops being true.
+   * **LIVE since 2026-09-19 (stage 4, Task 2): a non-zero value here rotates the victim for real.**
+   * `sim/contact.ts` derives `ContactHit.push.contactX/Y` with `contactPointOn` — the same helper
+   * every ordinary ram uses — so `applyImpulse` measures a genuine lever arm off the victim's hull
+   * and `nextSpin` turns it into yaw. This was inert until then, because the event carried the
+   * victim's own centre and the arm was exactly zero; that is history, and **authoring a spinning
+   * contact impulse is now a table edit, not a physics change.**
    *
-   * Authoring a spinning contact impulse means deriving a real contact point first — the way
-   * `resolveRam` already does with `contactPointOn`, which is why an ordinary ram spins its victims
-   * and a slam does not. That is a physics change, not a table edit.
+   * `wildcharge` still authors `0`, and that is a BALANCE decision rather than a limitation: a clean
+   * straight punt is the ult's signature (spec P28/P31). `weapon-config.test.ts` holds every row at
+   * `0` for the same reason — it pins the shipped roster, and re-pitching the slam's feel means
+   * moving the assertion and the row together, deliberately.
+   *
+   * One asymmetry to know before authoring one: `applyImpulse` divides the torque by the victim's
+   * `ramDefence` whatever `defenceScaled` says, so a row that punts every chassis identically
+   * (`defenceScaled: false`) still SPINS each chassis differently. `defenceScaled` governs the
+   * linear Δv alone.
    */
   spin: number;
   /**

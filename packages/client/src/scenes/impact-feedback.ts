@@ -42,6 +42,14 @@ import {
  * touching and are they enemies". The Unity ram rule reads velocity, heading and the ram flags too
  * (spec §7.1), and a second copy of that rule on the client is precisely the drift this alias
  * exists to make impossible.
+ *
+ * **Being `RamCar` means `vx`/`vy` carry `RamCar`'s contract, and it is not the obvious one:** they
+ * are the PRE-collision velocity, the one the car carried into the tick, NOT the velocity it is
+ * drawn with. A stepped pose has already been through `resolveWorld`, which on the one tick that
+ * matters — the tick the hulls overlapped — has zeroed the component driving into the other car. Fed
+ * that, this pass refuses about three drive-in rams in four (measured: 11 of 40 sub-tick phases
+ * spark, against 40 of 40 on the tick-entry velocity). `ArenaScene` is where the right number is
+ * chosen; the comment there says which, per car, and what the client cannot do for a remote.
  */
 export type ImpactPose = RamCar;
 

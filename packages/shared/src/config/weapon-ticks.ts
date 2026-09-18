@@ -110,18 +110,25 @@ function ticksFor(def: WeaponDef): WeaponTicks {
       def.impulse === undefined
         ? undefined
         : Object.freeze({
+            // Clamped to `STATUS_CONFIG.maxDurationMs` exactly as `WeaponDef.applies` and
+            // `ExplosionDef.applies` are above. An impulse application is an ordinary status
+            // application — it is `applyStatus` at the far end of it — so the ceiling that governs
+            // every other authored duration governs this one, and the restructure that gave impulses
+            // their own `applies` list must not have quietly bought them an exemption.
             applies: def.impulse.applies.map((a) => ({
               statusId: a.statusId,
-              durationTicks: msToTicks(a.durationMs),
+              durationTicks: msToTicks(Math.min(a.durationMs, STATUS_CONFIG.maxDurationMs)),
             })),
             onWallImpact:
               def.impulse.onWallImpact === undefined
                 ? undefined
                 : {
+                    // The window is NOT clamped: it is how long the sweep watches for a wall, not a
+                    // status duration, so `STATUS_CONFIG.maxDurationMs` has nothing to say about it.
                     windowTicks: msToTicks(def.impulse.onWallImpact.windowMs),
                     applies: def.impulse.onWallImpact.applies.map((a) => ({
                       statusId: a.statusId,
-                      durationTicks: msToTicks(a.durationMs),
+                      durationTicks: msToTicks(Math.min(a.durationMs, STATUS_CONFIG.maxDurationMs)),
                     })),
                   },
             retriggerImmunity: msToTicks(def.impulse.retriggerImmunityMs ?? 0),

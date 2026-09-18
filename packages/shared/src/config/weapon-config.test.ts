@@ -7,8 +7,9 @@ import { WEAPON_TABLE, explosionDamageModeOf, instanceDefOf, isWeaponId, weaponD
 import { slotsOf } from "./weapon-slots.js";
 import { WEAPON_TICKS, msToTicks, weaponTicksOf } from "./weapon-ticks.js";
 import type { ImpulseDef, WeaponDef } from "./weapon-types.js";
-import { isStatusId } from "./status-config.js";
+import { STATUS_CONFIG, isStatusId } from "./status-config.js";
 import { RAM_CONFIG } from "./ram-config.js";
+import { setTuning } from "./tuning.js";
 
 describe("WEAPON_TABLE", () => {
   it("pins the overhaul roster's load-bearing numbers (spec 2026-09-01)", () => {
@@ -467,6 +468,56 @@ describe("ImpulseDef", () => {
     }
   });
 
+  it("bounds every impulse application's duration, on both lists", () => {
+    // The restructure replaced a single `uncontrolMs` field with two lists and took its bound with
+    // it, which left an impulse application the only status application in the table under no
+    // bound at all — a row could author 60 s against a 10 s ceiling with the suite green.
+    // `status-config.test.ts` walks `WEAPON_TABLE[id].applies` and does not reach here, so this is
+    // where the same rule is asserted over the new shape.
+    //
+    // The LOWER bound is what `ram-bridge.ts` relies on: `applyStatus` refuses a non-positive
+    // duration outright, so a row authoring 0 would push its victim and silently apply nothing.
+    // The UPPER bound is the one `weapon-ticks.ts` now clamps — asserted here as well as clamped,
+    // because a clamp that silently rewrites an author's number is a worse way to find out than a
+    // failing test naming the row.
+    for (const def of Object.values(WEAPON_TABLE)) {
+      if (def.impulse === undefined) continue;
+      const lists: [string, readonly { statusId: StatusId; durationMs: number }[]][] = [
+        ["applies", def.impulse.applies],
+        ["onWallImpact.applies", def.impulse.onWallImpact?.applies ?? []],
+      ];
+      for (const [where, list] of lists) {
+        for (const a of list) {
+          const label = `${def.id} impulse.${where} ${a.statusId}`;
+          expect(a.durationMs, label).toBeGreaterThan(0);
+          expect(a.durationMs, label).toBeLessThanOrEqual(STATUS_CONFIG.maxDurationMs);
+        }
+      }
+    }
+  });
+
+  it("clamps an over-long impulse duration to the status ceiling, as every sibling list does", () => {
+    // No shipped row authors an over-long duration — the guard above forbids it — so the clamp can
+    // only be proved through the one path that can author one at runtime. This is also exactly how
+    // its ABSENCE would have reached a player: the playground is where a tuner types a big number.
+    const over = STATUS_CONFIG.maxDurationMs + 5000;
+    try {
+      setTuning({
+        "weapon.wildcharge.impulse.applies.0.durationMs": over,
+        "weapon.wildcharge.impulse.onWallImpact.applies.0.durationMs": over,
+      });
+      const ticks = weaponTicksOf("wildcharge");
+      expect(ticks.impulse!.applies[0]!.durationTicks).toBe(msToTicks(STATUS_CONFIG.maxDurationMs));
+      expect(ticks.impulse!.onWallImpact!.applies[0]!.durationTicks).toBe(
+        msToTicks(STATUS_CONFIG.maxDurationMs),
+      );
+      // The window is not a status duration and is deliberately left alone.
+      expect(ticks.impulse!.onWallImpact!.windowTicks).toBe(msToTicks(500));
+    } finally {
+      setTuning(null);
+    }
+  });
+
   it("converts every impulse duration to ticks exactly once", () => {
     const ticks = WEAPON_TICKS.wildcharge.impulse!;
     expect(ticks.applies[0]!.statusId).toBe("reeling");
@@ -505,21 +556,23 @@ describe("ImpulseDef", () => {
     }
   });
 
-  it("keeps every authored spin at 0, because the one implemented path has no lever arm", () => {
-    // `spin` is a public authoring field whose JSDoc promises torque from the contact-point lever
-    // arm — and on the only path that applies an `ImpulseDef` today (a maneuver's contact impulse)
-    // there is no lever arm to take it from: `contact.ts` puts the VICTIM'S OWN CENTRE on the
-    // `ContactHit`, so `applyImpulse` measures `contactX - body.x` as exactly zero and any authored
-    // spin produces exactly zero rotation, silently. `wildcharge` authors 0 deliberately (a clean
-    // straight punt is the ult's signature, spec P28/P31), so nothing is broken today; this guard
-    // exists so the day someone authors a spinning charge it fails HERE, naming the missing contact
-    // point, instead of shipping a weapon that quietly spins nobody.
+  it("keeps every authored spin at 0, which is a balance decision and no longer a physics one", () => {
+    // This guard used to say a maneuver impulse HAD no lever arm: `contact.ts` put the victim's own
+    // centre on the `ContactHit`, so any authored spin produced exactly zero rotation, silently.
+    // Task 2 of this stage ended that — `push.contactX/Y` is a genuine hull point from
+    // `contactPointOn`, so `applyImpulse` now measures a real arm and an authored spin rotates.
     //
-    // The fix, if that day comes, is to derive a real contact point in `contact.ts` the way
-    // `resolveRam` already does with `contactPointOn` — not to relax this assertion.
+    // What survives is the BALANCE claim: the roster's one impulse row is `wildcharge`, a clean
+    // straight punt is the ult's signature (spec P28/P31), and nothing has re-pitched it. So this
+    // pins the shipped table rather than a missing mechanism, and the day someone wants a spinning
+    // charge they move this assertion and the row together — deliberately, with the slam's feel
+    // re-measured — instead of discovering the change in a playtest.
     for (const row of Object.values(WEAPON_TABLE)) {
       if (row.impulse === undefined) continue;
-      expect(row.impulse.spin, `${row.id}: a maneuver impulse has a zero lever arm — see ContactHit`).toBe(0);
+      expect(
+        row.impulse.spin,
+        `${row.id}: a spinning slam is a balance change — see ImpulseDef.spin`,
+      ).toBe(0);
     }
   });
 

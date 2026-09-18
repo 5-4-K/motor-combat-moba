@@ -336,7 +336,7 @@ describe("dash contact", () => {
   it("reports a dasher pressed into level geometry", () => {
     const dasher = car({
       sessionId: "a",
-      // Nose 1 u off the arena's left edge, inside `SLAM_CONFIG.wallContactPad` (1) but not through
+      // Nose 1 u off the arena's left edge, inside `IMPULSE_CONFIG.wallContactPad` (1) but not through
       // the wall: half the hull length plus 1 (25 at 48x32, before the 2026-09-16 resize).
       x: DRIVE_CONFIG.carWidth / 2 + 1,
       y: 500,

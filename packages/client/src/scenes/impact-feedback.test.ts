@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { RAM_CONFIG, resolveRam, speedOf, type CarId } from "@motor-combat-moba/shared";
+import {
+  NEUTRAL_MODIFIERS,
+  RAM_CONFIG,
+  TICK_RATE_HZ,
+  boundsOf,
+  carHullOf,
+  getArena,
+  obbsInContact,
+  ramDefenceOf,
+  resolveRam,
+  speedOf,
+  stepSim,
+  type CarId,
+  type SimBody,
+} from "@motor-combat-moba/shared";
 import { freshImpacts, newImpactTracker, type ImpactPose } from "./impact-feedback.js";
 
 const pose = (
@@ -187,6 +201,91 @@ describe("freshImpacts", () => {
       freshImpacts(pose("me", 0, 0, 0, 0), [pose("x", 47, 0, 0, 0)], tracker, "team");
       const hits = freshImpacts(pose("me", 0, 0, 0, 0), [pose("x", 47, 0, 0, 0)], tracker, "team");
       expect(hits).toEqual([]);
+    });
+  });
+
+  describe("the velocity this pass must be given", () => {
+    /**
+     * Drives a real `stepSim` car nose-first into a parked hull and stops on the first tick the two
+     * are in contact — the tick `freshImpacts` is edge-triggered on. Returns the tick-entry
+     * (PRE-collision) body and the stepped (POST-collision) one, which is what a render pose carries.
+     *
+     * This is the exact shape of the defect: `resolveWorld` runs inside `stepSim`, so by the time a
+     * pose is drawn the component driving into the other car is already gone.
+     */
+    function driveIntoContact(parkedX: number) {
+      const ctx = {
+        carId: "mirage" as CarId,
+        others: [
+          { hull: carHullOf(parkedX, 360, 0), ramDefence: ramDefenceOf("mirage" as CarId) },
+        ],
+        obstacles: [],
+        bounds: boundsOf(getArena("arena-01")),
+        modifiers: NEUTRAL_MODIFIERS,
+        selfRamDefence: ramDefenceOf("mirage" as CarId),
+      };
+      const input = { seq: 0, throttle: 1 as const, steer: 0 as const, fireSlots: 0 };
+      let body: SimBody = {
+        x: 300, y: 360, angle: 0, vx: 0, vy: 0, angVel: 0,
+        maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
+      };
+      for (let tick = 0; tick < 400; tick++) {
+        const entry = body;
+        body = stepSim(body, input, 1 / TICK_RATE_HZ, ctx);
+        const touching = obbsInContact(
+          carHullOf(body.x, body.y, body.angle),
+          carHullOf(parkedX, 360, 0),
+          RAM_CONFIG.contactPad,
+        );
+        if (touching) return { entry, stepped: body };
+      }
+      throw new Error("never reached contact");
+    }
+
+    const asImpact = (b: SimBody, v: SimBody): ImpactPose => ({
+      sessionId: "me", team: 0, x: b.x, y: b.y, angle: b.angle,
+      vx: v.vx, vy: v.vy, carId: "mirage" as CarId, defenceMult: 1, ramBlocked: false,
+    });
+
+    // Sweeps the sub-tick phase, because a single placement measures one arbitrary point on the tick
+    // grid — the same rule the playtest probes are built on. `resolveWorld` only zeroes the drive-in
+    // on the phases where the hulls actually overlapped, so one offset can pass by luck.
+    const phases = Array.from({ length: 40 }, (_, i) => 600 + i * 0.25);
+
+    it("loses most rams when given the rendered, post-collision velocity", () => {
+      let sparked = 0;
+      for (const parkedX of phases) {
+        const { stepped } = driveIntoContact(parkedX);
+        const tracker = newImpactTracker();
+        const hits = freshImpacts(
+          asImpact(stepped, stepped),
+          [pose("them", parkedX, 360)],
+          tracker,
+          "ffa",
+        );
+        if (hits.length > 0) sparked += 1;
+      }
+      // Pinned as a RANGE, not as a number: this is the defect being documented, and the exact count
+      // is a function of drive tuning nobody should have to re-derive on a balance edit. What must
+      // stay true is that it is badly lossy and strictly worse than the case below.
+      expect(sparked).toBeGreaterThan(0);
+      expect(sparked).toBeLessThan(phases.length / 2);
+    });
+
+    it("sparks on every sub-tick phase when given the tick-entry velocity, as `RamCar` requires", () => {
+      // `ArenaScene` feeds `predictedPrev` — the body `predict` stepped FROM — for exactly this
+      // reason. It is the client's analogue of `serverTick`'s `approachVelocities`.
+      for (const parkedX of phases) {
+        const { entry, stepped } = driveIntoContact(parkedX);
+        const tracker = newImpactTracker();
+        const hits = freshImpacts(
+          asImpact(stepped, entry),
+          [pose("them", parkedX, 360)],
+          tracker,
+          "ffa",
+        );
+        expect(hits, `parked at ${parkedX}`).toHaveLength(1);
+      }
     });
   });
 });
