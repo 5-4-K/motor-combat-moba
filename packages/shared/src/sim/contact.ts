@@ -119,8 +119,10 @@ export interface ContactEvents {
   /**
    * Every ordinary ram this pass resolved, fully classified. One entry per PAIR (spec §7.4, U39,
    * controller ruling S3-j's neighbour in this file) — there is no per-victim slot to win any more,
-   * so a car rammed by two others in one tick takes both; `ram-bridge.ts`'s sequential writes are
-   * what express that.
+   * so a car rammed by two others in one tick takes both; `ram-bridge.ts` expresses that by
+   * ACCUMULATING every resolution that names a car and writing the sum once (`flushRamWrites`,
+   * controller ruling S3-o). It used to write each side straight onto the body as it came, which
+   * silently dropped every push but the last — this claim was false for the whole of stage 3.
    */
   rams: RamResolution[];
   /** Session ids of every DASH car found pressed into level geometry this tick. */
@@ -185,9 +187,10 @@ function isCharger(c: ContactCar): boolean {
  * slam competed with a ram for that slot, and a car rammed by two others in one tick kept only the
  * larger push. `resolveRam` now returns a `RamResolution` that already names every car it acts on,
  * so there is nothing left to contest a slot for: `events.rams` collects one entry per PAIR, and a
- * victim rammed by two attackers in one tick takes both — the sequential writes in
- * `ram-bridge.ts` are what express that. Within a pair nothing changed — still exactly one of
- * dash/slam/ram.
+ * victim rammed by two attackers in one tick takes both — `ram-bridge.ts`'s accumulate-then-write
+ * pass (`flushRamWrites`) is what expresses that, and a bridge that wrote each side onto the body as
+ * it arrived would still be throwing every push but the last away. Within a pair nothing changed —
+ * still exactly one of dash/slam/ram.
  *
  * Classification per fresh touching pair, checked from each car's own side:
  *
@@ -336,8 +339,8 @@ function resolvePair(
 
   // Case 3: ordinary ram, exactly as `applyRams` resolves it. One resolution per PAIR — unlike the
   // old impulse map there is no per-victim slot to win, because a resolution names every car it acts
-  // on. A car rammed by two others in one tick therefore takes both, which the sequential writes in
-  // `ram-bridge.ts` already express.
+  // on. A car rammed by two others in one tick therefore takes both, which `ram-bridge.ts` expresses
+  // by summing every resolution that names it and writing the total once (`flushRamWrites`).
   const ram = resolveRam(a, b, mode);
   if (ram !== null) rams.push(ram);
 }

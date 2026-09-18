@@ -1060,6 +1060,104 @@ describe("contactTick (Unity ram, spec §7.2)", () => {
   });
 });
 
+/**
+ * The canonical fixture plus a SECOND attacker, "z", diving onto the same victim from +y in the SAME
+ * tick — the case `contact.ts` has always claimed the bridge handles ("a victim rammed by two
+ * attackers in one tick takes both") and did not.
+ *
+ * `z` sits 38.75 u above the victim facing -y, so its hull overlaps the victim's by 11.25 u along y
+ * and clears "a" by 8.75 u along x: each attacker touches the victim alone, and the two shoves are
+ * on different axes so they can be told apart in the result. The same offsets the slam-plus-ram test
+ * further up uses, for the same reason.
+ *
+ * Either attacker is disarmed by giving it a drive-in of 0 rather than by removing it from the
+ * state: below `RAM_CONFIG.minRamSpeed` it cannot qualify, so the pair still touches and still
+ * occupies `memory.contacts`, and the single-ram control measures the identical geometry.
+ *
+ * "z" drives in slower than "a" on purpose. The two shoves are perpendicular and the second is
+ * halved by the victim's own falloff, so a "z" at full speed would give a combined magnitude SMALLER
+ * than "z" alone — true, intended, and useless as a test, because it cannot tell the composition
+ * apart from a rule that merely kept the bigger push. At 300 the sum is larger than either single
+ * ram, so "two at once beats one" is a claim the geometry actually supports.
+ */
+function twoAttackerScenario(over: { aSpeed?: number; zSpeed?: number } = {}) {
+  const fixture = ramScenario({ speed: over.aSpeed ?? 540 });
+  const z = addPlayer(fixture.state, "z", {
+    x: 58.75, y: 438.75, angle: -Math.PI / 2, vy: -(over.zSpeed ?? 300),
+  });
+  fixture.roster.add("z");
+  return { ...fixture, z };
+}
+
+const speedOf = (p: PlayerState) => Math.hypot(p.vx, p.vy);
+
+describe("contactTick (two rams on one car in a tick, controller ruling S3-o)", () => {
+  it("adds BOTH attackers' shoves, so being rammed twice at once beats being rammed once", () => {
+    // The regression this file never had. Each side used to be ASSIGNED from the same immutable
+    // pre-collision cache entry, so the second resolution overwrote the first instead of adding to
+    // it — and because falloff still counted both, the victim ended at `0.5 × shove_z` and "a"'s
+    // push vanished: strictly LESS than a single ram, from being hit by two cars.
+    const both = twoAttackerScenario();
+    const aOnly = twoAttackerScenario({ zSpeed: 0 });
+    const zOnly = twoAttackerScenario({ aSpeed: 0 });
+    runRam(both, 10);
+    runRam(aOnly, 10);
+    runRam(zOnly, 10);
+
+    // The headline, stated the way a player would: two cars hitting you at once must move you more
+    // than either one of them alone.
+    expect(speedOf(both.victim)).toBeGreaterThan(speedOf(aOnly.victim));
+    expect(speedOf(both.victim)).toBeGreaterThan(speedOf(zOnly.victim));
+
+    // And exactly how much more, derived rather than pasted: "a" lands first and at full strength,
+    // "z" lands second and is scaled by the victim's own falloff — spec §7.3 is per victim and
+    // across attackers, so the second push inside one tick is legitimately discounted. The sum is
+    // still more than either ram alone, which is the whole claim.
+    expect(both.victim.vx).toBeCloseTo(aOnly.victim.vx, 6);
+    expect(both.victim.vy).toBeCloseTo(zOnly.victim.vy * RAM_CONFIG.impulseDrScale, 6);
+    // Both pushes were counted, which is what makes the scaling above the intended discount rather
+    // than an accident of which write happened to land last.
+    expect(both.memory.falloff.get("b")?.count).toBe(2);
+  });
+
+  it("zeroes the base once and adds every shove when a car rams and is rammed on one tick", () => {
+    // Controller ruling S3-o, the composition rule. "a" rams "b" while "b" rams "c", all three in
+    // line: "b" is a VICTIM in one resolution (it takes a shove) and an ATTACKER in the other (its
+    // own ram stops it dead). `ramBlocked` is sampled from `statusMods` computed before the tick, so
+    // "b" is not yet blocked by the reel it takes here.
+    //
+    // The rule composes the two statements — "your own ram stops you" and "the shove you took is
+    // added" — so "b" keeps neither its 300 u/s drive-in nor nothing at all. It ends at exactly the
+    // shove "a" gave it. Before the fix the answer was decided by which resolution the loop wrote
+    // last, which alphabetical session ids made "b"'s own ram: exactly 0.
+    const chain = (withC: boolean) => {
+      const state = arena();
+      const a = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
+      const b = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0, vx: 300 });
+      const roster = new Set(["a", "b"]);
+      if (withC) {
+        addPlayer(state, "c", { x: 117.5, y: 400, angle: 0 });
+        roster.add("c");
+      }
+      const fixture = { state, memory: newContactMemory(), roster };
+      runRam(fixture, 10);
+      return { a, b };
+    };
+
+    // The control: "b" is rammed by "a" and rams nobody, so it keeps its drive-in and adds the shove.
+    const rammedOnly = chain(false).b;
+    const shove = rammedOnly.vx - 300;
+    expect(shove).toBeGreaterThan(0);
+
+    const middle = chain(true).b;
+    expect(middle.vx).toBeCloseTo(shove, 6);
+    // Both halves of the composition, stated separately so a failure says which one broke: the
+    // drive-in is gone (its own ram stopped it) and the shove is not (it was still rammed).
+    expect(middle.vx).toBeLessThan(rammedOnly.vx);
+    expect(middle.vx).toBeGreaterThan(0);
+  });
+});
+
 describe("contactTick (head-on, U27/U38)", () => {
   it("replaces BOTH cars' velocities with the shove the other one authored", () => {
     const { a, b, ...fixture } = headOnScenario();

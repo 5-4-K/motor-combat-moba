@@ -324,6 +324,28 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /**
+ * What one car takes from EVERY ram naming it this tick, accumulated before anything is written.
+ *
+ * A car can appear in more than one `RamResolution` in a single tick — rammed by two attackers at
+ * once, or an attacker in one resolution and a victim in another (A rams B while B rams C:
+ * `ramBlocked` is sampled from `statusMods`, computed before `serverTick`, so B is not yet blocked).
+ * Writing each side straight onto the body as it came would ASSIGN from the same immutable
+ * pre-collision cache entry twice, so the last write silently replaced every earlier one.
+ */
+interface RamWrite {
+  /** Pre-collision velocity, the base unless some resolution replaces it. */
+  baseX: number;
+  baseY: number;
+  /** Did ANY resolution this tick tell this car to replace its velocity? */
+  replaced: boolean;
+  /** Every falloff-scaled shove, summed. */
+  shoveX: number;
+  shoveY: number;
+  /** Every falloff-scaled spin delta, summed. Clamped once, where the sum is written. */
+  spin: number;
+}
+
+/**
  * Write one ram onto the cars it names (spec §7.2). This is the whole of what a ram does: no damage
  * (U28), no `Impulse`, no contest — `sim/ram.ts` already decided who is shoved and by how much, and
  * everything here is the application of that decision plus the three things the spec deliberately
@@ -344,6 +366,14 @@ function clamp(value: number, min: number, max: number): number {
  * `sim/ram.ts` on the `ContactCar` this file builds (`ramBlocked` and `defenceMult`), so by the time
  * a `RamResolution` arrives here there is nothing left for a modifier to change — reading either one
  * again would double-count it.
+ *
+ * **Velocity is ACCUMULATED into `writes`, not written here** — see `RamWrite` above and
+ * `flushRamWrites` below. Everything that is not velocity (the falloff read, `reeling`, `ramLock`,
+ * the spike credit) stays where it is, applied immediately and in event order. Velocity was the only
+ * one of them that a second resolution could destroy: falloff is counted once per shoved side
+ * whichever resolution carried it, and `reeling`/`ramLock` are both `reapply: "ignore"`, so the
+ * first application for a car wins — and it wins with the count-0 duration whichever resolution
+ * happened to be first, since falloff and the status are read on the same side.
  */
 function applyRamResolution(
   state: ArenaState,
@@ -351,6 +381,7 @@ function applyRamResolution(
   approachVelocities: ReadonlyMap<string, { vx: number; vy: number }>,
   ram: RamResolution,
   tick: number,
+  writes: Map<string, RamWrite>,
 ): void {
   for (const side of ram.sides) {
     const player = state.players.get(side.sessionId);
@@ -371,20 +402,18 @@ function applyRamResolution(
     // `resolveWorld` left on the body earlier this tick. A shove added to a post-resolution velocity
     // would be added to a number the contact pass has already reflected or zeroed.
     const pre = approachVelocities.get(side.sessionId) ?? { vx: player.vx, vy: player.vy };
-    player.vx = (side.replacesVelocity ? 0 : pre.vx) + side.shoveX * scales.impulseScale;
-    player.vy = (side.replacesVelocity ? 0 : pre.vy) + side.shoveY * scales.impulseScale;
+    const write = writes.get(side.sessionId) ?? {
+      baseX: pre.vx, baseY: pre.vy, replaced: false, shoveX: 0, shoveY: 0, spin: 0,
+    };
+    write.replaced ||= side.replacesVelocity;
+    write.shoveX += side.shoveX * scales.impulseScale;
+    write.shoveY += side.shoveY * scales.impulseScale;
     // `RamSide.spin` is always a DELTA and is always ADDED, whatever `replacesVelocity` says — that
     // flag governs velocity alone (controller ruling S3-g). §7.2's attacker row reads "spin
     // unchanged" and its head-on row "neither car spins", and since `spin` is 0 in both of those
-    // cases, adding is exactly what preserves the yaw the car was already carrying. The clamp is
-    // this file's (U26): a playability guard, applied where a value is written onto a body, because
-    // a clamp inside the pure classifier would make a resolution's meaning depend on the car it is
-    // later applied to.
-    player.angVel = clamp(
-      player.angVel + side.spin * scales.impulseScale,
-      -RAM_CONFIG.spinMaxRate,
-      RAM_CONFIG.spinMaxRate,
-    );
+    // cases, adding is exactly what preserves the yaw the car was already carrying.
+    write.spin += side.spin * scales.impulseScale;
+    writes.set(side.sessionId, write);
 
     if (ram.reeled.includes(side.sessionId)) {
       const ticks = Math.max(
@@ -408,6 +437,37 @@ function applyRamResolution(
       const shover = ram.attackerId !== "" ? ram.attackerId : otherSideOf(ram, side.sessionId);
       recordShove(memory.spikes, side.sessionId, shover, tick);
     }
+  }
+}
+
+/**
+ * Write every accumulated ram outcome onto the bodies, once per car.
+ *
+ * **The composition rule is `(any replaced ? 0 : pre) + every shove`, and it is an IMPLEMENTATION
+ * DECISION with no spec backing** (controller ruling S3-o). §7.2 answers what one ram does to one
+ * car; nothing in the spec says what happens to a car named by two rams on the same tick, and the
+ * case is real in both shapes — two attackers converging on one victim, and a car that rams while
+ * being rammed (A rams B, B rams C). The rule is the two statements composing: "your own ram stops
+ * you" zeroes the base, "the shove you took is added" adds every push. It is order-independent,
+ * which the naive sequential write was not — the answer used to be decided by the alphabetical order
+ * of session ids. Do not read it as a ported Unity rule.
+ *
+ * Diminishing returns keeps its per-shoved-side behaviour: spec §7.3 is per victim and across
+ * attackers, so a victim taking two pushes in one tick legitimately has the second scaled. It still
+ * lands strictly more than one ram would, which is what `sim/contact.ts` promises.
+ *
+ * The spin clamp lives here (U26): a playability guard applied where a value is written onto a body,
+ * because a clamp inside the pure classifier would make a resolution's meaning depend on the car it
+ * is later applied to. Clamping the SUM once rather than after each ram is the same reasoning one
+ * step further — there is exactly one write per car per tick now, so there is exactly one clamp.
+ */
+function flushRamWrites(state: ArenaState, writes: ReadonlyMap<string, RamWrite>): void {
+  for (const [sessionId, write] of writes) {
+    const player = state.players.get(sessionId);
+    if (!player) continue;
+    player.vx = (write.replaced ? 0 : write.baseX) + write.shoveX;
+    player.vy = (write.replaced ? 0 : write.baseY) + write.shoveY;
+    player.angVel = clamp(player.angVel + write.spin, -RAM_CONFIG.spinMaxRate, RAM_CONFIG.spinMaxRate);
   }
 }
 
@@ -452,6 +512,10 @@ export function contactTick(
   // what it was carrying. `applyImpulse` still serves the slam path below, unchanged — and after
   // this stage the slam is its ONLY production caller.
   //
+  // Two passes, not one: the rams ACCUMULATE onto `ramWrites` and `flushRamWrites` lands them, so a
+  // car named by two resolutions in one tick takes both pushes instead of only the last. See
+  // `flushRamWrites` for the composition rule (controller ruling S3-o) and why it is not the spec's.
+  //
   // (Through the car-physics rework this was a loop over a per-victim `Impulse` map, where the ram
   // contest handed each side its own independently computed push. The Unity port deleted the
   // contest: the attacker's outcome is a rule — "you stop" — not a number, so there is nothing left
@@ -465,9 +529,11 @@ export function contactTick(
   // `ImpulseDef`. That separation is not merely tidy — the old `!slammedVictims.has(victimId)`
   // inference it replaced was only correct while a slam's magnitude outranked every possible ram, an
   // ordering nothing enforced, and would have misclassified a ram the day a retune inverted it.
+  const ramWrites = new Map<string, RamWrite>();
   for (const ram of events.rams) {
-    applyRamResolution(state, memory, approachVelocities, ram, tick);
+    applyRamResolution(state, memory, approachVelocities, ram, tick, ramWrites);
   }
+  flushRamWrites(state, ramWrites);
 
   // ---- the slams pass, FIRST HALF: the push and the `reeling` that rides with it ----
   //
