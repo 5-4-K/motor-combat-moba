@@ -354,25 +354,33 @@ describe("the three types (T5/T6)", () => {
     expect(hpOf("bastion")).toBe(900);
   });
 
-  // CONTRADICTION, reported per the Task 6 brief rather than fixed by re-tuning the ported
-  // constants: this test used to be "gives Bastion the tightest turn radius despite being the
-  // slowest" (T6). Every pre-port pass (through 2026-09-16) kept that true while shrinking the
-  // margin toward nothing — see the superseded comment this replaces, still visible in history.
-  // The Unity turn-rate anchors (`baseTurnRate` 0.667, `turnRatePerRating` 0.0169, spec §9.2) do
-  // not merely shrink the margin further: they INVERT it. Bastion now has the WIDEST radius of the
-  // three, not the tightest, because the anchor term (`baseTurnRate`) is now large relative to the
-  // per-rating spread, so a car's turn rate depends much more on the flat pivot than on its own
-  // `handling` — which compresses the turn-rate spread far more than the speed spread, and it is the
-  // RATIO of the two that decides radius order. Measured: mirage 89.8645 u, bullseye 89.8726 u,
-  // bastion 89.8810 u — a ~0.016 u spread out of ~89.9, effectively degenerate. This is a design
-  // question for the project owner / stage 5's tuning pass, not something Task 6 may fix by
-  // adjusting `baseTurnRate`/`turnRatePerRating` back toward the old values (the brief is explicit:
-  // those three numbers are the project owner's decision, use them exactly).
-  it("radius is now a dead axis under the ported turn-rate anchors — Bastion no longer tightest", () => {
-    const radius = (id: CarId) => forwardMaxSpeedOf(id) / turnRateOf(id);
-    expect(radius("mirage")).toBeLessThan(radius("bullseye"));
-    expect(radius("bullseye")).toBeLessThan(radius("bastion"));
-    expect(radius("bastion")).toBeCloseTo(89.881, 2);
+  // This test used to be "gives Bastion the tightest turn radius despite being the slowest" (T6).
+  // Every pre-port pass (through 2026-09-16) kept that true while shrinking the margin toward
+  // nothing — see the superseded comment this replaces, still visible in history.
+  //
+  // Under the ported Unity turn-rate anchors that margin does not just shrink further, it goes to
+  // (effectively) zero: `baseTurnRate` is now large relative to the per-rating spread, so a car's
+  // turn rate depends far more on the flat pivot than on its own `handling`, which compresses the
+  // turn-rate spread much harder than the speed spread — and it is the RATIO of the two that decides
+  // radius. This is spec §9.2's recorded, chosen outcome, not a bug this task introduced or may
+  // "fix" by re-anchoring: "Turn radius comes out the same on all three chassis — 89.9 u — and that
+  // is known, not an oversight. … The user was shown two alternatives that spread it — nimble-tightest
+  // and tank-tightest — and chose to keep it uniform and revisit during the stage 5 tuning pass. Do
+  // not 'fix' this silently; widening it is a `baseTurnRate`/`turnRatePerRating` re-anchor and the
+  // user's call." (`docs/superpowers/specs/2026-09-18-unity-driving-and-ram-physics-port-design.md`,
+  // line 427.) So this test asserts the property that's actually true and actually meant to hold —
+  // uniformity — rather than pinning an ordering inside a ~0.016 u spread (two parts in ten
+  // thousand, invisible against the 60x40 hull) that flips on the next unrelated rating nudge and
+  // would read as "Bastion's radius ordering broke" when nothing about Bastion moved.
+  it("gives every chassis the same turn radius, which is deliberate and stage 5's to revisit", () => {
+    const radii = activeCarIds().map((id) => forwardMaxSpeedOf(id) / turnRateOf(id));
+    const spread = Math.max(...radii) - Math.min(...radii);
+    // Radius is `maxSpeed / turnRate`, and both anchors are pitched so the two scale together: every
+    // chassis lands on ~89.9 u (measured: mirage 89.8645, bullseye 89.8726, bastion 89.8810). The
+    // spread is ~0.016 u — so the ORDERING within it is arithmetic noise, not a design property, and
+    // asserting it would fail on any future rating nudge for no reason a reader could act on.
+    expect(spread).toBeLessThan(0.1);
+    for (const r of radii) expect(r).toBeCloseTo(89.9, 1);
   });
 
   it("orders the three types on every axis the design names", () => {
