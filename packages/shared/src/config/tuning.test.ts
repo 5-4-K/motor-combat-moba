@@ -16,9 +16,16 @@ afterEach(() => setTuning(null));
 
 describe("tuning store", () => {
   it("null tuning resolves to the identical frozen defaults, by reference", () => {
+    // `DEFAULT_RAM_TICKS` is not exported (unlike `CHASSIS_DRIVE`/`WEAPON_TICKS`, the ledger gives
+    // `ram-config.ts` no such export), so the by-reference check captures `ramTicks()` before this
+    // test touches tuning at all — at that point `afterEach` has already reset every prior test back
+    // to null, so this IS the module-load default — and asserts a null `setTuning` reassigns the
+    // identical object rather than a value-equal recomputation.
+    const shippedRamTicks = ramTicks();
     setTuning(null);
     expect(driveOf("mirage")).toBe(CHASSIS_DRIVE.mirage);
     expect(weaponTicksOf("pepperbox")).toBe(WEAPON_TICKS.pepperbox);
+    expect(ramTicks()).toBe(shippedRamTicks);
     expect(activeTuning()).toBeNull();
   });
 
