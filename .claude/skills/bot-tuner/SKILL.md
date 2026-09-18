@@ -49,9 +49,13 @@ of the same facts, and worse hands.
      noise, and do not hard-code the count. These are RAW term values, not points: multiply each by that situation's weight
      in `objectives.ts` to see which term actually won. `wallPenalty` runs about 0.017 in a TRUE
      corner (pose inside the margin) against weights in the hundreds, and **0 merely near a wall**;
-     `rangeError` is units; `myEv` / `theirEv` are EV per second; `facingError` is bounded [0, 1]
-     and in the planner's rollout it is effectively **0 or 1** (`DRIVE_CONFIG.steeringGrip` is 1.0,
-     so no slide) — 0 driving ahead, 1 reversing. A bare `terms  -` means the bot has not reached
+     `rangeError` is units; `myEv` / `theirEv` are EV per second; `facingError` is bounded [0, 1] —
+     0 driving ahead, 1 reversing, and the band between them is a car sliding across its own nose.
+     **It used to be effectively 0 or 1 in the planner's rollout, because `DRIVE_CONFIG.steeringGrip`
+     was 1.0 and a driven car never slid; that knob was DELETED by the 2026-09-18 drive-model port,
+     so the value is continuous now and an ordinary turn reads somewhere in (0, 0.5].** The weights
+     that read it were derived on the binary assumption and are owed a re-derivation the port's stage
+     5 owns — see `facingErrorOf` in `planner.ts`. Do not re-derive them from this overlay. A bare `terms  -` means the bot has not reached
      its first recompute window yet — not a broken overlay, and not a tuning signal.
    - **`danger`** is the damage per second the bot believes it is standing in. If it reads 0 while
      you are pointed straight at it from inside your weapon's reach, stop: solver bug

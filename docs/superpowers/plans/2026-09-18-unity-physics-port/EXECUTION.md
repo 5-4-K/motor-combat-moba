@@ -30,7 +30,40 @@ were written first; stage 1's eight tasks are now committed. Stages 2-5 have not
 ## In flight
 
 *Nothing in flight.* Stage 1 landed (all eight tasks committed, `test(drive): pin tick-rate
-independence; rebuild the guide` closing it). Next: stage 2, Task 1.
+independence; rebuild the guide` closing it), stage 2's first commit (restitution → 0) is in, and a
+**whole-branch review of stage 1 has been swept** — see below. Next: stage 2, Task 1 onwards.
+
+### Stage 1's whole-branch review, swept 2026-09-18
+
+Two Critical findings and seven of lesser severity, fixed in one wave on top of `bb69f26`. The two
+that change shipped behaviour:
+
+- **`stepHold` double-counted steering yaw** (`sim/drive.ts`). Under U16 steering SETS `angVel`, and
+  the branch kept the pre-port `steer * turnRate * mods.turnRate + body.angVel`, so a held car turned
+  at twice its rate for the whole hold and kept turning after the key was released or while
+  `steeringLocked`. Reachable via `lance`, a ~2.2 s `holdsDuringFire` beam. It also rebuilt its
+  imposed slide at the NEW angle (the "on rails" behaviour this port deletes) and ignored `fullStop`.
+  The coverage hole was that every HOLD case entered with `angVel: 0`, where the two yaw rules are
+  the same arithmetic; six cases were added that enter one already turning.
+- **The server's silent-player coast** (`server/src/sim/tick.ts`), replaced with an elapsed-silence
+  gate. See the two rows under "Deferred, and who owns it" below for the detail and the consequences.
+
+The rest were documentation and coverage: the fired `steeringGrip` trip-wires in the bot's
+`planner.ts`/`objectives.ts` (re-derivation still owed, still stage 5 Task 8 Step 1 — no weight
+moved); the "Rate while reeling" guard restored to `docs/turn-tuning.md` and its doc test, deleted on
+a false premise; the `accel` channel's real behaviour written down (it scales the drag exponent too,
+so it cancels out of top speed and stretches the time constant in BOTH directions — `reeling`'s 0.4
+makes a ram's own knockback carry 2.5x further, 368 u); `channels.test.ts` proving `grip` properly and
+naming `spinFree`/`ramBlocked` as declared ahead of use; and the spec's Changelog, slip formula and
+`ChassisDrive` field count.
+
+**Measured test state after the sweep** (root `npm test` plus `npm run test:scripts`): shared green
+(54 files, 981 passed), client green (69 files, 1019 passed), scripts 1 red
+(`manual-page.test.mjs`'s stale-guide fingerprint, stage 2's rebuild to own), server 16 red of 711 —
+**the same 16 cases as stage 1's exit**, unmoved: the four bot suites below plus
+`pipeline-order.test.ts`'s "charges the attacker with restitution AND its own contest impulse", which
+stage 2's restitution → 0 commit turned red and stage 2 owns. `balance/match.test.ts` is green again
+at this commit.
 
 ## Stages
 
@@ -136,6 +169,30 @@ command as well as the figure.
 
 ## Deferred, and who owns it
 
+- **Ram spin is currently completely INERT — a rammed car does not tumble at all. Stage 3 owns it.**
+  `packages/shared/src/sim/impulse.ts`'s `applyImpulse` still accumulates spin into `body.angVel` and
+  clamps it to `RAM_CONFIG.spinMaxRate`, exactly as before; but under U16 the ordinary `stepDrive`
+  branch OVERWRITES `angVel` from the steer input on the very next tick, and the only thing that
+  preserves an injected spin is `mods.spinFree`, which nothing sets until stage 3 wires it through
+  `reeling`. So every ram's spin lives for zero ticks of driving. `chassis.spinPerTick` is the
+  matching placeholder (1, the identity) until the same stage sets
+  `RAM_CONFIG.reelingSpinDecayRate`. Two tests pin the degenerate reality rather than hiding it:
+  `tick.test.ts`'s "zeroes a coasting car's angVel on its first stepped tick, and never rotates it"
+  (renamed from "carries every knock component, not just shove", which by the end of stage 1 asserted
+  the negation of its own name) and `drive-vector.test.ts`'s "keeps its spin while spinFree and
+  erases it the moment control returns".
+- **A silent knocked player used to freeze holding 96% of the shove; that is FIXED, and the fix is a
+  behaviour change stages 2-5 should know about.** `serverTick`'s coast gate was `hasKnock`, which
+  read `lateralOf(vx, vy, angle)` against `stopEpsilon` on the premise that `steeringGrip` was 1.0 —
+  a constant this port deletes — so a shove along the victim's own heading was invisible to it and a
+  re-pinned `tick.test.ts` case measured the residual moving from 8.06 u/s to **287.423 u/s** across
+  stage 1 (300 u/s shove, one tick of drag, then frozen). The whole-branch review replaced the
+  predicate with elapsed silence (`NET_CONFIG.silentCoastGraceMs`, `hasMotionToResolve` in
+  `sim/tick.ts`), because the client never steps a tick it did not send an input for and no property
+  of the body can distinguish imposed motion from drift under this model. **Consequences for later
+  stages:** the server now steps a genuinely-absent player's car to rest whatever pushed it, and
+  `packages/server/playtest/collision.ts`'s scenarios 4 and 5 both measure that path and will report
+  different numbers — their comments say so, and stage 5's probe-honesty task should re-read them.
 - **`packages/server/playtest/collision.ts`'s energy-gain sweep** computes its predicted flip angle
   from `atan(sqrt(DRIVE_CONFIG.restitution))`, which is zero once stage 2 lands, so the probe sweeps
   nothing. Stage 5 owns rethinking it — not re-aiming it.

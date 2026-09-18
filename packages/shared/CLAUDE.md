@@ -23,10 +23,14 @@ makes adding a status free and adding a channel a one-call-site change, and why 
 reproduces the pre-status sim exactly (`golden.test.ts` pins it).
 
 Two rows carry flags rather than modifiers. `stunned` is `fullStop` on top of the older
-`immobilised`/`steeringLocked`/`disarmed` trio — engine, steering and trigger dead, and the forward
-component forced to 0 every tick, though (as of the 2026-09-06 vector-drive rework) `bleedLateral`
-on the lateral component and injected ram spin (`angVel`) still resolve, so a slammed-then-stunned
-car still slides into the wall. `armored` is `invulnerable` alone: 0 damage from every source, weapon hits,
+`immobilised`/`steeringLocked`/`disarmed` trio — engine, steering and trigger dead. **`fullStop` now
+zeroes BOTH velocity components every tick, forward and lateral, and that is a real combat-feel
+change the 2026-09-18 Unity drive-model port made**: it used to zero the forward component alone and
+leave an imposed sideways velocity to bleed off through `bleedLateral`, so a slammed-then-stunned car
+kept sliding into the wall. It does not any more — a stunned car pushed sideways by a slam stops dead
+where it stands. (`bleedLateral` and `DRIVE_CONFIG.impactGripDecel` are both deleted; one grip model
+covers the whole car now.) Injected ram spin is a separate story and is currently inert for a
+different reason — see the `angVel` note under `stepDrive` below. `armored` is `invulnerable` alone: 0 damage from every source, weapon hits,
 contact hits and pulses alike — status riders still land, only hp loss stops. A flag is boolean and
 has no counterplay gradient, so every flag-carrying DEBUFF is required to be `reapply: "ignore"`,
 and a flag-carrying buff may be `refresh` only by declaring `chainable: true` on its own row
@@ -94,12 +98,24 @@ from it, so a real aura instance spawns on every detonation. `corroded`'s only s
 this explosion. What is still dormant is narrower now: only the multi-wave `VolleyDef` machinery
 below, since no row — this one included — authors more than one volley.
 
-**`stepDrive` does not read the roster.** It takes a resolved `ChassisDrive` — eight fields:
-`maxSpeed`, `reverseMaxSpeed`, `accel`, `reverseAccel`, `turnRate`, `turnRateAtStop`, and, since the
-2026-09-06 vector-drive rework, `coastPerTick` (per-tick multiplier on forward speed while coasting,
-resolved from `CarDef.coastHalfLifeSeconds`) and `brakeDecel` (flat deceleration while braking,
-resolved from `CarDef.brakeDecel`, replacing the old shared `DRIVE_CONFIG.brakeDecel`) — from
-`driveOf(carId)` (`config/car-config.ts`, frozen per car at module load in `CHASSIS_DRIVE`), and
+**`stepDrive` does not read the roster.** It takes a resolved `ChassisDrive` — **nine** fields as of
+the 2026-09-18 Unity drive-model port: `maxSpeed` (emergent, `engineAccel / dragRate` — nothing
+clamps to it), `engineAccel`, `reverseAccel`, `brakeDecel` (flat deceleration while braking, resolved
+from `CarDef.brakeDecel`), `turnRate` (speed-independent), `dragRate` (the authored per-second rate,
+which is what a status scales), `dragPerTick` (what an unmodified tick multiplies the WHOLE velocity
+by), `gripPerTick` (`DRIVE_CONFIG.lateralGripRate` per tick, applied to the lateral component alone —
+whatever survives it is the drift) and `spinPerTick`. **`reverseMaxSpeed`, `accel`, `turnRateAtStop`
+and `coastPerTick` are gone**, along with `CarDef.coastHalfLifeSeconds`: yaw is speed-independent so
+there is no at-rest rate, reverse top speed is the emergent `maxSpeed × reverseAccelFactor`, and one
+always-on drag rate sets top speed, wind-up and roll together in place of a separate coast curve.
+
+**`spinPerTick` is a placeholder (1, the identity) and ram spin is currently INERT.** Stage 3 of the
+port replaces it with `perTickDecay(RAM_CONFIG.reelingSpinDecayRate)`. Until then: `sim/impulse.ts`
+still accumulates a ram's spin into `body.angVel`, but steering SETS `angVel` every tick (U16) and
+only `mods.spinFree` preserves an injected one — and nothing sets that flag yet, so a rammed car does
+not tumble at all. Do not read that as a bug in `applyImpulse`; it is a knob a later stage sets.
+
+The resolved fields come from `driveOf(carId)` (`config/car-config.ts`, frozen per car at module load in `CHASSIS_DRIVE`), and
 `stepSim` resolves it at the single production call site. Every other caller of `stepDrive` here is
 a test, and that is the point: `golden.test.ts` and `drive.test.ts` pin the drive *equation* against
 a frozen fixture, so a per-car `accel` or `handling` retune can never look like a change to the

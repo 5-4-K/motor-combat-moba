@@ -68,11 +68,17 @@ describe("rollForward", () => {
     // RE-PINNED at the 2026-09-07 merge of the car-physics rework, and the claim INVERTED with it.
     // This used to read "brought to rest by drag": the global `DRIVE_CONFIG.drag` was 900 u/s^2,
     // steep enough to stop a coasting 300 u/s car inside ~10 ticks, so a full second of rollout
-    // landed on 40-50 units. That knob no longer exists. Coast is now per-car and PROPORTIONAL
-    // (`CarDef.coastHalfLifeSeconds` -> `ChassisDrive.coastPerTick`), and Mirage's half-life is 36
-    // ticks — so a full second of coasting sheds barely half the speed and covers 225.7 units, most
-    // of the 300 a held speed would. A heavy car that carries its momentum is the whole point of
-    // the 2026-09-06 heavy-car pass, so this is the pass landing, not a regression.
+    // landed on 40-50 units. That knob no longer exists. Coast was then per-car and PROPORTIONAL
+    // (`CarDef.coastHalfLifeSeconds` -> `ChassisDrive.coastPerTick`), Mirage's half-life 36 ticks —
+    // so a full second of coasting shed barely half the speed and covered 225.7 units, most of the
+    // 300 a held speed would. A heavy car that carries its momentum is the whole point of the
+    // 2026-09-06 heavy-car pass, so that was the pass landing, not a regression.
+    //
+    // STALE AS OF the 2026-09-18 Unity drive-model port, and left stale on purpose: that port
+    // deleted `coastHalfLifeSeconds` and `coastPerTick` too, folding coast into the one always-on
+    // `dragRate` (U4), which halves Mirage's coasting speed in about 16 ticks rather than 36 — so
+    // the bound below is wrong and this case is one of the nine reds stage 5's `bot-tuner` pass
+    // owns. Re-pinning it here would hide the fallout that pass is meant to read.
     expect(poses.at(-1)!.x).toBeGreaterThan(200);
     expect(poses.at(-1)!.x).toBeLessThan(250);
     expect(Math.abs(poses.at(-1)!.y)).toBeLessThan(1);
@@ -169,7 +175,10 @@ describe("a car that is SLIDING, not driving (car-physics merge, 2026-09-07)", (
   // THE CASE THE TWO BRANCHES HAD TO BE COMBINED FOR, and the only one nothing else covers.
   //
   // `truthPath` above is a fair ground truth precisely because it assumes a car travels along its
-  // nose — true for a DRIVEN car, since `DRIVE_CONFIG.steeringGrip` is 1. It is not true for a car
+  // nose — which WAS true for a DRIVEN car while `DRIVE_CONFIG.steeringGrip` was 1. That knob is
+  // deleted as of the 2026-09-18 Unity drive-model port, so a driven car now drifts too and this
+  // file's ground truth is approximate for a turning car as well; that is part of why this suite is
+  // red, and stage 5's `bot-tuner` pass owns it. It was never true for a car
   // carrying imposed lateral velocity: a rammed car, or one shoved by a slam. That car is exactly
   // what the bot brain was blind to before the rework, because it reconstructed velocity as
   // `cos(angle) * speed` and a scalar speed cannot represent motion across the nose at all.

@@ -100,10 +100,15 @@ function drive(start: SimBody, msg: InputMessage, ticks: number): SimBody {
 
 /**
  * `forward` is the signed component along the heading — the direct successor to the old scalar
- * `speed` (negative meant reversing there too). `lateral` defaults to 0, which is exact for every
- * `stepDrive` case below: `steeringGrip` is 1.0 ("on rails"), so driven velocity always stays
- * aligned with the nose and the old scalar model's inability to represent a lateral component was
- * never a limitation there.
+ * `speed` (negative meant reversing there too). `lateral` defaults to 0 because MOST cases below
+ * never steer, not because a driven car cannot slide.
+ *
+ * CORRECTED: this used to argue that the default was exact for every `stepDrive` case because
+ * "`steeringGrip` is 1.0 ('on rails'), so driven velocity always stays aligned with the nose". The
+ * Unity drive-model port DELETED that knob, and the two cases immediately below that steer carry a
+ * real, hand-derived lateral value for exactly that reason — the gap between where the car points
+ * and where it is going IS the drift this port exists to add. Read the default as "this case does not
+ * turn", and check it against the case rather than against a rule.
  *
  * `resolveWorld` is different since stage 2 Task 1: `applyContact` now hands back the WHOLE
  * reflected vector instead of discarding it and rebuilding a scalar along the unchanged heading, so

@@ -34,9 +34,11 @@ export interface TunableField {
  * Seven since stage 3 of the car-physics rework, not the six T7 named: the single `mass` rating that
  * used to sit at the end became `ramAttack` and `ramDefence`, which is a rating MORE, not a rename.
  * Both belong here — they are per-car balance numbers a playground tester needs to reach, and they
- * are the two knobs the ram contest is most sensitive to. `CarDef.coastHalfLifeSeconds` and
- * `brakeDecel` are still deliberately absent: they are direct values in seconds and u/s², not 0-100
- * ratings, and the walker's number bounds assume a rating.
+ * are the two knobs the ram contest is most sensitive to. `CarDef.brakeDecel` is still deliberately
+ * absent: it is a direct value in u/s², not a 0-100 rating, and the walker's number bounds assume a
+ * rating. (`coastHalfLifeSeconds` was absent for the same reason until the 2026-09-18 Unity
+ * drive-model port deleted the field outright; coasting is `accel`'s `dragRate` now, and `accel` IS
+ * on this list.)
  */
 const CAR_RATINGS = ["speed", "accel", "handling", "attack", "hp", "ramAttack", "ramDefence"] as const;
 

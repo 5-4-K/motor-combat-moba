@@ -199,16 +199,21 @@ raised to the roster's existing floor for a situation where reversing IS the pla
 At 10 a full-clearance reverse still wins its comparison by 14 points, while a candidate that gains
 nothing on the line still pays for pointing backwards.
 
-**Why a weight here is a toll rather than a ceiling, and the one number that could change that.**
-`DRIVE_CONFIG.steeringGrip` is `1.0`, so `stepDrive` rebuilds the whole velocity vector in the new
-heading every tick and a driven car carries no lateral velocity. In the planner's rollout
-`facingError` is therefore **binary — exactly 0 or exactly 1**, never the 0.5 sliding-sideways band
-the formula admits, so a weight is a *flat toll* charged to every reversing candidate rather than a
-ceiling that is rarely approached. Read every row of the table above that way. If a future physics
-pass LOWERS `steeringGrip`, an ordinary turn's terminal pose starts scoring in (0, 0.5] too and the
-term begins charging for **turning itself** — re-creating "turning is pure cost", the exact defect it
-was written to delete, by a new route. Re-derive the whole column if that number moves;
-`facingErrorOf`'s doc comment in `planner.ts` carries the same warning at the code.
+**Why a weight here WAS a toll rather than a ceiling, and the number that changed.**
+`DRIVE_CONFIG.steeringGrip` was `1.0`, so `stepDrive` rebuilt the whole velocity vector in the new
+heading every tick and a driven car carried no lateral velocity. In the planner's rollout
+`facingError` was therefore **binary — exactly 0 or exactly 1**, never the 0.5 sliding-sideways band
+the formula admits, so a weight was a *flat toll* charged to every reversing candidate rather than a
+ceiling that is rarely approached. Every row of the table above was derived that way.
+
+**That knob is gone.** The 2026-09-18 Unity drive-model port DELETED `steeringGrip` rather than
+lowering it (U13) — the same move taken all the way to its 0 end — so lateral velocity is now always
+present (it is the drift) and `facingError` is continuous: an ordinary turn's terminal pose scores in
+(0, 0.5], and the term charges for **turning itself**, re-creating "turning is pure cost", the exact
+defect it was written to delete, by a new route. **The whole column is owed a re-derivation**, and it
+is a correctness obligation rather than a tuning one: the port's stage 5, Task 8 Step 1 owns it, and
+no weight moves before then. `facingErrorOf`'s doc comment in `planner.ts` and
+`objectives.ts`'s weight-derivation paragraph both say the same thing at the code.
 
 Three terms are read as MOMENTS along the candidate arc — `myEv` at its best, `theirEv` and
 `wallPenalty` at their worst. `rangeError`, `threatAvoid` and `facingError` are
@@ -633,7 +638,7 @@ it was not sized away, so record it here rather than let the next tuner rediscov
   not cite it.
 
   **The 40 -> 10 re-derivation stands on its headroom argument alone**, which never depended on a
-  scene: with `steeringGrip` at 1.0 the term is binary, so 40 was a flat toll larger than the entire
+  scene: with `steeringGrip` at 1.0 the term was binary (that knob is deleted now — see the weight-table section above), so 40 was a flat toll larger than the entire
   0-24 range of the `threatAvoid` an `evade` dodge can earn, and full-clearance dodges lost every
   comparison they entered. See the headroom paragraphs in the weight-table section above. A
   closed-loop `npm run playtest` run is the instrument that would measure the dodge for real.

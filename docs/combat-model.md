@@ -197,8 +197,11 @@ carried the old steering-authority and shove decays and had been inert since the
 stage 3b deleted all five outright. Their mechanics have two different successors, not one: the three
 `authority` knobs (`authorityFloor`, `authorityHalfLifeSeconds`, `authorityEpsilon`) describe the
 steering penalty `reeling` supplies now, while the two `shove` ones (`shoveHalfLifeSeconds`,
-`shoveEpsilon`) described a decay on knock velocity, which bleeds off through the flat-rate
-`DRIVE_CONFIG.impactGripDecel` instead. `SLAM_CONFIG.victimAuthority`/`selfKeepFactor` were the slam
+`shoveEpsilon`) described a decay on knock velocity, which bled off through the flat-rate
+`DRIVE_CONFIG.impactGripDecel`. **That knob is gone too, as of the 2026-09-18 Unity drive-model
+port:** there is one grip model for the whole car now — `DRIVE_CONFIG.lateralGripRate` resolved to
+`ChassisDrive.gripPerTick` and scaled per car by the `grip` status channel — so an imposed shove
+bleeds off through the same lateral grip an ordinary drift does. `SLAM_CONFIG.victimAuthority`/`selfKeepFactor` were the slam
 side of the same story and stage 4 deleted them too, along with `knockSpeed`, the two wall-stun
 knobs, `reslamImmunityMs` and the whole `SLAM_TICKS` export — every slam number now lives on
 `WEAPON_TABLE.wildcharge.impulse`, and `SLAM_CONFIG` holds only `wallContactPad`.
