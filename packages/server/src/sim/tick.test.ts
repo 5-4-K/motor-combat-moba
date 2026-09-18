@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  ARENA_01,
   ArenaState,
   DRIVE_CONFIG,
   ManeuverKind,
@@ -349,9 +348,20 @@ describe("serverTick", () => {
       // here to 0.1 (~1.5x headroom above the traced value): still comfortably clear of floating
       // point noise, but a doubled residual (~0.1326u) now fails.
       //
+      // RE-PINNED for stage 1 Task 8 (Unity drive-model port + Task 6's final anchors): this is a
+      // straight-line scenario (`ups()` never steers), so the mover is `stepDrive`'s new closed-form
+      // drag/engine integrator (Task 3) hitting its own equilibrium differently -- the old model's
+      // `engineAccel` was a flat clamp-anchored acceleration; the new one is DERIVED so
+      // `engineAccel === maxSpeed * dragRate` at the balance point, and the tick-by-tick push profile
+      // on the way there is no longer the same shape as the old accel-clamp-and-coast trio. Re-run
+      // (this exact scenario, `driveIntoBlocker(IN_MATCH)`, mirage/mirage): traced residual moved
+      // 0.0663u -> 0.230962u. 0.35 (~1.5x headroom above the new traced value, same ratio as before)
+      // still catches a doubled residual (~0.462u) while giving the new steady state comfortable
+      // room.
+      //
       // This is the mirage/mirage case only -- see "converges to a residual overlap ..." below for
       // how much worse other roster pairings get, and why that matters for Task 4.
-      expect(driver.x + DRIVE_CONFIG.carWidth).toBeLessThanOrEqual(500.1);
+      expect(driver.x + DRIVE_CONFIG.carWidth).toBeLessThanOrEqual(500.35);
     });
 
     it("converges to a residual overlap that stays bounded across every roster ramDefence pairing, not just mirage/mirage", () => {
@@ -374,7 +384,13 @@ describe("serverTick", () => {
       const CARS: readonly CarId[] = ["mirage", "bullseye", "bastion"];
       // Measured worst case (this exact sweep): bastion into bullseye at ~0.9082u. 1.2 leaves
       // headroom without being loose enough to hide a doubled residual (~1.82u).
-      const MAX_RESIDUAL = 1.2;
+      //
+      // RE-PINNED for stage 1 Task 8, same cause as the mirage/mirage case above (`stepDrive`'s new
+      // closed-form drag/engine integrator settles this steady state at a different depth than the
+      // old accel-clamp-and-coast model did). Re-swept across all 9 pairings: the worst case is
+      // still bastion driving into an idle bullseye, now ~1.336055u (was ~0.9082u). 1.8 keeps the
+      // same ~1.35x headroom ratio as the old bound while still failing a doubled residual (~2.67u).
+      const MAX_RESIDUAL = 1.8;
 
       for (const driverCar of CARS) {
         for (const blockerCar of CARS) {
@@ -455,25 +471,35 @@ describe("serverTick", () => {
 
       serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
-      // The knock state actually reached stepDrive and moved the car.
-      expect(player.angle).not.toBe(0);
+      // RE-PINNED for stage 1 Task 8 (Unity drive-model port). The car still moves — vx/vy still
+      // round-trip through `bodyOf` -> `stepDrive` -> `writeBody` and decay by drag, so that half of
+      // this test's job still holds. `angle`/`angVel` do NOT, and the cause is architectural, not a
+      // numeric drift: under U16 ("steering SETS the yaw rate"), `stepDrive`'s ordinary branch
+      // computes `angVel` ENTIRELY from `steer * turnRate * ...` every tick (`drive.ts`) — the
+      // incoming `body.angVel` is read only inside a HOLD/DASH branch or while a status sets
+      // `spinFree` (neither applies here: this player is in no maneuver and `NO_EFFECTS` yields
+      // `NEUTRAL_MODIFIERS`, `spinFree: false`). `coasts(1)` sends `steer: 0`, so `angVel` resolves
+      // to exactly 0 on this very first tick rather than decaying gradually from the injected 2 — and
+      // with `angVel` 0, `angle` never moves off its starting 0 either. This is not a bug to fix in
+      // this stage: it is stage 3's own gap, which is what wires a real ram's spin onto `spinFree`
+      // (via `reeling`) so it has a decay path to test again. Old figures: `angle` nonzero, `angVel`
+      // in (0, 2). New, traced: `angle` 0, `angVel` 0 exactly.
+      expect(player.angle).toBe(0);
       expect(player.x).toBeGreaterThan(300);
       expect(player.y).toBeLessThan(CORRIDOR_Y);
 
-      // Round-tripped through decay, not silently dropped to neutral (angVel/vx/vy all 0) — that is
-      // exactly what a missing field in `bodyOf` or `writeBody` would produce.
-      expect(player.angVel).toBeGreaterThan(0);
-      expect(player.angVel).toBeLessThan(2);
-      // `steeringGrip` (1.0) rebuilds vx/vy from the forward/lateral split in the tick's NEW heading
-      // every tick (see `stepDrive`), so a one-tick decay of that split does not mean vx itself must
-      // fall: with `vy` negative here, angVel's small rotation of the nose folds a sliver of the
-      // decaying lateral component onto +x. Under mirage's pre-2026-09-06 fast coast that sliver was
-      // smaller than the forward decay it partly offset, so vx net decreased; mirage's much slower
-      // `coastHalfLifeSeconds` (0.35 -> 1.2 s in the vector-drive rework's heavy-car pass) decays the
-      // forward component far less in one tick, so the rotation now nets vx slightly ABOVE 120. Pinned
-      // rather than bounded below 120, so a genuine mechanism regression (steeringGrip or the decay
-      // rates) still fails this instead of the bound quietly widening to fit whatever comes out.
-      expect(player.vx).toBeCloseTo(120.892, 3);
+      // angVel: dropped to exactly 0 in one tick (see above), not decayed — this no longer
+      // distinguishes "bodyOf/writeBody carried it" from "stepDrive ignored it regardless", which is
+      // a real loss of coverage this test used to have. Flagged, not silently patched over: stage 3's
+      // `spinFree` wiring is what restores a genuine decay path for this scenario to re-test.
+      expect(player.angVel).toBe(0);
+      // vx/vy: still round-trip through drag (and, for the lateral half, grip) exactly as before —
+      // only the NUMBERS moved, from the new closed-form integrator (Task 3) and the final anchors
+      // (Task 6). Traced: vx 120 -> 114.969 (forward component decayed by `dragPerTick` alone, since
+      // `angle` never rotates off 0 this tick, so no lateral-to-forward fold-in occurs the way the old
+      // comment described under the old "steeringGrip" rails model). vy -60 -> -52.014 (decayed by
+      // `dragPerTick * gripPerTick`, the lateral component's own two-factor decay).
+      expect(player.vx).toBeCloseTo(114.969, 3);
       expect(player.vy).toBeLessThan(0);
       expect(player.vy).toBeGreaterThan(-60);
     });
@@ -705,84 +731,52 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
   });
 
   it("carries every knock component, not just shove", () => {
+    // RE-PINNED for stage 1 Task 8, and this one is stage 3's to fix, not this stage's: under U16,
+    // `stepDrive`'s ordinary branch computes `angVel` entirely from steering input every tick and
+    // never reads the incoming `body.angVel` at all unless a status sets `spinFree` (stage 3 wires a
+    // real ram's spin onto `spinFree` via `reeling`; nothing does yet). This fixture coasts with
+    // `steer: 0`, so on this very first tick `angVel` resolves to exactly 0 rather than decaying
+    // gradually from 3, and with `angVel` 0 the `angle` never moves off its starting 0 either. Old
+    // figures: `angVel` decayed but nonzero, `angle` nonzero. New, traced: both exactly 0. Left
+    // failing-in-spirit-only (asserting the degenerate reality) rather than deleted, so the suite
+    // stays honest about what this stage's model can and cannot do — stage 3 is expected to restore
+    // the original assertions once `spinFree` gives injected spin a decay path again.
     const player = knocked({ vx: 0, vy: 0, angVel: 3 });
     const state = stateWith(player);
     serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     expect(player.angVel).toBeLessThan(3);
-    expect(player.angVel).toBeGreaterThan(0);
-    expect(player.angle).not.toBe(0);
+    expect(player.angVel).toBe(0);
+    expect(player.angle).toBe(0);
   });
 
   it("settles angVel to exact neutral, then freezes the residual forward-aligned velocity", () => {
-    // This fixture's shove (`vx = 300` at `angle = 0`) is aligned with the car's own heading, so
-    // `lateralOf` reads exactly 0 for it from the very first tick (`DRIVE_CONFIG.steeringGrip` is
-    // 1.0, so the rebuilt velocity always re-decomposes with zero lateral component too) — only the
-    // paired `angVel` keeps `hasKnock` true at all, and it rotates the heading out from under the
-    // velocity as it spins down. Once `angVel` snaps to exactly 0 (its own epsilon), `hasKnock` goes
-    // false and the coast stops for good — this is `hasKnock`'s documented, accepted gap (a knock
-    // landing purely along the victim's own heading is invisible to `lateralOf`), not a bug: it
-    // reduces to the pre-rework `speed` behaviour of freezing rather than decaying to true rest.
-    // What must still hold is that it settles ONCE and stays settled, rather than oscillating or
-    // running forever — that is the "stops moving the car" half of this test's name.
+    // RE-PINNED for stage 1 Task 8, and this is the other of the two cases stage 3 owns next (see
+    // "carries every knock component" above for the same cause). Every REPINNED paragraph this
+    // comment used to carry — the quarter-turn arc, the bottom-wall contact, the spike-span guard —
+    // described a car that genuinely CURVED while its injected spin decayed gradually over many
+    // ticks. Under this stage's model that no longer happens at all: `stepDrive`'s ordinary branch
+    // computes `angVel` entirely from steering input every tick (U16) and never reads the incoming
+    // `body.angVel` unless a status sets `spinFree` (stage 3's `reeling` wiring; nothing sets it
+    // yet). This fixture coasts with `steer: 0`, so `angVel` resolves to exactly 0 on the FIRST tick
+    // rather than decaying over dozens — the car never rotates off its starting `angle: 0` at all, so
+    // there is no arc, no wall contact, and no spike-span question left to guard. `hasKnock` reads
+    // false from the second tick onward (`angVel` 0, `lateralOf` 0), so all of this fixture's motion
+    // happens on that single first tick; the other 299 loop iterations are no-ops. Traced: `angVel`
+    // 0 (was already exactly 0 by design, just reached on tick 1 instead of by decay); residual speed
+    // is the forward component alone (`vy` stays exactly 0, never having rotated), 300 * `dragPerTick`
+    // for mirage = 287.423 (was 8.06, a wall-contact-shaped number that no longer applies). The old
+    // "small relative to the 300 u/s shove" framing is gone along with the wall contact it described:
+    // this residual is 96% of the shove, not under 7% of it, because nothing ever decayed it beyond
+    // one tick of drag. Deleted the spike-span guard and the wall-contact tracing with it — there is
+    // no arc left for either to guard against.
     const player = knocked({ angVel: 3 });
     const state = stateWith(player);
     for (let i = 0; i < 300; i++) serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     expect(player.angVel).toBe(0);
-    // Residual velocity is real (the known gap), not exact rest — but it is small relative to the
-    // original 300 u/s shove, because plenty of ticks of coasting ran before angVel expired. "Small"
-    // moved from <10 to <20 (pinned at ~19.72) in the vector-drive rework's heavy-car pass: mirage's
-    // `coastHalfLifeSeconds` went 0.35 -> 1.2 s, so the SAME number of ticks (angVel's decay is
-    // unrelated to coasting) now bleeds off much less of the forward component before it expires.
-    //
-    // REPINNED for stage 2 Task 1 (2026-09-06): this fixture's spin (`angVel: 3`) drags the heading
-    // through more than a quarter turn while `vx/vy` stays fixed in world space (steeringGrip snaps
-    // driven velocity onto the CURRENT heading each tick, but this car has no throttle, so nothing
-    // re-aligns it), so it genuinely curves and, around tick 80, clips the arena's bottom wall — a
-    // real contact this test's comment never previously named, because the OLD physics (restitution
-    // 0.35, reflected direction discarded and rebuilt along the unchanged heading) happened to land
-    // on the same ~19.72 this test had already pinned, masking that a bounce was even in the
-    // trajectory. Whole-vector reflection at the lower 0.15 restitution (Task 1) genuinely damps that
-    // one contact differently, so the number this test pins moved along with it — not a second
-    // bounce, not a new code path, the same single wall contact under the new rule. Still comfortably
-    // under 7% of the original 300 u/s, so "small" still holds.
-    //
-    // REPINNED again for arena-sprite-and-spike-hazard Task 5 (2026-09-11): the bottom wall moved
-    // from y=720 to y=666, so the pinned magnitude changed (19.72 -> 8.1) even though it is still the
-    // same single wall contact.
-    //
-    // Finding 5 of that task's review flagged this as fragile: it assumed the contact stayed near
-    // this fixture's start x (500), which is inside the bottom spike strip's span (452-565), so a
-    // later task wiring spike damage into contact would make this fixture start taking damage and
-    // move the pin a third time for a reason unrelated to what it is testing (float residue from
-    // repeated sin/cos rebuilds, not collision).
-    //
-    // VERIFIED, not assumed (2026-09-11 fix): that assumption does not hold. `vx` keeps carrying the
-    // car rightward through the whole quarter-turn arc, so by the time the curve reaches the bottom
-    // wall the car has drifted from x=500 to x=~649 — squarely inside the 565-715 BARE gap between
-    // that strip and the next one (715-828), 65-85 units clear of either. Proved directly: temporarily
-    // zeroing `ARENA_01.obstacles` (no spikes at all) and re-running this exact fixture reproduces the
-    // identical 8.100463254854805 — the spikes take no part in this trajectory today, start x=500
-    // included, so no coordinate change was needed here after all. What Finding 5 is right to want is
-    // a guard against this silently becoming false on a future spike re-tune, which the assertion
-    // below provides: it fails loudly, rather than quietly re-pinning over a real spike hit, the
-    // moment any spike's span reaches this fixture's traced approach corridor.
-    //
-    // REPINNED again for the 2026-09-16 hull resize (60x40): the 40-unit-wide hull reaches the
-    // bottom wall earlier in the same arc, so the single wall contact happens at a different point
-    // (traced x = 649.42, at tick 46) and the residual moved 8.1 -> 8.06; re-verified spike-free by
-    // emptying `ARENA_01.obstacles` (identical value: 8.057940264918944). Traced by the wall contact
-    // itself (the tick `vy` flips sign), not by the `player.y + carHeight/2 >= 665` heuristic this
-    // comment used to name: by the time the arc reaches the wall the car has rotated well past
-    // axis-aligned, so the OBB's actual vertical reach exceeds half the 40-unit height and that
-    // heuristic never fires for this trajectory.
-    const APPROACH_X = 649; // this fixture's traced x when its arc reaches the bottom wall band
-    const spikeSpans = ARENA_01.obstacles
-      .filter((o) => o.kind === "spike")
-      .map((o) => [o.x, o.x + o.w] as const);
-    expect(spikeSpans.some(([a, b]) => APPROACH_X >= a && APPROACH_X <= b)).toBe(false);
+    expect(player.angle).toBe(0);
     const residualSpeed = Math.hypot(player.vx, player.vy);
     expect(residualSpeed).toBeGreaterThan(0);
-    expect(residualSpeed).toBeCloseTo(8.06, 2);
+    expect(residualSpeed).toBeCloseTo(287.423, 2);
     const restingX = player.x;
     const restingVx = player.vx;
     const restingVy = player.vy;
@@ -825,36 +819,44 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
   it(
     "leaves a merely-driving, recently-turned silent player frozen despite sin/cos residue in lateralOf",
     () => {
-      // Regression for the Critical finding on `hasKnock`: `stepDrive` rebuilds vx/vy at the car's
-      // NEW heading every tick (`DRIVE_CONFIG.steeringGrip` is 1.0 — "on rails"). That round-trip
-      // through `Math.sin`/`Math.cos` does not return a bit-exact zero lateral component for a car
-      // that has turned, even though nothing ever shoved it. A car that steers, then drives straight,
-      // is left carrying a stable, nonzero `lateralOf` residue on the order of 1e-14 — far below any
-      // real knock, but enough to make the OLD `!== 0` comparison call this ordinary driving an
-      // externally-imposed knock forever, coasting a silent player's queue that client prediction
-      // never runs. `hasKnock` must compare against `DRIVE_CONFIG.stopEpsilon`, not exact zero.
-      // Dead centre of the arena, not the CORRIDOR_Y spot the rest of this file uses: 150 ticks of
-      // continuous turning traces the full ~23.1u circle many times over (as of the 2026-09-16 speed
-      // cut; it was ~32.6u after the 2026-09-06 heavy-car pass), and from the corridor spot at y=100
-      // that circle now clips arena-01's top wall and its spike strip (landed 2026-09-11) — this test
-      // is about float residue, not collision, so it needs a spot far enough from every wall and every
-      // spike that the loop truly never touches anything. The arena centre clears the nearest wall by
-      // roughly 286 units on the short axis.
+      // Regression for the Critical finding on `hasKnock`: `hasKnock` must compare
+      // `abs(lateralOf(...))` against `DRIVE_CONFIG.stopEpsilon`, not exact zero, or an ordinary
+      // driving player who recently turned reads as permanently knocked.
       //
-      // The TICK COUNT is empirical and fragile by nature: whether the sin/cos round-trip lands a
-      // nonzero residue at all depends on the exact trajectory, so a speed or turn-rate retune can
-      // make a given count come back bit-exactly 0 and gut the `not.toBe(0)` assertion below. 200 did
-      // exactly that under the 2026-09-16 cut; 150 lands 8.88e-16. If this line ever reads "expected
-      // +0 not to be +0" again, re-probe the count rather than relaxing the assertion — a zero
-      // residue means this regression is no longer being exercised, not that it is fixed.
+      // RE-PINNED for stage 1 Task 8, and the SCENARIO changed, not just the number — re-deriving
+      // the old figure by running the old code was not possible, because the old premise is false
+      // under this stage's model. The old comment's residue was float noise: under the pre-port
+      // "on rails" model (`steeringGrip` 1.0), turning never gave a car any REAL lateral velocity at
+      // all — velocity was rebuilt with zero lateral component every tick by construction, and the
+      // ~1e-14 residue was purely the sin/cos round-trip's rounding error. Under this stage's Unity
+      // drag+grip model, continuous full-lock turning produces a REAL, sustained lateral velocity —
+      // that is the drift `drive-vector.test.ts` deliberately tests for — so 150 ticks of unbroken
+      // turning (the old loop) settles at a steady-state drift on the order of tens of u/s, not
+      // noise: nowhere near `stopEpsilon`, and it does not shrink with more ticks of the same input.
+      // There is no tick count that makes the OLD single-phase scenario produce a residue this test
+      // could still call "recently-turned, not currently turning".
+      //
+      // The fix is a second phase: turn (steer 1) for 30 ticks (1s — long enough to reach a real,
+      // sizeable drift), then RELEASE steer and throttle both to 0 for up to 150 ticks so the
+      // lateral component decays by `dragPerTick * gripPerTick` every tick with nothing re-driving
+      // it — an exponential decay that approaches, but never reaches, exact zero, which is the same
+      // property the old sin/cos residue had for a different reason. Traced: crosses under
+      // `stopEpsilon` (1e-3) around tick 70-80 of the release phase; at the full 150, residue is
+      // ~-2.4e-8 (comfortably nonzero, comfortably under the bound). Throttle 0 in the release phase
+      // (not 1, as the old single-phase loop used) keeps the car near the arena centre — the point of
+      // this spot is clearance from every wall and spike, and continuing to accelerate for another 5
+      // seconds would have driven it back out toward one.
       const player = makePlayer("v", ARENA_CENTRE_X, ARENA_CENTRE_Y, 0);
       const state = stateWith(player);
       let seq = 1;
-      const turning = (steer: number): InputMessage[] => [
-        { seq: seq++, steer, throttle: 1, fireSlots: 0 },
+      const drive = (steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputMessage[] => [
+        { seq: seq++, steer, throttle, fireSlots: 0 },
       ];
+      for (let i = 0; i < 30; i++) {
+        serverTick(state, new Map([["v", drive(1, 1)]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
+      }
       for (let i = 0; i < 150; i++) {
-        serverTick(state, new Map([["v", turning(1)]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
+        serverTick(state, new Map([["v", drive(0, 0)]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
       }
 
       const residue = lateralOf(player.vx, player.vy, player.angle);

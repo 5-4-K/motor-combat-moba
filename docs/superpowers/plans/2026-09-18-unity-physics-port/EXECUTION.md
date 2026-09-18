@@ -8,8 +8,8 @@
 > below. Nothing here is written from memory at the end of a session — a session can stop at any
 > moment, and the last commit must already say where it stopped.
 
-**Status as of 2026-09-18: nothing is executed.** The spec and all five stage plans are written; no
-code has changed.
+**Status as of 2026-09-18: stage 1 (the drive model) has landed.** The spec and all five stage plans
+were written first; stage 1's eight tasks are now committed. Stages 2-5 have not started.
 
 **Spec:** [`docs/superpowers/specs/2026-09-18-unity-driving-and-ram-physics-port-design.md`](../../specs/2026-09-18-unity-driving-and-ram-physics-port-design.md)
 **Ledger:** [`interfaces.md`](interfaces.md) — outranks any one plan, is outranked by the spec.
@@ -29,13 +29,14 @@ code has changed.
 
 ## In flight
 
-*Nothing in flight.* Next: stage 1, Task 1.
+*Nothing in flight.* Stage 1 landed (all eight tasks committed, `test(drive): pin tick-rate
+independence; rebuild the guide` closing it). Next: stage 2, Task 1.
 
 ## Stages
 
 | # | Plan | State | Gate |
 |---|---|---|---|
-| 1 | [`01-drive-model.md`](01-drive-model.md) | Not started | Asymptotic top speed; measurable slip angle; `stepDrive` reads no module-level rate; 30/60 Hz equivalence test green |
+| 1 | [`01-drive-model.md`](01-drive-model.md) | **Landed** | Asymptotic top speed; measurable slip angle; `stepDrive` reads no module-level rate; 30/60 Hz equivalence test green |
 | 2 | [`02-walls-and-bumps.md`](02-walls-and-bumps.md) | Not started | Restitution 0; a car slides along a wall and never gains speed; the spike self-trigger re-measured |
 | 3 | [`03-rams.md`](03-rams.md) | Not started | Attacker stops and locks; victim flung, spun, reeling; head-on stops both; `applyImpulse` has one production caller |
 | 4 | [`04-slam-and-effects.md`](04-slam-and-effects.md) | Not started | `wildcharge` still clearly harder than the best ordinary ram; `ramLock` published to players |
@@ -43,22 +44,74 @@ code has changed.
 
 ## What is known before any of it runs
 
-- **Three tests are already red** on this branch, **measured on 2026-09-18 at `139f6a1`**, before any
-  of this work ran — `npm install`, `npm run build`, `npm test` from the repo root:
+- **CORRECTED by stage 1 Task 8 (2026-09-18): the "three already-red tests" list immediately below
+  was stale on arrival and is history, not a baseline to re-derive from.** A stage 1 task checked out
+  the pre-work commit (`139f6a1`) directly and confirmed only ONE of the three was actually red there
+  — `src/bot/brain/controller.test.ts`'s OFF-AXIS case. The other two were GREEN at `139f6a1`:
+  `tiers.test.ts` P49 and `balance/match.test.ts`'s deathmatch-clock canary. The original claim (kept
+  verbatim below for the record, struck through in spirit) named the wrong pair as already-red; do
+  not cite it as this port's starting point. See "Stage 1 exit: measured test state" below for what
+  is red now, which is a different list again — the drive model moved the bot (as expected) and, not
+  originally expected, moved `balance/match.test.ts` back into a tie at its currently-pinned seed.
+
+  ~~Three tests are already red on this branch, measured on 2026-09-18 at `139f6a1`, before any of
+  this work ran:~~
 
   | Suite | Failing case |
   |---|---|
   | `src/bot/brain/controller.test.ts` | "keeps the body on the aim line when the target is OFF-AXIS" |
-  | `src/bot/brain/tiers.test.ts` | P49, "hard fires at its preferred range rather than parking and weaving" |
-  | `balance/match.test.ts` | "shortening matchSeconds still lets the deathmatch clock fire, so a winner can appear" |
+  | `src/bot/brain/tiers.test.ts` | P49, "hard fires at its preferred range rather than parking and weaving" — **was actually green at `139f6a1`** |
+  | `balance/match.test.ts` | "shortening matchSeconds still lets the deathmatch clock fire, so a winner can appear" — **was actually green at `139f6a1`** |
 
   Everything else passes: 985 shared tests (53 files), 704 server (46 of 49 files), 69 client files.
   **Note this differs from the root `CLAUDE.md`, which names `tiers.test.ts` P50 as the third.** P50
   passes here; the deathmatch-clock canary is red instead. Trust this measurement over that prose.
   **This work does not fix any of them and must not silently re-pin them** — stage 5's `bot-tuner`
-  pass is where they are addressed. Re-run and compare at the end of stage 5.
+  pass is where the bot ones are addressed. Re-run and compare at the end of stage 5.
 - **The worktree is wired correctly**: the server bundle inlines `// ../shared/dist/…`, not an
   escaped path, so `npm install` has already been run here.
+
+### Stage 1 exit: measured test state (Task 8, 2026-09-18)
+
+`npm install`, `npm run build` (root), `npm test` (root), `npm run test:scripts`, all from the repo
+root, against this stage's final commit:
+
+- **shared: green.** 54 files, 970 passed, 6 skipped (unrelated) — includes the new
+  `sim/drive-rate.test.ts` (U7's 30-vs-60 Hz proof) and the six `tick.test.ts` re-pins' upstream
+  fixtures.
+- **client: green.** 69 files, 1019 passed, 5 skipped (unrelated).
+- **`npm run test:scripts`: green.** 39 suites, 153 passed, 2 skipped (unrelated), 0 failed —
+  includes `scripts/turn-tuning-doc.test.mjs` and `scripts/manual-page.test.mjs` (the rebuilt guide's
+  fingerprint check).
+- **server: 44 of 49 files green, 692 of 708 tests passed, 16 red — all 16 in five files:**
+
+  | Suite | Red count | Cases |
+  |---|---|---|
+  | `src/bot/brain/predict.test.ts` | 9 | "carries a straight-line car forward, coasting off only slowly"; "curves a car that was observed turning, without any input"; "and the pre-rework scalar read would have been 76 units wrong — more than a car length"; "holds the observed speed, landing on the true path at every horizon and every speed"; "beats an engine-on rollout, worst of all where the target cannot move"; "holds a REVERSING car's speed, which zeroing the engine alone does not"; "beats a straight line wherever the target turns, and never loses where it does not"; "lets a sloppy read miss a curve entirely, and even read it backwards" (P20); "reads either side of the steering threshold, by how far the estimate falls short" (P20) |
+  | `src/bot/brain/controller.test.ts` | 2 | "hunts a quadrant waypoint when it has never seen anyone, never the arena centre" (G12); "hunts toward a last-known pose, not the arena centre" (G12) — note the ORIGINALLY-red OFF-AXIS case is GREEN again at this stage's exit; the drive model moved which case fails, not just how many |
+  | `src/bot/brain/planner.test.ts` | 2 | "finds a shot the arc SWEEPS through, not only the one it ends on" (R-P7); "does not let one out-of-arena candidate turn commitPenalty into a latch" (R-P16) |
+  | `src/bot/brain/tiers.test.ts` | 2 | "hard changes course for an incoming shot and easy ignores it" (H25); "hard sidesteps an incoming shot compared to dodgeChance 0" (S13 evade) — note this is a DIFFERENT pair from the corrected pre-work baseline's P49, which is green again here |
+  | `balance/match.test.ts` | 1 | "shortening matchSeconds still lets the deathmatch clock fire, so a winner can appear" |
+
+  The first four rows are the bot-behaviour suites this stage's plan and brief both name as expected
+  fallout (matches the Task 6/7 prediction of `predict.test.ts` 9, `controller.test.ts` 2,
+  `planner.test.ts` 2, `tiers.test.ts` 2 exactly in count, though not case-for-case against the
+  original pre-work baseline — see above). **Stage 5's `bot-tuner` pass owns all four; Task 8 did
+  not re-pin any of them.**
+
+  **`balance/match.test.ts` is a fifth, unnamed-by-the-brief red file, and worth flagging clearly:**
+  its currently-pinned seed (1) comes back a legitimate 1-1 kills/deaths ranking TIE under the
+  retuned drive model — `out.seats.some(s => s.kills > 0)` passes, only `out.winnerSessionId` is
+  empty, exactly the failure SHAPE this exact test's own multi-paragraph reseed history has recorded
+  and re-pinned around more than a dozen times before (every ram, bot and drive change that moved
+  this one Mirage/Bastion matchup's dynamics has landed here). It is deterministic (re-run in
+  isolation: same single case fails every time) and is not a clock defect — `hitClock` is never even
+  reached because the kills line already tells the story. Re-seeding it (that file's own established
+  fix) needs the same kind of seed sweep its history shows, which is balance-tuning work outside
+  Task 8's file list (`tick.test.ts`, `drive-rate.test.ts`, `manual.html`, this file) and outside
+  stage 1's plan. Left untouched and reported here rather than silently re-pinned or ignored — next
+  to pick this up should either reseed it now (stage 1 did move its outcome) or fold it into stage
+  5's tuning pass alongside the four bot suites above.
 - **Every balance report from before this work is incomparable.** `configFingerprint` hashes
   `CAR_TABLE`, `DRIVE_CONFIG` and `RAM_CONFIG` whole; `BOT_BRAIN_VERSION` moves to `6.0.0` in stage 1.
 - **`balanceStamp` does NOT hash `RAM_CONFIG`** but does hash `DRIVE_CONFIG`, the active `CAR_TABLE`
@@ -72,9 +125,10 @@ command as well as the figure.
 
 | What | Value | Measured in |
 |---|---|---|
-| Time to 90% of top speed, per chassis | — | stage 1 |
-| Roll distance from top speed, per chassis | — | stage 1 |
-| Slip angle at full lock, per chassis (target ~35° at `lateralGripRate` 3.0) | — | stage 1 |
+| Time to 90% of top speed, per chassis | Mirage 1.79 s, Bullseye 2.21 s, Bastion 2.59 s (`ln(10) / dragRate`) | stage 1 |
+| Roll distance from top speed, per chassis | Mirage 147.1 u, Bullseye 152.3 u, Bastion 152.8 u (`maxSpeed / dragRate`) | stage 1 |
+| Slip angle at full lock, per chassis (target ~35° at `lateralGripRate` 3.0) | Mirage 26.1°, Bullseye 23.6°, Bastion 21.2° — below the ~35° target because the formula is `atan(turnRate / (dragRate + lateralGripRate))`, not `atan(turnRate / lateralGripRate)` alone: each car's own `dragRate` adds to the sideways bleed, so a car with more `accel` corners tighter as a side effect (see `docs/turn-tuning.md#grip-and-drift`) | stage 1 |
+| U7 30-vs-60 Hz equivalence, one second of full-lock turn+throttle on a synthetic `ChassisDrive` (`sim/drive-rate.test.ts`) | position delta 0.87 u (bound: `carWidth`/10 = 6 u); angle delta ~2.9e-15 rad (bit-exact — `turnRate * 1s` sums identically regardless of tick count); speed delta 0.0014 u/s. A same-length straight-line run (no steer) shows speed match to ~14 digits but a position delta of ~1.04 u — velocity is exactly rate-independent under the closed-form integrator, position is a first-order accumulation of it and is not, though it stays well inside the test's tolerance | stage 1 |
 | How far a ram's shove carries a reeling victim (`grip: 0.6`, target ~2.2 car lengths) | — | stage 3 |
 | Settled speed into a wall, self-driven, vs `SPIKE_CONFIG.triggerSpeed` | — | stage 2 |
 | Reference flank ram: shove and spin (Bastion → parked Bullseye) | — | stage 3 |
