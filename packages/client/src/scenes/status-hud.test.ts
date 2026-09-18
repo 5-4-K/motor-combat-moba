@@ -130,8 +130,10 @@ describe("the ram statuses", () => {
     for (const id of ["reeling", "ramLock"] as const) {
       const badge = statusBadges([row(id, 0, 15)], 0)[0]!;
       expect(badge.name).toBe(STATUS_TABLE[id].name);
-      expect(badge.kind).toBe("debuff");
+      expect(badge.kind).toBe(STATUS_TABLE[id].kind);
       expect(badge.fill).toBe(Number.parseInt(STATUS_TABLE[id].color.replace("#", ""), 16));
+      // Both rows are debuffs, which is what puts them ahead of any buff in `compareBadges`.
+      expect(STATUS_TABLE[id].kind).toBe("debuff");
     }
   });
 
