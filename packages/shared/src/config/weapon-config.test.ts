@@ -508,7 +508,7 @@ describe("ImpulseDef", () => {
     // `spin` is a public authoring field whose JSDoc promises torque from the contact-point lever
     // arm — and on the only path that applies an `ImpulseDef` today (a maneuver's contact impulse)
     // there is no lever arm to take it from: `contact.ts` puts the VICTIM'S OWN CENTRE on the
-    // `SlamEvent`, so `applyImpulse` measures `contactX - body.x` as exactly zero and any authored
+    // `ContactHit`, so `applyImpulse` measures `contactX - body.x` as exactly zero and any authored
     // spin produces exactly zero rotation, silently. `wildcharge` authors 0 deliberately (a clean
     // straight punt is the ult's signature, spec P28/P31), so nothing is broken today; this guard
     // exists so the day someone authors a spinning charge it fails HERE, naming the missing contact
@@ -518,7 +518,7 @@ describe("ImpulseDef", () => {
     // `resolveRam` already does with `contactPointOn` — not to relax this assertion.
     for (const row of Object.values(WEAPON_TABLE)) {
       if (row.impulse === undefined) continue;
-      expect(row.impulse.spin, `${row.id}: a maneuver impulse has a zero lever arm — see SlamEvent`).toBe(0);
+      expect(row.impulse.spin, `${row.id}: a maneuver impulse has a zero lever arm — see ContactHit`).toBe(0);
     }
   });
 

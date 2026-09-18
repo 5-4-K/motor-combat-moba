@@ -16,6 +16,7 @@ import {
   ramAttackOf,
   ramDefenceOf,
   ramTicks,
+  setTuning,
   type Modifiers,
   type WeaponId,
 } from "@motor-combat-moba/shared";
@@ -371,9 +372,9 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
       new Map<string, WeaponId | "">([["a", "wildcharge"]]),
       10,
     );
-    // `toMatchObject`, not `toEqual`: a slam's entry is a `SlamEvent`, which rides into
-    // `contactHits` carrying the contact geometry as well (structurally still a `ContactHit`, which
-    // is all combat reads). The three fields asserted here are the whole of what combat prices.
+    // `toMatchObject`, not `toEqual`: a slam's entry is a `ContactHit` that also carries the push
+    // geometry (`.push`), same as every other impulse-bearing hit since the 2026-09-19 merge. The
+    // three fields asserted here are the whole of what combat prices.
     expect(result.contactHits).toHaveLength(1);
     expect(result.contactHits[0]).toMatchObject({
       attackerSessionId: "a",
@@ -383,7 +384,7 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     expect(attacker.maneuver).toBe(0);
     expect(readStatuses(attacker)).toHaveLength(0); // fortified expired with the charge (O2)
     expect(forwardOf(attacker.vx, attacker.vy, attacker.angle)).toBeCloseTo(300, 6);
-    expect(memory.slammed.get("b")).toBeDefined();
+    expect(memory.pushed.get("b")).toBeDefined();
   });
 
   it("stuns a slammed victim shoved into a wall inside the window, once", () => {
@@ -391,11 +392,11 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     const victim = addPlayer(state, "b", { x: 24, y: 500, angle: 0 });
     const roster = new Set(["b"]);
     const memory = newContactMemory();
-    memory.slammed.set("b", {
+    memory.pushed.set("b", {
       bySessionId: "a",
-      wallStunUntilTick: 25,
+      wallWindowUntilTick: 25,
       immuneUntilTick: 28,
-      wallStunTicks: SLAM_IMPULSE_TICKS.wallStunDuration,
+      wallApplies: SLAM_IMPULSE_TICKS.onWallImpact!.applies,
     });
     const approach = approachVelocities(state);
 
@@ -404,7 +405,7 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
       {
         targetSessionId: "b",
         statusId: "stunned",
-        durationTicks: SLAM_IMPULSE_TICKS.wallStunDuration,
+        durationTicks: SLAM_IMPULSE_TICKS.onWallImpact!.applies[0]!.durationTicks,
         sourceSessionId: "a",
       },
     ]);
@@ -414,16 +415,16 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
   });
 
   it("opens both clocks off the slamming weapon's own ImpulseDef, not a slam-wide constant", () => {
-    // The `SLAM_TICKS` half of the dissolve: the wall-stun window, the re-slam immunity and the
-    // stun length a landed wall contact would request all come from `WEAPON_TICKS.wildcharge.impulse`
-    // now, stamped onto the room's `SlamRecord` at the moment the slam lands.
+    // The `SLAM_TICKS` half of the dissolve: the wall-impact window, the re-push immunity and the
+    // statuses a landed wall contact would request all come from `WEAPON_TICKS.wildcharge.impulse`
+    // now, stamped onto the room's `PushRecord` at the moment the slam lands.
     //
     // x shifted 0/47 -> 200/247 for the arena-01 octagon (2026-09-11): the pair used to sit at the
     // OLD rectangle's left wall (x=0) with the victim 47 units clear of it, close enough to land the
     // slam but far enough that the wall-stun sweep below would not ALSO fire this same tick — this
     // test is about the clocks' *source*, not the wall-stun sweep, which has its own dedicated test
     // right above. Now that the playable area's left wall sits at x=74, the old victim position (47)
-    // is inside the wall band and gets an immediate stun, closing `wallStunUntilTick` at `tick` and
+    // is inside the wall band and gets an immediate stun, closing `wallWindowUntilTick` at `tick` and
     // failing this assertion. Moving the whole pair inward by the same 200 units keeps the 47-unit
     // spacing the charge contact needs while clearing the new wall by a wide margin. That spacing
     // is 58.75 u since the 2026-09-16 resize to the 60x40 hull (1.25x, spec BC9), so "b" sits at 258.75.
@@ -437,11 +438,11 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
       state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS, approachVelocities(state),
       CHARGING_WILDCHARGE, 10,
     );
-    expect(memory.slammed.get("b")).toEqual({
+    expect(memory.pushed.get("b")).toEqual({
       bySessionId: "a",
-      wallStunUntilTick: 10 + SLAM_IMPULSE_TICKS.wallStunWindow,
+      wallWindowUntilTick: 10 + SLAM_IMPULSE_TICKS.onWallImpact!.windowTicks,
       immuneUntilTick: 10 + SLAM_IMPULSE_TICKS.retriggerImmunity,
-      wallStunTicks: SLAM_IMPULSE_TICKS.wallStunDuration,
+      wallApplies: SLAM_IMPULSE_TICKS.onWallImpact!.applies,
     });
   });
 
@@ -489,9 +490,10 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
   it("reels the victim for the weapon's own uncontrol duration, not the ram's", () => {
     // NEW BEHAVIOUR in stage 4. A slam used to impose no control loss at all: `contact.ts` authored
     // `uncontrolTicks: 0` and `SLAM_CONFIG.victimAuthority`, the pre-`Impulse` knob meant to express
-    // it, had been inert since the rework's stage 2. The duration is the weapon's, and the assertion
-    // pins that it is NOT `ramTicks().uncontrol` — otherwise the ram path leaking onto a slam would
-    // read as a pass.
+    // it, had been inert since the rework's stage 2. The duration is the weapon's OWN declared
+    // application — `SLAM_IMPULSE_TICKS.applies[0]`, since 2026-09-19 the bridge names no status of
+    // its own — and the assertion pins that it is NOT `ramTicks().uncontrol` — otherwise the ram
+    // path leaking onto a slam would read as a pass.
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
     const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
@@ -503,9 +505,76 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     );
     const reeling = readStatuses(victim).find((s) => s.statusId === "reeling");
     expect(reeling).toBeDefined();
-    expect(reeling!.endsTick - 10).toBe(SLAM_IMPULSE_TICKS.uncontrol);
-    expect(SLAM_IMPULSE_TICKS.uncontrol).not.toBe(ramTicks().uncontrol);
+    expect(reeling!.endsTick - 10).toBe(SLAM_IMPULSE_TICKS.applies[0]!.durationTicks);
+    expect(SLAM_IMPULSE_TICKS.applies[0]!.durationTicks).not.toBe(ramTicks().uncontrol);
     expect(reeling!.sourceSessionId).toBe("a");
+  });
+
+  it("applies exactly the statuses the row declared, by id", () => {
+    const state = arena();
+    const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
+    const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
+    attacker.maneuver = ManeuverKind.CHARGE;
+    attacker.maneuverTicksLeft = 200;
+    contactTick(
+      state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachVelocities(state),
+      CHARGING_WILDCHARGE, 10,
+    );
+    expect(hasStatus(readStatuses(victim), "reeling", 10)).toBe(true);
+  });
+
+  it("would apply a different status if the row named one", () => {
+    // The restructure's whole point: nothing in the bridge knows the word "reeling" — every
+    // application is read off `authored.ticks.applies` by id. `setTuning`'s leaf-only override can
+    // rewrite a single field of an authored row without touching the rest, which is exactly the
+    // surface this test needs: `wildcharge`'s own `applies[0].statusId`, and nothing else.
+    setTuning({ "weapon.wildcharge.impulse.applies.0.statusId": "spiked" });
+    try {
+      const state = arena();
+      const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
+      const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
+      attacker.maneuver = ManeuverKind.CHARGE;
+      attacker.maneuverTicksLeft = 200;
+      contactTick(
+        state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachVelocities(state),
+        CHARGING_WILDCHARGE, 10,
+      );
+      const victimStatuses = readStatuses(victim);
+      expect(hasStatus(victimStatuses, "spiked", 10)).toBe(true);
+      expect(hasStatus(victimStatuses, "reeling", 10)).toBe(false);
+    } finally {
+      setTuning(null);
+    }
+  });
+
+  it("rotates a victim when the row authors a spin, and not when it does not", () => {
+    // The 2026-09-19 Task 2 contact-point fix gave a slam a genuine lever arm — `contactPointOn`,
+    // not the victim's own centre — so this is the first test exercising that a nonzero
+    // `ImpulseDef.spin` actually rotates a slam's victim through the real bridge, and that the
+    // shipped `spin: 0` still does not. "b" sits 15 u off the attacker's approach line so the
+    // recovered contact point has a nonzero lever arm off the victim's own centre line — dead-on,
+    // as every other slam fixture in this file is deliberately built, the cross product is exactly
+    // zero regardless of `spin` (see `ramScenario`'s own `offsetY` doc comment for the ordinary-ram
+    // version of the same trick).
+    const angVelFor = (spin: number): number => {
+      setTuning({ "weapon.wildcharge.impulse.spin": spin });
+      try {
+        const state = arena();
+        const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
+        const victim = addPlayer(state, "b", { x: 58.75, y: 415, angle: 0 });
+        attacker.maneuver = ManeuverKind.CHARGE;
+        attacker.maneuverTicksLeft = 200;
+        contactTick(
+          state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachVelocities(state),
+          CHARGING_WILDCHARGE, 10,
+        );
+        return victim.angVel;
+      } finally {
+        setTuning(null);
+      }
+    };
+    expect(Math.abs(angVelFor(0))).toBeCloseTo(0, 9);
+    expect(Math.abs(angVelFor(3))).toBeGreaterThan(0);
   });
 
   it("caps a victim at ONE slam push per tick when two chargers land on it, last slam winning", () => {
@@ -558,7 +627,7 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     // status still lands, once, at the authored length.)
     const reelings = readStatuses(victim).filter((s) => s.statusId === "reeling");
     expect(reelings).toHaveLength(1);
-    expect(reelings[0]!.endsTick - 10).toBe(SLAM_IMPULSE_TICKS.uncontrol);
+    expect(reelings[0]!.endsTick - 10).toBe(SLAM_IMPULSE_TICKS.applies[0]!.durationTicks);
     expect(reelings[0]!.sourceSessionId).toBe("c");
 
     // Everything that is NOT the push still runs for BOTH slams: both chargers spent their ult and
@@ -568,8 +637,8 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     expect(result.contactHits).toHaveLength(2);
     expect(result.contactHits.map((h) => h.attackerSessionId)).toEqual(["a", "c"]);
     expect(result.contactHits.every((h) => h.targetSessionId === "b" && h.weaponId === "wildcharge")).toBe(true);
-    // `memory.slammed` also runs for every slam; last write wins, same as it did under the map.
-    expect(memory.slammed.get("b")?.bySessionId).toBe("c");
+    // `memory.pushed` also runs for every slam; last write wins, same as it did under the map.
+    expect(memory.pushed.get("b")?.bySessionId).toBe("c");
   });
 
   it("lets a dasher's own endDash erase the slam that landed on it in the same tick", () => {
@@ -578,9 +647,9 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     //
     // `resolvePair`'s doc comment states the pairing outright: classification is per car and dash is
     // checked first for that car, so a dashing car never also charges — but a dash-vs-charger pair
-    // produces a dashHit FROM the dasher AND, independently, a slam ON that same dasher. The dasher
-    // is therefore both a `dashHits` attacker (which calls `endDash`) and a slam victim (which takes
-    // an impulse), on one tick.
+    // produces a `ContactHit` FROM the dasher AND, independently, one ON that same dasher carrying
+    // the charger's push. The dasher is therefore both a dash attacker (which calls `endDash`) and a
+    // push victim (which takes an impulse), on one tick.
     //
     // `endDash` OVERWRITES velocity — it discards whatever the car was carrying and sets a purely
     // forward exit speed — so whichever of the two runs LAST decides what the dasher ends up doing.
@@ -616,7 +685,7 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     // evidence about a fixture that never produced a slam.
     expect(result.contactHits).toHaveLength(2);
     expect(result.contactHits.map((h) => h.weaponId)).toEqual(["thunderclap", "wildcharge"]);
-    expect(memory.slammed.get("a")?.bySessionId).toBe("b");
+    expect(memory.pushed.get("a")?.bySessionId).toBe("b");
 
     // The dasher ends at its `endDash` exit velocity and NOTHING else: the drive cap, purely
     // forward along its heading. The slam's push is gone.
@@ -634,7 +703,7 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     // reeling — it just comes out at its dash exit speed rather than punted.
     const reeling = readStatuses(dasher).find((s) => s.statusId === "reeling");
     expect(reeling).toBeDefined();
-    expect(reeling!.endsTick - 10).toBe(SLAM_IMPULSE_TICKS.uncontrol);
+    expect(reeling!.endsTick - 10).toBe(SLAM_IMPULSE_TICKS.applies[0]!.durationTicks);
     expect(reeling!.sourceSessionId).toBe("b");
 
     // Both maneuvers ended: the dash on its one hit (O12), the charge on its first slam (O2).
@@ -795,7 +864,7 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     // rule — a counted slam would silently discount the next REAL ram on this victim.
     expect(Math.hypot(victim.vx, victim.vy)).toBeCloseTo(SLAM_IMPULSE.speed, 6);
     expect(readStatuses(victim).find((s) => s.statusId === "reeling")!.endsTick - 10).toBe(
-      SLAM_IMPULSE_TICKS.uncontrol,
+      SLAM_IMPULSE_TICKS.applies[0]!.durationTicks,
     );
     expect(memory.falloff.size).toBe(0);
   });
@@ -831,7 +900,7 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     attacker.maneuver = ManeuverKind.CHARGE;
     attacker.maneuverTicksLeft = 200;
     memory.contacts = new Set();
-    memory.slammed.delete("b"); // clear the re-slam immunity the first slam opened (O18)
+    memory.pushed.delete("b"); // clear the re-slam immunity the first slam opened (O18)
     contactTick(state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS, approach, CHARGING_WILDCHARGE, 55);
 
     expect(Math.hypot(victim.vx, victim.vy)).toBeCloseTo(firstKnock, 6);
@@ -1335,11 +1404,11 @@ describe("ram falloff", () => {
 describe("forgetContactPlayer (PG67)", () => {
   it("drops the seat's slam, falloff and spike state", () => {
     const memory = newContactMemory();
-    memory.slammed.set("pg-0", {
+    memory.pushed.set("pg-0", {
       bySessionId: "pg-1",
-      wallStunUntilTick: 40,
+      wallWindowUntilTick: 40,
       immuneUntilTick: 60,
-      wallStunTicks: 15,
+      wallApplies: [{ statusId: "stunned", durationTicks: 15 }],
     });
     memory.falloff.set("pg-0", { count: 3, expiresAtTick: 90 });
     memory.spikes.lastShover.set("pg-0", { id: "pg-1", tick: 10 });
@@ -1347,7 +1416,7 @@ describe("forgetContactPlayer (PG67)", () => {
 
     forgetContactPlayer(memory, "pg-0");
 
-    expect(memory.slammed.has("pg-0")).toBe(false);
+    expect(memory.pushed.has("pg-0")).toBe(false);
     expect(memory.falloff.has("pg-0")).toBe(false);
     expect(memory.spikes.lastShover.has("pg-0")).toBe(false);
     expect(memory.spikes.immuneUntil.has("pg-0")).toBe(false);

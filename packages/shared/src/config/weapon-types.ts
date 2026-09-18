@@ -256,7 +256,7 @@ export interface ImpulseDef {
    *
    * **INERT on the one path implemented today, and a test enforces that no row relies on it.** The
    * only `ImpulseDef` that is ever actually applied is a maneuver's contact impulse (wildcharge's
-   * hard slam), and the contact point `sim/contact.ts` carries on its `SlamEvent` is the VICTIM'S
+   * hard slam), and the contact point `sim/contact.ts` carries on its `ContactHit` is the VICTIM'S
    * OWN CENTRE — so the lever arm `applyImpulse` measures is exactly zero, and any non-zero value
    * here would produce exactly zero rotation with nothing to say so. `wildcharge` authors `0`
    * deliberately (spec P28/P31), so no shipped behaviour depends on this, but the field would be a
