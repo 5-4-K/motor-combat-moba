@@ -165,8 +165,16 @@ lockstep can never disagree. The blocking car still takes its hit.
 a player. The clip needs car poses handed in by the caller — the same shape as the homing target's
 pose, which is already passed in that way. The module still reads no player state of its own.
 
-**`lance` authors `pierce: 6`** — six cars through, the seventh blocks it. That is a balance change to
-a shipped weapon and is called out as such (ML49, ML50).
+**`lance` authors `pierce: 6`, which changes nothing.** Six through, the seventh blocks it — and a
+seventh opponent cannot exist: `MAX_PLAYERS` is 6, so an instance meets at most **five** opponents in
+FFA and three in a 3v3, and teammates and the owner never consume pierce because `canDamage` skips
+them before any pierce arithmetic. Any value of 5 or more is unlimited in practice; 6 is that with a
+spare. So lance behaves exactly as it does today and this spec carries **no weapon balance change**.
+
+**A consequence to state rather than leave implicit: for every shipped row, the clipping rule ships
+dormant.** It is live, generically tested machinery with no weapon driving it — the same shape the
+aura mechanism sat in between `shockwave` and `magmablast`. Making a beam genuinely blockable means
+authoring 1 to 4, which is a balance decision for the roster pass (ML52), not for this spec.
 
 ## 6. The sweep — blade and pincer
 
@@ -361,16 +369,17 @@ across it.
 
 ## 12. Blast radius and obligations
 
-**ML49. Playtest probes.** The mount fix moves where `pepperbox`'s side fans start, and `lance: 6`
-changes what a beam reaches through. Both are measured by the weapon-reach probes, and the rename
+**ML49. Playtest probes.** The mount fix moves where `pepperbox`'s side fans start — the one shipped
+behaviour this spec changes — and that is measured by the weapon-reach probes. The rename also
 breaks compilation in `playtest/geometry.ts` and `playtest/weapons.ts`, which import `muzzleOffset`.
 A probe that does not compile measures nothing, so those are fixed on the spot; every threshold or
 verdict the change invalidates is **reported, not silently retuned**, and a `npm run playtest` run is
 recommended to the user rather than performed for them.
 
-**ML50. Balance.** Two shipped behaviours move (side mounts, lance's pierce), so reports across this
-change are not comparable, and the `BOT_BRAIN_VERSION` bump in ML48 makes that explicit rather than
-implicit.
+**ML50. Balance.** One shipped behaviour moves — where `pepperbox`'s two side fans begin — and the
+`BOT_BRAIN_VERSION` bump in ML48 lands alongside it, so reports across this change are not
+comparable. That is a smaller surface than it first looked: `lance: 6` is unlimited at
+`MAX_PLAYERS` 6, so no weapon's damage output changes.
 
 **ML51. The guide.** `balanceStamp` hashes `WEAPON_TABLE` whole, so renaming `muzzles` to `mounts` and
 authoring `pierce: 6` move it. `npm run build:manual` is owed in the same commit, and
