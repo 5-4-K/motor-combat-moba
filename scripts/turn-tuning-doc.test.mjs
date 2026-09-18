@@ -13,12 +13,16 @@ import {
 } from "@motor-combat-moba/shared";
 
 /**
- * The `turnRate` multiplier a reeling car ACTUALLY drives with — the authored `STATUS_TABLE.reeling`
+ * The `grip` multiplier a reeling car ACTUALLY drives with — the authored `STATUS_TABLE.reeling`
  * value put through the same `modifiersOf` clamp `stepDrive` reads it through, rather than lifted raw
  * off the row. See the note on the derived table's spec list for why the difference matters.
+ *
+ * Was `turnRate` until the 2026-09-18 Unity ram port redefined `reeling`: it now carries no
+ * `turnRate` or `accel` multiplier at all (control is gone outright, via flags), and the one
+ * channel it still scales is `grip`.
  */
-const reelingTurnRate = () =>
-  modifiersOf([{ statusId: "reeling", startTick: 0, endsTick: 1, sourceSessionId: "" }], 0).turnRate;
+const reelingGrip = () =>
+  modifiersOf([{ statusId: "reeling", startTick: 0, endsTick: 1, sourceSessionId: "" }], 0).grip;
 
 /**
  * The staleness guard on `docs/turn-tuning.md`.
@@ -187,7 +191,7 @@ describe("docs/turn-tuning.md", () => {
    * pinned to its own config field. `spinMaxRate` is here rather than in a ram doc because a reader
    * tuning turning needs to know a ram can overrule it. An `authorityFloor` row sat beside it until
    * stage 3b of the 2026-09-06 car-physics rework deleted that field: ram control loss is the
-   * `reeling` status now, and its steering multiplier lives in `STATUS_TABLE`, not here.
+   * `reeling` status now, and its flags and `grip` multiplier live in `STATUS_TABLE`, not here.
    *
    * `stopTurnRatio` and `reverseSpeedRatio` are gone: the Unity drive-model port deleted both fields
    * outright (yaw is speed-independent, so there is no separate at-rest rate to ratio against; reverse
@@ -237,18 +241,19 @@ describe("docs/turn-tuning.md", () => {
     // no longer exists on `ChassisDrive` (the Unity drive-model port, car-physics-port stage 1) —
     // yaw is speed-independent, so there is no separate at-rest rate for either row to scale.
     //
-    // **"Rate while reeling" is NOT one of them, and was deleted alongside them by mistake.** The
-    // line read `["Rate while reeling", (d) => d.turnRate * reelingTurnRate()]` — it scaled
-    // `d.turnRate`, which still exists; the justification recorded for its removal (that the row it
-    // scaled, `turnRateAtStop`, was gone) was simply false. Root `CLAUDE.md` names this row as the
-    // guard any `STATUS_TABLE.turnRate` edit owes, so deleting it left that contract unenforced
-    // immediately before a stage that retunes `reeling`. Restored.
+    // **"Rate while reeling" was restored under the drive-model port, then RETIRED again by the
+    // 2026-09-18 Unity RAM port's stage 3 Task 4 — this time correctly.** `reeling` no longer
+    // carries a `turnRate` (or `accel`) multiplier at all: the 2026-09-18 port redefines it as a car
+    // with no inputs (`immobilised`, `steeringLocked`, `spinFree`, `ramBlocked`), and the one
+    // channel it still scales is `grip` (0.6), which is what replaces this row below as "Grip while
+    // reeling".
     //
-    // It is read through `modifiersOf`, NOT off `STATUS_TABLE.reeling.modifiers.turnRate` directly:
-    // the raw number is what the row AUTHORS, and `modifiersOf` clamps it against `STATUS_LIMITS`
-    // before `stepDrive` ever multiplies by it. The two agree today only because 0.4 IS the floor.
-    // Author a harsher value and a raw read would put a number on the page that the sim never
-    // applies — the exact staleness this row exists to catch, arriving through the guard itself.
+    // It is read through `modifiersOf`, NOT off `STATUS_TABLE.reeling.modifiers.grip` directly: the
+    // raw number is what the row AUTHORS, and `modifiersOf` clamps it against `STATUS_LIMITS` before
+    // `stepDrive` ever multiplies by it. The two agree today only because a single, unstacked 0.6
+    // never reaches either `STATUS_LIMITS.grip` bound. Author a harsher value, or a second row on
+    // this channel, and a raw read would put a number on the page that the sim never applies — the
+    // exact staleness this row exists to catch, arriving through the guard itself.
     //
     // "Engine push", "Time to 90% of top speed", "Roll
     // distance from top speed" and "Slip angle at full lock" are new: top speed is no longer an
@@ -277,7 +282,10 @@ describe("docs/turn-tuning.md", () => {
       ["Slip angle at full lock", (d) => deg(Math.atan(d.turnRate / (d.dragRate + DRIVE_CONFIG.lateralGripRate)))],
       ["180° while moving", (d) => Math.PI / d.turnRate],
       ["360° while moving", (d) => (2 * Math.PI) / d.turnRate],
-      ["Rate while reeling", (d) => d.turnRate * reelingTurnRate()],
+      // Uniform across the roster: `grip` is a global rate (`DRIVE_CONFIG.lateralGripRate`), not a
+      // per-car one, so every chassis's cell is the same number. `d` is unused on purpose — the
+      // formula is still keyed per-column so a fourth chassis still gets a cell to check.
+      ["Grip while reeling", () => DRIVE_CONFIG.lateralGripRate * reelingGrip()],
     ];
     assert.deepEqual(
       rows.map(labelOf),

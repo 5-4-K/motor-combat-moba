@@ -624,8 +624,10 @@ would only prove someone typed a new stamp.
 **Update it in the same commit whenever you change** a car's `handling`, `speed`,
 `coastHalfLifeSeconds` or `brakeDecel` in `CAR_TABLE`; `baseTurnRate`, `turnRatePerRating`,
 `stopTurnRatio`, `baseMaxSpeed`, `speedPerRating`, `reverseSpeedRatio`, `steeringGrip` or
-`impactGripDecel` in `DRIVE_CONFIG`; **any `STATUS_TABLE` row's `turnRate` — `reeling`'s (0.4) is the
-one shipped today, and it has its own "Rate while reeling" row in the derived table**;
+`impactGripDecel` in `DRIVE_CONFIG`; **any `STATUS_TABLE` row's `turnRate` OR `grip` multiplier that
+reaches the drive model — `reeling`'s `grip` (0.6) is the one shipped today, and it has its own
+"Grip while reeling" row in the derived table** (it was `reeling`'s `turnRate` (0.4) and a "Rate
+while reeling" row until the 2026-09-18 Unity ram port dropped `turnRate` from that row outright);
 `spinMaxRate` in `RAM_CONFIG`; or `TICK_RATE_HZ`. (`authorityFloor` used to head that `RAM_CONFIG`
 entry and `overheated` used to be the `STATUS_TABLE` example; the first was deleted by the
 car-physics rework's stage 3b and the second lost its `turnRate` in the 2026-09-01 status overhaul.

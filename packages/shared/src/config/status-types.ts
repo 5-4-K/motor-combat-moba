@@ -20,7 +20,8 @@ export type StatusId =
   | "overhauled"
   | "armored"
   | "phased"
-  | "reeling";
+  | "reeling"
+  | "ramLock";
 
 /**
  * Every number in the sim a status may scale. One channel per thing the sim already reads, and a
@@ -61,7 +62,7 @@ export type StatusChannel =
    * the same factor how fast it sheds any speed it is already carrying. Measured on Mirage
    * (`dragRate` 1.2848):
    *
-   * | | `accel` 1.0 | 0.4 (`reeling`, the `STATUS_LIMITS` floor) | 2.5 (the ceiling) |
+   * | | `accel` 1.0 | 0.4 (the `STATUS_LIMITS` floor) | 2.5 (the ceiling) |
    * |---|---|---|---|
    * | Top speed | 189.0 u/s | **189.0 — unchanged** | **189.0 — unchanged** |
    * | Time to 90% of it | 1.79 s | 4.48 s | 0.72 s |
@@ -73,6 +74,11 @@ export type StatusChannel =
    * its momentum, so it stops almost the instant the throttle comes off. Neither direction is
    * necessarily wrong, but both are a decision, and a row that wanted "bogged down" or "peppy"
    * without the roll consequence wants `topSpeed`, `brakeDecel` or `grip` instead.
+   *
+   * `reeling` carried the 0.4 floor above until the 2026-09-18 Unity ram port dropped `accel` from
+   * that row outright — a reeling car now loses its inputs entirely rather than having them
+   * worsened, and the 368 u overshoot this channel measured is exactly why `grip` (below) scrubs a
+   * shove rather than switching grip off. No row authors this channel today.
    */
   | "accel"
   /** Steering rate, alongside — never instead of — the ram's `authority`. Above 1 corners tighter. */

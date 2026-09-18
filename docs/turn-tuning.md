@@ -171,18 +171,27 @@ is the one rate the Unity drive-model port uses to set top speed, wind-up and ro
 | Slip angle at full lock | `atan(turnRate / (dragRate + lateralGripRate))` | 23.6° | **26.1°** | 21.2° | 21.2° | 21.2° | 26.1° | 26.1° | 23.6° | 21.2° |
 | 180° while moving | `π / turnRate` | 1.78 s | 1.49 s | 2.08 s | 2.08 s | 2.08 s | 1.49 s | 1.49 s | 1.78 s | 2.08 s |
 | 360° while moving | `2π / turnRate` | 3.56 s | 2.99 s | 4.16 s | 4.16 s | 4.16 s | 2.99 s | 2.99 s | 3.56 s | 4.16 s |
-| Rate while reeling | `turnRate × STATUS_TABLE.reeling.turnRate` | 0.706 rad/s | **0.841 rad/s** | 0.605 rad/s | 0.605 rad/s | 0.605 rad/s | 0.841 rad/s | 0.841 rad/s | 0.706 rad/s | 0.605 rad/s |
+| Grip while reeling | `lateralGripRate × STATUS_TABLE.reeling.grip` | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s |
 
 **Four rows above replace ones the Unity drive-model port made meaningless.** "Turn rate at rest"
 (and its degrees row) and "180° from standstill" used to read `turnRateAtStop`, a field `ChassisDrive`
 no longer has: yaw is speed-independent under this model, so there is no separate at-rest rate any
 more — a car turns at the same `turnRate` parked or at top speed, full stop.
 
-**"Rate while reeling" is not one of them.** It reads `STATUS_TABLE.reeling`'s `turnRate` multiplier
-(0.4) through `modifiersOf` and scales `turnRate`, which still exists — so it was always computable
-and always meaningful. It was deleted alongside the three above during the port, on the stated
-grounds that the row it scaled no longer existed, which was simply not true of this row. Restored;
-see [Keeping this page honest](#keeping-this-page-honest).
+**"Grip while reeling" is not one of the four, and it used to be a different row entirely.** Under
+the Unity drive-model port it was "Rate while reeling", reading `STATUS_TABLE.reeling`'s `turnRate`
+multiplier (0.4) through `modifiersOf` and scaling `turnRate`, which still existed then — so it was
+always computable and always meaningful, and it survived a brief, factually-wrong deletion during
+that port (restored; see [Keeping this page honest](#keeping-this-page-honest) for that history).
+**The 2026-09-18 Unity ram port's stage 3 Task 4 then redefined `reeling` outright**, and this time
+the row it scaled really is gone: `reeling` no longer carries a `turnRate` or `accel` multiplier at
+all — a reeling car loses its inputs entirely (`immobilised`, `steeringLocked`, `spinFree`,
+`ramBlocked`) rather than having its numbers merely worsened — and the one channel it still scales
+is `grip`. This row is that channel's replacement: `DRIVE_CONFIG.lateralGripRate` (3.0) ×
+`STATUS_TABLE.reeling`'s `grip` multiplier (0.6, through `modifiersOf`) = 1.8 /s, the same for every
+chassis since `grip` is a global rate rather than a per-car one. The guard this row exists to satisfy
+is unchanged: a `STATUS_TABLE` multiplier that reaches the drive model must be tabulated and tested,
+whichever channel it happens to be authored on today.
 
 **Top speed is no longer a ceiling anyone hits.** It is the equilibrium where the engine's push
 ("Engine push" above, `engineAccel`) exactly balances drag (`dragRate`) — `engineAccel === topSpeed ×
@@ -238,7 +247,7 @@ question's current answer — asymptotic now rather than a hard cap, and read st
 | Snappier pivots once fully stopped | *(no longer a knob)* | Yaw is speed-independent under the 2026-09-18 Unity drive-model port — there is no separate at-rest rate any more, and no `stopTurnRatio` to reach for. A car turns at the same `turnRate` parked or at top speed; a sluggish pivot is a `handling` or scale complaint like any other |
 | Braking into a corner to feel rewarding | that car's `brakeDecel` against its `dragRate` | Slower entry is a smaller radius; the *situational* radius lever, and per-car. `dragRate` now also sets coast-off roll ("Roll distance from top speed" above) in place of the deleted per-car `coastHalfLifeSeconds` |
 | A car to drift more (or less) through a turn | `lateralGripRate`, or that car's `accel`/`dragRate` | The new grip/slip mechanic — see [Grip and drift](#grip-and-drift) below |
-| Getting rammed to feel less helpless | `STATUS_TABLE.reeling`'s `turnRate` multiplier (0.4) for how bad it is; `RAM_CONFIG.ramUncontrolMs` (1000) for how long. **Its `accel` multiplier is not a severity knob at all** — see below | Since stage 3b of the car-physics rework a ram applies the `reeling` status. Severity and duration are separate knobs on purpose — raise the multipliers to keep the victim steering, cut the ms to make it brief. **The multipliers only move in ONE direction:** both already sit exactly AT their `STATUS_LIMITS` floors (0.4 on `turnRate`, 0.4 on `accel`), so anything lower is silently clamped back by `modifiersOf` and the sim behaves as if you had not typed it. `status-config.ts` says so on the row and forbids widening the floors to get past it — they are documented guarantees, so "harsher" has to come from duration or from the physics, never from that number. **And `accel` is not a severity knob under this drive model** — it scales the drag exponent as well as the engine push, so it cancels out of the equilibrium: it does not move top speed at any value, it stretches the TIME CONSTANT in both directions. On Mirage, `accel` 0.4 leaves top speed at 189.0 u/s, takes time-to-90% from 1.79 s to 4.48 s (intended) and roll distance from 147.1 u to **367.8 u** (not) — so the status a ram applies makes that same ram's knockback carry 2.5x further. That 0.4 is the project owner's number and stage 3 of the port removes `accel` from the row outright; see the channel's doc in `status-types.ts`. `RAM_CONFIG`'s falloff knobs (`drWindowMs`, `durationDrScale`, `impulseDrScale`, and their floors) are the third lever: they are what stops a repeated ram reading as a lock |
+| Getting rammed to feel less helpless | `STATUS_TABLE.reeling`'s flags (`immobilised`, `steeringLocked`, `spinFree`, `ramBlocked`) for WHETHER it is helpless at all; its `grip` multiplier (0.6) for how far the shove carries; `RAM_CONFIG.ramUncontrolMs` (1000) for how long | Since the 2026-09-18 Unity ram port (stage 3 Task 4), a ram applies the `reeling` status as a total loss of input — no throttle, no steering, free spin, no ramming back — rather than the old "handles badly" pair of multipliers. Severity is no longer a dial on how much control survives (none does); it is how far the victim slides while it cannot do anything about it, which is `grip`: lower scrubs the shove off slower, so the ride carries further. `grip` sits well inside `STATUS_LIMITS.grip` (0.25–2) rather than at a floor, so — unlike the old pair — it CAN be pushed lower for a harsher ram without `modifiersOf` silently clamping it back. Duration is still the separate knob it always was: `RAM_CONFIG.ramUncontrolMs` for the base window, and its falloff knobs (`drWindowMs`, `durationDrScale`, `impulseDrScale`, and their floors) for what stops a repeated ram reading as a lock |
 
 ## Grip and drift
 
@@ -269,7 +278,7 @@ how hard the car is turning.
 | "Aiming is heavy", "I can't track anyone" | Rate. There is no aim assist to reach for instead — every shot leaves along the heading, so turn rate IS the aiming knob |
 | "Fine slow, wide at speed" | Radius. Lower that car's `speed`; raising rate again over-serves the slow chassis |
 | "Sluggish in tight spaces" | Nothing, any more — as of the 2026-09-18 port, turn rate is the same parked or moving, and there is no `stopTurnRatio` or at-rest branch left to check. Read it as a radius complaint (that car's `speed`) or a drift complaint (`lateralGripRate`) instead |
-| "I lose control when hit" | The `reeling` status a ram applies — `STATUS_TABLE.reeling`'s `turnRate` for severity, `RAM_CONFIG.ramUncontrolMs` for length. Its `accel` is a time-constant knob, not a severity one, and it lengthens the shove (see above). If the complaint is really "and then it happened again", it is the falloff knobs, not these |
+| "I lose control when hit" | The `reeling` status a ram applies — that IS the complaint, by design, since the 2026-09-18 Unity ram port: its flags take every input away, and `STATUS_TABLE.reeling`'s `grip` multiplier is how far the shove carries while they're gone, `RAM_CONFIG.ramUncontrolMs` for how long. If the complaint is really "and then it happened again", it is the falloff knobs, not these |
 | "This one car feels wrong" | Its `handling` rating, never the scale |
 
 ## Keeping this page honest
@@ -300,21 +309,27 @@ unchecked.
 | `CAR_TABLE` | any car's `handling`, `speed`, `accel` or `brakeDecel` |
 | `DRIVE_CONFIG` | `baseTurnRate`, `turnRatePerRating`, `baseMaxSpeed`, `speedPerRating`, `baseDrag`, `dragPerRating`, `lateralGripRate`, `reverseAccelFactor`, `reverseEpsilon` |
 | `RAM_CONFIG` | `spinMaxRate` |
-| `STATUS_TABLE` | any row's `turnRate` multiplier — `reeling`'s (0.4) is the one shipped today, and it has its own "Rate while reeling" row |
+| `STATUS_TABLE` | any row's `turnRate` OR `grip` multiplier that reaches the drive model — `reeling`'s `grip` (0.6) is the one shipped today, and it has its own "Grip while reeling" row |
 | shared | `TICK_RATE_HZ` (the per-tick rows only) |
 
 Adding a fourth chassis means a new column in all three per-car tables (ratings, direct values, and
 derived) — all three are test-checked; see above.
 
-`STATUS_TABLE.reeling`'s `turnRate` multiplier owes this page its "Rate while reeling" row, and any
-future status carrying a `turnRate` multiplier owes one the same way. **That row was briefly deleted
-during the 2026-09-18 Unity drive-model port on a factually wrong premise** — the stated reason was
-that the row it scaled, `turnRateAtStop`, no longer exists, but the deleted line scaled `d.turnRate`,
-which does. Root `CLAUDE.md` names this row as the guard a `STATUS_TABLE.turnRate` edit owes, so
-deleting it left that contract unenforced immediately before the stage that retunes `reeling`. It is
-restored, along with the doc test's `modifiersOf` read behind it — the number is taken through
-`modifiersOf`, not off the row, so a value authored past a `STATUS_LIMITS` floor prints what the sim
-actually applies rather than what someone typed.
+`STATUS_TABLE.reeling`'s multiplier owes this page a derived row for whichever channel it is
+authored on, and any future status carrying a `turnRate` or `grip` multiplier owes one the same way.
+This row's own history: under the Unity drive-model port it was "Rate while reeling", scaling
+`turnRate` at 0.4. **That row was briefly deleted during that port on a factually wrong premise** —
+the stated reason was that the row it scaled, `turnRateAtStop`, no longer exists, but the deleted
+line scaled `d.turnRate`, which did. Root `CLAUDE.md` named it as the guard a `STATUS_TABLE.turnRate`
+edit owes, so deleting it left that contract unenforced immediately before the stage that retunes
+`reeling`. It was restored, along with the doc test's `modifiersOf` read behind it.
+
+**The 2026-09-18 Unity ram port's stage 3 Task 4 then retired `turnRate` from `reeling` for real** —
+the row no longer carries a `turnRate` or `accel` multiplier at all, only `grip` — so "Rate while
+reeling" is now replaced outright by "Grip while reeling", reading `STATUS_TABLE.reeling`'s `grip`
+multiplier the same way: through `modifiersOf`, not off the row, so a value authored past a
+`STATUS_LIMITS` floor or ceiling prints what the sim actually applies rather than what someone
+typed.
 
 Do not retype the derived numbers by hand — build shared and print them:
 
@@ -323,7 +338,7 @@ npm run build -w @motor-combat-moba/shared
 ```
 
 ```bash
-node -e "import('./packages/shared/dist/index.js').then(({CAR_TABLE,DRIVE_CONFIG,TICK_RATE_HZ,driveOf,modifiersOf})=>{const reeling=modifiersOf([{statusId:'reeling',startTick:0,endsTick:1,sourceSessionId:''}],0).turnRate;for(const id of Object.keys(CAR_TABLE)){const d=driveOf(id),deg=(r)=>r*180/Math.PI,rev=d.maxSpeed*DRIVE_CONFIG.reverseAccelFactor;console.log(id,{rate:+d.turnRate.toFixed(3),deg:+deg(d.turnRate).toFixed(1),perTick:+(d.turnRate/TICK_RATE_HZ).toFixed(4),engineAccel:+d.engineAccel.toFixed(2),timeTo90:+(Math.log(10)/d.dragRate).toFixed(2),top:+d.maxSpeed.toFixed(2),roll:+(d.maxSpeed/d.dragRate).toFixed(1),rev:+rev.toFixed(1),radius:+(d.maxSpeed/d.turnRate).toFixed(1),revRadius:+(rev/d.turnRate).toFixed(1),slip:+deg(Math.atan(d.turnRate/(d.dragRate+DRIVE_CONFIG.lateralGripRate))).toFixed(1),s180:+(Math.PI/d.turnRate).toFixed(2),s360:+(2*Math.PI/d.turnRate).toFixed(2),reeling:+(d.turnRate*reeling).toFixed(3)});}})"
+node -e "import('./packages/shared/dist/index.js').then(({CAR_TABLE,DRIVE_CONFIG,TICK_RATE_HZ,driveOf,modifiersOf})=>{const reelingGrip=modifiersOf([{statusId:'reeling',startTick:0,endsTick:1,sourceSessionId:''}],0).grip;for(const id of Object.keys(CAR_TABLE)){const d=driveOf(id),deg=(r)=>r*180/Math.PI,rev=d.maxSpeed*DRIVE_CONFIG.reverseAccelFactor;console.log(id,{rate:+d.turnRate.toFixed(3),deg:+deg(d.turnRate).toFixed(1),perTick:+(d.turnRate/TICK_RATE_HZ).toFixed(4),engineAccel:+d.engineAccel.toFixed(2),timeTo90:+(Math.log(10)/d.dragRate).toFixed(2),top:+d.maxSpeed.toFixed(2),roll:+(d.maxSpeed/d.dragRate).toFixed(1),rev:+rev.toFixed(1),radius:+(d.maxSpeed/d.turnRate).toFixed(1),revRadius:+(rev/d.turnRate).toFixed(1),slip:+deg(Math.atan(d.turnRate/(d.dragRate+DRIVE_CONFIG.lateralGripRate))).toFixed(1),s180:+(Math.PI/d.turnRate).toFixed(2),s360:+(2*Math.PI/d.turnRate).toFixed(2),reelingGrip:+(DRIVE_CONFIG.lateralGripRate*reelingGrip).toFixed(3)});}})"
 ```
 
 The same edits almost always owe a `npm run build:manual` too — that page is generated and
