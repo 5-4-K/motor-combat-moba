@@ -448,9 +448,18 @@ function applyRamResolution(
  * car; nothing in the spec says what happens to a car named by two rams on the same tick, and the
  * case is real in both shapes — two attackers converging on one victim, and a car that rams while
  * being rammed (A rams B, B rams C). The rule is the two statements composing: "your own ram stops
- * you" zeroes the base, "the shove you took is added" adds every push. It is order-independent,
- * which the naive sequential write was not — the answer used to be decided by the alphabetical order
- * of session ids. Do not read it as a ported Unity rule.
+ * you" zeroes the base, "the shove you took is added" adds every push. Do not read it as a ported
+ * Unity rule.
+ *
+ * **The RULE is order-independent; the VELOCITY it produces is not, and the difference matters.**
+ * *Which* resolution is visited first cannot change how the pushes compose — a replace anywhere
+ * zeroes the base, and addition commutes. It does change their MAGNITUDE, because `nextFalloff` is a
+ * stateful counter: of two shoves landing on one car in one tick the first visited is scaled by 1
+ * and the second by `RAM_CONFIG.impulseDrScale`, so swapping them swaps which push is discounted.
+ * That is the mechanic, not a leak (see below), and it is DETERMINISTIC rather than arbitrary
+ * because `resolveContacts` walks its pair loop over sorted session ids. What the naive sequential
+ * write did was worse and is what this replaced: the alphabetical order decided which pushes existed
+ * at all, not merely how they were weighted.
  *
  * Diminishing returns keeps its per-shoved-side behaviour: spec §7.3 is per victim and across
  * attackers, so a victim taking two pushes in one tick legitimately has the second scaled. It still
@@ -460,6 +469,14 @@ function applyRamResolution(
  * because a clamp inside the pure classifier would make a resolution's meaning depend on the car it
  * is later applied to. Clamping the SUM once rather than after each ram is the same reasoning one
  * step further — there is exactly one write per car per tick now, so there is exactly one clamp.
+ *
+ * **Neither form of that clamp has spec backing, and the tie is broken by the one-write rule — do
+ * not re-litigate it.** Both leave `|angVel| <= spinMaxRate` after the write, which is all U26 asks.
+ * The old per-resolution form was itself order-dependent whenever an intermediate total was clipped
+ * and a later opposite-signed addend would have pulled it back inside: `+8` then `−3` gave 3, where
+ * `−3` then `+8` gave 5, and the sum gives 5 either way. Clamping once is therefore strictly the
+ * better of the two. It is deliberately untested in either direction: pinning it would author a rule
+ * §7.2 and §7.3 do not have.
  */
 function flushRamWrites(state: ArenaState, writes: ReadonlyMap<string, RamWrite>): void {
   for (const [sessionId, write] of writes) {

@@ -249,15 +249,31 @@ a ported Unity rule:
 
 > Zero the base if **any** resolution for that car sets `replacesVelocity`, then add **every** shove.
 
-Order-independent, and it reads as the two statements composing — "your own ram stops you" and "the
-shove you took is added". The previous behaviour was decided by the alphabetical order of session
-ids. Falloff keeps its per-shoved-side behaviour (§7.3 is per victim and across attackers), so the
+It reads as the two statements composing — "your own ram stops you" and "the shove you took is
+added". Falloff keeps its per-shoved-side behaviour (§7.3 is per victim and across attackers), so the
 second push inside one tick is legitimately discounted; the sum is still more than one ram, which is
-what `contact.ts` promises. The bridge now accumulates into a `RamWrite` per car and `flushRamWrites`
+what `contact.ts` promises. The bridge accumulates into a `RamWrite` per car and `flushRamWrites`
 lands it, which also means exactly one spin clamp per car per tick instead of one per resolution.
 
+**The RULE is order-independent. The VELOCITY it produces is NOT** — read that distinction before
+quoting either half. *Which* resolution is visited first cannot change how the pushes compose: a
+replace anywhere zeroes the base, and addition commutes. It does change their MAGNITUDE, because
+`nextFalloff` is a stateful counter — of two shoves landing on one car in one tick, the first visited
+is scaled by 1 and the second by `RAM_CONFIG.impulseDrScale`. On this wave's own two-attacker
+fixture, swapping the two resolutions moves the victim from **377.3 u/s** (`hypot(356.4, 123.75)`) to
+**305.0** (`hypot(178.2, 247.5)` = 304.978; the re-review quoted 304.0 for this, which is the only
+figure of its I could not reproduce — the two components, 356.4 and 247.5, are both measured). That
+is the mechanic working, not a leak, and it is
+**deterministic rather than arbitrary** because `resolveContacts` walks its pair loop over sorted
+session ids. What the sequential write did before this fix was a different and worse thing: the
+alphabetical order decided which pushes existed at all, not merely how they were weighted.
+
 Two tests cover it in `ram-bridge.test.ts`, both verified red against `f404bb7`: two attackers
-converging on one stationary victim, and the A-rams-B-rams-C composition.
+converging on one stationary victim, and the A-rams-B-rams-C composition. Note that the first test's
+exact-composition pair (`expect(both.victim.vx).toBeCloseTo(aOnly.victim.vx)` and its `vy` partner,
+`ram-bridge.test.ts:1116-1117`) pins the a-before-z VISIT ORDER — that is the falloff weighting
+above, not the composition rule — so do not read it as evidence the order does not matter. See also
+the coverage note under "Deferred, and who owns it".
 
 The rest were documentation: `docs/combat-model.md`'s ram banner (it still named
 `restitution: 0.15` and pointed at the deleted `pushOf`/`impactOn` as the current authority); five
@@ -538,6 +554,22 @@ command as well as the figure.
     already discarded every scaled duration, so nothing is lost. It does not consider a SECOND,
     LONGER source of the same status, which is exactly what the slam is. The spec is not edited (this
     file is where an incomplete clause is recorded); the clause is not wrong, it is under-scoped.
+- **Coverage note, not a risk: neither S3-o test separates "ANY resolution replaced" from "the LAST
+  resolution replaced".** `resolveContacts` walks sorted session ids, so the a–b pair is always
+  visited before b–c and the car that is both attacker and victim always takes its replace last. Both
+  readings of the rule therefore produce the same number on both fixtures. The implementation is
+  `write.replaced ||= side.replacesVelocity` and is unambiguous about which one it means, which is
+  why this is recorded as a gap rather than fixed: a fixture that distinguishes them needs a pair
+  ordering the sorted loop cannot produce. **Nobody should assume it is covered.**
+- **The spin clamp moved from once-per-resolution to once-per-car-per-tick, and the re-review
+  accepted it as strictly better. Recorded so it is not re-litigated.** Both forms leave
+  `|angVel| <= RAM_CONFIG.spinMaxRate` after the write, which is all U26 asks, and **neither has spec
+  backing** — nothing in §7.2 or §7.3 speaks to it. The tie breaks on the same one-write-per-car rule
+  the rest of `flushRamWrites` rests on, and on this: the OLD per-resolution form was itself
+  order-dependent whenever an intermediate total was clipped and a later opposite-signed addend would
+  have pulled it back inside (`+8` then `−3` gave 3, `−3` then `+8` gave 5; the sum gives 5 either
+  way). It is **deliberately untested in either direction** — pinning it would author a rule the spec
+  does not have.
 - **Spec §7.4's `ramLock` safety argument is unsound: a charging car CAN take `ramLock` mid-charge.
   Owner: stage 4**, which owns the slam path and `ramLock`. §7.4 asserts "a car in any maneuver
   therefore never reaches the ram arm, which is why `ramLock` can never strand a dashing or charging
