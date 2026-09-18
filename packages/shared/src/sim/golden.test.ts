@@ -293,14 +293,38 @@ describe("golden: resolveWorld against the vector-drive rework", () => {
   // failing run of the UN-scaled obstacle instead would turn this into a dead-on hit
   // (forward -27, lateral 0) that a scalar bounce would also pass, losing the one off-axis case
   // this block exists to guard.
+  // REFIXTURED for stage 2 Task 1 (2026-09-18, restitution 0.15 -> 0): the rule above,
+  // `v' = v - (1 + restitution) * dot(v, n) * n`, is unchanged — only `restitution` moved, so it
+  // now collapses to `v' = v - dot(v, n) * n`: the WHOLE component into the surface is removed,
+  // none of it survives damped. Every position below is unchanged (the MTV/push math is pure
+  // geometry and never reads velocity or `restitution` at all); only `forward`/`lateral` move, and
+  // only where the old hand-derivation above actually used the value 0.15:
+  //   - "bounces off the left wall": forward 200 -> -(200 * 0) = 0 (was -30).
+  //   - "reflects off both walls at a corner": both contacts are still dead-on by the fixture's own
+  //     symmetry, so vx' = vy' = 0 exactly (was 11.25*sqrt(2) each) and forward = 0 (was -22.5).
+  //   - "separates from another car": dead-on and still unaffected by the `ramDefence` split for
+  //     the same reason as before (`n` is a unit vector, `share` cancels out of it) — forward
+  //     250 -> -(250 * 0) = 0 (was -37.5).
+  //   - "separates from an obstacle": still the one off-axis case. vx = 165.7909789205193 is the
+  //     only reflected component (n has no y part); at `restitution = 0` it is fully absorbed to
+  //     exactly 0 rather than damped to -24.868646838077897, so the ENTIRE surviving velocity is
+  //     the untouched vy = 70.09530161555709, re-projected onto the car's 0.4 rad frame:
+  //     forward = vy * sin(0.4) = 27.296396158755115 (was 4.390855582568385), lateral =
+  //     vy * cos(0.4) = 64.56204818095705 (was 74.24635540810061) — still genuinely nonzero, still
+  //     the case this block exists to guard, just no longer carrying a leftover sliver of the
+  //     reflected axis.
+  //
+  // Numbers read off a real run (`node --input-type=module` against built `dist`, per the task's
+  // own re-derivation rule), not re-derived by hand alone; the hand algebra above was checked
+  // against that run before being recorded.
   it("bounces off the left wall", () => {
     const out = resolveWorld(bodyAt(10, 400, Math.PI, 200), [], [], bounds, FILLER_RAM_DEFENCE);
-    expectPose(out, 30, 400, Math.PI, -30);
+    expectPose(out, 30, 400, Math.PI, 0);
   });
 
   it("reflects off both walls at a corner", () => {
     const out = resolveWorld(bodyAt(5, 4, Math.PI * 1.25, 150), [], [], bounds, FILLER_RAM_DEFENCE);
-    expectPose(out, 35.3553390593, 35.3553390593, 3.926990817, -22.5);
+    expectPose(out, 35.3553390593, 35.3553390593, 3.926990817, 0);
   });
 
   it("separates from another car", () => {
@@ -312,13 +336,13 @@ describe("golden: resolveWorld against the vector-drive rework", () => {
       ramDefence: 90,
     };
     const out = resolveWorld(bodyAt(500, 400, 0, 250), [other], [], bounds, 50);
-    expectPose(out, 485.5357142857143, 400, 0, -37.5);
+    expectPose(out, 485.5357142857143, 400, 0, 0);
   });
 
   it("separates from an obstacle", () => {
     const obstacle = { x: 325, y: 287.5, w: 75, h: 75 };
     const out = resolveWorld(bodyAt(300, 300, 0.4, 180), [], [obstacle], bounds, FILLER_RAM_DEFENCE);
-    expectPose(out, 289.5798033337405, 300, 0.4, 4.390855582568385, 74.24635540810061);
+    expectPose(out, 289.5798033337405, 300, 0.4, 27.296396158755115, 64.56204818095705);
   });
 
   it("leaves a free body untouched", () => {

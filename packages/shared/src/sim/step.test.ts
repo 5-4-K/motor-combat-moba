@@ -396,52 +396,36 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
       maneuverAngle: 0,
       maneuverSpeed: 0,
     };
-    let body = driving;
-    // Measured on the BOUNCE TICK itself, not on the equilibrium state 20 ticks later: a car driven
-    // head-on into a wall with the throttle held is *supposed* to settle pinned at rest against it
-    // (that is what a single, correct restitution damping converges to over many repeated contacts)
-    // — asserting nonzero forward speed at tick 20 stopped discriminating anything once whole-vector
-    // reflection replaced the old discard-and-rebuild-along-heading code (stage 2 task 1). What this
-    // test is actually pinning, per its own name and the C9 comment above, is that ONE tick's contact
-    // applies `restitution` exactly once, never r^2 or r^3 from an accidental substep loop. So watch
-    // for the first tick where the sign of the forward speed flips from driving-in to bouncing-back
-    // — the wall's one bounce event in this run — and check that tick's damping ratio directly.
-    let prevForward = forwardOf(body.vx, body.vy, body.angle);
-    let bounceForward: number | null = null;
-    let preBounceForward = 0;
-    for (let tick = 0; tick < 20; tick++) {
-      body = stepSim(body, UP, DT, wall);
-      const forward = forwardOf(body.vx, body.vy, body.angle);
-      if (bounceForward === null && prevForward > 0 && forward < 0) {
-        preBounceForward = prevForward;
-        bounceForward = forward;
-      }
-      prevForward = forward;
-    }
-
-    expect(bounceForward).not.toBeNull();
-    // One restitution factor off the pre-bounce forward speed: forward' = -restitution * forward.
-    // A double-damped bug (the dash substep loop escaping its DASH gate and running `applyContact`
-    // twice in that one tick) would instead land on forward' = +restitution^2 * forward — POSITIVE,
-    // not negative, and roughly 1/13th the magnitude here (0.15^2 / 0.15 = 0.15) — so this
-    // assertion's sign alone already tells the two apart; the magnitude check is belt and braces.
+    // RE-PINNED for stage 2 Task 1 (2026-09-18, restitution 0.15 -> 0): the sign-flip / damping-
+    // ratio technique this test used to rely on is no longer able to tell a correct single contact
+    // from a hypothetical escaped-dash-substep double contact. `applyContact` at `restitution: 0`
+    // is an idempotent projection (`v' = v - (v.n)n`, and projecting an already-projected vector a
+    // second time changes nothing — see `DRIVE_CONFIG.restitution`'s doc comment), so BOTH the
+    // correct path and the buggy one this test was written to catch converge on the exact same
+    // dead-stop `forward = 0`. A damping-ratio check can no longer distinguish them; measured
+    // directly (this test, pre-fix): `bounceForward` was never negative at all any more, because a
+    // head-on hit at `restitution: 0` never overshoots past zero to trigger the old sign-flip
+    // detector, so `bounceForward` stayed `null` for the whole 20-tick run.
     //
-    // RE-PINNED for the Unity drive-model port (car-physics-port stage 1 Task 3): `preBounceForward`
-    // is the PREVIOUS tick's already-stepped forward, not the velocity `resolveWorld` actually
-    // reflects (which is THIS tick's, after `stepDrive`'s own drag and command have already run) —
-    // an approximation that read as exact under the old accel-clamp model, because a car driving
-    // into a wall at full throttle sits at its (clamped) `maxSpeed`, where a tick's worth of
-    // accel-vs-nothing nets to ~0. Real mirage's `dragRateOf` (1.2848/s) is a genuine per-tick pull
-    // now, so the two ticks' forward no longer coincide as tightly. Measured: before this task,
-    // `bounceForward` was `-40.846813...` against `toBeCloseTo(..., 6)` (agreeing to ~1e-6); after
-    // it (and after the exact-integrator ruling on `stepDrive`'s command term), it is
-    // `-40.171351149708585` against an expected `-40.68842064811721` — agreeing to ~1.3%, not 1e-6.
-    // A relative tolerance is the honest way to keep pinning "one bounce, not a double-damped one"
-    // (still 33x apart from the double-damped case's ratio) without claiming a precision this
-    // approximation cannot deliver against a live, undamped chassis.
-    const expectedBounce = -DRIVE_CONFIG.restitution * preBounceForward;
-    expect(Math.abs(bounceForward! - expectedBounce) / Math.abs(expectedBounce)).toBeLessThan(0.02);
-    // Still rolling near the wall, not ejected back out past where it started.
+    // What DOES still distinguish the two paths: `resolveDash`'s substep loop (`step.ts`) re-walks
+    // position from the TICK-START `body.x`/`body.y` and adds `dashTranslation`, which is derived
+    // from `maneuverSpeed` — 0 on this ordinary driving car. If the DASH gate (`isDashing`) ever
+    // mis-fired for a non-dashing body, `stepSim` would take that branch instead of the plain
+    // `resolveWorld` call, and the car would sit frozen at its starting `x` every tick (translated
+    // by a zero dash speed) rather than actually driving forward under `stepDrive`'s integration.
+    // That is now the test's discriminator: driving one ordinary tick, well clear of the obstacle,
+    // MUST advance `x` — a frozen `x` is exactly what the escaped-gate bug looks like.
+    let body = driving;
+    const startX = body.x;
+    body = stepSim(body, UP, DT, wall);
+    expect(body.x).toBeGreaterThan(startX);
+
+    for (let tick = 1; tick < 20; tick++) {
+      body = stepSim(body, UP, DT, wall);
+    }
+    // Settled against the obstacle: a dead stop under the zero-restitution contract, not a
+    // rebound, and never tunnelled past the face it struck.
+    expect(forwardOf(body.vx, body.vy, body.angle)).toBeCloseTo(0, 6);
     expect(body.x).toBeLessThan(300);
   });
 });
