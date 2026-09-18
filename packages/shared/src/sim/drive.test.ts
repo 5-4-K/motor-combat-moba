@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChassisDrive } from "../config/car-config.js";
 import { DRIVE_CONFIG, perTickDecay } from "../config/drive-config.js";
+import { MS_PER_TICK } from "../constants.js";
 import type { InputMessage } from "../net/input.js";
 import { dashSubstepCount, dashTranslation, isDashing, stepDrive } from "./drive.js";
 import { ManeuverKind } from "./maneuver.js";
@@ -8,7 +9,12 @@ import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import type { SimBody } from "./step.js";
 import { forwardOf } from "./velocity.js";
 
-const DT = 1 / 30;
+/**
+ * DERIVED, never typed. This file's own fixture builds its per-tick factors with `perTickDecay`,
+ * which divides by `TICK_RATE_HZ`; a hardcoded `1 / 30` beside them made this the one fixture in the
+ * suite mixing the two, and the netcode rewrite's phase 1 moves `TICK_RATE_HZ` to 60.
+ */
+const DT = MS_PER_TICK / 1000;
 
 /**
  * The drive numbers this suite was recorded against.
@@ -272,6 +278,86 @@ describe("maneuvers (spec S3 / O13)", () => {
     expect(fwd(out)).toBe(0);
     expect(out.angle).toBeCloseTo(restingBody.angle + GOLDEN_CHASSIS.turnRate * DT);
     expect(out.maneuverTicksLeft).toBe(9);
+  });
+
+  /**
+   * The coverage hole that let HOLD keep the pre-port yaw line through the whole drive-model port.
+   *
+   * Every HOLD case in this file entered the branch with `angVel: 0`, where "steering sets the rate"
+   * and "steering is added to the rate already there" are the same arithmetic. Under U16 the ordinary
+   * branch WRITES the steering rate into `angVel` every tick, so by the second tick of any hold
+   * entered while turning the two disagree by a factor of two — and `lance` (Bullseye) is a shipped
+   * ~2.2 s `holdsDuringFire` beam, so this was reachable in a live match.
+   */
+  describe("HOLD yaw is the steering rate, never the steering rate plus the rate already there", () => {
+    /** A car mid-hold that entered it already turning: `angVel` carries last tick's steering rate. */
+    function holding(over: Partial<SimBody> = {}): SimBody {
+      return {
+        ...rest(),
+        angVel: GOLDEN_CHASSIS.turnRate,
+        maneuver: ManeuverKind.HOLD,
+        maneuverTicksLeft: 10,
+        ...over,
+      };
+    }
+
+    it("turns at exactly the turn rate while steering, not twice it", () => {
+      const out = stepDrive(holding(), input(1, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
+      expect(out.angVel).toBeCloseTo(GOLDEN_CHASSIS.turnRate, 9);
+      expect(out.angle).toBeCloseTo(GOLDEN_CHASSIS.turnRate * DT, 9);
+    });
+
+    it("stops turning the tick the key is released, rather than coasting on at full rate", () => {
+      const out = stepDrive(holding(), input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
+      expect(out.angVel).toBe(0);
+      expect(out.angle).toBe(0);
+    });
+
+    it("does not rotate at all under steeringLocked, whatever rate it entered the hold carrying", () => {
+      const out = stepDrive(holding(), input(1, 0), DT, GOLDEN_CHASSIS, {
+        ...NEUTRAL_MODIFIERS,
+        steeringLocked: true,
+      });
+      expect(out.angVel).toBe(0);
+      expect(out.angle).toBe(0);
+    });
+
+    it("scales with mods.turnRate, the same channel the ordinary branch reads", () => {
+      const out = stepDrive(holding(), input(1, 0), DT, GOLDEN_CHASSIS, { ...NEUTRAL_MODIFIERS, turnRate: 0.4 });
+      expect(out.angVel).toBeCloseTo(GOLDEN_CHASSIS.turnRate * 0.4, 9);
+    });
+
+    it("hands the yaw back to the spin channel under spinFree, exactly as the ordinary branch does", () => {
+      const spun = { ...holding(), angVel: 4 };
+      const out = stepDrive(spun, input(1, 0), DT, { ...GOLDEN_CHASSIS, spinPerTick: 0.9 }, {
+        ...NEUTRAL_MODIFIERS,
+        spinFree: true,
+      });
+      expect(out.angVel).toBeCloseTo(3.6, 9);
+    });
+  });
+
+  it("HOLD recomposes its imposed slide at the OLD angle, so steering does not steer the slide", () => {
+    // `vy: 100` at `angle: 0` is a pure lateral velocity (100 u/s to the car's left). Rebuilt at the
+    // OLD angle it stays pointing along +y and `vx` stays exactly 0; rebuilt at the NEW angle — the
+    // pre-fix behaviour — the slide rotates with the wheel and `vx` picks up `-lateral * sin(angle)`.
+    const held: SimBody = { ...rest(), vy: 100, maneuver: ManeuverKind.HOLD, maneuverTicksLeft: 10 };
+    const out = stepDrive(held, input(1, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
+    const bled = 100 * GOLDEN_CHASSIS.dragPerTick * GOLDEN_CHASSIS.gripPerTick;
+    expect(out.vx).toBe(0);
+    expect(out.vy).toBeCloseTo(bled, 9);
+    expect(out.x).toBe(0);
+    // Read in the car's NEW frame the slide is now partly forward — that gap IS the drift.
+    expect(fwd(out)).toBeCloseTo(bled * Math.sin(out.angle), 9);
+  });
+
+  it("HOLD honours fullStop, so a stunned car mid-hold does not slide either", () => {
+    const held: SimBody = { ...rest(), vy: 100, maneuver: ManeuverKind.HOLD, maneuverTicksLeft: 10 };
+    const out = stepDrive(held, input(0, 0), DT, GOLDEN_CHASSIS, { ...NEUTRAL_MODIFIERS, fullStop: true });
+    expect(out.vx).toBe(0);
+    expect(out.vy).toBe(0);
+    expect(out.x).toBe(0);
+    expect(out.y).toBe(0);
   });
 
   it("CHARGE drives completely normally and only counts down", () => {

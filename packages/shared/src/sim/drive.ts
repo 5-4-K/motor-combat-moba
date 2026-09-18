@@ -246,7 +246,24 @@ function stepDash(body: SimBody, dt: number, chassis: ChassisDrive, mods: Readon
   };
 }
 
-/** HOLD: the engine is dead but the wheel is not. Forward forced to 0; imposed lateral still displaces. */
+/**
+ * HOLD: the engine is dead but the wheel is not. Forward forced to 0; imposed lateral still displaces.
+ *
+ * **Yaw follows the ordinary branch's rule exactly, and must keep doing so.** Under U16 steering
+ * SETS `angVel` rather than adding to a separate spin channel, so `body.angVel` on the way in already
+ * IS last tick's steering rate. This branch survived the port still reading
+ * `steer * turnRate * mods.turnRate + body.angVel` — the pre-port form, correct only while `angVel`
+ * held injected ram spin alone — which double-counted the steering term for the whole hold and, since
+ * it also returned `nextSpinOf(body.angVel, ...)` (the identity until stage 3 sets `spinPerTick`),
+ * never wound down: entering `lance`'s ~2.2 s hold while steering rotated the car at TWICE its turn
+ * rate for the entire hold, and kept rotating it at full rate after the key was released or while
+ * `steeringLocked`. The only correct statement of "the wheel still works" is the ordinary branch's
+ * own line, which is what this now is.
+ *
+ * `steerSenseOf` is deliberately NOT applied: forward is pinned to 0 here, so there is no reverse
+ * gear to flip the sense for, and the ordinary branch's own `steerSenseOf(forward)` would return 1
+ * for that same reason.
+ */
 function stepHold(
   body: SimBody,
   input: InputMessage,
@@ -255,18 +272,25 @@ function stepHold(
   mods: Readonly<Modifiers>,
 ): SimBody {
   const steer = mods.steeringLocked ? 0 : input.steer;
-  // Only the rate symbol and the decay helper change here (there is no at-rest turn rate any
-  // more, and injected spin decays through `nextSpinOf` instead of the deleted `nextAngVel`).
-  const angle = body.angle + (steer * chassis.turnRate * mods.turnRate + body.angVel) * dt;
+  const angVel = mods.spinFree
+    ? nextSpinOf(body.angVel, chassis)
+    : steer * chassis.turnRate * mods.turnRate;
+  const angle = body.angle + angVel * dt;
   const ticksLeft = body.maneuverTicksLeft - 1;
   const done = ticksLeft <= 0;
 
-  // Lateral now bleeds through the same drag-then-grip model the ordinary branch uses, not the
-  // flat `impactGripDecel` rate `bleedLateral` used to apply here: `DRIVE_CONFIG.impactGripDecel`
-  // is on Task 6's deletion list, so leaving HOLD reading it would be a build break two tasks out,
-  // and one grip model for the whole car is the point of this port anyway.
-  const lateral = lateralOf(body.vx, body.vy, body.angle) * dragFactorOf(chassis, mods) * gripFactorOf(chassis, mods);
-  const v = toWorld(angle, 0, lateral);
+  // Lateral bleeds through the same drag-then-grip model the ordinary branch uses, not the flat
+  // `impactGripDecel` rate `bleedLateral` used to apply here: one grip model for the whole car is
+  // the point of this port. `fullStop` zeroes it for the same reason the ordinary branch does — a
+  // stunned car does not slide, and a held car that ignored the flag would be the one place left in
+  // the sim where it still did.
+  let lateral = lateralOf(body.vx, body.vy, body.angle) * dragFactorOf(chassis, mods) * gripFactorOf(chassis, mods);
+  if (mods.fullStop) lateral = 0;
+  // Recomposed at the OLD angle, exactly as the ordinary branch is, and for the same reason:
+  // rotating the car must not rotate the velocity it is carrying. Rebuilding the slide at the NEW
+  // angle welds an imposed drift to the nose and steers it around with the wheel — the "on rails"
+  // behaviour this port exists to delete, reintroduced in the one branch nobody re-read.
+  const v = toWorld(body.angle, 0, lateral);
 
   return {
     x: body.x + v.vx * dt,
@@ -274,7 +298,7 @@ function stepHold(
     angle,
     vx: v.vx,
     vy: v.vy,
-    angVel: nextSpinOf(body.angVel, chassis),
+    angVel,
     maneuver: done ? ManeuverKind.NONE : ManeuverKind.HOLD,
     maneuverTicksLeft: done ? 0 : ticksLeft,
     maneuverAngle: 0,
