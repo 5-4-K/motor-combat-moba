@@ -22,8 +22,8 @@ export interface CarDef {
   attack: number;
   hp: number;
   /**
-   * How hard this chassis hits in a ram contest, 0-100. Affects **only** what it does to others —
-   * never what happens to it (spec R1). This is what lets a chassis be made to hit harder without
+   * How hard this chassis hits when it rams, 0-100 — the multiplier on the shove it lands
+   * (`shoveOf`). Affects **only** what it does to others, never what happens to it (spec R1). This is what lets a chassis be made to hit harder without
    * also becoming immovable, which the single `mass` rating this pair replaced could not express.
    *
    * NOT `attack`: that field already exists on this table and scales WEAPON damage. Reusing it
@@ -32,12 +32,14 @@ export interface CarDef {
    */
   ramAttack: number;
   /**
-   * How solid this chassis is, 0-100: what it resists in the contest, what it absorbs, and how hard
-   * it is to shoulder aside (spec R1, R5, R8).
+   * How solid this chassis is, 0-100: how far a ram throws you, how hard a slam punts you, and how
+   * hard you are to shoulder aside in ordinary separation (spec R1, R5, R8).
    *
-   * Worth more per point than `ramAttack`, deliberately: it both adds to your push and divides your
-   * received impact, so its effect compounds. That is what makes a tank read as a tank — price the
-   * roster around it rather than weakening one of the two roles (spec "Flagged for confirmation").
+   * **It divides your received shove, and that is now its whole effect.** Under the two-sided
+   * contest it was worth more per point than `ramAttack`, because it also ADDED to your own push, so
+   * the two compounded; the 2026-09-18 Unity ram port deleted that half with the contest (spec §7.4).
+   * The pair is closer to symmetric now — `ramAttack` multiplies what you deal, `ramDefence` divides
+   * what you take — which is a real balance change and one stage 5 measures, not a re-description.
    */
   ramDefence: number;
   /**

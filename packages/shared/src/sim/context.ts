@@ -89,12 +89,14 @@ export function carIdOf(player: Pick<ContextPlayer, "carId">): CarId {
  *
  * **Deliberately chassis-`ramDefence`-only, unlike the other two places a `ramDefence` status buff
  * reaches ram maths.** This is bare `ramDefenceOf(carIdOf(player))`, not `ram.ts`'s
- * `RamCar.defenceMult` (the same `ramDefence` channel, folded into the contest's push and divisor by
- * `pushOf`/`impactOn`) or `ram-bridge.ts`'s `ramDefenceFor` (feeding `applyImpulse`'s inertia term) —
+ * `RamCar.defenceMult` (the same `ramDefence` channel, dividing the shove a ram lands on this car in
+ * `shoveOf`) or `ram-bridge.ts`'s `ramDefenceFor` (feeding a slam's `applyImpulse` inertia term) —
  * this function has access to neither, since ordinary driving has no `Modifiers` map in scope the way
- * `serverTick`'s ram-adjacent code does. So a `ramDefence` status buff changes how hard a car rams and
- * how easily it is rammed, but NOT how much ground it gives up in the ordinary, non-ram car-vs-car
- * separation `resolveWorld` runs on every touching pair. Latent rather than a live bug today — no
+ * `serverTick`'s ram-adjacent code does. So a `ramDefence` status buff changes how easily a car is
+ * rammed and how far a slam throws it, but NOT how much ground it gives up in the ordinary, non-ram
+ * car-vs-car separation `resolveWorld` runs on every touching pair. (It never changed how hard that
+ * car's OWN rams hit — spec R11 gives statuses no offence channel — and since the Unity ram port it
+ * has no attacker-side effect of any kind.) Latent rather than a live bug today — no
  * shipped `STATUS_TABLE` row carries a `ramDefence` channel — but the two lockstep halves (server and
  * client prediction) both read this same function, so they still agree with each other.
  *

@@ -462,14 +462,14 @@ export const WEAPON_TABLE = {
       /**
        * Was `SLAM_CONFIG.knockSpeed`, authored as "2x RAM_CONFIG.knockMaxSpeed" — a by-hand
        * relationship, not a derived one, and now doubly stale. `RAM_CONFIG.knockMaxSpeed` itself is
-       * gone (deleted with `mass`, spec R1): ram impulses no longer come from a capped speed at all,
-       * they come from the `ramAttack`/`ramDefence` contest (R2–R5), whose whole point is to be
-       * open-ended rather than saturating (R9). "2x the ram maximum" is not merely a stale number now
-       * — it names a quantity ("the ram maximum") that the contest does not produce, since nothing in
-       * it saturates. NOTHING FAILS if this is left alone: a 20-second ult can quietly end up weaker
-       * than an ordinary flank ram. Stage 5 re-pitches it — against a measured typical/strong contest
-       * outcome, not against a maximum that no longer exists. Until then, treat this number as
-       * provisional.
+       * gone (deleted with `mass`, spec R1): a ram's push no longer comes from a capped speed at all.
+       * It comes from `sim/ram.ts`'s `shoveOf` — drive-in speed times the type scale times
+       * `ramAttack`/`ramDefence` — which is open-ended rather than saturating (R9), and stayed that
+       * way through the 2026-09-18 Unity ram port. "2x the ram maximum" is not merely a stale number
+       * now: it names a quantity ("the ram maximum") that nothing produces, since nothing saturates.
+       * NOTHING FAILS if this is left alone: a 20-second ult can quietly end up weaker than an
+       * ordinary flank ram. Stage 5 re-pitches it — against a measured typical/strong ram outcome,
+       * not against a maximum that no longer exists. Until then, treat this number as provisional.
        */
       speed: 520,
       direction: "radial",

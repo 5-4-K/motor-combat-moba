@@ -82,18 +82,27 @@ export interface RamCar {
   ramBlocked: boolean;
 }
 
-/**
- * What one car receives from a ram.
- *
- * `spin` is **not clamped** — `RAM_CONFIG.spinMaxRate` is the bridge's, applied where the spin is
- * written onto a body (spec U26).
- */
+/** What one car receives from a ram. */
 export interface RamSide {
   sessionId: string;
   shoveX: number;
   shoveY: number;
+  /**
+   * A yaw DELTA in rad/s, **always added to the car's existing `angVel`, never assigned** — spec
+   * §7.2 reads "spin set to pre-collision spin + spinDelta", and `replacesVelocity` below governs the
+   * VELOCITY only. An attacker's side and both sides of a head-on carry 0, which under that rule
+   * preserves whatever rotation the car already had rather than cancelling it; that is the intent
+   * (§7.2's "spin unchanged"), not an omission.
+   *
+   * **Not clamped here** — `RAM_CONFIG.spinMaxRate` is the bridge's, applied where the sum is written
+   * onto a body (spec U26), because a clamp inside a pure classifier would make a resolution's
+   * meaning depend on the car it is later applied to.
+   */
   spin: number;
-  /** true: this car's velocity is REPLACED by the shove (attacker stop, head-on). false: ADDED to it. */
+  /**
+   * true: this car's VELOCITY is replaced by the shove (attacker stop, head-on). false: added to it.
+   * Says nothing about `spin`, which always accumulates.
+   */
   replacesVelocity: boolean;
 }
 

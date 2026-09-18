@@ -99,13 +99,18 @@ export type StatusChannel =
    */
   | "weaponCooldown"
   /**
-   * Effective `ramDefence` (`ramDefenceOf`), which reaches the contest on BOTH sides: it scales the
-   * speed-independent term this car brings to `pushOf`, and it is the divisor `impactOn` softens
-   * what this car takes by. So one multiplier makes a car both harder to shift and more solid to hit
-   * — the two halves of "solidity" the rating names.
+   * Effective `ramDefence` (`ramDefenceOf`). **One effect, on the receiving side only: it is the
+   * divisor `sim/ram.ts`'s `shoveOf` softens the shove this car takes by.** Buffing it makes a car
+   * harder to throw. It does nothing to how hard that car's own rams hit.
    *
-   * There is deliberately no offence channel (spec R11): a status may make a car harder to move, but
-   * never make its rams hit harder.
+   * It used to do both. Under the two-sided contest this channel also scaled the speed-independent
+   * term a car brought to `pushOf`, so one multiplier made you harder to shift AND more solid to hit
+   * — "the two halves of solidity". The 2026-09-18 Unity ram port deleted the contest (spec §7.4): an
+   * attacker's outcome is now a rule ("you stop"), not a push to be scaled, so there is no attacker
+   * side left for this to reach. Read that half as history, not as behaviour to expect.
+   *
+   * There is still deliberately no offence channel (spec R11): a status may make a car harder to
+   * move, but never make its rams hit harder.
    */
   | "ramDefence"
   /**

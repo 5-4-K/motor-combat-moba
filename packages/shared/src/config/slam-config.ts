@@ -45,10 +45,17 @@ export const SLAM_CONFIG = {
    * exit criterion would then have been measuring that nerf and blaming the wrong thing. A constant
    * surviving in name while its value drops 41x is not surviving.
    *
-   * So: the slam's spin is bit-identical before and after the port, and the two knobs are now free to
-   * move independently, which is what they were always doing in practice. `SLAM_CONFIG` is not a
-   * `tuning.ts` root, so unlike `RAM_CONFIG.spinScale` this is not a playground slider — that is
-   * pre-existing, and fine: nothing about this move changed which knobs are tunable.
+   * So: the slam's spin is bit-identical in every SHIPPED build before and after the port, and the
+   * two knobs are now free to move independently.
+   *
+   * **What the move did change is what the playground can reach**, since `RAM_CONFIG` is a
+   * `tuning.ts` root and `SLAM_CONFIG` is not. Three differences, none of which affect a release
+   * build: the `ram.spinScale` slider no longer moves slam spin (it moves ram spin alone, which is
+   * what its name says); `ram.inertiaCoefficient` is gone as a slider, deleted with the constant; and
+   * the slam's inertia term now tracks a live `drive.carWidth`/`carHeight` override, because
+   * `inertiaRadiusSquared()` computes from the hull on every call where the frozen
+   * `inertiaCoefficient` did not. Making THIS one tunable would mean adding `SLAM_CONFIG` to
+   * `tuning.ts` — a decision for whoever wants the slider, not a side effect of this move.
    *
    * `RAM_CONFIG.spinMaxRate` still clamps the result, shared by both paths.
    */

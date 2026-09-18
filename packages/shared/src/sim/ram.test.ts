@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RAM_CONFIG } from "../config/ram-config.js";
-import { ramDefenceOf } from "../config/car-config.js";
+import { ramAttackOf, ramDefenceOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import {
@@ -73,6 +73,22 @@ function parkedBroadsideOffset(offsetY: number, carId: CarId = "mirage" as CarId
 function parkedFacingAway(carId: CarId = "mirage" as CarId): RamCar {
   return car({ sessionId: "b", x: INLINE_X, y: 0, angle: 0, carId });
 }
+
+/** A stationary victim whose NOSE faces the attacker: a head-on it is not driving into. */
+function parkedFacingMe(carId: CarId = "mirage" as CarId): RamCar {
+  return car({ sessionId: "b", x: INLINE_X, y: 0, angle: Math.PI, carId });
+}
+
+/**
+ * A shallow corner graze, deeply overlapped: "a" noses into the far corner of a broadside car.
+ *
+ * The one placement in this file where "a"'s OWN recovered contact point and the SHARED midpoint
+ * disagree about "a"'s region — `frontCorner` (an attack region) against `side` (not one) — so it is
+ * what pins step 3 of `resolveRam`. Measured: `contactPointOn(a, b)` is `(26, 20)` and
+ * `contactPointOn(b, a)` is `(6, 4)`, putting the midpoint at `(16, 12)`, 16 u back from "a"'s nose
+ * and hard against its flank.
+ */
+const CORNER_GRAZE = { x: 26, y: 34, angle: Math.PI / 2 } as const;
 
 /** An oncoming car, nose-first along -x: front face to front face. */
 function noseFirstOncoming(speed: number, carId: CarId = "mirage" as CarId): RamCar {
@@ -217,11 +233,24 @@ describe("resolveRam", () => {
     expect(fast / slow).toBeCloseTo(2, 6);
   });
 
-  it("scales the shove by the attacker's ramAttack against the victim's ramDefence", () => {
+  it("divides the shove by the VICTIM's ramDefence", () => {
     const soft = resolveRam(noseFirstAt(150, "bastion" as CarId), parkedBroadside("bullseye" as CarId), "ffa")!;
     const hard = resolveRam(noseFirstAt(150, "bastion" as CarId), parkedBroadside("bastion" as CarId), "ffa")!;
     expect(shoveMagnitudeOf(soft, "b") / shoveMagnitudeOf(hard, "b")).toBeCloseTo(
       ramDefenceOf("bastion" as CarId) / ramDefenceOf("bullseye" as CarId),
+      6,
+    );
+  });
+
+  it("multiplies the shove by the ATTACKER's ramAttack", () => {
+    // The other half of U11, and it needs its own arm: varying only the victim (above) leaves
+    // `ramAttackOf(attacker)` free to be deleted from `shoveOf` with every other case still green.
+    // The hull is chassis-independent, so swapping the attacker's chassis changes the ratings and
+    // nothing else about the geometry.
+    const heavy = resolveRam(noseFirstAt(150, "bastion" as CarId), parkedBroadside(), "ffa")!;
+    const light = resolveRam(noseFirstAt(150, "bullseye" as CarId), parkedBroadside(), "ffa")!;
+    expect(shoveMagnitudeOf(heavy, "b") / shoveMagnitudeOf(light, "b")).toBeCloseTo(
+      ramAttackOf("bastion" as CarId) / ramAttackOf("bullseye" as CarId),
       6,
     );
   });
@@ -234,6 +263,19 @@ describe("resolveRam", () => {
       "ffa",
     )!;
     expect(shoveMagnitudeOf(plain, "b") / shoveMagnitudeOf(braced, "b")).toBeCloseTo(2, 6);
+  });
+
+  it("throws a flank hardest, then a rear, and a head-on gentlest", () => {
+    // `scaleFor`'s three arms. Without the head-on leg, `scaleFor` returning `flankScale` for a
+    // head-on would pass every other case in this file: nothing else reads the magnitude a head-on
+    // produces. The victim here is PARKED and facing the attacker, so only "a" qualifies — the
+    // head-on branch is still what runs (see the case below), and the ratio is `flankScale`
+    // against `headOnScale` at one attacker speed and one chassis pair.
+    const flank = shoveMagnitudeOf(resolveRam(noseFirstAt(150), parkedBroadside(), "ffa")!, "b");
+    const rear = shoveMagnitudeOf(resolveRam(noseFirstAt(150), parkedFacingAway(), "ffa")!, "b");
+    const head = shoveMagnitudeOf(resolveRam(noseFirstAt(150), parkedFacingMe(), "ffa")!, "b");
+    expect(flank / rear).toBeCloseTo(RAM_CONFIG.flankScale / RAM_CONFIG.rearScale, 6);
+    expect(flank / head).toBeCloseTo(RAM_CONFIG.flankScale / RAM_CONFIG.headOnScale, 6);
   });
 
   it("throws a flank harder than a rear", () => {
@@ -258,6 +300,22 @@ describe("resolveRam", () => {
     const below = sideOf(resolveRam(noseFirstAt(150), parkedBroadsideOffset(-20), "ffa")!, "b").spin;
     expect(Math.sign(above)).toBe(-Math.sign(below));
     expect(Math.abs(above)).toBeCloseTo(Math.abs(below), 6);
+  });
+
+  it("lands an ordinary flank ram's spin in a sane, non-trivial band", () => {
+    // Sign, symmetry, non-zero and not-clamped (the cases around this one) all hold under ANY
+    // `spinScale`, so without a magnitude check the scale or the `inertiaRadiusSquared()` divisor
+    // could move by any factor and no test would notice — it would surface only as a feels-weak bug
+    // report. This is the guard for that, restored from the pre-port suite.
+    //
+    // Measured today at 0.857 rad/s: a Mirage at 150 u/s into a parked Mirage's flank, contact 10 u
+    // off centre, `shove` 123.75 u/s, `spinScale` 0.3 over a 433.33 u² inertia term.
+    //
+    // **Stage 5 re-pitches `spinScale` (spec §9), and this band is meant to fail when it does.**
+    // Re-derive it from the new constant then — do not delete it, or the guard goes with it.
+    const spin = Math.abs(sideOf(resolveRam(noseFirstAt(150), parkedBroadsideOffset(20), "ffa")!, "b").spin);
+    expect(spin).toBeGreaterThan(0.6);
+    expect(spin).toBeLessThan(1.2);
   });
 
   it("does not clamp the spin — that is the bridge's job, not the classifier's", () => {
@@ -292,6 +350,32 @@ describe("resolveRam", () => {
     expect(sideOf(hit, "b").shoveX).toBeGreaterThan(0);
   });
 
+  it("resolves a head-on against a PARKED car, which locks it rather than reeling it", () => {
+    // The one-attacker path into the head-on branch: only "a" qualifies, but the face it struck is
+    // "b"'s nose and the headings oppose, so the TYPE is a head-on and §7.2's head-on row is what
+    // gets written — "b"'s velocity REPLACED (not added to) and locked, not reeled. The plausible
+    // wrong implementation treats "only one attacker" as "therefore a one-way ram", which would
+    // reel "b" and leave it with `replacesVelocity: false`.
+    const hit = resolveRam(noseFirstAt(150), parkedFacingMe(), "ffa")!;
+    expect(hit.type).toBe("headOn");
+    expect(hit.attackerId).toBe("");
+    expect(hit.locked.slice().sort()).toEqual(["a", "b"]);
+    expect(hit.reeled).toEqual([]);
+    expect(sideOf(hit, "b").replacesVelocity).toBe(true);
+    expect(sideOf(hit, "b").spin).toBe(0);
+    // The parked car brings no drive-in, so the shove it lands back on "a" is nothing: "a" stops.
+    expect(Math.hypot(sideOf(hit, "a").shoveX, sideOf(hit, "a").shoveY)).toBe(0);
+  });
+
+  it("classifies both cars against ONE shared contact point, not each against its own", () => {
+    // `CORNER_GRAZE` is the fixture where the two readings disagree: "a"'s own recovered point sits
+    // on its front corner (an attack region, so a per-car classification would fire a flank ram),
+    // while the shared midpoint sits 16 u back against its flank — a side, which may not attack. The
+    // victim is parked and qualifies under neither reading, so the shared point is the only thing
+    // standing between this and a ram, and `null` is the whole assertion.
+    expect(resolveRam(noseFirstAt(150), car({ sessionId: "b", ...CORNER_GRAZE }), "ffa")).toBeNull();
+  });
+
   it("refuses a teammate, as canDamage does", () => {
     expect(
       resolveRam(noseFirstAt(150, "bastion" as CarId, 0), parkedBroadside("bullseye" as CarId, 0), "team"),
@@ -302,6 +386,14 @@ describe("resolveRam", () => {
     expect(
       resolveRam(noseFirstAt(150, "bastion" as CarId, 0), parkedBroadside("bullseye" as CarId, 1), "team"),
     ).not.toBeNull();
+  });
+
+  it("rams everyone in ffa regardless of team number", () => {
+    // The ffa arm of `canDamage`, which the port keeps unchanged. Both cars carry team 0 — the exact
+    // pair the `team`-mode case above refuses — and in ffa that must not matter: team numbers still
+    // exist on a `RamCar` in a free-for-all and nothing may start reading them.
+    expect(resolveRam(noseFirstAt(150, "mirage" as CarId, 0), parkedBroadside("mirage" as CarId, 0), "ffa")).not.toBeNull();
+    expect(resolveRam(noseFirstAt(150, "mirage" as CarId, 1), parkedBroadside("mirage" as CarId, 1), "ffa")).not.toBeNull();
   });
 
   it("will not let a reeling or locked car attack", () => {
