@@ -149,39 +149,48 @@ describe("driveOf", () => {
 });
 
 describe("per-car drive ratings", () => {
-  it("anchors both scales so rating 50 lands on one global constant apiece", () => {
-    // The pivot in T7: `turnRateOf` and `accelOf` are authored so an exactly-average chassis drives
-    // like a single global constant would, which is what keeps "rating 50 is average" a reading aid
-    // rather than a slogan. A scale edit that moves a pivot fails here, so raising the whole roster
-    // is a deliberate two-line change plus this number, never a drift.
-    // The turn pivot was the pre-2026-08-30 global 4.2 until 2026-08-31, when both halves of the
-    // turn scale were multiplied by 1.5 — driving, and so aiming, read as too heavy — putting every
-    // chassis at 1.5x its old rate and the pivot at 6.3. The accel pivot was 780 from
-    // pre-2026-08-30 until 2026-09-06, when the vector-drive rework's heavy-car pass cut
-    // `baseAccel`/`accelPerRating` (420/7.2 -> 60/1.4) alongside the speed cut, moving the pivot to
-    // 130 — `accelOf` no longer anchored to the old global at all, on purpose.
-    // `toBeCloseTo`, not `toBe`: 3.6 + 50 * 0.054 is 6.300000000000001 in IEEE-754. The anchor is
-    // the design intent, not a bit pattern, and no decimal scale reproduces 6.3 exactly.
-    const { baseTurnRate, turnRatePerRating, baseAccel, accelPerRating } = DRIVE_CONFIG;
-    expect(baseTurnRate + 50 * turnRatePerRating).toBeCloseTo(6.3, 9);
-    expect(baseAccel + 50 * accelPerRating).toBeCloseTo(130, 9);
+  // DELETED: "anchors both scales so rating 50 lands on one global constant apiece" (the `baseAccel`/
+  // `accelPerRating` half) and "keeps stopTurnRatio at the value it shipped with, pending its
+  // deletion". Both knobs are gone outright as of the Unity drive-model port (drive-model port
+  // stage 1 Task 6): `baseAccel`/`accelPerRating` had no successor of their own (the accel rating
+  // now scales `dragRateOf`, anchored by `baseDrag`/`dragPerRating` instead — see "anchors the new
+  // pairs at rating 50" below) and `stopTurnRatio` had none at all, since yaw is speed-independent
+  // under this model and there is no "stopped" rate left to be a fraction of.
+
+  it("drifts rather than cornering on rails: grip is finite against the sharpest turn", () => {
+    // Slip angle at full lock is atan(turnRate / lateralGripRate), the same at any speed. A grip rate
+    // high enough to drive that to ~0 would be the deleted `steeringGrip: 1` under another name (U3).
+    // This can only be asserted once the turn rates above are the ported ones — see Task 1.
+    const sharpest = DRIVE_CONFIG.baseTurnRate + 100 * DRIVE_CONFIG.turnRatePerRating;
+    const slipDeg = (Math.atan(sharpest / DRIVE_CONFIG.lateralGripRate) * 180) / Math.PI;
+    expect(slipDeg).toBeGreaterThan(5);
+    expect(slipDeg).toBeLessThan(45);
   });
 
-  it("keeps stopTurnRatio at the value it shipped with, pending its deletion", () => {
-    // The at-rest-turn-rate PREMISE this test used to check (`turnRateAtStopOf(id) ===
-    // turnRateOf(id) * 0.5`) is gone outright under the Unity drive-model port (car-physics-port
-    // stage 1 Task 3): yaw rate is speed-independent now, so there is no "stopped" rate left to be
-    // half of anything, and `turnRateAtStopOf` no longer exists to call. But
-    // `DRIVE_CONFIG.stopTurnRatio` ITSELF is not deleted — Task 6 owns removing it, alongside the
-    // other superseded knobs — and deleting the whole case left it pinned by nothing in the
-    // meantime. This is the narrower thing left to check: the orphaned knob's value has not drifted.
-    expect(DRIVE_CONFIG.stopTurnRatio).toBe(0.5);
+  it("anchors the new pairs at rating 50", () => {
+    expect(DRIVE_CONFIG.baseTurnRate + 50 * DRIVE_CONFIG.turnRatePerRating).toBeCloseTo(1.512, 3);
+    expect(DRIVE_CONFIG.baseDrag + 50 * DRIVE_CONFIG.dragPerRating).toBeCloseTo(1.072, 3);
+  });
+
+  it("keeps the brake ahead of drag at top speed for every chassis", () => {
+    for (const id of activeCarIds()) {
+      const d = driveOf(id);
+      // Drag's strongest pull, in u/s², is `dragRate * maxSpeed` — at the ceiling.
+      expect(d.brakeDecel).toBeGreaterThan(d.dragRate * d.maxSpeed);
+    }
+  });
+
+  it("derives top speed as the balance point of push and drag", () => {
+    for (const id of activeCarIds()) {
+      const d = driveOf(id);
+      expect(d.engineAccel / d.dragRate).toBeCloseTo(d.maxSpeed, 9);
+    }
   });
 
   it("feeds the derived rates into every chassis's ChassisDrive", () => {
     // `turnRateAtStop` dropped from the assertion for the same reason it dropped from the test
-    // above; `accel` -> `engineAccel`/`accelOf` -> `engineAccelOf`, since `stepDrive` reads the
-    // engine's push under that name now, not a per-rating acceleration.
+    // above; `accel` -> a drag rate (`dragRateOf`) -> a derived push (`engineAccelOf`), since
+    // `stepDrive` reads the engine's push under that name now, not a per-rating acceleration.
     for (const id of Object.keys(CAR_TABLE) as CarId[]) {
       const d = driveOf(id);
       expect(d.turnRate).toBeCloseTo(turnRateOf(id), 9);
@@ -193,8 +202,8 @@ describe("per-car drive ratings", () => {
   // DELETED: "scales every car's reverse speed from its own forward speed by reverseSpeedRatio".
   // Its premise — a reverse top speed authored as a fixed ratio of the forward one, read through
   // `reverseMaxSpeedOf` — is gone: reverse top speed is now the emergent equilibrium
-  // `reverseAccel / dragRate`, unrelated to `DRIVE_CONFIG.reverseSpeedRatio` (an orphaned knob
-  // until a later task removes it).
+  // `reverseAccel / dragRate`. `DRIVE_CONFIG.reverseSpeedRatio` itself is gone too, deleted by
+  // Task 6 alongside the other superseded knobs.
 });
 
 describe("COLOR_TABLE", () => {
@@ -212,30 +221,33 @@ describe("weapon / combat / drive / flow knobs exist", () => {
     expect(COMBAT_CONFIG.attackBaseline).toBe(50);
     expect(COMBAT_CONFIG.damagePerAttack).toBe(0.01);
   });
-  it("reverse is slower than forward, but not a crawl", () => {
-    expect(DRIVE_CONFIG.reverseSpeedRatio).toBe(0.65);
-    expect(DRIVE_CONFIG.reverseSpeedRatio).toBeLessThan(1);
-  });
+  // DELETED: "reverse is slower than forward, but not a crawl" — `DRIVE_CONFIG.reverseSpeedRatio`
+  // is gone, deleted by Task 6 alongside the other superseded knobs. Reverse top speed is now the
+  // emergent equilibrium `reverseAccel / dragRate`, and `reverseAccelFactor` below is what keeps it
+  // the weaker gear.
 
   it("gives reverse its own acceleration rate, weaker than forward pickup", () => {
     // Ranged, not pinned: reverseAccel exists to be tuned by feel, so an exact value here would go
     // red on every good change as readily as a bad one. What must hold is that it is a real rate and
-    // that reverse is the WEAKER gear, matching `reverseSpeedRatio` above.
+    // that reverse is the WEAKER gear.
     //
     // THIS ASSERTION USED TO RUN THE OTHER WAY (`>= 1`, 2026-09-07), on the rationale that splitting
     // reverseAccel from `accel` had to buy something and a lower rate would make backing out slower
-    // than the forward curve it was separated from. That argument was written when `accelOf(50)` was
-    // 780 and every car reached BOTH caps in about half a second, so the factor never governed
-    // anything a driver or a planner could observe — `reverseSpeedRatio` did. The 2026-09-06
-    // heavy-car pass cut accel 420/7.2 -> 60/1.4 and stretched time-to-cap to 1.49-2.16 s, which is
-    // longer than most things that sample the drive model look ahead. Cars now spend the observed
-    // part of a manoeuvre acceleration-limited, this factor governs there, and at 1.41 every chassis
-    // covered 1.29x more ground REVERSING than driving forward over a 22-tick rollout. That is
-    // backwards as a statement about a car, and it steered the bot: `bot/brain/planner.ts` scores
+    // than the forward curve it was separated from. That argument was written when the old global
+    // accel pivot (`baseAccel`/`accelPerRating`, since deleted) was 780 and every car reached BOTH
+    // caps in about half a second, so the factor never governed anything a driver or a planner could
+    // observe — the old `reverseSpeedRatio` (also since deleted) did. The 2026-09-06 heavy-car pass
+    // cut that accel pair 420/7.2 -> 60/1.4 and stretched time-to-cap to 1.49-2.16 s, which is longer
+    // than most things that sample the drive model look ahead. Cars now spend the observed part of a
+    // manoeuvre acceleration-limited, this factor governs there, and at the old ratio (1.41) every
+    // chassis covered 1.29x more ground REVERSING than driving forward over a 22-tick rollout. That
+    // is backwards as a statement about a car, and it steered the bot: `bot/brain/planner.ts` scores
     // candidates on where they end up, so `throttle: -1` beat `throttle: 1` unconditionally.
     //
     // A car may still be tuned to back out briskly — that is `reverseAccelFactor` near 1, not above
-    // it. The ordering is what this pins.
+    // it. The ordering is what this pins. Retuned to the Unity original (0.4) by Task 6 — see
+    // `DRIVE_CONFIG.reverseAccelFactor`'s own comment for why 0.6 was never more than a value chosen
+    // against a since-deleted knob.
     expect(DRIVE_CONFIG.reverseAccelFactor).toBeGreaterThan(0);
     expect(DRIVE_CONFIG.reverseAccelFactor).toBeLessThan(1);
     for (const id of Object.keys(CAR_TABLE) as CarId[]) {
@@ -245,7 +257,7 @@ describe("weapon / combat / drive / flow knobs exist", () => {
 
   it("keeps stopEpsilon a small positive rest band", () => {
     // Zero would leave a car creeping forever instead of settling, and a band wide enough to reach
-    // real driving speeds would freeze the car mid-roll and steer it at turnRateAtStop.
+    // real driving speeds would freeze the car mid-roll well before it actually stopped.
     expect(DRIVE_CONFIG.stopEpsilon).toBeGreaterThan(0);
     expect(DRIVE_CONFIG.stopEpsilon).toBeLessThan(1);
   });
@@ -304,9 +316,9 @@ describe("weapon / combat / drive / flow knobs exist", () => {
 describe("the three types (T5/T6)", () => {
   it("derives the roster's drive profile from its ratings", () => {
     // The 2026-09-06 vector-drive rework's heavy-car pass cut `baseMaxSpeed`/`speedPerRating`
-    // (135/3.7 -> 80/2.2) for a roughly 40% roster-wide top-speed cut, and `baseAccel`/
-    // `accelPerRating` (420/7.2 -> 60/1.4) alongside it, roughly tripling time-to-top-speed. See
-    // `DRIVE_CONFIG.speedPerRating` and `DRIVE_CONFIG.accelPerRating`.
+    // (135/3.7 -> 80/2.2) for a roughly 40% roster-wide top-speed cut, and the old global accel pair
+    // (420/7.2 -> 60/1.4, since deleted) alongside it, roughly tripling time-to-top-speed. See
+    // `DRIVE_CONFIG.speedPerRating`.
     //
     // 2026-09-16 cut the speed pair again, 80/2.2 -> 60/1.518, for a further ~29% off every top
     // speed. `toBeCloseTo` rather than `toBe` because 1.518 is not representable in binary: the
@@ -328,30 +340,39 @@ describe("the three types (T5/T6)", () => {
     // The 2026-09-02 rewrite set `speed` and `handling` to the same rating per car (65/65, 85/85,
     // 50/50), so turn rate now orders the roster the same way top speed does — Mirage highest,
     // Bastion lowest — rather than the inverse spread the roster shipped with.
-    expect(turnRateOf("bullseye")).toBeCloseTo(7.11, 9);
-    expect(turnRateOf("mirage")).toBeCloseTo(8.19, 9);
-    expect(turnRateOf("bastion")).toBeCloseTo(6.3, 9);
+    //
+    // RE-PINNED for the Unity drive-model port (drive-model port stage 1 Task 6, spec §9.2):
+    // `baseTurnRate`/`turnRatePerRating` 3.6/0.054 -> 0.667/0.0169. The ORDERING is unchanged
+    // (Mirage > Bullseye > Bastion), only the magnitudes — every chassis turns roughly a fifth as
+    // fast as it did (7.11/8.19/6.3 were the old figures; not comparable to the numbers below).
+    expect(turnRateOf("bullseye")).toBeCloseTo(1.7655, 9);
+    expect(turnRateOf("mirage")).toBeCloseTo(2.1035, 9);
+    expect(turnRateOf("bastion")).toBeCloseTo(1.512, 9);
 
     expect(hpOf("bullseye")).toBe(650);
     expect(hpOf("mirage")).toBe(700);
     expect(hpOf("bastion")).toBe(900);
   });
 
-  it("gives Bastion the tightest turn radius despite being the slowest", () => {
-    // T6, weakened by the 2026-09-02 rewrite: `speed` and `handling` now move together per car, so
-    // Bastion no longer wins radius via a handling edge — it wins by a few units because its lower
-    // speed outweighs its lower rate, not because a slow chassis was deliberately made the sharpest
-    // turner. The ordering survives; the ~20+ u gap that made it a headline design point does not.
-    // The 2026-09-06 heavy-car speed cut then scaled every radius down by the same ~41% (turn rate
-    // untouched), so the remaining gap shrank again — from ~4 u to ~2 u — without reordering anything.
-    // The 2026-09-16 speed cut did the same thing a second time: turn rate untouched again, so every
-    // radius fell by the same proportion its own top speed did and the ordering is unchanged. The
-    // spread is now ~1.5 u across the whole roster (21.6 / 22.3 / 23.1) — the three chassis corner
-    // almost identically, and radius is no longer a meaningful axis of the type triangle.
+  // CONTRADICTION, reported per the Task 6 brief rather than fixed by re-tuning the ported
+  // constants: this test used to be "gives Bastion the tightest turn radius despite being the
+  // slowest" (T6). Every pre-port pass (through 2026-09-16) kept that true while shrinking the
+  // margin toward nothing — see the superseded comment this replaces, still visible in history.
+  // The Unity turn-rate anchors (`baseTurnRate` 0.667, `turnRatePerRating` 0.0169, spec §9.2) do
+  // not merely shrink the margin further: they INVERT it. Bastion now has the WIDEST radius of the
+  // three, not the tightest, because the anchor term (`baseTurnRate`) is now large relative to the
+  // per-rating spread, so a car's turn rate depends much more on the flat pivot than on its own
+  // `handling` — which compresses the turn-rate spread far more than the speed spread, and it is the
+  // RATIO of the two that decides radius order. Measured: mirage 89.8645 u, bullseye 89.8726 u,
+  // bastion 89.8810 u — a ~0.016 u spread out of ~89.9, effectively degenerate. This is a design
+  // question for the project owner / stage 5's tuning pass, not something Task 6 may fix by
+  // adjusting `baseTurnRate`/`turnRatePerRating` back toward the old values (the brief is explicit:
+  // those three numbers are the project owner's decision, use them exactly).
+  it("radius is now a dead axis under the ported turn-rate anchors — Bastion no longer tightest", () => {
     const radius = (id: CarId) => forwardMaxSpeedOf(id) / turnRateOf(id);
-    expect(radius("bastion")).toBeLessThan(radius("bullseye"));
-    expect(radius("bullseye")).toBeLessThan(radius("mirage"));
-    expect(radius("bastion")).toBeCloseTo(21.6, 1);
+    expect(radius("mirage")).toBeLessThan(radius("bullseye"));
+    expect(radius("bullseye")).toBeLessThan(radius("bastion"));
+    expect(radius("bastion")).toBeCloseTo(89.881, 2);
   });
 
   it("orders the three types on every axis the design names", () => {
@@ -396,18 +417,12 @@ describe("per-car coast and brake", () => {
     }
   });
 
-  it("defaults steering grip to fully on rails", () => {
-    expect(DRIVE_CONFIG.steeringGrip).toBe(1);
-  });
-
-  it("bounds steering grip to 0..1", () => {
-    expect(DRIVE_CONFIG.steeringGrip).toBeGreaterThanOrEqual(0);
-    expect(DRIVE_CONFIG.steeringGrip).toBeLessThanOrEqual(1);
-  });
-
-  it("has a positive impact grip deceleration", () => {
-    expect(DRIVE_CONFIG.impactGripDecel).toBeGreaterThan(0);
-  });
+  // DELETED: "defaults steering grip to fully on rails", "bounds steering grip to 0..1" and "has a
+  // positive impact grip deceleration". `steeringGrip` and `impactGripDecel` are both gone, deleted
+  // by Task 6 alongside the other superseded knobs — steering under the Unity model is not a grip
+  // fraction at all (yaw sets the rate directly, U16) and ram control-loss is the `reeling` status
+  // rather than a bespoke bleed-off rate. `lateralGripRate` is the model's own drift knob now — see
+  // "drifts rather than cornering on rails" above.
 });
 
 describe("ram ratings", () => {

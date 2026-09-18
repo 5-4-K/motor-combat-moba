@@ -47,9 +47,10 @@ import type { WeaponId } from "./weapon-types.js";
  * They replaced the single `mass` rating on 2026-09-06: one number could not say "hits hard but is
  * also easy to shove", and could not be tuned on either half without moving the other.
  *
- * **Changing a car's `handling`, `speed`, `coastHalfLifeSeconds` or `brakeDecel` also owes
- * `docs/turn-tuning.md` an edit**, and a fourth chassis owes it a new column in three tables. That
- * page tabulates every turn rate and radius on the roster by hand, and
+ * **Changing a car's `handling`, `speed`, `accel` or `brakeDecel` also owes `docs/turn-tuning.md`
+ * an edit** (`coastHalfLifeSeconds` used to be on this list; the Unity drive-model port deleted the
+ * field outright — see `CarDef.brakeDecel`), and a fourth chassis owes it a new column in three
+ * tables. That page tabulates every turn rate and radius on the roster by hand, and
  * `scripts/turn-tuning-doc.test.mjs` recomputes every cell from this table — it fails until the page
  * agrees. See its "Keeping this page honest" section.
  *
@@ -58,9 +59,9 @@ import type { WeaponId } from "./weapon-types.js";
  * swapping a pair, never copying one.
  */
 export const CAR_TABLE = {
-  mirage: { id: "mirage", name: "Mirage", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, coastHalfLifeSeconds: 1.2, brakeDecel: 500, weapons: ["magmablast", "thunderclap", "afterburner"], basicAttack: "basic-attack-mirage", isActive: true },
-  bullseye: { id: "bullseye", name: "Bullseye", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30, coastHalfLifeSeconds: 1.0, brakeDecel: 520, weapons: ["predator", "pepperbox", "lance"], basicAttack: "basic-attack-bullseye", isActive: true },
-  bastion: { id: "bastion", name: "Bastion", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, coastHalfLifeSeconds: 1.5, brakeDecel: 430, weapons: ["thumper", "roadblock", "wildcharge"], basicAttack: "basic-attack-bastion", isActive: true },
+  mirage: { id: "mirage", name: "Mirage", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, brakeDecel: 500, weapons: ["magmablast", "thunderclap", "afterburner"], basicAttack: "basic-attack-mirage", isActive: true },
+  bullseye: { id: "bullseye", name: "Bullseye", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30, brakeDecel: 520, weapons: ["predator", "pepperbox", "lance"], basicAttack: "basic-attack-bullseye", isActive: true },
+  bastion: { id: "bastion", name: "Bastion", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, brakeDecel: 430, weapons: ["thumper", "roadblock", "wildcharge"], basicAttack: "basic-attack-bastion", isActive: true },
 
   // --- Unreleased prototypes (`isActive: false`) ------------------------------------------------
   //
@@ -75,12 +76,12 @@ export const CAR_TABLE = {
   // `docs/config-reference.md`): the at-least-one-weapon floor in `weapon-slots.test.ts` applies to
   // active cars only, and weapon exclusivity (L1) is unconditional, so a prototype may not borrow a
   // shipped kit — it gets its own `WEAPON_TABLE` rows when someone authors them.
-  taurus: { id: "taurus", name: "Taurus", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, coastHalfLifeSeconds: 1.5, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-taurus", isActive: false },
-  anvil: { id: "anvil", name: "Anvil", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, coastHalfLifeSeconds: 1.5, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-anvil", isActive: false },
-  prowler: { id: "prowler", name: "Prowler", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, coastHalfLifeSeconds: 1.2, brakeDecel: 500, weapons: [], basicAttack: "basic-attack-prowler", isActive: false },
-  cleaver: { id: "cleaver", name: "Cleaver", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, coastHalfLifeSeconds: 1.2, brakeDecel: 500, weapons: [], basicAttack: "basic-attack-cleaver", isActive: false },
-  skorpios: { id: "skorpios", name: "Skorpios", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30, coastHalfLifeSeconds: 1.0, brakeDecel: 520, weapons: [], basicAttack: "basic-attack-skorpios", isActive: false },
-  caprico: { id: "caprico", name: "Caprico", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, coastHalfLifeSeconds: 1.5, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-caprico", isActive: false },
+  taurus: { id: "taurus", name: "Taurus", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-taurus", isActive: false },
+  anvil: { id: "anvil", name: "Anvil", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-anvil", isActive: false },
+  prowler: { id: "prowler", name: "Prowler", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, brakeDecel: 500, weapons: [], basicAttack: "basic-attack-prowler", isActive: false },
+  cleaver: { id: "cleaver", name: "Cleaver", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, brakeDecel: 500, weapons: [], basicAttack: "basic-attack-cleaver", isActive: false },
+  skorpios: { id: "skorpios", name: "Skorpios", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30, brakeDecel: 520, weapons: [], basicAttack: "basic-attack-skorpios", isActive: false },
+  caprico: { id: "caprico", name: "Caprico", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-caprico", isActive: false },
 } as const satisfies Record<CarId, CarDef>;
 
 /**

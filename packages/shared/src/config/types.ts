@@ -41,9 +41,12 @@ export interface CarDef {
    */
   ramDefence: number;
   /**
-   * Engine push, 0-100. Scaled to units/s^2 by `accelOf`. Independent of `speed`: this roster's
-   * accel ordering happens to match its speed ordering, but the axis exists so a future chassis can
-   * be fast-topped and sluggish off the line, or the reverse.
+   * How quickly this chassis winds up and how far it rolls off the throttle, 0-100. Scaled to a drag
+   * rate (1/s) by `dragRateOf` (Unity's `DriveConfig.linearDrag`, U4) — the same rate also sets top
+   * speed (`engineAccelOf(id) / dragRateOf(id) === forwardMaxSpeedOf(id)`), so this is no longer an
+   * independently-authored push. Independent of `speed`: this roster's accel ordering happens to
+   * match its speed ordering, but the axis exists so a future chassis can be fast-topped and
+   * sluggish off the line, or the reverse.
    */
   accel: number;
   /**
@@ -52,16 +55,18 @@ export interface CarDef {
    */
   handling: number;
   /**
-   * How long this chassis takes to shed half its speed while coasting, in seconds.
+   * Flat deceleration while the brake is held, u/s². A DIRECT VALUE, NOT A 0-100 RATING — do not
+   * scale it by anything, and above all do not derive it from `ramDefence` (spec P7: the ram
+   * ratings stay out of the drive model entirely, exactly as the `mass` rating they replaced was
+   * required to. A force-based drive would make solid imply sluggish and collapse the roster back
+   * onto one axis).
    *
-   * A DIRECT VALUE, NOT A 0-100 RATING. This and `brakeDecel` are the first two fields on this
-   * table that are not ratings — do not scale them by anything, and above all do not derive them
-   * from `ramDefence` (spec P7: the ram ratings stay out of the drive model entirely, exactly as the
-   * `mass` rating they replaced was required to. A force-based drive would make solid imply
-   * sluggish and collapse the roster back onto one axis).
+   * `coastHalfLifeSeconds` used to sit beside this as the drive model's other direct value — how
+   * long a chassis took to shed half its speed while coasting. The Unity drive-model port (drive-
+   * model port stage 1 Task 6) deleted it outright: coasting is no longer a dedicated per-car decay
+   * knob, it is the same `dragRateOf`/`baseDrag`+`dragPerRating` pair that also sets top speed and
+   * wind-up (U4), and that pair lives on `DRIVE_CONFIG`/`CarDef.accel`, not here.
    */
-  coastHalfLifeSeconds: number;
-  /** Flat deceleration while the brake is held, u/s². Also a direct value, not a rating. */
   brakeDecel: number;
   /** Ordered loadout: index 0 is slot 1. Order IS the slot mapping. */
   weapons: readonly WeaponId[];
