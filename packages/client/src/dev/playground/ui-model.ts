@@ -209,7 +209,8 @@ export function statsTabs(setup: PlaygroundSetup): StatsTab[] {
         {
           title: "Global",
           fields: fields.filter(
-            (f) => f.group === "drive" || f.group === "ram" || f.group === "combat",
+            (f) =>
+              f.group === "drive" || f.group === "ram" || f.group === "combat" || f.group === "impulse",
           ),
         },
       ],

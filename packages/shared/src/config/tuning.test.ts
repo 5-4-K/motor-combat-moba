@@ -7,6 +7,7 @@ import {
 } from "./car-config.js";
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
+import { IMPULSE_CONFIG } from "./impulse-config.js";
 import { RAM_CONFIG, ramTicks } from "./ram-config.js";
 import { instanceDefOf, WEAPON_TABLE } from "./weapon-config.js";
 import { WEAPON_TICKS, weaponTicksOf } from "./weapon-ticks.js";
@@ -178,5 +179,29 @@ describe("tuning store", () => {
     expect(() => setTuning({ drive: 3 })).toThrow();
     expect(() => setTuning({ "car.mirage.toString": 3 })).toThrow();
     expect(activeTuning()).toBeNull();
+  });
+
+  it("the impulse root is tunable, and both members reach their call-time readers", () => {
+    // `IMPULSE_CONFIG` became the sixth tuning root on 2026-09-19, once the Unity port made both
+    // members matter: `spinScale` was inert until stage 4 gave an authored weapon push a real lever
+    // arm, and `wallContactPad` is what every `ImpulseDef.onWallImpact` sweep measures against.
+    //
+    // It is the only root that owes `setTuning`'s rebuild list NOTHING, because nothing is derived
+    // from it at module load: `sim/impulse.ts` reads `spinScale` inside `applyImpulse` and
+    // `sim/contact.ts` reads `wallContactPad` inside the wall sweep, both at call time. That is
+    // exactly why this test asserts the config object itself rather than a resolved artifact — and
+    // it is the thing to re-read if someone ever derives one: this test would keep passing while the
+    // derived value went stale, so the rebuild belongs there, not here.
+    const shippedSpin = IMPULSE_CONFIG.spinScale;
+    const shippedPad = IMPULSE_CONFIG.wallContactPad;
+
+    setTuning({ "impulse.spinScale": 40, "impulse.wallContactPad": 7 });
+    expect(IMPULSE_CONFIG.spinScale).toBe(40);
+    expect(IMPULSE_CONFIG.wallContactPad).toBe(7);
+    expect(activeTuning()).toEqual({ "impulse.spinScale": 40, "impulse.wallContactPad": 7 });
+
+    setTuning(null);
+    expect(IMPULSE_CONFIG.spinScale).toBe(shippedSpin);
+    expect(IMPULSE_CONFIG.wallContactPad).toBe(shippedPad);
   });
 });

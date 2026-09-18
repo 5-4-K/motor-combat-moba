@@ -60,4 +60,13 @@ describe("tuning walker", () => {
     const clean = sanitizeStoredTuning({ "drive.baseTurnRate": 2, "weapon.retired.damage": 5 });
     expect(Object.keys(clean)).toEqual(["drive.baseTurnRate"]);
   });
+
+  it("emits every IMPULSE_CONFIG member, so the panel cannot silently lose the root", () => {
+    // The walker enumerates each root with its own explicit loop, so a root is not emitted until
+    // someone writes that loop — a new member of an EXISTING root appears for free, but a dropped
+    // loop takes the whole root away with no other test noticing.
+    const emitted = tunableFields().filter((f) => f.group === "impulse");
+    expect(emitted.map((f) => f.path).sort()).toEqual(["impulse.spinScale", "impulse.wallContactPad"]);
+    expect(emitted.every((f) => f.kind === "number")).toBe(true);
+  });
 });

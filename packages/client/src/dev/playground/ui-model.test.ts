@@ -137,7 +137,7 @@ describe("statsTabs (PG35)", () => {
     expect(global.groups).toHaveLength(1);
     expect(global.groups[0]!.fields.length).toBeGreaterThan(0);
     for (const field of global.groups[0]!.fields) {
-      expect(["drive", "ram", "combat"]).toContain(field.group);
+      expect(["drive", "ram", "combat", "impulse"]).toContain(field.group);
     }
   });
 

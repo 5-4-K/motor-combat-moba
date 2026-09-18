@@ -1,6 +1,7 @@
 import { CAR_TABLE, rebuildResolvedDrive } from "./car-config.js";
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
+import { IMPULSE_CONFIG } from "./impulse-config.js";
 import { RAM_CONFIG, rebuildRamTicks } from "./ram-config.js";
 import { isStatusId } from "./status-config.js";
 import { rebuildBurstDefs, WEAPON_TABLE } from "./weapon-config.js";
@@ -9,8 +10,8 @@ import { rebuildWeaponTicks } from "./weapon-ticks.js";
 export type TuningValue = number | boolean | string;
 
 /**
- * Flat dot-paths into the five balance tables: `"car.mirage.speed"`, `"drive.baseTurnRate"`,
- * `"ram.attackerLockMs"`, `"combat.hpPerRating"`, `"weapon.predator.damage"`,
+ * Flat dot-paths into the six balance tables: `"car.mirage.speed"`, `"drive.baseTurnRate"`,
+ * `"ram.attackerLockMs"`, `"combat.hpPerRating"`, `"impulse.spinScale"`, `"weapon.predator.damage"`,
  * `"weapon.pepperbox.hitbox.radiusAlong"`. Numeric segments index arrays
  * (`"weapon.predator.applies.0.durationMs"`).
  */
@@ -19,7 +20,7 @@ export type TuningOverrides = Readonly<Record<string, TuningValue>>;
 /**
  * Dev-only runtime balance tuning (spec PG12).
  *
- * The five source tables below are `as const` but not frozen, so this module overrides them by
+ * The six source tables below are `as const` but not frozen, so this module overrides them by
  * mutating them IN PLACE. That is the whole trick: object identity is preserved, so every existing
  * importer — the sim, the render tables, the server — keeps reading the same object and needs no
  * call-site change. Only the artifacts derived once at module load — the resolved drive, the weapon
@@ -37,6 +38,7 @@ const ROOTS: Readonly<Record<string, object>> = Object.freeze({
   car: CAR_TABLE,
   drive: DRIVE_CONFIG,
   ram: RAM_CONFIG,
+  impulse: IMPULSE_CONFIG,
   combat: COMBAT_CONFIG,
   weapon: WEAPON_TABLE,
 });

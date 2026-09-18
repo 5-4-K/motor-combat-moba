@@ -1,6 +1,7 @@
 import { CAR_TABLE } from "./car-config.js";
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
+import { IMPULSE_CONFIG } from "./impulse-config.js";
 import { RAM_CONFIG } from "./ram-config.js";
 import type { TuningOverrides, TuningValue } from "./tuning.js";
 import type { CarId } from "./types.js";
@@ -9,12 +10,12 @@ import type { WeaponId } from "./weapon-types.js";
 
 /**
  * Enumerable, validatable tuning surface for a dev playground (spec PG14) — built once from the
- * five source tables `setTuning` (Task 2) already knows how to write. `path` is a `setTuning`-ready
+ * six source tables `setTuning` (Task 2) already knows how to write. `path` is a `setTuning`-ready
  * dot-path; a UI slaps `min`/`max`/`step`/`options` on it and never has to know a leaf's provenance.
  */
 export interface TunableField {
   path: string; // setTuning-compatible: "weapon.predator.damage"
-  group: "car" | "drive" | "ram" | "combat" | "weapon";
+  group: "car" | "drive" | "ram" | "combat" | "impulse" | "weapon";
   ownerId?: string; // carId or weaponId for car/weapon groups
   label: string; // path minus group+owner, e.g. "hitbox.radius"
   kind: "number" | "boolean" | "enum";
@@ -89,7 +90,7 @@ function numberRange(shipped: number, path: string): { min: number; max: number;
 
 function pushSimpleField(
   fields: TunableField[],
-  group: "drive" | "ram" | "combat",
+  group: "drive" | "ram" | "combat" | "impulse",
   key: string,
   value: unknown,
 ): void {
@@ -224,6 +225,15 @@ function buildFields(): TunableField[] {
 
   for (const [key, value] of Object.entries(COMBAT_CONFIG)) {
     pushSimpleField(fields, "combat", key, value);
+  }
+
+  // `IMPULSE_CONFIG` joined the tunable roots on 2026-09-19, once the Unity port made both members
+  // matter: `spinScale` was inert until stage 4 gave an authored push a real lever arm, and
+  // `wallContactPad` is what every `ImpulseDef.onWallImpact` sweep measures against. Neither is a
+  // derived artifact — `contact.ts` and `ram-bridge.ts` read `wallContactPad` at call time and
+  // `impulse.ts` reads `spinScale` at call time — so neither owes `tuning.ts`'s rebuild list an entry.
+  for (const [key, value] of Object.entries(IMPULSE_CONFIG)) {
+    pushSimpleField(fields, "impulse", key, value);
   }
 
   buildWeaponFields(fields);
