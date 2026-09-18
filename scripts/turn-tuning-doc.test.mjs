@@ -9,7 +9,6 @@ import {
   RAM_CONFIG,
   TICK_RATE_HZ,
   driveOf,
-  modifiersOf,
 } from "@motor-combat-moba/shared";
 
 /**
@@ -128,14 +127,6 @@ const doc = fs.readFileSync(DOC, "utf8");
 const tables = tablesIn(doc);
 const deg = (radians) => (radians * 180) / Math.PI;
 
-/**
- * The `turnRate` multiplier a reeling car ACTUALLY drives with — the authored `STATUS_TABLE.reeling`
- * value put through the same `modifiersOf` clamp `stepDrive` reads it through, rather than lifted
- * raw off the row. See the note on the derived table's spec list for why the difference matters.
- */
-const reelingTurnRate = () =>
-  modifiersOf([{ statusId: "reeling", startTick: 0, endsTick: 1, sourceSessionId: "" }], 0).turnRate;
-
 describe("docs/turn-tuning.md", () => {
   it("prints the per-car ratings CAR_TABLE actually holds", () => {
     const { header, rows } = tableWhere(tables, (h) => labelOf(h) === "Rating", "per-car ratings");
@@ -153,18 +144,21 @@ describe("docs/turn-tuning.md", () => {
   });
 
   /**
-   * The per-car direct-values table (coast half-life, brake deceleration) joined `CAR_TABLE` on
+   * The per-car direct-values table (drag rate, brake deceleration) joined `CAR_TABLE` on
    * 2026-09-06 alongside the heavy-car pass, and it's the one per-car table stages 2-5 will keep
-   * touching. It doesn't feed a turn-rate or radius formula, so it can't share the ratings table's
-   * row list (`turn-tuning-doc.test.mjs`'s own `deepEqual` on that list is why the prior implementer
-   * put it in its own table rather than as a row there) — but nothing else exempts it from being
-   * read back the same way every other table on this page is.
+   * touching. `coastHalfLifeSeconds` is gone — the Unity drive-model port (car-physics-port stage 1)
+   * deleted the field outright, replacing proportional coast with the same `dragRate` that also sets
+   * top speed and wind-up (`dragRateOf`, `config/car-config.ts`) — so its row is replaced with one
+   * reading that derived rate instead. It doesn't feed a turn-rate or radius formula, so it can't
+   * share the ratings table's row list (`turn-tuning-doc.test.mjs`'s own `deepEqual` on that list is
+   * why the prior implementer put it in its own table rather than as a row there) — but nothing else
+   * exempts it from being read back the same way every other table on this page is.
    */
   it("prints the per-car direct values CAR_TABLE actually holds", () => {
     const { header, rows } = tableWhere(tables, (h) => labelOf(h) === "Value", "per-car direct values");
     const columns = carColumns(header, "per-car direct values");
     const expected = {
-      "coastHalfLifeSeconds — coast half-life (s)": (id) => CAR_TABLE[id].coastHalfLifeSeconds,
+      "dragRate — drag (1/s)": (id) => driveOf(id).dragRate,
       "brakeDecel — brake deceleration (u/s²)": (id) => CAR_TABLE[id].brakeDecel,
     };
     assert.deepEqual(
@@ -185,6 +179,13 @@ describe("docs/turn-tuning.md", () => {
    * tuning turning needs to know a ram can overrule it. An `authorityFloor` row sat beside it until
    * stage 3b of the 2026-09-06 car-physics rework deleted that field: ram control loss is the
    * `reeling` status now, and its steering multiplier lives in `STATUS_TABLE`, not here.
+   *
+   * `stopTurnRatio` and `reverseSpeedRatio` are gone: the Unity drive-model port deleted both fields
+   * outright (yaw is speed-independent, so there is no separate at-rest rate to ratio against; reverse
+   * top speed is now the emergent `engineAccel × reverseAccelFactor / dragRate`, not an authored
+   * ratio). `baseDrag`/`dragPerRating` are the one number that sets top speed, wind-up AND roll
+   * (`dragRateOf`); `lateralGripRate` is the drift knob the old model had no equivalent for;
+   * `reverseAccelFactor` and `reverseEpsilon` are the reverse-gear knobs the port introduced.
    */
   it("prints the global knobs at their configured values", () => {
     const { rows } = tableWhere(
@@ -195,11 +196,14 @@ describe("docs/turn-tuning.md", () => {
     const expected = {
       baseTurnRate: DRIVE_CONFIG.baseTurnRate,
       turnRatePerRating: DRIVE_CONFIG.turnRatePerRating,
-      stopTurnRatio: DRIVE_CONFIG.stopTurnRatio,
       spinMaxRate: RAM_CONFIG.spinMaxRate,
       baseMaxSpeed: DRIVE_CONFIG.baseMaxSpeed,
       speedPerRating: DRIVE_CONFIG.speedPerRating,
-      reverseSpeedRatio: DRIVE_CONFIG.reverseSpeedRatio,
+      baseDrag: DRIVE_CONFIG.baseDrag,
+      dragPerRating: DRIVE_CONFIG.dragPerRating,
+      lateralGripRate: DRIVE_CONFIG.lateralGripRate,
+      reverseAccelFactor: DRIVE_CONFIG.reverseAccelFactor,
+      reverseEpsilon: DRIVE_CONFIG.reverseEpsilon,
     };
     assert.deepEqual(rows.map(labelOf), Object.keys(expected), `unexpected rows in the global table. ${REBUILD}`);
     for (const cells of rows) {
@@ -220,40 +224,37 @@ describe("docs/turn-tuning.md", () => {
     );
     const columns = carColumns(header, "derived values");
 
-    // "Rate while reeling" replaces the "Rate at ram authority floor" row this list used to close on.
-    // That one read `RAM_CONFIG.authorityFloor`, which had meant nothing since the 2026-09-06
-    // vector-drive rework and is deleted outright as of stage 3b; ram control loss is the `reeling`
-    // status now, and its `turnRate` is a real multiplier on the moving rate rather than a floor. Read
-    // out of `STATUS_TABLE` rather than typed, so a retune of that row fails the page too.
+    // "Turn rate at rest" (and its degrees row), "180° from standstill" and "Rate while reeling" are
+    // gone: `turnRateAtStop` no longer exists on `ChassisDrive` (the Unity drive-model port, car-
+    // physics-port stage 1) — yaw is speed-independent, so there is no separate at-rest rate to scale
+    // or to reel against; a rammed car's `reeling` steering loss is real (`STATUS_TABLE.reeling`
+    // still carries no `turnRate` multiplier after stage 3, so there is nothing left for that row to
+    // read). "Engine push", "Time to 90% of top speed", "Roll distance from top speed" and "Slip
+    // angle at full lock" are new: top speed is no longer an authored clamp but the equilibrium of the
+    // engine's push against drag, so those are the numbers that actually describe wind-up and roll
+    // under that model. "Reverse top speed" now reads the emergent `maxSpeed × reverseAccelFactor`
+    // rather than an authored ratio; "Reverse turn radius" follows it through.
     //
-    // Read through `modifiersOf`, NOT off `STATUS_TABLE.reeling.modifiers.turnRate` directly: that
-    // raw number is what the row AUTHORS, and `modifiersOf` clamps it against `STATUS_LIMITS` before
-    // `stepDrive` ever multiplies by it. The two agree today only because 0.4 IS the floor. Author a
-    // harsher value and the raw read would put a number on the page that the sim never applies — the
-    // exact staleness this row exists to catch, arriving through the guard itself.
-    // `turnRateAtStop` and `reverseMaxSpeed` are gone from `ChassisDrive` (the Unity drive-model
-    // port, car-physics-port stage 1 Task 3): yaw rate is speed-independent now (no separate
-    // at-rest rate), and reverse top speed is the emergent equilibrium `reverseAccel / dragRate`
-    // rather than an authored field. The four rows below that used to read them are given the
-    // closest still-meaningful formula so this script computes a real number instead of crashing
-    // on `undefined` — that number is expected to disagree with `docs/turn-tuning.md`'s committed
-    // figures (which reflect the pre-port model) until a later task rebuilds the page; this file's
-    // job is to prove the disagreement rather than hide it behind a `TypeError`.
+    // The slip-angle formula deliberately includes `dragRate` in its denominator alongside
+    // `lateralGripRate`: drag acts on the whole velocity vector every tick (`stepDrive`'s step 2), so
+    // it bleeds the lateral component too, not only the forward one. `atan(turnRate /
+    // lateralGripRate)` alone — ignoring drag — overstates the drift by about a third; see
+    // `DRIVE_CONFIG.lateralGripRate`'s own comment for the measured comparison.
     const spec = [
       ["Turn rate", (d) => d.turnRate],
       ["— in degrees", (d) => deg(d.turnRate)],
       ["— per tick", (d) => d.turnRate / TICK_RATE_HZ],
       ["— degrees per tick", (d) => deg(d.turnRate) / TICK_RATE_HZ],
-      ["Turn rate at rest", (d) => d.turnRate],
-      ["— in degrees", (d) => deg(d.turnRate)],
+      ["Engine push", (d) => d.engineAccel],
+      ["Time to 90% of top speed", (d) => Math.log(10) / d.dragRate],
       ["Top speed", (d) => d.maxSpeed],
-      ["Reverse top speed", (d) => d.reverseAccel / d.dragRate],
+      ["Roll distance from top speed", (d) => d.maxSpeed / d.dragRate],
+      ["Reverse top speed", (d) => d.maxSpeed * DRIVE_CONFIG.reverseAccelFactor],
       ["Turn radius", (d) => d.maxSpeed / d.turnRate],
-      ["Reverse turn radius", (d) => (d.reverseAccel / d.dragRate) / d.turnRate],
+      ["Reverse turn radius", (d) => (d.maxSpeed * DRIVE_CONFIG.reverseAccelFactor) / d.turnRate],
+      ["Slip angle at full lock", (d) => deg(Math.atan(d.turnRate / (d.dragRate + DRIVE_CONFIG.lateralGripRate)))],
       ["180° while moving", (d) => Math.PI / d.turnRate],
       ["360° while moving", (d) => (2 * Math.PI) / d.turnRate],
-      ["180° from standstill", (d) => Math.PI / d.turnRate],
-      ["Rate while reeling", (d) => d.turnRate * reelingTurnRate()],
     ];
     assert.deepEqual(
       rows.map(labelOf),
