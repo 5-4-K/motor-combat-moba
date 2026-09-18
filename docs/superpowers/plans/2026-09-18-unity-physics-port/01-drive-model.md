@@ -953,7 +953,9 @@ test move together or the suite fails.
   `180° from standstill` and `Rate while reeling`; add `Engine push` (`d.engineAccel`),
   `Time to 90% of top speed` (`Math.log(10) / d.dragRate`), `Roll distance from top speed`
   (`d.maxSpeed / d.dragRate`) and `Slip angle at full lock`
-  (`Math.atan(d.turnRate / DRIVE_CONFIG.lateralGripRate)` in degrees). `Reverse top speed` now reads
+  (`Math.atan(d.turnRate / (d.dragRate + DRIVE_CONFIG.lateralGripRate))` in degrees — **drag bleeds the
+  lateral component too**, so grip is the EXTRA sideways rate, not the only one; the naive
+  `atan(turnRate / lateralGripRate)` overstates the drift by about a third). `Reverse top speed` now reads
   `d.maxSpeed * DRIVE_CONFIG.reverseAccelFactor`.
 - Delete the `reelingTurnRate()` helper: `reeling` carries no `turnRate` multiplier after stage 3.
 
@@ -963,7 +965,7 @@ Regenerate every derived cell rather than typing it, and update the page's own "
 honest" snippet to the new field names in the same edit:
 
 ```bash
-node -e "import('./packages/shared/dist/index.js').then(({CAR_TABLE,DRIVE_CONFIG,driveOf})=>{for(const id of Object.keys(CAR_TABLE)){const d=driveOf(id);console.log(id,d.maxSpeed.toFixed(2),d.engineAccel.toFixed(2),d.dragRate.toFixed(4),(Math.log(10)/d.dragRate).toFixed(2),(d.maxSpeed/d.dragRate).toFixed(1),(Math.atan(d.turnRate/DRIVE_CONFIG.lateralGripRate)*180/Math.PI).toFixed(1));}})"
+node -e "import('./packages/shared/dist/index.js').then(({CAR_TABLE,DRIVE_CONFIG,driveOf})=>{for(const id of Object.keys(CAR_TABLE)){const d=driveOf(id);console.log(id,d.maxSpeed.toFixed(2),d.engineAccel.toFixed(2),d.dragRate.toFixed(4),(Math.log(10)/d.dragRate).toFixed(2),(d.maxSpeed/d.dragRate).toFixed(1),(Math.atan(d.turnRate/(d.dragRate+DRIVE_CONFIG.lateralGripRate))*180/Math.PI).toFixed(1));}})"
 ```
 
 - [ ] **Step 3: Fix the prose the test cannot see**
@@ -972,7 +974,9 @@ Reread and correct: the turn-radius paragraphs and the "1.5 u band" claim, the t
 history, the `steeringGrip`/`impactGripDecel` paragraph, and the whole **"What is *not* a knob"**
 section — it asserts that no grip or traction value exists for cornering, which this stage makes
 false. Replace that section with a short one naming `lateralGripRate` as the drift knob and giving
-the slip-angle formula.
+the slip-angle formula `atan(turnRate / (dragRate + lateralGripRate))`. Say plainly that drag acts on
+the whole velocity vector, so a car's own drag rate stiffens its cornering as well as slowing it —
+which is why raising `accel` narrows the drift, a coupling the old model did not have.
 
 - [ ] **Step 4: Verify**
 
