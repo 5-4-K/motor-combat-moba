@@ -593,6 +593,49 @@ command as well as the figure.
   `shoveY` and `authority`, deleted by the car-physics rework's stage 1. Not this work's to fix, but
   whoever starts that rewrite must refresh it against the model this port leaves behind.
 
+- **The weapon module and the ram module are coupled at seven sites. The owner reviewed the audit on
+  2026-09-19 and chose NOT to decouple them.** Recorded here so the next reader finds a decision
+  rather than re-running the audit. The weapon *pipeline* is clean — `sim/weapons/*`, `combat.ts` and
+  `damage.ts` import nothing from the ram module — so every site below is at the **push** seam:
+  1. `sim/impulse.ts:1` imports `ram-config.js` directly, for `RAM_CONFIG.spinMaxRate` (the angular
+     clamp, `:134`) and `inertiaRadiusSquared()` (the hull inertia denominator, `:132`).
+  2. **`inertiaRadiusSquared()` is misplaced, and moving it would remove half of site 1 for free.**
+     It is `(carWidth ** 2 + carHeight ** 2) / 12` — pure hull geometry with nothing ram-specific
+     about it. It lives in `ram-config.ts` because stage 3's plan put it there.
+  3. **A weapon's spin is scaled by the victim's `ramDefence`, and `defenceScaled: false` does not
+     stop it.** `impulse.ts:132` computes `inertia = ramDefence * inertiaRadiusSquared()`
+     unconditionally; `defenceScaled` gates only the LINEAR part. Inert today only because
+     `wildcharge` authors `spin: 0` — but stage 4 makes `spin` live, so a future row that authors one
+     would rotate a Bastion less than a Bullseye because of a ram rating, with the opt-out flag set.
+  4. The weapon's push is applied inside `ram-bridge.ts`, sharing `ContactMemory` with the ram's
+     falloff stack. There is no weapon-side bridge to move it to.
+  5. `ImpulseDef.defenceScaled` means "divided by `ramDefence`" — a weapon knob whose unit is a ram
+     rating, resolved through `ramDefenceFor` -> `ramDefenceOf`.
+  6. `sim/contact.ts` imports `RAM_CONFIG`, `IMPULSE_CONFIG` and `resolveRam`. Defensible — it IS the
+     contact pass — but the maneuver branch that produces weapon events sits in the same pair loop.
+  7. The client's `impact-feedback.ts` imports `RAM_CONFIG`, and stage 4's Task 7 adds `resolveRam`.
+
+  **Two that are correct and should stay:** `sim/ram.ts` importing `canDamage` from
+  `weapons/targets.js` (friendly fire decided by the same predicate as shots, which the spec states
+  deliberately), and `ram-config.ts` importing `msToTicks` from `weapon-ticks.js` (a shared unit
+  conversion, not a behaviour).
+
+  **If it is ever picked up**, the shape is: `inertiaRadiusSquared` and the angular clamp move to the
+  drive/hull config, `IMPULSE_CONFIG`'s two members go with them or onto the impulse type,
+  `impulse.ts` stops importing `ram-config` entirely, the push application moves out of
+  `ram-bridge.ts`, and `defenceScaled` either names its rating honestly or gets a weapon-side one.
+  That leaves `contact.ts` as the only shared seam, which is structural — both things genuinely
+  happen on contact.
+
+- **Branch state as stages 2 and 3 closed (2026-09-18/19).** `physics/stage2-and-3` carries 20
+  commits. **It is no longer a fast-forward into `feature/movement`**, which moved 5 commits ahead
+  after this branch was cut (the melee weapons spec, the basic-attack id refactor, a
+  `development/main` merge, and the playtest basic-attack carrier fix). Six files changed on both
+  sides and will need a real merge: `CLAUDE.md`, `docs/combat-model.md`,
+  `packages/shared/src/config/car-config.ts`, `.../weapon-config.ts`, `.../weapon-types.ts` and
+  `packages/shared/src/index.ts`. The abandoned branch `claude/motor-combat-physics-analysis-3e7a9a`
+  holds nothing unique — verified with `git cherry` against both lines — and is safe to delete.
+
 ## Decisions that bind
 
 - The spec's §2 decisions U1–U11 were put to the user and answered. **Do not re-litigate them**, in
