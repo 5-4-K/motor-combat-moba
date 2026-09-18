@@ -460,16 +460,29 @@ export const WEAPON_TABLE = {
     applies: [{ statusId: "fortified", target: "self", durationMs: 10000 }],
     impulse: {
       /**
-       * Was `SLAM_CONFIG.knockSpeed`, authored as "2x RAM_CONFIG.knockMaxSpeed" — a by-hand
-       * relationship, not a derived one, and now doubly stale. `RAM_CONFIG.knockMaxSpeed` itself is
-       * gone (deleted with `mass`, spec R1): a ram's push no longer comes from a capped speed at all.
-       * It comes from `sim/ram.ts`'s `shoveOf` — drive-in speed times the type scale times
-       * `ramAttack`/`ramDefence` — which is open-ended rather than saturating (R9), and stayed that
-       * way through the 2026-09-18 Unity ram port. "2x the ram maximum" is not merely a stale number
-       * now: it names a quantity ("the ram maximum") that nothing produces, since nothing saturates.
-       * NOTHING FAILS if this is left alone: a 20-second ult can quietly end up weaker than an
-       * ordinary flank ram. Stage 5 re-pitches it — against a measured typical/strong ram outcome,
-       * not against a maximum that no longer exists. Until then, treat this number as provisional.
+       * The victim's Δv, in u/s, applied whole: `defenceScaled: false` below opts out of the
+       * `ramDefence` divisor, so every chassis is punted exactly this far.
+       *
+       * **Re-pitched analytically by the 2026-09-18 Unity port's stage 4, and the number did not
+       * move — its justification did.** It was authored as "2x `RAM_CONFIG.knockMaxSpeed`", then
+       * orphaned twice: `knockMaxSpeed` went with `mass`, and the ram contest that replaced it was
+       * open-ended by design (R9), so "the ram maximum" named a quantity nothing produced. The
+       * Unity ram model brings that quantity back — a ram's shove is
+       * `driveIn * typeScale * globalScale * ramAttack / ramDefence` (spec §7.2), every term
+       * bounded — and at the §9.3 starting values the roster's hardest possible ram is a Mirage
+       * flanking a Bullseye at its own top speed, at 259.9 u/s. 520 is 2.00x that, 3.3x a mirror-
+       * match flank (156.0) and 8.0x the hardest ram once diminishing returns bottom out. The
+       * original authoring intent is true again, by arithmetic rather than by assertion.
+       *
+       * `weapon-config.test.ts` pins the relationship rather than the number, at 1.5x the computed
+       * maximum, because **`RAM_CONFIG` is not hashed by `balanceStamp`**: a retune of `globalScale`
+       * or `flankScale` moves every ram in the game with nothing else failing.
+       *
+       * Still PROVISIONAL in one respect the arithmetic cannot settle (spec §9.3): under U31 the
+       * 1.4 s of reeling below is a total loss of control with no lateral grip, so a 520 u/s punt
+       * carries its victim into a wall — and often the spikes — far more reliably than the same
+       * number did before. Stage 5 confirms that in the playground with the user. If it comes down,
+       * it comes down as a fraction of `hardestOrdinaryRam()`, not to a freshly typed constant.
        */
       speed: 520,
       direction: "radial",
@@ -485,27 +498,21 @@ export const WEAPON_TABLE = {
        */
       defenceScaled: false,
       /**
-       * Longer than a full-strength ram's 1000ms (`RAM_CONFIG.ramUncontrolMs`, stage 3b). This is an
-       * ult on a 20s cooldown.
+       * How long the victim is left `reeling`, declared on the row rather than implied by the
+       * bridge. Longer than a full-strength ram's `RAM_CONFIG.ramUncontrolMs` (1000) — an ult on a
+       * 20 s cooldown should outlast anything a player can do by driving — and never
+       * falloff-scaled, since diminishing returns are ram-only (spec U6), so an ult is not quietly
+       * discounted by how many ordinary rams the victim has recently absorbed.
        *
-       * **New behaviour, not a carried-across number.** Until stage 4 a slam imposed no control loss
-       * at all: `sim/contact.ts`'s slam branch authored `uncontrolTicks: 0` and `SLAM_CONFIG`'s own
-       * `victimAuthority` (0.35), the pre-`Impulse` steering floor that was meant to express it, had
-       * been inert since the vector-drive rework's stage 2 and was deleted here rather than revived.
-       * A ram's control loss is `RAM_CONFIG.ramUncontrolMs` scaled by the victim's diminishing-returns
-       * stack; a slam's is this, unscaled — falloff is ram-only (spec P24), so this number is never
-       * *shortened* by how many ordinary rams the victim has recently absorbed.
+       * **This got much harsher on 2026-09-18 without the number moving.** Under spec U31 `reeling`
+       * carries `immobilised`, `steeringLocked`, `spinFree`, `ramBlocked` and `grip: 0.6`
+       * (spec §5): 1.4 seconds of being a passenger, sliding on whatever velocity it was
+       * given. Before that it was `turnRate: 0.4, accel: 0.4` — a degraded car, still steering. The
+       * duration is the same; what it buys is not, and stage 5's playground pass is where that is
+       * judged against the punt above.
        *
-       * **It is, however, routinely DELETED by one, and that is a live defect this row cannot fix.**
-       * The Unity ram port's stage 3 made `reeling` `reapply: "ignore"` (forced by its flags), so
-       * `applyStatus` returns the list unchanged when a reel is already running: a victim rammed
-       * inside the last second — including on the same tick, since `contactTick`'s ram loop runs
-       * before its slam loop — takes NONE of this 1400 ms, and keeps the ram's shorter window
-       * instead. Ram-then-charge is the most common setup for this weapon, so the number below is
-       * unreachable in exactly the case it was pitched for. Recorded for stage 4, which owns the
-       * re-pitch, in the Unity port's `EXECUTION.md` under "Deferred, and who owns it"; the fix is a
-       * per-source reel or a new chaining variant, which is a design decision rather than a tuning
-       * one.
+       * (It was carried across from the deleted `SLAM_CONFIG` by the car-physics rework's own
+       * stage 4, which is a different stage 4 from the one that rewrote this comment.)
        */
       applies: [{ statusId: "reeling", durationMs: 1400 }],
       onWallImpact: { windowMs: 500, applies: [{ statusId: "stunned", durationMs: 500 }] },

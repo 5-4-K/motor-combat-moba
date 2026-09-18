@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CAR_TABLE } from "./car-config.js";
+import { CAR_TABLE, forwardMaxSpeedOf, ramAttackOf, ramDefenceOf } from "./car-config.js";
 import { COLOR_TABLE } from "./color-config.js";
 import type { CarId } from "./types.js";
 import type { StatusId } from "./status-types.js";
@@ -8,6 +8,7 @@ import { slotsOf } from "./weapon-slots.js";
 import { WEAPON_TICKS, msToTicks, weaponTicksOf } from "./weapon-ticks.js";
 import type { ImpulseDef, WeaponDef } from "./weapon-types.js";
 import { isStatusId } from "./status-config.js";
+import { RAM_CONFIG } from "./ram-config.js";
 
 describe("WEAPON_TABLE", () => {
   it("pins the overhaul roster's load-bearing numbers (spec 2026-09-01)", () => {
@@ -542,5 +543,56 @@ describe("ImpulseDef", () => {
         expect(def.explosion?.impulse, `${def.id}'s explosion`).toBeUndefined();
       }
     }
+  });
+
+  /**
+   * The hardest ordinary ram the roster can produce, in u/s of victim Δv, derived from the live
+   * config rather than typed (spec §7.2's shove formula at its extremes).
+   *
+   * The maximum is reachable because every term is bounded: `driveIn` by the attacker's own top
+   * speed, the type scale by the largest of the three, and the rating ratio by the roster's own
+   * spread. The deleted contest had no such number — it was open-ended on purpose (R9) — which is
+   * exactly why `wildcharge.impulse.speed`'s old "2x the ram maximum" comment had become a claim
+   * about a quantity that did not exist.
+   *
+   * The whole table, not `activeCarIds()`: the question is what the game's physics can produce, and a
+   * prototype chassis is driven in the playground long before it is published.
+   */
+  function hardestOrdinaryRam(): number {
+    const ids = Object.keys(CAR_TABLE) as CarId[];
+    const typeScale = Math.max(RAM_CONFIG.flankScale, RAM_CONFIG.rearScale, RAM_CONFIG.headOnScale);
+    let hardest = 0;
+    for (const attacker of ids) {
+      for (const victim of ids) {
+        const shove =
+          forwardMaxSpeedOf(attacker) *
+          typeScale *
+          RAM_CONFIG.globalScale *
+          (ramAttackOf(attacker) / ramDefenceOf(victim));
+        if (shove > hardest) hardest = shove;
+      }
+    }
+    return hardest;
+  }
+
+  it("punts meaningfully harder than the hardest ordinary ram in the roster", () => {
+    // The ult's whole identity, and the one property `RAM_CONFIG` can silently take away: it is NOT
+    // hashed by `balanceStamp`, so a stage-5 retune of `globalScale` or `flankScale` moves every ram
+    // in the game with no page rebuild and no other failing test. This is what notices.
+    //
+    // 1.5x rather than the 2.00x the shipped values actually land (520 vs 259.92), so an ordinary
+    // tuning nudge does not trip it and a real inversion does: the bar bites once `globalScale`
+    // passes ~0.667, a third above its authored 0.5.
+    const slam = WEAPON_TABLE.wildcharge.impulse!;
+    expect(slam.speed).toBeGreaterThan(hardestOrdinaryRam() * 1.5);
+  });
+
+  it("leaves its victim reeling for longer than a full-strength ram does", () => {
+    // Both durations mean the same thing since spec U31: `reeling` is a total loss of control, not a
+    // 60% steering debuff. An ult on a 20 s cooldown must outlast the thing anyone can do by driving.
+    // A slam is also never falloff-scaled (U6), so this is the floor as well as the ceiling.
+    const slam = WEAPON_TABLE.wildcharge.impulse!;
+    const reel = slam.applies.find((a) => a.statusId === "reeling")!;
+    expect(reel.durationMs).toBeGreaterThan(RAM_CONFIG.ramUncontrolMs);
   });
 });
