@@ -6,8 +6,8 @@ import type { StatusId } from "./status-types.js";
 import { WEAPON_TABLE, explosionDamageModeOf, instanceDefOf, isWeaponId, weaponDefOf } from "./weapon-config.js";
 import { slotsOf } from "./weapon-slots.js";
 import { WEAPON_TICKS, msToTicks, weaponTicksOf } from "./weapon-ticks.js";
-import type { WeaponDef } from "./weapon-types.js";
-import { STATUS_CONFIG } from "./status-config.js";
+import type { ImpulseDef, WeaponDef } from "./weapon-types.js";
+import { isStatusId } from "./status-config.js";
 
 describe("WEAPON_TABLE", () => {
   it("pins the overhaul roster's load-bearing numbers (spec 2026-09-01)", () => {
@@ -447,24 +447,40 @@ describe("WEAPON_TABLE", () => {
 });
 
 describe("ImpulseDef", () => {
-  it("converts every authored duration to ticks exactly once, for any row that declares an impulse", () => {
-    // Written generically rather than hardcoded to `wildcharge` so a second row opting in is
-    // covered with no rewrite owed to this file. It ran vacuously when Task 1 landed the type and
-    // the conversion alone; since Task 2 authored `wildcharge.impulse` it asserts for real, and
-    // `wildcharge` is the one row it currently reaches.
-    for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
-      const impulse = def.impulse;
-      const ticks = WEAPON_TICKS[def.id].impulse;
-      if (impulse === undefined) {
-        expect(ticks, def.id).toBeUndefined();
-        continue;
+  it("declares every status an impulse applies, naming none in code", () => {
+    const imp = WEAPON_TABLE.wildcharge.impulse!;
+    expect(imp.applies.map((a) => a.statusId)).toEqual(["reeling"]);
+    expect(imp.applies[0]!.durationMs).toBe(1400);
+    expect(imp.onWallImpact!.windowMs).toBe(500);
+    expect(imp.onWallImpact!.applies.map((a) => a.statusId)).toEqual(["stunned"]);
+    expect(imp.onWallImpact!.applies[0]!.durationMs).toBe(500);
+  });
+
+  it("accepts any real status id on either list — that is the point of the restructure", () => {
+    for (const def of Object.values(WEAPON_TABLE)) {
+      if (def.impulse === undefined) continue;
+      for (const a of def.impulse.applies) expect(isStatusId(a.statusId), def.id).toBe(true);
+      for (const a of def.impulse.onWallImpact?.applies ?? []) {
+        expect(isStatusId(a.statusId), def.id).toBe(true);
       }
-      expect(ticks, def.id).toBeDefined();
-      expect(ticks!.uncontrol).toBe(msToTicks(impulse.uncontrolMs));
-      expect(ticks!.wallStunWindow).toBe(msToTicks(impulse.wallStun?.windowMs ?? 0));
-      expect(ticks!.wallStunDuration).toBe(msToTicks(impulse.wallStun?.durationMs ?? 0));
-      expect(ticks!.retriggerImmunity).toBe(msToTicks(impulse.retriggerImmunityMs ?? 0));
     }
+  });
+
+  it("converts every impulse duration to ticks exactly once", () => {
+    const ticks = WEAPON_TICKS.wildcharge.impulse!;
+    expect(ticks.applies[0]!.statusId).toBe("reeling");
+    expect(ticks.applies[0]!.durationTicks).toBe(msToTicks(1400));
+    expect(ticks.onWallImpact!.windowTicks).toBe(msToTicks(500));
+    expect(ticks.onWallImpact!.applies[0]!.durationTicks).toBe(msToTicks(500));
+  });
+
+  it("leaves onWallImpact absent rather than zeroed when a row declares none", () => {
+    // Absent must mean absent — the same rule `WeaponTicks.impulse` already follows. A zero-length
+    // window would arm a sweep that can never fire, which is worse than not arming one.
+    const bare: ImpulseDef = {
+      speed: 1, direction: "radial", spin: 0, defenceScaled: false, applies: [],
+    };
+    expect(bare.onWallImpact).toBeUndefined();
   });
 
   it("leaves rows without an impulse undefined rather than defaulted", () => {
@@ -503,14 +519,6 @@ describe("ImpulseDef", () => {
     for (const row of Object.values(WEAPON_TABLE)) {
       if (row.impulse === undefined) continue;
       expect(row.impulse.spin, `${row.id}: a maneuver impulse has a zero lever arm — see SlamEvent`).toBe(0);
-    }
-  });
-
-  it("requires a non-negative uncontrol duration on every impulse", () => {
-    for (const row of Object.values(WEAPON_TABLE)) {
-      if (row.impulse === undefined) continue;
-      expect(row.impulse.uncontrolMs).toBeGreaterThanOrEqual(0);
-      expect(row.impulse.uncontrolMs).toBeLessThanOrEqual(STATUS_CONFIG.maxDurationMs);
     }
   });
 

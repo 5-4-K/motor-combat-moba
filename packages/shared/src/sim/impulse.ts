@@ -1,5 +1,5 @@
 import { inertiaRadiusSquared, RAM_CONFIG } from "../config/ram-config.js";
-import { SLAM_CONFIG } from "../config/slam-config.js";
+import { IMPULSE_CONFIG } from "../config/impulse-config.js";
 import type { SimBody } from "./step.js";
 
 /**
@@ -124,12 +124,12 @@ function nextSpin(body: SimBody, ramDefence: number, imp: Impulse, dv: number): 
   // Two of those constants moved under this line in the 2026-09-18 Unity ram port and neither moved
   // its VALUE. `inertiaRadiusSquared()` is `RAM_CONFIG.inertiaCoefficient` derived from the hull
   // rather than authored beside it (spec U29): the deleted constant was literally
-  // `(carWidth² + carHeight²) / 12`, so this is a rename. `SLAM_CONFIG.spinScale` is
+  // `(carWidth² + carHeight²) / 12`, so this is a rename. `IMPULSE_CONFIG.spinScale` is
   // `RAM_CONFIG.spinScale`'s shipped 12.5, moved because the ram's knob was re-pitched to 0.3 for a
   // DIFFERENT formula shape — the ram divides by the inertia term alone, this divides by
   // `ramDefence` times it — and leaving the slam on it would have cut `wildcharge`'s spin 41x
-  // without anyone authoring that. See `SLAM_CONFIG.spinScale`'s own comment.
+  // without anyone authoring that. See `IMPULSE_CONFIG.spinScale`'s own comment.
   const inertia = Math.max(1, ramDefence * inertiaRadiusSquared());
-  const spin = (torque / inertia) * SLAM_CONFIG.spinScale * imp.spin;
+  const spin = (torque / inertia) * IMPULSE_CONFIG.spinScale * imp.spin;
   return clamp(body.angVel + spin, -RAM_CONFIG.spinMaxRate, RAM_CONFIG.spinMaxRate);
 }

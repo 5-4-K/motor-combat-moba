@@ -1,5 +1,5 @@
 import { RAM_CONFIG } from "../config/ram-config.js";
-import { SLAM_CONFIG } from "../config/slam-config.js";
+import { IMPULSE_CONFIG } from "../config/impulse-config.js";
 import { SPIKE_CONFIG } from "../config/spike-config.js";
 import type { WeaponId } from "../config/weapon-types.js";
 import { rectPlanes } from "./boundary.js";
@@ -237,7 +237,7 @@ export function resolveContacts(
   const wallBlockedDashers: string[] = [];
   for (const c of ordered) {
     if (!isDasher(c)) continue;
-    if (hullTouchesWorld(carHullOf(c.x, c.y, c.angle), obstacles, bounds, SLAM_CONFIG.wallContactPad)) {
+    if (hullTouchesWorld(carHullOf(c.x, c.y, c.angle), obstacles, bounds, IMPULSE_CONFIG.wallContactPad)) {
       wallBlockedDashers.push(c.sessionId);
     }
   }

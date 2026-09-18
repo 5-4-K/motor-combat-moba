@@ -223,6 +223,22 @@ export type StatusTarget = "self" | "opponents" | "ownerInside";
  * and weapon feel stay independently tunable, now by not sharing a derivation at all. See spec
  * principle D.
  */
+/**
+ * One status an impulse applies.
+ *
+ * **Deliberately NOT `StatusApplication`.** That type carries `target` and `wave`, and on this path
+ * both can only ever hold one value: an impulse acts on exactly one car — the one it pushed — and
+ * lands exactly once, so there is no volley to select and no second target to name. A field that can
+ * hold one value is a rule hiding as a knob, and policing it with a config test is the defect this
+ * restructure exists to remove, not a mitigation of it. The field NAMES match
+ * `StatusApplication`'s on purpose, so the two read as kin.
+ */
+export interface ImpulseStatusApplication {
+  statusId: StatusId;
+  /** Converted to whole ticks once, in `WEAPON_TICKS`. */
+  durationMs: number;
+}
+
 export interface ImpulseDef {
   /** Magnitude as a Δv in u/s. Negative pulls the victim toward the source. */
   speed: number;
@@ -273,10 +289,28 @@ export interface ImpulseDef {
    * identically.
    */
   defenceScaled: boolean;
-  /** How long the victim is left `reeling`. Converted to ticks once, in `WEAPON_TICKS`. */
-  uncontrolMs: number;
-  /** Being driven into level geometry by this push stuns. Omit for an impulse that cannot. */
-  wallStun?: { windowMs: number; durationMs: number };
+  /**
+   * Applied to the pushed car the moment the push lands. An empty list is legal and means a push
+   * that only pushes.
+   *
+   * **The bridge names no status of its own.** Until the 2026-09-19 restructure this was
+   * `uncontrolMs: number` and `ram-bridge.ts` supplied the id `"reeling"` in code, so a row could
+   * say how long but not which — the one place a weapon's effect was decided outside its row.
+   */
+  applies: ImpulseStatusApplication[];
+  /**
+   * Applied if the pushed car meets level geometry within `windowMs` of taking the push.
+   *
+   * A **deferred conditional application**: unlike `applies`, whose statuses land at once, these
+   * wait and may never land at all. `ram-bridge.ts` arms a per-victim record when the push lands and
+   * sweeps it each tick until the window closes; the first tick the car's hull is within
+   * `IMPULSE_CONFIG.wallContactPad` of an obstacle or boundary, these apply and the window shuts, so
+   * one push can stun at most once.
+   *
+   * Omit for a push that cannot. Absent must mean absent — a `windowMs: 0` would arm a sweep that
+   * can never fire, which is worse than not arming one.
+   */
+  onWallImpact?: { windowMs: number; applies: ImpulseStatusApplication[] };
   /** A car pushed by this cannot be pushed by it again within this. */
   retriggerImmunityMs?: number;
 }

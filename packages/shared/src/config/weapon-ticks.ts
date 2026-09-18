@@ -1,5 +1,6 @@
 import { TICK_RATE_HZ } from "../constants.js";
 import { STATUS_CONFIG } from "./status-config.js";
+import type { StatusId } from "./status-types.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
 import type { WeaponDef, WeaponId } from "./weapon-types.js";
 
@@ -57,14 +58,14 @@ export interface WeaponTicks {
   /**
    * The row's `ImpulseDef` durations, converted to ticks once. `undefined` when the row declares no
    * `impulse` — absent must mean absent, never a zero-valued default, or every weapon would read as
-   * a nudge. `wallStunWindow`/`wallStunDuration` are 0 when the source `wallStun` is itself absent,
-   * and `retriggerImmunity` is 0 when `retriggerImmunityMs` is absent — both mirror the sibling
-   * conversions elsewhere in this file (e.g. `refireDelay` and `lifetime`, which each become 0 when absent).
+   * a nudge. `onWallImpact` is `undefined` when the source `ImpulseDef.onWallImpact` is itself
+   * absent — mirroring the sibling conversions elsewhere in this file (e.g. `refireDelay` and
+   * `lifetime`, which each become 0 when absent) — and `retriggerImmunity` is 0 when
+   * `retriggerImmunityMs` is absent.
    */
   impulse?: {
-    uncontrol: number;
-    wallStunWindow: number;
-    wallStunDuration: number;
+    applies: { statusId: StatusId; durationTicks: number }[];
+    onWallImpact?: { windowTicks: number; applies: { statusId: StatusId; durationTicks: number }[] };
     retriggerImmunity: number;
   };
 }
@@ -109,9 +110,20 @@ function ticksFor(def: WeaponDef): WeaponTicks {
       def.impulse === undefined
         ? undefined
         : Object.freeze({
-            uncontrol: msToTicks(def.impulse.uncontrolMs),
-            wallStunWindow: msToTicks(def.impulse.wallStun?.windowMs ?? 0),
-            wallStunDuration: msToTicks(def.impulse.wallStun?.durationMs ?? 0),
+            applies: def.impulse.applies.map((a) => ({
+              statusId: a.statusId,
+              durationTicks: msToTicks(a.durationMs),
+            })),
+            onWallImpact:
+              def.impulse.onWallImpact === undefined
+                ? undefined
+                : {
+                    windowTicks: msToTicks(def.impulse.onWallImpact.windowMs),
+                    applies: def.impulse.onWallImpact.applies.map((a) => ({
+                      statusId: a.statusId,
+                      durationTicks: msToTicks(a.durationMs),
+                    })),
+                  },
             retriggerImmunity: msToTicks(def.impulse.retriggerImmunityMs ?? 0),
           }),
   };

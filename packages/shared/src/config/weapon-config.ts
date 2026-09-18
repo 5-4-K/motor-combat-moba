@@ -507,8 +507,8 @@ export const WEAPON_TABLE = {
        * per-source reel or a new chaining variant, which is a design decision rather than a tuning
        * one.
        */
-      uncontrolMs: 1400,
-      wallStun: { windowMs: 500, durationMs: 500 },
+      applies: [{ statusId: "reeling", durationMs: 1400 }],
+      onWallImpact: { windowMs: 500, applies: [{ statusId: "stunned", durationMs: 500 }] },
       retriggerImmunityMs: 600,
     },
   },
