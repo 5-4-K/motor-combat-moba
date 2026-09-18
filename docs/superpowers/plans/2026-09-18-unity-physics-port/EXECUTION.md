@@ -31,7 +31,9 @@ and stage 2's four tasks are now committed too, on **`physics/stage2-and-3`** �
 
 ## In flight
 
-*Nothing in flight.* Stage 1 landed (all eight tasks committed, `test(drive): pin tick-rate
+**Stage 3 is IN FLIGHT** — the block at the end of this section says exactly where it stopped.
+
+Stage 1 landed (all eight tasks committed, `test(drive): pin tick-rate
 independence; rebuild the guide` closing it) and a **whole-branch review of stage 1 has been swept**
 — see below. **Stage 2 has since landed too, in full, on `physics/stage2-and-3`** — a worktree cut
 from `feature/movement` after the user merged stage 1 there. Its four tasks: Task 1, restitution
@@ -40,7 +42,56 @@ change as `bb69f26`, the commit it carried on the abandoned branch this work was
 recut; treat the two hashes as the same content, not two different changes); Task 2, re-pinning the
 contact expectations at zero restitution (`1dca2c7`); Task 3, re-measuring the spike self-trigger
 (`c74f46e`); and Task 4, this tracker update. See "Stage 2 exit: measured test state" below for the
-post-landing numbers. Next: stage 3.
+post-landing numbers.
+
+### Stage 3 stopped mid-flight on 2026-09-18, with three of six tasks committed
+
+Same branch, `physics/stage2-and-3`. The session was stopped by the user, at a clean point: the
+working tree has nothing uncommitted.
+
+| Task | State | Commits |
+|---|---|---|
+| 1 — reshape `RAM_CONFIG` (and U40's frozen tick table) | Landed, reviewed, fixed | `def93c0`, `19af13a` |
+| 2 — `sim/ram.ts`, the Unity classifier | Landed, reviewed, fixed | `612cb9c`, `f1353c3`, `597b14a` |
+| 3 — `ContactEvents.rams` replaces the impulse map | Committed, **NOT reviewed** | `f9039f9` |
+| 4 — `reeling` redefined, `ramLock` added | Not started | — |
+| 5 — the bridge writes ram velocities directly | Not started | — |
+| 6 — close the stage | Not started | — |
+
+**The tree is mid-refactor and does not typecheck, which is expected between Tasks 3 and 5.**
+`npx tsc -p packages/server/tsconfig.json --noEmit` reports two errors in
+`packages/server/src/sim/ram-bridge.ts`: `contactCarsOf` does not populate the new
+`RamCar.ramBlocked`, and line 329 still destructures an `impulses` field `resolveContacts` no longer
+returns. **Task 5 closes both.** Note that root `npm run build` does **not** surface them — the
+server's build is `tsup`/esbuild and does not typecheck — so use `npm run typecheck` or `npm test`.
+`packages/shared/src/sim/status/channels.test.ts` is red for the same reason (it reads
+`resolveRam(...)!.impulse.speed` and builds a `RamCar` without `ramBlocked`); **Task 4's brief owns
+that file**, so do not fix it anywhere else.
+
+Everything else is as stage 2 left it: 15 server cases red across five files (`predict.test.ts` 9,
+`controller.test.ts` 2, `planner.test.ts` 1, `tiers.test.ts` 2, `balance/match.test.ts` 1), all
+pre-existing stage-1 fallout owned by stage 5's `bot-tuner` pass.
+
+**Two rulings made during execution change what a later task must do, and they are repeated here
+because their home is git-ignored.** The controller's full record — a pre-flight conflict scan, ten
+rulings, and every per-task review outcome — is in `.superpowers/sdd/03-rams/progress.md`, which
+`git clean -fdx` would destroy. The two that bind:
+
+- **Task 4 owns the whole of `docs/turn-tuning.md`, its derived table as well as its prose**, and
+  absorbs Task 6's Step 2a. Dropping `reeling`'s `turnRate: 0.4` breaks
+  `scripts/turn-tuning-doc.test.mjs:280`, which computes a "Rate while reeling" row from
+  `modifiersOf([...reeling]).turnRate` — the plan scopes that page to "prose only, its tables are
+  stage 5's" and so assigns the breakage to nobody. The row becomes **"Grip while reeling"**,
+  `DRIVE_CONFIG.lateralGripRate × STATUS_TABLE.reeling.grip` = 1.8 /s, with the doc test's helper
+  updated to match. Swapping rather than deleting because stage 1 restored this row after it was
+  deleted on a false premise: the guard — a `STATUS_TABLE` multiplier that reaches the drive model
+  must be tabulated and tested — is still live, just through `grip` now.
+- **Task 5's spin line is `player.angVel + side.spin * scales.impulseScale`, clamped, with no
+  `replacesVelocity` branch.** The plan's sketch writes
+  `(side.replacesVelocity ? 0 : player.angVel) + …`, which zeroes an attacker's spin and contradicts
+  spec §7.2's "Spin unchanged" for the attacker and "neither spins" for a head-on. `replacesVelocity`
+  is scoped to velocity by its own doc comment. Since `spin` is 0 in both those cases, dropping the
+  branch is both simpler and spec-correct.
 
 ### Stage 1's whole-branch review, swept 2026-09-18
 
@@ -127,7 +178,7 @@ root, against this stage's final commit:
 |---|---|---|---|
 | 1 | [`01-drive-model.md`](01-drive-model.md) | **Landed** | Asymptotic top speed; measurable slip angle; `stepDrive` reads no module-level rate; 30/60 Hz equivalence test green |
 | 2 | [`02-walls-and-bumps.md`](02-walls-and-bumps.md) | **Landed** | Restitution 0; a car slides along a wall and never gains speed; the spike self-trigger re-measured |
-| 3 | [`03-rams.md`](03-rams.md) | Not started | Attacker stops and locks; victim flung, spun, reeling; head-on stops both; `applyImpulse` has one production caller |
+| 3 | [`03-rams.md`](03-rams.md) | **In flight** — Tasks 1-3 committed, Task 3 unreviewed | Attacker stops and locks; victim flung, spun, reeling; head-on stops both; `applyImpulse` has one production caller |
 | 4 | [`04-slam-and-effects.md`](04-slam-and-effects.md) | Not started | `wildcharge` still clearly harder than the best ordinary ram; `ramLock` published to players |
 | 5 | [`05-tune-and-reconcile.md`](05-tune-and-reconcile.md) | Not started | Playground pass done with the user; probes honest; fresh balance baseline; docs true |
 
