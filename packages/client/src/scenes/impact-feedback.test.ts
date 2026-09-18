@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RAM_CONFIG, type CarId } from "@motor-combat-moba/shared";
+import { RAM_CONFIG, resolveRam, speedOf, type CarId } from "@motor-combat-moba/shared";
 import { freshImpacts, newImpactTracker, type ImpactPose } from "./impact-feedback.js";
 
 const pose = (
@@ -83,9 +83,14 @@ describe("freshImpacts", () => {
     expect(freshImpacts(crawling, [pose("them", 47, 0)], tracker, "ffa")).toEqual([]);
   });
 
-  it("sparks when the remote is the one ramming", () => {
-    // The local car is the victim here, and it is still the local car's screen that should shake —
-    // harder, if anything, since it is the one being flung.
+  it("sparks on a head-on where only the remote is moving, crediting the shove it actually lands", () => {
+    // NOT a one-way ram: "me" is stationary but faces "them" nose-to-nose, so `resolveRam`
+    // classifies this a head-on (§7.1's opposite-heading rule) with `attackerId: ""`. Its two sides
+    // are cross-attributed from the OTHER car's speed (`headOnResolution`'s `ontoA`/`ontoB`), so
+    // "them"'s own side is exactly zero (attributed from "me"'s zero speed) while "me"'s side
+    // carries the real shove (attributed from "them"'s 150 u/s) — confirmed by probing `resolveRam`
+    // directly with this fixture. The local car's screen should still shake, on the shove it is
+    // actually about to receive.
     const tracker = newImpactTracker();
     const hit = freshImpacts(
       pose("me", 0, 0),
@@ -95,6 +100,34 @@ describe("freshImpacts", () => {
     );
     expect(hit).toHaveLength(1);
     expect(hit[0]!.closingSpeed).toBeGreaterThan(0);
+  });
+
+  it("sparks on a genuine one-way remote ram, matching the local car's own shove from the resolution", () => {
+    // A real flank ram, unlike the head-on case above: "me" sits stationary at the origin, facing
+    // +x; "them" drives nose-first into "me"'s FLANK (top side) at a speed comfortably over
+    // `minRamSpeed`. The contact lands on "me"'s side face, so `ramTypeOf` returns "flank"
+    // unconditionally (a side hit is never a head-on or a rear) regardless of the two headings, and
+    // `resolveRam` returns a one-way resolution naming "them" as `attackerId` with "them"'s own side
+    // shoved to exactly zero (the attacker stops dead) and "me"'s side carrying the real push. This
+    // is the shape the selector was specifically corrected to handle — the local car as the shoved
+    // victim of a remote's ram — and it is what pins the fix: the reported `closingSpeed` must be
+    // the magnitude of "me"'s own `RamSide`, not "them"'s (zero) one.
+    const tracker = newImpactTracker();
+    const me = pose("me", 0, 0);
+    const them = pose("them", 0, 37, -Math.PI / 2, 0, 0, -150);
+
+    const ram = resolveRam(me, them, "ffa");
+    if (ram === null) throw new Error("expected this fixture to resolve as a ram");
+    expect(ram.type).toBe("flank");
+    expect(ram.attackerId).toBe("them");
+    const myShove = ram.sides.find((s) => s.sessionId === "me");
+    if (!myShove) throw new Error("expected a shove recorded for the local car");
+    expect(speedOf(myShove.shoveX, myShove.shoveY)).toBeGreaterThan(0);
+
+    const hit = freshImpacts(me, [them], tracker, "ffa");
+    expect(hit).toHaveLength(1);
+    expect(hit[0]!.closingSpeed).toBeGreaterThan(0);
+    expect(hit[0]!.closingSpeed).toBeCloseTo(speedOf(myShove.shoveX, myShove.shoveY), 6);
   });
 
   it("does not spark for a car that may not ram", () => {

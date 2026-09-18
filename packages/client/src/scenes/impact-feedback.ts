@@ -109,21 +109,23 @@ export function freshImpacts(
     // `null`, and the spark stays a cue for the one contact that actually costs somebody something.
     const ram = resolveRam(self, other, mode);
     if (ram === null) continue;
-    // Neither "the other car's side" (`s.sessionId !== self.sessionId`) nor "the non-attacker side"
-    // (`s.sessionId !== ram.attackerId`) is safe here. Both break on a head-on: `attackerId` is `""`
-    // there (U27), and a head-on's two sides are NOT a shoved/unshoved pair the way a one-way ram's
-    // are — each side's shove is attributed from the OTHER car's speed (`headOnResolution`'s
-    // `ontoA`/`ontoB`), so either one can land on zero depending on who was actually moving. A
-    // stationary car head-on'd by a fast one is a real example: its own side carries the real shove
-    // while the other side (keyed off the stationary car's own zero speed) is exactly zero, and
-    // `sides.find` against either `self.sessionId` or `attackerId` can return that zero side first —
-    // whichever side happens to sit at index 0 — regardless of who "self" is. Taking the LARGER of
-    // the two magnitudes is correct for every shape `RamResolution` produces instead: a one-way ram's
-    // attacker side is architecturally always zero, so the max is always the victim's real shove
-    // (whichever car that is); a head-on's max is whichever car actually got hit hardest.
-    const closingSpeed = Math.max(
-      ...ram.sides.map((s) => speedOf(s.shoveX, s.shoveY)),
-    );
+    // Neither "the other car's side" (`s.sessionId !== self.sessionId`) is safe here — it can pick
+    // the attacker's architecturally-zero side when self is the victim of a one-way ram — nor is
+    // "the non-attacker side" (`s.sessionId !== ram.attackerId`): that fixes the one-way case but
+    // still breaks on a head-on, where `attackerId` is `""` (U27) and `sides.find` matches whichever
+    // side sits at index 0 regardless of who actually got hit. A stationary car head-on'd by a fast
+    // one is a real example: `headOnResolution`'s two sides are cross-attributed from the OTHER
+    // car's speed (`ontoA`/`ontoB`), so the stationary car's own side is exactly zero while the
+    // moving car's side carries the real push — the reverse of the one-way case.
+    //
+    // This is not "the shove self is about to take" for every shape `RamResolution` produces — it is
+    // the LARGER of the two `RamSide` magnitudes, used as a hit-magnitude proxy. For a one-way ram
+    // that is exact: the attacker's side is architecturally always zero, so the max is always the
+    // victim's real shove, whoever the victim is. For a head-on with an unequal pair of speeds it is
+    // only an aggregate — it can report the OTHER car's shove rather than self's own velocity change
+    // — which is an acceptable proxy for "how big was this hit" given this file's own header comment
+    // ("do not read the spark as a precise hit indicator"), not a claim that it is self's exact Δv.
+    const closingSpeed = Math.max(...ram.sides.map((s) => speedOf(s.shoveX, s.shoveY)));
     fresh.push({
       sessionId: other.sessionId,
       x: (self.x + other.x) / 2,
