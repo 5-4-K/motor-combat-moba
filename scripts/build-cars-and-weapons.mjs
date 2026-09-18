@@ -411,9 +411,11 @@ const effectAnchor = (statusId) => `fx-${statusId}`;
  * Three application paths, and a status is only as published as the paths that reach it:
  *  - `WeaponDef.applies` — the ordinary one, `self` or `opponents`.
  *  - `ExplosionDef.applies` — magmablast's blast is the only user, and it is `opponents` only.
- *  - `ImpulseDef.wallStun` — wildcharge's hard slam stuns a car it drives into a wall. It is a
- *    duration on a push rather than a status application, so nothing else on this page would find
- *    it; before the 2026-09-17 restructure the guide never mentioned it at all.
+ *  - `ImpulseDef.onWallImpact.applies` — wildcharge's hard slam stuns a car it drives into a wall. It
+ *    is a duration on a push rather than an ordinary status application, so nothing else on this page
+ *    would find it; before the 2026-09-17 restructure the guide never mentioned it at all. Renamed
+ *    from `ImpulseDef.wallStun` (a single `{ windowMs, durationMs }`, always `"stunned"`) by the
+ *    2026-09-19 restructure to a list, so this reads every entry rather than assuming one.
  *
  * Returns `Map<statusId, { weaponId, durationMs, note }[]>` in `WEAPONS` order, so the Effects
  * section credits the sources a player will meet first.
@@ -431,12 +433,8 @@ function effectSources() {
     for (const a of w.def.explosion?.applies ?? []) {
       add(a.statusId, { weaponId: w.id, durationMs: a.durationMs, note: "from the blast" });
     }
-    if (w.def.impulse?.wallStun) {
-      add("stunned", {
-        weaponId: w.id,
-        durationMs: w.def.impulse.wallStun.durationMs,
-        note: "slammed into a wall",
-      });
+    for (const a of w.def.impulse?.onWallImpact?.applies ?? []) {
+      add(a.statusId, { weaponId: w.id, durationMs: a.durationMs, note: "slammed into a wall" });
     }
   }
   return sources;
@@ -572,8 +570,8 @@ function effectChips(w) {
     push(a.statusId, a.durationMs, [a.target === "self" ? "on you" : "", wave].filter(Boolean).join(", "));
   }
   for (const a of w.def.explosion?.applies ?? []) push(a.statusId, a.durationMs, "from the blast");
-  if (w.def.impulse?.wallStun) {
-    push("stunned", w.def.impulse.wallStun.durationMs, "slammed into a wall");
+  for (const a of w.def.impulse?.onWallImpact?.applies ?? []) {
+    push(a.statusId, a.durationMs, "slammed into a wall");
   }
   return chips.join("");
 }
