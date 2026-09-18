@@ -53,6 +53,26 @@ export type StatusChannel =
    * removing the push without also removing the drag it is balanced against would be a slow
    * wearing the wrong name. `accelOf`/`reverseAccelOf` are gone — this is `engineAccelOf` and
    * `reverseAccelOf` now.
+   *
+   * **Read this before authoring a row on this channel: it is a TIME-CONSTANT channel, not a pace
+   * one, and it cuts BOTH ways.** Because it scales the push and the drag by the same factor, it
+   * cancels out of the equilibrium `engineAccel / dragRate` entirely — so it does not move top speed
+   * AT ALL, at any value. What it moves is how fast the car converges on that speed, and by exactly
+   * the same factor how fast it sheds any speed it is already carrying. Measured on Mirage
+   * (`dragRate` 1.2848):
+   *
+   * | | `accel` 1.0 | 0.4 (`reeling`, the `STATUS_LIMITS` floor) | 2.5 (the ceiling) |
+   * |---|---|---|---|
+   * | Top speed | 189.0 u/s | **189.0 — unchanged** | **189.0 — unchanged** |
+   * | Time to 90% of it | 1.79 s | 4.48 s | 0.72 s |
+   * | Roll distance from top speed | 147.1 u | **367.8 u** | **58.9 u** |
+   *
+   * So a DEBUFF on this channel slows the victim's engine (intended) and simultaneously makes
+   * everything already pushing them carry two and a half times further (rarely intended — 368 u
+   * against a playable area 1132 u wide); and a BUFF makes a car quicker off the line while deleting
+   * its momentum, so it stops almost the instant the throttle comes off. Neither direction is
+   * necessarily wrong, but both are a decision, and a row that wanted "bogged down" or "peppy"
+   * without the roll consequence wants `topSpeed`, `brakeDecel` or `grip` instead.
    */
   | "accel"
   /** Steering rate, alongside — never instead of — the ram's `authority`. Above 1 corners tighter. */

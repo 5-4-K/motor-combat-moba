@@ -231,9 +231,22 @@ export const STATUS_TABLE = {
    * `lateralGripRate` (`DRIVE_CONFIG`, U10) doing the real work through `gripFactorOf` in
    * `stepDrive` — the ordinary per-tick drift bleed every car already runs, not a knock-specific
    * rate (the flat-rate `impactGripDecel` (P11) this used to name is gone outright, deleted
-   * alongside the other superseded knobs, drive-model port stage 1 Task 6). `accel: 0.4` is the
-   * friction-circle stagger on top: while the tyres fight the slide there is little grip left for
-   * the engine, so a big hit visibly bogs you.
+   * alongside the other superseded knobs, drive-model port stage 1 Task 6).
+   *
+   * **`accel: 0.4` no longer does what this row's fiction says, and the inversion is worth knowing
+   * before anyone "fixes" it.** It was authored as the friction-circle stagger — while the tyres
+   * fight the slide there is little grip left for the engine, so a big hit visibly bogs you. Under
+   * the Unity drive-model port (U18/U36) the `accel` channel scales the drag exponent as well as the
+   * engine push, so it CANCELS out of the equilibrium: it does not touch top speed at any value, and
+   * what it actually sets is the time constant, in both directions at once. Measured on Mirage
+   * (`dragRate` 1.2848): top speed 189.0 u/s at `accel` 1.0 and 189.0 at 0.4, time to 90% 1.79 s →
+   * 4.48 s (the intended half), and **roll distance from top speed 147.1 u → 367.8 u** (not
+   * intended). So the status a ram applies to its victim makes that same ram's knockback carry 2.5x
+   * further — 368 u against a playable area 1132 u wide. See the `accel` channel's own doc in
+   * `status-types.ts` for the full table.
+   *
+   * The 0.4 is the project owner's number and is NOT to be changed here; stage 3 of the port removes
+   * `accel` from this row outright, which is where that decision lives.
    */
   reeling: {
     id: "reeling",
