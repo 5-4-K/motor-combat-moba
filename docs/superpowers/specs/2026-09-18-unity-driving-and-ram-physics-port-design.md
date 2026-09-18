@@ -658,3 +658,65 @@ Two further consequences of U16 that this spec should be read alongside are reco
 `EXECUTION.md`'s "Deferred, and who owns it": **ram spin is currently completely inert** (nothing sets
 `spinFree`, so the ordinary branch overwrites the spin `sim/impulse.ts` accumulates) and the
 silent-knocked-player freeze above. Both are stage 3's.
+
+### 2026-09-19 — stage 4 widened: every impulse behaviour becomes declared, not hardcoded
+
+**Approved by the project owner in conversation, as a deliberate scope extension.** The stated goal
+is one consistent weapon-config structure with no rule that applies to one specific thing. This entry
+is the authority for it; §11 item 4's one-line description of stage 4 predates it.
+
+The trigger was a question about removing `wildcharge`'s slam. Two audits answered it. The first
+found that **weapon behaviour reaches the sim through exactly two hardcoded status applications**,
+both on the impulse path: `ram-bridge.ts` applies `"reeling"` for `ImpulseDef.uncontrolMs`, and
+applies `"stunned"` for `ImpulseDef.wallStun`. The row says how long; the bridge says which. Every
+other status a weapon applies is named on the row through `WeaponDef.applies`. The second audit found
+the converse defect — two `ImpulseDef` fields that exist but drive nothing, each policed by a config
+test that forbids the only values that would expose it.
+
+Five decisions follow. None changes what the game does today; every one changes what the config can
+say.
+
+1. **Statuses an impulse applies are declared, through a new `ImpulseStatusApplication`.** The type
+   is `{ statusId, durationMs }` — deliberately NOT `StatusApplication`, whose `target` and `wave`
+   can only ever hold one value on this path, and a field that can hold one value is the same defect
+   in a different place. `uncontrolMs` becomes
+   `applies: [{ statusId: "reeling", durationMs: 1400 }]`, and `wallStun` becomes
+   `onWallImpact: { windowMs, applies: ImpulseStatusApplication[] }`. Both sweeps read the id off the
+   record instead of a literal, so `stunned` goes from two declarative sources plus one hardcoded to
+   three declarative ones.
+2. **`onWallImpact` names a mechanic that had no name.** A *deferred conditional application* — "if
+   the pushed car meets level geometry within this window, apply this" — was previously reachable
+   only by being `wildcharge`. It is now authored, and available to any row that wants it. The wall
+   stun is kept, not removed: the owner's intent was to delete hardcoded behaviour, not this feature.
+3. **`ImpulseDef.spin` is made real rather than deleted.** It can currently do nothing at any value,
+   because `contact.ts` passes the victim's own centre as the contact point and a zero lever arm
+   yields zero torque — `SlamEvent`'s own doc says so, and a config test pins every row to `0` to
+   stop anyone discovering it the hard way. Stage 3 exported `contactPointOn`, so deriving a genuine
+   point is now a one-line change at the event site. **`wildcharge` keeps `spin: 0`**, so no shipped
+   behaviour moves; what changes is that the guard flips from forbidding a non-zero value to proving
+   one rotates.
+4. **`ContactHit` and `SlamEvent` merge.** §7.4 says the contact pass keeps "its dash and slam arms
+   unchanged: a `ContactHit` for a dash, a `SlamEvent` for a charge". Two event types for one thing:
+   under decisions 1-3 the only difference is whether the weapon's row declares an impulse, which is
+   a property of the row. One event carries the geometry; the bridge applies an impulse if and only
+   if the row has one. No branch anywhere asks "is this a slam" — it asks "does this row declare a
+   push".
+5. **`SLAM_CONFIG` becomes `IMPULSE_CONFIG` (`slam-config.ts` → `impulse-config.ts`).** Neither
+   member was ever slam-specific: `wallContactPad` already has a non-slam consumer
+   (`contact.ts:240`, the wall-blocked dash), and `spinScale` is the calibration for how much *any*
+   authored weapon push rotates — inert today only because decision 3 has not landed yet. The word
+   "slam" leaves the codebase; what it named is "a weapon that pushes on contact".
+
+**What this does NOT do, deliberately.** The weapon↔ram coupling stays as it is. `sim/impulse.ts`
+still imports `ram-config.js` for `RAM_CONFIG.spinMaxRate` and `inertiaRadiusSquared()`; the push is
+still applied inside `ram-bridge.ts`; `ImpulseDef.defenceScaled` still means "divided by
+`ramDefence`"; and `applyImpulse`'s inertia denominator still scales a weapon's spin by the victim's
+ram rating whether or not `defenceScaled` is set. That audit was run and the owner chose not to act
+on it now. It is recorded in `EXECUTION.md`'s deferred list with its seven sites.
+
+**Clauses this supersedes:** §7.4's "a `ContactHit` for a dash, a `SlamEvent` for a charge" (decision
+4); §11 item 4's stage-4 contents, which now begin with the restructure and re-pitch second; and
+§13's "any change to weapons", which was written to fence off balance and arsenal changes and was
+never intended to forbid restructuring a type stage 4 already opens. U6 ("`wildcharge`'s slam keeps
+its own rules") is unaffected in substance — the rules are the same, they are simply authored on the
+row now instead of implied by the code path.
