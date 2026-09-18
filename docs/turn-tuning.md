@@ -196,7 +196,9 @@ throttle: `topSpeed / dragRate` is how far a car coasts from a dead sprint befor
 `dragRate` belongs in that denominator too. The figures above are the continuous prediction; the real
 per-tick integration lands a few degrees higher because of ordinary discretization (measured for
 Mirage at these anchors: 26.1° continuous against 28.2° at steady state after 10 real seconds of full
-lock) — close enough that this page tracks the closed form rather than a simulated fixed point.
+lock — the 28.2° comes from stepping the real chassis tick by tick to that steady state, not from the
+formula, so the two are expected to disagree by a few degrees rather than being a bug in either) —
+close enough that this page tracks the closed form rather than a simulated fixed point.
 
 **The 2026-09-02 rewrite removed the speed/handling split.** `speed` and `handling` began moving
 together per car (65/65, 85/85, 50/50), so turn rate and turn radius started ordering the roster the

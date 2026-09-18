@@ -226,14 +226,17 @@ describe("docs/turn-tuning.md", () => {
 
     // "Turn rate at rest" (and its degrees row), "180° from standstill" and "Rate while reeling" are
     // gone: `turnRateAtStop` no longer exists on `ChassisDrive` (the Unity drive-model port, car-
-    // physics-port stage 1) — yaw is speed-independent, so there is no separate at-rest rate to scale
-    // or to reel against; a rammed car's `reeling` steering loss is real (`STATUS_TABLE.reeling`
-    // still carries no `turnRate` multiplier after stage 3, so there is nothing left for that row to
-    // read). "Engine push", "Time to 90% of top speed", "Roll distance from top speed" and "Slip
-    // angle at full lock" are new: top speed is no longer an authored clamp but the equilibrium of the
-    // engine's push against drag, so those are the numbers that actually describe wind-up and roll
-    // under that model. "Reverse top speed" now reads the emergent `maxSpeed × reverseAccelFactor`
-    // rather than an authored ratio; "Reverse turn radius" follows it through.
+    // physics-port stage 1) — yaw is speed-independent, so there is no separate at-rest rate for any
+    // of those three rows to scale. That is why the ROW is gone, not why `reeling` stopped mattering:
+    // `STATUS_TABLE.reeling`'s `turnRate` multiplier is untouched by this stage and still ships at
+    // 0.4 today (`status-config.ts`) — a rammed car still turns at 0.4x while reeling, exactly as
+    // before. It simply has nothing left to be tabulated AGAINST (no at-rest rate to multiply), so
+    // there is no replacement row for it here. "Engine push", "Time to 90% of top speed", "Roll
+    // distance from top speed" and "Slip angle at full lock" are new: top speed is no longer an
+    // authored clamp but the equilibrium of the engine's push against drag, so those are the numbers
+    // that actually describe wind-up and roll under that model. "Reverse top speed" now reads the
+    // emergent `maxSpeed × reverseAccelFactor` rather than an authored ratio; "Reverse turn radius"
+    // follows it through.
     //
     // The slip-angle formula deliberately includes `dragRate` in its denominator alongside
     // `lateralGripRate`: drag acts on the whole velocity vector every tick (`stepDrive`'s step 2), so
