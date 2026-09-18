@@ -8,8 +8,10 @@
 > below. Nothing here is written from memory at the end of a session — a session can stop at any
 > moment, and the last commit must already say where it stopped.
 
-**Status as of 2026-09-18: stage 1 (the drive model) has landed.** The spec and all five stage plans
-were written first; stage 1's eight tasks are now committed. Stages 2-5 have not started.
+**Status as of 2026-09-18: stage 1 (the drive model) and stage 2 (walls and bumps) have both
+landed.** The spec and all five stage plans were written first; stage 1's eight tasks are committed,
+and stage 2's four tasks are now committed too, on **`physics/stage2-and-3`** — a worktree cut from
+`feature/movement` after the user merged stage 1 there. Stages 3-5 have not started.
 
 **Spec:** [`docs/superpowers/specs/2026-09-18-unity-driving-and-ram-physics-port-design.md`](../../specs/2026-09-18-unity-driving-and-ram-physics-port-design.md)
 **Ledger:** [`interfaces.md`](interfaces.md) — outranks any one plan, is outranked by the spec.
@@ -30,8 +32,15 @@ were written first; stage 1's eight tasks are now committed. Stages 2-5 have not
 ## In flight
 
 *Nothing in flight.* Stage 1 landed (all eight tasks committed, `test(drive): pin tick-rate
-independence; rebuild the guide` closing it), stage 2's first commit (restitution → 0) is in, and a
-**whole-branch review of stage 1 has been swept** — see below. Next: stage 2, Task 1 onwards.
+independence; rebuild the guide` closing it) and a **whole-branch review of stage 1 has been swept**
+— see below. **Stage 2 has since landed too, in full, on `physics/stage2-and-3`** — a worktree cut
+from `feature/movement` after the user merged stage 1 there. Its four tasks: Task 1, restitution
+0.15 → 0 (`59c5bcc` on this branch — the whole-branch-review section just below measured this same
+change as `bb69f26`, the commit it carried on the abandoned branch this work was cut from before the
+recut; treat the two hashes as the same content, not two different changes); Task 2, re-pinning the
+contact expectations at zero restitution (`1dca2c7`); Task 3, re-measuring the spike self-trigger
+(`c74f46e`); and Task 4, this tracker update. See "Stage 2 exit: measured test state" below for the
+post-landing numbers. Next: stage 3.
 
 ### Stage 1's whole-branch review, swept 2026-09-18
 
@@ -75,12 +84,47 @@ all from the repo root):
   `pipeline-order.test.ts`'s attacker-restitution case went **red** in that same commit (stage 2's
   restitution → 0), and stage 2 owns it. Measured red at `bb69f26` before any of this wave ran.
 
+### Stage 2 exit: measured test state (Tasks 3-4, 2026-09-18)
+
+`npm run build` and `npm test` (root), then `npm run test:scripts` (root) separately — the combined
+`npm test` script chains `&&`, so the server workspace's expected-red exit stops it before
+`test:scripts` runs; that is a property of the chain, not a new failure. All three from the repo
+root, against this stage's final commit:
+
+- **shared: green.** 54 files, 981 passed, 6 skipped — unchanged from the whole-branch-review wave
+  above.
+- **client: green.** 69 files, 1019 passed, 5 skipped — unchanged.
+- **`npm run test:scripts`: green.** 39 suites, 155 tests, 153 passed, 2 skipped, 0 failed —
+  unchanged, and this includes `scripts/manual-page.test.mjs` (the guide's fingerprint), which Tasks
+  3-4 owed nothing to since neither touched a table the stamp hashes.
+- **server: 15 red of 711**, a **different count from the whole-branch-review wave's 16** — Task 2
+  (`1dca2c7`, already landed before Task 3 started) re-pinned `pipeline-order.test.ts`'s
+  attacker-restitution case, so it is green again here; that happened before this dispatch and is not
+  something Tasks 3-4 did. All 15 are the same cases named in this dispatch's stated baseline, in the
+  same five files:
+
+  | Suite | Red count | Cases |
+  |---|---|---|
+  | `src/bot/brain/predict.test.ts` | 9 | same nine as the whole-branch-review wave |
+  | `src/bot/brain/controller.test.ts` | 2 | both G12 |
+  | `src/bot/brain/planner.test.ts` | 1 | R-P16 (this wave's other planner case, R-P7, is green here — a second consequence of the same re-pin) |
+  | `src/bot/brain/tiers.test.ts` | 2 | H25, and S13 evade |
+  | `balance/match.test.ts` | 1 | the seed-1 ranking tie, a legitimate outcome its own reseed history already describes |
+
+  Tasks 3-4 touched no production code — `docs/combat-model.md`, the root `CLAUDE.md` and this file
+  only — so an unchanged bot/balance baseline is exactly the expected outcome. Stage 5's `bot-tuner`
+  pass still owns all five files; nothing here re-pins any of them.
+- **The energy-gain sweep (scenario 7) and the glancing-sign-flip sweep (scenario 8) in
+  `packages/server/playtest/collision.ts` both still typecheck** (`playtest/tsconfig.json`, part of
+  `npm run typecheck` inside `npm test`) and still run — see the deferred note below for what
+  scenario 8 no longer measures now that stage 2 has landed.
+
 ## Stages
 
 | # | Plan | State | Gate |
 |---|---|---|---|
 | 1 | [`01-drive-model.md`](01-drive-model.md) | **Landed** | Asymptotic top speed; measurable slip angle; `stepDrive` reads no module-level rate; 30/60 Hz equivalence test green |
-| 2 | [`02-walls-and-bumps.md`](02-walls-and-bumps.md) | Not started | Restitution 0; a car slides along a wall and never gains speed; the spike self-trigger re-measured |
+| 2 | [`02-walls-and-bumps.md`](02-walls-and-bumps.md) | **Landed** | Restitution 0; a car slides along a wall and never gains speed; the spike self-trigger re-measured |
 | 3 | [`03-rams.md`](03-rams.md) | Not started | Attacker stops and locks; victim flung, spun, reeling; head-on stops both; `applyImpulse` has one production caller |
 | 4 | [`04-slam-and-effects.md`](04-slam-and-effects.md) | Not started | `wildcharge` still clearly harder than the best ordinary ram; `ramLock` published to players |
 | 5 | [`05-tune-and-reconcile.md`](05-tune-and-reconcile.md) | Not started | Playground pass done with the user; probes honest; fresh balance baseline; docs true |
@@ -173,7 +217,7 @@ command as well as the figure.
 | Slip angle at full lock, per chassis (target ~35° at `lateralGripRate` 3.0) | Mirage 26.1°, Bullseye 23.6°, Bastion 21.2° — below the ~35° target because the formula is `atan(turnRate / (dragRate + lateralGripRate))`, not `atan(turnRate / lateralGripRate)` alone: each car's own `dragRate` adds to the sideways bleed, so a car with more `accel` corners tighter as a side effect (see `docs/turn-tuning.md#grip-and-drift`) | stage 1 |
 | U7 30-vs-60 Hz equivalence, one second of full-lock turn+throttle on a synthetic `ChassisDrive` (`sim/drive-rate.test.ts`) | position delta 0.87 u (bound: `carWidth`/10 = 6 u); angle delta ~2.9e-15 rad (bit-exact — `turnRate * 1s` sums identically regardless of tick count); speed delta 0.0014 u/s. A same-length straight-line run (no steer) shows speed match to ~14 digits but a position delta of ~1.04 u — velocity is exactly rate-independent under the closed-form integrator, position is a first-order accumulation of it and is not, though it stays well inside the test's tolerance | stage 1 |
 | How far a ram's shove carries a reeling victim (`grip: 0.6`, target ~2.2 car lengths) | — | stage 3 |
-| Settled speed into a wall, self-driven, vs `SPIKE_CONFIG.triggerSpeed` | — | stage 2 |
+| Settled speed into a wall, self-driven, vs `SPIKE_CONFIG.triggerSpeed` | Steady-state pre-collision inward speed (`stepDrive`/`resolveWorld` from built shared, restitution 0, sampled the way `contactTick`'s `speedIn` actually samples it — before that tick's bounce resolves): mirage 7.92 u/s, bullseye 5.41 u/s, bastion 3.97 u/s. All three sit well under the 25 u/s trigger, so the documented "pays once, on arrival" behaviour holds unchanged | stage 2 |
 | Reference flank ram: shove and spin (Bastion → parked Bullseye) | — | stage 3 |
 | `wildcharge` slam against the best ordinary ram | — | stage 4 |
 
@@ -237,9 +281,17 @@ command as well as the figure.
   stages:** the server now steps a genuinely-absent player's car to rest whatever pushed it, and
   `packages/server/playtest/collision.ts`'s scenarios 4 and 5 both measure that path and will report
   different numbers — their comments say so, and stage 5's probe-honesty task should re-read them.
-- **`packages/server/playtest/collision.ts`'s energy-gain sweep** computes its predicted flip angle
-  from `atan(sqrt(DRIVE_CONFIG.restitution))`, which is zero once stage 2 lands, so the probe sweeps
-  nothing. Stage 5 owns rethinking it — not re-aiming it.
+- **`packages/server/playtest/collision.ts`'s scenario 8, "Reported speed sign flip on a glancing
+  wall contact" (`glancingSignFlip`), is now confirmed to sweep nothing — stage 2 has landed.**
+  `predictedFlipDeg` (line 410) computes `atan(sqrt(DRIVE_CONFIG.restitution))`, which is `atan(0)` =
+  0 degrees now that restitution is 0. The probe still only sweeps 5-45 degrees, so the one angle
+  where the sign could flip sits at the sweep's boundary rather than inside it, and every angle it
+  actually samples now reports the same (non-negative) sign — confirmed by re-running it against
+  built shared, not just derived. It still compiles and still runs (it is exercised by
+  `npm run typecheck`'s `playtest/tsconfig.json` pass inside `npm test`, and that stayed green), it
+  just no longer measures the discontinuity it was written to catch. **Not fixed here** — Task 4 was
+  told explicitly not to touch the probes, and stage 5 owns rethinking this one rather than re-aiming
+  it.
 - **`DRIVE_CONFIG.dashSubstepMaxUnits` 16 → 8**, inherited from the 2026-09-06 car-physics rework's
   stage 2. Untouched by this port; stage 5 judges it with the user.
 - **`wildcharge.impulse.speed` (520) and `uncontrolMs` (1400)** were provisional before this work and
