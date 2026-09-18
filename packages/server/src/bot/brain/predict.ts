@@ -65,7 +65,8 @@ export function bodyFromObservation(car: BotCarView, angVel: number): SimBody {
  * `done` branch write `chassis.maxSpeed * mods.topSpeed` straight into its speed. "I keep driving at
  * the speed I am going" is less wrong than "I stop dead and then teleport to top speed", and it is
  * the same claim `selfPredictor`'s doc makes. Zeroing it also makes `isDashing(body)` false on every
- * predictor body, which is what lets `OBSERVATION_MODIFIERS` raise `topSpeed` safely — see there.
+ * predictor body, which is what keeps a rollout from ever reaching `stepDash`'s exit-speed handoff
+ * at all — see `OBSERVATION_MODIFIERS`.
  *
  * `maneuverAngle` is `self.angle` for the same reason as above: inert whenever `maneuverTicksLeft`
  * is 0, which is now always, and filled in only to satisfy `SimBody`'s shape.
@@ -108,98 +109,29 @@ export function steerFromObservedTurn(angVel: number, carId: CarId): -1 | 0 | 1 
 }
 
 /**
- * The modifier set an OBSERVATION is rolled under: neutral except for the THREE channels that would
- * change a car's speed under a held throttle — two switched off, one lifted out of the way.
+ * How an OBSERVED car is rolled forward: hold the speed and the turn it was seen at.
  *
- * This is what turns "hold the throttle down" into "hold the SPEED you were seen at". Both
- * production call sites (`physicsPredictor` and `selfPredictor`, built in `controller.ts`'s `plan()`)
- * pass `throttle: 1`, which sends `stepDrive` through `nextSpeed` into `accelerateForward` and
- * nowhere else — never `coast` (drag), never `brakeOrReverse`. `accelerateForward` has exactly two
- * branches, and this set zeroes the one term each one would move the speed by:
+ * Under the Unity drive model this needs exactly one channel. `accel: 0` scales BOTH the engine push
+ * and the drag rate (spec U18), and drag is applied as `dragPerTick ** mods.accel`, so a rollout
+ * with the throttle held adds nothing and sheds nothing: the observed speed is carried exactly. Grip
+ * still runs, so a car seen sliding is rolled the way it will really travel.
  *
- * - **`accel: 0`** covers the ROLLING-FORWARD branch (`speed >= -stopEpsilon`), which adds
- *   `chassis.accel * mods.accel * dt`. Zeroed, the engine contributes nothing and the observed speed
- *   is held.
- * - **`brakeDecel: 0`** covers the ROLLING-BACKWARD branch (`speed < -stopEpsilon`), which is
- *   `Math.min(0, speed + DRIVE_CONFIG.brakeDecel * mods.brakeDecel * dt)` — a held throttle brakes a
- *   reversing car toward a dead stop. Zeroed, a reversing car keeps reversing at the speed it was
- *   seen at. This channel is unreachable here for anything but a car already rolling backward: the
- *   sim reads `mods.brakeDecel` in exactly two places (`sim/drive.ts`), and the other one is inside
- *   `brakeOrReverse`, which only `throttle: -1` can enter — no production predictor passes that.
- * - **`topSpeed: BRAIN_CONSTANTS.observationTopSpeedHeadroom`** covers the CLAMP the rolling-forward
- *   branch applies alongside its (now zeroed) engine term: `Math.min(chassis.maxSpeed *
- *   mods.topSpeed, ...)`. Left at 1 it clipped any observed-plus-noise speed above the chassis cap
- *   on the rollout's very first tick — and a car flooring it sits EXACTLY at that cap, which is most
- *   of `fight` and `close`. Measured for Mirage at its 449.5 u/s cap over 45 ticks, a `+25%`
- *   estimation error moved the prediction by 0.00 units and a `+50%` by 0.00, against 168.56 for the
- *   equal `-25%`: at the most common speed in the game `stateEstimationSigma` lost half its range
- *   and every tier was biased toward UNDER-leading. With `accel: 0` this channel can never RAISE a
- *   speed — it is only ever a ceiling, and `reverseFurther`'s use of it needs `throttle: -1` — so
- *   lifting the ceiling out of reach is the only thing it can do, and it restores the symmetry the
- *   set claims. The one other read of `mods.topSpeed` in `sim/drive.ts` is `stepDash`'s exit-speed
- *   handoff, which needs `isDashing(body)`; both `bodyFromObservation` and `bodyFromSelf` pin
- *   `maneuverTicksLeft: 0` and `stepDrive` never re-enters a DASH, so no predictor body can reach it.
+ * `brakeDecel: 0` is kept as a guard rather than a live term: no production predictor passes
+ * `throttle: -1`, and the engine-command table gives the brake no other path.
  *
- * ALL THE FIGURES IN THIS COMMENT, INCLUDING THE TABLE BELOW, WERE MEASURED ON THE PRE-REWORK DRIVE
- * MODEL — Mirage capped at 449.5 u/s forward and 292.2 reverse, with a global `DRIVE_CONFIG.drag` of
- * 900 u/s^2. The 2026-09-06 car-physics rework cut those caps to 267 and 173.55 and replaced `drag`
- * with per-car proportional coast, so the magnitudes here are historical. Three things survive it,
- * and they are what the set rests on: the BRANCH STRUCTURE of `accelerateForward` is unchanged, so
- * `accel: 0` still holds a forward speed and `brakeDecel: 0` still holds a reversing one EXACTLY;
- * the clamp is still a ceiling, so lifting it is still the only thing `topSpeed` can do; and every
- * error the table reports is still in the same DIRECTION. What shrank is the margin — the
- * throttle-closed alternative used to be 184 units wrong at 20 ticks and is now about 47 (see
- * `predict.test.ts`, "still lands a throttle-closed rollout SHORT"). The set is still right; the
- * case for it is no longer overwhelming, and a re-measurement against the new coast is owed.
- *
- * All three are the sim's OWN multiplier channels (`sim/status/modifiers.ts`), so this is a use of
- * `stepDrive`, not a hack around it. The rework added one term this set does NOT scale and does not
- * need to: `bleedLateral` sheds imposed sideways motion at a flat `impactGripDecel`, exactly as the
- * live sim does, so an observed car that is sliding is rolled the way it will really travel. Rotation and translation still integrate through the real drive
- * model in both directions.
+ * There is no `topSpeed` entry any more. It existed to lift the drive model's speed CLAMP out of
+ * reach, and the clamp is gone — top speed is where push and drag balance, so nothing clips a
+ * rollout that starts above it.
  *
  * It exists because a bot cannot see another car's throttle. Rolling every observed target with the
- * engine ON assumes each one is flooring it toward its chassis maximum, which systematically
- * OVER-leads; leaving `brakeDecel` live assumes every reversing car is about to stop dead, which
- * systematically UNDER-leads by even more. Measured for a Mirage against an independently integrated
- * ground truth, the error in world units at 20 / 45 / 90 ticks is
- *
- *   | observed speed   | steer | engine on    | `accel: 0` alone | this set | constant velocity |
- *   |------------------|-------|--------------|------------------|----------|-------------------|
- *   | -292.2 (rev cap) | 0     | 292/910/2023 |   173/416/854    |  0/0/0   |     0/  0/   0    |
- *   | -292.2 (rev cap) | 1     | 108/102/ 106 |    45/ 30/ 38    |  0/0/0   |   222/448/ 896    |
- *   | -150             | 0     | 260/759/1658 |    95/220/445    |  0/0/0   |     0/  0/   0    |
- *   | -150             | 1     |  97/ 89/  94 |    19/ 10/ 14    |  0/0/0   |   114/230/ 460    |
- *   | 0 (stunned)      | 0     | 209/584/1258 |     0/  0/  0    |  0/0/0   |     0/  0/   0    |
- *   | 0 (stunned)      | 1     |  81/ 71/  77 |     0/  0/  0    |  0/0/0   |     0/  0/   0    |
- *   | 150              | 1     |  53/ 41/  48 |     0/  0/  0    |  0/0/0   |   114/230/ 460    |
- *   | 250              | 1     |  31/ 21/  27 |     0/  0/  0    |  0/0/0   |   190/384/ 767    |
- *   | 449.5 (top)      | 1     |   0/  0/   0 |     0/  0/  0    |  0/0/0   |   342/690/1379    |
- *
- * The stationary row is the one that motivated `accel: 0`: a target `stunned` by `roadblock`,
- * `thunderclap` or the hard slam carries `fullStop` + `immobilised` and CANNOT move — which is the
- * exact condition `classifySituation` gates `punish` on. An engine-on rollout put the aim point
- * hundreds of units past it, every slot's `value` read ~0 against `targetAt(ahead)`, and
- * `minShotValueFraction` made the bot decline a free shot on a helpless car. This set holds it
- * still, which is what a person sees.
- *
- * The reverse-cap row is the same failure with the sign flipped, and it is LARGER: 416 units short
- * at 45 ticks against the 584 that motivated `accel: 0`, and 854 over the full 90-tick horizon
- * `BRAIN_CONSTANTS.predictionHorizonTicks` actually rolls. It is not an exotic scene —
- * `throttle: -1` is a third of `planner.ts`'s `ALL_ACTIONS` and is what the range term picks
- * whenever the bot is inside its preferred standoff (the `panic-reverse` blunder this used to cite
- * as the second source was deleted by P41; the planner's own reverse was always the larger one), and
- * `selfPredictor` runs under this same set, so a bot backing off would otherwise predict its OWN
- * `meAt` as nearly stationary and mis-read `danger`.
- *
- * It is also the honest statement of what a human reads off the screen — a speed and a turn, held —
- * and it dominates constant velocity everywhere a car is turning while tying it where one is not.
+ * engine on assumes each is flooring it, which systematically over-leads; assuming a reversing car
+ * is braking under-leads by more. Holding what was seen is also the honest statement of what a human
+ * reads off the screen.
  */
 export const OBSERVATION_MODIFIERS: Readonly<Modifiers> = Object.freeze({
   ...NEUTRAL_MODIFIERS,
   accel: 0,
   brakeDecel: 0,
-  topSpeed: BRAIN_CONSTANTS.observationTopSpeedHeadroom,
 });
 
 /**
@@ -281,12 +213,10 @@ function clampedPredictor(
  * mispredicted — the design's sanctioned human error (spec P19), kept, not corrected.
  *
  * `throttle: 1` is fixed rather than a parameter: every observation rollout holds it, which is the
- * whole premise `OBSERVATION_MODIFIERS` is built around — the throttle keeps `stepDrive` out of
- * `coast` while the zeroed `accel` channel keeps it from adding engine. Coasting still lands short,
- * just by less than it used to: a Mirage seen at 400 u/s covers 219 units in 20 ticks against the
- * 267 it really travels, where the pre-rework global drag made that 82 against ~400.
- * Rolled under that set, so the observed speed is HELD rather than accelerated toward the chassis
- * maximum — see that constant for the measurement.
+ * whole premise `OBSERVATION_MODIFIERS` is built around — under the Unity drive model `accel: 0`
+ * zeroes the engine command AND flattens `dragFactorOf`'s exponent to 1, so a held throttle neither
+ * adds nor sheds speed. Rolled under that set, the observed speed is HELD exactly rather than
+ * decaying toward rest or accelerating toward the chassis maximum — see `OBSERVATION_MODIFIERS`.
  */
 export function physicsPredictor(
   car: BotCarView,

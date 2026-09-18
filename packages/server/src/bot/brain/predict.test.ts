@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DRIVE_CONFIG, ManeuverKind, NEUTRAL_MODIFIERS, TICK_RATE_HZ, driveOf, forwardOf, stepDrive,
+  DRIVE_CONFIG, ManeuverKind, NEUTRAL_MODIFIERS, TICK_RATE_HZ, driveOf, forwardOf, speedOf, stepDrive,
   turnRateOf, type SimBody,
 } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
@@ -97,6 +97,18 @@ describe("rollForward", () => {
       bodyFromObservation(carAt(), 0), "mirage", { steer: 0, throttle: 0 }, 12, NEUTRAL_MODIFIERS,
     );
     expect(poses).toHaveLength(12);
+  });
+
+  it("rolls an observed car at the speed it was seen at, under OBSERVATION_MODIFIERS", () => {
+    // The Unity drive port's whole case for `OBSERVATION_MODIFIERS` in one number: `accel: 0`
+    // zeroes the engine command AND flattens `dragFactorOf`'s exponent to 1 (`dragPerTick ** 0`),
+    // so a held throttle neither adds nor sheds speed. The observed speed comes back exact.
+    const seen = 150;
+    const rolled = rollForward(
+      bodyFromObservation(carAt({ speed: seen }), 0), "mirage",
+      { steer: 0, throttle: 1 }, 45, OBSERVATION_MODIFIERS,
+    );
+    expect(speedOf(rolled.at(-1)!.vx, rolled.at(-1)!.vy)).toBeCloseTo(seen, 6);
   });
 });
 

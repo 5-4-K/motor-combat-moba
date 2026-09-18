@@ -517,35 +517,11 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * one absolute rate that would read a slow chassis's full lock as noise.
    */
   fullLockAngVelFraction: 0.5,
-  /**
-   * Multiplier `OBSERVATION_MODIFIERS` (`bot/brain/predict.ts`) puts on the `topSpeed` channel, so
-   * the speed CAP inside `accelerateForward` cannot clip an observation.
-   *
-   * A prediction rolls a car at the speed it was SEEN at, perturbed by `stateEstimationSigma`. Left
-   * at a neutral 1, `Math.min(chassis.maxSpeed * mods.topSpeed, ...)` threw away every POSITIVE
-   * estimation error on a car already at its cap — which is where a car flooring it lives, and most
-   * of `fight` and `close`. Measured for Mirage at 449.5 u/s over 45 ticks: `+25%` moved the
-   * prediction 0.00 units, `+50%` moved it 0.00, while the equal `-25%` moved it 168.56. Half the
-   * knob's range vanished at the most common speed in the game, biasing every tier toward
-   * under-leading.
-   *
-   * THAT MEASUREMENT WAS TAKEN AT A 449.5 u/s CAP. The 2026-09-06 heavy-car pass cut Mirage's
-   * maximum to 267 u/s, so the figures above describe the pre-rework roster. The ARGUMENT is
-   * unchanged — a ceiling still clips a positive estimation error on a car sitting at its cap,
-   * whatever the cap is — and the fix (put the ceiling out of reach) is scale-free, which is why
-   * the value below did not need revisiting. The numbers are kept as the record of why this knob
-   * exists rather than restated as current.
-   *
-   * Four, and the exact value does not matter as long as it is comfortably out of reach: under
-   * `accel: 0` this channel can only ever LOWER a speed (it is a ceiling, never a source), so raising
-   * it cannot make a rollout faster than the observation it started from — it can only stop the
-   * ceiling from biting. Four times the chassis maximum is past a `+300%` misread, twelve sigma at
-   * easy's 0.25. The other read of `mods.topSpeed` under a held throttle is `stepDash`'s exit-speed
-   * handoff, which no predictor body can reach: both `bodyFromObservation` and `bodyFromSelf` pin
-   * `maneuverTicksLeft` to 0, so `isDashing` is never true. (`reverseFurther` reads it too, but only
-   * `throttle: -1` reaches that, and no predictor passes it.)
-   */
-  observationTopSpeedHeadroom: 4,
+  // `observationTopSpeedHeadroom` was deleted in the Unity drive-model port (car-physics-port
+  // stage 1 Task 5, 2026-09-18). It raised `OBSERVATION_MODIFIERS`'s `topSpeed` channel to keep the
+  // old drive model's speed CLAMP from clipping an observation; that clamp is gone (top speed is now
+  // where push and drag balance), so the multiplier had no clamp left to keep out of reach and no
+  // other reader. See `OBSERVATION_MODIFIERS` (`bot/brain/predict.ts`).
   // `deadzoneFloorFraction` and `deadzoneCapMultiplier` were deleted in spec phase D (R-D1,
   // 2026-09-07). Both existed only for `compensateForLag`, the mid-phase band-aid on a limit cycle
   // in bang-bang steering: `reduceToIntent` emitted -1/0/1 with no proportional term, so the
@@ -804,7 +780,9 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // bot's RNG stream.
 // 5.2.0 (2026-09-17): the merge of both 5.1.0 lines — the 60x40 hull and the basic attack together.
 // A 5.1.0 report from either line is not comparable with this one, which is why the string moved.
-export const BOT_BRAIN_VERSION = "5.2.0";
+// 6.0.0 — the 2026-09-18 Unity drive port. Behaviour moved without `BOT_PROFILES` moving, so balance
+// reports across this line are not comparable.
+export const BOT_BRAIN_VERSION = "6.0.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency
