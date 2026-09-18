@@ -86,7 +86,10 @@ this order (**U12**):
 3. **Grip:** multiply the LATERAL component by `gripPerTick`, raised to the car's `grip` modifier.
 4. **Yaw:** set `angVel` from the steer input, unless the car is `spinFree`, in which case the
    existing `angVel` decays instead. Then `angle += angVel * dt`.
-5. **Integrate:** `v += command * dt` along the heading, then `x += v * dt`.
+5. **Integrate:** add the command along the heading, then `x += v * dt`. **The command is NOT added as
+   `command * dt`** — see the exact-integrator override in the [Changelog](#changelog): drag and the
+   command are solved together over the tick in closed form, so the coefficient is
+   `(1 - dragPerTick) / dragRate`, not `dt`.
 
 Three details are load-bearing (**U13**):
 
@@ -198,10 +201,14 @@ semantics (**U19**), because it is applied by weapons this port does not otherwi
 
 ### 4.6 Per-car resolution
 
-`ChassisDrive` becomes seven fields: `maxSpeed`, `engineAccel`, `reverseAccel`, `dragRate`,
-`dragPerTick`, `brakeDecel`, `turnRate`. `coastPerTick`, `turnRateAtStop` and `reverseMaxSpeed` are
-gone; `dragRate` and `dragPerTick` are both carried because the first is what a status scales and the
-second is what an unmodified tick multiplies by.
+`ChassisDrive` becomes **nine** fields: `maxSpeed`, `engineAccel`, `reverseAccel`, `brakeDecel`,
+`turnRate`, `dragRate`, `dragPerTick`, `gripPerTick`, `spinPerTick`. `coastPerTick`,
+`turnRateAtStop`, `reverseMaxSpeed` and `accel` are gone; `dragRate` and `dragPerTick` are both
+carried because the first is what a status scales and the second is what an unmodified tick
+multiplies by. (This paragraph said "seven" and omitted the two per-tick decay factors the drift and
+spin channels need — `gripPerTick` from `DRIVE_CONFIG.lateralGripRate`, `spinPerTick` the placeholder
+1 until stage 3 sets `RAM_CONFIG.reelingSpinDecayRate`. `interfaces.md` carried the right list from
+the start and is the one to trust on names; see the Changelog.)
 
 ```
 dragRate(id)    = DRIVE_CONFIG.baseDrag + CAR_TABLE[id].accel * DRIVE_CONFIG.dragPerRating
@@ -230,10 +237,24 @@ One base rate, `DRIVE_CONFIG.lateralGripRate` in 1/s, applied as
 `gripPerTick = Math.exp(-lateralGripRate / TICK_RATE_HZ)` and scaled per car by a **`grip` status
 multiplier**: `gripPerTick ** mods.grip`, the same exact power trick drag uses (U36).
 
-The steady-state slip angle while holding full lock is `atan(turnRate / lateralGripRate)` — at any
-speed, a property of the two rates alone, which is what makes this tunable as "how much does the car
-drift" rather than per-speed guesswork. Unity's 90°/s against 6/s gives ~15°; this game runs a looser
-3/s for a real drift (§9.2).
+The steady-state slip angle while holding full lock is
+
+```
+slipAngle = atan(turnRate / (dragRate + lateralGripRate))
+```
+
+— at any speed, a property of those rates alone, which is what makes this tunable as "how much does
+the car drift" rather than per-speed guesswork.
+
+**`dragRate` belongs in that denominator and this section originally omitted it.** Drag acts on the
+WHOLE velocity vector every tick (§4.1's step 2), so a car's own drag bleeds its sideways motion
+exactly as it bleeds its forward motion; `lateralGripRate` is the EXTRA sideways rate on top of that,
+not the only channel slowing the drift. The grip-only form overstates the drift by about a third, and
+the "~35°" target this section used to name was computed with it. **The real figures at the shipped
+values are Mirage 26.1°, Bullseye 23.6°, Bastion 21.2°** — the widest of them is the one to read as
+the drift this port is aiming at. Unity's 90°/s against 6/s gives ~15° under the same correction.
+`docs/turn-tuning.md`'s "Slip angle at full lock" row, `scripts/turn-tuning-doc.test.mjs` and
+`config.test.ts`'s slip band all compute the drag-inclusive form; see the Changelog.
 
 **This is the one place the port deliberately departs from the Unity source (U10, revised).** Unity
 has a single grip rate and switches it off outright while reeling, which couples two different
@@ -410,7 +431,7 @@ brake works out at ~430 u/s², so the roster already sits on it.
 |---|---|---|
 | `baseDrag` | 0.768 | With `dragPerRating`, targets ~1.8 s to 90% of top speed for Mirage and ~2.6 s for Bastion — between today's 1.0–1.5 s and Unity's 2.3 s |
 | `dragPerRating` | 0.00608 | Anchored on `accel` ratings 85 and 20, so Bullseye's 45 falls out at 1.04 (2.2 s) |
-| `lateralGripRate` | 3.0 | **35° of slip** at Mirage's turn rate — a real drift, against Unity's grippier ~15°. Chosen by the user over 7.0 (U10, revised); the knockback it would otherwise lengthen is held by `reeling`'s `grip` multiplier instead |
+| `lateralGripRate` | 3.0 | **26.1° of slip** at Mirage's turn rate — a real drift, against Unity's grippier ~15°. (Derived as 35° from the grip-only slip formula §5 originally carried; the drag-inclusive form gives 26.1°, and the CHOICE of 3.0 stands on its own.) Chosen by the user over 7.0 (U10, revised); the knockback it would otherwise lengthen is held by `reeling`'s `grip` multiplier instead |
 | `reeling`'s `grip` multiplier | 0.6 | An effective 1.8/s while reeling, so a 237 u/s shove carries a victim ~132 u — about 2.2 car lengths — before it is mostly scrubbed. `grip: 0` would be Unity's helpless slide at ~185 u |
 | `baseTurnRate` | 0.667 | With `turnRatePerRating`, puts every chassis's turn radius near 1.5 car lengths at its own top speed — between Unity's 3.4 and today's 0.38 |
 | `turnRatePerRating` | 0.0169 | Anchored on `handling` 85 → 2.10 rad/s and 50 → 1.51 rad/s; Bullseye's 65 falls out at 1.77 |
@@ -575,3 +596,65 @@ to play impact VFX using `RAM_CONFIG.contactPad`, a client-side copy of the ram 
 - Chained rams fall off; three seconds later they do not.
 - `wildcharge` is still clearly harder than the best ordinary ram.
 - The same inputs at 30 Hz and 60 Hz produce the same trajectory within tolerance.
+
+## Changelog
+
+Amendments made after approval. **The spec outranks the plans and `EXECUTION.md`, so a decision
+recorded only in one of those is a decision this document was silently wrong about** — this section
+exists so that stops happening. Every entry names what changed and where the detail lives.
+
+### 2026-09-18 — three overrides made during stage 1, recorded here after the fact
+
+1. **The exact integrator replaces explicit Euler for the engine command (§4.1, step 5).** As written,
+   step 5 added `command * dt`. That is explicit Euler against an exponential drag, and its own fixed
+   point is `a * dt / (1 - dragPerTick)` — 1.7% above the `engineAccel / dragRate` this whole model is
+   built on at 30 Hz, and a **different** number at 60 Hz. It therefore cost both the asymptotic top
+   speed §4.1 asserts and the tick-rate independence U7 requires. `dv/dt = a - k*v` integrates over one
+   tick to `v * exp(-k*dt) + (a/k) * (1 - exp(-k*dt))`, so the command's coefficient is
+   `(1 - dragPerTick) / dragRate` — `drive.ts`'s `commandFactorOf`, whose doc carries the full
+   derivation including the `k === 0` limit. This reaches every command channel: throttle, brake and
+   reverse alike. Surfaced as a contradiction between `drive-vector.test.ts`'s asymptote, 90% and slip
+   cases; ruled on mid-stage; `golden.test.ts`'s fixtures were re-derived a second time for it.
+2. **The slip-angle formula gains `dragRate` in its denominator (§5, §9.2).** It read
+   `atan(turnRate / lateralGripRate)`. Drag acts on the whole velocity vector every tick (§4.1's step
+   2), so it bleeds the lateral component alongside grip; the correct steady state is
+   `atan(turnRate / (dragRate + lateralGripRate))`. The grip-only form overstates the drift by about a
+   third, which is where §9.2's "35° of slip" came from. Real figures at the shipped values: **Mirage
+   26.1°, Bullseye 23.6°, Bastion 21.2°.** One live consequence: a car with more `accel` corners
+   tighter as a side effect, because its own drag is part of its grip. `docs/turn-tuning.md`'s
+   "Slip angle at full lock" row, `scripts/turn-tuning-doc.test.mjs` and `config.test.ts`'s slip band
+   all compute the corrected form.
+3. **The "three already-red tests" baseline was stale on arrival and is not this port's starting
+   point.** Checked out at the pre-work commit `139f6a1`, only one of the three was actually red
+   (`controller.test.ts`'s OFF-AXIS case); `tiers.test.ts` P49 and `balance/match.test.ts`'s
+   deathmatch-clock canary were both green there. `EXECUTION.md`'s "What is known before any of it
+   runs" carries the correction and the measured stage 1 exit state, which is a different list again
+   (`predict.test.ts` 9, `controller.test.ts` 2, `planner.test.ts` 2, `tiers.test.ts` 2, plus the
+   `balance/match.test.ts` seed tie). Do not cite the original three anywhere.
+
+### 2026-09-18 — the whole-branch review of stage 1
+
+A review of the landed branch found two Critical defects and seven of lesser severity; all were fixed
+in one wave. The two that change shipped behaviour, and the one that changes this document:
+
+- **`stepHold` double-counted steering yaw.** Under U16 steering SETS `angVel`, so the branch's
+  surviving pre-port line (`steer * turnRate * mods.turnRate + body.angVel`) added the steering term
+  to a field that already was it — a held car rotated at twice its turn rate for the whole hold, and
+  kept rotating after the key was released. Reachable via `lance`. It also rebuilt its imposed slide
+  at the NEW angle (§4.1's first load-bearing detail says the OLD one, and says why) and ignored
+  `fullStop`. §4.1's U37 paragraph was right; the code did not follow it.
+- **The server's silent-player coast rested on `steeringGrip`.** `serverTick` took an extra coast step
+  for a player whose input queue went empty, gated on a predicate that argued from `steeringGrip`
+  being 1.0 — a constant U13 deletes — to conclude that any lateral velocity was externally imposed,
+  and on `angVel !== 0` meaning "residual ram spin", which U16 changes to "is steering". Under this
+  port both premises are false and the gate fired for every cornering player, breaking §10's lockstep
+  with client prediction. The client never steps a tick it did not send an input for, so the gate is
+  now elapsed silence (`NET_CONFIG.silentCoastGraceMs`); that also fixes the opposite failure, where
+  a shove along the victim's own heading left a silent car frozen holding 96% of it.
+- **§4.6 said `ChassisDrive` is seven fields. It is nine** — `gripPerTick` and `spinPerTick` were
+  omitted. `interfaces.md` was correct throughout and is the ledger to trust on names.
+
+Two further consequences of U16 that this spec should be read alongside are recorded in
+`EXECUTION.md`'s "Deferred, and who owns it": **ram spin is currently completely inert** (nothing sets
+`spinFree`, so the ordinary branch overwrites the spin `sim/impulse.ts` accumulates) and the
+silent-knocked-player freeze above. Both are stage 3's.

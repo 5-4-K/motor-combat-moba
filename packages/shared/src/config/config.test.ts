@@ -158,11 +158,24 @@ describe("per-car drive ratings", () => {
   // under this model and there is no "stopped" rate left to be a fraction of.
 
   it("drifts rather than cornering on rails: grip is finite against the sharpest turn", () => {
-    // Slip angle at full lock is atan(turnRate / lateralGripRate), the same at any speed. A grip rate
-    // high enough to drive that to ~0 would be the deleted `steeringGrip: 1` under another name (U3).
-    // This can only be asserted once the turn rates above are the ported ones — see Task 1.
+    // Slip angle at full lock is `atan(turnRate / (dragRate + lateralGripRate))`, the same at any
+    // speed. A grip rate high enough to drive that to ~0 would be the deleted `steeringGrip: 1` under
+    // another name (U3).
+    //
+    // CORRECTED: this enshrined `atan(turnRate / lateralGripRate)` — grip alone — which the spec's §5
+    // also carried and which is simply not the model. Drag acts on the WHOLE velocity vector every
+    // tick (`stepDrive`'s step 2), so it bleeds the lateral component alongside grip; the page and
+    // the doc test both compute the drag-inclusive form. Keeping the wrong one here was not
+    // conservative, it was the opposite: at today's values it reads 38.2° against a 45° ceiling, so a
+    // modest `lateralGripRate` CUT would have failed this test for a reason unrelated to the model
+    // being wrong, while the real slip was still a comfortable 32.0°.
+    //
+    // Worst case on both axes, which is what a bound wants: the sharpest turn the ratings can author
+    // (`handling` 100) against the LOOSEST drag they can (`accel` 0, so `baseDrag` alone) — the two
+    // ratings are independent, so a chassis may carry both.
     const sharpest = DRIVE_CONFIG.baseTurnRate + 100 * DRIVE_CONFIG.turnRatePerRating;
-    const slipDeg = (Math.atan(sharpest / DRIVE_CONFIG.lateralGripRate) * 180) / Math.PI;
+    const loosest = DRIVE_CONFIG.baseDrag;
+    const slipDeg = (Math.atan(sharpest / (loosest + DRIVE_CONFIG.lateralGripRate)) * 180) / Math.PI;
     expect(slipDeg).toBeGreaterThan(5);
     expect(slipDeg).toBeLessThan(45);
   });
