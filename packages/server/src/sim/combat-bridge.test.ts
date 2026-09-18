@@ -283,6 +283,7 @@ describe("explicit loadouts", () => {
         state,
         inputQueues: new Map(),
         prevFireMasks: new Map(),
+        silentTicks: new Map(),
         matchRoster: new Set(["aaa"]),
         phaseCaps: new Map(),
         combat: memory,

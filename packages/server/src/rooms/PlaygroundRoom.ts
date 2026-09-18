@@ -136,6 +136,8 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
   maxClients = 1;
   private inputQueues = new Map<string, InputMessage[]>();
   private prevFireMasks = new Map<string, number>();
+  /** Consecutive empty-queue ticks per session; see `PipelineCtx.silentTicks`. */
+  private silentTicks = new Map<string, number>();
   private matchRoster = new Set<string>();
   private phaseCaps = new Map<string, number>();
   private combat: CombatMemory = newCombatMemory();
@@ -334,6 +336,7 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     this.state.players.delete(sessionId);
     this.inputQueues.delete(sessionId);
     this.prevFireMasks.delete(sessionId);
+    this.silentTicks.delete(sessionId);
     this.matchRoster.delete(sessionId);
     this.phaseCaps.delete(sessionId);
     this.bots.delete(sessionId);
@@ -360,6 +363,7 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     this.state.players.set(sessionId, player);
     this.inputQueues.set(sessionId, []);
     this.prevFireMasks.set(sessionId, 0);
+    this.silentTicks.set(sessionId, 0);
     this.matchRoster.add(sessionId);
     return player;
   }
@@ -516,6 +520,7 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
       state: this.state,
       inputQueues: this.inputQueues,
       prevFireMasks: this.prevFireMasks,
+      silentTicks: this.silentTicks,
       matchRoster: this.matchRoster,
       phaseCaps: this.phaseCaps,
       combat: this.combat,

@@ -119,6 +119,7 @@ describe("respawn clears the shove", () => {
         state,
         inputQueues: new Map(),
         prevFireMasks: new Map(),
+        silentTicks: new Map(),
         matchRoster: new Set(["a"]),
         phaseCaps: new Map(),
         combat: newCombatMemory(),

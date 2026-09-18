@@ -107,6 +107,8 @@ export class PracticeRoom extends Room<PracticeState> {
 
   private readonly inputQueues = new Map<string, InputMessage[]>();
   private readonly prevFireMasks = new Map<string, number>();
+  /** Consecutive empty-queue ticks per session; see `PipelineCtx.silentTicks`. */
+  private readonly silentTicks = new Map<string, number>();
   private readonly matchRoster = new Set<string>();
   private readonly phaseCaps = new Map<string, number>();
   private readonly combat: CombatMemory = newCombatMemory();
@@ -333,6 +335,7 @@ export class PracticeRoom extends Room<PracticeState> {
     this.state.players.set(sessionId, player);
     this.inputQueues.set(sessionId, []);
     this.prevFireMasks.set(sessionId, 0);
+    this.silentTicks.set(sessionId, 0);
     this.matchRoster.add(sessionId);
     return player;
   }
@@ -427,6 +430,7 @@ export class PracticeRoom extends Room<PracticeState> {
       state: this.state,
       inputQueues: this.inputQueues,
       prevFireMasks: this.prevFireMasks,
+      silentTicks: this.silentTicks,
       matchRoster: this.matchRoster,
       phaseCaps: this.phaseCaps,
       combat: this.combat,

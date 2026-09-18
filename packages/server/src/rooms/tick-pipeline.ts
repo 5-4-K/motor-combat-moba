@@ -55,6 +55,13 @@ export interface PipelineCtx {
   state: ArenaState;
   inputQueues: Map<string, InputMessage[]>;
   prevFireMasks: Map<string, number>;
+  /**
+   * Per session, how many consecutive ticks that player's input queue has been empty. Server-only
+   * and room-owned, exactly like `prevFireMasks`: `serverTick` reads it to tell a jittered tick from
+   * a client that has stopped stepping, and nothing it holds crosses the wire. See
+   * `NET_CONFIG.silentCoastGraceMs`.
+   */
+  silentTicks: Map<string, number>;
   matchRoster: ReadonlySet<string>;
   /**
    * Per-player tick at which spawn protection must end no matter what. Server-only: the client reads
@@ -103,6 +110,7 @@ export function runPipeline(ctx: PipelineCtx): {
     state.phase,
     statusMods,
     ctx.prevFireMasks,
+    ctx.silentTicks,
   );
   // Contact, after driving and before combat. The order is the rule: contacts are measured against
   // the poses driving actually produced, and the knock written here is read by stepDrive next tick.

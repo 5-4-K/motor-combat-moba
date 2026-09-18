@@ -10,9 +10,9 @@ import {
   carIdOf,
   getArena,
   isOnField,
-  lateralOf,
   otherCarHulls,
   ramDefenceOf,
+  speedOf,
   stepSim,
   type ArenaDef,
   type ContextEntry,
@@ -71,11 +71,15 @@ export interface TickResult {
  * Advance every player by their queued inputs. `dt` is seconds and must match the room simulation
  * interval (1 / getTickRateHz(TICK_RATE_HZ)).
  *
- * **One player is advanced without any input: a knocked one that has gone silent.** A ram writes
- * motion onto its victim from outside, and that motion has to resolve whether or not the victim is
- * still sending — otherwise an alt-tabbed or stalled player is an immovable wall carrying a
- * permanent shove. Such a player is coasted on a neutral input, without an ack and without a fire
- * mask, only while `hasKnock` holds. Every other silent player is left exactly as it was.
+ * **One player is advanced without any input: one whose client has gone quiet for long enough that
+ * it is no longer predicting either.** A ram writes motion onto its victim from outside, and that
+ * motion has to resolve whether or not the victim is still sending — otherwise an alt-tabbed or
+ * stalled player is an immovable wall carrying a permanent shove. Such a player is coasted on a
+ * neutral input, without an ack and without a fire mask, once their queue has been empty for
+ * `NET_CONFIG.silentCoastGraceMs` and while `hasMotionToResolve` holds. A player whose queue merely
+ * skipped a tick is left exactly as it was, because their client stepped that tick from an input
+ * still in flight and the server must not step it twice. `silentTicks` is that per-session run
+ * length: room-owned, server-only, and reset by any drained input.
  *
  * `statusMods` is every player's status multipliers, already swept of expired entries by
  * `statusTick`. It reaches `stepDrive` through `StepContext.modifiers`, and a player with nothing on
@@ -142,6 +146,7 @@ export function serverTick(
   phase: RoomPhase,
   statusMods: ReadonlyMap<string, Modifiers>,
   prevFireMasks: Map<string, number>,
+  silentTicks: Map<string, number>,
 ): TickResult {
   const world = tickWorldOf(getArena(state.arenaId));
   const moving = phase === RoomPhase.MATCH;
@@ -178,20 +183,31 @@ export function serverTick(
         : null;
 
     if (!queue || queue.length === 0) {
-      // Nothing to drain — but a ram knock is motion applied from OUTSIDE this player, so it has to
-      // integrate whether or not they are still talking to us. A backgrounded browser tab stops
+      // Nothing to drain. A ram knock is motion applied from OUTSIDE this player, so it has to
+      // integrate whether or not they are still talking to us: a backgrounded browser tab stops
       // sending entirely (`requestAnimationFrame` throttles hard when hidden), and without this step
-      // the victim sits frozen holding a full-strength shove: unrammable, and never decaying either.
-      // Found in playtest, where a parked second tab behaved as an immovable wall.
+      // the victim sits frozen holding a full-strength shove — unrammable, and never decaying
+      // either. Found in playtest, where a parked second tab behaved as an immovable wall.
       //
-      // Coasting on a synthetic neutral input is the smallest thing that resolves the knock. The ack
-      // is deliberately NOT advanced and no fire mask is reported: this step acknowledges no input
-      // and grants no shot, it only lets physics finish what a ram started.
-      if (ctx !== null && hasKnock(player)) {
+      // But ONE empty tick is not silence, it is jitter, and a client that is still running has
+      // already predicted this tick from its own input. Stepping it here is a step the client never
+      // took, and the reconciled pose diverges by exactly that step. So the coast waits out
+      // `silenceGraceTicks` of UNBROKEN silence first — the point past which the client is not
+      // predicting either, and an extra server step is unobservable to it. `hasMotionToResolve`'s
+      // doc has the argument in full, including why reading the body instead cannot work.
+      const silentFor = (silentTicks.get(sessionId) ?? 0) + 1;
+      silentTicks.set(sessionId, silentFor);
+      if (ctx !== null && silentFor > silenceGraceTicks(dt) && hasMotionToResolve(player)) {
+        // Coasting on a synthetic neutral input is the smallest thing that resolves the knock. The
+        // ack is deliberately NOT advanced and no fire mask is reported: this step acknowledges no
+        // input and grants no shot, it only lets physics finish what a ram started.
         writeBody(player, stepSim(bodyOf(player), COAST_INPUT, dt, ctx));
       }
       continue;
     }
+    // They are talking to us, so the silence run ends here — whether or not anything in the batch
+    // is actually simulated below. Draining is the liveness signal; stepping is not.
+    silentTicks.set(sessionId, 0);
 
     // Arrival order is not seq order: `withSimulatedLatency` gives every message its own jittered
     // delay, so two inputs sent a tick apart reorder routinely at the latencies this project
@@ -236,57 +252,60 @@ function bySeq(a: InputMessage, b: InputMessage): number {
 const COAST_INPUT: InputMessage = { seq: 0, steer: 0, throttle: 0, fireSlots: 0 };
 
 /**
- * Does this player still carry knock state that needs integrating?
+ * How many consecutive empty-queue ticks mean the CLIENT has stopped stepping, not merely that a
+ * packet is late.
  *
- * Before this rework this checked `angVel`/`shoveX`/`shoveY`/`authority` — the knock quartet — and
- * deliberately left ordinary driving velocity (`speed`) out of the check, so a player whose queue
- * merely went empty for one jittery tick (routine at the latencies this project simulates, not a
- * sign of disconnection) stayed frozen rather than getting an extra, uncommanded coast tick. That
- * omission is what makes client prediction converge: on an empty-queue tick both sides must take
- * exactly zero extra steps, or a server-only coast desyncs the reconciled pose from what the client
- * already predicted.
- *
- * `speed` and `shove` are now carried on the same two fields (`vx`/`vy`), so the old check (any
- * nonzero `vx`/`vy`) would be true for essentially every moving car, forcing a coast step on the
- * server that the client never predicts — the exact desync above, on ordinary play rather than only
- * on a stalled tab. The fix keeps the same distinction the old fields drew, expressed in the new
- * ones: `stepDrive`'s own steering grip aligns a car's own motion with its nose (see the doc on
- * `SimBody`), so any LATERAL component of velocity is by definition externally imposed — a car never
- * drives itself sideways. `lateralOf` is that signature, and it is this rework's successor to
- * `shoveX`/`shoveY`.
- *
- * Known, accepted gap, and STILL OPEN: a knock landing purely along the victim's own heading (a
- * dead-on rear-end) is invisible to `lateralOf` and so behaves like the pre-rework `speed` case — a
- * silent or disconnected victim freezes holding it rather than coasting it off. Not a regression
- * (that is exactly what `speed` did before this rework). Stage 3b did NOT close it: it gave the sim
- * its first real control-loss signal — the `reeling` status, applied to every ram victim by
- * `contactTick` — but it did not touch this predicate, which still tests only `lateralOf`, `angVel`
- * and `maneuver`. So `reeling` is now the signal that COULD close the gap; whether to widen the
- * predicate to read it is a future decision, not a settled one, and it is a behaviour change:
- * widening it grows the set of silent-player ticks the server steps, which the paragraph above
- * explains must stay in lockstep with what the client predicts. Recorded as a candidate in the
- * car-physics EXECUTION.md's deferred findings.
- *
- * The `lateralOf` comparison below is against `DRIVE_CONFIG.stopEpsilon`, not exact zero, and that is
- * load-bearing, not tidiness: `stepDrive` rebuilds vx/vy at the car's NEW heading every tick
- * (`steeringGrip` is 1.0, "on rails"), and that round-trip through `Math.sin`/`Math.cos` does not
- * return a bit-exact zero lateral component for a car that has turned. A car that steers and then
- * drives straight is left carrying a stable, nonzero residue on the order of 1e-14 — nowhere near a
- * real knock, but enough that the exact `!== 0` this replaced called ordinary post-turn driving an
- * externally-imposed knock and coasted a silent player's queue that client prediction never runs
- * (measured at ~30% of ticks for a car that has recently turned). `stopEpsilon` is the codebase's
- * existing "this much velocity is indistinguishable from rest" constant (see `coast` in
- * `sim/drive.ts`), sitting eleven orders of magnitude above the measured residue and far below any
- * real knock. If you are tempted to simplify this back to `!== 0`, don't — that reinstates the bug,
- * and `tick.test.ts`'s "recently-turned silent player" case is what will fail.
+ * Derived from this room's own `dt` rather than from `TICK_RATE_HZ`, so a room running at a
+ * non-default rate (and the 60 Hz the netcode rewrite's phase 1 brings) gets the same wall-clock
+ * grace rather than the same tick count. See `NET_CONFIG.silentCoastGraceMs` for why the threshold
+ * is a duration at all.
  */
-function hasKnock(player: PlayerState): boolean {
+function silenceGraceTicks(dt: number): number {
+  return Math.ceil(NET_CONFIG.silentCoastGraceMs / (dt * 1000));
+}
+
+/**
+ * Is there anything left on this player's body to integrate?
+ *
+ * A cheap "would a coast step do anything" test, and nothing more — it is the SECOND half of the
+ * silent-coast gate, never the whole of it. The first half is elapsed silence, and the two are not
+ * interchangeable. Read `silenceGraceTicks`'s doc and `NET_CONFIG.silentCoastGraceMs` before
+ * touching either.
+ *
+ * **Why this is no longer a knock predicate, and why nothing may turn it back into one.** Through
+ * the 2026-09-06 car-physics rework this was `hasKnock`, which tried to answer "is this motion
+ * externally imposed" from the body alone, and did it in two steps: before the vector-drive rework
+ * by reading the dedicated `shoveX`/`shoveY`/`authority` fields, and after it by reading
+ * `lateralOf(vx, vy, angle)` against `DRIVE_CONFIG.stopEpsilon` — on the argument that
+ * `DRIVE_CONFIG.steeringGrip` was 1.0, "on rails", so a car never drove itself sideways and any
+ * lateral component had to have come from outside. **Both premises are gone.** The Unity drive-model
+ * port DELETED `steeringGrip`, moving the model to that knob's 0 end: lateral velocity is now the
+ * DRIFT every cornering car carries, tens of u/s at full lock (Mirage settles around 26° of slip),
+ * against a `stopEpsilon` of 1e-3. And under U16 `angVel` no longer means "residual ram spin" — the
+ * ordinary `stepDrive` branch writes the steering rate into it every tick, so `angVel !== 0` now
+ * reads "is this player steering". Between them the old predicate fired for essentially every
+ * cornering player, on a tick type its own comment called routine at these latencies.
+ *
+ * **The requirement was never a definition of "knock"; it is lockstep with the client, and the
+ * client settles it.** `ArenaScene.sendInputTick` produces exactly one input per sim tick and calls
+ * `PredictionBuffer.predict` once for it (`packages/client/src/net/prediction.ts`); there is no
+ * coast path in that file at all. **A running client never steps a tick it did not send an input
+ * for.** So while the client is running, ANY extra server step is a desync — whatever the body looks
+ * like — and once the client has stopped producing inputs, NO extra server step is observable to it.
+ * That makes elapsed silence the only sound discriminator, and it is what the gate now reads.
+ *
+ * That also closes the gap the old predicate documented as accepted and open: a shove landing along
+ * the victim's own heading (a dead-on rear-end) was invisible to `lateralOf`, so a disconnected
+ * victim froze holding it — measured at 287.4 u/s of a 300 u/s shove, 96% of it, once the port left
+ * drag as the only thing removing velocity. Silence does not care which way the push pointed.
+ *
+ * `maneuver` stays in the test for the same reason it always was: a dash or a hold is state that
+ * must be run down, and a car frozen mid-dash keeps the whole of it.
+ */
+function hasMotionToResolve(player: PlayerState): boolean {
   return (
-    Math.abs(lateralOf(player.vx, player.vy, player.angle)) > DRIVE_CONFIG.stopEpsilon ||
+    speedOf(player.vx, player.vy) > DRIVE_CONFIG.stopEpsilon ||
     player.angVel !== 0 ||
-    // A maneuver is also motion applied from outside the player's own inputs: a dashing or held
-    // car must keep integrating when its owner goes silent, or it freezes mid-dash holding the
-    // whole state. Ends on its own when the ticks run out, exactly as the knock decays do.
     player.maneuver !== ManeuverKind.NONE
   );
 }
@@ -320,8 +339,8 @@ function bodyOf(player: PlayerState): SimBody {
     angVel: player.angVel,
     // Reading/writing these fields here is what makes stepDrive's DASH/HOLD/CHARGE integration
     // and fullStop take hold once something upstream sets them (a weapon or status effect, not yet
-    // wired), without this bridge needing to change again. `hasKnock` below also treats a live
-    // maneuver as motion that must keep integrating even when the player goes silent.
+    // wired), without this bridge needing to change again. `hasMotionToResolve` below also treats a
+    // live maneuver as motion that must keep integrating once the player has gone silent.
     maneuver: player.maneuver,
     maneuverTicksLeft: player.maneuverTicksLeft,
     maneuverAngle: player.maneuverAngle,

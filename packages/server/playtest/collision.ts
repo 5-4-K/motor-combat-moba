@@ -227,7 +227,12 @@ function ramIntoWall(): void {
     let maxX = -Infinity;
     for (let i = 0; i < 90; i++) {
       w.input("attacker", { throttle: 1 });
-      w.tick(); // victim sends nothing: exercises the silent-but-knocked coast path
+      // Victim sends nothing: exercises the silent-coast path. Since the drive-model port's
+      // whole-branch review that path waits out `NET_CONFIG.silentCoastGraceMs` of unbroken silence
+      // first (see scenario 5's doc), so the victim is frozen for the first few ticks after the ram
+      // and only then starts resolving. This loop is long enough to cover that, but the tick at
+      // which the wall is reached has moved.
+      w.tick();
       maxX = Math.max(maxX, w.get("victim").x);
     }
     const out = maxX > wallX + 0.01;
@@ -245,10 +250,19 @@ function ramIntoWall(): void {
 
 /* ---------------------------------- 5. silent, un-knocked player as an immovable wall */
 /**
- * `serverTick` only coasts a silent player while `hasKnock` is true. A contact below
- * `RAM_CONFIG.minApproachSpeed` writes no knock at all — so a silent car that is nudged slowly is
- * never stepped, never resolved, and cannot be pushed out of an overlap. Does that let a driver
- * bury themselves in a parked car?
+ * **The gate this scenario was written against is gone, and the numbers below move with it.**
+ * `serverTick` used to coast a silent player only while `hasKnock` was true — a body-shape test — so
+ * a contact below `RAM_CONFIG.minApproachSpeed` wrote no knock at all and the silent car was never
+ * stepped, never resolved, and could not be pushed out of an overlap. That was the question here:
+ * does it let a driver bury themselves in a parked car?
+ *
+ * The drive-model port's whole-branch review replaced that predicate with elapsed SILENCE
+ * (`NET_CONFIG.silentCoastGraceMs`, `hasMotionToResolve` in `sim/tick.ts`), because under the ported
+ * model no property of the body distinguishes imposed motion from ordinary drift. So "parked" here
+ * is now stepped from `silentCoastGraceMs` after its last input onwards whenever it carries any
+ * motion at all, whatever wrote it. Expect this scenario's depth figures to move; re-read what it
+ * reports before trusting the old reading. NOT re-aimed here — that is a judgement call for the
+ * user, alongside the `minApproachSpeed` note below.
  *
  * As of stage 3 Task 2 (spec R9), `minApproachSpeed` ships at 0 — deliberately inactive — so this
  * gate no longer exercises the path it was written for: any drive-in at all now clears it, and this

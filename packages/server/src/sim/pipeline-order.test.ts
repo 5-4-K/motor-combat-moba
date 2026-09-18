@@ -95,7 +95,7 @@ describe("the real serverTick -> contactTick order (stage 2 whole-stage review, 
     ]);
 
     // Step 1: the REAL `serverTick` — drive, then `resolveWorld`'s restitution reflection.
-    const { approachVelocities } = serverTick(state, queues, 1 / 30, RoomPhase.MATCH, NO_EFFECTS, new Map());
+    const { approachVelocities } = serverTick(state, queues, 1 / 30, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
 
     const afterResolveWorld = attacker.vx;
     // The reflection alone: `resolveWorld` reflects the WHOLE pre-collision velocity by

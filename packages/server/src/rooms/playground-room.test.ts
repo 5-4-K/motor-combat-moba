@@ -319,6 +319,7 @@ describe("seat lifecycle (PG66/PG67/PG68)", () => {
     ram: ContactMemory;
     inputQueues: Map<string, InputMessage[]>;
     prevFireMasks: Map<string, number>;
+    silentTicks: Map<string, number>;
     matchRoster: Set<string>;
     phaseCaps: Map<string, number>;
     setState(state: PlaygroundState): void;
@@ -377,6 +378,7 @@ describe("seat lifecycle (PG66/PG67/PG68)", () => {
     expect(room.state.players.has(gone)).toBe(false);
     expect(room.inputQueues.has(gone)).toBe(false);
     expect(room.prevFireMasks.has(gone)).toBe(false);
+    expect(room.silentTicks.has(gone)).toBe(false);
     expect(room.matchRoster.has(gone)).toBe(false);
     expect(room.phaseCaps.has(gone)).toBe(false);
     expect(room.combat.loadouts.has(gone)).toBe(false);

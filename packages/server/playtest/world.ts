@@ -66,6 +66,12 @@ export class PlaytestWorld {
    * thereafter fires ONCE — set the mask back to 0 on a tick to release the trigger.
    */
   readonly prevFireMasks = new Map<string, number>();
+  /**
+   * Mirrors `ArenaRoom.silentTicks`: consecutive empty-queue ticks per player. Probes feed every car
+   * from `queues` on every tick, so this normally stays at 0 — it matters only for a scenario that
+   * deliberately stops feeding one, which is exactly what `serverTick`'s silent-coast branch is for.
+   */
+  readonly silentTicks = new Map<string, number>();
   readonly roster = new Set<string>();
   private combat: CombatMemory = newCombatMemory();
   private ram: ContactMemory = newContactMemory();
@@ -139,6 +145,7 @@ export class PlaytestWorld {
       this.state.phase,
       statusMods,
       this.prevFireMasks,
+      this.silentTicks,
     );
     let contact: ContactTickResult = { contactHits: [], statusRequests: [], spikeHits: [] };
     if (this.state.phase === RoomPhase.MATCH && this.roster.size > 0) {

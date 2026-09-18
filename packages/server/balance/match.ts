@@ -141,6 +141,7 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
   const matchRoster = new Set(setup.seats.map((seat) => seat.sessionId));
   const inputQueues = new Map<string, InputMessage[]>();
   const prevFireMasks = new Map<string, number>();
+  const silentTicks = new Map<string, number>();
   const phaseCaps = new Map<string, number>();
   const combat: CombatMemory = newCombatMemory();
   const ram: ContactMemory = newContactMemory();
@@ -201,6 +202,7 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
     state,
     inputQueues,
     prevFireMasks,
+    silentTicks,
     matchRoster,
     phaseCaps,
     combat,

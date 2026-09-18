@@ -97,6 +97,8 @@ export class ArenaRoom extends Room<ArenaState> {
    * other half of the lockstep needs it.
    */
   private prevFireMasks = new Map<string, number>();
+  /** Consecutive empty-queue ticks per session; see `PipelineCtx.silentTicks`. */
+  private silentTicks = new Map<string, number>();
   private pendingCarId = new Map<string, CarId>();
   private matchRoster = new Set<string>();
   /**
@@ -300,6 +302,7 @@ export class ArenaRoom extends Room<ArenaState> {
     this.state.players.set(client.sessionId, player);
     this.inputQueues.set(client.sessionId, []);
     this.prevFireMasks.set(client.sessionId, 0);
+    this.silentTicks.set(client.sessionId, 0);
     if (!this.state.hostSessionId) {
       this.state.hostSessionId = client.sessionId;
     }
@@ -313,6 +316,7 @@ export class ArenaRoom extends Room<ArenaState> {
     this.state.players.delete(client.sessionId);
     this.inputQueues.delete(client.sessionId);
     this.prevFireMasks.delete(client.sessionId);
+    this.silentTicks.delete(client.sessionId);
     this.pendingCarId.delete(client.sessionId);
     this.postMatchIds.delete(client.sessionId);
     this.matchRoster.delete(client.sessionId);
@@ -419,6 +423,7 @@ export class ArenaRoom extends Room<ArenaState> {
       state: this.state,
       inputQueues: this.inputQueues,
       prevFireMasks: this.prevFireMasks,
+      silentTicks: this.silentTicks,
       matchRoster: this.matchRoster,
       phaseCaps: this.phaseCaps,
       combat: this.combat,
