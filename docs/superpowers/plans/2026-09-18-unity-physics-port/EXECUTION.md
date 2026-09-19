@@ -724,10 +724,39 @@ command as well as the figure.
   just no longer measures the discontinuity it was written to catch. **Not fixed here** — Task 4 was
   told explicitly not to touch the probes, and stage 5 owns rethinking this one rather than re-aiming
   it.
-- **`DRIVE_CONFIG.dashSubstepMaxUnits` 16 → 8**, inherited from the 2026-09-06 car-physics rework's
-  stage 2. Untouched by this port; stage 5 judges it with the user.
-- **`wildcharge.impulse.speed` (520) and `uncontrolMs` (1400)** were provisional before this work and
-  still are. Stage 4 makes their doc comments true; stage 5 pitches the numbers.
+- **RESOLVED 2026-09-19 — `DRIVE_CONFIG.dashSubstepMaxUnits` STAYS 16.** (Was: "16 → 8, inherited
+  from the 2026-09-06 car-physics rework's stage 2; stage 5 judges it with the user.") Stage 5 Task 4.
+  **The project owner drove it and declined the change** — dashed `thunderclap` into a car at
+  point-blank range in the playground and judged the momentary interpenetration acceptable. The trade
+  they declined: 18.49 u of worst-case overlap at 16 (4 substeps of 13.3 u) against 12.14 u at 8
+  (7 substeps of 7.6 u), for double the collision checks per dash tick — on a 60 u hull, clearing in
+  about three ticks. Nothing in stage 5's settled tuning moves it: the dash is a fixed 1600 u/s and
+  the knob is denominated in world units. `thunderclap` is the only dash in the game; `wildcharge` is
+  a charge and never substeps this way.
+  **The measurement table was verified, not assumed.** It was taken when collisions still carried
+  restitution, which is now 0, so the plan required checking that the decay series had not gone stale.
+  `packages/shared/src/sim/step.test.ts` passes with `MEASURED_WORST_REACHABLE` unchanged at
+  18.49229600694457, so the table the owner judged against is still true. (The plan's own Task 4 text
+  quotes that figure with one digit too many — a transcription slip in the plan, not a moved number.)
+  **This judgement had survived two reworks undecided.** It is decided now, by someone driving.
+- **PARTLY RESOLVED 2026-09-19 — `wildcharge.impulse.speed` STAYS 520; its reeling duration was never
+  judged.** (Was: "both were provisional before this work and still are; stage 4 makes their doc
+  comments true, stage 5 pitches the numbers.") Stage 5 Task 5, ruling T5-a.
+  The owner's settled tuning raised every ram by 1.8x (top speed 1.5x plus `ram.globalScale` 0.5 →
+  0.6), which made stage 4's guard fail: 520 fell from 2.00x to 1.11x the roster-maximum ram.
+  **The owner challenged the framing and was right.** `hardestOrdinaryRam()` maximises over every
+  attacker x victim pair, so it always lands on "fastest chassis hits the lowest `ramDefence`" — but
+  `wildcharge` sets `defenceScaled: false` and ignores `ramDefence` entirely, so the guard compared a
+  defence-blind constant against the one matchup where defence helps the ram most. Against the best
+  ordinary ram on the SAME victim, 520 is still 1.85x vs Mirage and 3.33x vs Bastion, 4.45x against a
+  falloff-worn target and 8.34x on a head-on. Raising `speed` to satisfy the old bar would have needed
+  702 (minimum) or 936 (to restore 2.00x), taking the ult to 4.50x-6.00x against Bastion and extending
+  its 500 ms wall-stun reach from 12% to 22% of the arena width — a design change dressed as a test
+  fix. **The guard was re-aimed instead**, into two assertions: a floor (`speed >= hardestOrdinaryRam()`)
+  and an identity check (`speed >= hardestMirrorRam() * 1.5`, attacker = victim so the defence spread
+  drops out). The identity bar has only ~8% headroom, so a further ram-power increase trips it — that
+  is a true positive, not a flaky test.
+  **`applies[0].durationMs` (1400, formerly `uncontrolMs`) is still un-judged** and still provisional.
 - **`reeling`'s `reapply: "ignore"` DELETES `wildcharge`'s entire 1.4 s control loss whenever the
   victim was rammed in the preceding second (whole-branch review, controller ruling S3-p). Owner:
   stage 4.** Not a discount — a total loss, and in the most common setup for the ult.
