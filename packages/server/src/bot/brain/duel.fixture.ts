@@ -49,10 +49,27 @@ import { HumanController } from "./controller.js";
 
 const ARENA = { width: 1280, height: 720, obstacles: [] as const };
 
-/** Where the bot starts every duel: mid-arena height, well clear of the far wall, already rolling. */
-// `vx: 300, vy: 0` is the car-physics rework's spelling of the old `speed: 300` at `angle: 0` —
-// heading +x, so the whole 300 u/s is forward and none of it lateral. Same body, same fixture.
-const BOT_START = { x: 200, y: 360, angle: 0, vx: 300, vy: 0 };
+/**
+ * Where the bot starts every duel: mid-arena height, well clear of the far wall, already rolling.
+ * `angle: 0` means heading +x, so `vx` (set per-chassis below, at `driveOf(chassis).maxSpeed`) is
+ * the whole speed, forward, none of it lateral.
+ *
+ * STAGE 5 TASK 8 (2026-09-19), FOUND AND FIXED: this used to hardcode `vx: 300` regardless of
+ * chassis — a literal that predates every speed retune since. It was never re-derived across any of
+ * them, and by this port's settled tuning it sits ABOVE every current chassis's own top speed
+ * (Mirage 283.5, Bullseye 238.0, Bastion 203.9) — so the fixture used to start EVERY duel already
+ * 26-47% over its own chassis's cap, decelerating toward it for the first several ticks before
+ * settling. That is not "already rolling", it is "starting from an impossible state the sim
+ * immediately corrects", and the correction's exact shape (how hard it brakes, how far it overshoots
+ * `preferredRangeOf` before settling) is exactly the kind of transient a hit-rate measurement
+ * shouldn't be sensitive to. It is: `tiers.test.ts` P50 ("hits far more often above the easy tier")
+ * went red at this port's stage 5 Task 5 (the settled 1.5x speed/turn-rate raise) precisely because
+ * that raise widened the gap between the stale 300 and the chassis's real cap. Re-deriving the start
+ * speed per chassis (`driveOf(chassis).maxSpeed`, applied where `chassis` is in scope below) fixes
+ * P50 outright with no `BOT_PROFILES` change and no other suite moving — confirmed by re-running the
+ * whole `src/bot` suite before and after.
+ */
+const BOT_START = { x: 200, y: 360, angle: 0, vy: 0 };
 
 export interface DuelOptions {
   tier: "easy" | "medium" | "hard";
@@ -175,7 +192,7 @@ export function runDuel(opts: DuelOptions): DuelResult {
   const events = newCombatEvents();
 
   let body: SimBody = {
-    ...BOT_START, angVel: 0,
+    ...BOT_START, vx: driveOf(chassis).maxSpeed, angVel: 0,
     maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
   };
   let me = combatant("me", chassis, 0, body.x, body.y, body.angle);

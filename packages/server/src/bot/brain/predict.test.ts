@@ -547,9 +547,9 @@ describe("predicting an observed car, against an independent ground truth", () =
     }
   });
 
-  it("holds a REVERSING car's speed, and brakeDecel really is inert alongside accel", () => {
-    // REWRITTEN, STAGE 5 TASK 8 (2026-09-19) — a STALE TEST, not a bot regression. This used to
-    // measure a real gap between `accel: 0` alone and `OBSERVATION_MODIFIERS` (`accel: 0,
+  it("holds a REVERSING car's speed", () => {
+    // REWRITTEN, STAGE 5 TASK 8 (2026-09-19), FIX ROUND 1 — a STALE TEST, not a bot regression. This
+    // used to measure a real gap between `accel: 0` alone and `OBSERVATION_MODIFIERS` (`accel: 0,
     // brakeDecel: 0` together) for a reversing car, citing an `accelerateForward` function whose
     // `speed < -stopEpsilon` branch braked at `brakeDecel` regardless of the commanded throttle. That
     // function is not the current model: `drive.ts`'s `engineCommandOf` reads `brakeDecel` ONLY on
@@ -557,31 +557,27 @@ describe("predicting an observed car, against an independent ground truth", () =
     // `rollForward`'s own production callers) holds `throttle: 1` always, exactly as `predict.ts`'s
     // `OBSERVATION_MODIFIERS` doc comment now states outright ("no production predictor passes
     // `throttle: -1`, and the engine-command table gives the brake no other path"). So for every
-    // scene `rollForward` can actually reach, `accel: 0` alone and `OBSERVATION_MODIFIERS` are the
-    // SAME mods — the old comparison was measuring a code path this file's own tests never execute.
-    // Confirmed rather than assumed: the two rollouts below are bit-identical for reversing scenes.
-    const ACCEL_OFF_ONLY = Object.freeze({ ...NEUTRAL_MODIFIERS, accel: 0 });
+    // scene `rollForward` can actually reach, `accel: 0` alone and `OBSERVATION_MODIFIERS` compute
+    // the SAME thing — the old comparison was measuring a code path this file's own tests never
+    // execute, which is why it could never pass again.
+    //
+    // A fix round 1 finding: an earlier draft of this rewrite tried to turn that fact into a second
+    // assertion (`accel`-only rollout equals a fresh `OBSERVATION_MODIFIERS` one). That is TRUE BY
+    // CONSTRUCTION given `engineCommandOf` never reads `brakeDecel` on `throttle: 1` — two mods
+    // objects that differ only in a field the code path never touches are equal for any input, which
+    // is a fact about `stepDrive`'s own structure (properly a `drive.test.ts`/`channels.test.ts`
+    // concern in shared), not something this file's own inputs could ever fail to demonstrate.
+    // Dropped rather than kept for appearances; the one assertion below is the actual, falsifiable
+    // property this test is named for.
     const reversing = SCENES.filter((scene) => scene.speed < 0);
     expect(reversing).toHaveLength(4);
     for (const scene of reversing) {
       const truth = truthPath(scene.speed, scene.steer, "mirage", LONGEST);
-      const accelOffOnly = rollForward(
-        bodyFromObservation(carAt({ speed: scene.speed }), 0), "mirage",
-        { steer: scene.steer, throttle: 1 }, LONGEST, ACCEL_OFF_ONLY,
-      );
       const held = shipped(scene.speed, scene.steer);
       for (const ticks of HORIZONS) {
         // The property this test is actually named for: a reversing car's observed speed is held,
         // not decayed toward rest or accelerated toward the chassis maximum.
         expect(errorAt(truth, held(ticks), ticks), `${scene.label} @${ticks}`).toBeLessThan(1);
-        // `brakeDecel: 0`'s inertness on this path, confirmed rather than assumed: with `throttle: 1`
-        // always, dropping it from the mods set changes nothing.
-        expect(accelOffOnly[ticks - 1], `${scene.label} @${ticks}`).toEqual(
-          rollForward(
-            bodyFromObservation(carAt({ speed: scene.speed }), 0), "mirage",
-            { steer: scene.steer, throttle: 1 }, ticks, OBSERVATION_MODIFIERS,
-          ).at(-1),
-        );
       }
     }
   });

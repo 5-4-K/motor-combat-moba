@@ -71,16 +71,22 @@ describe("tier characterisation", () => {
    * check.
    */
   it("hard changes course for an incoming shot and easy ignores it (H25)", () => {
-    // RE-DERIVED, STAGE 5 TASK 8 (2026-09-19). Two changes, both measured, not guessed:
+    // RE-DERIVED, STAGE 5 TASK 8 (2026-09-19), FIX ROUND 1. Two changes, both measured:
     //
-    // 1. `self` is now held STATIONARY (`vx: 0, vy: 0`) instead of `view()`'s default — already at
-    //    Bullseye's own top forward speed, closing on the 500-unit-distant `enemy`. Probed directly:
-    //    at the default closing speed the bot's OWN `fight` situation reaches "too close, back off"
-    //    at almost exactly the tick a dodge would also fire, so `dodgeChance: 0` and `dodgeChance: 1`
-    //    emit the BIT-IDENTICAL 90-tick sequence regardless of what field is compared — the faster
-    //    Unity drive model closes that gap quicker than the old one did, which is what changed
-    //    underneath this fixture. Held stationary, that confound is gone and the two dodgeChance
-    //    values diverge for the whole back half of the run, which is the property this test names.
+    // 1. `self`'s speed is now HALF of Bullseye's own top forward speed, not `view()`'s default
+    //    (exactly top speed) and not stationary either (a fix round 1 finding: dead-stopping `self`
+    //    was flagged as weakening the fixture rather than isolating it, and the review was right —
+    //    a moving bot is the more representative scene). Swept directly, `dodgeChance: 1` against
+    //    `dodgeChance: 0`, as a fraction of `forwardMaxSpeedOf("bullseye")` (238.0 u/s): the two
+    //    diverge cleanly from 0 up through 75% of top speed, and only become BIT-IDENTICAL at 90%
+    //    and above. That is a real, narrow finding in its own right, not an artifact of this test:
+    //    at high closing speed against a 500-unit-distant target, the bot's OWN `fight` situation
+    //    reaches "too close, back off" at almost exactly the tick a dodge would also fire, so the two
+    //    mechanisms coincide on the identical action regardless of what field is compared — a car a
+    //    real player would see correctly backing away either way, just not for a reason this specific
+    //    scene can attribute to the dodge roll once the two mechanisms land on the same tick. Half
+    //    speed sits well clear of that coincidence (diverges for the whole back half of the run) while
+    //    still being a genuinely moving bot, not a contrived stationary one.
     // 2. The comparison is the full intent (steer AND throttle), not `.steer` alone: the confirmed
     //    dodge here is a straight reverse (`{steer: 0, throttle: -1}`), correctly chosen because
     //    turning away from the target would cost most of `myEv`'s achievable points while a straight
@@ -101,9 +107,9 @@ describe("tier characterisation", () => {
       const out: string[] = [];
       const still = { ...enemy, vx: 0, vy: 0 };
       for (let tick = 0; tick < 90; tick++) {
-        const selfStationary = { ...view(tick).self, vx: 0, vy: 0 };
+        const selfHalfSpeed = { ...view(tick).self, vx: forwardMaxSpeedOf("bullseye") * 0.5, vy: 0 };
         const intent = bot.decide(
-          view(tick, { self: selfStationary, others: [still], instances: incoming, rng }),
+          view(tick, { self: selfHalfSpeed, others: [still], instances: incoming, rng }),
         );
         out.push(`${intent.steer},${intent.throttle}`);
       }
@@ -382,11 +388,11 @@ describe("tier characterisation", () => {
   });
 
   it("hard sidesteps an incoming shot (S13 evade) compared to dodgeChance 0", () => {
-    // RE-DERIVED, STAGE 5 TASK 8 (2026-09-19) — same fixture and same two findings as H25 above:
-    // `self` held stationary (`view()`'s default already closes on `enemy` fast enough that
-    // `fight`'s own "too close, back off" fires at almost the same tick a dodge would, masking the
-    // comparison regardless of what field is read), and the comparison reads the full intent rather
-    // than `.steer` alone (the confirmed dodge here is a straight reverse, which needs no wheel).
+    // RE-DERIVED, STAGE 5 TASK 8 (2026-09-19), FIX ROUND 1 — same fixture and same two findings as
+    // H25 above: `self` at HALF of Bullseye's own top speed (measured to sit well clear of the
+    // narrow near-top-speed coincidence where `fight`'s own "too close, back off" masks the dodge —
+    // see H25's comment for the full sweep), and the comparison reads the full intent rather than
+    // `.steer` alone (the confirmed dodge here is a straight reverse, which needs no wheel).
     const incoming = [{
       id: "shot", ownerSessionId: "them", weaponId: "predator" as const,
       x: 210, y: -400, angle: Math.PI / 2,
@@ -401,9 +407,9 @@ describe("tier characterisation", () => {
       const intents: string[] = [];
       const still = { ...enemy, vx: 0, vy: 0 };
       for (let tick = 0; tick < 90; tick++) {
-        const selfStationary = { ...view(tick).self, vx: 0, vy: 0 };
+        const selfHalfSpeed = { ...view(tick).self, vx: forwardMaxSpeedOf("bullseye") * 0.5, vy: 0 };
         const out = bot.decide(
-          view(tick, { self: selfStationary, others: [still], instances: incoming, rng }),
+          view(tick, { self: selfHalfSpeed, others: [still], instances: incoming, rng }),
         );
         intents.push(`${out.steer},${out.throttle}`);
       }

@@ -249,9 +249,14 @@ export function physicsPredictor(
   const observed: BotCarView = {
     ...car, vx: car.vx * (1 + speedNoise), vy: car.vy * (1 + speedNoise),
   };
-  // `spinFree: true` ONLY for the below-threshold (residual ram spin) branch — see the doc comment
-  // above. `steer !== 0` must keep ordinary steering-sets-the-rate behaviour, or a genuinely
-  // sustained turn would decay to nothing on its first rolled tick instead of holding.
+  // `spinFree: true` for every `steer === 0` call — i.e. every observation whose read lands below
+  // `steerFromObservedTurn`'s threshold, not exclusively ones caused by a ram. The mechanism cannot
+  // tell a ram's residual from an ordinary car observed holding a near-zero turn (`spin` is 0 in
+  // that second case, so the branch is a no-op there); attributing every below-threshold reading to
+  // "a ram's injected spin" is the pre-existing design (spec P19's sanctioned human error), unchanged
+  // by this fix — only whether that attribution's decay actually WORKS is what changed. `steer !== 0`
+  // must keep ordinary steering-sets-the-rate behaviour, or a genuinely sustained turn would decay to
+  // nothing on its first rolled tick instead of holding.
   const mods = steer === 0 ? { ...OBSERVATION_MODIFIERS, spinFree: true } : OBSERVATION_MODIFIERS;
   const poses = rollForward(
     bodyFromObservation(observed, spin), car.carId, { steer, throttle: 1 }, horizonTicks, mods,

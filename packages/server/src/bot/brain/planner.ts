@@ -924,10 +924,15 @@ function threatAvoidOf(
  * reversal reads 1 today precisely as it did at `steeringGrip` 1.0. **The binary case the two BASE
  * rows below were actually calibrated against (full reversal, not an ordinary turn) is therefore
  * unchanged**, and re-measuring it is what confirmed `evade`'s 10 and `fight`'s 30 did not need to
- * move — see `objectives.ts`'s matching passage for the full record, including the two live bot
- * symptoms (`controller.test.ts`'s G12 pair, `tiers.test.ts`'s H25/S13-evade pair) this measurement
- * pass traced to OTHER terms (`rangeError` geometry and the `myEv`/`threatAvoid` tradeoff,
- * respectively) rather than to `facingError`'s weight.
+ * move — see `objectives.ts`'s matching passage for the full record, including three live bot
+ * symptoms this measurement pass checked against `facingError` (FIX ROUND 1, 2026-09-19, corrected
+ * the first pass's read on two of them). `controller.test.ts`'s G12 pair genuinely DOES involve
+ * `facingError` — `waitOut`'s weight of 120 is exactly what keeps a near-tied full-reversal
+ * candidate from beating "stand still", correctly, per this row's own F13 rationale — but no
+ * `facingError` value changes whether a genuine forward-turning candidate wins, which it never does,
+ * so the unresolved part of that regression still traces to `rangeError` geometry. `tiers.test.ts`'s
+ * H25/S13-evade pair traces to the fixture (a masking coincidence narrow to the top ~10% of closing
+ * speed), not to this weight. See `objectives.ts` for the full corrected record of all three.
  */
 export function facingErrorOf(body: SimBody): number {
   const speed = speedOf(body.vx, body.vy);

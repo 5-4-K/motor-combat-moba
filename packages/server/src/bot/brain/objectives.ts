@@ -179,34 +179,93 @@ import type { PlanWeights } from "./planner.js";
  * still price a genuine reversal at the same 14-point (`evade`) and precedent-matching (`fight`)
  * margins the derivation below always argued for. Neither weight had reason to move, so neither did.
  *
- * **What the continuous term did NOT explain, once measured against the live suite.** Three bot
- * symptoms coincided with this port and were checked against `facingError` specifically before
- * concluding they are not this term's doing:
+ * **THE TRIP-WIRE SAID "EVERY WEIGHT IN THAT TABLE", NOT JUST `evade` AND `fight` — FIX ROUND 1
+ * (2026-09-19) EXAMINED THE REMAINING SIX AFTER REVIEW FOUND ONLY TWO HAD BEEN.** `evade` and
+ * `fight` are the only two rows with a QUANTITATIVE headroom derivation to re-run (against
+ * `threatAvoid`/`rangeError` specifically), and `reset`'s 10 is not a third — it is DERIVED FROM
+ * `evade`'s ("10 is that raised to the roster's existing floor for a situation where reversing IS
+ * the play (`reset`, also 10)", above), so re-measuring `evade` already re-measures it. That leaves
+ * four genuinely unexamined rows plus `recover` (facingError 0, trivially inert at any speed): the
+ * CONTINUOUS ordinary-turn cost above (0.0042-0.0212 raw) is a property of the drive model and
+ * commit window, not of any one situation, so it applies unchanged to every row — at `waitOut`'s
+ * 120, the largest weight in the table, that is still only 0.5-2.5 points, and `unpin` (60),
+ * `punish` (50) and `close` (80) all fall inside that same span. None of the four comes close to
+ * "turning is pure cost" on that basis.
+ *
+ * **The BINARY case is a different story, and it is where the trip-wire's fear actually landed —
+ * once, in `waitOut`, and it turned out to be correct behaviour, not a defect.** A full reversal
+ * still costs exactly `weight x 1` under the ported model, precisely as it always did — so if a
+ * row's weight was ever large enough to swing a real comparison against a competing term, it was
+ * ALREADY doing that before this port, and remains unchanged now. `waitOut`'s 120 is exactly such a
+ * case (see the G12 finding below): it is what keeps a straight reverse toward a hunt waypoint from
+ * beating "stand still", which is correct given F13's own stated purpose for that row ("hunting is
+ * where facing your travel is the play"). `unpin` (60) sits in the same shape: `wallPenalty`'s own
+ * documented true-corner contribution is ~0.017 x 2400 = 40.8 points, comparable to a full reversal's
+ * 60-point `facingError` toll, so a car escaping straight backward out of a corner pays a real,
+ * non-trivial price for it — and `controller.test.ts`'s S28 ("Hard leaves a corner toward open
+ * floor, not the arena centre") is live, covered, and GREEN, which is the best available evidence
+ * this row's calibration is still sound rather than merely unexamined. `punish` (50) and `close` (80)
+ * have no failing or narrowly-covered test exercising their `facingError` weight the way G12 exposed
+ * `waitOut`'s, so their ordinal placement (F11-F13's qualitative argument, not a headroom number)
+ * stands unchallenged rather than freshly confirmed — flagged here rather than left silently implied
+ * as re-derived. No row's weight moved.
+ *
+ * **Three bot symptoms coincided with this port and were checked against `facingError`
+ * specifically. FIX ROUND 1 (2026-09-19) corrected two of the three write-ups below after review —
+ * the measurements were flawed, not just the prose, and both are re-verified now:**
  * - `controller.test.ts`'s G12 pair (`hunts a quadrant waypoint`, `hunts toward a last-known pose`)
- *   — the bot sits at `{steer: 0, throttle: 0}` hunting a waypoint ~150° behind it. Probed directly:
- *   `facingError` on the turning candidates is 0.006-0.02, negligible; the actual cause is that
- *   EVERY forward-driving candidate's terminal `rangeError` (the `waitOut` situation's only other
- *   live term, weight 0.375) is now worse than standing still, because a hard tier's ~12-tick commit
- *   window cannot turn far enough toward a target that far behind it to close any net distance under
- *   the heavier, faster drive model — a short-horizon planning limitation the physics port exposed,
- *   not a `facingError` miscalibration. No `BOT_PROFILES` knob flips it without either violating the
- *   documented performance budget on `planHorizonTicks` (needs roughly 40 against hard's shipped 22,
- *   nearly doubling per-plan cost) or moving `commitWindowFraction`, a swept global constant this
- *   file's own rules require re-sweeping rather than nudging. Left red and reported as a genuine,
- *   unresolved regression — see the stage 5 Task 8 report.
- * - `tiers.test.ts`'s H25 / S13-evade pair (dodge scenes compared by `.steer` alone) — probed
- *   directly: the planner's real winner under `dodgeChance: 1` DOES change (`{steer: 0, throttle: 1}`
- *   to `{steer: 0, throttle: -1}`, a genuine dodge), it just does it entirely through THROTTLE. The
- *   planner correctly prefers a straight reverse over a turning dodge here because turning away costs
- *   most of `myEv`'s 75 achievable points (down to ~18.7) while a straight reverse keeps the gun on
- *   target — `facingError`'s ~0.04-point difference between those two candidates is not what decides
- *   it. The tests check the wrong axis for this geometry, not a broken dodge; see the Task 8 report.
- * - `tiers.test.ts` P50 (`hits far more often above the easy tier`) — this one really is a
- *   regression, but a pre-existing, already-documented one (the paragraph two above this table
- *   traces it to a `solve()` EV-rating mismatch on hard's `pepperbox` at its own derived comfort
- *   range), and this file's own `facingError` weights play no part in it — confirmed by the same
- *   probe, which never sees `facingError` differ meaningfully between hard's candidates in that
- *   scene. Per this skill's "you do not tune around a solver bug" rule, left red.
+ *   — the bot sits at `{steer: 0, throttle: 0}` hunting a waypoint ~150° behind it.
+ *   **CORRECTED: `facingError` is NOT negligible here — the first write-up only checked its
+ *   CONTINUOUS cost (0.006-0.02, via the ordinary-turn candidates) and missed that `waitOut`'s
+ *   weight of 120, the largest in the table, is exactly what keeps the near-tied `{steer: 0,
+ *   throttle: -1}` candidate — a straight reverse toward the waypoint, which wins on `rangeError`
+ *   alone (878.57 against `{0,0}`'s 900) — from beating standing still: reversing is a BINARY
+ *   `facingError` of exactly 1 (unchanged by the port), so it pays the full 120-point toll and loses
+ *   by ~112 points. That is correct, intentional behaviour — `waitOut`'s whole point is "hunting is
+ *   where facing your travel is the play" (F13), so a hunting bot SHOULD refuse to reverse toward
+ *   its target — not a bug. What is unaffected by `facingError` at ANY weight, verified by resetting
+ *   it to 0 and re-scoring: no genuine FORWARD-turning candidate (`{steer: ±1, throttle: 1}`) ever
+ *   wins, because its own `rangeError` (936.8) is worse than standing still's regardless. That
+ *   remaining fact — not "facingError plays no part" — is what still traces this to `rangeError`
+ *   geometry and a short-horizon planning limitation: a hard tier's ~12-tick commit window cannot
+ *   turn far enough toward a target that far behind it to close any net distance under the heavier,
+ *   faster drive model. No `BOT_PROFILES` knob flips it without either violating the documented
+ *   performance budget on `planHorizonTicks` (needs roughly 40 against hard's shipped 22, nearly
+ *   doubling per-plan cost) or moving `commitWindowFraction`, a swept global constant this file's own
+ *   rules require re-sweeping rather than nudging. Left red and reported as a genuine, unresolved
+ *   regression — see the stage 5 Task 8 report.
+ * - `tiers.test.ts`'s H25 / S13-evade pair (dodge scenes compared by `.steer` alone) — the planner's
+ *   real winner under `dodgeChance: 1` DOES change (`{steer: 0, throttle: 1}` to `{steer: 0,
+ *   throttle: -1}`, a genuine dodge), it just does it entirely through THROTTLE, because turning away
+ *   costs most of `myEv`'s 75 achievable points while a straight reverse keeps the gun on target —
+ *   `facingError` is not the decider. **CORRECTED: the ORIGINAL write-up's fix (holding `self`
+ *   stationary) was reviewed and found to weaken the fixture rather than measure it — with `self`
+ *   still at its ORIGINAL moving speed and only the `.steer`-vs-full-intent fix applied, the two
+ *   dodge settings were STILL bit-identical, meaning the stationary-`self` fix was the one doing the
+ *   real work, silently.** Swept properly as a fraction of Bullseye's own top speed: the two dodge
+ *   settings diverge cleanly from a dead stop up through 75% of top speed, and only become
+ *   bit-identical at 90% and above — `view()`'s default (exactly top speed) sits inside that narrow
+ *   band. The cause is real but narrow: at a high enough closing speed, `fight`'s own "too close,
+ *   back off" reaches the identical action at almost the same tick a dodge would. Both tests now hold
+ *   `self` at HALF top speed — clear of the coincidence, and a genuinely moving bot rather than a
+ *   contrived stationary one — with the full-intent comparison kept alongside it. See
+ *   `docs/bot-behavior.md`'s dodge-measurements section for the full sweep and the Task 8 report.
+ * - `tiers.test.ts` P50 (`hits far more often above the easy tier`) — **CORRECTED: this is NOT a
+ *   pre-existing regression from the 2026-09-17 aim-lock removal.** That attribution came from the
+ *   test's own stale inline comments (written for the aim-lock event, at a wildly different pooled
+ *   hit-rate scale — 0.608/0.812 — than this failure's 0.9118/0.9333) and was never checked against
+ *   the port's own measured baselines, which the review pointed at directly:
+ *   `.superpowers/sdd/01-drive-model/progress.md` and this port's own `EXECUTION.md` both record P50
+ *   GREEN at the pre-work baseline, and `task-5-report.md` records it going red at stage 5 Task 5 —
+ *   this port's own settled-tuning commit. `facingError` genuinely plays no part (confirmed by the
+ *   same probe), but the real cause is also in this file's family: `duel.fixture.ts`'s `BOT_START`
+ *   hardcoded `vx: 300` regardless of chassis, a literal that predates every speed retune since and
+ *   sat ABOVE every current chassis's own top speed by Task 5's tuning (Bullseye's cap is 238.0) —
+ *   so the fixture used to start every duel already 26%+ over its own cap, decelerating through the
+ *   first several ticks before settling, a transient hard's kit is visibly more sensitive to than
+ *   easy's. Fixed in `duel.fixture.ts` by deriving the start speed from `driveOf(chassis).maxSpeed`;
+ *   P50 passes outright with no `BOT_PROFILES` change, confirmed against the whole `src/bot` suite
+ *   with nothing else moving.
  *
  * The derivation, not a sweep. `fight` ships facing at ~1/3 of the term it competes with (30
  * against `rangeError`'s ~90) — "a tie-breaker, never a veto". One third of `evade`'s 24 is 8;

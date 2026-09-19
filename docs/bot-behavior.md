@@ -226,23 +226,39 @@ tens-to-hundreds. "Turning is pure cost" has not been re-created by this route, 
 reason to move. `facingErrorOf`'s doc comment in `planner.ts` and `objectives.ts`'s weight-derivation
 paragraph both carry the full measurement table.
 
-**Three bot symptoms that coincided with this port were checked against `facingError` specifically,
-and none of them turned out to be this column's doing** — see the stage 5 Task 8 report
-(`.superpowers/sdd/05-tune-and-reconcile/task-8-report.md`) for the full trace of each:
-- Hunting a far-behind waypoint (`controller.test.ts`'s G12 pair) traces to `rangeError` geometry: a
-  hard tier's commit window cannot turn far enough toward a target ~150° behind it to close any net
-  distance under the heavier, faster drive model, so standing still currently outscores every
-  turning candidate. Left red — no `BOT_PROFILES` knob fixes it without either blowing the documented
-  performance budget on `planHorizonTicks` or moving the swept `commitWindowFraction`.
-- The H25 / S13-evade dodge scenes traced to the fixture, not the bot: `view()`'s default self
-  already closing at its own top speed on a 500-unit-distant target means `fight`'s own "too close,
-  back off" fires at almost the same tick a dodge would, and the genuine dodge here is a straight
-  reverse (needs no wheel), so `.steer` alone stopped being able to see it. Both fixed in the test
-  fixture, not in any weight.
-- `tiers.test.ts` P50 (hard's hit rate now trailing easy's) is a real, pre-existing regression from
-  the 2026-09-17 aim-lock removal (a `solve()` EV-rating mismatch on hard's `pepperbox`), confirmed
-  unrelated to `facingError`. Per this skill's own rule ("you do not tune around a solver bug"), left
-  red.
+**Three bot symptoms that coincided with this port were checked against `facingError`
+specifically.** Fix round 1 (2026-09-19) corrected two of the three below after review — see the
+stage 5 Task 8 report (`.superpowers/sdd/05-tune-and-reconcile/task-8-report.md`) for the full trace
+of each and what was wrong with the first pass:
+- **Hunting a far-behind waypoint (`controller.test.ts`'s G12 pair) DOES involve `facingError`** —
+  `waitOut`'s weight, 120, the largest in the table, is exactly what keeps a near-tied straight
+  reverse toward the waypoint (which wins on `rangeError` alone) from beating "stand still": a
+  reversal is a BINARY `facingError` of exactly 1, unchanged by the port, so it pays the full
+  120-point toll — correct, intentional behaviour (`waitOut`'s whole point is facing your travel),
+  not a bug. What `facingError` does NOT change, at any weight (checked by resetting it to 0 and
+  re-scoring): no genuine forward-turning candidate ever wins, because its own `rangeError` is worse
+  than standing still's regardless. That remaining fact is what still traces to `rangeError`
+  geometry — a hard tier's commit window cannot turn far enough toward a target ~150° behind it to
+  close any net distance under the heavier, faster drive model. Left red — no `BOT_PROFILES` knob
+  fixes it without either blowing the documented performance budget on `planHorizonTicks` or moving
+  the swept `commitWindowFraction`.
+- The H25 / S13-evade dodge scenes trace to the fixture, not to `facingError` — but the fixture fix
+  is narrower than first thought. See the dodge-measurements section above for the full sweep: the
+  masking (dodge on vs off producing the identical 90-tick output) is real but confined to the top
+  ~10% of Bullseye's own speed range, not "moving in general". Both tests now hold `self` at half
+  top speed, with the comparison reading the full intent rather than `.steer` alone (the confirmed
+  dodge is a straight reverse, which needs no wheel).
+- **`tiers.test.ts` P50 is NOT a pre-existing regression from the 2026-09-17 aim-lock removal** — that
+  attribution came from the test's own stale inline comments and was wrong; the port's own measured
+  baselines (`EXECUTION.md`, `.superpowers/sdd/01-drive-model/progress.md`) record P50 green at the
+  pre-work baseline, and it went red specifically at stage 5 Task 5, this port's own settled-tuning
+  commit. `facingError` genuinely plays no part, but the real cause was found and fixed: the closed-
+  loop duel fixture (`duel.fixture.ts`'s `BOT_START`) hardcoded a start speed of 300 u/s regardless of
+  chassis — a literal that predates every speed retune since and sat above every current chassis's
+  own top speed by this point (Bullseye's cap is 238.0), so every duel used to start already 26%+
+  over its own cap, decelerating through the first several ticks in a way hard's kit is visibly more
+  sensitive to than easy's. Fixed by deriving the start speed per chassis; P50 passes outright with
+  no `BOT_PROFILES` change.
 
 Three terms are read as MOMENTS along the candidate arc — `myEv` at its best, `theirEv` and
 `wallPenalty` at their worst. `rangeError`, `threatAvoid` and `facingError` are
@@ -671,6 +687,21 @@ it was not sized away, so record it here rather than let the next tuner rediscov
   0-24 range of the `threatAvoid` an `evade` dodge can earn, and full-clearance dodges lost every
   comparison they entered. See the headroom paragraphs in the weight-table section above. A
   closed-loop `npm run playtest` run is the instrument that would measure the dodge for real.
+- **A dodge and a range-managed retreat can land on the identical action, and it is narrower than
+  it first looks (found stage 5 Task 8, fix round 1, 2026-09-19).** `tiers.test.ts`'s H25/S13-evade
+  fixture (a stationary `mirage` 500 units out, self closing on it) was found emitting the
+  BIT-IDENTICAL 90-tick intent stream whether `dodgeChance` was 1 or 0, when `self` started at
+  Bullseye's own top forward speed. Swept as a fraction of top speed: the two dodge settings diverge
+  cleanly from 0 up through 75%, and only become identical at 90% and above. The cause is not a
+  broken dodge — `fight`'s own "too close, back off" reaches the same action at almost the same tick
+  a dodge would, specifically when the closing speed is high enough to reach that range threshold
+  fast — and a player watching either run would see the car correctly back away regardless. It is
+  narrow (a ~15% band near the chassis cap, this one geometry) rather than "dodging never works while
+  moving": below 90% of top speed the two mechanisms are cleanly distinguishable, which is why both
+  tests now hold `self` at half speed rather than at `view()`'s top-speed default (an earlier,
+  reviewed-and-rejected fix held `self` fully stationary instead — correct in isolating the
+  mechanism, but a fixture change wide enough to be worth flagging as weakened rather than measured,
+  which is why the current fix uses a genuinely moving bot instead).
 - **The `controller.test.ts` dodge assertion was RED at `evade` 10 for a while, deliberately left
   that way.** It passed at 40 only as a *consequence* of the throttle flipping forward on the
   old scene — once forward was chosen, turning was the only remaining way off the shot's line — so

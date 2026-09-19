@@ -238,4 +238,17 @@ the parameter back is a one-line change.
 ## Bot — `packages/server/src/bot/brain/predict.ts`
 
 `OBSERVATION_MODIFIERS` keeps `accel: 0` and `brakeDecel: 0` and **loses** its `topSpeed` override
-(U34). `BOT_BRAIN_VERSION` moves to `6.0.0` in stage 1 and does not move again inside this work.
+(U34). `BOT_BRAIN_VERSION` moves to `6.0.0` in stage 1.
+
+**AMENDED — it moved again, in stage 5 Task 8 (2026-09-19), to `6.0.1`.** This line originally said
+it "does not move again inside this work", written before Task 8 found a real bug in
+`physicsPredictor`: the below-threshold (residual ram-spin) branch needs `mods.spinFree: true` to
+decay per its own doc comment, and U16 ("steering SETS the rate") silently made that impossible
+without it — the residual was overwritten to exactly 0 on the first rolled tick instead of decaying,
+so a bot mispredicted a just-rammed car as having stopped spinning immediately. Fixed by passing
+`spinFree: true` for exactly that branch. `BOT_PROFILES` did not move — this is a real behaviour
+change in brain code, and the `bot-tuner` skill's own rule is that `BOT_BRAIN_VERSION` bumps for
+that regardless of what this ledger predicted. Reviewed and settled: the escalation was correct on
+the merits (behaviour moved without `BOT_PROFILES` moving, which is precisely what the fingerprint
+exists to invalidate), and this ledger is the one that was wrong, not the bump. See the stage 5
+Task 8 report (`.superpowers/sdd/05-tune-and-reconcile/task-8-report.md`) for the full account.
