@@ -367,7 +367,7 @@ describe("plan", () => {
     // `sticky` assertions below have something to compare against; R-P16's actual subject is that
     // a commit bonus toward `clearlyWorse` cannot latch the planner onto it, and that is untouched.
     //
-    // RE-PINNED 2026-09-16 (bigger cars, 48x32 -> 60x40): the winner is now `{ steer: 1,
+    // RE-PINNED 2026-09-16 (bigger cars, 48x32 -> 60x40): the winner was `{ steer: 1,
     // throttle: 1 }`, a tight forward U-turn off the wall rather than a reverse. At 48x32 the
     // reverse-while-steering pair beat the forward-while-steering pair by 0.02 points (-15.47
     // against -15.49), and all of that edge was `wallPenalty`: `boundsPenalty` normalises the
@@ -376,22 +376,34 @@ describe("plan", () => {
     // the U-turn's better `rangeError` toward the waypoint is unchanged. Measured at 60x40:
     // -14.708664766265755 forward against -14.738622591350230 reversed. So the winner no longer
     // brakes; it wins on `rangeError`, in a rollout that runs no `resolveWorld`, so neither arc is
-    // stopped by the wall it overshoots.
+    // stopped by the wall it overshoots. THIS WAS TRUE UNTIL THE 2026-09-19 SPEED/TURN-RATE RAISE
+    // BELOW; the paragraph is kept as the historical record of why it moved that time.
     //
-    // THE STEER SIGN IS A TIE-BREAK, NOT A PLAY, and that is the part to read before trusting this
-    // assertion. The scene is exactly symmetric about y = 360 — nose square into the left wall,
-    // waypoint straight ahead at (700, 360) — so `{ 1, 1 }` and `{ -1, 1 }` score BIT-IDENTICALLY
-    // here (both -14.708664766265755, measured, not rounded). `plan`'s `>` comparison therefore
-    // keeps whichever comes first in `ALL_ACTIONS`, which is `{ 1, 1 }`. The 2026-09-07 note above
-    // already recorded that left and right are symmetric in this scene; at 48x32 and 72x48 they came
-    // out a last-bit apart and the sign landed the other way, which is why this pin has now moved
-    // twice for no behavioural reason. What IS behavioural, and what this line is really standing in
-    // for, is `throttle: 1` — forward over reverse.
-    // Not a placement artifact: sweeping the start x over 0-30 at 60x40, `throttle: 1` wins at every
-    // sampled x and only the (tied) steer sign flips between them. Both halves of the pair turn OFF
-    // the wall and neither is the out-of-arena outlier, so the scene's R-P16 premise is intact — the
-    // two `sticky` assertions below still pass with the gap measured there.
-    expect(neutral.action).toEqual({ steer: 1, throttle: 1 });
+    // RE-PINNED AGAIN 2026-09-19 (stage 5 Task 5's uniform 1.5x on `baseMaxSpeed`/`speedPerRating`
+    // and `baseTurnRate`/`turnRatePerRating`, plus `reverseAccelFactor` 0.4 -> 0.6): the winner is
+    // now `{ steer: 0, throttle: -1 }` — braking again, not turning off the wall at all. Measured,
+    // full precision, all nine candidates from this exact scene:
+    //
+    // | candidate | score |
+    // |---|---|
+    // | `{0,1}` (the out-of-arena outlier) | -137.06570985399273 |
+    // | `{1,1}` / `{-1,1}` | -47.63501569510517 / -47.63501569510524 |
+    // | `{0,0}` | -62.071935283232676 |
+    // | `{1,0}` / `{-1,0}` | -34.84628040069264 (tied) |
+    // | **`{0,-1}` (winner)** | **-15.60286059008525** |
+    // | `{1,-1}` / `{-1,-1}` | -16.976442128088266 / -16.976442128088244 |
+    //
+    // Why braking is back: a stronger reverse gear (`reverseAccelFactor` 0.4 -> 0.6, compounding
+    // with the 1.5x top-speed raise into a 2.25x faster reverse top speed) makes shedding this car's
+    // momentum backward, straight, cheaper on `rangeError` than any forward arc can now buy back by
+    // turning — every steer:1/-1 forward candidate still beats the out-of-arena outlier and the
+    // do-nothing coast, just not the straight brake. This is the SAME axis the 2026-09-07 note
+    // above already named (`throttle: -1` half unchanged in kind, only which arc wins around it),
+    // now landing the other way again as the reverse gear itself got stronger — R-P16's own subject
+    // (a commit bonus cannot latch onto a clearly worse candidate) never depended on which of these
+    // two sane plays wins, and does not here either — the two `sticky` assertions below still pass
+    // with the gap re-measured just below.
+    expect(neutral.action).toEqual({ steer: 0, throttle: -1 });
 
     // A SANE candidate that is nonetheless clearly worse than the winner — reversed hard while
     // steering, not the wall-crashing outlier. Under the old `max - min` normalisation the outlier
@@ -416,6 +428,12 @@ describe("plan", () => {
     // At the 60x40 hull (2026-09-16) the gap is ~65.5 points (-14.71 against -80.26) with a
     // `max - median` of 0.771, so hard's shipped 0.18 buys a bonus of ~0.139: still nowhere near
     // covering it. The outlier is ~78.5 points down.
+    //
+    // RE-MEASURED 2026-09-19 alongside the winner's move above (`{0,0}` did not change, the winner
+    // did): gap is now 46.469074693147430 points (-15.60286059008525 against -62.071935283232676),
+    // `max - median` over the nine candidates above is 19.243419810607392, so hard's shipped 0.18
+    // buys a bonus of 3.4638155659093304 — an order of magnitude short of the gap, same conclusion
+    // as every prior measurement. The outlier (`{0,1}`) is 121.46 points down.
     const clearlyWorse = { steer: 0, throttle: 0 } as const;
     expect(clearlyWorse).not.toEqual(neutral.action);
 

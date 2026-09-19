@@ -212,6 +212,17 @@ function clampedPredictor(
  * the ram half-life. A car spinning from a ram therefore reads as one that meant to turn, and is
  * mispredicted — the design's sanctioned human error (spec P19), kept, not corrected.
  *
+ * **THAT DECAY NEEDS `spinFree`, AND THE UNITY PORT MADE IT A REAL SWITCH RATHER THAN A DEFAULT
+ * (found and fixed stage 5 Task 8, 2026-09-19).** Under U16 steering SETS `angVel` every tick unless
+ * `mods.spinFree` is true, in which case it IGNORES `steer` entirely and decays whatever `angVel` it
+ * was handed (`nextSpinOf`, `drive.ts`). `OBSERVATION_MODIFIERS` carries no `spinFree` of its own
+ * (correctly — steering must still win when `steer !== 0`, or a sustained turn would decay to
+ * nothing on its first tick instead of holding), so the below-threshold branch needs its own mods
+ * with `spinFree: true` for exactly the tick range it is fed, and NEVER when `steer !== 0`, where it
+ * would silently discard the reconstructed steer and roll every "sustained turn" case as if the car
+ * held no wheel at all. Two mutually exclusive branches, so a single ternary on `steer === 0`
+ * (already computed, needed nowhere else) settles which mods this call gets.
+ *
  * `throttle: 1` is fixed rather than a parameter: every observation rollout holds it, which is the
  * whole premise `OBSERVATION_MODIFIERS` is built around — under the Unity drive model `accel: 0`
  * zeroes the engine command AND flattens `dragFactorOf`'s exponent to 1, so a held throttle neither
@@ -238,9 +249,12 @@ export function physicsPredictor(
   const observed: BotCarView = {
     ...car, vx: car.vx * (1 + speedNoise), vy: car.vy * (1 + speedNoise),
   };
+  // `spinFree: true` ONLY for the below-threshold (residual ram spin) branch — see the doc comment
+  // above. `steer !== 0` must keep ordinary steering-sets-the-rate behaviour, or a genuinely
+  // sustained turn would decay to nothing on its first rolled tick instead of holding.
+  const mods = steer === 0 ? { ...OBSERVATION_MODIFIERS, spinFree: true } : OBSERVATION_MODIFIERS;
   const poses = rollForward(
-    bodyFromObservation(observed, spin), car.carId, { steer, throttle: 1 }, horizonTicks,
-    OBSERVATION_MODIFIERS,
+    bodyFromObservation(observed, spin), car.carId, { steer, throttle: 1 }, horizonTicks, mods,
   );
   return clampedPredictor(poses, { x: car.x, y: car.y, angle: car.angle });
 }

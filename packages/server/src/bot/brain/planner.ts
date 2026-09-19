@@ -887,35 +887,47 @@ function threatAvoidOf(
  * `targetAt` falls back to the car's own pose. Velocity is always defined, so no situation needs a
  * special case.
  *
- * ⚠ **THE TRIP-WIRE THIS COMMENT USED TO CARRY HAS FIRED, AND THE RE-DERIVATION IT DEMANDS IS STILL
- * OWED.** It read "THIS TERM SILENTLY DEPENDS ON `DRIVE_CONFIG.steeringGrip`, WHICH IS 1.0 TODAY …
- * IF A FUTURE PHYSICS PASS LOWERS `steeringGrip`, RE-DERIVE EVERY WEIGHT IN THAT TABLE." The
- * 2026-09-18 Unity drive-model port did not lower that knob — it **deleted** it (U13), which is the
- * same move taken all the way to its 0 end. Nothing about that was noticed at the time, which is
- * exactly the failure the warning was written to prevent.
+ * ⚠ **THE TRIP-WIRE THIS COMMENT USED TO CARRY FIRED, AND STAGE 5 TASK 8 STEP 1 HAS NOW RE-RUN THE
+ * DERIVATION IT DEMANDED (2026-09-19).** It used to read "THIS TERM SILENTLY DEPENDS ON
+ * `DRIVE_CONFIG.steeringGrip`, WHICH IS 1.0 TODAY … IF A FUTURE PHYSICS PASS LOWERS `steeringGrip`,
+ * RE-DERIVE EVERY WEIGHT IN THAT TABLE." The 2026-09-18 Unity drive-model port did not lower that
+ * knob — it **deleted** it (U13), which is the same move taken all the way to its 0 end.
  *
  * What changed, concretely. At `steeringGrip` 1.0 `stepDrive` rebuilt the whole velocity vector in
  * the NEW heading every tick, so a driven car's lateral velocity was 0 absent a ram; `forwardOf /
  * speed` was then +1 or −1 and nothing else, this term was effectively **BINARY** in the planner's
- * rollout, and the 0.5 sliding-sideways band the formula admits was unreachable. A weight in
- * `objectives.ts` was therefore a FLAT TOLL charged to every reversing candidate rather than a
- * ceiling rarely approached — which is how `evade`'s first weight (40) came to sit above the whole
- * 0-24 range of the `threatAvoid` it competes with, and dominate correct reverse dodges outright.
+ * rollout, and the 0.5 sliding-sideways band the formula admits was unreachable. Under the port,
+ * lateral velocity is **always present** — it is the drift, and a car holding full lock settles at a
+ * real slip angle (Mirage ~36°, the roster's widest, as of stage 5 Task 5's turn-rate raise — see
+ * `DRIVE_CONFIG.lateralGripRate`). So `forwardOf / speed` is now a genuinely CONTINUOUS quantity, and
+ * the terminal pose of an ordinary TURN — not a reversal — scores somewhere in (0, 0.5] where it used
+ * to score exactly 0.
  *
- * Under the port, lateral velocity is **always present**: it is the drift, and a car holding full
- * lock settles at a real slip angle (Mirage ~26°, the roster's widest). So `forwardOf / speed` is
- * now a genuinely CONTINUOUS quantity, and the terminal pose of an ordinary TURN — not a reversal —
- * scores somewhere in (0, 0.5]. That is precisely the case this comment predicted: the term now
- * charges a toll on turning itself, which re-creates "turning is pure cost" (F1-F3), the exact
- * defect it exists to delete, by a new route and with no test naming it. The symptom to watch for
- * is the bot collapsing back to straight-line inputs, the same one F2 describes.
+ * **MEASURED rather than guessed: an ordinary turn's continuous cost is small, not a flat toll.**
+ * Rolled through the actual `stepDrive`/`NEUTRAL_MODIFIERS` a hard tier's own commit-then-coast
+ * window sees (12 committed ticks of full lock, 10 ticks coasting to the terminal pose scored
+ * above), starting from rest through each chassis's own top speed:
  *
- * **Re-deriving the weights is NOT a `bot-tuner` question and is not this function's to do.** It is
- * a correctness obligation owned by the port's stage 5, Task 8 Step 1
- * (`docs/superpowers/plans/2026-09-18-unity-physics-port/05-tune-and-reconcile.md`), which is
- * sequenced after the drive feel is settled — tuning against provisional numbers would only have to
- * be redone. Do not nudge a weight here in the meantime; re-derive the table there, against
- * `objectives.ts`'s own measured term scales.
+ * | chassis   | from rest | half speed | top speed |
+ * |-----------|-----------|------------|-----------|
+ * | mirage    | 0.0084    | 0.0162     | 0.0212    |
+ * | bullseye  | 0.0058    | 0.0115     | 0.0143    |
+ * | bastion   | 0.0042    | 0.0084     | 0.0102    |
+ *
+ * Every cell sits well under a tenth of the 0.5 sliding-sideways reference, an order of magnitude
+ * below the fear this comment used to carry. At the shipped weights that is 0.04-0.21 points in
+ * `evade` (weight 10) and 0.13-0.64 in `fight` (weight 30) — nowhere near enough to outweigh
+ * `threatAvoid`'s 0-24 range or `rangeError`'s tens-to-hundreds, so "turning is pure cost" (F1-F3)
+ * has NOT been re-created by this route. The genuinely reachable extreme — a candidate that holds
+ * dead reverse the whole window, never turning at all — is exactly what the formula always scored:
+ * `forwardOf / speed` is still bounded and still hits exactly ±1 with zero yaw rate, so a pure
+ * reversal reads 1 today precisely as it did at `steeringGrip` 1.0. **The binary case the two BASE
+ * rows below were actually calibrated against (full reversal, not an ordinary turn) is therefore
+ * unchanged**, and re-measuring it is what confirmed `evade`'s 10 and `fight`'s 30 did not need to
+ * move — see `objectives.ts`'s matching passage for the full record, including the two live bot
+ * symptoms (`controller.test.ts`'s G12 pair, `tiers.test.ts`'s H25/S13-evade pair) this measurement
+ * pass traced to OTHER terms (`rangeError` geometry and the `myEv`/`threatAvoid` tradeoff,
+ * respectively) rather than to `facingError`'s weight.
  */
 export function facingErrorOf(body: SimBody): number {
   const speed = speedOf(body.vx, body.vy);

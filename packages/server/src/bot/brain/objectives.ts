@@ -154,17 +154,59 @@ import type { PlanWeights } from "./planner.js";
  * band — see `facingErrorOf` in `planner.ts`): the weight was a FLAT TOLL on every reversing
  * candidate, not a ceiling one rarely reaches.
  *
- * ⚠ **THAT PREMISE IS GONE, AND EVERY WEIGHT DERIVED ON IT IS OWED A RE-DERIVATION.**
- * `DRIVE_CONFIG.steeringGrip` does not exist any more: the 2026-09-18 Unity drive-model port deleted
- * it outright (U13), which is that knob taken all the way to its 0 end. Lateral velocity is now
- * always present — it IS the drift — so `facingError` is CONTINUOUS rather than binary, and the
- * terminal pose of an ordinary TURN scores in (0, 0.5] where it used to score exactly 0. Both rows
- * below argued from binariness (`evade`'s 10 and `fight`'s 30, each set against the term it competes
- * with under the headroom rule), so both derivations have to be re-RUN, not nudged — this file's own
- * standing instruction. That work is a correctness obligation owned by the port's stage 5, Task 8
- * Step 1 (`docs/superpowers/plans/2026-09-18-unity-physics-port/05-tune-and-reconcile.md`), which is
- * sequenced after the drive feel is settled; it is deliberately NOT a `bot-tuner` question, and no
- * weight in this table moves before then.
+ * ⚠ **THAT PREMISE IS GONE, AND STAGE 5 TASK 8 STEP 1 HAS RE-RUN THE DERIVATION IT OWED
+ * (2026-09-19).** `DRIVE_CONFIG.steeringGrip` does not exist any more: the 2026-09-18 Unity
+ * drive-model port deleted it outright (U13), which is that knob taken all the way to its 0 end.
+ * Lateral velocity is now always present — it IS the drift — so `facingError` is CONTINUOUS rather
+ * than binary, and the terminal pose of an ordinary TURN scores in (0, 0.5] where it used to score
+ * exactly 0.
+ *
+ * **NEITHER ROW MOVED, and this is a measured conclusion, not a shortcut.** Both rows below argued
+ * from binariness (`evade`'s 10 and `fight`'s 30, each set against the term it competes with under
+ * the headroom rule), and the binary case they actually argue about — a candidate that reverses
+ * straight, no turning at all — is UNCHANGED: `forwardOf / speed` still hits exactly ±1 at zero yaw
+ * rate, so a full-clearance reverse still reads `facingError` 1 today exactly as it did at
+ * `steeringGrip` 1.0, and the headroom arithmetic below (24-point `threatAvoid` ceiling in `evade`,
+ * ~90-point `rangeError` in `fight`) is untouched by the port. What the port added is a NEW,
+ * previously-unreachable case — an ordinary turn now scoring somewhere in (0, 0.5] rather than
+ * exactly 0 — and that case was measured rather than assumed: rolled through `stepDrive` over a hard
+ * tier's own commit-then-coast window (12 committed ticks of full lock, 10 coasting), the terminal
+ * `facingError` for an ordinary turn ranges 0.0042-0.0212 across the roster and every starting speed
+ * from rest to top speed (`planner.ts`'s `facingErrorOf` carries the full table). At the shipped
+ * weights that is 0.04-0.21 points in `evade` and 0.13-0.64 in `fight` — nowhere close to a "flat
+ * toll" that could re-create "turning is pure cost" (F1-F3): both rows still price an ordinary turn
+ * as a rounding error next to `threatAvoid`'s 0-24 range or `rangeError`'s tens-to-hundreds, and
+ * still price a genuine reversal at the same 14-point (`evade`) and precedent-matching (`fight`)
+ * margins the derivation below always argued for. Neither weight had reason to move, so neither did.
+ *
+ * **What the continuous term did NOT explain, once measured against the live suite.** Three bot
+ * symptoms coincided with this port and were checked against `facingError` specifically before
+ * concluding they are not this term's doing:
+ * - `controller.test.ts`'s G12 pair (`hunts a quadrant waypoint`, `hunts toward a last-known pose`)
+ *   — the bot sits at `{steer: 0, throttle: 0}` hunting a waypoint ~150° behind it. Probed directly:
+ *   `facingError` on the turning candidates is 0.006-0.02, negligible; the actual cause is that
+ *   EVERY forward-driving candidate's terminal `rangeError` (the `waitOut` situation's only other
+ *   live term, weight 0.375) is now worse than standing still, because a hard tier's ~12-tick commit
+ *   window cannot turn far enough toward a target that far behind it to close any net distance under
+ *   the heavier, faster drive model — a short-horizon planning limitation the physics port exposed,
+ *   not a `facingError` miscalibration. No `BOT_PROFILES` knob flips it without either violating the
+ *   documented performance budget on `planHorizonTicks` (needs roughly 40 against hard's shipped 22,
+ *   nearly doubling per-plan cost) or moving `commitWindowFraction`, a swept global constant this
+ *   file's own rules require re-sweeping rather than nudging. Left red and reported as a genuine,
+ *   unresolved regression — see the stage 5 Task 8 report.
+ * - `tiers.test.ts`'s H25 / S13-evade pair (dodge scenes compared by `.steer` alone) — probed
+ *   directly: the planner's real winner under `dodgeChance: 1` DOES change (`{steer: 0, throttle: 1}`
+ *   to `{steer: 0, throttle: -1}`, a genuine dodge), it just does it entirely through THROTTLE. The
+ *   planner correctly prefers a straight reverse over a turning dodge here because turning away costs
+ *   most of `myEv`'s 75 achievable points (down to ~18.7) while a straight reverse keeps the gun on
+ *   target — `facingError`'s ~0.04-point difference between those two candidates is not what decides
+ *   it. The tests check the wrong axis for this geometry, not a broken dodge; see the Task 8 report.
+ * - `tiers.test.ts` P50 (`hits far more often above the easy tier`) — this one really is a
+ *   regression, but a pre-existing, already-documented one (the paragraph two above this table
+ *   traces it to a `solve()` EV-rating mismatch on hard's `pepperbox` at its own derived comfort
+ *   range), and this file's own `facingError` weights play no part in it — confirmed by the same
+ *   probe, which never sees `facingError` differ meaningfully between hard's candidates in that
+ *   scene. Per this skill's "you do not tune around a solver bug" rule, left red.
  *
  * The derivation, not a sweep. `fight` ships facing at ~1/3 of the term it competes with (30
  * against `rangeError`'s ~90) — "a tie-breaker, never a veto". One third of `evade`'s 24 is 8;

@@ -74,26 +74,46 @@ describe("rollForward", () => {
     // 300 a held speed would. A heavy car that carries its momentum is the whole point of the
     // 2026-09-06 heavy-car pass, so that was the pass landing, not a regression.
     //
-    // STALE AS OF the 2026-09-18 Unity drive-model port, and left stale on purpose: that port
-    // deleted `coastHalfLifeSeconds` and `coastPerTick` too, folding coast into the one always-on
-    // `dragRate` (U4), which halves Mirage's coasting speed in about 16 ticks rather than 36 — so
-    // the bound below is wrong and this case is one of the nine reds stage 5's `bot-tuner` pass
-    // owns. Re-pinning it here would hide the fallout that pass is meant to read.
-    expect(poses.at(-1)!.x).toBeGreaterThan(200);
-    expect(poses.at(-1)!.x).toBeLessThan(250);
+    // RE-PINNED, STAGE 5 TASK 8 (2026-09-19): a STALE NUMBER, not a bot regression — this case
+    // exercises `rollForward`/`stepDrive` directly, under `NEUTRAL_MODIFIERS`, with no bot decision
+    // code anywhere in it. The 2026-09-18 Unity drive-model port deleted `coastHalfLifeSeconds` and
+    // `coastPerTick`, folding coast into the one always-on `dragRate` (U4), which is a real, per-car
+    // number (`dragRateOf("mirage")`, 1.2848) rather than the old proportional half-life — and it
+    // moved AGAIN, unrelated to this port, when stage 5 Task 5 raised `baseMaxSpeed`/`speedPerRating`
+    // 1.5x on 2026-09-19 (`dragRate` itself is untouched by that raise, but the position integral
+    // below is measured against the CURRENT chassis, not the port-era one this comment last cited).
+    // Re-derived directly against built shared (`driveOf("mirage")`, `stepDrive` stepped by hand):
+    // Mirage's coasting speed now halves in `Math.log(2) / dragRateOf("mirage")` ≈ 16.2 ticks (still
+    // ~16, not the pre-port 36), and a full second (30 ticks, ~1.85 half-lives) of coasting from
+    // 300 u/s lands the position at 165.298 units and the residual forward speed at 83.012 u/s —
+    // both measured exactly via `driveOf`/`stepDrive`, not eyeballed.
+    expect(poses.at(-1)!.x).toBeGreaterThan(150);
+    expect(poses.at(-1)!.x).toBeLessThan(180);
     expect(Math.abs(poses.at(-1)!.y)).toBeLessThan(1);
     // Still DECAYING, just gently: below the 300 it started at, well above rest.
     const end = forwardOf(poses.at(-1)!.vx, poses.at(-1)!.vy, poses.at(-1)!.angle);
-    expect(end).toBeLessThan(300);
-    expect(end).toBeGreaterThan(100);
+    expect(end).toBeLessThan(120);
+    expect(end).toBeGreaterThan(50);
   });
 
-  it("curves a car that was observed turning, without any input", () => {
+  it("curves a car that was observed turning, without any input, under spinFree", () => {
+    // RE-DERIVED, STAGE 5 TASK 8 (2026-09-19). This used to run under plain `NEUTRAL_MODIFIERS` with
+    // `steer: 0`, which is now a STALE assumption, not a bot regression: under U16 ("steering SETS
+    // the rate", `drive.ts`) an ordinary tick with `steer: 0` and `mods.spinFree` false SETS `angVel`
+    // to exactly 0 every tick, unconditionally overwriting whatever spin the body was handed —
+    // `channels.test.ts` pins this exact behaviour ("erases it the moment control returns"). A car
+    // cannot be "observed turning, without any input" under the CURRENT sim unless something grants
+    // it `spinFree` — that is what lets injected spin decay instead of being reset, and it is
+    // production behaviour, not a test-only escape hatch: `physicsPredictor`'s below-threshold branch
+    // (a residual ram spin) now does exactly this (see `predict.ts`'s doc comment on that function,
+    // fixed alongside this test in the same commit). Rolling with `spinFree: true` is therefore the
+    // faithful way to ask this question under the ported physics.
+    const spinFreeMods = { ...NEUTRAL_MODIFIERS, spinFree: true };
     const straight = rollForward(
-      bodyFromObservation(carAt(), 0), "mirage", { steer: 0, throttle: 0 }, 15, NEUTRAL_MODIFIERS,
+      bodyFromObservation(carAt(), 0), "mirage", { steer: 0, throttle: 0 }, 15, spinFreeMods,
     );
     const turning = rollForward(
-      bodyFromObservation(carAt(), 3), "mirage", { steer: 0, throttle: 0 }, 15, NEUTRAL_MODIFIERS,
+      bodyFromObservation(carAt(), 3), "mirage", { steer: 0, throttle: 0 }, 15, spinFreeMods,
     );
     expect(Math.abs(turning.at(-1)!.y)).toBeGreaterThan(Math.abs(straight.at(-1)!.y));
   });
@@ -218,10 +238,18 @@ describe("a car that is SLIDING, not driving (car-physics merge, 2026-09-07)", (
     expect(Math.hypot(guess.x - end.x, guess.y - end.y)).toBeLessThan(1e-3);
   });
 
-  it("and the pre-rework scalar read would have been 76 units wrong — more than a car length", () => {
+  it("and the pre-rework scalar read would have been 62.68 units wrong — more than a car length", () => {
     // What `cos(angle) * speed` would have produced: the forward component kept, the 200 u/s of
     // lateral motion silently discarded. Pinned as a REGRESSION GUARD -- if someone reintroduces a
     // scalar reconstruction anywhere on this path, this is the assertion that fails and names why.
+    //
+    // RE-DERIVED, STAGE 5 TASK 8 (2026-09-19): a STALE NUMBER, not a bot regression — 76.67 was
+    // measured against Mirage's chassis at an earlier point in the physics port; stage 5 Task 5's
+    // 2026-09-19 speed/turn-rate raise moved `driveOf("mirage")` again, and this guard's exact figure
+    // moves with it by construction (it is a function of the chassis, not an independent fact). The
+    // property this guard exists to catch — a scalar reconstruction discarding lateral motion reads
+    // meaningfully wrong, more than a car length (`DRIVE_CONFIG.carHeight`, 40) — still holds, at a
+    // re-measured 62.6846927874405.
     const end = truth();
     const forward = forwardOf(sliding.vx, sliding.vy, sliding.angle);
     const asScalarWould = viewOf({
@@ -230,7 +258,7 @@ describe("a car that is SLIDING, not driving (car-physics merge, 2026-09-07)", (
     const guess = physicsPredictor(asScalarWould, 0, HORIZON, 0, makeRng(1))(HORIZON);
     const error = Math.hypot(guess.x - end.x, guess.y - end.y);
     expect(error).toBeGreaterThan(DRIVE_CONFIG.carHeight);
-    expect(error).toBeCloseTo(76.67, 1);
+    expect(error).toBeCloseTo(62.6846927874405, 1);
   });
 });
 
@@ -312,31 +340,71 @@ describe("predicting an observed car, against an independent ground truth", () =
   // `truthPath` is the behaviour of a car that HOLDS the speed and the steer it was seen at,
   // integrated in `stepDrive`'s own order (rotate, then translate). That is exactly what a person
   // reads off the screen, and it is the claim the shipped model makes.
+  //
+  // RE-DERIVED, STAGE 5 TASK 8 (2026-09-19). `truthPath` used to assume the velocity vector rotates
+  // WITH the heading every tick — `x/y += cos/sin(angle) * speed`, angle already advanced — which is
+  // exactly the pre-port `steeringGrip: 1.0` model (nose welds velocity). Under the Unity drive
+  // model that assumption is now FALSE for any `steer !== 0` scene: `stepDrive` recomposes the
+  // velocity at the OLD (pre-rotation) angle every tick (`drive.ts`'s own comment: "rotating the car
+  // must not rotate its velocity"), so the heading and the velocity vector drift apart — that IS the
+  // slip this port added, and it is large enough now (stage 5 Task 5's turn-rate raise put Mirage's
+  // steady-state slip at ~36°) that the old assumption was off by tens to hundreds of units, not a
+  // rounding error (measured before this fix: up to 164 units at `steer: 1`, 90 ticks). That is a
+  // stale GROUND-TRUTH MODEL, not a bot regression: `physicsPredictor` reuses the real `stepDrive`
+  // unchanged, so it was always correct; this helper's independent reference was not.
+  //
+  // Re-derived from the model's own documented equations (`drive.ts`, `DRIVE_CONFIG.lateralGripRate`),
+  // NOT by calling `stepDrive`/`rollForward` — that would make this an identity again, the exact
+  // defect the comment above already warns about. Under `OBSERVATION_MODIFIERS` (`accel: 0`) the
+  // engine command is always 0 and drag is always the identity (`dragFactorOf` raises `dragPerTick`
+  // to the power of `mods.accel`, i.e. to the power 0), so the only things that move the (forward,
+  // lateral) pair tick to tick are: grip decaying the lateral half, and the heading advancing by a
+  // FIXED `steer * turnRateOf(carId) * dt` every tick while the recomposed velocity keeps pointing
+  // along the angle it was BUILT at. That is a linear, time-invariant recurrence — decay the lateral
+  // half, then rotate the frame by `-delta` — solvable by hand as a 2x2 matrix update with no
+  // `stepDrive` call anywhere in it. Verified independently (both derivations, arrived at from the
+  // documented equations rather than from each other) to agree with the real `stepDrive` to
+  // ~1e-14 across every scene and horizon below, which is what makes it trustworthy as ground truth
+  // rather than a second copy of the thing under test.
   const HORIZONS = [10, 20, 45, 90] as const;
   const LONGEST = Math.max(...HORIZONS);
   const dt = 1 / TICK_RATE_HZ;
 
   /**
-   * One tick: `angle += steer * rate / TICK_RATE_HZ`, then `x/y += cos/sin(angle) * speed / HZ`.
-   * `rate` is just `turnRateOf(carId)` now — the Unity drive-model port (car-physics-port stage 1
-   * Task 3) made yaw rate speed-independent, so there is no separate stopped-vs-moving branch any
-   * more (there was: `turnRateAtStopOf`, deleted alongside it).
+   * One tick, in the (forward, lateral) frame `OBSERVATION_MODIFIERS` puts the car in: no engine,
+   * no drag, only grip (on lateral) and the heading's steady rotation. `delta` is the FIXED per-tick
+   * yaw (`steer * turnRateOf(carId) * dt` — yaw is speed-independent under the Unity model, so this
+   * is a true constant, not a stopped-vs-moving branch).
    *
-   * A NEGATIVE `speed` needs no special case and gets none: `stepDrive`'s translation is the same
-   * `cos/sin(angle) * speed` line, so a reversing car walks backward along its heading while its
-   * nose still rotates the way the wheel is turned. That is what makes this a usable truth for the
-   * reversing scenes.
+   * A NEGATIVE `speed` needs no special case and gets none: the recurrence is linear in the initial
+   * (forward, lateral) pair, so a reversing car walks backward along whatever the drift produces,
+   * exactly as `stepDrive` does.
    */
   function truthPath(speed: number, steer: -1 | 0 | 1, carId: "mirage", ticks: number) {
-    const rate = turnRateOf(carId);
+    const chassis = driveOf(carId);
+    const grip = chassis.gripPerTick;
+    const delta = steer * turnRateOf(carId) * dt;
+    let forward = speed;
+    let lateral = 0;
+    let angle = 0;
     let x = 0;
     let y = 0;
-    let angle = 0;
     const out: { x: number; y: number; angle: number }[] = [];
     for (let i = 0; i < ticks; i++) {
-      angle += steer * rate * dt;
-      x += Math.cos(angle) * speed * dt;
-      y += Math.sin(angle) * speed * dt;
+      // Drag is the identity under `accel: 0`; grip still bleeds the lateral half every tick.
+      const f = forward;
+      const l = lateral * grip;
+      // Recomposed at the OLD angle, same as `stepDrive`'s own step 5 — the car's nose has not
+      // rotated yet as far as this tick's translation is concerned.
+      const vx = Math.cos(angle) * f - Math.sin(angle) * l;
+      const vy = Math.sin(angle) * f + Math.cos(angle) * l;
+      x += vx * dt;
+      y += vy * dt;
+      angle += delta;
+      // Next tick decomposes that same (f, l) pair against the NEW angle — a rotation by `-delta`
+      // relative to the frame it was built in, which is exactly where the drift comes from.
+      forward = f * Math.cos(delta) + l * Math.sin(delta);
+      lateral = -f * Math.sin(delta) + l * Math.cos(delta);
       out.push({ x, y, angle });
     }
     return out;
@@ -479,70 +547,63 @@ describe("predicting an observed car, against an independent ground truth", () =
     }
   });
 
-  it("holds a REVERSING car's speed, which zeroing the engine alone does not", () => {
-    // Fix round 2, finding A -- the residual the previous round documented instead of fixing.
-    // `accel: 0` alone does nothing for a car already rolling backward, because
-    // `accelerateForward`'s `speed < -stopEpsilon` branch brakes at `brakeDecel`, not `accel`: a
-    // Mirage at its 292.175 u/s reverse cap is zeroed in ~5.5 ticks and the rest of the horizon is
-    // spent parked. `OBSERVATION_MODIFIERS` zeroes BOTH channels, so the observed reverse is held.
-    //
-    // Measured error against `truthPath`, in world units at 20 / 45 / 90 ticks:
-    //   reverse cap, straight   -- `accel: 0` alone 173 / 416 / 854, this set 0 / 0 / 0
-    //   reverse cap, wheel over -- `accel: 0` alone  45 /  30 /  38, this set 0 / 0 / 0
-    //   -150, straight          -- `accel: 0` alone  95 / 220 / 445, this set 0 / 0 / 0
-    //   -150, wheel over        -- `accel: 0` alone  19 /  10 /  14, this set 0 / 0 / 0
-    // The straight rows are the damaging ones: 854 units short at the horizon the controller
-    // actually rolls, against the 584 the stationary over-lead was worth at 45 ticks.
-    const ENGINE_OFF_ONLY = Object.freeze({ ...NEUTRAL_MODIFIERS, accel: 0 });
+  it("holds a REVERSING car's speed, and brakeDecel really is inert alongside accel", () => {
+    // REWRITTEN, STAGE 5 TASK 8 (2026-09-19) — a STALE TEST, not a bot regression. This used to
+    // measure a real gap between `accel: 0` alone and `OBSERVATION_MODIFIERS` (`accel: 0,
+    // brakeDecel: 0` together) for a reversing car, citing an `accelerateForward` function whose
+    // `speed < -stopEpsilon` branch braked at `brakeDecel` regardless of the commanded throttle. That
+    // function is not the current model: `drive.ts`'s `engineCommandOf` reads `brakeDecel` ONLY on
+    // `throttle: -1`, never on `throttle: 1` — and every observation rollout (this file's `shipped`,
+    // `rollForward`'s own production callers) holds `throttle: 1` always, exactly as `predict.ts`'s
+    // `OBSERVATION_MODIFIERS` doc comment now states outright ("no production predictor passes
+    // `throttle: -1`, and the engine-command table gives the brake no other path"). So for every
+    // scene `rollForward` can actually reach, `accel: 0` alone and `OBSERVATION_MODIFIERS` are the
+    // SAME mods — the old comparison was measuring a code path this file's own tests never execute.
+    // Confirmed rather than assumed: the two rollouts below are bit-identical for reversing scenes.
+    const ACCEL_OFF_ONLY = Object.freeze({ ...NEUTRAL_MODIFIERS, accel: 0 });
     const reversing = SCENES.filter((scene) => scene.speed < 0);
     expect(reversing).toHaveLength(4);
     for (const scene of reversing) {
       const truth = truthPath(scene.speed, scene.steer, "mirage", LONGEST);
-      const engineOffOnly = rollForward(
+      const accelOffOnly = rollForward(
         bodyFromObservation(carAt({ speed: scene.speed }), 0), "mirage",
-        { steer: scene.steer, throttle: 1 }, LONGEST, ENGINE_OFF_ONLY,
+        { steer: scene.steer, throttle: 1 }, LONGEST, ACCEL_OFF_ONLY,
       );
       const held = shipped(scene.speed, scene.steer);
       for (const ticks of HORIZONS) {
+        // The property this test is actually named for: a reversing car's observed speed is held,
+        // not decayed toward rest or accelerated toward the chassis maximum.
         expect(errorAt(truth, held(ticks), ticks), `${scene.label} @${ticks}`).toBeLessThan(1);
-        expect(errorAt(truth, engineOffOnly[ticks - 1]!, ticks), `${scene.label} @${ticks}`)
-          .toBeGreaterThan(errorAt(truth, held(ticks), ticks));
+        // `brakeDecel: 0`'s inertness on this path, confirmed rather than assumed: with `throttle: 1`
+        // always, dropping it from the mods set changes nothing.
+        expect(accelOffOnly[ticks - 1], `${scene.label} @${ticks}`).toEqual(
+          rollForward(
+            bodyFromObservation(carAt({ speed: scene.speed }), 0), "mirage",
+            { steer: scene.steer, throttle: 1 }, ticks, OBSERVATION_MODIFIERS,
+          ).at(-1),
+        );
       }
-      // And it decays to a dead stop, which is the whole shape of the error -- not a small offset.
-      expect(forwardOf(engineOffOnly.at(-1)!.vx, engineOffOnly.at(-1)!.vy,
-        engineOffOnly.at(-1)!.angle), scene.label).toBe(0);
-      expect(held(LONGEST), scene.label).not.toEqual(
-        { x: engineOffOnly.at(-1)!.x, y: engineOffOnly.at(-1)!.y, angle: engineOffOnly.at(-1)!.angle },
-      );
     }
-    // Worst case, spelled out: the straight run at the reverse cap lands car lengths short over the
-    // horizon the controller rolls (`BRAIN_CONSTANTS.predictionHorizonTicks`).
-    const capStraight = SCENES.find((s) => s.speed < 0 && s.steer === 0)!;
-    const stopped = rollForward(
-      bodyFromObservation(carAt({ speed: capStraight.speed }), 0), "mirage",
-      { steer: 0, throttle: 1 }, LONGEST, ENGINE_OFF_ONLY,
-    );
-    // RE-PINNED at the 2026-09-07 merge: 800 -> 400. Nothing about the SHAPE of this error changed
-    // — an engine-off-only rollout still decays a reversing car to a dead stop while the truth keeps
-    // reversing — but the heavy-car pass cut Mirage's reverse cap from 292.2 to 173.55 u/s, so the
-    // gap that opens over the horizon scales with it: 493 units where it used to be 876.
-    //
-    // DERIVED since 2026-09-16, not re-pinned a third time. The bound is a fraction of the distance
-    // a car held at the observed reverse actually covers over the horizon, because that is the whole
-    // claim — the engine-off-only rollout parks while the truth keeps going, so the error IS very
-    // nearly that distance. 90% leaves room for the few ticks it spends braking. A typed number here
-    // has now gone stale at two consecutive speed retunes (800 -> 400 -> would have been 300).
-    const capTravel = Math.abs(capStraight.speed) * (LONGEST / TICK_RATE_HZ);
-    expect(errorAt(truthPath(capStraight.speed, 0, "mirage", LONGEST), stopped[LONGEST - 1]!, LONGEST))
-      .toBeGreaterThan(capTravel * 0.9);
   });
 
   it("beats a straight line wherever the target turns, and never loses where it does not", () => {
     // `constantVelocityPredictor` is exactly right for a car going straight (it IS the same
-    // integration) and diverges without bound once one turns: 114 / 230 units at 150 u/s, 190 / 384
-    // at 250 u/s and 222 / 448 at the reverse cap, at 20 / 45 ticks. It also handles the stunned car
+    // integration) and diverges without bound once one turns. It also handles the stunned car
     // correctly, which the engine-on rollout does not -- the honest reading is that phase A's win is
     // the TURNING case plus never being worse elsewhere, not a win everywhere.
+    //
+    // RE-DERIVED, STAGE 5 TASK 8 (2026-09-19): the flat ">10 units" floor is a STALE NUMBER, not a
+    // bot regression — it was measured against the pre-port `truthPath` (see that function's own
+    // 2026-09-19 comment), whose driftless circular arc swings away from a straight line much faster
+    // than the real, drift-carrying trajectory does. Re-measured against the corrected `truthPath`,
+    // every turning scene still clears 10 units by 20 ticks (smallest measured 19.69), but AT 10
+    // TICKS specifically four of the eight now read single digits (3.68-7.22) simply because a
+    // quarter-second of real drift has not yet swung the true path as far from a straight line as
+    // the old ground truth assumed — the one row that still clears 10 at that horizon (top speed,
+    // full lock, 12.04) does so only because top speed itself is what is large, not the divergence
+    // rate. The floor is now tick-scaled rather than flat: 10 ticks asks for the smallest margin
+    // that still clears every measured row (>2, all eight sit at 3.68 or above), 20+ ticks keeps the
+    // original >10 (all eight sit at 19.69 or above there).
     for (const scene of SCENES) {
       const truth = truthPath(scene.speed, scene.steer, "mirage", LONGEST);
       const straight = constantVelocityPredictor(carAt({ speed: scene.speed }));
@@ -554,7 +615,8 @@ describe("predicting an observed car, against an independent ground truth", () =
         // `!== 0`, not `> 0`: a car reversing round a corner leaves a straight line just as fast as
         // one driving round it, and the reversing rows would otherwise assert nothing here.
         if (scene.steer !== 0 && scene.speed !== 0) {
-          expect(straightError, `${scene.label} @${ticks}`).toBeGreaterThan(10);
+          const floor = ticks <= 10 ? 2 : 10;
+          expect(straightError, `${scene.label} @${ticks}`).toBeGreaterThan(floor);
         }
       }
     }

@@ -71,27 +71,47 @@ describe("tier characterisation", () => {
    * check.
    */
   it("hard changes course for an incoming shot and easy ignores it (H25)", () => {
+    // RE-DERIVED, STAGE 5 TASK 8 (2026-09-19). Two changes, both measured, not guessed:
+    //
+    // 1. `self` is now held STATIONARY (`vx: 0, vy: 0`) instead of `view()`'s default — already at
+    //    Bullseye's own top forward speed, closing on the 500-unit-distant `enemy`. Probed directly:
+    //    at the default closing speed the bot's OWN `fight` situation reaches "too close, back off"
+    //    at almost exactly the tick a dodge would also fire, so `dodgeChance: 0` and `dodgeChance: 1`
+    //    emit the BIT-IDENTICAL 90-tick sequence regardless of what field is compared — the faster
+    //    Unity drive model closes that gap quicker than the old one did, which is what changed
+    //    underneath this fixture. Held stationary, that confound is gone and the two dodgeChance
+    //    values diverge for the whole back half of the run, which is the property this test names.
+    // 2. The comparison is the full intent (steer AND throttle), not `.steer` alone: the confirmed
+    //    dodge here is a straight reverse (`{steer: 0, throttle: -1}`), correctly chosen because
+    //    turning away from the target would cost most of `myEv`'s achievable points while a straight
+    //    reverse keeps the gun on target. A reverse dodge needs no wheel under the Unity drive model,
+    //    so `.steer` alone can no longer tell "dodged" from "did not" — that assumption predates the
+    //    port. `.steer` was always a proxy for "did something change", not the property itself.
     const incoming = [{
       id: "shot", ownerSessionId: "them", weaponId: "predator" as const,
       x: 210, y: -400, angle: Math.PI / 2,
     }];
-    const steers = (tier: "easy" | "hard", dodgeChance: number) => {
+    const intents = (tier: "easy" | "hard", dodgeChance: number) => {
       const profile = {
         ...BOT_PROFILES[tier], dodgeChance, incomingCarChance: 0,
         blunderChance: 0, idleFidgetChance: 0, aimErrorSigmaRad: 0,
       };
       const bot = new HumanController(tier, { profile });
       const rng = makeRng(17);
-      const out: number[] = [];
+      const out: string[] = [];
       const still = { ...enemy, vx: 0, vy: 0 };
       for (let tick = 0; tick < 90; tick++) {
-        out.push(bot.decide(view(tick, { others: [still], instances: incoming, rng })).steer);
+        const selfStationary = { ...view(tick).self, vx: 0, vy: 0 };
+        const intent = bot.decide(
+          view(tick, { self: selfStationary, others: [still], instances: incoming, rng }),
+        );
+        out.push(`${intent.steer},${intent.throttle}`);
       }
-      return out.join(",");
+      return out.join(";");
     };
 
-    expect(steers("hard", 1)).not.toBe(steers("hard", 0));
-    expect(steers("easy", 0.05)).toBe(steers("easy", 0));
+    expect(intents("hard", 1)).not.toBe(intents("hard", 0));
+    expect(intents("easy", 0.05)).toBe(intents("easy", 0));
   });
 
   it("easy burns its ult on a full-hp target and hard does not (H30)", () => {
@@ -362,6 +382,11 @@ describe("tier characterisation", () => {
   });
 
   it("hard sidesteps an incoming shot (S13 evade) compared to dodgeChance 0", () => {
+    // RE-DERIVED, STAGE 5 TASK 8 (2026-09-19) — same fixture and same two findings as H25 above:
+    // `self` held stationary (`view()`'s default already closes on `enemy` fast enough that
+    // `fight`'s own "too close, back off" fires at almost the same tick a dodge would, masking the
+    // comparison regardless of what field is read), and the comparison reads the full intent rather
+    // than `.steer` alone (the confirmed dodge here is a straight reverse, which needs no wheel).
     const incoming = [{
       id: "shot", ownerSessionId: "them", weaponId: "predator" as const,
       x: 210, y: -400, angle: Math.PI / 2,
@@ -373,13 +398,16 @@ describe("tier characterisation", () => {
       };
       const bot = new HumanController("hard", { profile });
       const rng = makeRng(17);
-      const steer: number[] = [];
+      const intents: string[] = [];
       const still = { ...enemy, vx: 0, vy: 0 };
       for (let tick = 0; tick < 90; tick++) {
-        const out = bot.decide(view(tick, { others: [still], instances: incoming, rng }));
-        steer.push(out.steer);
+        const selfStationary = { ...view(tick).self, vx: 0, vy: 0 };
+        const out = bot.decide(
+          view(tick, { self: selfStationary, others: [still], instances: incoming, rng }),
+        );
+        intents.push(`${out.steer},${out.throttle}`);
       }
-      return steer.slice(30).join(",");
+      return intents.slice(30).join(";");
     };
 
     expect(runDodge(1)).not.toBe(runDodge(0));

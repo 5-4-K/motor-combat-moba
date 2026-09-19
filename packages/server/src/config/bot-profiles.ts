@@ -782,7 +782,20 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // A 5.1.0 report from either line is not comparable with this one, which is why the string moved.
 // 6.0.0 — the 2026-09-18 Unity drive port. Behaviour moved without `BOT_PROFILES` moving, so balance
 // reports across this line are not comparable.
-export const BOT_BRAIN_VERSION = "6.0.0";
+// 6.0.1 (stage 5 Task 8, 2026-09-19) — a bug found and fixed in `predict.ts`, not a re-tune:
+// `physicsPredictor`'s below-threshold branch (an observed car's residual ram spin) is supposed to
+// decay on the ram half-life, per that function's own doc comment, but the Unity port's U16
+// ("steering SETS the rate") silently made that impossible without `mods.spinFree: true` — absent
+// it, the residual was overwritten to exactly 0 on the very first rolled tick instead of decaying,
+// so every bot mispredicted a just-rammed car as having stopped spinning immediately rather than
+// gradually. Fixed by passing `spinFree: true` for exactly that branch (never when `steer !== 0`,
+// where it would wrongly discard a genuinely sustained turn). `BOT_PROFILES` did not move — this is
+// a real behaviour change in brain code, per this skill's own rule, so the version moves with it;
+// this deviates from `docs/superpowers/plans/2026-09-18-unity-physics-port/interfaces.md`'s "does
+// not move again inside this work", written before this bug was found — flagged in the stage 5
+// Task 8 report rather than silently overridden. Balance reports across this line are not
+// comparable.
+export const BOT_BRAIN_VERSION = "6.0.1";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency

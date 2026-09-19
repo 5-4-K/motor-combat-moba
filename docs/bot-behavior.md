@@ -209,11 +209,40 @@ ceiling that is rarely approached. Every row of the table above was derived that
 **That knob is gone.** The 2026-09-18 Unity drive-model port DELETED `steeringGrip` rather than
 lowering it (U13) — the same move taken all the way to its 0 end — so lateral velocity is now always
 present (it is the drift) and `facingError` is continuous: an ordinary turn's terminal pose scores in
-(0, 0.5], and the term charges for **turning itself**, re-creating "turning is pure cost", the exact
-defect it was written to delete, by a new route. **The whole column is owed a re-derivation**, and it
-is a correctness obligation rather than a tuning one: the port's stage 5, Task 8 Step 1 owns it, and
-no weight moves before then. `facingErrorOf`'s doc comment in `planner.ts` and
-`objectives.ts`'s weight-derivation paragraph both say the same thing at the code.
+(0, 0.5] where it used to score exactly 0.
+
+**Re-derived, stage 5 Task 8, 2026-09-19 — neither weight moved.** The binary case both rows were
+actually calibrated against (a candidate that reverses straight, no turning at all) is unchanged:
+`facingError` still hits exactly 1 at zero yaw rate, so a full-clearance reverse still reads 1 and
+the headroom arithmetic above (24-point `threatAvoid` ceiling in `evade`, ~90-point `rangeError` in
+`fight`) still applies untouched. What the port added is the previously-unreachable continuous case,
+and it was MEASURED rather than assumed: rolled through the real drive model over a hard tier's own
+commit-then-coast window (12 committed ticks of full lock, 10 coasting), an ordinary turn's terminal
+`facingError` ranges 0.0042–0.0212 across the roster and every speed from rest to top speed — well
+under a tenth of the 0.5 sliding-sideways reference, an order of magnitude below the "flat toll" this
+page used to warn about. At the shipped weights that is 0.04–0.21 points in `evade` and 0.13–0.64 in
+`fight`, nowhere near enough to outweigh `threatAvoid`'s 0–24 range or `rangeError`'s
+tens-to-hundreds. "Turning is pure cost" has not been re-created by this route, so neither weight had
+reason to move. `facingErrorOf`'s doc comment in `planner.ts` and `objectives.ts`'s weight-derivation
+paragraph both carry the full measurement table.
+
+**Three bot symptoms that coincided with this port were checked against `facingError` specifically,
+and none of them turned out to be this column's doing** — see the stage 5 Task 8 report
+(`.superpowers/sdd/05-tune-and-reconcile/task-8-report.md`) for the full trace of each:
+- Hunting a far-behind waypoint (`controller.test.ts`'s G12 pair) traces to `rangeError` geometry: a
+  hard tier's commit window cannot turn far enough toward a target ~150° behind it to close any net
+  distance under the heavier, faster drive model, so standing still currently outscores every
+  turning candidate. Left red — no `BOT_PROFILES` knob fixes it without either blowing the documented
+  performance budget on `planHorizonTicks` or moving the swept `commitWindowFraction`.
+- The H25 / S13-evade dodge scenes traced to the fixture, not the bot: `view()`'s default self
+  already closing at its own top speed on a 500-unit-distant target means `fight`'s own "too close,
+  back off" fires at almost the same tick a dodge would, and the genuine dodge here is a straight
+  reverse (needs no wheel), so `.steer` alone stopped being able to see it. Both fixed in the test
+  fixture, not in any weight.
+- `tiers.test.ts` P50 (hard's hit rate now trailing easy's) is a real, pre-existing regression from
+  the 2026-09-17 aim-lock removal (a `solve()` EV-rating mismatch on hard's `pepperbox`), confirmed
+  unrelated to `facingError`. Per this skill's own rule ("you do not tune around a solver bug"), left
+  red.
 
 Three terms are read as MOMENTS along the candidate arc — `myEv` at its best, `theirEv` and
 `wallPenalty` at their worst. `rangeError`, `threatAvoid` and `facingError` are
