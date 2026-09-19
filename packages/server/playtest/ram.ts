@@ -22,24 +22,27 @@ import {
 import { PlaytestWorld } from "./world.js";
 import { Reporter } from "./reporter.js";
 
-// STALE POST-VECTOR-DRIVE-REWORK: the THRESHOLDS in this file (the 0.9 trigger-rate floors) were
-// tuned against the pre-2026-09-06 roster, whose top speeds were up to 40% higher. Left unchanged
-// per the review's instruction that stage 5 owns re-deriving them; see
-// `docs/superpowers/plans/2026-09-06-car-physics/05-tune-and-reconcile.md`.
+// REWRITTEN FOR THE UNITY PHYSICS PORT (this file's inbox, replacing the 2026-09-06-rework-era
+// banner that used to sit here). The 0.9 trigger-rate floors (R1 line ~109, R2 line ~143, R4
+// line ~239) are UNCHANGED — this task does not move a threshold — but the ground they stand on
+// has: under the deleted two-sided ram contest, a ram fired on contact plus drive-in sign alone, so
+// the floors were argued to be insensitive to every magnitude constant tuned under it, including
+// `RAM_CONFIG.globalScale`/`spinScale` (then-placeholders, since measured and settled at 0.6/0.3 —
+// see the Unity port's stage 5 EXECUTION.md).
 //
-// The descriptive numbers are no longer among them: the "10.5 u/tick" the R1 sweep quoted and the
-// "-35% restitution" R3 quoted are both DERIVED from the config below now rather than typed, so a
-// future roster or restitution edit cannot leave them contradicting the table printed beneath them.
+// **That argument no longer holds, and it is the real judgement call in this file.** U24 made
+// attacking conditional on the ATTACKER's own struck region being `front`/`frontCorner` AND its own
+// drive-in reaching `RAM_CONFIG.minRamSpeed` (39 u/s) — a gate that did not exist under the old
+// contest. R1's `flank` row approaches from directly above at 90 degrees, which is never a front
+// hit from the flanker's own frame; R2's whole matrix sweeps all three approach types the same way.
+// A rate below 0.9 on either may now be U24's gate working as designed rather than a trigger bug —
+// the two readings are indistinguishable from the floor alone. Reported, not resolved: run the
+// probe and read what every row actually says before trusting a single verdict line.
 //
-// **Stage 3 Task 4 added a second, independent reason those thresholds are owed a re-derivation,
-// and it is bigger than the speed cut.** `RAM_CONFIG.globalScale` and `spinScale` were placeholders
-// until that task measured them (1 -> 0.4 and 100 -> 10), so every knock magnitude and every
-// injected spin this file observes moved — the roster's hardest ram now writes 268.0 u/s and 5.95
-// rad/s, measured through the composed `serverTick` -> `contactTick` order. The trigger-RATE floors
-// (R1/R2) are the exception and should be unaffected: a ram fires on contact and drive-in sign,
-// neither of which any of those constants touches. Ram-lock (R5) and anything reading how far a
-// victim travels are not exempt. Still nothing this task may retune — named here so stage 5 knows
-// what moved under it, and so a run in the meantime is read with this in hand.
+// The descriptive numbers stay DERIVED from the config below rather than typed (the R1 sweep's
+// per-tick figure, R3's `minRamSpeed`), so a future roster or config edit cannot leave them
+// contradicting the table printed beneath them. Ram-lock (R5) and anything reading how far a victim
+// travels are a separate question again — see that probe's own comment.
 function ramOf(
   startGap: number,
   atkCar: CarId,
@@ -147,16 +150,20 @@ function pairingMatrix(): void {
 
 /* ------------------------------------------------------------------------- R3. the mechanism */
 /**
- * The regression guard for the trigger fix.
+ * The regression guard for the trigger fix — REWRITTEN for the Unity ram rule (spec §7.2).
  *
- * `resolveWorld` still reflects the attacker's velocity on the contact tick — that is the drive
- * model working as designed. What changed is that ram no longer READS that number: `serverTick`
- * reports the speed each car carried into the tick, and `contactTick` uses it as the approach term.
+ * The old verdict required the attacker's post-resolve speed to go NEGATIVE (a restitution rebound)
+ * on the same tick the victim was knocked — proof `contactTick` used the carried-in approach speed
+ * rather than this post-bounce one. At `DRIVE_CONFIG.restitution` 0 that rebound no longer exists:
+ * `resolveWorld`'s own reflection leaves the attacker at exactly 0, not negative, AND the Unity ram
+ * rule independently sets it to 0 too (`replacesVelocity` with a zero shove, `oneWayResolution` in
+ * `sim/ram.ts`) — the two now coincide, so a zero reading can no longer tell them apart.
  *
- * So the shape this probe asserts is deliberately odd-looking: the attacker's post-resolve speed is
- * deeply negative AND the victim is knocked, on the same tick. If those two ever stop coinciding,
- * the approach term has been rewired back to the post-collision value and the 8-20% trigger rate is
- * back.
+ * The regression this guards against is still real and still checkable, just through a different
+ * tell: `minRamSpeed` gates on the carried-in speed, and at restitution 0 the post-resolve value on
+ * this exact geometry is 0 — well under it. If `contactTick` were ever rewired back to read the
+ * post-resolve value, the ram would not fire at all (0 < minRamSpeed), so a landed knock on the
+ * contact tick is sufficient proof by itself that the carried-in value is still what is read.
  */
 function speedBeforeAndAfterResolve(): void {
   const w = new PlaytestWorld([
@@ -165,7 +172,7 @@ function speedBeforeAndAfterResolve(): void {
   ]);
   const rows: string[] = [];
   let firedOnContactTick = false;
-  let rebounded = false;
+  let attackerStoppedOnContactTick = false;
   for (let i = 0; i < 4; i++) {
     const before = w.get("atk");
     const carriedIn = forwardOf(before.vx, before.vy, before.angle);
@@ -173,16 +180,16 @@ function speedBeforeAndAfterResolve(): void {
     w.tick();
     const a = w.get("atk");
     const v = w.get("vic");
-    const afterResolve = forwardOf(a.vx, a.vy, a.angle);
+    const afterTick = forwardOf(a.vx, a.vy, a.angle);
     // The victim never drives in this probe, so any vx/vy it carries is entirely the knock.
     const shove = speedOf(v.vx, v.vy);
     // The contact tick is the first one on which a knock appears.
     if (i === 0) {
       firedOnContactTick = shove > 0.01;
-      rebounded = afterResolve < 0;
+      attackerStoppedOnContactTick = afterTick === 0;
     }
     rows.push(
-      `t${i + 1}: carried in ${carriedIn.toFixed(1)} -> ${afterResolve.toFixed(1)} after resolveWorld; ` +
+      `t${i + 1}: carried in ${carriedIn.toFixed(1)} -> ${afterTick.toFixed(1)} after the full tick; ` +
         `ram's approach term is the carried-in ${carriedIn.toFixed(1)} ` +
         `${carriedIn >= RAM_CONFIG.minRamSpeed ? "(>= minRamSpeed)" : "(below minRamSpeed)"}; ` +
         `victim shove ${shove.toFixed(1)}`,
@@ -190,19 +197,18 @@ function speedBeforeAndAfterResolve(): void {
   }
   report(
     "R3. The fix: ram reads the carried-in speed, not the post-resolve rebound",
-    firedOnContactTick && rebounded ? "OK" : "FINDING",
-    // Renamed with the knob, not re-pitched: `minRamSpeed` is the Unity port's successor to
-    // `minApproachSpeed` and gates WHO may attack rather than whether the old contest fired at all.
-    // This probe's expectation and verdict logic still describe the deleted contest and are stage
-    // 5's to re-measure; only the compile break is fixed here.
-    `minRamSpeed is ${RAM_CONFIG.minRamSpeed}; restitution ` +
-      `${DRIVE_CONFIG.restitution} still rebounds a head-on contact to ` +
-      `-${(DRIVE_CONFIG.restitution * 100).toFixed(0)}% of impact speed.\n` +
+    firedOnContactTick ? "OK" : "FINDING",
+    `minRamSpeed is ${RAM_CONFIG.minRamSpeed}; restitution is ${DRIVE_CONFIG.restitution}, so a ` +
+      `square hit leaves the attacker at exactly 0 after resolveWorld — no rebound to distinguish ` +
+      `from the Unity rule's own "you stop" outcome (both zero the attacker; see the doc comment ` +
+      `above for why that collapses the old tell).\n` +
       rows.join("\n") +
-      `\nOn the contact tick the attacker rebounded (${rebounded}) AND the victim was knocked ` +
-      `(${firedOnContactTick}). Both must hold: the rebound is the drive model, the knock is the ` +
-      `fix. Shove on later ticks is the first knock decaying — ram is edge-triggered, so holding ` +
-      `the throttle does not re-fire it.`,
+      `\nOn the contact tick the victim was knocked (${firedOnContactTick}) and the attacker ended ` +
+      `the tick at exactly 0 (${attackerStoppedOnContactTick}, reported for completeness — it is no ` +
+      `longer part of the pass condition). A landed knock alone is the regression guard now: it is ` +
+      `only possible if \`contactTick\` read the carried-in speed (>= minRamSpeed), since the ` +
+      `post-resolve value on this geometry is 0. Shove on later ticks is the first knock decaying — ` +
+      `ram is edge-triggered, so holding the throttle does not re-fire it.`,
   );
 }
 
@@ -258,14 +264,25 @@ function drivenRam(): void {
  * Swept two ways: the approach gap (the sub-tick phase of the first impact, as R1) and a small
  * lateral offset — a real chase ram lands slightly off-centre, and the off-centre hit is the one
  * that imparts spin, which is the realistic "can never straighten out" hazard.
+ *
+ * **The scenario's own escape strategy is now questionable for part of every run, and the Unity
+ * port is why.** `authority` (degraded steering) now has a successor — `reeling` — but it is not a
+ * lookalike: since the 2026-09-18 Unity ram port it is TOTAL control loss (`immobilised` and
+ * `steeringLocked` on the victim's flags, not a worsened number), for `RAM_CONFIG.ramUncontrolMs`
+ * (falloff-scaled). Line ~303's "victim steers to straighten out" literally does nothing for that
+ * whole window — the input is blocked, not merely degraded — so part of what this probe calls "the
+ * best escape a player could drive" is, for part of every run, no input reaching the car at all.
+ * Whether the escape verdict below still holds under that is unmeasured; see the report string.
  */
 function chaseRamLock(): void {
   const rows: string[] = [];
   let worstEscape = { escaped: true, gap: 0, phase: "", rams: 0 };
   let maxRams = 0;
-  // `authority` has no successor in stage 1 — ram control-loss returns as the `reeling` status in
-  // stage 3b — so the "deepest authority dip" measurement this probe used to report is dropped
-  // rather than replaced with a lookalike number.
+  // `authority` itself is gone for good, but it now has a real successor: `reeling`, total control
+  // loss plus `grip: 0.6` (see the doc comment above). The "deepest authority dip" measurement this
+  // probe used to report has no direct equivalent — `reeling` is boolean per tick, not a depth — so
+  // it stays dropped rather than replaced with a proxy number; see the `rams` counter below for the
+  // one substitute this probe already carries, and its own caveat.
   for (const offset of [0, 6, 12]) {
     let escapes = 0;
     let runs = 0;
@@ -301,8 +318,17 @@ function chaseRamLock(): void {
         // velocity alone. The lateral component is the one part that is unambiguously external
         // (steering grip keeps driven motion aligned with the nose), so it stands in for the old
         // separate `shove` field. That undercounts a dead-centre rear ram (offset 0), which imparts
-        // little to no spin — this is a diagnostic count only, not the probe's pass/fail verdict,
-        // and stage 5 should reconsider it if isolating ram impulses precisely ever matters here.
+        // little to no spin — this was already a diagnostic count only, not the probe's pass/fail
+        // verdict, before the Unity port.
+        //
+        // **THIS COUNTER IS NOW LIKELY DEAD, not just imprecise, and is reported as such rather than
+        // fixed here.** Two things changed under it: `reeling`'s `grip` multiplier (0.6, not the old
+        // `turnRate`/`accel` pair) scrubs the lateral shove SLOWER than an un-reeled car would, so a
+        // "rise" can read differently than it used to even with no second ram landing; and while
+        // `steeringLocked` holds, "steering grip keeps driven motion aligned with the nose" (the
+        // premise this comment states above) is false — there is no steering input to align to. Both
+        // push in the direction of a false reading, not a missed one, but which way and by how much
+        // is unmeasured. Fixing the diagnostic or retiring it is the user's call.
         const afterVic = w.get("vic");
         const shove = Math.abs(lateralOf(afterVic.vx, afterVic.vy, afterVic.angle));
         // Knock only decays between impacts, so any rise is a fresh ram landing.
@@ -340,12 +366,17 @@ function chaseRamLock(): void {
       `keeps chasing; the victim floors it and straightens out. 63 runs: approach gap 0-20 x ` +
       `lateral offset {0, 6, 12}.\n` +
       rows.join("\n") +
-      `\nmost rams landed in any single run: ${maxRams}. (Stage 1 dropped the "deepest authority ` +
-      `dip" line this used to carry — see the comment above the loop.)` +
+      `\nmost rams landed in any single run: ${maxRams}, by a counter this report no longer trusts ` +
+      `(see the comment above the loop) — read it as "at least this many", not an exact count. The ` +
+      `"deepest authority dip" line this used to carry has no direct equivalent under \`reeling\` ` +
+      `(see the doc comment above this function).` +
       (worstEscape.escaped
         ? `\nEvery phase escaped: the first knock is the attacker's whole payday — by the time ` +
-          `authority recovers the speed advantage has the gap opening, and the edge-triggered ram ` +
-          `never re-fires without a genuine re-approach.`
+          `\`reeling\` lapses the speed advantage has the gap opening, and the edge-triggered ram ` +
+          `never re-fires without a genuine re-approach. Unmeasured: whether this still holds given ` +
+          `that the victim's steering input is blocked outright, not merely degraded, for the ` +
+          `\`reeling\` window (see the doc comment above this function) — every "escape" recorded ` +
+          `here happened despite that, not because the probe accounted for it.`
         : `\nNOT ESCAPED at ${worstEscape.phase}: final gap ${worstEscape.gap.toFixed(0)}u after ` +
           `${worstEscape.rams} rams — the knock loop closed faster than control returned.`),
   );

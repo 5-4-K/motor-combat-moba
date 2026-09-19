@@ -6,10 +6,14 @@
  * surprising.
  */
 import {
+  CAR_TABLE,
   DRIVE_CONFIG,
+  RAM_CONFIG,
   TICK_RATE_HZ,
   forwardMaxSpeedOf,
   forwardOf,
+  ramAttackOf,
+  ramDefenceOf,
   speedOf,
   getArena,
   type CarId,
@@ -32,9 +36,10 @@ const report = reporter.report.bind(reporter);
  * there is no swept test for driving (unlike projectiles, which smear).
  *
  * The head-on closing figure this used to quote by hand ("19.2 u/tick", "closes 38.4") predated
- * both T8's restat and the 2026-09-06 heavy-car speed cut. It is now DERIVED from
- * `forwardMaxSpeedOf` and `TICK_RATE_HZ` below rather than typed, so it cannot rot again: mirage's
- * per-tick step at top speed is 267/30 = 8.9u, closing at 17.8u head-on.
+ * both T8's restat and the 2026-09-06 heavy-car speed cut. It is DERIVED from `forwardMaxSpeedOf`
+ * and `TICK_RATE_HZ` below rather than typed, so it cannot rot again — and it already would have a
+ * third time: mirage's per-tick step at top speed was 8.9u after the heavy-car cut, and is 9.5u as
+ * of the Unity physics port's stage 5 Task 5 settled speeds (283.5 u/s / 30).
  *
  * STILL STALE, and deliberately: "Ram shove ... is not capped by top speed" is no longer true when
  * the victim is also under throttle — `accelerateForward`'s clamp now catches an injected
@@ -74,22 +79,37 @@ function tunneling(): void {
         `${passedThrough ? "TUNNELED" : "blocked"}`,
     );
   }
-  // STALE THRESHOLD — left as-is deliberately; stage 5 owns re-deriving it.
-  //
-  // 260 * 1.6 = 416 was `knockMaxSpeed * massFactorMax`, the hardest shove the OLD severity-graded
-  // ram could write. As of stage 3 Task 2 (the ram contest, spec R9) the ram magnitude is the
-  // open-ended contest output (`pushOf`/`impactOn` in `sim/ram.ts`), and `knockMaxSpeed` is inert
-  // while `massFactorMax` no longer exists at all — so this bound describes a model the game does
-  // not run.
-  //
-  // **Stage 3 Task 4 measured what the shipped ram can actually write: 268.0 u/s**, the roster
-  // maximum, from a Bastion at top speed rear-ending a parked Bullseye — swept over every chassis
-  // pairing, all three struck faces, victim parked/fleeing/reversing, and 8 sub-tick phases each.
-  // The real ceiling is therefore about 64% of the 416 this line still uses, so the verdict below is
-  // more conservative than it needs to be (it calls a tunnel a FINDING for shoves the ram can no
-  // longer produce) rather than wrong in the dangerous direction. Changing it is a threshold move,
-  // which this task is not allowed to make.
-  const maxRamShove = 260 * 1.6;
+  // NOW DERIVED from RAM_CONFIG and the roster rather than typed, matching the canonical sweep
+  // `weapon-config.test.ts`'s `hardestOrdinaryRam()` already runs: every attacker x victim pair in
+  // `CAR_TABLE`, at the hardest of the three `RamType` shove multipliers (`flankScale`). This retires
+  // two numbers in turn, not one: 416 (`knockMaxSpeed * massFactorMax`, the pre-2026-09-06 severity
+  // ram) was already dead when this comment last read "STALE THRESHOLD", and the 268.0 that
+  // superseded it — the car-physics rework's measured two-sided-contest ceiling (`pushOf`/
+  // `impactOn`) — is dead too: the Unity ram port deleted that contest outright (see `sim/ram.ts`'s
+  // file header). Under the Unity rule a ram is not a contest to sweep at runtime; it is the closed
+  // form `sim/ram.ts`'s `shoveOf` computes — `forwardSpeed * scaleFor(type) * globalScale *
+  // ramAttack(attacker) / ramDefence(victim)` — so the roster maximum is exactly derivable rather
+  // than something only a swept measurement could find. The number below (467.85 u/s, mirage
+  // flanking bullseye) is the same figure the settled-tuning ledger records as `hardestOrdinaryRam()`
+  // for Task 5's `wildcharge` guard — this probe now reads the identical derivation rather than a
+  // second, independently-typed one that could drift from it.
+  function hardestOrdinaryRamShove(): number {
+    const ids = Object.keys(CAR_TABLE) as CarId[];
+    const typeScale = Math.max(RAM_CONFIG.flankScale, RAM_CONFIG.rearScale, RAM_CONFIG.headOnScale);
+    let hardest = 0;
+    for (const attacker of ids) {
+      for (const victim of ids) {
+        const shove =
+          forwardMaxSpeedOf(attacker) *
+          typeScale *
+          RAM_CONFIG.globalScale *
+          (ramAttackOf(attacker) / ramDefenceOf(victim));
+        if (shove > hardest) hardest = shove;
+      }
+    }
+    return hardest;
+  }
+  const maxRamShove = hardestOrdinaryRamShove();
   report(
     "1. Car-car tunneling at extreme closing speed",
     worst > 0 && worst <= maxRamShove ? "FINDING" : "OK",
@@ -98,8 +118,9 @@ function tunneling(): void {
       `the hull length.\n` +
       rows.join("\n") +
       (worst > 0
-        ? `\nFirst tunnel at injected shove ${worst} u/s on BOTH cars. The hardest shove the ram can ` +
-          `write is ${maxRamShove} u/s, and only onto one car, so this is out of reach in play.`
+        ? `\nFirst tunnel at injected shove ${worst} u/s on BOTH cars. The hardest shove an ordinary ` +
+          `ram can write today is ${maxRamShove.toFixed(2)} u/s, and only onto one car, so this is ` +
+          `out of reach in play.`
         : "\nNo tunnel at any tested closing speed."),
   );
 }
@@ -392,16 +413,20 @@ function energyGain(): void {
  * With `v_n` the component into the wall and `v_t` along it, the post-contact forward component is
  * `v * (sin^2(t) - restitution * cos^2(t))`, which is zero at `t = atan(sqrt(restitution))`.
  *
- * That angle MOVED with the rework: restitution dropped 0.35 -> 0.15 in stage 2, taking the flip
- * from the ~30.6 deg this probe was written against down to ~21.2 deg. It is derived below rather
- * than typed, so a future restitution edit re-aims the sweep instead of silently missing the flip.
+ * **That angle is now OUTSIDE this probe's own sweep, and that is the port fixing what this probe
+ * measures, not a break in it.** Restitution dropped 0.35 -> 0.15 in the car-physics rework's stage 2
+ * (flip ~30.6 -> ~21.2 deg) and then to 0 with the Unity drive-model port, where
+ * `atan(sqrt(0)) = 0 deg` — below the 5-45 deg sweep this probe has always run. At restitution 0 the
+ * post-contact forward component is `v * sin^2(t)`, which is non-negative at every angle: there is no
+ * angle left where a glancing hit can read as a rebound. U22 documents the intended behaviour this
+ * produces — a car SLIDES along a wall instead of rebounding off it — so a sweep that finds no sign
+ * flip is now reporting the design working, not a gap in coverage. The verdict logic is unchanged
+ * (`maxJump > 100` stays `KNOWN-BY-DESIGN`, everything else `OK`); only what `OK` is understood to
+ * mean has moved, from "no flip found (yet)" to "no flip is reachable here at all".
  *
- * The placement also had to be repaired. The old setup drove at the wall from `x = 60` at a hard
- * `speed: 400` and ticked ONCE. Both halves broke in the 2026-09-06 heavy-car cut: 400 u/s is now
- * above mirage's 267 top speed and is clamped away on the first `stepDrive`, and one tick at the
- * surviving 8.9 u/tick leaves the hull ~24u clear of the wall — so the probe made no contact at all
- * and reported "no sign flip" as if that were a measurement. The car now starts with its hull
- * against the wall and drives in at its real top speed.
+ * The placement is unchanged from the earlier repair: the car starts with its hull already against
+ * the wall and drives in at its real top speed, since a fixed start x or a fixed test speed cannot
+ * survive a roster change.
  */
 function glancingSignFlip(): void {
   const rows: string[] = [];
@@ -439,15 +464,17 @@ function glancingSignFlip(): void {
   report(
     "8. Reported speed sign flip on a glancing wall contact",
     maxJump > 100 ? "KNOWN-BY-DESIGN" : "OK",
-    `${rows.join("\n") || `no sign flip in ${from}-${to} deg`}\n` +
-      `predicted flip from restitution ${DRIVE_CONFIG.restitution}: ` +
-      `${predictedFlipDeg.toFixed(1)} deg.\n` +
+    `${rows.join("\n") || `no sign flip in ${from}-${to} deg — none is reachable at this restitution, see below`}\n` +
+      `restitution is ${DRIVE_CONFIG.restitution}, so the predicted flip angle ` +
+      `atan(sqrt(restitution)) = ${predictedFlipDeg.toFixed(1)} deg sits OUTSIDE this probe's ` +
+      `${from}-${to} deg sweep — the sign flip this probe was written to catch cannot happen at ` +
+      `restitution 0, and none was found.\n` +
       `largest one-degree jump in reported speed: ${maxJump.toFixed(0)} u/s.\n` +
-      `Documented on \`applyContact\` in collide.ts. Magnitude is continuous; the SIGN is not, and ` +
-      `the HUD/audio read speed. Stage 2's whole-vector reflection shrank the discontinuity a long ` +
-      `way: the jump either side of the flip used to be the point of this probe, and the ` +
-      `KNOWN-BY-DESIGN threshold below (100 u/s) is the one it was judged against — left at that ` +
-      `value deliberately, so a regression that re-opens the jump still trips it.`,
+      `Documented on \`applyContact\` in collide.ts (U22: a glancing hit now slides along the wall ` +
+      `instead of rebounding off it — this probe finding nothing is that design working). The ` +
+      `KNOWN-BY-DESIGN threshold below (100 u/s) is left at its old value deliberately, not as a ` +
+      `grade on the current reading but as a trip-wire: if restitution is ever raised off 0 again, ` +
+      `the discontinuity this probe was built for reopens and this still catches it.`,
   );
 }
 
@@ -468,17 +495,21 @@ function ramChain(): void {
     w.tick();
   }
   // This probe's entire measurement was `victim.authority` — how much of a coordinated 2v1's
-  // pressure showed up as degraded steering. `authority` has no successor in stage 1: ram
-  // control-loss returns as the `reeling` status in stage 3b. Rather than substitute a lookalike
-  // number (e.g. counting ticks under some invented "reeling" proxy), the measurement is dropped
-  // here; the tick loop above is left in place so the scenario still exercises the ram-chain path,
-  // but there is nothing left to report a verdict on until stage 3b lands.
+  // pressure showed up as degraded steering. `authority` had no successor when this comment last
+  // said "until stage 3b lands" — **that precondition has since been met**: the car-physics rework's
+  // stage 3b gave ramming `reeling` back, and the 2026-09-18 Unity ram port sharpened it further, to
+  // a TOTAL control loss (`immobilised`, `steeringLocked` — not degraded steering, no steering at
+  // all) plus `spinFree`, readable off `PlayerState.statuses` via `statusesOf` (`world.ts`) for
+  // exactly `victim` here. Writing that replacement measurement is a scenario change this task does
+  // not make on its own; the tick loop above is left in place so the scenario still exercises the
+  // ram-chain path, and the verdict below is still a placeholder pending that decision.
   report(
     "9. Two attackers chain-ramming one victim (300 ticks)",
     "KNOWN-BY-DESIGN",
-    `Not measurable in stage 1 — this probe read \`victim.authority\` to gauge anti-stun-lock ` +
-      `pressure from a coordinated 2v1, and \`authority\` has no successor until stage 3b's ` +
-      `\`reeling\` status lands. Re-derive this probe then.`,
+    `Not measured — this probe read \`victim.authority\` to gauge anti-stun-lock pressure from a ` +
+      `coordinated 2v1. \`authority\` itself is gone for good, but a successor now exists: the ` +
+      `victim's \`reeling\` status (total control loss, readable via \`statusesOf\`). Re-deriving ` +
+      `this probe against it is a scenario-shape decision for the user, not made here.`,
   );
 }
 

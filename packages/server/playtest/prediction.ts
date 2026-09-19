@@ -206,17 +206,20 @@ const reporter = new Reporter(
       );
     }
   }
-  // STALE POST-VECTOR-DRIVE-REWORK: this measures reconciliation error against a scalar-speed-era
-  // approach distance ("19.2 u/tick" below, already stale before this rework) and, more
-  // fundamentally, against a completely different integrator than the one now producing `predicted`
-  // — the FINDING threshold (`carWidth`) is left exactly as-is per the review; stage 5 owns
-  // re-deriving both the distances and whether the threshold itself still means what it used to.
+  // STALE POST-VECTOR-DRIVE-REWORK, MECHANICAL HALF FIXED: the quoted per-tick approach distance is
+  // now DERIVED from `forwardMaxSpeedOf("mirage") / TICK_RATE_HZ` above, so it moves with the roster
+  // instead of rotting (it read "19.2 u/tick" before the 2026-09-06 heavy-car cut, then went stale a
+  // second time under it, and is 9.5 u/tick as of the Unity port's stage 5 Task 5 settled speeds).
+  // What is STILL owed, and deliberately not decided here: the FINDING threshold (`carWidth`) predates
+  // both the 1.25x hull resize and the whole vector-drive integrator now producing `predicted` — stage
+  // 6 (this task) leaves it exactly as-is and hands the question to the user rather than moving it.
   reporter.report(
     "P1. Reconciliation correction, free driving vs a head-on collision",
     // A correction past a car length is a snap the player sees; free driving must stay at zero.
     worstCollision > DRIVE_CONFIG.carWidth || worstFree > 1 ? "FINDING" : "OK",
     `sim ${TICK_RATE_HZ} Hz, patches ${DEFAULT_PATCH_RATE_HZ} Hz. "correction" is how far one\n` +
-      `reconcile moves the local car — what the player sees as a snap. A mirage covers 19.2 u/tick\n` +
+      `reconcile moves the local car — what the player sees as a snap. A mirage covers ` +
+      `${(forwardMaxSpeedOf("mirage") / TICK_RATE_HZ).toFixed(1)} u/tick\n` +
       `and its hull is ${DRIVE_CONFIG.carWidth} x ${DRIVE_CONFIG.carHeight}.\n` +
       rows.join("\n") +
       `\nworst free-driving correction ${worstFree.toFixed(2)}u; worst collision correction ` +

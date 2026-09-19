@@ -13,6 +13,7 @@ import {
   WEAPON_TABLE,
   CAR_TABLE,
   DRIVE_CONFIG,
+  RAM_CONFIG,
   forwardMaxSpeedOf,
   activeCarIds,
   fireSlotsOf,
@@ -170,10 +171,10 @@ function trueTunneling(): void {
 /**
  * `hits.ts` smears the PROJECTILE across its tick but tests against the target's single post-drive
  * pose. A car crossing the line of fire at top speed moves Mirage's top speed / `TICK_RATE_HZ` per
- * tick — 8.9 u/tick since the 2026-09-06 heavy-car cut, down from the 19.2 this used to quote by
- * hand; can it end up on the far side of a shot that should have hit it? The -40..40 offset sweep
- * below is what covers a whole tick-step of crossing, so it still straddles the phase at the lower
- * speed.
+ * tick — 9.5 u/tick as of the Unity physics port's stage 5 Task 5 settled speeds (283.5 u/s / 30),
+ * down from 19.2 pre-T8-restat and 8.9 after the 2026-09-06 heavy-car cut; can it end up on the far
+ * side of a shot that should have hit it? The -40..40 offset sweep below is what covers a whole
+ * tick-step of crossing, so it still straddles the phase at the current speed.
  */
 function crossingTarget(): void {
   const rows: string[] = [];
@@ -284,12 +285,12 @@ function spinningShooter(): void {
     { id: "s", carId: "bullseye", x: 300, y: 360, angle: 0 },
     { id: "t", carId: "bastion", x: 700, y: 360, angle: 0 },
   ]);
-  w.get("s").angVel = 6; // the ram spin ceiling
+  w.get("s").angVel = RAM_CONFIG.spinMaxRate; // the ram spin ceiling
   const bit = slotBitFor("bullseye", "predator");
   let anyNaN = false;
   let maxAngle = 0;
   for (let i = 0; i < 400; i++) {
-    w.get("s").angVel = 6; // hold it spinning
+    w.get("s").angVel = RAM_CONFIG.spinMaxRate; // hold it spinning
     w.input("s", { fireSlots: bit });
     w.tick();
     const s = w.get("s");

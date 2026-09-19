@@ -12,6 +12,7 @@
  */
 import {
   ArenaState,
+  DRIVE_CONFIG,
   PlayerState,
   PlayerStatus,
   RoomPhase,
@@ -220,8 +221,12 @@ export function overlapDepth(
   return min <= 0 ? 0 : min;
 }
 
-const CAR_W = 48;
-const CAR_H = 32;
+// STALE FIXED at 48x32 until this fix: the 2026-09-16 hull resize made every car 60x40, and
+// `overlapDepth`/`project` below were still measuring the pre-resize hull, undercounting every
+// overlap this file reports by up to 12u in width and 8u in height. Derived from `DRIVE_CONFIG` now
+// so it cannot drift from the hull it describes again.
+const CAR_W = DRIVE_CONFIG.carWidth;
+const CAR_H = DRIVE_CONFIG.carHeight;
 
 function facesOf(o: { angle: number }): { x: number; y: number }[] {
   const c = Math.cos(o.angle);

@@ -79,9 +79,12 @@ async function main(): Promise<void> {
   // Alice drives straight at Bob and rams him repeatedly; Bob holds still (steer 0, throttle 0
   // every tick), so any vx/vy Bob's networked state carries is entirely the knock — the direct
   // successor of the old separate `shove` field, same reasoning the resting-victim probes in
-  // ram.ts use. `authority` has no successor in stage 1 (ram control-loss returns as the
-  // `reeling` status in stage 3b), so it is dropped here rather than replaced with a lookalike
-  // number.
+  // ram.ts use. `authority` itself is gone for good; it now has a real successor, `reeling`
+  // (total control loss under the 2026-09-18 Unity ram port — see `ram.ts`'s R5 for the detail),
+  // readable off `state.players.get(...).statuses` on the wire the same as anywhere else. Not
+  // measured here: writing that replacement is a scenario change bundled with the same call on
+  // `collision.ts`'s probe 9 and `ram.ts`'s R5 — present all three together rather than deciding
+  // one in isolation.
   console.log("\n--- ram trial: Alice charges Bob, Bob parked ---");
   let contacts = 0;
   let knocks = 0;
