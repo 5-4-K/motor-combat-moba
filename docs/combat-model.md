@@ -125,9 +125,11 @@ Ported from Unity's `RamRules.cs` (spec §7.1). For each car in a fresh contact:
   can never attack, see below).
 
 A car **qualifies as an attacker** when it may attack, its own struck region is `front` or
-`frontCorner`, and its drive-in speed is at least `RAM_CONFIG.minRamSpeed` (39 u/s). This is a real
-change of rule from every earlier model: today the attacker is whoever drives in harder, with ANY
-face. A flank-first slide into someone is now a plain bump — no ram at all.
+`frontCorner`, and its drive-in speed is at least `RAM_CONFIG.minRamSpeed` (39 u/s) — nose-first, or
+no ram at all. **This is a real change of rule, not a retune.** Every earlier model — both the
+2026-09-06 rework's `pushOf`/`impactOn` contest and the equal-and-opposite reaction before it — made
+the attacker whoever drove in harder, with ANY struck face; a flank-first slide into someone used to
+be a real, gradeable ram. Under this rule it is a plain bump — no `RamResolution` at all.
 
 The **type** follows from the victim's region and the angle between the two cars' headings
 (`RAM_CONFIG.headOnAngleDeg`, 45°): a front hit within the angle is `headOn`, a rear hit within it is
