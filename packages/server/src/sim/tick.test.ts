@@ -387,9 +387,30 @@ describe("serverTick", () => {
       // still catches a doubled residual (~0.462u) while giving the new steady state comfortable
       // room.
       //
+      // RE-PINNED again for stage 5 Task 5 (2026-09-19, fix round 1, finding 2): the settled 1.5x
+      // raise on `baseMaxSpeed`/`speedPerRating` moved the mirage/mirage residual again, to
+      // 0.396231u -- NOT a clean 1.5x of the prior 0.230962u (it would be 0.346443u; the actual
+      // growth ratio is ~1.716x). That non-uniform growth is the tell that **this residual has no
+      // closed-form expression in named `DRIVE_CONFIG`/`RAM_CONFIG` constants to fall back on** --
+      // it was checked and rejected, not assumed. What produces it is four things composing through
+      // an iterated, discrete-time loop with no algebraic fixed point: `RAM_CONFIG.contactPad` (1)
+      // inflating the hull test so contact fires before the hulls geometrically touch;
+      // `DRIVE_CONFIG.restitution` (0) making `applyContact` an idempotent velocity projection
+      // rather than a bounce, so the "wall equilibrium" `step.test.ts`'s "single-step path" case
+      // documents is a damped push-in/push-out balance, not a spring; the ramDefence-weighted
+      // `shareOf` split in `resolveWorld`, which here only ever runs on the DRIVER's side (the idle
+      // `IN_MATCH` blocker has an empty queue and is never itself stepped, so it never concedes its
+      // own half); and `stepDrive`'s drag/engine integrator, which is itself an asymptotic
+      // (non-linear) approach to `maxSpeed` rather than a constant closing speed. None of the four
+      // reduces this residual to a formula in isolation -- it is a genuinely traced, empirical fixed
+      // point of the whole loop, the same as every prior re-pin of this exact line was. Pinned to
+      // 0.6, keeping the same ~1.5x headroom ratio this bound has used at every prior retune
+      // (0.594347 rounds to 0.6): still comfortably clear of the traced value, but a doubled
+      // residual (~0.792u) still fails it.
+      //
       // This is the mirage/mirage case only -- see "converges to a residual overlap ..." below for
       // how much worse other roster pairings get, and why that matters for Task 4.
-      expect(driver.x + DRIVE_CONFIG.carWidth).toBeLessThanOrEqual(500.35);
+      expect(driver.x + DRIVE_CONFIG.carWidth).toBeLessThanOrEqual(500.6);
     });
 
     it("converges to a residual overlap that stays bounded across every roster ramDefence pairing, not just mirage/mirage", () => {
@@ -418,6 +439,14 @@ describe("serverTick", () => {
       // old accel-clamp-and-coast model did). Re-swept across all 9 pairings: the worst case is
       // still bastion driving into an idle bullseye, now ~1.336055u (was ~0.9082u). 1.8 keeps the
       // same ~1.35x headroom ratio as the old bound while still failing a doubled residual (~2.67u).
+      //
+      // RE-SWEPT for stage 5 Task 5 (2026-09-19, fix round 1): the settled 1.5x speed/turn-rate raise
+      // moved every pairing's residual again, and NOT proportionally -- the worst case is now mirage
+      // driving into an idle bullseye at ~0.660385u (was bastion-into-bullseye at ~1.336055u; that
+      // pairing is now ~0.645318u, close behind but no longer the max). 1.8 still comfortably covers
+      // it (headroom widened to ~2.7x rather than narrowing), so it is left unchanged rather than
+      // tightened -- this test's job is the roster-wide worst case, not per-pairing sensitivity,
+      // which is what the mirage/mirage-specific test above is for.
       const MAX_RESIDUAL = 1.8;
 
       for (const driverCar of CARS) {

@@ -213,20 +213,49 @@ describe("STATUS_LIMITS", () => {
     expect(STATUS_LIMITS.accel.min).toBeGreaterThan(0);
   });
 
-  it("keeps the brake pedal better than lifting off, however faded it gets", () => {
+  it("keeps every chassis's own brake better than its own coasting, at full strength", () => {
     // RE-PINNED for the Unity drive-model port (car-physics-port stage 1 Task 3): `coastPerTick`
     // is gone from `ChassisDrive` — coasting is no longer a dedicated decay knob, only the
     // always-on drag rate `dragPerTick` (U4), which is also what sets top speed and wind-up now.
     // The invariant itself is unchanged: a brake weaker than coasting would mean pressing it slows
-    // you LESS than releasing the throttle, which reads as broken rather than degraded. Checked
-    // against the WORST case across the roster — the chassis whose drag sheds the most speed per
-    // second at its own top speed, scaled down by the SLOWEST brake on the roster — so a per-car
-    // retune cannot silently invalidate it either.
-    const worstCoastDecel = Math.max(
-      ...activeCarIds().map((id) => (1 - driveOf(id).dragPerTick) * forwardMaxSpeedOf(id) * TICK_RATE_HZ),
-    );
-    const slowestBrake = Math.min(...activeCarIds().map((id) => driveOf(id).brakeDecel));
-    expect(slowestBrake * STATUS_LIMITS.brakeDecel.min).toBeGreaterThan(worstCoastDecel);
+    // you LESS than releasing the throttle, which reads as broken rather than degraded.
+    //
+    // RE-SHAPED for stage 5 Task 5's settled values (2026-09-19, owner decision on the fix-round
+    // finding). This USED to be cross-chassis on purpose — the roster's slowest `brakeDecel`
+    // (Bastion) against the roster's worst coast (Mirage, at Mirage's own raised top speed) —
+    // a pairing that never actually occurs on one car, but was kept as extra conservatism against a
+    // FUTURE status that fades `brakeDecel` down to `STATUS_LIMITS.brakeDecel.min` (0.6). The
+    // settled values' uniform 1.5x speed raise broke that cross-chassis pairing specifically
+    // (worst coast grew with top speed; `CAR_TABLE.brakeDecel` did not move with it — it is a
+    // direct per-car value, not one of the seven 0-100 ratings, and this pass's six settled values
+    // do not touch it) — brakeDecel * 0.6 no longer beats Mirage's coast for every chassis,
+    // although every chassis at FULL brake still comfortably beats its own coast.
+    //
+    // The owner was shown the trade — scale every `brakeDecel` 1.5x to match, or keep them and
+    // accept stopping distance grew with the speed raise — and chose to keep `CAR_TABLE.brakeDecel`
+    // unchanged, gathering player feedback first. So this assertion narrows to what is actually true
+    // today: EACH car's own brake beats EACH car's own coast, unfaded (no `STATUS_TABLE` row
+    // touches `brakeDecel` — see the trip-wire below), rather than the strictly stronger,
+    // now-false cross-chassis-and-faded claim. Stopping distance is longer than it was before this
+    // pass, on every chassis; that is a known, accepted consequence, not a bug this test should
+    // paper over.
+    for (const id of activeCarIds()) {
+      const d = driveOf(id);
+      const coastDecelAtOwnTop = (1 - d.dragPerTick) * forwardMaxSpeedOf(id) * TICK_RATE_HZ;
+      expect(d.brakeDecel, id).toBeGreaterThan(coastDecelAtOwnTop);
+    }
+  });
+
+  it("names no STATUS_TABLE row that fades brakeDecel — the day one exists, the faded case is back", () => {
+    // The trip-wire for the assertion above. `STATUS_LIMITS.brakeDecel` (0.6-1.5) still exists and
+    // still bounds whatever future row uses it, but nothing in the shipped game reaches it today —
+    // this is what makes narrowing the assertion above to the UNFADED case a decision about today's
+    // roster, not a permanent loosening. The moment a row below fires, the cross-chassis, faded
+    // invariant this test used to assert needs deciding again: scale `CAR_TABLE.brakeDecel` to
+    // cover it, or accept the degraded stop that status imposes.
+    for (const id of IDS) {
+      expect(Object.keys(statusDefOf(id).modifiers), id).not.toContain("brakeDecel");
+    }
   });
 
   it("covers every channel a row can name", () => {
