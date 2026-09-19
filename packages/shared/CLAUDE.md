@@ -41,10 +41,11 @@ cooldown rather than by this rule, and `phased` (spawn protection) must be exten
 while a respawned car still overlaps someone.
 
 **A status does not own its duration** — the applier does (`WeaponDef.applies`, the room's
-`statusRequests`, or — since the car-physics rework's stage 3b — `contactTick` applying `reeling` to
-a ram victim off `RAM_CONFIG.ramUncontrolMs`, already scaled by that victim's falloff), so
-`applyStatus` takes an explicit `durationTicks`. A status never stacks with itself; different
-statuses on one channel stack by multiplication.
+`statusRequests`, or `contactTick`, which applies two statuses of its own off a ram: `reeling` to
+the victim off `RAM_CONFIG.ramUncontrolMs`, scaled by that victim's falloff, and — since the
+2026-09-18 Unity ram port — `ramLock` to the attacker off `RAM_CONFIG.attackerLockMs`, unscaled,
+since falloff is ram-victim-only), so `applyStatus` takes an explicit `durationTicks`. A status
+never stacks with itself; different statuses on one channel stack by multiplication.
 
 `applyDamage` is no longer the only HP writer — **`sim/damage.ts` is.** `applyHeal` sits beside it for
 repair pulses, clamped to `hpOf` and refusing to lift a dead car off 0. Keeping the pair in one file is
@@ -66,14 +67,20 @@ fallback does.** A slam's push is assembled from the weapon's own `ImpulseDef` i
 `packages/server/src/sim/ram-bridge.ts`, beside the statuses that same slam applies (spec P30), which
 is what stage 4 of the 2026-09-06 car-physics rework moved and why `contact.ts` got smaller.
 
-**`config/slam-config.ts`'s `SLAM_CONFIG` is one knob now — `wallContactPad`, a hull inflation for
-"is this touching level geometry", not a slam property at all.** `knockSpeed`, `wallStunWindowMs`,
+**`config/impulse-config.ts`'s `IMPULSE_CONFIG` — renamed from `SLAM_CONFIG` on 2026-09-19, because
+neither member turned out to be slam-specific — is two knobs now: `wallContactPad`, a hull inflation
+for "is this touching level geometry", and `spinScale`, the slam's own spin calibration, moved here
+once a real lever arm made it live (see `ImpulseDef.spin` below).** `knockSpeed`, `wallStunWindowMs`,
 `wallStunDurationMs`, `reslamImmunityMs`, `victimAuthority`, `selfKeepFactor` and the whole
 `SLAM_TICKS` export were **deleted in stage 4**: the first four moved onto
-`WEAPON_TABLE.wildcharge.impulse` (as `speed`, `wallStun.windowMs`/`.durationMs`,
-`retriggerImmunityMs`), `victimAuthority`'s successor is that row's `uncontrolMs` — which is a real
-`reeling` application, so a slam finally imposes control loss where before it imposed none — and
-`selfKeepFactor` has no successor at all, because a slam's attacker is simply never pushed.
+`WEAPON_TABLE.wildcharge.impulse` (as `speed`, `onWallImpact.windowMs` and its `applies[].durationMs`,
+`retriggerImmunityMs`), `victimAuthority`'s successor is that row's own `applies` entry for
+`"reeling"` — its `durationMs` is a real `reeling` application, so a slam finally imposes control
+loss where before it imposed none — and `selfKeepFactor` has no successor at all, because a slam's
+attacker is simply never pushed. (`applies` itself is a 2026-09-19 restructure: the field used to be
+a bare `uncontrolMs: number` with `ram-bridge.ts` supplying the status id `"reeling"` in code — the
+one place a weapon's effect was decided outside its own row. It is now `ImpulseStatusApplication[]`,
+so a row declares which status as well as how long.)
 `RAM_CONFIG`'s five equivalents (`authorityFloor`, the two `authority` decay knobs, and the two
 `shove` ones) had already gone the same way in stage 3b; an ordinary ram's control loss **came back
 in stage 3b as the `reeling` status**, applied by `contactTick` and scaled by a per-victim

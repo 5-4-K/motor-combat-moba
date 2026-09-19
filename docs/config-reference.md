@@ -53,8 +53,8 @@ Build with `npm run build:release -- --port <n>` to bake in a different one. See
 **The bottom six rows are unreleased prototypes** (`isActive: false`), authored so their art and
 their handling can be driven in the playground before any of them is published. Every one of them is
 a placeholder STAT CLONE of a shipped chassis — Taurus, Anvil and Caprico of Bastion, Prowler and
-Cleaver of Mirage, Skorpios of Bullseye — carried across field for field including `coastHalfLifeSeconds` and
-`brakeDecel`. Nothing about those numbers is a design: a clone says "not tuned yet" out loud, where
+Cleaver of Mirage, Skorpios of Bullseye — carried across field for field including `brakeDecel`.
+Nothing about those numbers is a design: a clone says "not tuned yet" out loud, where
 inventing ratings would quietly assert a triangle nobody agreed to. Retune them one at a time, and
 give each its own `WEAPON_TABLE` rows before flipping its flag — exclusivity (L1) means a prototype
 may not borrow a shipped kit.
@@ -105,10 +105,14 @@ the flag, and what does not:
   recomputes every cell for every row in `CAR_TABLE`, inactive included), and `config.test.ts` pins
   the id list. Each of those fails loudly and names itself.
 
-`coastHalfLifeSeconds` and `brakeDecel` joined `CarDef` on 2026-09-06 (the vector-drive rework's
-heavy-car pass), as two more per-car fields that are direct values rather than 0-100 ratings — not
-in the table above for the same reason `isActive` and `weapons` are not; see the derived table below
-for their per-car values.
+`brakeDecel` joined `CarDef` on 2026-09-06 (the vector-drive rework's heavy-car pass) as a per-car
+field that is a direct value rather than a 0-100 rating — not in the table above for the same reason
+`isActive` and `weapons` are not; see the derived table below for its per-car values.
+`coastHalfLifeSeconds` joined it the same day and was **deleted by the 2026-09-18 Unity drive-model
+port**: one always-on drag rate now sets top speed, wind-up time and coast-off roll together, so
+there is no separate coast curve for a per-car half-life to describe. `brakeDecel` survives
+unchanged — braking is still a flat per-car deceleration under the drag model, layered on top of it
+rather than replaced by it.
 
 `DEFAULT_CAR_ID` is `mirage` — the chassis anyone with no valid `carId` drives, so server tick and
 client prediction must agree on it.
@@ -144,26 +148,34 @@ ratings (`ramAttack` 70, `ramDefence` 90, both the roster's highest — see [`CA
 not handling. The 2026-09-06 heavy-car pass then cut every radius by roughly 41% without moving a single
 `handling` rating (turn rate untouched): Mirage 32.6 u, Bullseye 31.4 u, Bastion 30.2 u — the same
 ordering and proportional spacing, now comfortably under one car length (48 u until the 2026-09-16
-resize to 60 u). See
+resize to 60 u). **Superseded by the 2026-09-18 Unity drive-model port and the tuning pass it
+enabled (stage 5 Task 5, 2026-09-19): `speed` and `handling` were raised by the same uniform factor
+together, which holds turn radius exactly EQUAL across the roster instead of merely close — see the
+derived table below for the current figures.** See
 [`turn-tuning.md`](turn-tuning.md#current-values) for the full derivation and history.
 
 Derived, per car (Mirage / Bullseye / Bastion):
 
+**Rewritten for the 2026-09-18 Unity drive-model port (U4): there is no `accel` acceleration, no
+`reverseSpeedRatio`, and no at-rest turn rate any more — one drag rate now sets top speed, wind-up
+and coast-off roll together, and yaw is speed-independent.** Figures below are stage 5 Task 5's
+settled tuning pass (2026-09-19), measured against built shared:
+
 | Derived | From | Mirage | Bullseye | Bastion |
 |---|---|---|---|---|
 | `hpOf` | hp × `COMBAT_CONFIG.hpPerRating` | 700 | 650 | 900 |
-| `forwardMaxSpeedOf` | `baseMaxSpeed` + speed × `speedPerRating` | 189.03 u/s | 158.67 u/s | 135.9 u/s |
-| `reverseMaxSpeedOf` | forward × `reverseSpeedRatio` | 122.9 | 103.1 | 88.3 |
-| `accelOf` | `baseAccel` + accel × `accelPerRating` | 179 | 123 | 88 |
-| `reverseAccelOf` | `accelOf` × `reverseAccelFactor` | 107.4 | 73.8 | 52.8 |
-| `turnRateOf` | `baseTurnRate` + handling × `turnRatePerRating` | 8.19 | 7.11 | 6.3 |
-| `turnRateAtStopOf` | `turnRateOf` × `stopTurnRatio` | 4.095 | 3.555 | 3.15 |
-| **turn radius** | `forwardMaxSpeedOf / turnRateOf` — derived, never typed | **23.1 u** | 22.3 u | 21.6 u |
-| time to top | `forwardMaxSpeedOf / accelOf` | 1.49 s | 1.81 s | 2.16 s |
+| `forwardMaxSpeedOf` | `baseMaxSpeed` + speed × `speedPerRating` — the rating-authored ceiling | 283.5 u/s | 238.0 u/s | 203.9 u/s |
+| `dragRateOf` | `baseDrag` + accel × `dragPerRating`, 1/s — sets wind-up AND roll together (U4) | 1.2848 | 1.0416 | 0.8896 |
+| `engineAccelOf` | `forwardMaxSpeedOf × dragRateOf`, u/s² — DERIVED so the two balance exactly at `forwardMaxSpeedOf` | 364.3 | 247.9 | 181.3 |
+| reverse top speed | `forwardMaxSpeedOf × reverseAccelFactor` (0.6) — emergent, no longer a stored field | 170.1 u/s | 142.8 u/s | 122.3 u/s |
+| `turnRateOf` | `baseTurnRate` + handling × `turnRatePerRating`, speed-independent — no separate at-rest rate | 3.1552 | 2.6482 | 2.2680 |
+| **turn radius** | `forwardMaxSpeedOf / turnRateOf` — derived, never typed | **89.9 u** | 89.9 u | 89.9 u |
+| time to 90% top speed | `Math.log(10) / dragRateOf` — asymptotic; the car never truly arrives | 1.79 s | 2.21 s | 2.59 s |
+| coast-off roll | measured, full throttle to rest off the top-speed steady state | 221 u | 228 u | 229 u |
+| slip at full lock | `atan(turnRate / (dragRate + lateralGripRate))`, discrete steady-state figure | 36.4° | 33.2° | 30.2° |
 | `ramAttackOf` | `CarDef.ramAttack`, the raw 0-100 rating — no scale | 55 | 45 | 70 |
 | `ramDefenceOf` | `CarDef.ramDefence`, the raw 0-100 rating — no scale | 50 | 30 | 90 |
 | attack scale | `damageFor` at that rating | 1.13× | 1.05× | 0.92× |
-| `coastHalfLifeSecondsOf` | `CarDef.coastHalfLifeSeconds`, direct — not derived from a rating | 1.2 s | 1.0 s | 1.5 s |
 | `brakeDecelOf` | `CarDef.brakeDecel`, direct — not derived from a rating | 500 u/s² | 520 u/s² | 430 u/s² |
 
 `weaponDamageOf(carId, weaponId)` = `damageFor(attack, weapon.damage)` — a 50-damage hit like
@@ -174,16 +186,20 @@ constant, unlike `hp`. They replaced a single `mass` rating (and its `massOf` sc
 one number could not say "hits hard but is easy to shove", and could not be tuned on either half
 without moving the other.
 
-Time to top speed no longer lands at the same figure for all three, unlike before the 2026-09-02
-rewrite: `speed` moved independently of `accel` this time (only `handling` was set to match `speed`),
-so the roster's accel ordering and its (now-boosted) speed ordering no longer produce equal ratios.
-Mirage reaches top speed fastest despite having the furthest to go, because its accel lead is larger
-than its speed lead; Bastion is slowest to spool up as well as slowest at the top.
+**Turn radius holds EXACTLY equal across the roster today, which is new.** Every earlier tuning pass
+(2026-09-02 through 2026-09-16) left the three chassis with close-but-different radii, because speed
+and handling were never scaled by the exact same factor twice in a row. Stage 5 Task 5's pass raised
+`baseMaxSpeed`/`speedPerRating` and `baseTurnRate`/`turnRatePerRating` by the identical 1.5x, so
+`forwardMaxSpeedOf / turnRateOf` cancels to the same 89.9 u for all three — this pass changed the
+ceiling and how fast a car gets there, not how tightly it corners. One tradeoff was flagged to the
+user and deliberately left as-is: `DRIVE_CONFIG.lateralGripRate` did not scale with turn rate, so
+slip angle at full lock rose with it (Mirage roughly 26° before this pass, 36.4° after) — see
+`DRIVE_CONFIG.lateralGripRate`'s own doc comment for the full note.
 
-`driveOf(id)` bundles eight of these — `maxSpeed`, `reverseMaxSpeed`, `accel`, `reverseAccel`,
-`turnRate`, `turnRateAtStop`, and, since the 2026-09-06 vector-drive rework, `coastPerTick`
-(resolved from `coastHalfLifeSeconds`) and `brakeDecel` — into one frozen `ChassisDrive`, and **that,
-not a `CarId`, is what `stepDrive` takes**. See [`DRIVE_CONFIG`](#drive_config).
+`driveOf(id)` bundles **nine** of these — `maxSpeed`, `engineAccel`, `reverseAccel`, `brakeDecel`,
+`turnRate`, `dragRate`, `dragPerTick`, `gripPerTick` and `spinPerTick` — into one frozen
+`ChassisDrive`, and **that, not a `CarId`, is what `stepDrive` takes**. See
+[`DRIVE_CONFIG`](#drive_config).
 
 `weapons` is an ordered list of `WEAPON_TABLE` ids — index 0 is slot 1, and order *is* the slot
 mapping. `slotsOf(carId)` (`config/weapon-slots.ts`) is what actually reads it, capped at
@@ -444,41 +460,48 @@ is no knob for that because there is no assist to size. `WeaponDef.usesAimAssist
 
 ## DRIVE_CONFIG
 
+**Rewritten for the 2026-09-18 Unity drive-model port (spec §4) — a real replacement of the model,
+not a retune.** `steeringGrip`, `impactGripDecel`, `stopTurnRatio`, `baseAccel`, `accelPerRating`,
+`reverseSpeedRatio` and `reverseHoldTicks` are all **deleted**; the model this table describes is
+"one drag rate sets top speed, wind-up and roll together, and yaw is speed-independent" (U4/U7/U9),
+not "steering welds velocity to the nose and a separate accel constant pushes toward a capped speed".
+Current values, after stage 5 Task 5's settled tuning pass (2026-09-19):
+
 | Knob | Value |
 |---|---|
-| `baseMaxSpeed` | 60 (was 80 — see the 2026-09-16 cut below) |
-| `speedPerRating` | 1.518 (was 2.2 — cut alongside `baseMaxSpeed`) |
-| `steeringGrip` | 1.0 (how completely velocity tracks heading while steering; 1 = "on rails") |
-| `impactGripDecel` | 250 (u/s² — how fast ram-imposed sideways velocity bleeds off; unrelated to steering) |
-| `baseTurnRate` | 3.6 (was 2.4 — see the 1.5x raise below) |
-| `turnRatePerRating` | 0.054 (was 0.036 — scaled with `baseTurnRate`) |
-| `stopTurnRatio` | 0.5 (steering at rest, as a fraction of the moving rate) |
-| `baseAccel` | 60 (was 420 — see the 2026-09-06 heavy-car pass below) |
-| `accelPerRating` | 1.4 (was 7.2 — cut much further than `baseAccel`, alongside it) |
-| `reverseSpeedRatio` | 0.65 |
+| `baseMaxSpeed` | 90 (uniform 1.5x from 60, together with `speedPerRating` — see the history below) |
+| `speedPerRating` | 2.277 (uniform 1.5x from 1.518, alongside `baseMaxSpeed`) |
+| `baseTurnRate` | 1.0005 (uniform 1.5x from 0.667 — the same pass, same factor, as `baseMaxSpeed`) |
+| `turnRatePerRating` | 0.02535 (uniform 1.5x from 0.0169, alongside `baseTurnRate`) |
 | `reverseAccelFactor` | 0.6 (reverse push as a fraction of forward; under 1, see below) |
-| `reverseHoldTicks` | 2 (66ms at `TICK_RATE_HZ` 30) |
-| `stopEpsilon` | 1e-3 (below this \|speed\| the car counts as stopped) |
+| `stopEpsilon` | 1e-3 (below this \|speed\| the car counts as stopped — yaw's own at-rest branch is gone with `turnRateAtStopOf`, so this epsilon's only remaining job is the rest/creep snap) |
 | `carWidth` | 60 |
 | `carHeight` | 40 |
-| `restitution` | 0.15 (was 0.35 — cut on 2026-09-06, stage 2 of the car-physics rework, so walls and other cars deflect rather than nearly stopping the car dead. See [`combat-model.md`](combat-model.md#ramming)) |
+| `dashSubstepMaxUnits` | 16 (max world units a dash may translate between collision checks — unrelated to the rest of this table; see its own doc comment) |
+| `restitution` | 0 (was 0.15 from 2026-09-06, 0.35 before that — the Unity port's stage 2 drops it to 0: nothing in this game bounces any more. See [`combat-model.md`](combat-model.md#ramming)) |
+| `baseDrag` | 0.768 (1/s at `accel` rating 0 — Unity's `DriveConfig.linearDrag`. THIS ONE NUMBER sets top speed, wind-up time AND roll distance together, U4) |
+| `dragPerRating` | 0.00608 (added drag per point of `accel` rating, 1/s) |
+| `lateralGripRate` | 3.0 (1/s — how fast sideways velocity bleeds off; global, not per-car, U10. Did NOT scale with the turn-rate raise above — see its own doc comment for the slip-angle consequence) |
+| `reverseEpsilon` | 6.0 (u/s — forward speed below which Down reverses instead of braking; also the threshold the steering-flip predicate reads) |
+| `flipSteeringInReverse` | `false` (Unity's own steering-inversion-while-reversing behaviour; OFF deliberately for this tuning pass — see its own doc comment for why the predicate chatters at these turn rates and what would need to change before flipping it on) |
 
-**The four flat constants `accel`, `reverseAccel`, `turnRate` and `turnRateAtStop` are gone**, split
-on 2026-08-30 into the six base/per-rating knobs above so `accel` and `handling` could be per-chassis
-ratings. Nothing reads a global turn rate or a global engine push any more; the four resolvers do:
+Nothing reads a global turn rate or a global engine push any more; the model resolves per car through:
 
 | Resolver | Formula |
 |---|---|
-| `turnRateOf(id)` | `baseTurnRate + handling × turnRatePerRating` |
-| `turnRateAtStopOf(id)` | `turnRateOf(id) × stopTurnRatio` |
-| `accelOf(id)` | `baseAccel + accel × accelPerRating` |
-| `reverseAccelOf(id)` | `accelOf(id) × reverseAccelFactor` |
+| `turnRateOf(id)` | `baseTurnRate + handling × turnRatePerRating` — speed-independent, no at-rest variant |
+| `dragRateOf(id)` | `baseDrag + accel × dragPerRating`, 1/s |
+| `engineAccelOf(id)` | `forwardMaxSpeedOf(id) × dragRateOf(id)`, u/s² — DERIVED so the two balance exactly at the car's own top speed; nothing is authored independently of the other two |
+| `reverseAccelOf(id)` | `engineAccelOf(id) × reverseAccelFactor` |
+| `brakeDecelOf(id)` | `CarDef.brakeDecel`, direct |
 
-**Both forward scales are anchored so rating 50 lands on one stated global constant** — `turnRateOf`
-at 50 is 6.3. `accelOf` at 50 was 780 until 2026-09-06 (see below); it is 130 today. The roster moves
-around a fixed pivot rather than drifting off one, so "rating 50 is average" stays a reading aid
-rather than a slogan. `config.test.ts` pins both anchors, so a scale edit cannot silently move a
-pivot. `stopTurnRatio: 0.5` puts steering at rest at 3.15 / 6.3.
+**The turn-rate pivot is still anchored, the drag pivot is not.** `turnRateOf` at rating 50 is 2.268
+(`baseTurnRate` + 50 × `turnRatePerRating`) — the same anchoring shape the pre-port model used, so
+"rating 50 is average" stays a reading aid rather than a slogan; `config.test.ts` pins it, so a scale
+edit cannot silently move the pivot. There is no equivalent pivot for `dragRateOf`: unlike the old
+`accelOf`, a chassis's drag rate has no single global constant it is measured against — it is read
+only through `engineAccelOf`, which already carries the per-car `forwardMaxSpeedOf` term, so a bare
+rating-50 drag figure would not mean anything on its own the way a rating-50 turn rate does.
 
 **The turn pivot was 4.2 — the game's original single global turn rate — until 2026-08-31**, when
 `baseTurnRate` and `turnRatePerRating` were multiplied by 1.5 **together**: driving, and therefore
@@ -505,18 +528,17 @@ launch times moved unevenly across the roster rather than uniformly; `RAM_REFERE
 with mirage's new top speed.
 
 **Cut hard on 2026-09-06, stage 1 of the vector-drive rework's heavy-car pass**: `baseMaxSpeed` 135
--> 80 and `speedPerRating` 3.7 -> 2.2 — roughly a 40% roster-wide top-speed cut — and, separately,
-`baseAccel` 420 -> 60 and `accelPerRating` 7.2 -> 1.4, a much deeper cut that stretches time-to-top-
-speed roughly 3-4x roster-wide (see [`CAR_TABLE`](#car_table) for the per-car figures). Turn rate was
-**deliberately left untouched** by this pass, so the speed cut alone drops every chassis's turn
-radius to comfortably under one car length (48 u until the 2026-09-16 resize to 60 u) while preserving the 2026-09-02 ordering and
-proportional spacing. `accelOf` at rating 50 dropped from 780 to 130 — with `baseAccel` shrunk
-relative to the per-rating term, a car's `accel` rating now does most of the work of deciding its
-time-to-top-speed. `RAM_REFERENCE` dropped to 133500 with mirage's new lower top speed (267) — that
-constant, and the three `RAM_REFERENCE` figures in the two paragraphs above, are **historical**:
-stage 3 of the same rework deleted `RAM_REFERENCE` outright along with `mass`, so nothing derives
-from the roster's top speed on the ram side any more. This pass also moved `coastHalfLifeSeconds` and
-`brakeDecel` off this table entirely, onto `CarDef` — see below.
+-> 80 and `speedPerRating` 3.7 -> 2.2 — roughly a 40% roster-wide top-speed cut — and, separately, the
+now-deleted `baseAccel`/`accelPerRating` pair (420/7.2 -> 60/1.4, a much deeper cut) stretched
+time-to-top-speed roughly 3-4x roster-wide. Turn rate was **deliberately left untouched** by this
+pass, so the speed cut alone drops every chassis's turn radius to comfortably under one car length
+(48 u until the 2026-09-16 resize to 60 u) while preserving the 2026-09-02 ordering and proportional
+spacing. `RAM_REFERENCE` dropped to 133500 with mirage's new lower top speed (267) — that constant,
+and the three `RAM_REFERENCE` figures in the two paragraphs above, are **historical**: stage 3 of the
+same rework deleted `RAM_REFERENCE` outright along with `mass`, so nothing derives from the roster's
+top speed on the ram side any more. This pass also moved `coastHalfLifeSeconds` (itself since deleted
+by the Unity drive-model port — see above) and `brakeDecel` off this table entirely, onto `CarDef` —
+see [`CAR_TABLE`](#car_table).
 
 **Cut again on 2026-09-16**: `baseMaxSpeed` 80 -> 60 and `speedPerRating` 2.2 -> 1.518, taking the
 roster to Mirage 189.03 / Bullseye 158.67 / Bastion 135.9 u/s — a further ~29% off every top speed.
@@ -535,156 +557,142 @@ Three things about this pass are worth reading before tuning against it:
   [`turn-tuning.md`](turn-tuning.md#current-values).
 
 `reverseAccelFactor: 0.6` says a car pulls away harder in its forward gear than in reverse. **It was
-1.41 until 2026-09-07**, which said the opposite, and that was a surviving artefact rather than a
-choice: it yielded 1099.8 at rating 50 against the 1100 that shipped, back when `accelOf(50)` was
-780 — a 0.02% rounding of the exact `1100/780`. Under those numbers a car reached both caps well
-inside any horizon anyone cared about (forward 0.44-0.57 s roster-wide), so the reverse *cap*
-(`reverseSpeedRatio` 0.65) was what a driver felt and the accel factor exceeding 1 never surfaced.
+1.41 until 2026-09-07**, which said the opposite, and that was a surviving artefact of the old
+`accelOf`/`reverseSpeedRatio` pair rather than a choice — a car reached both caps well inside any
+horizon anyone cared about back then, so the reverse cap was what a driver felt and the accel factor
+exceeding 1 never surfaced. The 2026-09-06 heavy-car pass removed that cover: time to the forward cap
+stretched past what most things sampling the drive model look ahead, so cars started spending the
+observed part of a manoeuvre in the acceleration-limited regime, where this factor governs — and at
+1.41 every chassis covered 1.29x more ground reversing than driving forward over a 22-tick plan
+(Bullseye 44.5 u against 34.6, Mirage 64.7 against 50.3, Bastion 31.8 against 24.7). That measurably
+steered the bot, whose planner scores candidates on where they end up: `throttle: -1` beat
+`throttle: 1` on every chassis unconditionally. The fix was any value under 1, and 0.6 was that fix.
 
-The 2026-09-06 cut above moved `accelOf(50)` to 130 without touching the factor, and that removed the
-cover: time to the forward cap went to 1.49-2.16 s, longer than most things that sample the drive
-model look ahead, so cars now spend the observed part of a manoeuvre in the **acceleration-limited**
-regime rather than the speed-limited one. In that regime this factor, not `reverseSpeedRatio`, is
-what governs — and at 1.41 every chassis covered 1.29x more ground reversing than driving forward
-over a 22-tick plan (Bullseye 44.5 u against 34.6, Mirage 64.7 against 50.3, Bastion 31.8 against
-24.7). That is backwards as a statement about a car, and it was measurably steering the bot, whose
-planner scores candidates on where they end up: `throttle: -1` beat `throttle: 1` on every chassis
-unconditionally. 0.6 is chosen against `reverseSpeedRatio` 0.65 rather than derived — reverse is the
-weaker gear in both terms now, slightly weaker in push than in top speed. Nothing anchors it to a
-measured target; the ordering is what was wrong, and any value below 1 fixes the ordering.
+**`reverseSpeedRatio`, the knob this factor used to be reasoned against, no longer exists.** The
+2026-09-18 Unity drive-model port made reverse top speed emergent (`forwardMaxSpeedOf × 
+reverseAccelFactor`, not a separately-capped ratio) and ported this factor to Unity's own value,
+0.4 — which kept the one property that actually mattered, reverse push under forward push, so the bot
+ordering bug above stays fixed regardless of the exact figure. Stage 5 Task 5 (2026-09-19) raised it
+back to 0.6 from the user's own hands-on playground pass: 0.4 read as too weak in reverse once driven
+by hand. This is NOT a `baseMaxSpeed`/`speedPerRating`-style uniform pair-scale — it stands alone —
+and it compounds with that same pass's 1.5x speed raise: reverse top speed is now 2.25x what it was
+two passes ago (Mirage 75.6 -> 170.1 u/s), which the user was shown and kept rather than correcting,
+pending player feedback.
 
-`driveOf(id)` resolves eight of these into a frozen `ChassisDrive` (`maxSpeed`, `reverseMaxSpeed`,
-`accel`, `reverseAccel`, `turnRate`, `turnRateAtStop`, and, since the 2026-09-06 pass, `coastPerTick`
-and `brakeDecel`), and `CHASSIS_DRIVE` freezes one per car at module load so the lookup never
-allocates. **`stepDrive` takes that `ChassisDrive`, not a `CarId`** — `stepSim` resolves it at the
+`driveOf(id)` resolves **nine** of these into a frozen `ChassisDrive` (`maxSpeed`, `engineAccel`,
+`reverseAccel`, `brakeDecel`, `turnRate`, `dragRate`, `dragPerTick`, `gripPerTick`, `spinPerTick`),
+and `CHASSIS_DRIVE` freezes one per car at module load so the lookup never allocates.
+**`stepDrive` takes that `ChassisDrive`, not a `CarId`** — `stepSim` resolves it at the
 single production call site; every other caller in the repo is a test. That is deliberate:
-`golden.test.ts` freezes drive numbers to nine decimal places and forbids editing any expectation in
-it, a rule that is only safe while the drive constants cannot legitimately move. Per-car `accel`
-moves them. With the chassis passed in, that suite and `drive.test.ts` pin the *equation* against a
-frozen fixture and survive every future balance edit untouched. This strengthens invariant 2 rather
-than bending it: balance still lives in shared config, and the sim now receives it instead of
-reaching into the roster table for it.
+`golden.test.ts` and `drive.test.ts` pin the drive *equation* against a frozen fixture and survive
+every future balance edit untouched. This strengthens invariant 2 rather than bending it: balance
+still lives in shared config, and the sim now receives it instead of reaching into the roster table
+for it.
 
 Per-car top speeds, radii and launch times are tabulated under [`CAR_TABLE`](#car_table).
 
 **These knobs are coupled, and every coupling is now per-car.** Turn radius is
-`forwardMaxSpeedOf(id) / turnRateOf(id)` and time-to-top-speed is
-`forwardMaxSpeedOf(id) / accelOf(id)`, so raising a chassis's `speed` rating without raising its
-`handling` and `accel` to match makes that car feel *less* agile despite the higher ceiling — reason
-per chassis, not for "the fastest car". Each chassis's `CarDef.brakeDecel` must exceed its own
-coasting (`coastHalfLifeSeconds`, resolved to `coastPerTick`), measured at that car's own top speed
-where proportional coast-off is strongest, or the brake button is pointless — the old global
-`DRIVE_CONFIG.brakeDecel`/`drag` pair this replaced no longer exists. `CAMERA_CONFIG.freeRoamSpeed`
-(340) must exceed the fastest car (189.03 as of the 2026-09-16 cut, so the margin is now 1.8x rather
-than the 1.27x it was authored at) — both couplings are asserted in `config.test.ts`.
+`forwardMaxSpeedOf(id) / turnRateOf(id)`, and time-to-top-speed is asymptotic under the drag model —
+a car never truly arrives, only decays toward `engineAccelOf(id) / dragRateOf(id)` (==
+`forwardMaxSpeedOf(id)`), so the number worth reasoning about is `Math.log(10) / dragRateOf(id)`,
+seconds to 90% of the ceiling. Raising a chassis's `speed` rating alone (without raising `handling` to
+match) makes that car feel *less* agile despite the higher ceiling; raising `speed` alone (without
+raising `accel` to match) stretches wind-up time, and that car feels sluggish off the line despite the
+higher ceiling — reason per chassis, not for "the fastest car". Each chassis's `CarDef.brakeDecel`
+must exceed its own coasting, measured where proportional drag is strongest — at that chassis's own
+top speed — or the brake button is pointless; `config.test.ts` enforces the ordering per car.
+`CAMERA_CONFIG.freeRoamSpeed` (340) must exceed the fastest car — 283.5 as of stage 5 Task 5's raise,
+so the margin has narrowed to 1.2x — this coupling is asserted in `config.test.ts`, so raising
+`baseMaxSpeed`/`speedPerRating` further fails the suite rather than shipping a spectator who cannot
+outrun the fight.
 `baseMaxSpeed` and `speedPerRating` scale together on purpose: their ratio decides how much the
 per-car `speed` rating matters, so moving only one re-balances the roster. `baseTurnRate`/
-`turnRatePerRating` and `baseAccel`/`accelPerRating` pair the same way.
+`turnRatePerRating` and `baseDrag`/`dragPerRating` pair the same way.
 
 ## RAM_CONFIG
 
-Ram control-and-knockback tuning — the values `packages/shared/src/sim/ram.ts` and `stepDrive` read
-to turn a car-vs-car contact into a spin and a shove. Networked balance, not
-render preference: server tick and client prediction both depend on the two computing the same
-numbers. See [`combat-model.md`](combat-model.md#ramming) for the mechanic.
-
-**The five `authority`/`shove` knobs this section used to list as INERT are gone.**
-`authorityFloor`, `shoveHalfLifeSeconds`, `authorityHalfLifeSeconds`, `shoveEpsilon` and
-`authorityEpsilon` stopped reading anything at the 2026-09-06 vector-drive rework — `PlayerState`
-lost its `authority` field and `ram-bridge.ts` dropped `knock.authority` on the floor — and stage 3b
-of the car-physics rework deleted all five, along with `RamDecay`'s `shove` and `authority` channels.
-The steering penalty they described is back as the **`reeling`** status: severity is
-[`STATUS_TABLE.reeling`](#status_table)'s `turnRate`/`accel` multipliers, duration is
-`ramUncontrolMs` below. Lateral knock now bleeds off through the flat-rate
-`DRIVE_CONFIG.impactGripDecel` rather than a half-life of its own. `spinHalfLifeSeconds` and
-`counterSteerHalfLifeSeconds` were never part of that group and are still live.
+**Rewritten for the 2026-09-18 Unity ram port (spec §7) — a one-way rule, not a contest, and a third
+model in this file's history.** `packages/shared/src/sim/ram.ts` reads this table to classify a
+contact and compute a shove; `packages/server/src/sim/ram-bridge.ts` writes the result. See
+[`combat-model.md`](combat-model.md#ramming) for the mechanic. This replaces revision 2's two-sided
+contest (`pushOf`/`impactOn`, `defencePushScale`, the three `bonus*` face weights, `knockMaxSpeed`)
+outright, not by retuning it — the Unity model has no contest to retune: the attacker's outcome is a
+rule ("you stop"), not a computed push. It also replaces an even earlier, already-deleted layer: the
+five `authority`/`shove` knobs (`authorityFloor`, `authorityHalfLifeSeconds`, `authorityEpsilon`,
+`shoveHalfLifeSeconds`, `shoveEpsilon`) that the 2026-09-06 car-physics rework's stage 3b deleted,
+along with `RamDecay`'s `shove`/`authority` channels, once `reeling` and the (now also deleted)
+`DRIVE_CONFIG.impactGripDecel` took over their jobs.
 
 | Knob | Value | Notes |
 |---|---|---|
 | `contactPad` | 1 | World units each hull is inflated by for the contact test — `resolveWorld` leaves cars exactly touching, and a strict overlap test would never fire on a real ram |
-| `minApproachSpeed` | 0 | Combined drive-in below which no ram fires. **Ships INACTIVE** (spec R9): at 0, a gentle bump is simply a ram with a low drive-in and the linear contest makes it come out small on its own. The old 60 was authored against a 449.5 u/s roster and means something different against 267, so stage 3 zeroed it rather than carrying it across |
-| `defencePushScale` | 35 | How much a STATIONARY car resists, as a multiplier on its `ramDefence` when building its push (spec R2). **The first knob to reach for when contact feels wrong**: low and parked cars are nearly free hits, high and everything feels like hitting a wall. It is also what makes T-boning a parked Bastion cost the attacker ~8× what T-boning a parked Bullseye does (0.675 vs 0.084 u/s) — nobody authored that ratio, it falls out of the contest |
-| `globalScale` | 0.4 | Converts a contest result into a Δv (spec R5). **Measured, not derived**, through the composed `serverTick` → `contactTick` order across 24 sub-tick phases — see the doc comment in `ram-config.ts` for the full table. At 0.4 a full-speed Bastion flank ram throws a parked Bullseye 206.2 u/s (92% of its own top speed) and costs the Bastion 0.1 u/s; the roster maximum any ram writes is 268.0 u/s |
-| `bonusFront` / `bonusFlank` / `bonusRear` | 0.3 / 1.0 / 1.3 | Multiplies the impact by the struck face — **your own** face, not the other car's (spec R6), which is what makes a head-on far gentler than a T-bone at the same closing speed. The most important balance lever in the feature |
-| `knockMaxSpeed` **[INERT]** | 260 | Was the peak shove at severity 1.0, before a victim mass factor. Reads nothing since stage 3 replaced the severity grade with the contest. Kept only because `ram-config.test.ts` pins it and it is not on the interfaces ledger's deletion list; its doc comment carries the historical measurement of the 5× recoil error stage 3 exists to fix |
-| `spinScale` | 12.5 | Calibration multiplier on the torque-derived spin rate. **Re-pitched 100 → 10 by measurement in stage 3** (spec P25b), because `nextSpin`'s inertia denominator became `ramDefence` (30-90) instead of `mass` (300-900) while the impulse feeding the torque shrank — two changes pulling opposite ways, so neither ratio predicts the answer. **Moved 10 → 12.5 on 2026-09-16** by derivation, not measurement: the hull resize to 60×40 grew the maximum lever arm 1.25x and `inertiaCoefficient` 1.5625x, so 12.5 holds every ram's spin exactly where it was. |
-| `spinMaxRate` | 6.0 | rad/s ceiling on injected spin. Deliberately unchanged by that re-pitch: it is the target `spinScale` was solved against. The hardest ram the roster can produce measures 5.95 rad/s — 99% of the ceiling without clipping. It still binds because `nextSpin` ACCUMULATES onto existing `angVel`, so a car rammed twice goes over |
-| `inertiaCoefficient` | 433.33 **[D]** | `(DRIVE_CONFIG.carWidth² + carHeight²) / 12` — derived from the hull, never typed, so it cannot drift out of step with `carHullOf` |
-| `spinHalfLifeSeconds` | 0.35 | |
-| `counterSteerHalfLifeSeconds` | 0.15 | Spin decay while the player steers against it — shorter than `spinHalfLifeSeconds` on purpose, so countersteering shortens recovery instead of only offsetting it |
+| `minRamSpeed` | 39 | Minimum drive-in speed, u/s, for a car to QUALIFY as an attacker at all (spec §7.1, U24) — a real change of rule, not a threshold on an existing one: below it, a flank-first slide into someone is a plain bump, no `RamResolution` at all. Unity's 3 m/s, ported at this project's world scale |
+| `headOnAngleDeg` | 45 | Half-angle between two cars' headings within which a front-on-front hit classifies as `headOn` rather than `flank` (spec §7.1). Unity's own value, ported unchanged |
+| `cornerBandUnits` | 4 | Width of the corner band where a hit classifies as `frontCorner`/`rearCorner` instead of a plain face (spec §7.1, U23). Unity's 0.3 m, ported at this project's world scale |
+| `headOnScale` / `flankScale` / `rearScale` | 0.2 / 1.5 / 1.2 | The three `RamType` shove multipliers (spec §7.2). Unity's own values, ported unchanged — flank is the roster's hardest hit, rear next, head-on gentlest: getting behind someone pays, and ramming head-on is deliberately not the play |
+| `globalScale` | 0.6 | The single calibration knob reconciling Unity's 1-vs-1 `strength`/`resistance` scale with this roster's `ramAttack`/`ramDefence` (45-70 and 30-90) (spec §7.2, U25). **Re-measured in stage 5 Task 5 (2026-09-19), raised 0.5 → 0.6** from the user's own hands-on playground pass — 0.5 read as too soft once ramming was actually played. Not hashed by `balanceStamp` (this is the one config root the players' guide does not cover), so this move owed no `build:manual` |
+| `spinScale` | 0.3 | Calibration multiplier on the spin a shove imparts (the `spinDelta` formula in [`combat-model.md`](combat-model.md#ramming)). Pitched, not derived: a typical flank ram lands around 4 rad/s against the 6 rad/s `spinMaxRate` ceiling — comfortably under it, unlike the deleted `inertiaCoefficient`-era value (12.5), calibrated for a very different torque shape. **Re-measure again if `globalScale` moves; do not re-derive** |
+| `spinMaxRate` | 6.0 | rad/s ceiling on injected spin. Unity applies no such clamp at its own scale; here it stays a playability guard, not a physical limit. `docs/turn-tuning.md` tabulates it |
 | `spinEpsilon` | 0.01 | Below this magnitude a knock snaps to exact rest, as `stopEpsilon` does for the drive model |
-| `ramUncontrolMs` | 1000 | Full-strength `reeling` duration from a ram, before falloff — the "how long am I helpless" half of ram control loss, with `STATUS_TABLE.reeling`'s `turnRate`/`accel` (0.4/0.4) as the "how helpless" half. Weapons do not read it: since stage 4 `wildcharge` carries its own duration on its `ImpulseDef` (1400 ms) |
+| `reelingSpinDecayRate` | 2.0 | Per-second decay rate for a reeling car's free spin, converted through `perTickDecay` (the same exponential-rate shape the drive model uses for `dragRate`/`lateralGripRate`) rather than the half-life shape the deleted `spinHalfLifeSeconds` used. Unity's `EffectsConfig.reelingSpinDecayRate`, ported unchanged |
+| `attackerLockMs` | 500 | How long a ram's attacker is locked (`ramLock`) after landing a flank or rear hit — shorter than `ramUncontrolMs` on purpose: the attacker chose to stop, the victim did not, and a lock as long as the victim's own reel would let a chain of attackers each get away before their target recovers. Unity's own value, ported unchanged |
+| `ramUncontrolMs` | 1000 | Full-strength `reeling` duration from a ram, before falloff. Weapons author their own — since stage 4, `wildcharge` carries its own duration on its `ImpulseDef` (1400 ms) rather than reading this |
 | `drWindowMs` | 2000 | How long "recently rammed" lasts, per victim. **Rolling**: each ram pushes the window out from itself, so protection never lapses under sustained pressure. Measured from the FIRST ram instead, an attacker who counts to one second could land full-strength rams forever — the exact lock the falloff exists to prevent |
-| `durationDrScale` | 0.5 | Each successive ram's `reeling` duration, as a fraction of the last. 1.0 disables duration falloff |
+| `durationDrScale` | 0.5 | Each successive ram's `reeling` duration, as a fraction of the last. 1.0 disables duration falloff. **Does less than it reads**: `reeling` is `reapply: "ignore"`, so a re-ram landing while a reel is STILL RUNNING has its scaled duration discarded outright rather than merely failing to extend the window — this knob only bites on a ram landing after the previous reel has already lapsed but while the falloff stack is still counting |
 | `durationDrFloorMs` | 150 | Duration never falls below this, so a late ram in a chain still reads as a hit rather than a whiff |
-| `impulseDrScale` | 0.5 | Each successive ram's impulse, as a fraction of the last. 1.0 disables impulse falloff |
-| `impulseDrFloor` | 0.25 | Impulse never falls below this fraction of full |
+| `impulseDrScale` | 0.5 | Each successive ram's shove and spin, as a fraction of the last. 1.0 disables impulse falloff |
+| `impulseDrFloor` | 0.25 | Shove and spin never fall below this fraction of full |
 
-**`spinScale` is a calibration multiplier and has never been 1.0**, whatever an early draft of the
-design spec's Numbers table said: at 1.0 the spin channel is structurally inert against the 6.0
-`spinMaxRate` ceiling and the 0.01 rad/s rest threshold. It was 100 while `nextSpin` divided by
-`mass`; it was 10 once it divided by `ramDefence`, and 12.5 since the 2026-09-16 hull resize.
-Measured victim spin by lever arm (the offset of the hit from the victim's centre, clamped at the
-hull half-length): an ordinary Mirage-on-Mirage flank ram spans 0.34 rad/s at 5 u to 2.06 at the
-clamp, and the hardest ram in the game — Bastion flanking a Bullseye at the clamp — reaches 5.95.
-Those figures were measured at `spinScale` 10 against the 48 × 32 hull (levers 4 u to the 24 u
-clamp); at 60 × 40 they hold unchanged at `spinScale` 12.5 with the 5 u / 30 u levers quoted here, by
-construction (1.25x lever over 1.5625x inertia). They also predate the 2026-09-16 top-speed cut:
-after it, the hardest ram measures **4.4975 rad/s** (`ram-config.test.ts` pins it).
+**`spinScale`'s value dropped by more than 40x across the port, and that is not a nerf — the formula
+it multiplies changed shape.** It was 100 while `nextSpin` divided by `mass`, 10 once it divided by
+`ramDefence`, and 12.5 after the 2026-09-16 hull resize (all now-deleted eras). The Unity ram port
+gave the SLAM path its own copy of that shipped 12.5 value, moved to `IMPULSE_CONFIG.spinScale` (see
+below) so it stays bit-identical for `wildcharge`, and re-pitched this knob to 0.3 for the ram's new
+formula alone — a ram's spin now divides by `inertiaRadiusSquared()` alone, while a slam's still
+divides by `ramDefence × inertiaRadiusSquared`, a denominator 30-90x larger, so the two constants
+were never interchangeable and are now free to move independently.
 
-**Decays are authored as half-lives in seconds, not as per-tick multipliers.** `halfLifeToPerTick`
-converts each once, at module load, into the per-tick multiplier stored on `RAM_DECAY`:
-`perTick = 0.5 ** (1 / (halfLifeSeconds * TICK_RATE_HZ))`. Authoring in seconds keeps the table
-tick-rate independent — a per-tick value copied unchanged from a design written against 60 Hz would
-silently halve every recovery time at this project's 30 Hz. Same principle as `weapon-ticks.ts`
-converting authored milliseconds to ticks exactly once. `RAM_DECAY` carries exactly the two fields
-`stepDrive` reads — `spin` and `counterSteer`. It had two more (`shove`, `authority`) until stage 3b
-deleted them with the half-lives that produced them; the struct is no longer a superset of what the
-sim uses.
+**Durations are authored in milliseconds, angles in degrees, distances in world units, and converted
+exactly once, at module load** (`ramTicks()`, `inertiaRadiusSquared()`, `reelingSpinPerTick()`), the
+same principle `weapon-ticks.ts` uses for `WEAPON_TICKS`. `ramTicks()` is a FUNCTION, not a frozen
+constant — playground tuning can rebuild it (`rebuildRamTicks`, spec U40), which fixed a real bug
+predating this stage: a ram duration knob moved in the playground used to change config and nothing
+the sim read.
 
-**The ram's `ms` knobs convert to ticks the same way, and exactly once.** `RAM_TICKS`
-(`ram-config.ts`) freezes `ramUncontrolMs`, `drWindowMs` and `durationDrFloorMs` into the integer
-ticks the sim actually counts, through the same `msToTicks` as `WEAPON_TICKS`. As
-with the half-lives, the point is that nothing downstream re-derives a tick count from milliseconds
-and a literal rate.
-
-**There is no ram REFERENCE constant any more, and reintroducing one would be a bug.** `RAM_REFERENCE`
-(an average chassis's mass at the roster's highest top speed) and `RAM_REFERENCE_MASS` were the
-anchors a 0-1 severity grade was measured against; stage 3 deleted both with `mass` itself. A contest
-has no ceiling to be a fraction of — `pushOf`/`impactOn` are open-ended and linear by construction
-(spec R9) — so the only global constant left is `globalScale`, and it CONVERTS rather than
-normalises. An anchor is a clamp wearing a different name.
+**There is no ram REFERENCE constant, and reintroducing one would be a bug.** `RAM_REFERENCE` and
+`RAM_REFERENCE_MASS` were the anchors an even earlier 0-1 severity grade was measured against; the
+2026-09-06 rework's stage 3 deleted both with `mass` itself, and neither the contest nor the Unity
+rule that replaced it in turn has a ceiling to be a fraction of — `shoveOf` is open-ended and linear
+in drive-in speed, so the only global constant left is `globalScale`, and it CONVERTS rather than
+normalises. An anchor is a clamp wearing a different name (spec R9).
 
 `ramAttackOf(id)` and `ramDefenceOf(id)` return `CAR_TABLE[id].ramAttack`/`.ramDefence` verbatim, with
 no scale — see [`CAR_TABLE`](#car_table).
 
-The hull half-extents the spin lever arm is clamped into are `DRIVE_CONFIG.carWidth / 2` and
-`DRIVE_CONFIG.carHeight / 2` (30 and 20 today) — read from `DRIVE_CONFIG`, not hardcoded, for the
-same reason `inertiaCoefficient` is derived above: both must move with `carHullOf` in lockstep, or
-the torque lever and the inertia it divides by could silently disagree about the hull a ram actually
-collided against.
+`inertiaRadiusSquared()` — `(DRIVE_CONFIG.carWidth² + carHeight²) / 12` — is DERIVED from the hull
+rather than authored, so it cannot drift out of step with the hull it describes. It replaces the
+authored `inertiaCoefficient` (433.33, itself the same formula typed by hand), which is deleted.
 
-## SLAM_CONFIG
+## IMPULSE_CONFIG
 
-`packages/shared/src/config/slam-config.ts`. **One knob, as of the 2026-09-06 car-physics rework's
-stage 4** — every number that actually tuned the hard slam moved onto the charging weapon's own
-`ImpulseDef` (see [`WEAPON_TABLE`'s impulse rows](#weapon-impulses) below), and `SLAM_TICKS` went with
-them. What is left is not a slam property at all.
+`packages/shared/src/config/impulse-config.ts`, renamed from `SLAM_CONFIG` on 2026-09-19 because
+neither member turned out to be slam-specific.
 
 | Knob | Value | Notes |
 |---|---|---|
-| `wallContactPad` | 1 | Hull inflation for "touching level geometry", mirroring `RAM_CONFIG.contactPad`. Read by the wall-blocked-dash sweep and the wall-stun sweep |
+| `wallContactPad` | 1 | Hull inflation for "touching level geometry", mirroring `RAM_CONFIG.contactPad`. Read by the wall-blocked-dash sweep and every `ImpulseDef.onWallImpact` sweep |
+| `spinScale` | 12.5 | Calibration multiplier on the spin a SLAM's impulse imparts. This is `RAM_CONFIG.spinScale`'s pre-port shipped value (see above), moved here rather than copied, so `wildcharge`'s slam spin is bit-identical before and after the port while the ram's own `spinScale` was free to be re-pitched for its new formula. `RAM_CONFIG.spinMaxRate` still clamps the result, shared by both paths |
 
-**Where the other six went**, since a reader arriving from an older doc or comment will look here
-first:
+**Where the rest of the pre-stage-4 `SLAM_CONFIG` went**, since a reader arriving from an older doc
+or comment will look here first:
 
 | Deleted | Successor |
 |---|---|
-| `knockSpeed` (520) | `wildcharge.impulse.speed`, carried across unchanged. Spec P31's re-pitch is still owed — stage 5 |
-| `wallStunWindowMs` / `wallStunDurationMs` (500 / 500) | `wildcharge.impulse.wallStun.windowMs` / `.durationMs` |
+| `knockSpeed` (520) | `wildcharge.impulse.speed`, carried across unchanged and re-pitched analytically by this port (see [Weapon impulses](#weapon-impulses) below) |
+| `wallStunWindowMs` / `wallStunDurationMs` (500 / 500) | `wildcharge.impulse.onWallImpact.windowMs` / its `applies[].durationMs` |
 | `reslamImmunityMs` (600) | `wildcharge.impulse.retriggerImmunityMs` |
-| `victimAuthority` (0.35) | `wildcharge.impulse.uncontrolMs`. Inert since stage 2 — `PlayerState` has no `authority` field — and the successor is a real `reeling` application, not another steering floor. Before stage 4 a slam imposed **no** control loss at all |
-| `selfKeepFactor` (0.7) | Nothing. Inert since stage 2. A slam's attacker is never pushed, so there is no speed left to restore; the `reactionOf` recoil that briefly stood between the two models was deleted in stage 3 (R7) |
+| `victimAuthority` (0.35) | `wildcharge.impulse`'s own `applies` entry for `"reeling"`. Inert since the 2026-09-06 rework's stage 2 — `PlayerState` has no `authority` field — and the successor is a real `reeling` application, not another steering floor. Before stage 4 a slam imposed **no** control loss at all |
+| `selfKeepFactor` (0.7) | Nothing. A slam's attacker is never pushed, so there is no speed left to restore |
 | `SLAM_TICKS` | `WEAPON_TICKS.wildcharge.impulse`, through the same `msToTicks` as every other weapon duration |
 
 ## Weapon impulses
@@ -701,12 +709,12 @@ explosion fails the suite naming the missing path rather than silently doing not
 
 | Field | `wildcharge` | Notes |
 |---|---|---|
-| `speed` | 520 | Δv in u/s. Was `SLAM_CONFIG.knockSpeed`; provisional until stage 5 re-pitches it against the ram contest (spec P31) |
+| `speed` | 520 | Δv in u/s. Was `SLAM_CONFIG.knockSpeed`. **Re-pitched analytically by this port's stage 4, and the number did not move — its justification did**: the Unity ram model brings back a real "hardest ordinary ram" quantity (`driveIn × typeScale × globalScale × ramAttack / ramDefence`, every term bounded), and at the settled values 520 is 2.00x the roster's hardest possible ram. `weapon-config.test.ts` pins the relationship (a floor against `hardestOrdinaryRam()` and an identity bar against `hardestMirrorRam() * 1.5`), not the raw number, since `RAM_CONFIG` is not hashed by `balanceStamp` |
 | `direction` | `"radial"` | Away from the source through the victim. For a maneuver the source is a hull, so this resolves to the OBB contact normal, carried on the `SlamEvent` from `sim/contact.ts` |
-| `spin` | 0 | A clean straight punt, no rotation — the ult's signature (P28/P31), and the one impact in the game that adds none |
-| `defenceScaled` | `false` | The target's `ramDefence` does not reduce it: a slam punts every chassis identically. The designer's escape hatch (principle C, R10) |
-| `uncontrolMs` | 1400 | `reeling` on the victim, unscaled by ram falloff (P24). Longer than a full-strength ram's `RAM_CONFIG.ramUncontrolMs` (1000) — it is a 20 s ult |
-| `wallStun.windowMs` / `.durationMs` | 500 / 500 | A victim driven into level geometry inside the window is stunned once for the duration |
+| `spin` | 0 | A clean straight punt, no rotation — the ult's signature, and the one impact in the game that adds none |
+| `defenceScaled` | `false` | The target's `ramDefence` does not reduce the linear push: a slam punts every chassis identically. The designer's escape hatch (spec R10; renamed from `massScaled`) |
+| `applies` | `[{ statusId: "reeling", durationMs: 1400 }]` | `reeling` on the victim, unscaled by ram falloff (falloff is ram-only). Longer than a full-strength ram's `RAM_CONFIG.ramUncontrolMs` (1000) — it is a 20 s ult. **Restructured on 2026-09-19**: this used to be a bare `uncontrolMs: number` field with `ram-bridge.ts` supplying the status id `"reeling"` in code — the one place a weapon's effect was decided outside its own row |
+| `onWallImpact.windowMs` / its `applies[].durationMs` | 500 / 500 | A victim driven into level geometry inside the window is stunned once for the duration. Same 2026-09-19 restructure as above — this used to be `wallStun.windowMs`/`.durationMs` |
 | `retriggerImmunityMs` | 600 | A car pushed by this cannot be pushed by it again within this |
 
 ## STATUS_TABLE
@@ -731,7 +739,21 @@ per duration.
 | `overhauled` | buff | **ignore** | — | — | — | cleanse `debuff` |
 | `armored` | buff | **refresh** (documented exemption) | — | `invulnerable` | — | — |
 | `phased` | buff | **refresh** (documented exemption) | — | `phased` | — | — |
-| `reeling` | debuff | refresh | `turnRate` 0.4, `accel` 0.4 | — | — | — |
+| `reeling` | debuff | **ignore** | `grip` 0.6 | `immobilised`, `steeringLocked`, `spinFree`, `ramBlocked` | — | — |
+| `ramLock` | debuff | **ignore** | — | `immobilised`, `steeringLocked`, `ramBlocked` | — | — |
+
+**`reeling` changed shape entirely with the 2026-09-18 Unity ram port (U31), while keeping its name
+and its role.** It used to be `turnRate` 0.4 / `accel` 0.4 with `reapply: "refresh"` and no flags — a
+car that handled badly but still drove. It is now a total loss of control: `immobilised` and
+`steeringLocked` kill throttle and steering outright, `spinFree` lets the spin a ram injected keep
+running instead of being overwritten by steering, `ramBlocked` stops a reeling car from qualifying as
+a ram attacker, and `grip: 0.6` (not a Unity on/off `Grip` ability — this game runs a much looser base
+drift rate than Unity's, so switching grip off would carry a victim most of the way across the arena)
+slows how fast the shove it just took scrubs off. `reapply: "ignore"` is FORCED by the flags — a
+flag-carrying debuff may never chain — and costs exactly one behaviour: a re-ram landing while a reel
+is still running no longer extends it. `ramLock` is new alongside it: the attacker's own cost for
+landing a ram, `RAM_CONFIG.attackerLockMs` (500 ms), deliberately without `spinFree` and with grip
+untouched — a rammer stops, it does not slide.
 
 Per-row fields: `id`, `name`, `kind`, `color` (`#rrggbb`, render-only like `WeaponDef.color`),
 `reapply`, `modifiers`, optional `flags`, optional `pulse`, optional `onApply`.
@@ -774,26 +796,37 @@ and stacking diminishes on its own (a 5% and a 10% slow are 14.5% together, not 
 
 | Channel | Scales | Read by |
 |---|---|---|
-| `topSpeed` | `forwardMaxSpeedOf` and `reverseMaxSpeedOf` | `stepDrive` |
-| `accel` | the chassis's resolved `accel` and `reverseAccel` (`accelOf` / `reverseAccelOf`, via `ChassisDrive`) | `stepDrive` |
-| `turnRate` | the chassis's resolved steering rate (`turnRateOf` / `turnRateAtStopOf`). This IS the ram's control loss post-3b — `reeling` scales it directly, there is no separate `authority` mechanic alongside it. **Above 1 corners tighter**; steering is binary (`-1 \| 0 \| 1`), so a raise is a straight gain | `stepDrive` |
+| `topSpeed` | The engine's push (`chassis.engineAccel`, forward and reverse both) directly — under the Unity drag model there is no separate `forwardMaxSpeedOf`/`reverseMaxSpeedOf` field to scale, so changing the push changes the emergent ceiling (`engineAccel / dragRate`) proportionally instead | `stepDrive` |
+| `accel` | The SAME push, alongside `topSpeed` (both multiply `chassis.engineAccel`), AND `chassis.dragPerTick`, raised to this value as a POWER (U36: `dragPerTick ** mods.accel`) rather than multiplied — a value above 1 launches harder AND sheds speed faster off the throttle (a peppier car in both directions); below 1, softer and slidier in both | `stepDrive` |
+| `turnRate` | The chassis's resolved steering rate (`turnRateOf`), speed-independent — there is no separate at-rest variant any more. **Above 1 corners tighter**; steering is binary (`-1 \| 0 \| 1`), so a raise is a straight gain. `reeling` carries NO `turnRate` multiplier any more (U31) — its control loss is the `immobilised`/`steeringLocked` flags instead, so this channel is currently untouched by any shipped status | `stepDrive` |
+| `grip` | Scales `chassis.gripPerTick` (`DRIVE_CONFIG.lateralGripRate`) as a power, the same shape `accel` uses on drag. Below 1 a sideways slide lasts longer — `reeling`'s 0.6 is the one shipped source today (spec §5, new with the Unity ram port). `STATUS_LIMITS` floors it above 0, deliberately out of reach of Unity's own grip-OFF Reeling | `stepDrive` |
 | `brakeDecel` | `CarDef.brakeDecel` — brake fade. Per-car since the 2026-09-06 vector-drive rework, replacing the old global `DRIVE_CONFIG.brakeDecel` | `stepDrive` |
 | `damageDealt` | outgoing damage, frozen into the instance at spawn | `spawnInstances` |
 | `damageTaken` | incoming damage, applied at impact | `runCombat` |
 | `weaponCooldown` | `cooldown`, `refireDelay`, `recovery` — **not** `startUp` or `volleyInterval` | `tickRecharge`, `releaseShots` |
-| `ramDefence` | `ramDefenceOf`, on BOTH sides of the contest: the speed-independent term this car brings to `pushOf`, and the divisor `impactOn` softens what it takes by. Also the `applyImpulse` inertia term. There is deliberately no offence channel (spec R11) | `resolveRam`, `applyImpulse` |
+| `ramDefence` | `ramDefenceOf`'s status multiplier — divides the SHOVE a ram victim takes (spec §7.2's `victimDefenceMult`), and is also the divisor a slam's `applyImpulse` inertia term reads. Under the Unity one-way rule there is only one side left to soften: the attacker's outcome is a rule, not a push this channel could touch. There is deliberately no offence channel (spec R11) | `sim/ram.ts`, `applyImpulse` |
 
-**Coasting is the one drive value no channel scales.** It is per-car since 2026-09-06
-(`CarDef.coastHalfLifeSeconds`, resolved to `ChassisDrive.coastPerTick`), replacing the old global
-`DRIVE_CONFIG.drag`. A car that would not slow down even off the throttle has stopped being a car.
+**Coasting is drag, not a separate drive value any more, and it IS reached by a channel now.** The
+per-car `CarDef.coastHalfLifeSeconds` field the 2026-09-06 vector-drive rework introduced is
+**deleted** — the Unity drive-model port replaced it with one always-on drag rate
+(`DRIVE_CONFIG.baseDrag`/`dragPerRating`, resolved per car by `dragRateOf`) that sets top speed,
+wind-up time and roll distance together, and the `accel` channel above scales that same rate. A car
+that would not slow down even off the throttle has stopped being a car; under this model that is
+`mods.accel` far below 1, not a missing coast constant.
 
 Flags are booleans, OR-ed across sources, and each is deliberately one thing so a status composes the
 condition it wants: `immobilised` (throttle forced neutral — the car still steers, brakes and coasts),
 `steeringLocked` (steer input forced to 0; injected ram spin untouched, so a stunned car still
 tumbles), `disarmed` (no *new* press; one already committed still finishes), `fullStop` (speed forced
-to 0 every tick; shove and injected ram spin untouched, so a slammed car still slides into the wall),
-`invulnerable` (0 damage from every source — weapon hits, contact hits, pulses; status riders still
-land, only hp loss stops).
+to 0 every tick — **both components since the 2026-09-18 Unity drive-model port**, forward and
+lateral; a stunned car pushed sideways by a slam now stops dead where it stands, where before this
+port it zeroed the forward component alone and left an imposed sideways velocity to bleed off through
+the since-deleted `bleedLateral`, so a slammed-then-stunned car used to keep sliding into the wall.
+Injected ram spin is untouched either way — a stunned car still tumbles), `invulnerable` (0 damage
+from every source — weapon hits, contact hits, pulses; status riders still land, only hp loss stops),
+`phased` (not present in the world: no collision, no ram, no weapon target), `spinFree` (steering does
+not overwrite yaw rate, so an injected spin survives and decays on its own — new with the Unity ram
+port, spec §8), `ramBlocked` (this car cannot qualify as a ram attacker — new with the same port).
 
 ## STATUS_CONFIG
 
@@ -825,11 +858,18 @@ not take the car off you.**
 anything, so every slow past that point converts a fight into an execution — which is the ram knock's
 job (bounded, ~1s, countersteerable), never a status's.
 
-`brakeDecel`'s floor is not a free choice. Scaled braking must stay above that car's own coasting
-(`CarDef.coastHalfLifeSeconds`, resolved to `coastPerTick`), measured at its own top speed where
-proportional coast-off is strongest — per car since the 2026-09-06 vector-drive rework replaced the
-global `DRIVE_CONFIG.drag`/`brakeDecel` pair — or the brake pedal becomes worse than lifting off;
-`status-config.test.ts` asserts that against the live drive numbers rather than trusting the constant.
+`brakeDecel`'s floor used to be reasoned about against `CarDef.coastHalfLifeSeconds` — deleted by the
+Unity drive-model port, along with the resolver it fed. **The invariant this guard checks was
+re-shaped, not merely re-pointed, by stage 5 Task 5 (2026-09-19).** Under one always-on drag rate,
+each car's OWN full-strength brake still beats its OWN coast deceleration at its OWN top speed
+(`status-config.test.ts` asserts that against the live drive numbers), but a status-faded brake no
+longer necessarily does: the 1.5x speed raise that pass landed was **deliberately not** matched by a
+`CAR_TABLE.brakeDecel` scale-up, so stopping distances are now roughly 2.25x longer than before that
+pass — an explicit tuning choice, not an oversight, made and recorded with the consequence stated to
+the user. No shipped `STATUS_TABLE` row scales `brakeDecel` today, so the faded case the old
+assertion modelled is currently unreachable; the suite now also carries a trip-wire asserting that
+stays true, so the day a status DOES fade brakes, the reader lands back on this note instead of a
+silent inversion.
 
 A **single** row must land inside its channel's limits on its own: clamping is the backstop against
 many sources piling up, and a row that needs it to be legal is a row whose authored number is a lie.
@@ -852,10 +892,12 @@ many sources piling up, and a row that needs it to be legal is a row whose autho
 | `tremor` | — (uncarried) | `fortified` | **`ownerInside`** | 0.3 s, re-applied every tick the owner's hull stands inside the live zone | all |
 
 A third `stunned` source sits outside this table entirely: a landed `wildcharge` hard slam that shoves
-its victim into a wall within `wildcharge.impulse.wallStun.windowMs` stuns them for its `durationMs`
-(500 ms) through the room's `statusRequests` queue, not through `WeaponDef.applies` — see
-[`combat-model.md`](combat-model.md#maneuvers-and-the-contact-pass). `overhauled` and `armored` have
-no applier yet; see below.
+its victim into a wall within `wildcharge.impulse.onWallImpact.windowMs` stuns them for that entry's
+own `applies[].durationMs` (500 ms) through the room's `statusRequests` queue, not through
+`WeaponDef.applies` — see [`combat-model.md`](combat-model.md#maneuvers-and-the-contact-pass).
+`ramLock` and the two `reeling` sources (an ordinary ram, and this same slam) sit outside this table
+the same way — the contact pass applies all of them, never a weapon's `applies`. `overhauled` and
+`armored` have no applier yet; see below.
 
 Bullseye applies nothing. All three of its weapons — `predator`, `pepperbox`, `lance` — carry no
 `applies` entry: `predator` lost its `corroded` rider along with its lock-frozen homing when the
@@ -1042,14 +1084,21 @@ held Enter key or a scripted client cannot flush the visible history in a second
 
 `packages/shared/src/config/tuning.ts` (`setTuning`, PG12) and `config/tuning-walker.ts`
 (`tunableFields` / `validateTuning` / `sanitizeStoredTuning`, PG14) are a dev-only runtime override
-seam over five of the tables above — `CAR_TABLE`, `DRIVE_CONFIG`, `RAM_CONFIG`, `COMBAT_CONFIG`,
-`WEAPON_TABLE`. `setTuning(overrides)` validates every dot-path (`"car.mirage.speed"`,
-`"drive.baseTurnRate"`, `"weapon.predator.damage"`, …) against the shipped shape, restores the five
-source tables from a frozen snapshot, then writes the overrides back **in place** — object identity is
-preserved, so every existing importer (the sim, the render tables, the server) keeps reading the same
-objects with no call-site change. Only the artifacts derived once at module load —
-`CHASSIS_DRIVE`, `WEAPON_TICKS`, the ram reference pair, `RAM_DECAY` — are told to re-resolve.
-**`setTuning(null)` restores the frozen defaults by reference**: after a reset, the five tables are
+seam over **six** of the tables above — `CAR_TABLE`, `DRIVE_CONFIG`, `RAM_CONFIG`, `IMPULSE_CONFIG`,
+`COMBAT_CONFIG`, `WEAPON_TABLE`. `IMPULSE_CONFIG` (renamed from `SLAM_CONFIG`) is the newest root,
+added because its `spinScale` became live once a slam's contact point stopped being read as the
+victim's own centre — before that it tuned nothing, so it had no slider. `setTuning(overrides)`
+validates every dot-path (`"car.mirage.speed"`, `"drive.baseTurnRate"`, `"weapon.predator.damage"`,
+`"impulse.spinScale"`, …) against the shipped shape, restores the six source tables from a frozen
+snapshot, then writes the overrides back **in place** — object identity is preserved, so every
+existing importer (the sim, the render tables, the server) keeps reading the same objects with no
+call-site change. Only the artifacts derived once at module load — `CHASSIS_DRIVE`
+(`rebuildResolvedDrive`), `WEAPON_TICKS` (`rebuildWeaponTicks`), the ram durations (`rebuildRamTicks`,
+new with the Unity ram port's stage 3, spec U40 — without it, moving a ram duration knob in the
+playground changed config and nothing the sim read) and the weapon burst defs (`rebuildBurstDefs`) —
+are told to re-resolve. `RAM_REFERENCE`/`RAM_REFERENCE_MASS` and `RAM_DECAY` no longer exist to
+re-resolve — see [`RAM_CONFIG`](#ram_config) above.
+**`setTuning(null)` restores the frozen defaults by reference**: after a reset, the six tables are
 exactly the objects they were before any override was ever applied, not a copy of them.
 
 The walker enumerates the tunable surface from the tables themselves rather than a hand-written list,
@@ -1086,7 +1135,7 @@ for the pipeline; this table is the values.
 |---|---|---|
 | `damage` | 80 | Flat, per trigger, never scaled by `scaleDamage` or `corroded`. Between a Thumper shell (60) and a Roadblock (100) — nine touches kill a Bullseye (650 hp), twelve a Bastion (900 hp) |
 | `depth` | 20 | How far a strip protrudes from its wall, in world units. Geometry, not balance — must match the strips `ARENA_01` authors, and `arena.test.ts` fails if it drifts |
-| `triggerSpeed` | 25 | Speed INTO the surface, in units/s, below which nothing happens. Deliberately low against roster top speeds of 135.9–189.03 (190–267 before the 2026-09-16 cut): the line between "resting against a wall" and "moving into it," not a difficulty dial. The cut moved the roster toward this threshold without moving the threshold, so a shove now has to be proportionally harder to draw blood. **Measured consequence:** at `DRIVE_CONFIG.restitution` 0.15 a car holding throttle into a wall settles at ~5 u/s inward, so a self-driven car pays on arrival and never again — only an externally shoved one keeps paying. Lower this if grinding along a wall should cost the driver something |
+| `triggerSpeed` | 25 | Speed INTO the surface, in units/s, below which nothing happens. Deliberately low against roster top speeds of 203.9–283.5 as of stage 5 Task 5's tuning pass (135.9–189.03 before it, 190–267 before the 2026-09-16 cut): the line between "resting against a wall" and "moving into it," not a difficulty dial. **Measured consequence, re-measured at `DRIVE_CONFIG.restitution` 0 for the Unity physics port's zero-restitution pass** (it was ~5 u/s flat at 0.15): holding throttle into a wall settles at a per-chassis steady-state inward speed of roughly 4-8 u/s (mirage 7.92, bullseye 5.41, bastion 3.97), still far under this threshold, so a self-driven car pays on arrival and never again — only an externally shoved one keeps paying. Lower this if grinding along a wall should cost the driver something |
 | `retriggerMs` | 750 | Immunity window after a hit. ~107 HP/s while pinned — roughly six seconds of sustained pressure kills a Bullseye. Without it a shoved car takes `damage` every tick, thirty times a second. Expected to move after playtest |
 | `shoverCreditMs` | 4000 | How long after being rammed or slammed a car's spike death still credits the pusher. Past it, a spike death credits nobody but the victim |
 | `contactPad` | 2 | Contact slack for the overlap test, matching the scale of `RAM_CONFIG.contactPad` |

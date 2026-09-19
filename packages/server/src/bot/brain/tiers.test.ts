@@ -598,6 +598,22 @@ describe("the ladder holds (P50)", () => {
    * disagrees with the outcome that sharply is a solver question (`bot/brain/solution.ts`), not a
    * `BOT_PROFILES` knob — `minShotValueFraction` was swept 0.3 → 0.1 and moved the pooled rate by
    * under two points.
+   *
+   * ⚠ ANNOTATION, stage 5 Task 9 (2026-09-19) — a SECOND, unrelated cause once made this whole test
+   * red, and the aim-assist story above is not it. This test went red again at this port's stage 5
+   * Task 5 (the settled 1.5x speed/turn-rate raise) for a reason that has nothing to do with the
+   * medium-hard accuracy ladder discussed above: `duel.fixture.ts`'s `BOT_START` hardcoded `vx: 300`
+   * regardless of chassis, a literal predating every speed retune, which the 1.5x raise pushed above
+   * every chassis's own top speed for the first time (Mirage 283.5, Bullseye 238.0, Bastion 203.9).
+   * Stage 5 Task 8's first pass mis-filed that failure as "pre-existing, caused by the 2026-09-17
+   * aim-lock removal" — an easy mistake to make reading only the paragraphs above, which really do
+   * describe a genuine, still-live aim-lock-era accuracy question — but the repo's own records
+   * (`.superpowers/sdd/01-drive-model/progress.md`, this plan's `EXECUTION.md`) show P50 green at the
+   * pre-work baseline, so the aim-lock removal cannot have been the cause of a NEW failure this late.
+   * The real cause was root-caused and fixed in the same pass: `BOT_START` now derives its speed from
+   * `driveOf(chassis).maxSpeed` — see that file's own comment for the full trace. **The lesson, not
+   * just the fix: a familiar-sounding prior failure story is not evidence for a new failure with the
+   * same name — check what actually changed before filing a regression as history repeating.**
    */
   it("hits far more often above the easy tier", () => {
     const easy = duelAgainstDummy("easy", 600, true);

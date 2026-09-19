@@ -839,6 +839,14 @@ function turningCrosserDuel(ticks: number): { fires: number } {
   const radius = 400;
   const targetSpeed = 400;
   const omega = targetSpeed / radius; // rad/s, the arc's own turn rate
+  // ANNOTATED, stage 5 Task 9 (2026-09-19): `vx: 300` starts this bullseye above its own top speed
+  // (238.0 today) — the same stale-literal pattern that caused a real bug in `duel.fixture.ts`'s
+  // `BOT_START` (see its comment). This loop DOES run the body through `stepDrive` every tick below,
+  // so — unlike `predict.test.ts`'s un-integrated defaults — the first several ticks here genuinely
+  // decelerate toward the real cap, the same shape of transient that fixture had before its fix. NOT
+  // verified clear and NOT re-derived in this pass: this is an annotation flagging the risk, not a
+  // measurement clearing it. Whoever next touches this test should check `fires` against
+  // `driveOf("bullseye").maxSpeed` in place of 300 before trusting the current count unmodified.
   let body: SimBody = {
     x: centre.x, y: centre.y, angle: 0, vx: 300, vy: 0, angVel: 0,
     maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
@@ -880,6 +888,11 @@ function turningCrosserDuel(ticks: number): { fires: number } {
   return { fires };
 }
 
+// ANNOTATED, stage 5 Task 9 (2026-09-19): `vx: 300` below is a static `BotView`, never run through
+// `stepDrive` in this function, so it is inert with respect to the transient-deceleration bug
+// `duel.fixture.ts`'s `BOT_START` had (see its comment) even though 300 exceeds bullseye's own top
+// speed (238.0 today). Left as-is rather than derived, same reasoning as `predict.test.ts`'s
+// `carAt`/`selfAt` defaults.
 function inThreatLineView(tick: number, rng: ReturnType<typeof makeRng>): BotView {
   return {
     tick,

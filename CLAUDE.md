@@ -79,9 +79,10 @@ Their ratings (`speed`, `accel`, `handling`, `attack`, `hp`, `ramAttack`, `ramDe
 independent 0-100 values; `accel` and `handling` landed on 2026-08-30 so cars could differ in how they
 launch and how they corner, and `ramAttack`/`ramDefence` replaced the single `mass` rating in stage 3
 of the 2026-09-06 car-physics rework (see below) — **there is no `mass` on `CarDef` any more.**
-(`CAR_TABLE` rows also carry `coastHalfLifeSeconds` and `brakeDecel`, but those are seconds and
-units/s², not 0-100 ratings.) **`handling` is turn RATE, not turn radius.** Radius is
-`speed / turnRate`.
+(`CAR_TABLE` rows also carry `brakeDecel`, a u/s² value rather than a 0-100 rating — `coastHalfLifeSeconds`
+joined it in the same 2026-09-06 pass and was deleted by the 2026-09-18 Unity drive-model port, which
+replaced the coast curve it fed with one always-on drag rate.) **`handling` is turn RATE, not turn
+radius.** Radius is `speed / turnRate`.
 
 **A further chassis can be authored without shipping it: `CarDef.isActive` (PG18) is the roster's
 publish gate**, and as of 2026-09-16 it is one everywhere rather than only in car select. Car select,
@@ -156,8 +157,12 @@ because that played too large against arenas that did not grow — the spec's §
 at the new factor, and the 72 × 48 build never reached `development/main`, so it is not history to
 preserve. Every reader derives from the hull, so the logic edits were small, and three of
 them are worth knowing: `RAM_CONFIG.spinScale` went 10 → **12.5** by derivation (a 1.25x lever over a
-1.5625x `inertiaCoefficient`), which keeps every ram's spin exactly where it was — stage 5 of the
-car-physics rework re-pitches from 12.5, not 10; both arenas' FFA spawn rows moved inward (arena-01
+1.5625x `inertiaCoefficient`), which keeps every ram's spin exactly where it was — the car-physics
+rework's own stage 5 never ran to re-pitch it; the 2026-09-18 Unity physics port's stage 3 is what
+answers that instead, replacing `inertiaCoefficient` with the hull-derived `inertiaRadiusSquared()`
+and re-pitching `RAM_CONFIG.spinScale` itself to 0.3 for the new ram formula (12.5 survives, moved to
+`IMPULSE_CONFIG.spinScale`, as the slam's own copy — see the car-physics-rework section below for the
+full story); both arenas' FFA spawn rows moved inward (arena-01
 y 180/540, arena-02 y 187/543) to clear the spikes by ~106 u rather than a car diagonal (72.1) —
 forced on arena-02, whose old rows sat *inside* the diagonal at 69 u; and the client's countdown
 arrow and hp bar length scaled 1.25x with the car (the lock bracket did too, on the branch, but the
@@ -187,21 +192,37 @@ describes, not the clock defect). All three pass on `feature/basic-attack` alone
 on the bigger-cars merge alone. See
 [`docs/superpowers/specs/2026-09-16-bigger-cars-design.md`](docs/superpowers/specs/2026-09-16-bigger-cars-design.md).
 
-Turn rates themselves were last touched on **2026-08-31, when the whole roster's turn rate was raised
-1.5x** — `DRIVE_CONFIG.baseTurnRate` and `turnRatePerRating` scaled together, speeds untouched at the
-time — because driving and aiming read as too heavy; neither the 2026-09-02 rebalance nor the
-2026-09-06 heavy-car pass nor the 2026-09-16 cut above rescaled that pair again — only the per-car
-ratings, the speed knobs, and (2026-09-06 only) the accel knobs and the new per-car coast/brake
-values. The 150-point budget
-that used to cap `speed`+`attack`+`hp` was deleted on 2026-08-29 so `mass` could be a free-floating
-rating, and no replacement guard was adopted — see
-[`docs/config-reference.md`](docs/config-reference.md#car_table).
+**The 2026-09-18 Unity drive-model port replaced the model these paragraphs describe, not merely its
+numbers.** `DRIVE_CONFIG.baseAccel`/`accelPerRating`, `reverseSpeedRatio`, `steeringGrip` and
+`stopTurnRatio` are gone; one always-on drag rate (`baseDrag`/`dragPerRating`, resolved per car by
+`dragRateOf`) now sets top speed, wind-up time and coast-off roll together, and yaw is
+speed-independent with no separate at-rest rate. The port's own stage 1 ported `baseTurnRate`/
+`turnRatePerRating` to Unity's own anchors (3.6/0.054 → 0.667/0.0169) and `reverseAccelFactor` to
+Unity's own 0.4, both **retunes**, not merely renamings — see
+[`docs/config-reference.md`](docs/config-reference.md#drive_config) for the resolvers and current
+values. **Stage 5 Task 5 (2026-09-19) then raised `baseMaxSpeed`/`speedPerRating` AND
+`baseTurnRate`/`turnRatePerRating` by the identical uniform 1.5x** (60/1.518 → 90/2.277, 0.667/0.0169
+→ 1.0005/0.02535) and `reverseAccelFactor` back up to 0.6 — the roster's currently shipped values
+(Mirage 283.5 / Bullseye 238.0 / Bastion 203.9 u/s, turn radius uniformly 89.9 u across all three,
+deliberately, since speed and turn rate scaled together for the first time) — from the user's own
+hands-on playground pass. This is the first pass since 2026-08-31 to touch turn rate at all.
 
-**`stepDrive` no longer reads the roster.** It takes a resolved `ChassisDrive` (eight numbers as of
-the 2026-09-06 vector-drive rework, which added `coastPerTick` and `brakeDecel` to the original six)
-from `driveOf(carId)`; `stepSim` resolves it at the single production call site. That is what lets
-`golden.test.ts` pin the drive integration against a frozen fixture through every future balance
-edit — see [`docs/config-reference.md`](docs/config-reference.md#drive_config).
+Turn rates were otherwise last touched on **2026-08-31, when the whole roster's turn rate was raised
+1.5x** — `DRIVE_CONFIG.baseTurnRate` and `turnRatePerRating` scaled together, speeds untouched at the
+time — because driving and aiming read as too heavy; neither the 2026-09-02 rebalance, the 2026-09-06
+heavy-car pass, the 2026-09-16 cut above, nor the Unity port's own stage 1 port (a value change, not a
+rescale) rescaled that pair again — that streak of "speed moves, turn rate does not" held for over
+three weeks and ended only with stage 5 Task 5 directly above. The 150-point budget that used to cap
+`speed`+`attack`+`hp` was deleted on 2026-08-29 so `mass` could be a free-floating rating, and no
+replacement guard was adopted — see [`docs/config-reference.md`](docs/config-reference.md#car_table).
+
+**`stepDrive` no longer reads the roster.** It takes a resolved `ChassisDrive` — **nine** numbers as
+of the 2026-09-18 Unity drive-model port (`maxSpeed`, `engineAccel`, `reverseAccel`, `brakeDecel`,
+`turnRate`, `dragRate`, `dragPerTick`, `gripPerTick`, `spinPerTick`; `reverseMaxSpeed`, `accel`,
+`turnRateAtStop` and `coastPerTick` from the 2026-09-06 vector-drive rework's eight-field version are
+all gone) — from `driveOf(carId)`; `stepSim` resolves it at the single production call site. That is
+what lets `golden.test.ts` pin the drive integration against a frozen fixture through every future
+balance edit — see [`docs/config-reference.md`](docs/config-reference.md#drive_config).
 
 **Practice mode ships; the playground does not.** `PracticeRoom` is a third room type registered on
 every server with no `DEV_TOOLS` gate — a player-facing 1v1 against a bot, reached from the join
@@ -375,7 +396,7 @@ something, discuss it — do not answer with a parameter sweep.
 | Spec + tracker | [`docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`](docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md), [`docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md`](docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md) |
 | **Online netcode and client rendering — the fourteen-phase rewrite in progress** | **start at [`docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md`](docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md)** — see below |
 | **Car physics rework — stages 1-4 landed, spec now on revision 2** | **start at [`docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md`](docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md)** — see below |
-| **Unity physics port — stages 1-3 landed (drive model, walls/bumps, rams), 4-5 not started; supersedes the car-physics rework's contest model** | **start at [`docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md`](docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md)** |
+| **Unity physics port — stages 1-4 landed (drive model, walls/bumps, rams, slam/effects), stage 5 (tune-and-reconcile) in progress; supersedes the car-physics rework's contest model** | **start at [`docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md`](docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md)** |
 | Weapon system decisions (D1–D22), online-play review, future work — plus the **retired** aim assist and target lock (A1–A14), removed 2026-09-17 and kept only as a record | [`docs/superpowers/specs/2026-08-27-weapon-system-design.md`](docs/superpowers/specs/2026-08-27-weapon-system-design.md), [`docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md), [`docs/superpowers/plans/2026-08-27-weapon-system.md`](docs/superpowers/plans/2026-08-27-weapon-system.md) |
 | The ten-ability-weapon roster (nine shipped plus dormant `tremor`), per-chassis kits (L1–L7) — now alongside nine identical basic-attack rows (BA1–BA38, see above) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
 | The three chassis types and their triangle, the `accel`/`handling` ratings, the weapon redistribution (T1–T22) — **supersedes L1–L7's assignments** | [`docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md`](docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md) |
@@ -637,20 +658,24 @@ built shared**, so a config edit that skips the page fails `npm test` naming the
 It checks values, not a `balanceStamp`-style fingerprint: nothing generates this page, so a stamp
 would only prove someone typed a new stamp.
 
-**Update it in the same commit whenever you change** a car's `handling`, `speed`,
-`coastHalfLifeSeconds` or `brakeDecel` in `CAR_TABLE`; `baseTurnRate`, `turnRatePerRating`,
-`stopTurnRatio`, `baseMaxSpeed`, `speedPerRating`, `reverseSpeedRatio`, `steeringGrip` or
-`impactGripDecel` in `DRIVE_CONFIG`; **any `STATUS_TABLE` row's `turnRate` OR `grip` multiplier that
+**Update it in the same commit whenever you change** a car's `handling`, `speed` or `brakeDecel` in
+`CAR_TABLE`; `baseTurnRate`, `turnRatePerRating`, `baseMaxSpeed`, `speedPerRating`, `reverseAccelFactor`,
+`baseDrag`, `dragPerRating`, `lateralGripRate`, `reverseEpsilon` or `flipSteeringInReverse` in
+`DRIVE_CONFIG`; **any `STATUS_TABLE` row's `turnRate` OR `grip` multiplier that
 reaches the drive model — `reeling`'s `grip` (0.6) is the one shipped today, and it has its own
 "Grip while reeling" row in the derived table** (it was `reeling`'s `turnRate` (0.4) and a "Rate
 while reeling" row until the 2026-09-18 Unity ram port dropped `turnRate` from that row outright);
-`spinMaxRate` in `RAM_CONFIG`; or `TICK_RATE_HZ`. (`authorityFloor` used to head that `RAM_CONFIG`
-entry and `overheated` used to be the `STATUS_TABLE` example; the first was deleted by the
-car-physics rework's stage 3b and the second lost its `turnRate` in the 2026-09-01 status overhaul.
-`steeringGrip` and `impactGripDecel` appear only in that page's prose, so the test cannot catch them
-— they are on this list because a reader must, not because a suite will.) Adding a chassis needs a new
-column in three tables, and the test fails until it has one. The page's "Keeping this page honest"
-section holds that list and a snippet that prints the derived values — do not retype them by hand.
+`spinMaxRate` in `RAM_CONFIG`; or `TICK_RATE_HZ`. (`coastHalfLifeSeconds`, `stopTurnRatio`,
+`reverseSpeedRatio`, `steeringGrip`, `impactGripDecel` and `authorityFloor` all used to head this
+list's entries and are all **deleted** — the first five by the 2026-09-18 Unity drive-model port,
+`authorityFloor` by the car-physics rework's stage 3b — so none of them can trigger a page update any
+more; `overheated` used to be the `STATUS_TABLE` example and lost its `turnRate` in the 2026-09-01
+status overhaul. `baseDrag`, `dragPerRating`, `lateralGripRate`, `reverseEpsilon` and
+`flipSteeringInReverse` appear only in that page's prose, not its tested tables, so the test cannot
+catch a stale mention of any of them — they are on this list because a reader must, not because a
+suite will.) Adding a chassis needs a new column in three tables, and the test fails until it has
+one. The page's "Keeping this page honest" section holds that list and a snippet that prints the
+derived values — do not retype them by hand.
 
 **The test cannot see numbers in prose**, and that page argues from figures inside sentences. Re-read
 them after a tuning pass even when the suite is green.
@@ -761,8 +786,10 @@ out**, never printed as a dash (most rows have no wind-up at all, and a charge h
 a weapon's **effects are links** into the Effects section, so a chip and its row can never drift
 apart — `manual-page.test.mjs` resolves every `#fx-…` against the ids the page defines, in both
 directions. A status is published only when something can apply it: a weapon an active chassis
-carries, or an authored `EFFECT_SOURCES` line for the two that reach a player outside the weapon
-tables (`reeling` from the contact pass, `phased` from the deathmatch respawn). `armored` and
+carries, or an authored `EFFECT_SOURCES` line for the three that reach a player outside the weapon
+tables (`reeling` and `ramLock` from the contact pass, `phased` from the deathmatch respawn).
+`ramLock` is the odd one out in that list — the first status a player is put in by succeeding, since
+the 2026-09-18 Unity ram port makes landing a ram cost its own attacker something. `armored` and
 `overhauled` have neither today and so do not appear at all.
 
 **The prose quotes numbers through placeholders, never by hand.** Write `{roster.slotsPerCar}`,

@@ -19,37 +19,31 @@ dead for 80 ms". Prediction covers the local car's motion and nothing else.
 
 ## Ramming
 
-> **SUPERSEDED as of 2026-09-06.** The equal-and-opposite reaction model this section describes —
-> `reactionOf` negating and mass-scaling a copy of the victim's `Impulse` back onto the attacker — was
-> replaced by a contest model: each car brings a push into the collision (its `ramAttack` rating times
-> the speed it is driving into the impact, plus a scaled contribution from its `ramDefence` rating),
-> and each car's received impact is the *other* car's push, scaled by its share of the contest and the
-> face bonus, divided by its own `ramDefence`. There is no `reactionOf` and no negation in the shipped
-> model — each side's outcome is computed directly, not derived from the other's.
->
-> **`mass` is now gone from the game entirely** (stage 3, 2026-09-06), replaced by the per-car
-> `ramAttack`/`ramDefence` pair. `massOf`, `RAM_CONFIG.massPerRating`, `RAM_REFERENCE`,
-> `RAM_REFERENCE_MASS` and the `ramMass` status channel no longer exist; the channel is `ramDefence`,
-> `StepContext.selfMass` is `selfRamDefence`, and `CarObstacle.mass` is `CarObstacle.ramDefence`. The
-> plumbing that carries the value is unchanged — `resolveWorld`'s fifth parameter, `CarObstacle`,
-> edge-triggered contact, wall deflection and `restitution: 0.15`, the `Impulse` struct and its
-> single-applier seam all survive; only the stat those values carry changed name and source.
->
-> **Everything below that describes a graded 0-1 SEVERITY is superseded**, not merely renamed: there
-> is no severity, no `RAM_REFERENCE` to normalise against, and no ceiling for a ram to be a fraction
-> of. Sections still written that way are stale and stage 5 rewrites them.
+**A ram is a one-way rule, not a contest.** Ported from Unity's `RamRules.cs` by the 2026-09-18
+physics port (spec §7), replacing two earlier models in turn: an equal-and-opposite reaction
+(`reactionOf` negating and mass-scaling a copy of the victim's `Impulse` back onto the attacker,
+superseded 2026-09-06) and, after that, a two-sided contest where each car computed its own push and
+its own received impact independently (`pushOf`/`impactOn`, a graded 0-1 severity, a three-row face
+bonus table, `mass` replaced by `ramAttack`/`ramDefence`). Neither survives. `mass` itself was
+already gone from the game before this port (stage 3 of the 2026-09-06 rework) and stays gone; the
+`ramAttack`/`ramDefence` pair it left behind is the one this section still reads.
 
-> **Superseded again as of 2026-09-18 by the Unity physics port, and this paragraph is the one to
-> read first.** The contest the paragraphs above describe is deleted in its turn: `pushOf` and
-> `impactOn` no longer exist, and a ram is a one-way rule — nose-first above `RAM_CONFIG.minRamSpeed`,
-> the attacker stops dead and takes `ramLock`, the victim takes the shove, the spin and `reeling`
-> (`sim/ram.ts` classifies, `packages/server/src/sim/ram-bridge.ts` writes). `restitution` is **0**,
-> not the 0.15 named above: the port's stage 2 dropped it, so a car no longer rebounds off anything.
-> Everything below this banner still describes the contest and is stage 5's to rewrite — **the
-> current authority is
-> [`superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md`](superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md)**
-> and the spec beside it,
-> [`superpowers/specs/2026-09-18-unity-driving-and-ram-physics-port-design.md`](superpowers/specs/2026-09-18-unity-driving-and-ram-physics-port-design.md).
+Nose-first above `RAM_CONFIG.minRamSpeed`: the attacker **stops dead** and is locked (`ramLock`); the
+victim is set to its pre-collision velocity **plus a shove**, spun, and left `reeling`. A head-on
+stops and locks both cars and reels neither — see the classification rule below, `sim/ram.ts` for
+where it classifies, and `packages/server/src/sim/ram-bridge.ts` for where it writes the result.
+There is no `pushOf`, no `impactOn`, and no `reactionOf` anywhere in the codebase; the attacker's
+outcome is a rule ("you stop"), not a computed push.
+
+The current authority for the model below is
+[`superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md`](superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md)
+and the spec beside it,
+[`superpowers/specs/2026-09-18-unity-driving-and-ram-physics-port-design.md`](superpowers/specs/2026-09-18-unity-driving-and-ram-physics-port-design.md#7-the-ram-model).
+The decision record at the end of this section
+([`superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md`](superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md),
+R1-R20) still carries the rulings from the two earlier models where they explain a number that
+survived into this one — the `ramAttack`/`ramDefence` pair, and the side bonus that lets a flank or
+rear ram pay more than a head-on.
 
 Ram is a separate pass, not part of `combatTick`: `rooms/tick-pipeline.ts`'s `runPipeline` runs
 `statusTick` → `serverTick` (drive + collision resolution) → `contactTick`
@@ -61,13 +55,16 @@ combat, and the client never computes an authoritative outcome — it does run i
 check against remote hulls to fire a camera shake and impact spark immediately, but that is
 render-only and feeds nothing back into `stepSim`, the schema, or the server.
 
-**This tick order is not incidental — it is the whole reason `RAM_CONFIG.knockMaxSpeed`'s doc comment
-carries a two-layer measurement.** `serverTick`'s own drive-and-collide pass (`resolveWorld`) already
-reflects a car's velocity off whatever it struck by `DRIVE_CONFIG.restitution` (see "Wall and car
-deflection" below) BEFORE `contactTick` ever runs, so a ram's impulse always lands on top of an
-already-bounced velocity, never on the pre-collision one. `packages/server/src/sim/pipeline-order.test.ts`
-pins the composed result for exactly this reason: nothing that exercises `contactTick` alone can see
-it.
+**This tick order is not incidental.** `serverTick`'s own drive-and-collide pass (`resolveWorld`) runs
+first every tick, including the tick a ram happens on — see "Wall and car deflection" below — so a
+ram's classification and its shove are built from whatever that pass already resolved, not from a
+raw pre-collision state. At `DRIVE_CONFIG.restitution: 0` that earlier pass never adds or removes
+speed of its own (see below), so there is no second, bounced layer for a ram's own shove to land on
+top of any more — the two-layer measurement `RAM_CONFIG.knockMaxSpeed`'s doc comment used to carry is
+gone along with that knob (deleted, spec §7.4; the hull-derived `inertiaRadiusSquared()` is its
+un-related successor for the spin term, not for this). `packages/server/src/sim/pipeline-order.test.ts`
+still pins the composed tick order, since a ram's inputs (the pre-collision `approachVelocities`
+cache) are still captured before `resolveWorld` can touch them.
 
 **A ram deals zero hp.** `applyRams` never calls `applyDamage`. The whole feature is contact turned
 into control loss and knockback — never damage between cars, and that stays true as of the
@@ -77,28 +74,34 @@ a car, so "cars never damage each other by contact" is unweakened. Weapons remai
 that scales with the `attack` rating, so `attack` keeps meaning exactly what its name says: ramming
 sets up the kill, weapons land it.
 
-### Wall and car deflection, and mass-weighted separation
+### Wall and car deflection, and `ramDefence`-weighted separation
 
-Two collision behaviours, both inside `resolveWorld` (`packages/shared/src/sim/collide.ts`) and both
-new as of the 2026-09-06 car-physics rework's stage 2 — neither is "ramming" in the control-loss
-sense below, but both change what a contact feels like before a ram is ever graded:
+Two collision behaviours, both inside `resolveWorld` (`packages/shared/src/sim/collide.ts`) — neither
+is "ramming" in the control-loss sense below, but both change what a contact feels like before a ram
+is ever classified:
 
-- **Walls and other cars now deflect instead of merely damping.** `applyContact` reflects a car's
-  WHOLE velocity vector off the surface it struck and scales the result by
-  `DRIVE_CONFIG.restitution` (cut from 0.35 to 0.15 in this same stage), rather than discarding the
-  lateral component and rebuilding a purely-forward speed the old model did. A car that glances a
-  wall at an angle comes away travelling ALONG the wall with real lateral motion, not stopped facing
-  into it; a dead-on hit still barely rebounds (15% of impact speed, not 35%), because cars are not
-  billiard balls. See `collide.test.ts`'s "contact reflection preserves direction" block.
+- **Walls and other cars deflect instead of merely damping, and since the 2026-09-18 Unity physics
+  port's stage 2, they no longer bounce at all.** `applyContact` reflects a car's WHOLE velocity
+  vector off the surface it struck and scales the result by `DRIVE_CONFIG.restitution` — 0.35
+  originally, cut to 0.15 by the 2026-09-06 car-physics rework's stage 2, and **0 since the Unity
+  port**, matching Unity's own zero-friction, zero-bounce car material — rather than discarding the
+  lateral component and rebuilding a purely-forward speed the old pre-rework model did. A car that
+  glances a wall at an angle comes away travelling ALONG the wall with real lateral motion, not
+  stopped facing into it; at 0 a dead-on hit does not rebound at all, because cars are not billiard
+  balls, and the reflection formula is now idempotent — a relaxation pass than runs the same contact
+  again removes what is left of the into-surface velocity and finds nothing more to bounce, so it can
+  no longer compound a rebound the way a nonzero restitution could. See `collide.test.ts`'s "contact
+  reflection preserves direction" block.
 - **Car-vs-car separation splits by `ramDefence` instead of always giving the whole correction to the
-  body being resolved.** `StepContext.selfRamDefence` (`ramDefenceOf(carId)`) and
+  body being resolved, unchanged by the Unity port.** `StepContext.selfRamDefence` (`ramDefenceOf(carId)`) and
   `CarObstacle.ramDefence` (carried alongside every other car's hull in `StepContext.others`) let
   `resolveWorld` compute `shareOf(selfRamDefence, otherRamDefence) = otherRamDefence /
   (selfRamDefence + otherRamDefence)` per contact: the less solid car moves further out of an overlap
   than the more solid one, converging over several ticks of mutual resolution rather than in one.
   A wall or obstacle still takes the whole correction — solidity has no meaning for something that
-  cannot move. (Both fields were named after `mass` until stage 3; the split itself is unchanged,
-  only the rating it reads.)
+  cannot move. This half is untouched by the Unity port: it is ordinary overlap resolution, not part
+  of the ram rule below, and it still runs on every contact whether or not that contact ever
+  qualifies as a ram.
 
 Both apply to every contact, not only a ram — they run inside ordinary driving, before `contactTick`
 ever asks whether the contact was hard enough to be a ram at all.
@@ -108,121 +111,156 @@ A pair still touching on the following tick is skipped, and a pair no longer tou
 from the tracked set. Holding the throttle into a victim therefore lands one knock, not a
 stun-lock — to ram the same car again you must separate and re-approach.
 
-**There is no severity grade.** Stage 3 replaced it with a CONTEST (spec R2-R7). Each car brings a
-push — its `ramAttack` times how hard it is driving into the contact, plus a speed-independent term
-from its `ramDefence` scaled by `RAM_CONFIG.defencePushScale` (`pushOf`) — and what each car takes is
-the OTHER car's push, reduced by how much it is winning the contest, multiplied by the bonus for its
-OWN struck face, divided by its own `ramDefence`, and converted to a Δv by `RAM_CONFIG.globalScale`
-(`impactOn`). Both outcomes are computed independently: the attacker's impulse is never a negated
-copy of the victim's. The result is open-ended and linear — no ceiling, nothing normalised against a
-roster maximum.
+### Classification
 
-Drive-in is measured from each car's whole PRE-COLLISION world velocity, dotted against the contact
-normal (`TickResult.approachVelocities`, cached before `resolveWorld` can reflect it). A car shunted
-backwards, or one whose nose points away from the contact, brings nothing — its drive-in clamps at
-zero — which is what keeps "get behind them" a strategy rather than "be moving fastest". Whichever
-car is driving in harder is the attacker; if their combined drive-in falls below
-`RAM_CONFIG.minApproachSpeed` (which ships at 0, deliberately inactive) there is no ram at all.
+Ported from Unity's `RamRules.cs` (spec §7.1). For each car in a fresh contact:
 
-Each car's impact side is read in its OWN local frame (spec R6 — the bonus applies to the face each
-car presents, not only the victim's) and scales that car's own contest result (`impactOn`) directly —
-there is no severity grade to multiply and no clamp to bring the result back into range (spec R9):
+- **Region** — which face the contact point lies nearest, in that car's OWN frame, with a corner band
+  where a front or rear face meets a side: `front`, `frontCorner`, `side`, `rearCorner`, `rear`. Band
+  width is `RAM_CONFIG.cornerBandUnits` (4 u).
+- **Drive-in speed** — `max(0, dot(preCollisionVelocity, flatForward))`, from the same
+  `approachVelocities` cache the old model used: still captured before `resolveWorld` can touch it,
+  never defaulted.
+- **May it attack** — not `ramBlocked` (a reeling victim or a car still inside its own attacker lock
+  can never attack, see below).
 
-| Side | Bonus |
+A car **qualifies as an attacker** when it may attack, its own struck region is `front` or
+`frontCorner`, and its drive-in speed is at least `RAM_CONFIG.minRamSpeed` (39 u/s). This is a real
+change of rule from every earlier model: today the attacker is whoever drives in harder, with ANY
+face. A flank-first slide into someone is now a plain bump — no ram at all.
+
+The **type** follows from the victim's region and the angle between the two cars' headings
+(`RAM_CONFIG.headOnAngleDeg`, 45°): a front hit within the angle is `headOn`, a rear hit within it is
+`rear`, everything else is `flank`. When both cars qualify as attackers, any head-on classification
+makes it a head-on for both; otherwise the faster car attacks; an exact tie is a head-on.
+
+### What a ram writes
+
+**Flank and rear:**
+
+| Car | Effect |
 |---|---|
-| Front | 0.3 |
-| Flank | 1.0 |
-| Rear | 1.3 |
+| Attacker | Velocity set to **zero**. `ramLock` for `RAM_CONFIG.attackerLockMs` (500 ms). Spin unchanged |
+| Victim | Velocity set to **pre-collision velocity + shove**. Spin set to **pre-collision spin + spinDelta**. `reeling` for `RAM_CONFIG.ramUncontrolMs` (1000 ms), falloff-scaled. Shove credit recorded for the spikes |
 
-so an identical approach dealt to the rear is worth more than four times the same hit to the front —
-head-on ramming is deliberately weak, and positioning is the whole feature.
+```
+shove     = attackerFlatForward * attackerDriveIn * typeScale * globalScale
+            * ramAttackOf(attacker) / (ramDefenceOf(victim) * victimDefenceMult)
+spinDelta = spinScale * cross(contactPoint - victimCentre, shove) / inertiaRadiusSquared
+inertiaRadiusSquared = (DRIVE_CONFIG.carWidth² + DRIVE_CONFIG.carHeight²) / 12
+```
 
-**As of stage 2 (Task 4) of the 2026-09-06 car-physics rework, `resolveRam` produces a real `Impulse`
-(`packages/shared/src/sim/impulse.ts`), not a stand-in for the pre-rework `RamKnock` shape.**
-`RamKnock` — `angVel`, `shoveX`/`shoveY`, `authority` — no longer exists anywhere in the codebase.
-`Impulse` carries `dirX`/`dirY` (a unit vector: the direction the victim is pushed), `speed` (a Δv),
-`spin` (a torque scale — 0 for a clean punt), `defenceScaled` (renamed from `massScaled` in stage 3
-Task 2 — whether `applyImpulse` divides `speed` by the receiving car's `ramDefence` a second time;
-`false` for both of an ordinary ram's impulses, since `impactOn` (`sim/ram.ts`) already divided by
-each side's `ramDefence` inside the contest, and `false` for a hard slam's fixed magnitude too, which
-is meant to punt every chassis identically), `uncontrolTicks` (authored `0` by `resolveRam`/
-`sim/contact.ts`'s slam branch themselves — the contest has no `ramDefence`-scaled duration of its own
-to write; as of stage 3b, `ram-bridge.ts`'s `contactTick` is what fills it in for a ram, from
-`RAM_TICKS.uncontrol`, before the impulse lands — see [Ram control-loss](#ramming) below), and a
-world-space `contactX`/`contactY` for the lever arm. `applyImpulse` (`sim/impulse.ts`) is the single
-place anything outside the drive model changes a car's velocity — ram and weapons both derive an
-`Impulse` differently, but both LAND through this one function. `applyImpulse` deliberately does NOT
-apply `reeling` itself: it is pure sim maths shared by both halves of the lockstep, and a status is not
-`SimBody` state, so the caller (`contactTick`, server-only) reads `imp.uncontrolTicks` back off the
-already-scaled impulse and applies the status itself.
+`victimDefenceMult` is the victim's `ramDefence` status multiplier (`Modifiers.ramDefence`, 1 for a
+car in no status). `typeScale` is `RAM_CONFIG.headOnScale` (0.2) / `flankScale` (1.5) / `rearScale`
+(1.2) — flank is the roster's hardest hit, rear next, head-on gentlest, so getting behind someone
+still pays and ramming head-on is still deliberately the weak play. `globalScale` (0.6) is the single
+calibration knob reconciling Unity's 1-vs-1 `strength`/`resistance` scale with this roster's
+`ramAttack`/`ramDefence` (45-70 and 30-90). Spin is clamped to `RAM_CONFIG.spinMaxRate` (6.0 rad/s),
+as it always was — Unity has no such clamp and does not need one at its own scale; here it stays a
+playability guard.
 
-**Each side's outcome is computed independently, not derived from the other's (spec R7).** There is
-no `reactionOf` any more — it was deleted in stage 3 Task 3 along with `mass` itself. `resolveRam`
-(`sim/ram.ts`) returns TWO impulses from one contest: `impulse` for the victim and `attackerImpulse`
-for the attacker, each built by the same `pushOf`/`impactOn` pair reading its OWN car's `ramAttack`/
-`ramDefence`, so a car that hits hard but folds easily and one that hits soft but shrugs off contact
-are not forced to be mirror images of each other the way an equal-and-opposite reaction did.
-`ram-bridge.ts`'s `contactTick` applies `impulse` to the victim and `attackerImpulse` to the attacker
-as two ordinary entries of the same `impulses` map — no negation, no shared magnitude. A hard slam is
-the extreme case of this independence: it is authored rather than contested, so R7 has no "other
-side" for it to derive a cost from and its attacker takes nothing from its own charge. Through stage
-3 that was spelled as a deliberate ZERO-magnitude `attackerImpulse` riding the same map; stage 4 took
-the slam off that map entirely (see "Maneuvers and the contact pass" below), so the attacker is now
-simply never pushed. Either way it replaced `SLAM_CONFIG.selfKeepFactor`'s old hand-tuned "restore a
-fraction of pre-impact speed" approximation: there is no restoring left to do, because nothing ever
-took anything from the attacker's slam in the first place.
+**Head-on:** each car's velocity is set to the shove the OTHER car's heading, speed and `ramAttack`
+produce against its OWN `ramDefence`, at `headOnScale`. Both are locked (`ramLock`). **Neither spins
+and neither reels** — Unity applies no Reeling on a head-on, and that is kept: a head-on is a mutual
+stop, not a mutual delete. Each car records the OTHER as its shover for the spike credit window,
+since each was put where it ends up by the other.
 
-**The attacker still pays something on an ordinary ram, and it lands in two layers — see "Wall and car
-deflection" above.** `serverTick`'s own collision pass reflects the attacker's velocity by
-`DRIVE_CONFIG.restitution` before `contactTick` ever runs, so `attackerImpulse` lands on top of an
-already-bounced velocity, never the pre-collision one — and for most of the roster's rams that
-restitution bounce dwarfs the contest's own contribution. A full-speed Bastion flanking a parked
-Bullseye, for example, ends the ram at -28.6 u/s off its own 190 u/s top speed; all but 0.1 u/s of
-that is the restitution reflection, not the contest — see `RAM_CONFIG.globalScale`'s doc comment in
-`ram-config.ts` for the full measured table. See
-[`config-reference.md`](config-reference.md#ram_config) for the tuning.
+**A ram deals no damage**, as it always has — see "A ram deals zero hp" above. Unity's own
+`flankDamage`/`rearDamage` fields are 0 there and are not ported at all, so "cars never damage each
+other by contact" needs no separate guard for this model.
 
-**Ram control-loss (steering degraded by a hit) is back, as of stage 3b, in the form of the `reeling`
-status rather than a revived `authority` field.** `authority` had no field to migrate onto —
-`PlayerState` carries none — so `ram-bridge.ts` dropped it on the floor entirely through stage 3, and a
-rammed car kept full steering. `contactTick`'s impulses loop now applies `reeling` to a ram's victim
-(never its attacker) for
-`RAM_TICKS.uncontrol`, scaled down on a re-ram by the same per-victim diminishing-returns stack
-(spec P24) that already scales the impulse's own `speed`: `nextFalloff` is read and recorded once per
-ram, and both the impulse magnitude and the `reeling` duration it hands to `applyStatus` are derived
-from that one call's `impulseScale`/`durationScale` pair, floored at `RAM_TICKS.durationFloor` so a
-long enough chain never rounds the status away to nothing. Falloff scales only the victim's half — the
-attacker's `attackerImpulse` is charged in full on every ram, so chaining rams into an already-worn-down
-victim never gets safer for the aggressor. **A hard slam has its own control loss as of stage 4, and
-it is untouched by any of this**: `wildcharge.impulse.uncontrolMs` (1400 ms, longer than a
-full-strength ram's 1000) becomes `reeling` on the slam's victim through `contactTick`'s
-`events.slams` loop, unscaled — falloff is ram-only (spec P24), so an ult is never quietly discounted
-by how many ordinary rams its victim has just absorbed, and a slam is never counted into the stack a
-later ram reads. Before stage 4 a slam imposed no control loss at all: `sim/contact.ts` authored
-`Impulse.uncontrolTicks: 0`.
+`sim/ram.ts` classifies and computes; `packages/server/src/sim/ram-bridge.ts` writes the result —
+there is no `pushOf`, `impactOn`, `RamHit.attackerImpulse` or `reactionOf` anywhere in the codebase
+any more. **There is no reflection left to throw anyone backwards, and the rammer's stop is
+authored**: the old contest's headline finding — an attacker landing a hard flank ended up thrown
+backwards faster than its own top speed — cannot recur, because the attacker's outcome is no longer
+computed from a reflected velocity at all. It is simply set to zero.
+
+### Diminishing returns
+
+Unchanged in mechanism from the earlier models: per victim, across attackers, a rolling
+`RAM_CONFIG.drWindowMs` (2000 ms) window. `impulseScale` now multiplies the **shove magnitude and the
+spin** (not a separate `Impulse.speed`, since a ram no longer builds one); `durationScale` scales the
+reel, with the same floors (`durationDrFloorMs`/`impulseDrFloor`) as before. A head-on counts as a ram
+against EACH car and scales each car's own shove by that car's OWN stack. Slams neither read nor
+write the falloff stack, as before.
+
+### What the ram path no longer does
+
+`resolveRam`'s contest — `pushOf`, `impactOn`, the three-row face bonus table, `RAM_CONFIG
+.defencePushScale`, `minApproachSpeed` — is deleted, as is `RamHit.attackerImpulse`: the attacker's
+outcome is a rule ("you stop"), not a computed push. `Impulse` (`packages/shared/src/sim/impulse.ts`)
+and `applyImpulse` survive, but **for slams only** — a ram now writes velocities directly in
+`ram-bridge.ts`, where Unity's "set, don't add" semantics can be expressed honestly instead of forced
+through a push-and-apply seam built for a contest. `RAM_CONFIG.inertiaCoefficient` and the inert
+`knockMaxSpeed` are both gone, replaced by the hull-derived `inertiaRadiusSquared()` above, so the
+inertia term cannot drift from the hull it describes.
+
+The pair loop's return type changed with it: `applyRams` and `resolveContacts` stop returning
+per-victim `Impulse` entries for a ram and return a `RamResolution` instead — `{ attackerId,
+victimId, type, shove: Vec2, spin, headOn }` — which is what lets the bridge write "set to
+pre-collision velocity plus shove" rather than accumulating a push onto an existing one.
+`resolveContacts` keeps its dash and slam arms unchanged: a `ContactHit` for a dash, a `SlamEvent`
+for a charge, both still carrying the OBB contact geometry the bridge cannot recompute (see
+"Maneuvers and the contact pass" below) — a car in either maneuver therefore never reaches the ram
+arm at all, which is why `ramLock` can never strand a dashing or charging car.
+
+### Ram control-loss
+
+**`reeling` is a total loss of control, not a steering debuff.** `STATUS_TABLE.reeling`:
+`modifiers: { grip: 0.6 }`, `flags: ["immobilised", "steeringLocked", "spinFree", "ramBlocked"]`,
+`reapply: "ignore"`. It used to be `turnRate: 0.4, accel: 0.4` — a car that handled badly. It is now a
+car with no inputs at all: `immobilised` and `steeringLocked` kill throttle and steering outright,
+`spinFree` lets the spin the ram injected keep running instead of being overwritten by steering every
+tick, `ramBlocked` stops a reeling car from qualifying as a ram attacker, and `grip: 0.6` (0.6 of
+`DRIVE_CONFIG.lateralGripRate`'s 3.0/s, so 1.8/s — a roughly 2.2-car-length ride) slows how fast the
+shove it just took scrubs off, so it rides further than a driver would slide. You can still shoot,
+which is what keeps a ram a setup rather than a delete. `reapply: "ignore"` is FORCED by the
+flag-carrying rule (a flag-carrying debuff may never chain) and costs exactly one behaviour: **a
+re-ram landing while a reel is still running no longer extends it** — falloff still scales the shove,
+the spin, and the duration of a ram landing AFTER a reel has lapsed.
+
+**`ramLock` sits beside it — the attacker's own cost for landing a ram.** `STATUS_TABLE.ramLock`:
+`modifiers: {}`, `flags: ["immobilised", "steeringLocked", "ramBlocked"]`, `reapply: "ignore"`, for
+`RAM_CONFIG.attackerLockMs` (500 ms, deliberately shorter than the victim's `reeling` — the attacker
+chose to stop, the victim did not, and a lock as long as the victim's own reel would let a chain of
+attackers each get away before their target recovers). Deliberately WITHOUT `spinFree` and with grip
+untouched: a rammer stops, it does not slide — exact for a flank or rear attacker, whose own side
+carries a zero shove. On a head-on both cars ARE given a small non-zero shove (each along the OTHER's
+heading, at `headOnScale`), and they slide it off at full grip, because this row leaves that channel
+alone. Both cars take `ramLock` on a head-on.
+
+**A hard slam has its own control loss, untouched by any of the above.** `wildcharge`'s own
+`applies` entry (`{ statusId: "reeling", durationMs: 1400 }`, longer than a full-strength ram's
+1000 ms) becomes `reeling` on the slam's victim through `contactTick`'s `events.slams` loop,
+unscaled — falloff is ram-only, so an ult is never quietly discounted by how many ordinary rams its
+victim has just absorbed, and a slam is never counted into the stack a later ram reads.
 
 See [`schema-reference.md`](schema-reference.md#playerstate) for the networked fields and
-[`config-reference.md`](config-reference.md#ram_config) for the tuning. Five of that config's knobs
-carried the old steering-authority and shove decays and had been inert since the vector-drive rework;
-stage 3b deleted all five outright. Their mechanics have two different successors, not one: the three
-`authority` knobs (`authorityFloor`, `authorityHalfLifeSeconds`, `authorityEpsilon`) describe the
-steering penalty `reeling` supplies now, while the two `shove` ones (`shoveHalfLifeSeconds`,
-`shoveEpsilon`) described a decay on knock velocity, which bled off through the flat-rate
-`DRIVE_CONFIG.impactGripDecel`. **That knob is gone too, as of the 2026-09-18 Unity drive-model
-port:** there is one grip model for the whole car now — `DRIVE_CONFIG.lateralGripRate` resolved to
-`ChassisDrive.gripPerTick` and scaled per car by the `grip` status channel — so an imposed shove
-bleeds off through the same lateral grip an ordinary drift does. `SLAM_CONFIG.victimAuthority`/`selfKeepFactor` were the slam
-side of the same story and stage 4 deleted them too, along with `knockSpeed`, the two wall-stun
-knobs, `reslamImmunityMs` and the whole `SLAM_TICKS` export — every slam number now lives on
-`WEAPON_TABLE.wildcharge.impulse`, and `SLAM_CONFIG` holds only `wallContactPad`.
+[`config-reference.md`](config-reference.md#ram_config) for the tuning. `RAM_CONFIG` used to carry
+five knobs for a revived `authority` field and a knock-velocity decay (`authorityFloor`,
+`authorityHalfLifeSeconds`, `authorityEpsilon`, `shoveHalfLifeSeconds`, `shoveEpsilon`) — deleted
+outright in the 2026-09-06 car-physics rework's stage 3b, before this port, once `reeling` and the
+flat-rate `DRIVE_CONFIG.impactGripDecel` took over their jobs. **`impactGripDecel` is gone too, as of
+this Unity port:** there is one grip model for the whole car now — `DRIVE_CONFIG.lateralGripRate`
+resolved to `ChassisDrive.gripPerTick` and scaled per car by the `grip` status channel — so an
+imposed shove bleeds off through the same lateral grip an ordinary drift does, at whatever rate
+`reeling`'s own `grip: 0.6` sets. `SLAM_CONFIG.victimAuthority`/`selfKeepFactor` were the slam side of
+that same story and the 2026-09-06 rework's stage 4 deleted them too, along with `knockSpeed`, the
+two wall-stun knobs, `reslamImmunityMs` and the whole `SLAM_TICKS` export — every slam number now
+lives on `WEAPON_TABLE.wildcharge.impulse`, and the config that used to be `SLAM_CONFIG` (renamed
+`IMPULSE_CONFIG` on 2026-09-19, since neither member turned out to be slam-specific) holds
+`wallContactPad` and `spinScale`.
 
-**Teammates are fully immune.** `resolveRam` is gated by the same `canDamage` predicate used below
-for shots, so contact and weapons can never disagree about who is on your side. Teammates still
-collide and shove each other through ordinary resolution; a friendly hit simply produces no spin and
-no added velocity.
+**Teammates are fully immune.** A ram never classifies between teammates — the same `canDamage`
+predicate used below for shots gates it, so contact and weapons can never disagree about who is on
+your side. Teammates still collide and shove each other through ordinary resolution; a friendly hit
+simply produces no spin and no added velocity.
 
 See [`superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md`](superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md)
-for the full decision record (R1–R20), including the deviations recorded there.
+for the earlier models' full decision record (R1–R20) and
+[`superpowers/specs/2026-09-18-unity-driving-and-ram-physics-port-design.md`](superpowers/specs/2026-09-18-unity-driving-and-ram-physics-port-design.md#7-the-ram-model)
+for this one (U19–U39).
 
 ## Maneuvers and the contact pass
 
@@ -244,19 +282,23 @@ four networked `PlayerState` fields (`maneuver`, `maneuverTicksLeft`, `maneuverA
   intended mechanism for `lance`-style weapons that root the car while they fire.
 - **Charge** — drives normally and only counts down, ending early on its first slam (or its own
   `durationMs`). While charging, contact with an opponent it may damage is a **hard slam** instead of
-  a graded ram: a fixed impulse authored on the charging weapon's own row
+  an ordinary ram: a fixed impulse authored on the charging weapon's own row
   (`WEAPON_TABLE.wildcharge.impulse` — same knock for every attacker and victim, no `ramDefence`
-  divisor, no side bonus, no spin), gated off if the victim is already `stunned` and the charger's
+  divisor, no type scale, no spin), gated off if the victim is already `stunned` and the charger's
   weapon doesn't set `slamsStunned` (O3/O18), or if the victim is still inside that row's
-  `retriggerImmunityMs` of a previous slam. A landed slam leaves its victim `reeling` for the row's
-  own `uncontrolMs`, unscaled by the ram falloff stack. It also ends the attacker's charge and
-  expires the attacker's own self-applied statuses (`expireStatusesFromSource`) — a window that closed
-  early cannot leave its buff running past it. The attacker takes **nothing** from its own slam: it
-  is authored, not contested (R7 — every car's outcome is computed independently, and a slam has no
-  "other side" to derive a cost from), so its post-slam velocity is entirely whatever `resolveWorld`'s
-  restitution already reflected off it that same tick, and there is no hand-restored fraction of
-  pre-impact speed (`SLAM_CONFIG.selfKeepFactor`, deleted in stage 4). A victim shoved into a wall
-  within the row's `wallStun.windowMs` of the slam is stunned once for its `durationMs` (O2).
+  `retriggerImmunityMs` of a previous slam. A landed slam leaves its victim `reeling`, off the row's
+  own `applies` list (`{ statusId: "reeling", durationMs: 1400 }` for `wildcharge`) — a 2026-09-19
+  restructure of what used to be a bare `uncontrolMs: number` with the status id `"reeling"` supplied
+  in code — unscaled by the ram falloff stack, since falloff is ram-only. It also ends the attacker's
+  charge and expires the attacker's own self-applied statuses (`expireStatusesFromSource`) — a window
+  that closed early cannot leave its buff running past it. The attacker takes **nothing** from its own
+  slam: it is authored, not a rule with an "other side" to derive a cost from, so its post-slam
+  velocity is entirely whatever
+  `resolveWorld`'s restitution already reflected off it that same tick — which at `restitution: 0` is
+  nothing at all — and there is no hand-restored fraction of pre-impact speed (`SLAM_CONFIG
+  .selfKeepFactor`, deleted in stage 4). A victim shoved into a wall within the row's own
+  `onWallImpact.windowMs` of the slam has that entry's `applies` land too (`wildcharge` stuns for
+  `durationMs: 500`) (O2).
 
 `sim/contact.ts`'s `resolveContacts` is where the classification lives: it extends `applyRams`'s pair
 loop — checking each car for a dash, then a charge/slam, and only falling through to an ordinary ram
@@ -858,11 +900,12 @@ derived DPS per weapon, so every one of those numbers moves with the row.
 
 Weapons and wall spikes (see [Environmental hazards](#environmental-hazards-wall-spikes) above) are
 the only damage sources. Car-to-car collision costs nobody hp: cars shove each other through
-ordinary resolution, and — between non-teammates on fresh contact — also ram each other for a
-contested `Impulse`, each side's outcome computed independently rather than one derived from the
-other's (see [Ramming](#ramming) above; the steering-loss half of that landed in stage 3b as the
-`reeling` status, applied to the victim only and scaled by the same falloff stack as the impulse).
-Neither ever costs hp.
+ordinary resolution, and — between non-teammates on fresh contact, nose-first above
+`RAM_CONFIG.minRamSpeed` — also ram each other under the Unity one-way rule: the attacker stops dead
+and is locked (`ramLock`), the victim is shoved, spun and left `reeling` (see [Ramming](#ramming)
+above). A head-on stops and locks both cars and reels neither. Falloff scales a ram victim's shove,
+spin and reel duration; the attacker's own stop and lock are unscaled. Neither a ram nor a shove ever
+costs hp.
 
 One hit costs `damageFor(attack, weapon.damage)`:
 
@@ -902,7 +945,10 @@ it lands. Everything it can do is enumerated by `StatusChannel`, `StatusFlag`, `
 ### One type reaches the sim
 
 Driving, ramming and combat never look at a status list. Each reads a `Modifiers` — one set of
-multipliers and three flags — produced by `modifiersOf`, and nothing else:
+multiplier channels (nine now: the original eight plus `grip`, the 2026-09-18 Unity ram port's lateral
+grip scale, spec §5) and eight flags (`immobilised`, `steeringLocked`, `disarmed`, `fullStop`,
+`invulnerable`, `phased`, and the same port's `spinFree` and `ramBlocked`) — produced by
+`modifiersOf`, and nothing else:
 
     PlayerState.statuses -> toActiveStatuses -> modifiersOf -> Modifiers -> stepDrive / resolveRam / runCombat
 
@@ -932,11 +978,13 @@ Re-tabled by the 2026-09-01 weapon-status overhaul (Plan 3) against the current 
 *effect* is `STATUS_TABLE`'s, above — see [`config-reference.md`](config-reference.md#status_table)
 for the numbers.
 
-Five of the eight rows here are reachable from a weapon; two — `overhauled` and `armored` — are
-waiting on pickups; `reeling` is the one row no weapon's `applies` ever grants — the contact pass is
-its only source, for an ordinary ram and (since stage 4) for a hard slam, which reads its duration
-off `wildcharge.impulse.uncontrolMs` rather than from `applies` (same non-`applies` treatment as
-`stunned`'s wall-impact source below). Three
+Five of the nine rows here are reachable from a weapon; two — `overhauled` and `armored` — are
+waiting on pickups; two — `reeling` and, since the 2026-09-18 Unity ram port, `ramLock` — are never
+granted by a weapon's `applies` at all. The contact pass is `reeling`'s source for an ordinary ram
+(victim only) and `ramLock`'s source for a landed one (attacker only); a hard slam adds a second
+`reeling` source, reading its duration off the slam's own `applies` entry (same non-`applies`
+treatment as `stunned`'s wall-impact source below, which reads its duration off `onWallImpact`'s
+`applies` instead). Three
 statuses now have more than one source (`stunned`'s third arriving outside `applies` entirely), and
 `tremor`'s two rows are presence effects — short durations a live zone keeps topping back up, held
 exactly while a car stands in it:
@@ -952,8 +1000,9 @@ exactly while a car stands in it:
 | `spiked` | `tremor` | — (uncarried) | 0.6 s per damage tick — held while the target stands in the zone |
 | `fortified` | `wildcharge`, **self** | Bastion | 10 s, ended early with the charge |
 | `fortified` | `tremor`, **`ownerInside`** | — (uncarried) | 0.3 s per covered tick — held while the OWNER stands in their own zone |
-| `reeling` | any landed ram (`ram-bridge.ts`'s `contactTick`, not `applies`) | — (any chassis, victim only) | `RAM_TICKS.uncontrol`, shorter on a re-ram — see [Ramming](#ramming) |
-| `reeling` | a landed hard slam (`contactTick`'s slams loop, not `applies`) | Bastion | `wildcharge.impulse.uncontrolMs` (1.4 s), never shortened — falloff is ram-only |
+| `reeling` | any landed flank or rear ram (`ram-bridge.ts`'s `contactTick`, not `applies`) | — (any chassis, victim only) | `RAM_CONFIG.ramUncontrolMs` (1 s), shorter on a re-ram — see [Ramming](#ramming) |
+| `reeling` | a landed hard slam (`contactTick`'s slams loop, not `applies`) | Bastion | `wildcharge.impulse.applies[reeling].durationMs` (1.4 s), never shortened — falloff is ram-only |
+| `ramLock` | landing a flank or rear ram, or either car in a head-on (`contactTick`, not `applies`) | — (any chassis, attacker — both cars on a head-on) | `RAM_CONFIG.attackerLockMs` (0.5 s), unscaled — falloff is victim-only |
 | `overhauled` | nothing — the pickup row | — | — |
 | `armored` | nothing — the pickup row beside `overhauled` | — | — |
 

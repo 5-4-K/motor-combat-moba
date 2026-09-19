@@ -22,6 +22,17 @@ import { constantVelocityPredictor } from "./solution.js";
  * belongs in one place rather than at each of the thirty-odd call sites, where spelling it out would
  * bury what each scene is actually about. Pass `vx`/`vy` directly for the rare scene that wants a
  * car sliding across its own nose; the two forms compose, with `speed` applied last.
+ *
+ * ANNOTATED, stage 5 Task 9 (2026-09-19): both defaults below carry `vx: 300`, the same stale literal
+ * that caused a real bug in `duel.fixture.ts` (see its `BOT_START` comment) once this port's stage 5
+ * Task 5 tuning pass pushed the roster's top speeds below it (mirage 283.5 today). It is NOT
+ * derived here for the same reason: these two factories feed `predict.ts`'s pose-and-velocity math
+ * directly, never through `stepDrive`, so nothing here decelerates a scene toward a chassis cap the
+ * way the fixture's closed loop did — the literal is inert with respect to that bug class. Left as a
+ * plain default rather than derived from `driveOf("mirage").maxSpeed`, because dozens of scenes in
+ * this file build on `carAt()`/`selfAt()` and re-deriving the shared default would need each one
+ * re-verified against its own assertions, which is more churn than this value is currently buying
+ * anyone. Flagging it here so the next reader does not mistake "the same literal" for "the same bug".
  */
 function carAt(over: Partial<BotCarView> & { speed?: number } = {}): BotCarView {
   const { speed, ...rest } = over;
@@ -33,7 +44,8 @@ function carAt(over: Partial<BotCarView> & { speed?: number } = {}): BotCarView 
   return { ...car, vx: Math.cos(car.angle) * speed, vy: Math.sin(car.angle) * speed };
 }
 
-/** The `speed` override behaves exactly as it does in `carAt` above — see there. */
+/** The `speed` override behaves exactly as it does in `carAt` above — see there, including the
+ * stale-`vx: 300` note. */
 function selfAt(over: Partial<BotSelfView> & { speed?: number } = {}): BotSelfView {
   const { speed, ...rest } = over;
   const self: BotSelfView = {

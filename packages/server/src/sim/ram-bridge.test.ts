@@ -355,6 +355,14 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     // hand-tuned forward-only restore and the old `reactionOf`-based equal-and-opposite reaction are
     // both gone; the attacker keeps whatever velocity it already had. A RAM attacker does NOT — it
     // stops dead (spec §7.2) — and that asymmetry between the two is the point of this assertion.
+    //
+    // ANNOTATED, stage 5 Task 9 (2026-09-19): `vx: 300` here exceeds the default chassis's real top
+    // speed under current tuning, the same stale-literal shape as `duel.fixture.ts`'s fixed
+    // `BOT_START` bug — but this scene sets `vx` directly on a `PlayerState` and asserts it comes back
+    // UNCHANGED (see the `forwardOf(...)` expectation below), never running it through `stepDrive`, so
+    // there is no drive-model cap for it to be above and no transient this literal could produce. Left
+    // un-derived: 300 is an arbitrary nonzero value proving "the attacker keeps whatever velocity it
+    // already had", not a claim about a real chassis's top speed.
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
     addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
@@ -428,6 +436,9 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     // failing this assertion. Moving the whole pair inward by the same 200 units keeps the 47-unit
     // spacing the charge contact needs while clearing the new wall by a wide margin. That spacing
     // is 58.75 u since the 2026-09-16 resize to the 60x40 hull (1.25x, spec BC9), so "b" sits at 258.75.
+    // ANNOTATED, stage 5 Task 9 (2026-09-19): same `vx: 300` shape as the slam test above — a
+    // charging attacker's velocity here, never run through `stepDrive`, so this is inert with respect
+    // to the transient-deceleration bug class; not derived for the same reason.
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 200, y: 400, angle: 0, vx: 300 });
     addPlayer(state, "b", { x: 258.75, y: 400, angle: 0 });

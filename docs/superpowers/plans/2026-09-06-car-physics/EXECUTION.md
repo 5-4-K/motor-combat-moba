@@ -15,6 +15,16 @@ the user drove the merged build for the first time. **That drive is still the mo
 this file** — it parked the restitution stage and made stage 4 next. Stage 4 itself has **not** been
 driven.
 
+**HISTORICAL AS OF 2026-09-19 for this plan's own stage 5 purposes.** Stage 5
+(`05-tune-and-reconcile.md`, this file's own plan) never ran — the 2026-09-18 Unity physics port
+replaced the ram contest it would have tuned before a single task of it started, and every obligation
+this file still lists as "stage 5's" now belongs to that port's own five-stage plan instead. This
+file is kept as the accurate record of stages 1 through 4 and is annotated, not rewritten, at the
+points a reader is likely to still land on — see the stage table's row 5, "Resume here", and "What
+has never been verified" below. Start a fresh session at
+[`docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md`](../2026-09-18-unity-physics-port/EXECUTION.md)
+instead of here.
+
 ---
 
 ## MERGED INTO `development/main` — 2026-09-07
@@ -149,7 +159,7 @@ parked, and stage 5 is next.
 | 3b | `03b-ram-feel.md` | **Executed**, against revision 2, in 10 commits from `3468716` onwards. Four implementation commits (`3468716` add `reeling`, `376433d` the falloff stack, `223ad37` apply `reeling` scaled by falloff, `9fc030b` delete the five dead knobs and pin R6's ratio), one incidental fixture reseed (`c8cbc7d`), two documentation reconciliations (`a10e71c`, `6335ed0`), then the stage-closing pass: `8608bd0` sweeps eleven deferred review findings, and the documentation commits after it write this file and the two `CLAUDE.md`s. |
 | — | *the restitution stage* | **PARKED on 2026-09-07, later the same day it was approved — by play, not by argument.** It was approved that morning and sequenced here; the user then drove the merged build and reported no problem with collision impact or restitution, which is precisely what this stage would have changed. Not cancelled and not refuted — understood, cheap, and waiting for a complaint that has not arrived. See "The restitution stage, and why it is parked" below for the measurement that closed it. **Do not start it without a fresh reason from play.** |
 | 4 | `04-impulse-def.md` | **Executed**, against revision 2, in 9 commits (`5b6e13f`..`9d0a854`) on `claude/car-physics-stage-4-b846e5`: `5b6e13f` lands the type, `888bdc9`/`e244fce` its two review nits, `3423bef` moves the slam onto `wildcharge`'s row (Tasks 2 and 3 merged into one commit — see the plan's `EXECUTED` banner), `577eca3` refreshes the balance fixture seed, `8fb44e4` fixes the task review's findings, `8c361ff` records the stage here, then the whole-stage review's fix wave: `1a9581b` restores the dash-vs-slam ordering the refactor had silently changed and guards `spin`/`direction`, and `9d0a854` documents both. **A slam now imparts `reeling`**, which it never did before. Not driven by a human. |
-| 5 | `05-tune-and-reconcile.md` | Revised for revision 2. Not started. ← next |
+| 5 | `05-tune-and-reconcile.md` | **SUPERSEDED, 2026-09-18-19 (stage 5 Task 9 annotation).** Revised for revision 2 and never started under this plan — the 2026-09-18 Unity physics port replaced the ram contest this stage would have tuned before a single task of it ran. The work this row named is now owned by [`docs/superpowers/specs/2026-09-18-unity-driving-and-ram-physics-port-design.md`](../../specs/2026-09-18-unity-driving-and-ram-physics-port-design.md) §3 and its own five-stage plan, `docs/superpowers/plans/2026-09-18-unity-physics-port/`, whose own stage 5 (`05-tune-and-reconcile.md`, a same-named but distinct plan) is where the tuning pass and the `dashSubstepMaxUnits` judgement this row pointed at actually happened. |
 
 The 5 commits before `925b788` (`febd7b8`..`2c7f235`) are the redesign and replan — no code changed
 in them. Stage 3 ran as four tasks (`d29234b` add the ratings, `49c9ec4` freeze `minApproachSpeed`
@@ -327,28 +337,34 @@ real code fix named below.
 
 ## Resume here
 
-**Stage 5** (`05-tune-and-reconcile.md`). The restitution stage that briefly sat before stage 4 is
-parked — see the stage table and "The restitution stage, and why it is parked" below. Do not pick it
-up without a fresh reason from play.
+**This section is historical.** The stage 5 this file used to point readers at never ran — see the
+stage table's row 5, above. **Redirect to
+[`docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md`](../2026-09-18-unity-physics-port/EXECUTION.md)**,
+which is where this plan's obligations actually landed. The substance, so a reader does not have to
+chase it across two files: the `speed: 520` re-pitch this section used to point at is that plan's
+**Task 3 Step 5**, resolved by ruling T5-a (520 stays, the guard is re-aimed rather than the number
+moved — see that plan's `.superpowers/sdd/05-tune-and-reconcile/progress.md`); the
+`dashSubstepMaxUnits` judgement below is that plan's **Task 4**, answered by the owner on 2026-09-19
+("doesn't bother me" at 16, driven by hand in the playground — the knob does not move, see
+`DRIVE_CONFIG.dashSubstepMaxUnits`'s own doc comment for the trade). The restitution stage that
+briefly sat before stage 4 stayed parked through this plan's whole remaining life and was then
+subsumed outright: the Unity port's stage 2 sets `restitution: 0` unconditionally, which is a
+stronger move than this stage would have made, not a revival of it.
 
-Stage 5 inherits stage 4's `speed: 520` re-pitch, with the `reeling` obligation above attached to it.
-The other two things stage 4 itself inherited from 3b are both discharged: `wildcharge`'s own
-`uncontrolTicks` is authored (1400 ms), and the `ImpulseEntry` `kind` discriminator **dissolved
-rather than shipped** — see the section below.
-
-**One deferred obligation the user set on 2026-09-07, which stage 5 inherits.** The hands-on exit
-criteria for stage 3b — ram side-on and watch for a spin the victim can still shoot through, ram a
-fleeing car versus one closing on you, chain three rams and check the third barely registers, wait
-three seconds and check full strength returns, and **wildcharge and check the victim's `reeling`
-comes from the WEAPON'S OWN duration (1400 ms, `WEAPON_TABLE.wildcharge.impulse.uncontrolMs`) and
-carries no falloff** — **are impractical to reproduce by hand against a bot.** The user tried and
-said so. They want them covered by playtest probes instead, and they want that probe-writing done
-**after the physics rework is complete**, not piecemeal alongside it. So: do not write them now, and
-do not treat 3b's unticked hands-on boxes as something a session can close by driving. Existing
-coverage in `packages/server/playtest/ram.ts` is R1-R5; **R5 (ram-lock) is the only one anywhere near
-this list**, and it now measures a mechanic that has a countermeasure it does not know about. Nothing
-measures `reeling` at all, the fleeing-versus-closing contrast, falloff window recovery, or the slam
-exclusion. That is the gap the eventual probes fill.
+**One deferred obligation the user set on 2026-09-07 is STILL OPEN, and it crossed plans unresolved.**
+The hands-on exit criteria for stage 3b — ram side-on and watch for a spin the victim can still shoot
+through, ram a fleeing car versus one closing on you, chain three rams and check the third barely
+registers, wait three seconds and check full strength returns, and check a slam's `reeling` comes
+from the weapon's own duration and carries no falloff — were judged impractical to reproduce by hand
+against a bot. The user wanted them covered by playtest probes instead, written **after the physics
+work is complete, not piecemeal alongside it.** That instruction still binds, and it is still
+unfulfilled: the Unity physics port's own stage 5 Task 6 ("make the playtest probes honest") deliberately
+updated the EXISTING probes to match the new model without writing this new coverage — Task 6's own
+progress record lists the bundled `ramChain`/R5/`lan.ts` measurement as a judgement call deliberately
+deferred, precisely because writing a new scenario is the user's to schedule, not an implementer's to
+add on their own initiative. Existing coverage in `packages/server/playtest/ram.ts` is still R1-R5;
+nothing measures `reeling` itself, the fleeing-versus-closing contrast, falloff window recovery, or
+the slam's falloff exclusion. That is still the gap.
 
 > **STAGE 4 INVERTED THE LAST ITEM ON THAT LIST — read this before writing that probe.** As written
 > for stage 3b it said "wildcharge and check the victim does **NOT** gain `reeling`", which was true
@@ -514,6 +530,28 @@ the user answered on 2026-09-07" above and is not restated here. `globalScale` w
 pipeline whose attacker-side outcome is dominated by the term that fix moves.
 
 ## What has never been verified
+
+**ANNOTATED, stage 5 Task 9 of the Unity physics port (2026-09-19): this whole section is now a
+historical record, not a live gap list.** Every probe and threshold this section names was picked up
+and worked by that port's own stage 5 Task 6 ("make the playtest probes honest") — the three items
+named most specifically below are worth pointing at directly, since they are the ones a reader
+chasing this section is most likely to still be looking for:
+
+- **`collision.ts` probe 1's `maxRamShove = 416` bound** (flagged again below) — re-pointed by Task 6
+  to the current model's own figures rather than the stage-3 contest's; see that plan's own
+  `.superpowers/sdd/05-tune-and-reconcile/progress.md` for the exact re-derivation.
+- **`ram.ts` R5's dead rise-in-lateral-velocity counter** (also flagged below, and again under
+  "Resume here" above) — Task 6 re-pointed R3 to the Unity model's "attacker stops at exactly 0"
+  rule, which R5's own counter shape could not express; a `reeling`-based replacement measurement was
+  judged a scenario change and deliberately left for the user to add, same disposition this file
+  already recorded for it.
+- **`prediction.ts` P1's `carWidth` threshold** (flagged below) — reviewed by Task 6 and judged a UX
+  call, deliberately left rather than moved on an implementer's own initiative — the same judgement
+  this file already recorded for it.
+
+The bullets below are kept rather than deleted, because they are still the accurate record of what
+each of stages 1 through 4 of THIS plan did to the probes — the Unity port changed the model those
+probes measure a second time, but did not undo what these bullets say about the first set of changes.
 
 **Almost nobody has driven any of this.** As of 2026-09-07 the branch has had **one ~5-minute drive**
 on the merged `feature/car-physics-rework` build, scoped deliberately to **collision impact and

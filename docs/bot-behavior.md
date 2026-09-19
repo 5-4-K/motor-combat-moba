@@ -16,13 +16,19 @@ Design: [`docs/superpowers/specs/2026-09-05-bot-situation-play-design.md`](super
 Fairness / hands / personalities: H1–H8 and H16–H48 of
 [`docs/superpowers/specs/2026-09-04-human-like-bot-behavior-design.md`](superpowers/specs/2026-09-04-human-like-bot-behavior-design.md).
 
-Copied from `bot-profiles.ts` on 2026-09-08. `BOT_BRAIN_VERSION` is `4.5.1` — bumped from `4.5.0`
-because `evade`'s `facingError` weight changed behaviour (40 -> 10) while `BOT_PROFILES` did not
-move, and `botFingerprint` hashes the profile table, not `objectives.ts`'s `BASE`. A `balance`
-report from before that change is not comparable to one after it, and only this string says so.
-(This line read `4.3.0` before the 4.5.0 update, against a shipped `4.4.0` — that drift was
-pre-existing and not caused by the facing-term work below; it was corrected along with the real
-bump.)
+Copied from `bot-profiles.ts` on 2026-09-08; the numeric tables below are that copy, still valid, but
+`BOT_BRAIN_VERSION` itself has moved many times since without a full re-copy, because most of those
+moves changed brain BEHAVIOUR (a table read, a formula, a fixture bug fix) without `BOT_PROFILES`
+itself moving, which is exactly the case the version string exists to flag. **`BOT_BRAIN_VERSION` is
+`6.0.1` today** (stage 5 Task 8, 2026-09-19 — a residual `predict.ts` bug fixed: an injected ram spin
+was zeroed instead of decaying, contrary to the code's own doc comment). It read `4.5.1` when this
+page was last fully copied, bumped from `4.5.0` because `evade`'s `facingError` weight changed
+behaviour (40 -> 10) while `BOT_PROFILES` did not move, and `botFingerprint` hashes the profile
+table, not `objectives.ts`'s `BASE`. (That line read `4.3.0` before the 4.5.0 update, against a
+shipped `4.4.0` — drift pre-existing and not caused by the facing-term work below, corrected along
+with the real bump.) A `balance` report is comparable only to another report carrying the identical
+`BOT_BRAIN_VERSION`; see `docs/superpowers/plans/2026-09-18-unity-physics-port/` for the moves since
+4.5.1, most of which are outside this page's scope to enumerate.
 
 ## Reading a complaint
 
@@ -226,6 +232,23 @@ tens-to-hundreds. "Turning is pure cost" has not been re-created by this route, 
 reason to move. `facingErrorOf`'s doc comment in `planner.ts` and `objectives.ts`'s weight-derivation
 paragraph both carry the full measurement table.
 
+**That re-derivation covers two rows out of eight, and `objectives.ts:210` now says so rather than
+leaving the other six silently implied as re-confirmed.** `evade` and `fight` are the only rows with
+a QUANTITATIVE headroom derivation to re-run against a named competing term (`threatAvoid`,
+`rangeError`); `reset`'s 10 is not a third row to re-check — it is derived FROM `evade`'s, so
+re-measuring `evade` already covers it. `recover` carries a `facingError` weight of 0, trivially
+inert at any speed. That leaves `waitOut`, `unpin`, `punish` and `close` genuinely unexamined by a
+headroom argument: the continuous ordinary-turn cost above applies to them unchanged (0.5-2.5 points
+at `waitOut`'s 120, the largest weight in the table, scaling down for the other three), which rules
+out "turning is pure cost" for all four on the same arithmetic, but does not confirm their relative
+ordering was ever swept the way `evade`/`fight` were. The BINARY case is where a large weight can
+still swing a real comparison, and it was checked once, in `waitOut` — see the G12 finding below,
+where it turned out to be correct behaviour, not a defect. `unpin` (60) has indirect support
+(`controller.test.ts`'s S28, live and green, though not a headroom sweep of this weight specifically);
+`punish` (50) and `close` (80) have no failing or narrowly-covered test exercising this weight at all,
+so their ordinal placement (F11-F13's qualitative argument) **stands unchallenged, not freshly
+confirmed.**
+
 **Three bot symptoms that coincided with this port were checked against `facingError`
 specifically.** Fix round 1 (2026-09-19) corrected two of the three below after review — see the
 stage 5 Task 8 report (`.superpowers/sdd/05-tune-and-reconcile/task-8-report.md`) for the full trace
@@ -375,11 +398,14 @@ is deliberately absent from `personality.ts`'s `UNIT_INTERVAL_FIELDS` and from
 reason.
 
 **A car spinning from a ram is read as a car that MEANT to turn, and is mispredicted.** The bot infers
-turn rate from two observed poses (`observedAngVelOf`), assumes `authority` and shove neutral because
-those are not numbers a person reads off a screen, and above
-`BRAIN_CONSTANTS.fullLockAngVelFraction` of the chassis's own turn rate treats the result as a held
-wheel. Just after a ram all of that is wrong at once, and the next shot misses. That is P19 and it is
-**kept on purpose** — it is a very human error obtained for free. Do not file it as a prediction bug.
+turn rate from two observed poses (`observedAngVelOf`), reads no status list and so has no way to know
+the spin is a ram's injected `spinFree` residual rather than steering (neither is a number a person
+reads off a screen), and above `BRAIN_CONSTANTS.fullLockAngVelFraction` of the chassis's own turn rate
+treats the result as a held wheel. Just after a ram all of that is wrong at once, and the next shot
+misses. That is P19 and it is **kept on purpose** — it is a very human error obtained for free. Do not
+file it as a prediction bug. (This used to read "assumes `authority` and shove neutral" — `authority`
+was a `SimBody` field the pre-Unity-port ram models briefly carried and is long gone; the bot never
+read it, and the point stands unchanged under the Unity model's `spinFree` flag instead.)
 
 ### Planning
 
