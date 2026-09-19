@@ -62,8 +62,17 @@ export const DRIVE_CONFIG = {
    * Cut to 60 on 2026-09-16 alongside `speedPerRating` dropping to 1.518 — a further ~29% roster-wide
    * top-speed cut. NOT a uniform pair scale: this half fell to 0.75x and the per-rating half to
    * 0.69x, so a point of `speed` buys slightly less than it did, narrowing the roster's spread.
+   *
+   * Raised to 90 on 2026-09-19 (stage 5 Task 5), from the user's own hands-on playground pass. THIS
+   * time it is a uniform 1.5x, together with `speedPerRating` (1.518 -> 2.277) — unlike every prior
+   * pass on this pair, which each changed the ratio between the two halves. Turn rate was scaled the
+   * same 1.5x in the same pass (see `baseTurnRate`/`turnRatePerRating`), which is why turn radius
+   * (`maxSpeed / turnRate`) holds at exactly the same ~89.9 u it was before this change — this pass
+   * raises the ceiling and how fast a car gets there, not how tightly it corners. Drag was
+   * deliberately left untouched, so wind-up time (`Math.log(10) / dragRateOf(id)`) is unchanged while
+   * coast-off roll distance grows the same 1.5x as top speed.
    */
-  baseMaxSpeed: 60,
+  baseMaxSpeed: 90,
   /**
    * Ratings are 0-100 (see `CAR_TABLE`), so this is a tenth of what it would be on a 0-10 scale.
    * It was 45 against 0-10 ratings and became 4.5 when they widened, precisely so that every car's
@@ -74,8 +83,12 @@ export const DRIVE_CONFIG = {
    * `baseMaxSpeed`'s drop to 80, for the heavy-car top-speed cut described there. Cut to 1.518 on
    * 2026-09-16 alongside `baseMaxSpeed`'s drop to 60 — see there for why the pair did not scale
    * uniformly.
+   *
+   * Raised to 2.277 on 2026-09-19 (stage 5 Task 5), from the user's own hands-on playground pass —
+   * exactly 1.5x, together with `baseMaxSpeed`'s uniform 1.5x raise (60 -> 90). See that field's
+   * comment for what a uniform pair-scale means here and why it leaves turn radius unchanged.
    */
-  speedPerRating: 1.518,
+  speedPerRating: 2.277,
   /**
    * Turn rate is `baseTurnRate + handling * turnRatePerRating`, resolved per car by `turnRateOf`.
    *
@@ -89,9 +102,19 @@ export const DRIVE_CONFIG = {
    * turning roughly 5x faster than the Unity original until this retune. Rating 50 now yields 1.512
    * rad/s (`config.test.ts` pins the anchor); the pre-2026-08-30 global was 4.2, so this is well below
    * that too, not merely below the 1.5x-raised figure.
+   *
+   * Raised again on 2026-09-19 (stage 5 Task 5), from the user's own hands-on playground pass:
+   * `baseTurnRate` 0.667 -> **1.0005**, `turnRatePerRating` 0.0169 -> **0.02535** — a uniform 1.5x on
+   * BOTH halves, the same factor `baseMaxSpeed`/`speedPerRating` took in the same pass. Rating 50 now
+   * yields 2.268 rad/s (`config.test.ts`'s anchor moved with it). Scaling speed and turn rate by the
+   * same 1.5x is what holds turn radius (`maxSpeed / turnRate`) at its prior ~89.9 u instead of
+   * widening or tightening it — see `baseMaxSpeed`. One tradeoff the user was shown and chose to
+   * accept rather than correct here: `lateralGripRate` (this file's `lateralGripRate`, unchanged) did
+   * NOT scale with turn rate, so slip angle at full lock rose with it (Mirage ~26.1° -> ~36.4°) — the
+   * user wants player feedback on the raised turn rate before touching grip to bring slip back down.
    */
-  baseTurnRate: 0.667,
-  turnRatePerRating: 0.0169,
+  baseTurnRate: 1.0005,
+  turnRatePerRating: 0.02535,
   /**
    * Reverse push as a fraction of forward. Below 1: a car pulls away harder in its forward gear than
    * in reverse, which is the whole content of this number.
@@ -121,8 +144,16 @@ export const DRIVE_CONFIG = {
    * that anchor is gone along with the knob it was chosen against. 0.4 is the Unity original's own
    * figure. Both values keep the one property that actually mattered: reverse push under forward
    * push, so the ordering bug above stays fixed. Retune it freely; keep it under 1.
+   *
+   * Raised back to 0.6 on 2026-09-19 (stage 5 Task 5), from the user's own hands-on playground pass —
+   * the Unity original's 0.4 read as too weak in reverse once played by hand. This is NOT a
+   * `baseMaxSpeed`/`speedPerRating`-style uniform pair-scale; it stands alone, and it compounds with
+   * this same pass's 1.5x speed raise: reverse top speed (`maxSpeed x reverseAccelFactor`) is now
+   * 2.25x what it was two passes ago (1.5x from the speed raise x 1.5x from 0.4 -> 0.6), which the
+   * user was shown (Mirage 75.6 -> 170.1 u/s) and kept rather than correcting — reverse push under
+   * forward push (the property that matters, see above) still holds at 0.6.
    */
-  reverseAccelFactor: 0.4,
+  reverseAccelFactor: 0.6,
   /**
    * Below this |speed| with the throttle neutral, `atRest` (`drive.ts`) snaps the velocity to exact
    * rest instead of leaving the car creeping forever on an exponential decay that never truly
@@ -249,6 +280,14 @@ export const DRIVE_CONFIG = {
    * Both replace an earlier "~35°" claimed here against the wrong formula (`atan(turnRate /
    * lateralGripRate)` alone, ignoring drag) and against today's un-retuned turn rate — re-measure
    * again once Task 6 actually lands the anchors above.
+   *
+   * STALE AS OF STAGE 5 TASK 5 (2026-09-19): `baseTurnRate`/`turnRatePerRating` moved 1.5x again
+   * (`turnRateOf("mirage")` 2.1035 -> 3.15525), and this rate did NOT move with them, so Mirage's
+   * slip rose from the ~26-28° measured above to a measured ~36.4° (`docs/turn-tuning.md`'s slip
+   * row carries the current figure). **Flagged to the user, not acted on**: they were shown the
+   * number and chose to keep `lateralGripRate` as-is pending player feedback on the raised turn
+   * rate, rather than have this pass quietly bring slip back down. Do not "fix" this by raising
+   * `lateralGripRate` without that feedback.
    *
    * **This rate is the DRIVER's drift only.** How long an IMPOSED shove carries a victim is the
    * `grip` status multiplier on `reeling` (spec §5), because one number could not answer both

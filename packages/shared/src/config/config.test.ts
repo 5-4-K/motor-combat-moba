@@ -181,7 +181,11 @@ describe("per-car drive ratings", () => {
   });
 
   it("anchors the new pairs at rating 50", () => {
-    expect(DRIVE_CONFIG.baseTurnRate + 50 * DRIVE_CONFIG.turnRatePerRating).toBeCloseTo(1.512, 3);
+    // RE-PINNED for stage 5 Task 5 (the settled playground pass): `baseTurnRate`/`turnRatePerRating`
+    // moved 0.667/0.0169 -> 1.0005/0.02535, a uniform 1.5x with `baseMaxSpeed`/`speedPerRating` (see
+    // `DRIVE_CONFIG.baseTurnRate`). 1.512 -> 2.268 is exactly that same 1.5x on the rating-50 anchor.
+    // `baseDrag`/`dragPerRating` were not part of this pass and are unchanged.
+    expect(DRIVE_CONFIG.baseTurnRate + 50 * DRIVE_CONFIG.turnRatePerRating).toBeCloseTo(2.268, 3);
     expect(DRIVE_CONFIG.baseDrag + 50 * DRIVE_CONFIG.dragPerRating).toBeCloseTo(1.072, 3);
   });
 
@@ -337,18 +341,25 @@ describe("the three types (T5/T6)", () => {
     // speed. `toBeCloseTo` rather than `toBe` because 1.518 is not representable in binary: the
     // products land a few ULPs off the decimal (158.67000000000002, not 158.67). Accel was left
     // alone, so time-to-top-speed FELL with the ceiling — 1.81 -> 1.29 s on Bullseye.
-    expect(forwardMaxSpeedOf("bullseye")).toBeCloseTo(158.67, 9);
-    expect(forwardMaxSpeedOf("mirage")).toBeCloseTo(189.03, 9);
-    expect(forwardMaxSpeedOf("bastion")).toBeCloseTo(135.9, 9);
+    //
+    // RE-PINNED for stage 5 Task 5 (the settled playground pass, 2026-09-19): `baseMaxSpeed`/
+    // `speedPerRating` moved 60/1.518 -> 90/2.277 — a uniform 1.5x, unlike every prior pass on this
+    // pair. Every figure below is exactly 1.5x its 2026-09-16 value.
+    expect(forwardMaxSpeedOf("bullseye")).toBeCloseTo(238.005, 9);
+    expect(forwardMaxSpeedOf("mirage")).toBeCloseTo(283.545, 9);
+    expect(forwardMaxSpeedOf("bastion")).toBeCloseTo(203.85, 9);
 
     // RE-PINNED for the Unity drive-model port (car-physics-port stage 1 Task 3): `accelOf` (the
     // old `baseAccel + accel*accelPerRating`, pivoted at 130) is gone, replaced by `engineAccelOf`
     // — DERIVED as `forwardMaxSpeedOf(id) * dragRateOf(id)` rather than authored independently, so
     // these three numbers are not a retune, they are the same ratings read through the new formula.
     // (123/179/88 were the old `accelOf` figures; not comparable to the numbers below.)
-    expect(engineAccelOf("bullseye")).toBeCloseTo(165.27067200000002, 6);
-    expect(engineAccelOf("mirage")).toBeCloseTo(242.86574400000003, 6);
-    expect(engineAccelOf("bastion")).toBeCloseTo(120.89664000000002, 6);
+    //
+    // RE-PINNED again for stage 5 Task 5: `dragRateOf` did not move (drag was deliberately left
+    // alone), so these three scale by exactly the same 1.5x as `forwardMaxSpeedOf` above.
+    expect(engineAccelOf("bullseye")).toBeCloseTo(247.906008, 6);
+    expect(engineAccelOf("mirage")).toBeCloseTo(364.2986160000001, 6);
+    expect(engineAccelOf("bastion")).toBeCloseTo(181.34496000000004, 6);
 
     // The 2026-09-02 rewrite set `speed` and `handling` to the same rating per car (65/65, 85/85,
     // 50/50), so turn rate now orders the roster the same way top speed does — Mirage highest,
@@ -358,9 +369,14 @@ describe("the three types (T5/T6)", () => {
     // `baseTurnRate`/`turnRatePerRating` 3.6/0.054 -> 0.667/0.0169. The ORDERING is unchanged
     // (Mirage > Bullseye > Bastion), only the magnitudes — every chassis turns roughly a fifth as
     // fast as it did (7.11/8.19/6.3 were the old figures; not comparable to the numbers below).
-    expect(turnRateOf("bullseye")).toBeCloseTo(1.7655, 9);
-    expect(turnRateOf("mirage")).toBeCloseTo(2.1035, 9);
-    expect(turnRateOf("bastion")).toBeCloseTo(1.512, 9);
+    //
+    // RE-PINNED again for stage 5 Task 5: `baseTurnRate`/`turnRatePerRating` moved 0.667/0.0169 ->
+    // 1.0005/0.02535 — the same uniform 1.5x `baseMaxSpeed`/`speedPerRating` took in the same pass,
+    // which is why `forwardMaxSpeedOf(id) / turnRateOf(id)` (turn radius, pinned separately below)
+    // holds at its prior value instead of moving.
+    expect(turnRateOf("bullseye")).toBeCloseTo(2.64825, 9);
+    expect(turnRateOf("mirage")).toBeCloseTo(3.1552499999999997, 9);
+    expect(turnRateOf("bastion")).toBeCloseTo(2.268, 9);
 
     expect(hpOf("bullseye")).toBe(650);
     expect(hpOf("mirage")).toBe(700);

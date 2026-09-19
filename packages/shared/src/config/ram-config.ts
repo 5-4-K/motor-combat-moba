@@ -79,8 +79,15 @@ export const RAM_CONFIG = {
    * **Re-measure in stage 5; do not re-derive.** This is a starting point for the new shove formula,
    * not yet the measured-through-the-composed-`serverTick`-then-`contactTick` figure the deleted
    * revision-2 `globalScale` demonstrated the importance of using.
+   *
+   * Raised to 0.6 on 2026-09-19 (stage 5 Task 5, this IS that re-measurement), from the user's own
+   * hands-on playground pass — 0.5 read as too soft once ramming was actually played, rather than
+   * only measured. Not hashed by `balanceStamp` (`RAM_CONFIG` is the one root the players' guide
+   * does not cover), so this move owes no `build:manual`. It does move `weapon-config.test.ts`'s
+   * `wildcharge.impulse.speed` guard, which stayed at 520 by the user's own ruling (T5-a) rather than
+   * following this raise — see that test's `hardestOrdinaryRam`/`hardestMirrorRam` split.
    */
-  globalScale: 0.5,
+  globalScale: 0.6,
 
   /**
    * Calibration multiplier on the spin delta a shove imparts (spec §7.2's `spinDelta` formula).

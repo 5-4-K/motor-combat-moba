@@ -26,17 +26,26 @@ const state = (over = {}) => ({
 
 describe("fullStatsFor", () => {
   it("derives every row from the shared config, never from hardcoded numbers", () => {
+    // RE-PINNED for stage 5 Task 5: `fullStatsFor` displays "Top speed" through `trim()`
+    // (`Math.round(n * 100) / 100`, `car-select-view.ts`), which the settled values' Mirage figure
+    // (283.545, floating-point-adjacent to a two-decimal rounding boundary) rounds to "283.55" —
+    // one cent above the raw float's own shortest string ("283.545 u/s", 3 decimals). Comparing
+    // against the raw template literal was only ever coincidentally correct for every earlier
+    // figure (e.g. 189.03), which happened to need no rounding at 2dp. Round the expectation the
+    // same way the panel does, same pattern the "Reverse speed" test below already uses.
     const rows = fullStatsFor("mirage");
     const byLabel = Object.fromEntries(rows.map((r) => [r.label, r.value]));
-    expect(byLabel["Top speed"]).toBe(`${forwardMaxSpeedOf("mirage")} u/s`);
+    expect(byLabel["Top speed"]).toBe(`${Math.round(forwardMaxSpeedOf("mirage") * 100) / 100} u/s`);
     expect(byLabel["Hull HP"]).toBe(String(hpOf("mirage")));
   });
 
   it("reports Mirage's top speed straight from the shared config", () => {
     // Derived rather than pinned to a literal: these rows exist to mirror DRIVE_CONFIG, so a
     // hardcoded number here fails every tuning pass without ever catching a real display bug.
+    // Rounded the same way `trim()` displays it — see the test above for why the raw float's own
+    // string stopped being interchangeable with the rounded display as of stage 5 Task 5.
     expect(fullStatsFor("mirage").find((r) => r.label === "Top speed")?.value).toBe(
-      `${forwardMaxSpeedOf("mirage")} u/s`,
+      `${Math.round(forwardMaxSpeedOf("mirage") * 100) / 100} u/s`,
     );
   });
 

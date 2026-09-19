@@ -650,16 +650,66 @@ describe("ImpulseDef", () => {
     return hardest;
   }
 
-  it("punts meaningfully harder than the hardest ordinary ram in the roster", () => {
-    // The ult's whole identity, and the one property `RAM_CONFIG` can silently take away: it is NOT
-    // hashed by `balanceStamp`, so a stage-5 retune of `globalScale` or `flankScale` moves every ram
-    // in the game with no page rebuild and no other failing test. This is what notices.
+  /**
+   * The hardest ram one chassis can land on **itself** — attacker and victim fixed to the same car,
+   * swept over the whole roster the same way `hardestOrdinaryRam` sweeps every attacker×victim pair.
+   *
+   * This exists because `wildcharge` sets `defenceScaled: false` (it ignores `ramDefence`
+   * entirely — the ult punts a victim exactly as hard whoever they are), so measuring it against
+   * `hardestOrdinaryRam()` compares a defence-blind constant against the one matchup where defence
+   * helps an ORDINARY ram the most: the roster's lowest-`ramDefence` chassis as victim, which is
+   * always the same car regardless of attacker. Fixing attacker = victim drops that spread out of
+   * the comparison — each car's own `ramAttack`/`ramDefence` still differ from each other, so this
+   * is not "defence removed", only "the roster-wide defence SPREAD removed" — which is the one
+   * degree of freedom `wildcharge` itself does not have.
+   */
+  function hardestMirrorRam(): number {
+    const ids = Object.keys(CAR_TABLE) as CarId[];
+    const typeScale = Math.max(RAM_CONFIG.flankScale, RAM_CONFIG.rearScale, RAM_CONFIG.headOnScale);
+    let hardest = 0;
+    for (const id of ids) {
+      const shove =
+        forwardMaxSpeedOf(id) * typeScale * RAM_CONFIG.globalScale * (ramAttackOf(id) / ramDefenceOf(id));
+      if (shove > hardest) hardest = shove;
+    }
+    return hardest;
+  }
+
+  it("punts at least as hard as anything driving alone can produce", () => {
+    // RULING T5-b (stage 5 Task 5). This used to be one assertion doing two jobs — "is this still an
+    // ult" and "is this the hardest thing in the game" — and only the first was ever the design
+    // goal, so it is now two assertions with two different bars. This one is the FLOOR: nowhere in
+    // the roster does plain driving beat the ult. It is deliberately the weaker of the two bars —
+    // see the identity assertion below for the one that actually guards the ult's IDENTITY.
     //
-    // 1.5x rather than the 2.00x the shipped values actually land (520 vs 259.92), so an ordinary
-    // tuning nudge does not trip it and a real inversion does: the bar bites once `globalScale`
-    // passes ~0.667, a third above its authored 0.5.
+    // Not hashed by `balanceStamp` (`RAM_CONFIG` is outside its coverage), so a stage-5-style retune
+    // of `globalScale` or `flankScale` moves every ram in the game with no page rebuild and no other
+    // failing test — this and the assertion below are what notice.
     const slam = WEAPON_TABLE.wildcharge.impulse!;
-    expect(slam.speed).toBeGreaterThan(hardestOrdinaryRam() * 1.5);
+    expect(slam.speed).toBeGreaterThanOrEqual(hardestOrdinaryRam());
+  });
+
+  it("punts meaningfully harder than the hardest ram a chassis can land on its own mirror", () => {
+    // RULING T5-b, continued. The IDENTITY bar: at least 1.5x the hardest RAM available on the one
+    // matchup where `defenceScaled: false` costs `wildcharge` nothing extra to compare against — a
+    // chassis ramming its own mirror, where the roster-wide `ramDefence` spread `wildcharge` ignores
+    // has already dropped out (see `hardestMirrorRam`'s own comment). Measured against the best
+    // ordinary ram on the SAME victim instead, the settled values put the ult at 1.85x vs Mirage and
+    // 3.33x vs Bastion — this bar is the conservative one of the two, not the tight one.
+    //
+    // The user considered raising `wildcharge.impulse.speed` to satisfy the OLD single bar
+    // (`hardestOrdinaryRam() * 1.5`, which the settled `globalScale` raise moved to 701.77) and
+    // declined (ruling T5-a): that would need 702 as a floor or 936 to restore the old 2.00x
+    // headline, either of which extends the ult's 500 ms wall-stun reach and its punt against the
+    // roster's softest chassis specifically — a design change, not a guard fix. 520 stays, and the
+    // guard is re-aimed at the bar that was always the actual design goal instead.
+    //
+    // THIS BAR HAS ONLY ~8% HEADROOM (520 vs 481.96 = `hardestMirrorRam() * 1.5`) — recorded so the
+    // next reader does not mistake a future failure here for flakiness: a further ram-power increase
+    // (a `globalScale`/`flankScale` raise, or a `ramAttack` buff) trips this on the first pass that
+    // narrows the gap, and that is a true positive, not a false one.
+    const slam = WEAPON_TABLE.wildcharge.impulse!;
+    expect(slam.speed).toBeGreaterThanOrEqual(hardestMirrorRam() * 1.5);
   });
 
   it("leaves its victim reeling for longer than a full-strength ram does", () => {

@@ -44,6 +44,13 @@ worth of noise — read the roster's turn radius as effectively uniform today, n
 "this car corners differently" complaint is a rate complaint now, full stop; see
 [Current values](#current-values) for the figures.
 
+**Stage 5 Task 5 (2026-09-19) raised `baseTurnRate`/`turnRatePerRating` and `baseMaxSpeed`/
+`speedPerRating` another 1.5x each, from the project owner's own playground pass — and the radius
+figures above did not move.** Scaling speed and turn rate by the *same* factor leaves their ratio,
+and therefore radius, exactly where it was; only the absolute speeds and rates (and, as a direct
+consequence, coast-off roll distance and reverse top speed) moved. See
+[Current values](#current-values) for the raised numbers.
+
 ## Current values
 
 **These tables are hand-maintained, and `scripts/turn-tuning-doc.test.mjs` checks every cell in them
@@ -94,25 +101,29 @@ about, and because changing either now obliges an edit to this page (see
 
 | Knob | Where | Value | What it does |
 |---|---|---|---|
-| `baseTurnRate` | `DRIVE_CONFIG` | 0.667 | Flat part of every car's turn rate |
-| `turnRatePerRating` | `DRIVE_CONFIG` | 0.0169 | What one point of `handling` buys |
+| `baseTurnRate` | `DRIVE_CONFIG` | 1.0005 | Flat part of every car's turn rate |
+| `turnRatePerRating` | `DRIVE_CONFIG` | 0.02535 | What one point of `handling` buys |
 | `spinMaxRate` | `RAM_CONFIG` | 6 rad/s | Cap on ram-imposed rotation |
 | `reelingSpinDecayRate` | `RAM_CONFIG` | 2.0 /s | How fast a ram's imposed spin winds down while the victim is reeling |
-| `baseMaxSpeed` | `DRIVE_CONFIG` | 60 | Flat part of every car's top speed — radius only, no effect on turn rate |
-| `speedPerRating` | `DRIVE_CONFIG` | 1.518 | Radius only — what one point of `speed` buys |
+| `baseMaxSpeed` | `DRIVE_CONFIG` | 90 | Flat part of every car's top speed — radius only, no effect on turn rate |
+| `speedPerRating` | `DRIVE_CONFIG` | 2.277 | Radius only — what one point of `speed` buys |
 | `baseDrag` | `DRIVE_CONFIG` | 0.768 | Drag rate at `accel` 0 — sets top speed, wind-up time and roll together |
 | `dragPerRating` | `DRIVE_CONFIG` | 0.00608 | What one point of `accel` buys — more drag, sooner to top speed, shorter roll |
 | `lateralGripRate` | `DRIVE_CONFIG` | 3.0 | The drift knob — how fast sideways velocity bleeds off |
-| `reverseAccelFactor` | `DRIVE_CONFIG` | 0.4 | Reverse push as a fraction of forward — sets reverse top speed too |
+| `reverseAccelFactor` | `DRIVE_CONFIG` | 0.6 | Reverse push as a fraction of forward — sets reverse top speed too |
 | `reverseEpsilon` | `DRIVE_CONFIG` | 6.0 | Forward speed below which Down reverses instead of braking |
 
 **A global knob is not a blunt version of a per-car one.** `turnRatePerRating` multiplies the
-rating, so raising it hands the most to whoever already has the most: pushing it from today's 0.0169
-to 0.0225 (a comparable ~33% bump to the one this section used to illustrate against the old anchors)
-would take Mirage's radius from 89.86 u to 73.28 u, but would also pull Bastion's from 89.88 u to
-75.84 u — tightening the car that supposedly needs it least by nearly as much, since today's port
-left the roster with no chassis that clearly "needs it least" any more (see
-[Sharper turning is two different outcomes](#sharper-turning-is-two-different-outcomes) above).
+rating, so raising it hands the most to whoever already has the most: pushing it from today's
+0.02535 to 0.03375 (the same ~33% bump this section has illustrated against every anchor pair so
+far — stage 5 Task 5 raised the anchor itself 1.5x, 0.0169 -> 0.02535, but not this illustration's
+proportions) would take Mirage's radius from 89.86 u to 73.28 u, but would also pull Bastion's from
+89.88 u to 75.84 u — tightening the car that supposedly needs it least by nearly as much, since
+today's port left the roster with no chassis that clearly "needs it least" any more (see
+[Sharper turning is two different outcomes](#sharper-turning-is-two-different-outcomes) above). The
+resulting radii land on the exact same two numbers a 33% bump produced against the pre-stage-5
+anchors — a uniform speed/turn-rate scale leaves radius, and any radius computed from a
+proportionally-scaled bump, exactly where it was.
 
 **That is the trade Mirage's 2026-08-31 rating edit avoided, historically.** Its radius was 91.4 u,
 the roster's widest at the time, purely because its speed was 88; the fix was `handling` 50 -> 60,
@@ -140,6 +151,12 @@ picked uniform, to revisit during this port's own stage-5 tuning pass (spec §9.
 out later is a `handling` (or `baseTurnRate`/`turnRatePerRating`) edit, not a speed one — **do not
 "fix" this silently**.
 
+**Stage 5 Task 5 revisited it, on 2026-09-19, and chose to keep it uniform.** The project owner's
+playground pass raised `baseTurnRate`/`turnRatePerRating` another 1.5x (to 1.0005/0.02535) alongside
+the same 1.5x on `baseMaxSpeed`/`speedPerRating` — a scale move, not a `handling` re-spread — so the
+roster's turn radius is still the same ~89.9 u for all three, unmoved by this pass either. The uniform
+radius remains this port's known, chosen state, still open to revisit; it was not widened here.
+
 A global knob could not have made the 2026-08-31 fix, historically: Mirage was sitting on `handling`
 50, the anchor rating at the time, so the standard "widen the spread" move (raise
 `turnRatePerRating`, lower `baseTurnRate` to hold the pivot) would have left it exactly where it was.
@@ -158,20 +175,20 @@ is the one rate the Unity drive-model port uses to set top speed, wind-up and ro
 
 | Stat | Formula | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
 |---|---|---|---|---|---|---|---|---|---|---|
-| **Turn rate** | `baseTurnRate + handling × turnRatePerRating` | 1.765 rad/s | **2.103 rad/s** | 1.512 rad/s | 1.512 rad/s | 1.512 rad/s | 2.103 rad/s | 2.103 rad/s | 1.765 rad/s | 1.512 rad/s |
-| — in degrees | × 180/π | 101.2°/s | 120.5°/s | 86.6°/s | 86.6°/s | 86.6°/s | 120.5°/s | 120.5°/s | 101.2°/s | 86.6°/s |
-| — per tick | ÷ `TICK_RATE_HZ` (30) | 0.0588 rad | 0.0701 rad | 0.0504 rad | 0.0504 rad | 0.0504 rad | 0.0701 rad | 0.0701 rad | 0.0588 rad | 0.0504 rad |
-| — degrees per tick | ″ | 3.37° | 4.02° | 2.89° | 2.89° | 2.89° | 4.02° | 4.02° | 3.37° | 2.89° |
-| **Engine push** | `topSpeed × dragRate` | 165.27 u/s² | **242.87 u/s²** | 120.9 u/s² | 120.9 u/s² | 120.9 u/s² | 242.87 u/s² | 242.87 u/s² | 165.27 u/s² | 120.9 u/s² |
+| **Turn rate** | `baseTurnRate + handling × turnRatePerRating` | 2.648 rad/s | **3.155 rad/s** | 2.268 rad/s | 2.268 rad/s | 2.268 rad/s | 3.155 rad/s | 3.155 rad/s | 2.648 rad/s | 2.268 rad/s |
+| — in degrees | × 180/π | 151.7°/s | 180.8°/s | 129.9°/s | 129.9°/s | 129.9°/s | 180.8°/s | 180.8°/s | 151.7°/s | 129.9°/s |
+| — per tick | ÷ `TICK_RATE_HZ` (30) | 0.0883 rad | 0.1052 rad | 0.0756 rad | 0.0756 rad | 0.0756 rad | 0.1052 rad | 0.1052 rad | 0.0883 rad | 0.0756 rad |
+| — degrees per tick | ″ | 5.06° | 6.03° | 4.33° | 4.33° | 4.33° | 6.03° | 6.03° | 5.06° | 4.33° |
+| **Engine push** | `topSpeed × dragRate` | 247.91 u/s² | **364.30 u/s²** | 181.34 u/s² | 181.34 u/s² | 181.34 u/s² | 364.30 u/s² | 364.30 u/s² | 247.91 u/s² | 181.34 u/s² |
 | Time to 90% of top speed | `ln(10) / dragRate` | 2.21 s | 1.79 s | 2.59 s | 2.59 s | 2.59 s | 1.79 s | 1.79 s | 2.21 s | 2.59 s |
-| Top speed | `baseMaxSpeed + speed × speedPerRating` | 158.67 u/s | **189.03 u/s** | 135.9 u/s | 135.9 u/s | 135.9 u/s | 189.03 u/s | 189.03 u/s | 158.67 u/s | 135.9 u/s |
-| Roll distance from top speed | `topSpeed / dragRate` | 152.3 u | 147.1 u | 152.8 u | 152.8 u | 152.8 u | 147.1 u | 147.1 u | 152.3 u | 152.8 u |
-| Reverse top speed | `topSpeed × reverseAccelFactor` | 63.5 u/s | 75.6 u/s | 54.4 u/s | 54.4 u/s | 54.4 u/s | 75.6 u/s | 75.6 u/s | 63.5 u/s | 54.4 u/s |
+| Top speed | `baseMaxSpeed + speed × speedPerRating` | 238 u/s | **283.55 u/s** | 203.85 u/s | 203.85 u/s | 203.85 u/s | 283.55 u/s | 283.55 u/s | 238 u/s | 203.85 u/s |
+| Roll distance from top speed | `topSpeed / dragRate` | 228.5 u | 220.7 u | 229.1 u | 229.1 u | 229.1 u | 220.7 u | 220.7 u | 228.5 u | 229.1 u |
+| Reverse top speed | `topSpeed × reverseAccelFactor` | 142.8 u/s | 170.1 u/s | 122.3 u/s | 122.3 u/s | 122.3 u/s | 170.1 u/s | 170.1 u/s | 142.8 u/s | 122.3 u/s |
 | **Turn radius** | `topSpeed / turnRate` | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u |
-| Reverse turn radius | `reverseTopSpeed / turnRate` | 35.9 u | 35.9 u | 36 u | 36 u | 36 u | 35.9 u | 35.9 u | 35.9 u | 36 u |
-| Slip angle at full lock | `atan(turnRate / (dragRate + lateralGripRate))` | 23.6° | **26.1°** | 21.2° | 21.2° | 21.2° | 26.1° | 26.1° | 23.6° | 21.2° |
-| 180° while moving | `π / turnRate` | 1.78 s | 1.49 s | 2.08 s | 2.08 s | 2.08 s | 1.49 s | 1.49 s | 1.78 s | 2.08 s |
-| 360° while moving | `2π / turnRate` | 3.56 s | 2.99 s | 4.16 s | 4.16 s | 4.16 s | 2.99 s | 2.99 s | 3.56 s | 4.16 s |
+| Reverse turn radius | `reverseTopSpeed / turnRate` | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u |
+| Slip angle at full lock | `atan(turnRate / (dragRate + lateralGripRate))` | 33.2° | **36.4°** | 30.2° | 30.2° | 30.2° | 36.4° | 36.4° | 33.2° | 30.2° |
+| 180° while moving | `π / turnRate` | 1.19 s | 1.00 s | 1.39 s | 1.39 s | 1.39 s | 1.00 s | 1.00 s | 1.19 s | 1.39 s |
+| 360° while moving | `2π / turnRate` | 2.37 s | 1.99 s | 2.77 s | 2.77 s | 2.77 s | 1.99 s | 1.99 s | 2.37 s | 2.77 s |
 | Grip while reeling | `lateralGripRate × STATUS_TABLE.reeling.grip` | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s |
 | Spin kept per tick while reeling | `exp(−reelingSpinDecayRate / TICK_RATE_HZ)` | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 |
 
@@ -217,10 +234,21 @@ throttle: `topSpeed / dragRate` is how far a car coasts from a dead sprint befor
 **not** `atan(turnRate / lateralGripRate)` — see [Grip and drift](#grip-and-drift) below for why
 `dragRate` belongs in that denominator too. The figures above are the continuous prediction; the real
 per-tick integration lands a few degrees higher because of ordinary discretization (measured for
-Mirage at these anchors: 26.1° continuous against 28.2° at steady state after 10 real seconds of full
-lock — the 28.2° comes from stepping the real chassis tick by tick to that steady state, not from the
-formula, so the two are expected to disagree by a few degrees rather than being a bug in either) —
-close enough that this page tracks the closed form rather than a simulated fixed point.
+Mirage at the drive-model port's own anchors, before stage 5: 26.1° continuous against 28.2° at
+steady state after 10 real seconds of full lock — the 28.2° comes from stepping the real chassis tick
+by tick to that steady state, not from the formula, so the two are expected to disagree by a few
+degrees rather than being a bug in either) — close enough that this page tracks the closed form rather
+than a simulated fixed point.
+
+**Stage 5 Task 5 (2026-09-19) raised Mirage's continuous figure to 36.4°** (`atan(3.15525 /
+(1.2848 + 3.0))`), from the settled 1.5x turn-rate raise landing on a `lateralGripRate` (3.0) the
+pass deliberately left untouched — this is the whole content of the raise: more turn rate divided by
+the same grip is more drift. The discrete steady-state figure (the 28.2° above) has not been
+re-measured at these anchors; expect it to sit a few degrees above 36.4° by the same gap the old pair
+showed, not to have closed. **This was shown to the project owner and kept, not fixed**: they want
+player feedback on the raised turn rate before deciding whether `lateralGripRate` needs to follow it
+up. Do not raise `lateralGripRate` to bring this back down without that feedback — see
+`DRIVE_CONFIG.lateralGripRate`'s own doc comment for the same note.
 
 **The 2026-09-02 rewrite removed the speed/handling split.** `speed` and `handling` began moving
 together per car (65/65, 85/85, 50/50), so turn rate and turn radius started ordering the roster the
@@ -273,8 +301,11 @@ slipAngle = atan(turnRate / (dragRate + lateralGripRate))
 on the WHOLE velocity vector every tick (`stepDrive`'s step 2), so a car's own drag rate bleeds its
 sideways motion exactly as it bleeds its forward motion — grip is the EXTRA sideways rate on top of
 that, not the only channel slowing the drift. `atan(turnRate / lateralGripRate)` alone — ignoring
-drag — overstates the drift by about a third at these anchors (roughly 35° against the real ~26°).
-This is also a real coupling the old model never had: **raising a car's `accel` (its `dragRate`)
+drag — overstates the drift by roughly a quarter at today's (stage 5) anchors for Mirage (46.4°
+against the real 36.4° — narrower than the "about a third" the drive-model port's own pre-stage-5
+anchors read, 35° against 26°, because raising `turnRate` alone without raising `lateralGripRate`
+shrinks drag's *relative* share of the denominator). This is also a real coupling the old model never
+had: **raising a car's `accel` (its `dragRate`)
 narrows its own drift**, alongside speeding its wind-up and shortening its roll — one rating now
 touches three feels at once, not one. Steering itself is still binary (`-1 | 0 | 1`), and turn rate is
 still literally radians per second of rotation, so "the car understeers" is still primarily a radius
