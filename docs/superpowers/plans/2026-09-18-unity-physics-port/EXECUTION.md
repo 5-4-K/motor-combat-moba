@@ -32,15 +32,41 @@ started.
 
 ## In flight
 
-**Nothing is in flight.** Stage 4 (slam and effects) landed in full on 2026-09-19, all eight tasks
-committed on `physics/stage2-and-3` — see "Stage 4 landed" and "Stage 4 exit: measured test state"
-below. Start stage 5 next; its dependency (stage 4) is now `Landed`, and stage 5 inherits the
-deferred items already on file (rulings **S3-p**, §7.4's `ramLock` argument, `spinScale`,
-`ramDefence`'s changed effect, the `wildcharge.impulse` numbers, and the rest under "Deferred, and
-who owns it") plus two more stage 4 added: the **`ramLock` status-source defect (controller ruling
-S3-l / P5), explicitly moved from stage 4 to stage 5 by this commit**, and the playground call on
-whether `wildcharge.impulse.speed` (520) still feels right now that `reeling` is a total loss of
-control (spec §9.3).
+**Stage 5 is IN FLIGHT and PAUSED at the owner's request (2026-09-20). Seven of its ten tasks have
+landed** on branch `physics/stage5`, cut from `feature/movement` at `16a48be` (which carries the
+stage 4 merge). Working tree clean at `5d3326e`. **Stages 1-4 are all Landed.**
+
+| task | state |
+|---|---|
+| 1 pre-flight — can the playground move every knob? | Landed `52fca7c` |
+| 2 driving pass | **done by the owner**, in the playground |
+| 3 ram pass | **done by the owner**, in the playground |
+| 4 `dashSubstepMaxUnits` judgement | Landed `2665ea8` — **stays 16** |
+| 5 land the settled values | Landed `52fca7c`..`3664ce0` |
+| 6 probe honesty | Landed `7ffd2d1` |
+| 7 fresh balance baseline | **NOT STARTED — needs the owner to run `npm run balance`** |
+| 8 bot-tuner pass | Landed `7ffd2d1`..`1e96844`, 2 tests parked red |
+| 9 documentation reconciliation | Landed `1e96844`..`5d3326e` |
+| 10 stage exit | **NOT STARTED**, and only partly blocked — see below |
+
+**Task 10 is not fully blocked.** Its Steps 1-3 and 5 (final guide rebuild, full verification,
+`npm run ttk`, and the loud-summary obligations) need nothing from the owner and can run
+immediately. Only its Step 4 is blocked: the state file it writes must record the balance
+baseline's seed and folder, which do not exist until Task 7 runs.
+
+**Test state at the pause:** shared 1007 passed / 6 skipped; client 1030 passed / 5 skipped
+(`fx/perf.test.ts` flakes under CPU contention and passes standalone — pre-existing); `test:scripts`
+153 passed / 2 skipped; server **728 passed / 2 failed**, both `controller.test.ts` G12 cases, left
+red deliberately (see the G12 entry under "Deferred"). Build and typecheck clean. That is down from
+**14** red across 4 files that stage 5 inherited.
+
+**The full decision record for stage 5 — every ruling, the settled values, and each task's review
+outcome — is in `.superpowers/sdd/05-tune-and-reconcile/progress.md`, which is GIT-IGNORED.**
+Task 10 Step 4 is what copies it in here permanently; until that runs, `git clean -fdx` would
+destroy it. Rulings T5-a (wildcharge stays 520), T5-b (the guard split in two), T5-d
+(`BOT_BRAIN_VERSION` 6.0.1) and the Task 4 decision are already recorded below and in
+`interfaces.md`; T5-c (brakes unchanged), T5-e (P50 was ours, not pre-existing) and T5-f (G12 stays
+red) currently live only in that ledger and in code comments.
 
 Stage 3 (rams) landed in full on 2026-09-18 — see "Stage 3 exit: measured
 test state" below — and a **whole-branch review of stages 2-3 has been swept**, one behavioural fix
@@ -471,7 +497,7 @@ are design calls for the project owner, not arithmetic this stage could settle o
 | 2 | [`02-walls-and-bumps.md`](02-walls-and-bumps.md) | **Landed** | Restitution 0; a car slides along a wall and never gains speed; the spike self-trigger re-measured |
 | 3 | [`03-rams.md`](03-rams.md) | **Landed** | Attacker stops and locks; victim flung, spun, reeling; head-on stops both; `applyImpulse` has one production caller |
 | 4 | [`04-slam-and-effects.md`](04-slam-and-effects.md) | **Landed** | `wildcharge` still clearly harder than the best ordinary ram; `ramLock` published to players |
-| 5 | [`05-tune-and-reconcile.md`](05-tune-and-reconcile.md) | Not started | Playground pass done with the user; probes honest; fresh balance baseline; docs true |
+| 5 | [`05-tune-and-reconcile.md`](05-tune-and-reconcile.md) | **7 of 10 landed, paused** | Playground pass done with the user; probes honest; fresh balance baseline; docs true |
 
 ## What is known before any of it runs
 
