@@ -154,6 +154,54 @@ export function contactBandsFor(look: CarLook): ShadowBand[] {
   return [{ scale: look.contactScale, alpha: look.contactAlpha }];
 }
 
+/** One shadow baked into a texture: its size in texels, and the ellipses to fill, in fill order. */
+export interface ShadowStamp {
+  /** Texels per world unit. An image of this texture is displayed at `1 / scale`. */
+  readonly scale: number;
+  readonly width: number;
+  readonly height: number;
+  /** Radii in TEXELS about the texture's centre. Every fill is white; the image's tint colours it. */
+  readonly fills: ReadonlyArray<{ readonly rx: number; readonly ry: number; readonly alpha: number }>;
+}
+
+/** Texels per world unit a shadow is baked at — 2, so a soft edge survives the car's rotation. */
+const SHADOW_TEXEL_SCALE = 2;
+/** Clear texels round the widest band, so bilinear sampling never reads the texture's edge. */
+const SHADOW_TEXEL_PAD = 2;
+
+/**
+ * A stack of bands as ONE texture every car shares, or `undefined` when there is nothing to draw.
+ *
+ * The bands were first filled per car per frame as 20-point polygons on a shared `Graphics`: six
+ * bands, six cars, ~2,000 draw commands a frame, re-tessellated by Phaser every frame for a shape
+ * that never changes — measured as the single heaviest `Graphics` in the scene. Every car's shadow
+ * is the same ellipse (see `drawCarLook`), so the stack is baked once and drawn as one image per
+ * car. That is a texture per LOOK, not the "texture per car" `shadowBandsFor` rules out.
+ *
+ * The alphas are baked exactly as authored and stack in the texture the same way they stacked on
+ * screen, so `shadowBandsFor`'s "centre lands near `shadowAlpha`" still holds.
+ */
+export function shadowStampOf(
+  bands: readonly ShadowBand[],
+  footprintWidth: number,
+  footprintHeight: number,
+): ShadowStamp | undefined {
+  if (bands.length === 0) return undefined;
+  const widest = Math.max(...bands.map((band) => band.scale));
+  const texels = (world: number): number =>
+    Math.ceil(world * widest * SHADOW_TEXEL_SCALE) + SHADOW_TEXEL_PAD * 2;
+  return {
+    scale: SHADOW_TEXEL_SCALE,
+    width: texels(footprintWidth),
+    height: texels(footprintHeight),
+    fills: bands.map((band) => ({
+      rx: (footprintWidth / 2) * band.scale * SHADOW_TEXEL_SCALE,
+      ry: (footprintHeight / 2) * band.scale * SHADOW_TEXEL_SCALE,
+      alpha: band.alpha,
+    })),
+  };
+}
+
 /**
  * Where a car's rim-light copy sits relative to the car, in the CAR'S OWN local frame.
  *

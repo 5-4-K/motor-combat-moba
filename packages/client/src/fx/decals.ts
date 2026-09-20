@@ -64,7 +64,7 @@ export interface TyreMarkSteps {
  * and the trail reads continuous. The trade-off is length: `maxTotal - maxScorch` marks laid two
  * at a time, so a lone car's trail runs 1080 world units — most of a crossing of a 1280-wide arena
  * — and six cars all skidding share that same pool. Widening the spacing buys length and breaks the
- * line back up; the cap itself is the per-frame redraw budget and is not the knob to reach for.
+ * line back up; the cap itself is the rebuild budget (see `shouldRebuildDecals`) and is not the knob to reach for.
  *
  * `tyreMaxStep` is the longest single-frame move that still counts as driving. A respawn, a scene
  * cut or a reconciliation snap moves a car hundreds of units between two frames, and spacing by
@@ -152,9 +152,32 @@ export function tyreMarksFor(
 }
 
 /**
+ * Whether this frame rebuilds the whole decal layer, or only adds the marks laid since last frame.
+ *
+ * The layer's pixels persist between frames, so a mark needs stamping ONCE to stay on screen. What
+ * a full rebuild buys is everything stamping cannot undo: the fade (`decalFadeAlpha`), a mark the
+ * ring buffer evicted, a lowered cap, and scorch-under-rubber draw order. None of those needs a
+ * frame's resolution — at the shipped 40 s half-life a quarter second moves an alpha by 0.4% — so
+ * they are paid for every `rebuildMs` instead of every frame. Rebuilding every frame was measured
+ * at 1.1 ms of a 3.3 ms frame with the buffer full, which it is about a second into any match.
+ *
+ * `dirty` is the caller saying the texture no longer matches the buffers for a reason the clock
+ * cannot know: the first frame, a trimmed cap, the layer switched back on. `rebuildMs: 0` rebuilds
+ * every frame, which is the old behaviour exactly and the lever to pull if a rebuild artefact is
+ * ever suspected.
+ */
+export function shouldRebuildDecals(
+  sinceRebuildMs: number,
+  dirty: boolean,
+  env: EnvironmentFx = ENVIRONMENT_FX,
+): boolean {
+  return dirty || sinceRebuildMs >= env.decals.rebuildMs;
+}
+
+/**
  * The alpha a decal is drawn at, given how long ago it was laid. `1` when fresh, `0` once spent.
  *
- * Age rather than a frame delta, because the layer is redrawn from its ring buffer each frame
+ * Age rather than a frame delta, because the layer is redrawn from its ring buffer on every rebuild
  * rather than faded in place — Phaser 4's `erase` takes no alpha, so a partial in-place fade is not
  * expressible. Redrawing also makes the curve exact instead of an accumulation of per-frame
  * rounding, and makes the result independent of frame rate.

@@ -74,6 +74,7 @@ export const ENV_FIELDS: readonly EnvFieldDef[] = [
   c("decals", "maxTotal", "Max decals", 0, 2000, 10, "integer"),
   c("decals", "maxScorch", "Max scorch", 0, 1000, 10, "integer"),
   c("decals", "fadeCutoff", "Fade cutoff", 0, 0.2, 0.005),
+  c("decals", "rebuildMs", "Rebuild every (ms)", 0, 2000, 10),
   c("decals", "tyreSpacing", "Tyre spacing", 1, 40, 0.5),
   c("decals", "tyreMaxStep", "Tyre max step", 10, 300, 5),
   c("decals", "tyreSpeedFloor", "Tyre speed floor", 0, 300, 5),

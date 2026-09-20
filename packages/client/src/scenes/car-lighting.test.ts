@@ -7,6 +7,7 @@ import {
   rimOffsetFor,
   shadowBandsFor,
   shadowOffsetFor,
+  shadowStampOf,
   tintCornersFor,
 } from "./car-lighting.js";
 
@@ -246,5 +247,37 @@ describe("rimOffsetFor", () => {
     const p = rimOffsetFor(1.2, look({ rimWidth: 0 }));
     expect(p.x).toBeCloseTo(0, 8);
     expect(p.y).toBeCloseTo(0, 8);
+  });
+});
+
+describe("shadowStampOf", () => {
+  const bands = shadowBandsFor(look({ shadowBands: 5, shadowSpread: 0.5, shadowAlpha: 0.2 }));
+
+  it("bakes nothing when there is nothing to draw", () => {
+    expect(shadowStampOf([], 50, 34)).toBeUndefined();
+  });
+
+  it("keeps every band's alpha and order exactly, so the stack still lands on the authored alpha", () => {
+    const stamp = shadowStampOf(bands, 50, 34)!;
+    expect(stamp.fills.map((fill) => fill.alpha)).toEqual(bands.map((band) => band.alpha));
+    for (let i = 1; i < stamp.fills.length; i += 1) {
+      expect(stamp.fills[i]!.rx).toBeLessThan(stamp.fills[i - 1]!.rx);
+    }
+  });
+
+  it("sizes each fill as the footprint ellipse at the band's scale, in texels", () => {
+    const stamp = shadowStampOf(bands, 50, 34)!;
+    const last = stamp.fills.at(-1)!; // scale 1: the footprint itself
+    expect(last.rx / stamp.scale).toBeCloseTo(25, 8);
+    expect(last.ry / stamp.scale).toBeCloseTo(17, 8);
+  });
+
+  it("holds the widest band inside the texture with clear texels to spare", () => {
+    // A fill touching the edge would be clipped, and bilinear sampling would smear the clip line
+    // along the shadow's rim once the image is rotated.
+    const stamp = shadowStampOf(bands, 50, 34)!;
+    const widest = stamp.fills[0]!;
+    expect(widest.rx * 2).toBeLessThan(stamp.width - 2);
+    expect(widest.ry * 2).toBeLessThan(stamp.height - 2);
   });
 });

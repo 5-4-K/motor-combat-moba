@@ -94,15 +94,15 @@ import {
   carFillFor,
   carShapeOf,
   deathFadeAlpha,
-  ellipsePoints,
   hexagonPoints,
 } from "./car-visual.js";
 import {
   contactBandsFor,
-  placeOutline,
   rimOffsetFor,
   shadowBandsFor,
   shadowOffsetFor,
+  shadowStampOf,
+  type ShadowStamp,
 } from "./car-lighting.js";
 import {
   dashGhostAlphas,
@@ -218,6 +218,9 @@ const HITBOX_PX = 1;
 const HITBOX_NAME = "hitbox";
 
 /** How the body sprite and the rim stroke inside a car's container are found again each frame. */
+/** The two baked shadow textures every car shares. See `syncShadowTextures`. */
+const CAR_SHADOW_DROP_KEY = "car-shadow.drop";
+const CAR_SHADOW_CONTACT_KEY = "car-shadow.contact";
 const BODY_NAME = "body";
 const RIM_NAME = "rim";
 
@@ -747,16 +750,19 @@ export class ArenaScene extends Phaser.Scene {
   private arrowGfx: Phaser.GameObjects.Graphics | undefined;
   /** The wild-charge outline and the thunderclap dash ghosts, cleared and redrawn every frame. */
   private maneuverGfx: Phaser.GameObjects.Graphics | undefined;
-  /** Every car's shadow, on one shared layer below every car. See `CAR_SHADOW_DEPTH`. */
-  private shadowGfx: Phaser.GameObjects.Graphics | undefined;
   /**
-   * `carOutlinePoints` per chassis, which is constant per chassis and rebuilt nowhere.
-   *
-   * Memoised because the shadow pass asks for it once per band per car per frame, and an ellipse
-   * chassis costs 24 sin/cos pairs to build — trig that would otherwise run ~30 times a frame to
-   * produce the same four arrays.
+   * Each car's two shadow images, on one shared depth below every car — see `CAR_SHADOW_DEPTH` for
+   * why they are not children of the car's container. Both draw a texture every car shares, baked
+   * by `syncShadowTextures`; see `shadowStampOf` for why this is not a `Graphics` any more.
    */
-  private outlines = new Map<string, Array<{ x: number; y: number }>>();
+  private carShadows = new Map<
+    string,
+    { drop: Phaser.GameObjects.Image; contact: Phaser.GameObjects.Image }
+  >();
+  /** What the two baked shadow textures were built from, so a playground edit rebuilds them. */
+  private shadowTextureSig: string | undefined;
+  /** Each baked shadow texture's size in WORLD units, by key — what its images are displayed at. */
+  private shadowWorldSize = new Map<string, { width: number; height: number }>();
   private spectateText: Phaser.GameObjects.Text | undefined;
   /**
    * The three Deathmatch banners, each one `Text` that only ever changes its string and its
@@ -1025,7 +1031,6 @@ export class ArenaScene extends Phaser.Scene {
     this.hpGfx = this.add.graphics().setDepth(HP_BAR_DEPTH);
     this.arrowGfx = this.add.graphics().setDepth(ARROW_DEPTH);
     this.maneuverGfx = this.add.graphics().setDepth(MANEUVER_DEPTH);
-    this.shadowGfx = this.add.graphics().setDepth(CAR_SHADOW_DEPTH);
     this.hudGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH);
     this.hudSweepGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_SWEEP_DEPTH);
     this.rosterGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH);
@@ -1550,8 +1555,10 @@ export class ArenaScene extends Phaser.Scene {
     this.arrowGfx = undefined;
     this.maneuverGfx?.destroy();
     this.maneuverGfx = undefined;
-    this.shadowGfx = undefined;
-    this.outlines.clear();
+    for (const sessionId of [...this.carShadows.keys()]) this.dropCarShadow(sessionId);
+    // The textures die with the scene's match state too, so a restart re-bakes rather than trusting
+    // pixels baked from whatever `carLook` the previous match ended on.
+    this.shadowTextureSig = undefined;
     // Here rather than in `onShutdown`, per the doc comment above: `create` calls this too, so a
     // shutdown-only destroy would leave the previous layer's four emitters (and their render
     // textures) alive on a scene restart — the same shape of leak the `PredictionBuffer` had.
@@ -1879,9 +1886,8 @@ export class ArenaScene extends Phaser.Scene {
     const hp = this.hpGfx;
     const arrow = this.arrowGfx;
     const maneuver = this.maneuverGfx;
-    const shadow = this.shadowGfx;
     hp?.clear();
-    shadow?.clear();
+    this.syncShadowTextures();
     // Cleared here and refilled below, so the first frame after the countdown draws nothing at all:
     // the arrow going away is the absence of a draw call, not an animation that has to be stopped.
     arrow?.clear();
@@ -1924,6 +1930,7 @@ export class ArenaScene extends Phaser.Scene {
       if (fade <= 0) {
         this.cars.get(sessionId)?.destroy();
         this.cars.delete(sessionId);
+        this.dropCarShadow(sessionId);
         this.visualKeys.delete(sessionId);
         return;
       }
@@ -1942,7 +1949,7 @@ export class ArenaScene extends Phaser.Scene {
 
       this.syncCar(sessionId, player, pose);
       this.cars.get(sessionId)?.setAlpha(alpha);
-      this.drawCarLook(shadow, sessionId, player.carId, player.colorId, pose, alpha);
+      this.drawCarLook(sessionId, player.carId, player.colorId, pose, alpha);
       poses.set(sessionId, pose);
       const mods = modifiersFromRows(player.statuses, room.state.tick);
       // **NOT `pose.vx`/`pose.vy`.** `RamCar`'s own doc requires the PRE-COLLISION velocity — the
@@ -2019,6 +2026,7 @@ export class ArenaScene extends Phaser.Scene {
       if (seen.has(sessionId)) continue;
       gfx.destroy();
       this.cars.delete(sessionId);
+      this.dropCarShadow(sessionId);
       this.visualKeys.delete(sessionId);
       this.interps.delete(sessionId);
     }
@@ -2090,6 +2098,109 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
+   * Bake the two shadow textures every car shares, whenever what they are built from has changed.
+   *
+   * Called once a frame and nearly always a string compare: the signature only moves when the
+   * playground's Car lighting section is edited, or on a match's first frame. One ellipse for every
+   * chassis, deliberately, and sized well inside the hull. A shadow is soft and nobody reads its
+   * silhouette; what they DO read is a hard-edged rectangle the size of the hitbox, which is what
+   * the first cut drew and what made a car look boxed rather than lit.
+   *
+   * `shadowColor` is NOT in the signature: the textures are baked white and the images are tinted,
+   * so a colour edit costs nothing.
+   */
+  private syncShadowTextures(): void {
+    const look = this.resolveEnv().carLook;
+    const width = DRIVE_CONFIG.carWidth * look.footprint;
+    const height = DRIVE_CONFIG.carHeight * look.footprint;
+    const stamps: ReadonlyArray<readonly [string, ShadowStamp | undefined]> = [
+      [CAR_SHADOW_DROP_KEY, shadowStampOf(shadowBandsFor(look), width, height)],
+      [CAR_SHADOW_CONTACT_KEY, shadowStampOf(contactBandsFor(look), width, height)],
+    ];
+    const sig = JSON.stringify(stamps);
+    if (sig === this.shadowTextureSig) return;
+    this.shadowTextureSig = sig;
+    for (const [key, stamp] of stamps) {
+      if (this.textures.exists(key)) this.textures.remove(key);
+      this.shadowWorldSize.delete(key);
+      if (!stamp) continue;
+      // Baked at `stamp.scale` texels per world unit, so it is displayed back at world size.
+      this.shadowWorldSize.set(key, {
+        width: stamp.width / stamp.scale,
+        height: stamp.height / stamp.scale,
+      });
+      const canvas = this.textures.createCanvas(key, stamp.width, stamp.height);
+      if (!canvas) continue;
+      const ctx = canvas.getContext();
+      ctx.fillStyle = "#ffffff";
+      for (const fill of stamp.fills) {
+        ctx.globalAlpha = fill.alpha;
+        ctx.beginPath();
+        ctx.ellipse(stamp.width / 2, stamp.height / 2, fill.rx, fill.ry, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      canvas.refresh();
+    }
+    // An image holds the Texture OBJECT it was given, and that object was just destroyed.
+    for (const shadows of this.carShadows.values()) {
+      this.retexture(shadows.drop, CAR_SHADOW_DROP_KEY);
+      this.retexture(shadows.contact, CAR_SHADOW_CONTACT_KEY);
+    }
+  }
+
+  /** Point a shadow image at its (re)baked texture, sized back to world units. */
+  private retexture(image: Phaser.GameObjects.Image, key: string): void {
+    const size = this.shadowWorldSize.get(key);
+    if (!size || !this.textures.exists(key)) return;
+    image.setTexture(key).setDisplaySize(size.width, size.height);
+  }
+
+  /** This car's two shadow images, made on first ask and kept until `dropCarShadow`. */
+  private carShadowsFor(sessionId: string): {
+    drop: Phaser.GameObjects.Image;
+    contact: Phaser.GameObjects.Image;
+  } {
+    const existing = this.carShadows.get(sessionId);
+    if (existing) return existing;
+    const make = (key: string): Phaser.GameObjects.Image => {
+      const image = this.add.image(0, 0, "__DEFAULT").setDepth(CAR_SHADOW_DEPTH).setVisible(false);
+      this.retexture(image, key);
+      // World space, so the HUD camera must not draw it a second time — the same hand-off
+      // `syncCar` makes for the car itself. The `Graphics` this replaced was in neither list of
+      // `splitCameras`, so every shadow was drawn twice, the second time outside the colour grade.
+      this.hudCamera?.ignore(image);
+      return image;
+    };
+    const made = { drop: make(CAR_SHADOW_DROP_KEY), contact: make(CAR_SHADOW_CONTACT_KEY) };
+    this.carShadows.set(sessionId, made);
+    return made;
+  }
+
+  /** One shadow image for this frame, or hidden when its texture is switched off in `carLook`. */
+  private placeShadow(
+    image: Phaser.GameObjects.Image,
+    key: string,
+    x: number,
+    y: number,
+    angle: number,
+    alpha: number,
+  ): void {
+    const drawn = this.textures.exists(key);
+    image.setVisible(drawn);
+    if (!drawn) return;
+    image.setPosition(x, y).setRotation(angle).setAlpha(alpha);
+    image.setTint(this.resolveEnv().carLook.shadowColor);
+  }
+
+  private dropCarShadow(sessionId: string): void {
+    const shadows = this.carShadows.get(sessionId);
+    if (!shadows) return;
+    shadows.drop.destroy();
+    shadows.contact.destroy();
+    this.carShadows.delete(sessionId);
+  }
+
+  /**
    * One car's lighting for this frame: two shadows on the shared layer, a lit tint on the body, and
    * a rim that fades to an outline round the back.
    *
@@ -2105,7 +2216,6 @@ export class ArenaScene extends Phaser.Scene {
    * that browser.
    */
   private drawCarLook(
-    shadow: Phaser.GameObjects.Graphics | undefined,
     sessionId: string,
     carId: string,
     colorId: number,
@@ -2116,37 +2226,14 @@ export class ArenaScene extends Phaser.Scene {
     const container = this.cars.get(sessionId);
     if (!container) return;
 
-    // One ellipse for every chassis, deliberately, and sized well inside the hull. A shadow is soft
-    // and nobody reads its silhouette; what they DO read is a hard-edged rectangle the size of the
-    // hitbox, which is what the first cut drew and what made a car look boxed rather than lit.
-    const key = `${look.footprint}`;
-    let outline = this.outlines.get(key);
-    if (!outline) {
-      outline = ellipsePoints(
-        DRIVE_CONFIG.carWidth * look.footprint,
-        DRIVE_CONFIG.carHeight * look.footprint,
-      );
-      this.outlines.set(key, outline);
-    }
-    const shape = outline;
-
-    if (shadow) {
-      // The drop shadow first, offset away from the light; then the contact shadow squarely under
-      // the car. Contact does not take the offset — a car touches the floor where it touches it,
-      // wherever the light happens to be.
-      const drop = shadowOffsetFor(look);
-      for (const band of shadowBandsFor(look)) {
-        shadow.fillStyle(look.shadowColor, band.alpha * alpha);
-        shadow.fillPoints(
-          pts(placeOutline(shape, band.scale, pose.angle, pose.x + drop.x, pose.y + drop.y)),
-          true,
-        );
-      }
-      for (const band of contactBandsFor(look)) {
-        shadow.fillStyle(look.shadowColor, band.alpha * alpha);
-        shadow.fillPoints(pts(placeOutline(shape, band.scale, pose.angle, pose.x, pose.y)), true);
-      }
-    }
+    // The drop shadow offset away from the light; the contact shadow squarely under the car.
+    // Contact does not take the offset — a car touches the floor where it touches it, wherever the
+    // light happens to be. The offset is applied HERE, in world space, and only the image's
+    // rotation follows the car: see `shadowOffsetFor`.
+    const shadows = this.carShadowsFor(sessionId);
+    const drop = shadowOffsetFor(look);
+    this.placeShadow(shadows.drop, CAR_SHADOW_DROP_KEY, pose.x + drop.x, pose.y + drop.y, pose.angle, alpha);
+    this.placeShadow(shadows.contact, CAR_SHADOW_CONTACT_KEY, pose.x, pose.y, pose.angle, alpha);
 
     const body = container.getByName(BODY_NAME);
     if (body instanceof Phaser.GameObjects.Image) {

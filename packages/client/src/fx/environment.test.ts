@@ -50,6 +50,7 @@ describe("ENVIRONMENT_FX", () => {
       maxTotal: 600,
       maxScorch: 0,
       fadeCutoff: 0.02,
+      rebuildMs: 250,
       tyreSpacing: 4.5,
       tyreMaxStep: 80,
       tyreSpeedFloor: 40,

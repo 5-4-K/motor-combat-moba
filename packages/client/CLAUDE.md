@@ -85,9 +85,16 @@ Those two plus `lightAngle` (-180, light from screen-left) are the levers for a 
 see" complaint. Watch one thing at `litStrength: 1`: the lit corners run fully to white, which can
 drain the player colour that says whose car it is — if colours stop reading, that is the knob.
 
-The shadows draw on a **shared layer at `CAR_SHADOW_DEPTH`, not inside each car's container**: all
+The shadows draw at a **shared depth, `CAR_SHADOW_DEPTH`, not inside each car's container**: all
 cars sit at `CAR_DEPTH` and Phaser breaks that tie by insertion order, so a parented shadow would
-draw over another car's body every time two of them overlap. The gradient tint lives in
+draw over another car's body every time two of them overlap. **They are two pooled `Image`s per car
+over two baked textures every car shares** (`syncShadowTextures`, from `shadowStampOf` in
+`car-lighting.ts`), not fills on a `Graphics`: the band stack was first re-filled per car per frame —
+~2,000 draw commands a frame, the heaviest `Graphics` in the scene, measured at 0.35–0.6 ms of render
+for a shape that never changes — and that `Graphics` was in neither list of `splitCameras`, so it was
+drawn by both cameras. A shadow image is handed to the HUD camera's ignore list at birth, exactly as
+`syncCar` does for the car. The textures are baked white and tinted, and re-baked only when the
+`carLook` fields that shape them change, so the panel still tunes all of it live. The gradient tint lives in
 `applyCarSprite` rather than in `ArenaScene`, because that helper is shared with `?dev=assets` so the
 tool cannot drift from the arena. Zeroing every strength in `carLook` restores the old flat drawing
 exactly, and `floorArt.darken: 0` with a white tint multiplies by one, which is what it ships at —

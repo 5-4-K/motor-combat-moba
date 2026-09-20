@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   decalFadeAlpha,
   decalStampsFor,
+  shouldRebuildDecals,
   tyreMarkSteps,
   tyreMarksFor,
 } from "./decals.js";
@@ -65,6 +66,36 @@ describe("tyreMarksFor", () => {
       expect(mark.alpha).toBeGreaterThan(0.05);
       expect(mark.alpha).toBeLessThan(0.35);
     }
+  });
+});
+
+describe("shouldRebuildDecals", () => {
+  const REBUILD_MS = ENVIRONMENT_FX.decals.rebuildMs;
+
+  it("only appends between rebuilds", () => {
+    expect(shouldRebuildDecals(0, false)).toBe(false);
+    expect(shouldRebuildDecals(REBUILD_MS - 1, false)).toBe(false);
+  });
+
+  it("rebuilds once the interval has run", () => {
+    expect(shouldRebuildDecals(REBUILD_MS, false)).toBe(true);
+    expect(shouldRebuildDecals(REBUILD_MS * 4, false)).toBe(true);
+  });
+
+  it("rebuilds at once when the texture is known stale, whatever the clock says", () => {
+    expect(shouldRebuildDecals(0, true)).toBe(true);
+  });
+
+  it("rebuilds every frame at an interval of zero, which is the old behaviour", () => {
+    const env = { ...ENVIRONMENT_FX, decals: { ...ENVIRONMENT_FX.decals, rebuildMs: 0 } };
+    expect(shouldRebuildDecals(0, false, env)).toBe(true);
+  });
+
+  it("stays well inside what the fade can show", () => {
+    // The whole case for not rebuilding every frame: across one interval the fade moves an alpha
+    // by well under one 8-bit step of the faintest thing on the layer, a tyre mark.
+    const drift = 1 - Math.pow(0.5, REBUILD_MS / DECAL_HALF_LIFE_MS);
+    expect(drift * ENVIRONMENT_FX.decals.tyreAlpha).toBeLessThan(1 / 255);
   });
 });
 

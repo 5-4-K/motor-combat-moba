@@ -57,6 +57,11 @@ export interface EnvironmentFx {
     readonly maxTotal: number;
     readonly maxScorch: number;
     readonly fadeCutoff: number;
+    /**
+     * How often the whole layer is cleared and re-stamped from its buffers; between rebuilds a
+     * frame stamps only the marks it laid. `0` rebuilds every frame. See `shouldRebuildDecals`.
+     */
+    readonly rebuildMs: number;
     readonly tyreSpacing: number;
     readonly tyreMaxStep: number;
     readonly tyreSpeedFloor: number;
@@ -226,6 +231,7 @@ export const ENVIRONMENT_FX: EnvironmentFx = {
     maxTotal: 600,
     maxScorch: 0,
     fadeCutoff: 0.02,
+    rebuildMs: 250,
     tyreSpacing: 4.5,
     tyreMaxStep: 80,
     tyreSpeedFloor: 40,

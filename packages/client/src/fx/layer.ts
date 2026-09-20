@@ -4,6 +4,7 @@ import { carSpriteKey } from "../assets/asset-keys.js";
 import {
   decalFadeAlpha,
   decalStampsFor,
+  shouldRebuildDecals,
   tyreMarkSteps,
   tyreMarksFor,
 } from "./decals.js";
@@ -131,7 +132,10 @@ export class FxLayer {
    * pixel.
    */
   private readonly texelSize = new Map<string, number>();
-  /** Rubber and scorch, redrawn from the two buffers below every frame. See `redrawDecals`. */
+  /**
+   * Rubber and scorch. New marks are stamped in as they are laid; the whole texture is rebuilt from
+   * the two buffers below every `env.decals.rebuildMs`. See `redrawDecals`.
+   */
   private readonly decals: Phaser.GameObjects.RenderTexture;
   /** Every smoke particle, redrawn and re-masked every frame. See `maskSmoke`. */
   private readonly smoke: Phaser.GameObjects.RenderTexture;
@@ -141,6 +145,11 @@ export class FxLayer {
   private scorchDecals: LiveDecal[] = [];
   /** Rubber. Its own buffer, and the one that actually turns over during a fight. */
   private tyreDecals: LiveDecal[] = [];
+  /** Marks laid since the texture was last drawn to — all an append frame has to stamp. */
+  private freshDecals: LiveDecal[] = [];
+  /** The texture no longer matches the buffers, so the next frame rebuilds it. True at birth. */
+  private decalsDirty = true;
+  private sinceDecalRebuildMs = 0;
   private clockMs = 0;
   /**
    * Where each car was last frame, and how far past its last mark it got, so rubber is spaced by
@@ -480,6 +489,9 @@ export class FxLayer {
    * its place: with it off, a car inside a smoke column disappears.
    */
   toggleChannel(channel: FxToggle): boolean {
+    // Either direction: switching off must blank the texture, switching on must restore it, and
+    // neither is something the rebuild clock would get to for up to `rebuildMs`.
+    if (channel === "decals") this.decalsDirty = true;
     if (this.disabled.delete(channel)) return true;
     this.disabled.add(channel);
     return false;
@@ -564,7 +576,7 @@ export class FxLayer {
     }
 
     this.layTyreMarks(view, env);
-    this.redrawDecals(env);
+    this.redrawDecals(env, dtMs);
     this.maskSmoke(view, env);
     this.drawLavaFields(view, env);
     this.prevView = view;
@@ -682,6 +694,9 @@ export class FxLayer {
   private pushDecal(buffer: LiveDecal[], cap: number, decal: LiveDecal): void {
     buffer.push(decal);
     if (buffer.length > cap) buffer.splice(0, buffer.length - cap);
+    // A zero cap evicts the mark it was just handed, and a mark that is in no buffer must not be
+    // stamped either: nothing would ever rebuild it away again until the next full pass.
+    if (cap > 0) this.freshDecals.push(decal);
   }
 
   /**
@@ -747,29 +762,53 @@ export class FxLayer {
   }
 
   /**
-   * Redraw the whole decal layer from the buffer.
+   * Bring the decal layer up to date: add this frame's marks, or rebuild the whole thing.
    *
-   * `clear()` then stamp then `render()`, every call deliberate. The layer is NOT faded in place,
-   * because Phaser 4's `erase()` takes no alpha and cannot express a partial fade; redrawing also
-   * makes the curve exact rather than an accumulation of per-frame rounding, and bounds the cost by
-   * `env.decals.maxTotal` instead of by match length.
+   * The texture keeps its pixels between frames (its drawing context never auto-clears), so most
+   * frames only stamp what `pushDecal` collected since the last one — and a frame that laid nothing
+   * touches the texture not at all. `shouldRebuildDecals` says when to pay for the full pass
+   * instead, and why a quarter second of staleness in the fade and the evicted tail is invisible.
+   *
+   * A rebuild is `clear()` then stamp then `render()`, every call deliberate. The layer is NOT
+   * faded in place, because Phaser 4's `erase()` takes no alpha and cannot express a partial fade;
+   * redrawing also makes the curve exact rather than an accumulation of per-frame rounding, and
+   * bounds the cost by `env.decals.maxTotal` instead of by match length.
    */
-  private redrawDecals(env: EnvironmentFx): void {
-    this.decals.clear();
+  private redrawDecals(env: EnvironmentFx, dtMs: number): void {
+    this.sinceDecalRebuildMs += dtMs;
     // `?dev=fx` only. Both buffers keep filling and keep their birth stamps, so re-enabling shows
     // the ground as it would have been — anything that aged out while the layer was off is dropped
     // by `stampSurvivors` on the first frame back, because `decalFadeAlpha` reads the same running
-    // clock either way.
+    // clock either way. Blanked ONCE, on the frame the toggle dirtied the layer, not every frame.
     if (this.disabled.has("decals")) {
+      this.freshDecals.length = 0;
+      if (!this.decalsDirty) return;
+      this.decalsDirty = false;
+      this.decals.clear();
       this.decals.render();
       return;
     }
-    // Scorch FIRST, so rubber lies over it: a car driving through a blast mark leaves tracks in it,
-    // not under it. The draw order is the only thing the two buffers still share.
-    this.scorchDecals = this.stampSurvivors(this.scorchDecals, env);
-    this.tyreDecals = this.stampSurvivors(this.tyreDecals, env);
-    // Buffered until this call — without it nothing appears, which is the Phaser 4 change most
-    // likely to be missed when porting any Phaser 3 RenderTexture snippet.
+    if (shouldRebuildDecals(this.sinceDecalRebuildMs, this.decalsDirty, env)) {
+      this.decalsDirty = false;
+      this.sinceDecalRebuildMs = 0;
+      // Everything fresh is already in a buffer, so the rebuild stamps it; stamping it again below
+      // would double its alpha for one rebuild interval.
+      this.freshDecals.length = 0;
+      this.decals.clear();
+      // Scorch FIRST, so rubber lies over it: a car driving through a blast mark leaves tracks in
+      // it, not under it. Between rebuilds a new scorch lands on top of old rubber instead, which
+      // the next rebuild puts right.
+      this.scorchDecals = this.stampSurvivors(this.scorchDecals, env);
+      this.tyreDecals = this.stampSurvivors(this.tyreDecals, env);
+      // Buffered until this call — without it nothing appears, which is the Phaser 4 change most
+      // likely to be missed when porting any Phaser 3 RenderTexture snippet.
+      this.decals.render();
+      return;
+    }
+    if (this.freshDecals.length === 0) return;
+    // No `clear()`: these land on top of what the texture already holds.
+    this.stampSurvivors(this.freshDecals, env);
+    this.freshDecals.length = 0;
     this.decals.render();
   }
 
@@ -832,6 +871,8 @@ export class FxLayer {
     if (this.tyreDecals.length > tyreCap) {
       this.tyreDecals.splice(0, this.tyreDecals.length - tyreCap);
     }
+    // The texture still shows what was just dropped, and a lowered cap should read as immediate.
+    this.decalsDirty = true;
   }
 
   destroy(): void {
