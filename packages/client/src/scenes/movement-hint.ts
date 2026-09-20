@@ -1,5 +1,5 @@
-import { RoomPhase } from "@motor-combat-moba/shared";
-import { HINT_SLOT_ORDER, SLOT_KEYS } from "../config/slot-keys.js";
+import { BASIC_ATTACK_CONFIG, RoomPhase, WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
+import { hintSlotOrder, SLOT_KEYS } from "../config/slot-keys.js";
 
 /**
  * The "how do I drive this" line along the bottom of the arena — key pills for both bindings and a
@@ -28,24 +28,30 @@ export const MOVEMENT_JOINER = "or";
 export const MOVEMENT_LABEL = "to move";
 
 /**
- * The action row's clusters, derived from `SLOT_KEYS` so a rebind can never leave the hint teaching
- * keys the game stopped listening to. This countdown row is where the letter bindings are printed —
- * the gutter pill carries only the mouse-hand `glyph` — so between the two, every binding a slot
- * holds is on screen somewhere, which is what the no-hidden-alternates rule demands.
+ * The action row's clusters for a chassis carrying `abilities` weapons, derived from `SLOT_KEYS` so
+ * a rebind can never leave the hint teaching keys the game stopped listening to.
  *
- * Ordered by `HINT_SLOT_ORDER`, which since 2026-09-20 is plain fire-slot order (VS6/VS15): the
- * basic attack is slot 0, and the hint teaches it first because it is the first thing a new player
- * should press and because — unlike the ability slots — the gutter pill never teaches it at all.
- * Teaching order and slot order used to disagree, when the basic attack claimed the LAST slot in
- * the wire mask and still read first here; they agree now, and `HINT_SLOT_ORDER` stays the seam
- * because dropping the basic attack's pill when the toggle is off is still a reordering the raw
- * index cannot express.
+ * Parameterised by kit size (VS19): with variable kits a module constant would teach a two-weapon
+ * chassis the semicolon for a slot it does not carry. The basic attack is taught FIRST and is the
+ * only place either of its bindings appears — the gutter pill never carries it (BA19) — so dropping
+ * it when `BASIC_ATTACK_CONFIG.enabled` is false must remove the pill, not leave a dead one.
  */
-export const ACTION_KEYS: readonly string[] = HINT_SLOT_ORDER.map(
-  (slot) => SLOT_KEYS[slot]!.keyGlyph,
+export function actionKeysFor(abilities: number, enabled: boolean): readonly string[] {
+  return hintSlotOrder(enabled, abilities).map((slot) => SLOT_KEYS[slot]!.keyGlyph);
+}
+
+export function actionAltsFor(abilities: number, enabled: boolean): readonly string[] {
+  return hintSlotOrder(enabled, abilities).map((slot) => SLOT_KEYS[slot]!.glyph);
+}
+
+/** This build's full row, for a caller with no chassis in hand. */
+export const ACTION_KEYS: readonly string[] = actionKeysFor(
+  WEAPON_SLOT_CONFIG.maxAbilitySlots,
+  BASIC_ATTACK_CONFIG.enabled,
 );
-export const ACTION_ALTS: readonly string[] = HINT_SLOT_ORDER.map(
-  (slot) => SLOT_KEYS[slot]!.glyph,
+export const ACTION_ALTS: readonly string[] = actionAltsFor(
+  WEAPON_SLOT_CONFIG.maxAbilitySlots,
+  BASIC_ATTACK_CONFIG.enabled,
 );
 export const ACTION_LABEL = "to fire";
 

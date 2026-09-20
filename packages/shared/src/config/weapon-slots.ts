@@ -74,6 +74,12 @@ export function slotsFrom(
   return weapons.length <= max ? weapons : weapons.slice(0, max);
 }
 
+/**
+ * This chassis's ABILITY kit, in slot order — 1 to `WEAPON_SLOT_CONFIG.maxAbilitySlots` weapons as
+ * of Task 5's variable-length kits, never a fixed count. An inactive chassis may return an empty
+ * list (VS25); the three shipped chassis each return a full kit today because that is what they
+ * happen to be authored with, not because this function enforces it.
+ */
 export function slotsOf(carId: CarId): readonly WeaponId[] {
   return slotsFrom(carId, CAR_TABLE[carId].weapons);
 }

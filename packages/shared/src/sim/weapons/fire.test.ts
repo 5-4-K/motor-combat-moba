@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { basicAttackOf } from "../../config/car-config.js";
 import { BASIC_ATTACK_CONFIG } from "../../config/weapon-config.js";
+import { WEAPON_SLOT_CONFIG } from "../../config/weapon-slots.js";
+import type { WeaponId } from "../../config/weapon-types.js";
 import { beginFire, cancelPending, newFireState, releaseShots, tickRecharge, type FireState } from "./fire.js";
 import type { ShotOrder } from "./instances.js";
 
@@ -58,6 +60,34 @@ describe("slots", () => {
 
   it("falls back to the roster's slots when weaponIds is omitted, matching a plain call", () => {
     expect(newFireState("mirage", 1, undefined)).toEqual(newFireState("mirage", 1));
+  });
+
+  it("lets a short kit fire every slot it has, and ignores bits past it", () => {
+    // VS7. The fire-slot array is DENSE at every kit length — a short kit produces a short array,
+    // not holes — so `usable = min(slots.length, maxFireSlots)` handles it with no special case.
+    const state = newFireState("bullseye", 1, ["predator"]);
+    expect(state.slots).toHaveLength(2);
+    expect(beginFire("s1", state, 0b0010, 0).pending?.weaponId).toBe("predator");
+    // Bit 3 is ability 3, which this chassis does not carry: dropped, not crashed.
+    expect(beginFire("s1", state, 0b1000, 0).pending).toBeNull();
+  });
+});
+
+describe("variable kit length (Task 5)", () => {
+  it("keeps the basic attack at slot 0 at every kit length", () => {
+    // VS27. The invariant that was previously true only by coincidence, and the reason the
+    // "exactly maxAbilitySlots" assertion in weapon-slots.test.ts could be relaxed at all.
+    //
+    // Bounded by `maxAbilitySlots` (Ruling 1) rather than the brief's fixed [1, 2, 3, 4]: an
+    // explicit 4-weapon loadout is truncated to N (=3) by `slotsFrom`, so a loop that always went
+    // up to 4 would fail at the shipped N instead of staying honest about what this build allows.
+    const kits = Array.from({ length: WEAPON_SLOT_CONFIG.maxAbilitySlots }, (_, i) => i + 1);
+    for (const kit of kits) {
+      const weapons = ["predator", "pepperbox", "lance", "tremor"].slice(0, kit) as WeaponId[];
+      const state = newFireState("bullseye", 1, weapons);
+      expect(state.slots[0]!.weaponId).toBe(basicAttackOf("bullseye"));
+      expect(state.slots).toHaveLength(kit + 1);
+    }
   });
 });
 

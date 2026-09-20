@@ -12,6 +12,7 @@ import type {
 import {
   modifiersFromRows,
   ARENA_IDS,
+  BASIC_ATTACK_CONFIG,
   CAMERA_CONFIG,
   DRIVE_CONFIG,
   STATUS_CONFIG,
@@ -169,13 +170,13 @@ import {
 } from "./status-hud.js";
 import { arrowBlinkOn, arrowBobOffset, countdownArrowPoints } from "./countdown-arrow.js";
 import {
-  ACTION_ALTS,
-  ACTION_KEYS,
   ACTION_LABEL,
   MOVEMENT_ARROWS,
   MOVEMENT_JOINER,
   MOVEMENT_KEYS,
   MOVEMENT_LABEL,
+  actionAltsFor,
+  actionKeysFor,
   movementHintItems,
   placeMovementHint,
   showMovementHint,
@@ -3590,7 +3591,13 @@ export class ArenaScene extends Phaser.Scene {
     this.movementHintGfx = gfx;
     this.movementHintTexts = [
       ...this.buildHintRow(gfx, MOVEMENT_KEYS, MOVEMENT_ARROWS, MOVEMENT_LABEL, MOVEMENT_HINT_Y),
-      ...this.buildHintRow(gfx, ACTION_KEYS, ACTION_ALTS, ACTION_LABEL, ACTION_HINT_Y),
+      ...this.buildHintRow(
+        gfx,
+        actionKeysFor(this.localAbilityCount(), BASIC_ATTACK_CONFIG.enabled),
+        actionAltsFor(this.localAbilityCount(), BASIC_ATTACK_CONFIG.enabled),
+        ACTION_LABEL,
+        ACTION_HINT_Y,
+      ),
     ];
   }
 

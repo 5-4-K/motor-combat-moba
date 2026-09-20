@@ -7,6 +7,8 @@ import {
   ACTION_KEYS,
   MOVEMENT_ARROWS,
   MOVEMENT_KEYS,
+  actionAltsFor,
+  actionKeysFor,
   movementHintItems,
   placeMovementHint,
   showMovementHint,
@@ -95,6 +97,15 @@ describe("movementHintItems", () => {
     // Subset, not equality: SLOT_KEYS is ceiling-length while the hint prints this build's N.
     for (const glyph of ACTION_ALTS) expect(SLOT_KEYS.map((k) => k.glyph)).toContain(glyph);
     for (const glyph of ACTION_KEYS) expect(SLOT_KEYS.map((k) => k.keyGlyph)).toContain(glyph);
+  });
+
+  it("teaches only the slots the driven chassis actually has", () => {
+    // VS19. `ACTION_KEYS` was a module constant, so a two-weapon chassis would have been taught
+    // the semicolon for a slot it does not carry.
+    expect(actionKeysFor(2, true)).toEqual(["H", "J", "K"]);
+    expect(actionKeysFor(4, true)).toEqual(["H", "J", "K", "L", ";"]);
+    expect(actionKeysFor(3, false)).toEqual(["J", "K", "L"]);
+    expect(actionAltsFor(2, true)).toEqual(["LMB", "RMB", "SHIFT"]);
   });
 });
 

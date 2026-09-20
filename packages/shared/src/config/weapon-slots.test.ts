@@ -7,20 +7,22 @@ import { ABILITY_SLOT_CEILING, WEAPON_SLOT_CONFIG, slotsOf, slotsFrom, fireSlots
 afterEach(() => vi.restoreAllMocks());
 
 describe("loadouts", () => {
-  it("gives every ACTIVE car exactly a full kit, and no car more than the slot limit", () => {
-    // The floor is an ACTIVE-car rule, not a roster-wide one. An inactive car may carry nothing at
-    // all: that is the shape a chassis is prototyped in, driven in the playground to judge its
-    // handling long before anyone has authored the three exclusive weapons it will eventually ship
-    // with.
+  it("gives every ACTIVE car between one and the ceiling's worth of weapons", () => {
+    // VS24. Relaxed from "exactly maxAbilitySlots". That exactness existed to keep
+    // `basicAttackSlotIndex` honest while the basic attack sat at `kit.length`; at index 0 the
+    // constant is true at every kit length (asserted below), so the floor can be a floor.
     //
-    // The floor is EXACT rather than "at least one" for now, and the reason has changed shape: it
-    // used to be load-bearing, because `fireSlotsOf` placed the basic attack at `kit.length` and a
-    // short kit moved the key that fires it. Since 2026-09-20 the basic attack is fire slot 0 at
-    // every kit length (VS6), so a short kit no longer breaks the binding — what an exact floor
-    // still buys is that every shipped car presents the full bar this build advertises.
+    // The guard this doubled as — a weapon silently dropped from a shipped loadout — is NOT lost:
+    // "gives each chassis the kit its type calls for" pins all three shipped kits element by
+    // element, which catches a dropped weapon more precisely than any count.
+    //
+    // The floor is scoped to ACTIVE cars on purpose (VS25): an inactive chassis may carry no
+    // weapons at all, and that is the shape a prototype is driven in while its exclusive kit is
+    // still being authored. The ceiling applies to every row (VS26) — a kit may exceed N, which is
+    // the designed case, but never the ceiling, which is an authoring error.
     for (const car of Object.values(CAR_TABLE)) {
-      if (car.isActive) expect(car.weapons.length).toBe(WEAPON_SLOT_CONFIG.maxAbilitySlots);
-      expect(car.weapons.length).toBeLessThanOrEqual(WEAPON_SLOT_CONFIG.maxAbilitySlots);
+      if (car.isActive) expect(car.weapons.length).toBeGreaterThanOrEqual(1);
+      expect(car.weapons.length).toBeLessThanOrEqual(ABILITY_SLOT_CEILING);
     }
   });
 
