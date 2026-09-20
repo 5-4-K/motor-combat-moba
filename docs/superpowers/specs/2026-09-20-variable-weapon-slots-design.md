@@ -169,7 +169,14 @@ rather than leaving it as a claim.
 
 **VS21. Four boxes is the layout's limit, and the test says so.** At the shipped constants —
 `SLOT_BOX_PX` 64, `GAP_PX` 28, `SLOT_NAME_FONT_PX` 12, `VIEW_HEIGHT` 720 — a 4-slot stack's last
-name baseline lands at 663, clearing the view by 57 px. A 5th would land at 743 and overflow.
+name baseline lands at 663, clearing the view by 57 px. A 5th lands at 755 and overflows.
+
+*Corrected 2026-09-20:* this clause originally read "a 5th would land at 743", which is the five-box
+stack's bare `nameY` set against the four-box stack's `nameY + SLOT_NAME_FONT_PX` — two different
+measures quoted side by side as though they were one. The figure the test actually compares against
+`VIEW_HEIGHT` is `nameY + SLOT_NAME_FONT_PX`: **663** at four boxes, **755** at five. The conclusion
+never changed; the arithmetic is now consistent. Found by the Task 10 implementer while measuring
+the numbers rather than copying them.
 `weapon-hud.test.ts`'s gutter-budget block asserts both, so raising `ABILITY_SLOT_CEILING` fails
 loudly with the reason rather than clipping a label off-screen.
 
