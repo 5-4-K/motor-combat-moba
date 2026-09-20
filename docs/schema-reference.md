@@ -98,7 +98,7 @@ field at all, so the check is always false there. See root `CLAUDE.md` and
 | `deaths` | uint8 | `0` | Counted in every mode; the tie-break under `deathmatchOutcome` |
 | `killedBySessionId` | string | `""` | Who landed the killing blow, or `""` while alive. Render-only — `stepSim` never reads it. Networked for the same reason `diedAtTick` is: a spectator or a late joiner who never saw the death still needs to be able to name the killer. Cleared on respawn, which is also what dismisses the "killed you" banner |
 | `selectLocked` | boolean | `false` | Car-select lock; pick still hidden |
-| `weapons` | array `WeaponSlotState` | empty | Per-slot state; array **position** is the slot index. Four rows per car as of the basic attack (BA15): indices 0-2 are the ability kit, index 3 is the basic attack — the HUD draws only the first three |
+| `weapons` | array `WeaponSlotState` | empty | Per-slot state; array **position** is the slot index. Four rows per car as of the basic attack (BA15): index 0 is the basic attack and indices 1-3 are the ability kit, since the 2026-09-20 index flip — the HUD draws only the kit |
 | `switchLockUntilTick` | uint32 | `0` | Tick a DIFFERENT weapon may fire; the weapon that just fired instead is gated by its own slot's `refireLockUntilTick` |
 | `level` | uint8 | `1` | In-match level; pinned to 1 until the level system exists. Gates `unlocksAt` |
 | `pendingUntilTick` | uint32 | `0` | Tick a committed press next puts a shot out (wind-up, or the next volley of a burst). `0` = nothing pending; the HUD reads mid-press as `tick < pendingUntilTick` |
@@ -211,17 +211,20 @@ is created, never patched after.
 | `refireLockUntilTick` | uint32 | `0` | Tick this same weapon may fire again |
 
 `PlayerState.weapons` is an `ArraySchema<WeaponSlotState>` — array **position** is the slot index,
-matching `fireSlotsOf(car)`'s ordering: indices 0-2 are `CAR_TABLE[car].weapons`, in kit order (index
-0 = ability slot 1), and index 3 is that chassis's basic attack (`CarDef.basicAttack`), appended
-after the kit and never overridable. Four rows per car, always — `maxFireSlots` (`WEAPON_SLOT_CONFIG`)
+matching `fireSlotsOf(car)`'s ordering: index 0 is that chassis's basic attack
+(`CarDef.basicAttack`), PREPENDED ahead of the kit and never overridable, and indices 1-3 are
+`CAR_TABLE[car].weapons` in kit order (index 1 = ability slot 1). The basic attack sat LAST, at
+`kit.length`, until the 2026-09-20 index flip; at index 0 it is a constant at every kit length
+rather than only while every active kit is the same length. Four rows per car, always — `maxFireSlots` (`WEAPON_SLOT_CONFIG`)
 is what sizes both this array and the wire mask. Populated when the chassis is revealed; a player
 with no chassis yet (or an unrecognised `carId`) has an empty array and can fire nothing.
 
-**The HUD only draws the first three.** `slotBarLayout` (`weapon-hud.ts`) caps its box count at
-`min(weapons.length, maxAbilitySlots)`, so index 3 — the basic attack — is on the wire, ticks through
-the same recharge/refire/recovery fields as any other slot, and is simply never drawn as a box. That
-is a decision, not a truncation that happens to work: if the basic attack ever needs a readout, it
-gets its own, not a fourth box here. See [`combat-model.md`](combat-model.md#basic-attack) for the
+**The HUD only draws the kit.** `slotBarLayout` (`weapon-hud.ts`) caps its box count at
+`min(count, maxAbilitySlots)` and its caller passes the ABILITY count (the array length minus its
+basic attack) and reads each box from index `i + 1`, so index 0 — the basic attack — is on the wire,
+ticks through the same recharge/refire/recovery fields as any other slot, and is simply never drawn
+as a box. That is a decision, not a truncation that happens to work: if the basic attack ever needs
+a readout, it gets its own, not an extra box here. See [`combat-model.md`](combat-model.md#basic-attack) for the
 full model.
 
 **What a slot row cannot say.** Two facts the car-wide lockout needs are per *car*, not per slot, so

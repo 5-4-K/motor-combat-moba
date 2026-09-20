@@ -40,8 +40,9 @@ function carrierOf(w: WeaponId): CarId {
   return id;
 }
 /**
- * Which FIRE slot (bitmask) this chassis presses to fire this weapon — the kit's three abilities,
- * then the basic attack at index 3. Throws rather than silently returning a garbage bit:
+ * Which FIRE slot (bitmask) this chassis presses to fire this weapon — the basic attack at index 0,
+ * then the kit's three abilities at 1-3 (the 2026-09-20 index flip; `fireSlotsOf` is what this
+ * follows, so the bit moved with the table and no arithmetic here did). Throws rather than silently returning a garbage bit:
  * `1 << -1` is `-2147483648`, which would press a nonsense mask and let a scenario naming a weapon
  * its chassis cannot fire report a clean, empty result.
  */

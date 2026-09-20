@@ -33,9 +33,15 @@ seeding, `scripts/ttk.mjs` (two call sites) and `packages/server/src/bot/brain/d
 call sites) — the latter's `bestSustainedDpsOf` deliberately counts the basic attack in its DPS
 ceiling, moving Bastion's figure from 18.3 to 22.5. `newFireState` does not call it — its
 explicit-loadout path builds the same list inline, since it also has to accept a caller-given
-weapon override `fireSlotsOf` has no parameter for. The basic attack is always fire slot 3 (`H` / `LMB`; the
-abilities moved to `J`/`RMB`, `K`/`SHIFT`, `L`/`SPACE`), rides the ordinary fire state machine with
-`recoveryMs: 0`, and loses a same-tick tie to an ability because the lowest set bit wins. Its
+weapon override `fireSlotsOf` has no parameter for. **The basic attack is always fire slot 0** as of
+the 2026-09-20 index flip — it sat LAST, at `kit.length`, until then, which was a constant only
+while every active kit was the same length. The flip moved no binding: it is still `H` / `LMB`, and
+the abilities are still `J`/`RMB`, `K`/`SHIFT`, `L`/`SPACE`, now at fire slots 1-3. It rides the
+ordinary fire state machine with `recoveryMs: 0`, and it currently **WINS** a same-tick tie against
+an ability, because `beginFire` still scans ascending and takes the lowest set bit — which the basic
+attack now is. The scan direction and the index together decide that tie, and only the index has
+moved so far; the basic attack lost the same tie, under the same rule, while it was the highest
+index. Its
 binding is taught **only** in the countdown action hint — it has no gutter pill, which is the one
 place the "a binding nobody printed breaks quietly" rule is knowingly bent. See
 [`docs/superpowers/specs/2026-09-17-basic-attack-design.md`](docs/superpowers/specs/2026-09-17-basic-attack-design.md) (BA1–BA38).

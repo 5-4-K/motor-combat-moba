@@ -581,19 +581,33 @@ ability. The nine rows the chassis carry there today are identical, all spread f
 960-unit range, a 12-unit circle hitbox, `#101014`. It carries no `applies`, no `impulse` and no
 `explosion`: a plain, unlimited-ammo poke, not a mechanic.
 
-`fireSlotsOf(carId)` is the kit plus the basic attack, in that order — `[...slotsOf(carId),
-basicAttackOf(carId)]` — so **the basic attack is always fire slot 3**, one past the three ability
-indices `slotsOf` and `weapons` still mean on their own. Its binding is `H` on keyboard and left
-mouse button on the mouse hand; the three abilities shifted to make room, to `J`/right mouse button,
-`K`/SHIFT and `L`/SPACE.
+`fireSlotsOf(carId)` is the basic attack plus the kit, in that order — `[basicAttackOf(carId),
+...slotsOf(carId)]` — so **the basic attack is always fire slot 0**, ahead of the ability indices
+`slotsOf` and `weapons` still mean on their own. It sat LAST, at `kit.length`, until the 2026-09-20
+index flip: that was a constant only for as long as every active kit was the same length, and the
+moment kits vary a last-placed basic attack answers to a different key on each car. At index 0 it is
+a true constant at every kit length.
+
+**The renumbering moved no binding.** Its binding is still `H` on keyboard and left mouse button on
+the mouse hand; the three abilities are still `J`/right mouse button, `K`/SHIFT and `L`/SPACE, now
+at fire slots 1, 2 and 3. Every key a player already used fires the weapon it fired before — what
+changed is the index behind it.
 
 It fires through the **same** fire state machine described above — spent, recharged, refire-locked
 and switch-locked by exactly the code every other weapon runs — and authors `recoveryMs: 0`, so
-firing it never locks an ability out. The one place it loses is a same-tick tie: `beginFire` takes
-the lowest set bit the car can fire, and slot 3 is the highest index, so pressing an ability and the
-basic attack on one input fires the ability and drops the basic-attack press, exactly like any other
-press this game has ever refused. An ability's own `recoveryMs` briefly blocks it right back, for the
-same reason — `switchLockUntilTick` does not care which slot is locking which.
+firing it never locks an ability out.
+
+A same-tick tie is decided by `beginFire`'s **scan direction** and by nothing else. The scan is
+ascending and takes the lowest set bit the car can fire, and since the 2026-09-20 index flip the
+basic attack IS the lowest index — so pressing an ability and the basic attack on one input
+currently fires the **basic attack** and drops the ability press. That is the reverse of the
+outcome the same rule produced while the basic attack sat at the highest index, and it is a
+consequence of the index moving rather than a decision taken alongside it: the index and the scan
+direction together decide the tie, so restoring the old outcome means reversing the scan to
+highest-wins, not moving the weapon back. Either way the losing press is dropped exactly like any
+other press this game has ever refused. An ability's own `recoveryMs` briefly blocks the basic
+attack right back, for a different reason — `switchLockUntilTick` does not care which slot is
+locking which.
 
 **It never reaches the HUD's weapon panel, and that is a decision, not the three-slot truncation
 you'd get from listing a fourth entry in `weapons`.** `slotsOf`/`weapons` cap a chassis's KIT at
@@ -610,7 +624,7 @@ the one place the "a binding nobody printed breaks quietly" controls rule is kno
 `BASIC_ATTACK_CONFIG.enabled` (`config/weapon-config.ts`) can turn the whole mechanic off without
 touching any of the above — the nine rows, `CarDef.basicAttack` and the schema's fourth slot all
 stay exactly as described. It is a build-time flag: flip it, rebuild, `npm run build:manual`. Four
-things read it when it is `false`: `beginFire` refuses a press on fire slot 3, so the key does
+things read it when it is `false`: `beginFire` refuses a press on fire slot 0, so the key does
 nothing; the bot's `chooseSlot` never selects that slot either, so it does not waste a tick's press
 on a weapon that cannot fire; the client's `hintSlotOrder` drops the slot from the countdown action
 hint entirely, so the H/LMB pill disappears rather than sitting there doing nothing; and the guide

@@ -135,7 +135,7 @@ function shootAt(opts: {
 }
 
 // Every probe here fires through the real slot pipeline, so the sweep covers the rows an ACTIVE
-// chassis can actually press: its three abilities and its basic attack (fire slot 3). Two kinds of
+// chassis can actually press: its basic attack (fire slot 0) and its three abilities. Two kinds of
 // row fall out — `tremor` (the 2026-09-01 overhaul's unassigned presence zone), on no loadout at
 // all, and the basic attacks of the unreleased prototypes. W1 names every skipped row and its
 // reason loudly rather than iterating it into a crash.

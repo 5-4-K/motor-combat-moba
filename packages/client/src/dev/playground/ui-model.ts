@@ -100,7 +100,8 @@ export function carOptions(): { id: CarId; name: string }[] {
 /**
  * The weapons a playground seat may be given in an ABILITY slot (BA37). A weapon some chassis
  * carries as its basic attack is left out: that slot is a property of the chassis, not of the
- * loadout, so it is never picked here — `newFireState` appends the driven car's own.
+ * loadout, so it is never picked here — `newFireState` prepends the driven car's own (it appended
+ * it until the 2026-09-20 index flip; either way the panel never offers it).
  *
  * The excluded set comes from `CAR_TABLE`, not from the shape of an id. Which weapons are basic
  * attacks is a fact about the roster's slots, and the roster is the only thing that knows it.

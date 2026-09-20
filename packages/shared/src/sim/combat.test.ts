@@ -829,7 +829,8 @@ it("pulses lance for its whole life, spending a full connect over four ticks ins
   // target parked inside it, and counts the hp actually spent, rather than trusting the arithmetic
   // in `weapon-config.test.ts`.
   //
-  // Bullseye's slot 3 is lance (bit 2). Shooter at x = 300 facing +x, target 100 units ahead: the
+  // Bullseye's ability 3 is lance, which is fire slot 3 (bit 3). Shooter at x = 300 facing +x,
+  // target 100 units ahead: the
   // beam is born at extent 0 and grows 200 units per tick, so it covers the target's near edge
   // (52 units out) on its second tick and pulses there, then every 15 ticks after.
   let world_ = world();
@@ -1121,7 +1122,7 @@ describe("stun interruption (O8)", () => {
   }
 
   it("cancels a committed wind-up, without refunding the stock", () => {
-    // Bullseye presses lance (slot 3, fireMask bit 2 == 4) on tick 100; the stun lands the same
+    // Bullseye presses lance (ability 3 == fire slot 3, fireMask bit 3 == 8) on tick 100; the stun lands the same
     // tick. Lance's 700ms wind-up means `beginFire` spends the stock and schedules a shot for a
     // LATER tick, so the pending burst is still sitting there for the sweep to cancel.
     const p = bullseyeAt("a", { fireMask: 0b1000 });
@@ -1189,7 +1190,7 @@ describe("stun interruption (O8)", () => {
   });
 
   it("a stun does not end wildcharge — the roster's isUnInterruptable exemption (O8)", () => {
-    // Bastion presses wildcharge (slot 3, fireMask bit 2 == 4) on tick 100, opening the charge
+    // Bastion presses wildcharge (ability 3 == fire slot 3, fireMask bit 3 == 8) on tick 100, opening the charge
     // window for real through the fire pipeline.
     const charger = player("a", { x: 300, y: OPEN_Y, carId: "bastion", fireMask: 0b1000 });
     let state = runCombat({
@@ -1261,7 +1262,7 @@ describe("real-row integration (2026-09-01 roster)", () => {
   });
 
   it("a wildcharge press opens the charge window and self-applies fortified", () => {
-    const p = player("a", { x: 300, y: OPEN_Y, carId: "bastion", fireMask: 0b1000 }); // slot 3
+    const p = player("a", { x: 300, y: OPEN_Y, carId: "bastion", fireMask: 0b1000 }); // ability 3 == fire slot 3
     const result = runCombat({
       world: world(),
       players: [p],
