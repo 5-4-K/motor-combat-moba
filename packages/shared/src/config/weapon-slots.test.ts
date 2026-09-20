@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CAR_TABLE, basicAttackIds, basicAttackOf } from "./car-config.js";
+import type { CarId } from "./types.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
-import { WEAPON_SLOT_CONFIG, slotsOf, slotsFrom, fireSlotsOf } from "./weapon-slots.js";
+import { ABILITY_SLOT_CEILING, WEAPON_SLOT_CONFIG, slotsOf, slotsFrom, fireSlotsOf } from "./weapon-slots.js";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -65,15 +66,15 @@ describe("loadouts", () => {
     expect(slotsOf("bastion")).toEqual(["thumper", "roadblock", "wildcharge"]);
   });
 
-  it("truncates an over-long loadout to the slot limit and warns once, naming the car", () => {
+  it("truncates a past-the-ceiling loadout and warns once, naming the car", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const over = ["magmablast", "magmablast", "magmablast", "magmablast"] as const;
+    const over = ["magmablast", "magmablast", "magmablast", "magmablast", "magmablast"] as const;
 
-    const first = slotsFrom("bastion", over);
-    const second = slotsFrom("bastion", over);
+    const first = slotsFrom("bastion", over, ABILITY_SLOT_CEILING);
+    const second = slotsFrom("bastion", over, ABILITY_SLOT_CEILING);
 
-    expect(first).toHaveLength(WEAPON_SLOT_CONFIG.maxAbilitySlots);
-    expect(second).toHaveLength(WEAPON_SLOT_CONFIG.maxAbilitySlots);
+    expect(first).toHaveLength(ABILITY_SLOT_CEILING);
+    expect(second).toHaveLength(ABILITY_SLOT_CEILING);
     expect(warn).toHaveBeenCalledTimes(1); // once per car, not once per call
     expect(warn.mock.calls[0]![0]).toContain("bastion");
   });
@@ -131,5 +132,54 @@ describe("loadouts", () => {
     // still lands at index 0, not index 3: the fire order is the kit followed by the basic attack,
     // not a fixed four-element array with holes.
     expect(fireSlotsOf("taurus")).toEqual(["basic-attack-taurus"]);
+  });
+});
+
+describe("the slot count", () => {
+  it("separates the structural ceiling from the tunable count", () => {
+    // VS1/VS2. The ceiling sizes the key table, the mask width and the type bounds and is never a
+    // tuning act; `maxAbilitySlots` is the build-time knob a designer moves.
+    expect(ABILITY_SLOT_CEILING).toBe(4);
+    expect(WEAPON_SLOT_CONFIG.maxAbilitySlots).toBeGreaterThanOrEqual(1);
+    expect(WEAPON_SLOT_CONFIG.maxAbilitySlots).toBeLessThanOrEqual(ABILITY_SLOT_CEILING);
+  });
+
+  it("derives the fire-slot count rather than typing it", () => {
+    // VS3. Typed separately, the two could disagree with N and with each other.
+    expect(WEAPON_SLOT_CONFIG.maxFireSlots).toBe(WEAPON_SLOT_CONFIG.maxAbilitySlots + 1);
+  });
+
+  it("truncates to a caller-given max so the rule is testable at every N", () => {
+    // VS-testing. `maxAbilitySlots` is build-time and a test cannot move it, so the rule has to be
+    // reachable through a parameter or it can only ever be exercised at the shipped value.
+    const four = ["predator", "pepperbox", "lance", "tremor"] as const;
+    expect(slotsFrom("bullseye", four, 1)).toEqual(["predator"]);
+    expect(slotsFrom("bullseye", four, 2)).toEqual(["predator", "pepperbox"]);
+    expect(slotsFrom("bullseye", four, 4)).toEqual([...four]);
+  });
+
+  it("caps a roster kit at N, so slotsOf answers what the PLAYER sees", () => {
+    // VS10. `slotsOf` is what the HUD, the guide, the playground picker, the balance seat filter,
+    // ttk's attacker axis and the bot's reach model all read. They ask "what kit was this chassis
+    // designed around", and with N in play the honest answer is the truncated one — a weapon the
+    // build cannot fire is not part of the kit the player experiences.
+    for (const id of Object.keys(CAR_TABLE) as CarId[]) {
+      expect(slotsOf(id).length).toBeLessThanOrEqual(WEAPON_SLOT_CONFIG.maxAbilitySlots);
+    }
+  });
+
+  it("warns only when a kit exceeds the CEILING, not merely N", () => {
+    // VS11. A chassis authoring four weapons in an N=3 build is the DESIGNED case, not a mistake:
+    // warning on it would log on every boot. Only a kit past the ceiling is an authoring error.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const four = ["predator", "pepperbox", "lance", "tremor"] as const;
+
+    expect(slotsFrom("quiet-car", four, 2)).toHaveLength(2);
+    expect(warn).not.toHaveBeenCalled();
+
+    const five = [...four, "thumper"] as const;
+    expect(slotsFrom("loud-car", five, 4)).toHaveLength(4);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toContain("loud-car");
   });
 });

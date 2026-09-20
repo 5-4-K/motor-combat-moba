@@ -3,52 +3,68 @@ import type { CarId } from "./types.js";
 import type { WeaponId } from "./weapon-types.js";
 
 /**
+ * The STRUCTURAL ceiling: how many ability slots the game is BUILT for, as opposed to how many this
+ * build turns on. It sizes `SLOT_KEYS`, bounds the wire mask's width, and is the upper bound
+ * `maxAbilitySlots` is validated against. It is not a balance number and no skill edits it —
+ * raising it is its own piece of work, because the HUD gutter has no room above 4 (VS21).
+ */
+export const ABILITY_SLOT_CEILING = 4;
+
+/**
+ * The BUILD-TIME ability-slot count, `N`. 1 to `ABILITY_SLOT_CEILING`, default 3.
+ *
+ * A chassis may author more weapons than this; the extras stay in `CAR_TABLE` and are simply not
+ * reachable in this build — not fired, not drawn, not taught, not published (VS2). Flip it with the
+ * `ability-slot-count` skill, which walks every step the change owes.
+ */
+const ABILITY_SLOTS = 3;
+
+/**
  * The slot counts, and the difference between them.
  *
- * `maxAbilitySlots` is how many weapons a chassis's KIT may present: the server rejects an ability
- * fire at or beyond this index, and the HUD draws at most this many boxes. It was called
- * `maxWeaponSlots` until 2026-09-17, and the rename is the point — every car carries four weapons
- * now, and a constant called "max weapon slots" reading 3 would be a quiet lie.
+ * `maxAbilitySlots` is `N`: how many weapons a chassis's KIT may present in this build. The server
+ * rejects an ability fire at or beyond this index and the HUD draws at most this many boxes.
  *
  * `maxFireSlots` is how many weapons a car can actually fire: the kit plus its basic attack (BA11).
- * It is what the wire mask is masked to and what the client's key table runs to. Derived, never
- * typed, so the two can never disagree.
+ * `basicAttackSlotIndex` is `N` — the basic attack is LAST, behind an unmoved kit, which is what
+ * keeps the ability indices stable regardless of kit length (BA13). Both are derived, never typed,
+ * so they cannot disagree with `N`.
  */
-/** The ability-slot count, hoisted so the two counts below are expressions rather than a promise. */
-const MAX_ABILITY_SLOTS = 3;
-
 export const WEAPON_SLOT_CONFIG = {
-  maxAbilitySlots: MAX_ABILITY_SLOTS,
-  maxFireSlots: MAX_ABILITY_SLOTS + 1,
-  /**
-   * The basic attack is always last, so the three ability indices never move (BA13). "Always" is
-   * enforced, not assumed: `weapon-slots.test.ts`'s "gives every ACTIVE car exactly a full kit"
-   * pins every active chassis's `weapons.length` to `maxAbilitySlots`, which is what keeps this
-   * index the one `fireSlotsOf` actually produces rather than a claim that a short kit would quietly
-   * falsify.
-   */
-  basicAttackSlotIndex: MAX_ABILITY_SLOTS,
+  maxAbilitySlots: ABILITY_SLOTS,
+  maxFireSlots: ABILITY_SLOTS + 1,
+  basicAttackSlotIndex: ABILITY_SLOTS,
 } as const;
 
 /** Cars already warned about, so an over-long loadout logs once rather than once per tick. */
 const warned = new Set<string>();
 
 /**
- * A car's loadout, capped at the slot limit. A car listing more weapons than slots is a config
- * mistake worth surfacing but not worth crashing over: the extras can never be selected or drawn,
- * so they are dropped with one warning naming the car.
+ * A car's loadout, capped at `max` (default: this build's `N`).
+ *
+ * Two different over-lengths, deliberately handled differently (VS11):
+ *
+ * - Longer than `ABILITY_SLOT_CEILING` — an authoring error. Warn once per car, naming it.
+ * - Within the ceiling but longer than `max` — the DESIGNED case. A chassis may author four weapons
+ *   and run in an `N = 3` build; warning on that would log on every boot for a configuration that
+ *   is working exactly as intended. Truncate silently.
+ *
+ * `max` is a parameter rather than a direct config read so the rule is reachable at every `N`:
+ * `maxAbilitySlots` is build-time and no test can move it.
  */
-export function slotsFrom(carId: string, weapons: readonly WeaponId[]): readonly WeaponId[] {
-  const max = WEAPON_SLOT_CONFIG.maxAbilitySlots;
-  if (weapons.length <= max) return weapons;
-  if (!warned.has(carId)) {
+export function slotsFrom(
+  carId: string,
+  weapons: readonly WeaponId[],
+  max: number = WEAPON_SLOT_CONFIG.maxAbilitySlots,
+): readonly WeaponId[] {
+  if (weapons.length > ABILITY_SLOT_CEILING && !warned.has(carId)) {
     warned.add(carId);
     console.warn(
-      `[weapons] car "${carId}" lists ${weapons.length} weapons but maxAbilitySlots is ${max}; ` +
-        `ignoring: ${weapons.slice(max).join(", ")}`,
+      `[weapons] car "${carId}" lists ${weapons.length} weapons but the ceiling is ` +
+        `${ABILITY_SLOT_CEILING}; ignoring: ${weapons.slice(ABILITY_SLOT_CEILING).join(", ")}`,
     );
   }
-  return weapons.slice(0, max);
+  return weapons.length <= max ? weapons : weapons.slice(0, max);
 }
 
 export function slotsOf(carId: CarId): readonly WeaponId[] {
