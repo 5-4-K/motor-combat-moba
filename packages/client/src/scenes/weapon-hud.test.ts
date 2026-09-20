@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { MAX_PLAYERS, STATUS_CONFIG, WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
 import type { TextureLookup } from "../assets/car-sprite.js";
@@ -25,6 +27,17 @@ import {
 } from "./weapon-hud.js";
 import { rosterPanelLayout } from "./roster-panel.js";
 import { statusStripLayout } from "./status-hud.js";
+
+const ARENA_SCENE_SOURCE = readFileSync(
+  fileURLToPath(new URL("./ArenaScene.ts", import.meta.url)),
+  "utf8",
+);
+
+/** The module minus its prose: these are assertions about CODE, not about how it is commented. */
+const ARENA_SCENE_CODE = ARENA_SCENE_SOURCE.replace(/\/\*[\s\S]*?\*\//g, "").replace(
+  /(^|[^:])\/\/.*$/gm,
+  "$1",
+);
 
 describe("cooldown fill", () => {
   it("is empty the tick a recharge starts and full when it ends - the ring FILLS, it does not drain", () => {
@@ -239,6 +252,30 @@ describe("abilityCountOf (BA15)", () => {
     }
     // And the offset itself never points at fire slot 0, the basic attack's own slot.
     expect(ABILITY_SLOT_OFFSET).toBeGreaterThan(0);
+  });
+
+  /**
+   * A SOURCE-TEXT test, not a behavioural one, and deliberately so: `ArenaScene.ts` is Phaser-only
+   * and cannot be unit-tested in this repo's node-environment suites
+   * (`packages/client/CLAUDE.md`), so `abilityCountOf` being correct proves nothing about whether
+   * `renderWeaponHud` actually CALLS it. It is `slotBarLayout`'s removed clamp (VS22) all over
+   * again: that clamp was BA15's only guard, and this is the only guard available to replace it —
+   * grepping the call site is possible where exercising it is not.
+   *
+   * This is a stopgap, not a model to imitate elsewhere. **Delete it the day a browser or
+   * integration test covers `renderWeaponHud` for real** — that test would be strictly better,
+   * since it could not be fooled by a rename that keeps the string but breaks the wiring.
+   */
+  it("pins ArenaScene's call site so nobody re-derives the count inline (BA15 source guard)", () => {
+    // Positive: the real call site imports and uses this helper, not just some code that happens
+    // to exist near it.
+    expect(ARENA_SCENE_CODE).toMatch(/import\s*\{[^}]*\babilityCountOf\b[^}]*\}\s*from\s*"\.\/weapon-hud\.js"/);
+    expect(ARENA_SCENE_CODE).toMatch(/slotBarLayout\(\s*this\.localAbilityCount\(\)/);
+
+    // Negative: nobody re-derived the count by hand instead of calling the helper. Whitespace
+    // variants (`- 1`, `-1`, `- 1`) are all covered, since that is exactly the kind of edit that
+    // would slip past a narrower pattern.
+    expect(ARENA_SCENE_CODE).not.toMatch(/weapons\.length\s*-\s*1\b/);
   });
 });
 
