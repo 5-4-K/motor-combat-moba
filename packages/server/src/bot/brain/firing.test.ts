@@ -1,10 +1,20 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { BASIC_ATTACK_CONFIG, WEAPON_SLOT_CONFIG, basicAttackOf, slotsOf, weaponDefOf } from "@motor-combat-moba/shared";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  BASIC_ATTACK_CONFIG,
+  WEAPON_SLOT_CONFIG,
+  basicAttackOf,
+  slotsOf,
+  weaponDefOf,
+} from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotCarView, BotSelfView, BotSlotView } from "../types.js";
 import {
-  chooseSlot, isUlt, preferredRangeOf, slotIsReady, type UltHoldEntry,
+  chooseSlot,
+  isUlt,
+  preferredRangeOf,
+  slotIsReady,
+  type UltHoldEntry,
 } from "./firing.js";
 import type { FiringSolution } from "./solution.js";
 
@@ -15,49 +25,119 @@ import type { FiringSolution } from "./solution.js";
  * itself against the real sim. `hitChance`/`expectedDamage` are filled in only so the shape is a
  * valid `FiringSolution`; nothing in `chooseSlot` reads them.
  */
-function solutionsFor(entries: [number, number][]): Map<number, FiringSolution> {
-  return new Map(entries.map(([slot, value]) => [slot, {
-    hitChance: value > 0 ? 0.8 : 0, expectedDamage: value, value,
-    aimHeadingRad: 0, readyInTicks: 0,
-  }]));
+function solutionsFor(
+  entries: [number, number][],
+): Map<number, FiringSolution> {
+  return new Map(
+    entries.map(([slot, value]) => [
+      slot,
+      {
+        hitChance: value > 0 ? 0.8 : 0,
+        expectedDamage: value,
+        value,
+        aimHeadingRad: 0,
+        readyInTicks: 0,
+      },
+    ]),
+  );
+}
+
+/**
+ * Pins `BASIC_ATTACK_CONFIG.enabled` ON for one test, restoring whatever the build ships afterwards.
+ *
+ * `slotsFor` builds a KIT-indexed fixture (`slotsOf`, three ability rows), so its index 0 holds an
+ * ability — but in production fire slot 0 IS the basic attack (VS6) and `chooseSlot` refuses that
+ * index outright while the toggle is off, which would drop a press the test is counting. Pinning
+ * the flag keeps these cases measuring what they were written for; the toggle has its own coverage
+ * in the `chooseSlot — the basic-attack toggle` block, which sets the flag itself.
+ */
+function pinBasicAttackEnabled(): void {
+  const shipped = BASIC_ATTACK_CONFIG.enabled;
+  beforeEach(() => {
+    BASIC_ATTACK_CONFIG.enabled = true;
+  });
+  afterEach(() => {
+    BASIC_ATTACK_CONFIG.enabled = shipped;
+  });
 }
 
 function slotsFor(carId: "bullseye" | "mirage" | "bastion"): BotSlotView[] {
   return slotsOf(carId).map((weaponId) => ({
-    weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+    weaponId,
+    stocks: 1,
+    rechargeEndsTick: 0,
+    refireLockUntilTick: 0,
     range: weaponDefOf(weaponId).range,
   }));
 }
 
 function self(carId: "bullseye" | "mirage" | "bastion"): BotSelfView {
   return {
-    sessionId: "me", carId, team: 0, x: 0, y: 0, angle: 0, vx: 0, vy: 0,
-    hp: 100, maxHp: 100, alive: true, statuses: [], slots: slotsFor(carId),
-    switchLockUntilTick: 0, maneuver: 0, maneuverTicksLeft: 0,
+    sessionId: "me",
+    carId,
+    team: 0,
+    x: 0,
+    y: 0,
+    angle: 0,
+    vx: 0,
+    vy: 0,
+    hp: 100,
+    maxHp: 100,
+    alive: true,
+    statuses: [],
+    slots: slotsFor(carId),
+    switchLockUntilTick: 0,
+    maneuver: 0,
+    maneuverTicksLeft: 0,
   };
 }
 
 const target: BotCarView = {
-  sessionId: "them", carId: "mirage", team: 0, x: 300, y: 0, angle: 0, vx: 0, vy: 0,
-  hp: 70, maxHp: 70, alive: true, phased: false, statuses: [], maneuver: 0,
+  sessionId: "them",
+  carId: "mirage",
+  team: 0,
+  x: 300,
+  y: 0,
+  angle: 0,
+  vx: 0,
+  vy: 0,
+  hp: 70,
+  maxHp: 70,
+  alive: true,
+  phased: false,
+  statuses: [],
+  maneuver: 0,
 };
 
 const ones = [1, 1, 1];
 
 describe("preferredRangeOf", () => {
   it("never asks to fight further away than the bot can perceive", () => {
-    const range = preferredRangeOf(self("bullseye"), BOT_PROFILES.hard, ones, 0);
+    const range = preferredRangeOf(
+      self("bullseye"),
+      BOT_PROFILES.hard,
+      ones,
+      0,
+    );
     expect(range).toBeLessThanOrEqual(BOT_PROFILES.hard.awarenessRadiusUnits);
   });
 
   it("never collapses below the close-quarters floor", () => {
-    const range = preferredRangeOf({ ...self("bastion"), slots: [] }, BOT_PROFILES.easy, [], 0);
+    const range = preferredRangeOf(
+      { ...self("bastion"), slots: [] },
+      BOT_PROFILES.easy,
+      [],
+      0,
+    );
     expect(range).toBe(70);
   });
 
   it("holds a longer range for a more disciplined tier", () => {
-    expect(preferredRangeOf(self("mirage"), BOT_PROFILES.hard, ones, 0))
-      .toBeGreaterThan(preferredRangeOf(self("mirage"), BOT_PROFILES.easy, ones, 0));
+    expect(
+      preferredRangeOf(self("mirage"), BOT_PROFILES.hard, ones, 0),
+    ).toBeGreaterThan(
+      preferredRangeOf(self("mirage"), BOT_PROFILES.easy, ones, 0),
+    );
   });
 
   it("every tier can perceive further than the close-quarters floor", () => {
@@ -67,8 +147,9 @@ describe("preferredRangeOf", () => {
     // while this holds of every tier. Pinned here rather than re-clamped there so a tier row that
     // ever broke it fails naming the tier, instead of being silently absorbed by a `Math.max`.
     for (const tier of ["easy", "medium", "hard"] as const) {
-      expect(BOT_PROFILES[tier].awarenessRadiusUnits, tier)
-        .toBeGreaterThan(BRAIN_CONSTANTS.minEngageUnits);
+      expect(BOT_PROFILES[tier].awarenessRadiusUnits, tier).toBeGreaterThan(
+        BRAIN_CONSTANTS.minEngageUnits,
+      );
     }
   });
 
@@ -79,7 +160,9 @@ describe("preferredRangeOf", () => {
     // first sample to beat a running best would return 70 for every chassis at every tier and the
     // solver-derived range would be a no-op with an expensive loop in front of it. Bullseye at hard
     // is the loudest case: 570 units at the 60x40 hull (470 at 48x32), over eight times the floor.
-    expect(preferredRangeOf(self("bullseye"), BOT_PROFILES.hard, ones, 0)).toBeGreaterThan(300);
+    expect(
+      preferredRangeOf(self("bullseye"), BOT_PROFILES.hard, ones, 0),
+    ).toBeGreaterThan(300);
   });
 
   it("lets a slot preference read, so `slotWeights` actually reach the standoff (R-D5)", () => {
@@ -96,8 +179,18 @@ describe("preferredRangeOf", () => {
     // afterburner's cliff, so the bot stands off; weighting afterburner instead makes that cliff a
     // big enough share of the peak to pull the total under the bar there, and it stands close.
     // Both vectors are inside `rollPersonality`'s own 0.5-1.5 draw.
-    const longGunHeavy = preferredRangeOf(self("mirage"), BOT_PROFILES.hard, [1.5, 1.5, 0.5], 0);
-    const afterburnerHeavy = preferredRangeOf(self("mirage"), BOT_PROFILES.hard, [0.5, 0.5, 1.5], 0);
+    const longGunHeavy = preferredRangeOf(
+      self("mirage"),
+      BOT_PROFILES.hard,
+      [1.5, 1.5, 0.5],
+      0,
+    );
+    const afterburnerHeavy = preferredRangeOf(
+      self("mirage"),
+      BOT_PROFILES.hard,
+      [0.5, 0.5, 1.5],
+      0,
+    );
     expect(longGunHeavy).not.toBe(afterburnerHeavy);
     expect(longGunHeavy).toBeGreaterThan(afterburnerHeavy);
   });
@@ -129,9 +222,13 @@ describe("preferredRangeOf", () => {
     for (const carId of ["bullseye", "mirage", "bastion"] as const) {
       for (const tier of ["easy", "medium", "hard"] as const) {
         const seen = new Set<number>();
-        for (const a of grid) for (const b of grid) for (const c of grid) {
-          seen.add(preferredRangeOf(self(carId), BOT_PROFILES[tier], [a, b, c], 0));
-        }
+        for (const a of grid)
+          for (const b of grid)
+            for (const c of grid) {
+              seen.add(
+                preferredRangeOf(self(carId), BOT_PROFILES[tier], [a, b, c], 0),
+              );
+            }
         if (seen.size > 1) live.push(`${carId}/${tier}`);
       }
     }
@@ -141,8 +238,18 @@ describe("preferredRangeOf", () => {
   it("gives different chassis different distances, because their kits differ (P31)", () => {
     // Not a per-tier fudge factor on one shared formula any more: at the SAME tier and the same
     // slot weights, Bullseye's long kit wants a longer stand-off than Bastion's short one.
-    const bullseye = preferredRangeOf(self("bullseye"), BOT_PROFILES.hard, ones, 0);
-    const bastion = preferredRangeOf(self("bastion"), BOT_PROFILES.hard, ones, 0);
+    const bullseye = preferredRangeOf(
+      self("bullseye"),
+      BOT_PROFILES.hard,
+      ones,
+      0,
+    );
+    const bastion = preferredRangeOf(
+      self("bastion"),
+      BOT_PROFILES.hard,
+      ones,
+      0,
+    );
     expect(bullseye).toBeGreaterThan(bastion);
   });
 
@@ -165,7 +272,11 @@ describe("preferredRangeOf", () => {
         const loaded = self(carId);
         const spent = {
           ...loaded,
-          slots: loaded.slots.map((slot) => ({ ...slot, stocks: 0, refireLockUntilTick: 500 })),
+          slots: loaded.slots.map((slot) => ({
+            ...slot,
+            stocks: 0,
+            refireLockUntilTick: 500,
+          })),
         };
         // The kit's authored reach is what a not-ready bot evaluates, so it gets the SAME plateau
         // it would get with everything loaded — the range is a property of the kit, not of the
@@ -182,10 +293,15 @@ describe("preferredRangeOf", () => {
     const bullseye = self("bullseye");
     const spent = {
       ...bullseye,
-      slots: bullseye.slots.map((slot) => ({ ...slot, stocks: 0, refireLockUntilTick: 500 })),
+      slots: bullseye.slots.map((slot) => ({
+        ...slot,
+        stocks: 0,
+        refireLockUntilTick: 500,
+      })),
     };
-    expect(preferredRangeOf(spent, BOT_PROFILES.hard, ones, 0))
-      .toBeLessThan(BOT_PROFILES.hard.awarenessRadiusUnits);
+    expect(preferredRangeOf(spent, BOT_PROFILES.hard, ones, 0)).toBeLessThan(
+      BOT_PROFILES.hard.awarenessRadiusUnits,
+    );
   });
 });
 
@@ -209,22 +325,41 @@ describe("slotIsReady", () => {
 
 describe("chooseSlot", () => {
   const base = {
-    target, weights: ones, tick: 0, lastPressTick: -999,
+    target,
+    weights: ones,
+    tick: 0,
+    lastPressTick: -999,
   };
 
   it("presses nothing before burstGapTicks has elapsed", () => {
     const out = chooseSlot({
-      ...base, self: self("bullseye"), profile: BOT_PROFILES.hard,
-      tick: 1, lastPressTick: 0, rng: makeRng(1), ultHold: new Map(),
-      solutions: solutionsFor([[0, 40], [1, 35], [2, 30]]),
+      ...base,
+      self: self("bullseye"),
+      profile: BOT_PROFILES.hard,
+      tick: 1,
+      lastPressTick: 0,
+      rng: makeRng(1),
+      ultHold: new Map(),
+      solutions: solutionsFor([
+        [0, 40],
+        [1, 35],
+        [2, 30],
+      ]),
     });
     expect(out.slot).toBeUndefined();
   });
 
   it("returns exactly one slot, never a mask (H27)", () => {
     const out = chooseSlot({
-      ...base, self: self("bullseye"), profile: BOT_PROFILES.hard, rng: makeRng(1),
-      ultHold: new Map(), solutions: solutionsFor([[0, 40], [1, 35]]),
+      ...base,
+      self: self("bullseye"),
+      profile: BOT_PROFILES.hard,
+      rng: makeRng(1),
+      ultHold: new Map(),
+      solutions: solutionsFor([
+        [0, 40],
+        [1, 35],
+      ]),
     });
     expect(out.slot === undefined || Number.isInteger(out.slot)).toBe(true);
   });
@@ -239,7 +374,9 @@ describe("chooseSlot", () => {
     const base = self(carId);
     return {
       ...base,
-      slots: base.slots.map((slot, i) => (i === 2 ? slot : { ...slot, stocks: 0 })),
+      slots: base.slots.map((slot, i) =>
+        i === 2 ? slot : { ...slot, stocks: 0 },
+      ),
     };
   }
 
@@ -253,8 +390,11 @@ describe("chooseSlot", () => {
     let ultPresses = 0;
     for (let seed = 0; seed < 40; seed++) {
       const out = chooseSlot({
-        ...base, self: ultOnly("bullseye"), profile: BOT_PROFILES.hard,
-        rng: makeRng(seed), ultHold: new Map(),
+        ...base,
+        self: ultOnly("bullseye"),
+        profile: BOT_PROFILES.hard,
+        rng: makeRng(seed),
+        ultHold: new Map(),
         solutions: solutionsFor([[2, 30]]),
       });
       if (out.slot === 2) ultPresses++;
@@ -268,8 +408,11 @@ describe("chooseSlot", () => {
     let ultPresses = 0;
     for (let seed = 0; seed < 40; seed++) {
       const out = chooseSlot({
-        ...base, self: ultOnly("bullseye"), profile: BOT_PROFILES.easy,
-        rng: makeRng(seed), ultHold: new Map(),
+        ...base,
+        self: ultOnly("bullseye"),
+        profile: BOT_PROFILES.easy,
+        rng: makeRng(seed),
+        ultHold: new Map(),
         solutions: solutionsFor([[2, 10]]),
       });
       if (out.slot === 2) ultPresses++;
@@ -295,8 +438,14 @@ describe("chooseSlot", () => {
     let ultPresses = 0;
     for (let tick = 0; tick < 500; tick++) {
       const out = chooseSlot({
-        ...base, self: ultOnly("bullseye"), profile: BOT_PROFILES.hard,
-        tick, lastPressTick: -999, rng: persistentRng, ultHold, solutions,
+        ...base,
+        self: ultOnly("bullseye"),
+        profile: BOT_PROFILES.hard,
+        tick,
+        lastPressTick: -999,
+        rng: persistentRng,
+        ultHold,
+        solutions,
       });
       if (out.slot === 2) ultPresses++;
     }
@@ -307,8 +456,14 @@ describe("chooseSlot", () => {
     let rerolledPresses = 0;
     for (let tick = 0; tick < 500; tick++) {
       const out = chooseSlot({
-        ...base, self: ultOnly("bullseye"), profile: BOT_PROFILES.hard,
-        tick, lastPressTick: -999, rng: rerolledRng, ultHold: new Map(), solutions,
+        ...base,
+        self: ultOnly("bullseye"),
+        profile: BOT_PROFILES.hard,
+        tick,
+        lastPressTick: -999,
+        rng: rerolledRng,
+        ultHold: new Map(),
+        solutions,
       });
       if (out.slot === 2) rerolledPresses++;
     }
@@ -323,9 +478,17 @@ describe("chooseSlot", () => {
     // the ranking is under test. Pepperbox (20) sits below the threshold on purpose, to confirm a
     // gated-out slot cannot still win by default.
     const out = chooseSlot({
-      ...base, self: self("bullseye"), profile: BOT_PROFILES.hard,
-      target: { ...target, hp: 5 }, rng: makeRng(1), ultHold: new Map(),
-      solutions: solutionsFor([[0, 35], [1, 20], [2, 30]]),
+      ...base,
+      self: self("bullseye"),
+      profile: BOT_PROFILES.hard,
+      target: { ...target, hp: 5 },
+      rng: makeRng(1),
+      ultHold: new Map(),
+      solutions: solutionsFor([
+        [0, 35],
+        [1, 20],
+        [2, 30],
+      ]),
     });
     expect(out.slot).toBe(2);
   });
@@ -333,8 +496,13 @@ describe("chooseSlot", () => {
   it("respects the switch lock rather than throwing a press away (H27a)", () => {
     const locked = { ...self("bullseye"), switchLockUntilTick: 50 };
     const out = chooseSlot({
-      ...base, self: locked, profile: BOT_PROFILES.hard, tick: 10, rng: makeRng(1),
-      ultHold: new Map(), solutions: solutionsFor([[0, 40]]),
+      ...base,
+      self: locked,
+      profile: BOT_PROFILES.hard,
+      tick: 10,
+      rng: makeRng(1),
+      ultHold: new Map(),
+      solutions: solutionsFor([[0, 40]]),
     });
     // Slot 0 is what a fresh `lastFiredSlot` of -1 would refuse; nothing may be pressed under lock.
     expect(out.slot).toBeUndefined();
@@ -346,11 +514,17 @@ describe("chooseSlot", () => {
     const bastion = self("bastion");
     const chargeOnly: BotSelfView = {
       ...bastion,
-      slots: bastion.slots.map((slot, i) => (i === 2 ? slot : { ...slot, stocks: 0 })),
+      slots: bastion.slots.map((slot, i) =>
+        i === 2 ? slot : { ...slot, stocks: 0 },
+      ),
     };
     const out = chooseSlot({
-      ...base, self: chargeOnly, profile: BOT_PROFILES.easy,
-      target: { ...target, x: 100, hp: 10 }, rng: makeRng(1), ultHold: new Map(),
+      ...base,
+      self: chargeOnly,
+      profile: BOT_PROFILES.easy,
+      target: { ...target, x: 100, hp: 10 },
+      rng: makeRng(1),
+      ultHold: new Map(),
       solutions: solutionsFor([[2, 20]]),
     });
     expect(out.slot).toBe(2);
@@ -362,42 +536,63 @@ describe("chooseSlot", () => {
     const bastion = self("bastion");
     const chargeOnly: BotSelfView = {
       ...bastion,
-      slots: bastion.slots.map((slot, i) => (i === 2 ? slot : { ...slot, stocks: 0 })),
+      slots: bastion.slots.map((slot, i) =>
+        i === 2 ? slot : { ...slot, stocks: 0 },
+      ),
     };
     const out = chooseSlot({
-      ...base, self: chargeOnly, profile: BOT_PROFILES.easy,
-      rng: makeRng(1), ultHold: new Map(),
+      ...base,
+      self: chargeOnly,
+      profile: BOT_PROFILES.easy,
+      rng: makeRng(1),
+      ultHold: new Map(),
       solutions: solutionsFor([[2, 0]]),
     });
     expect(out.slot).toBeUndefined();
   });
 
-  it("fires an aim-assisted gun without a HUD lock (S20)", () => {
-    const predatorOnly: BotSelfView = {
-      ...self("bullseye"),
-      slots: slotsFor("bullseye").map((slot, i) => (i === 0 ? slot : { ...slot, stocks: 0 })),
-    };
-    const out = chooseSlot({
-      ...base, self: predatorOnly, profile: BOT_PROFILES.hard, rng: makeRng(1),
-      ultHold: new Map(), solutions: solutionsFor([[0, 40]]),
-    });
-    expect(out.slot).toBe(0);
-  });
+  describe("with the basic attack enabled, so the kit-indexed fixture's slot 0 is pressable", () => {
+    pinBasicAttackEnabled();
 
-  it("an undisciplined bot still mashes an aim-assisted gun without a lock", () => {
-    const predatorOnly: BotSelfView = {
-      ...self("bullseye"),
-      slots: slotsFor("bullseye").map((slot, i) => (i === 0 ? slot : { ...slot, stocks: 0 })),
-    };
-    let presses = 0;
-    for (let seed = 0; seed < 40; seed++) {
+    it("fires an aim-assisted gun without a HUD lock (S20)", () => {
+      const predatorOnly: BotSelfView = {
+        ...self("bullseye"),
+        slots: slotsFor("bullseye").map((slot, i) =>
+          i === 0 ? slot : { ...slot, stocks: 0 },
+        ),
+      };
       const out = chooseSlot({
-        ...base, self: predatorOnly, profile: BOT_PROFILES.easy, rng: makeRng(seed),
-        ultHold: new Map(), solutions: solutionsFor([[0, 10]]),
+        ...base,
+        self: predatorOnly,
+        profile: BOT_PROFILES.hard,
+        rng: makeRng(1),
+        ultHold: new Map(),
+        solutions: solutionsFor([[0, 40]]),
       });
-      if (out.slot === 0) presses++;
-    }
-    expect(presses).toBeGreaterThan(20);
+      expect(out.slot).toBe(0);
+    });
+
+    it("an undisciplined bot still mashes an aim-assisted gun without a lock", () => {
+      const predatorOnly: BotSelfView = {
+        ...self("bullseye"),
+        slots: slotsFor("bullseye").map((slot, i) =>
+          i === 0 ? slot : { ...slot, stocks: 0 },
+        ),
+      };
+      let presses = 0;
+      for (let seed = 0; seed < 40; seed++) {
+        const out = chooseSlot({
+          ...base,
+          self: predatorOnly,
+          profile: BOT_PROFILES.easy,
+          rng: makeRng(seed),
+          ultHold: new Map(),
+          solutions: solutionsFor([[0, 10]]),
+        });
+        if (out.slot === 0) presses++;
+      }
+      expect(presses).toBeGreaterThan(20);
+    });
   });
 });
 
@@ -406,52 +601,92 @@ describe("chooseSlot — expected value gate (P14, R20)", () => {
     // 0.3 x Bullseye's kit ceiling (~78.3, `bestAchievableValueOf`) is ~23.5 — well above all three
     // mocked values.
     const decision = chooseSlot({
-      self: self("bullseye"), target, profile: { ...BOT_PROFILES.hard, minShotValueFraction: 0.3 },
-      weights: ones, tick: 100, lastPressTick: 0, rng: makeRng(1),
+      self: self("bullseye"),
+      target,
+      profile: { ...BOT_PROFILES.hard, minShotValueFraction: 0.3 },
+      weights: ones,
+      tick: 100,
+      lastPressTick: 0,
+      rng: makeRng(1),
       ultHold: new Map<number, UltHoldEntry>(),
-      solutions: solutionsFor([[0, 5], [1, 3], [2, 1]]),
+      solutions: solutionsFor([
+        [0, 5],
+        [1, 3],
+        [2, 1],
+      ]),
     });
     expect(decision.slot).toBeUndefined();
   });
 
   it("presses the highest-value slot that clears it", () => {
     const decision = chooseSlot({
-      self: self("bullseye"), target, profile: { ...BOT_PROFILES.hard, minShotValueFraction: 0.3 },
-      weights: ones, tick: 100, lastPressTick: 0, rng: makeRng(1),
+      self: self("bullseye"),
+      target,
+      profile: { ...BOT_PROFILES.hard, minShotValueFraction: 0.3 },
+      weights: ones,
+      tick: 100,
+      lastPressTick: 0,
+      rng: makeRng(1),
       ultHold: new Map<number, UltHoldEntry>(),
-      solutions: solutionsFor([[0, 30], [1, 45], [2, 1]]),
+      solutions: solutionsFor([
+        [0, 30],
+        [1, 45],
+        [2, 1],
+      ]),
     });
     expect(decision.slot).toBe(1);
   });
 
-  it("an amateur threshold takes a shot a skilled one declines (P37)", () => {
-    // Bullseye's kit ceiling at easy's aim sigma is ~75. 0.05 x 75 = ~3.75 (below the mocked 6, so
-    // it clears); 0.3 x 75 = ~22.5 (above the mocked 6, so it does not).
-    const solutions = solutionsFor([[0, 6], [1, 0], [2, 0]]);
-    const at = (minShotValueFraction: number) => chooseSlot({
-      self: self("bullseye"), target, profile: { ...BOT_PROFILES.easy, minShotValueFraction },
-      weights: ones, tick: 100, lastPressTick: 0, rng: makeRng(1),
-      ultHold: new Map<number, UltHoldEntry>(), solutions,
-    }).slot;
-    expect(at(0.05)).toBe(0);
-    expect(at(0.3)).toBeUndefined();
+  describe("with the basic attack enabled, so the kit-indexed fixture's slot 0 is pressable", () => {
+    pinBasicAttackEnabled();
+
+    it("an amateur threshold takes a shot a skilled one declines (P37)", () => {
+      // Bullseye's kit ceiling at easy's aim sigma is ~75. 0.05 x 75 = ~3.75 (below the mocked 6, so
+      // it clears); 0.3 x 75 = ~22.5 (above the mocked 6, so it does not).
+      const solutions = solutionsFor([
+        [0, 6],
+        [1, 0],
+        [2, 0],
+      ]);
+      const at = (minShotValueFraction: number) =>
+        chooseSlot({
+          self: self("bullseye"),
+          target,
+          profile: { ...BOT_PROFILES.easy, minShotValueFraction },
+          weights: ones,
+          tick: 100,
+          lastPressTick: 0,
+          rng: makeRng(1),
+          ultHold: new Map<number, UltHoldEntry>(),
+          solutions,
+        }).slot;
+      expect(at(0.05)).toBe(0);
+      expect(at(0.3)).toBeUndefined();
+    });
   });
 });
 
 describe("chooseSlot — the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)", () => {
+  // Captured, never hard-coded to `true` — see the same note in shared's `fire.test.ts`.
+  const shipped = BASIC_ATTACK_CONFIG.enabled;
   afterEach(() => {
-    BASIC_ATTACK_CONFIG.enabled = true;
+    BASIC_ATTACK_CONFIG.enabled = shipped;
   });
 
   /** A real four-slot loadout — kit plus the chassis's own basic attack, as `newFireState` builds it. */
-  function selfWithBasicAttack(carId: "bullseye" | "mirage" | "bastion"): BotSelfView {
+  function selfWithBasicAttack(
+    carId: "bullseye" | "mirage" | "bastion",
+  ): BotSelfView {
     const basicAttackId = basicAttackOf(carId);
     return {
       ...self(carId),
       slots: [
         ...slotsFor(carId),
         {
-          weaponId: basicAttackId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+          weaponId: basicAttackId,
+          stocks: 1,
+          rechargeEndsTick: 0,
+          refireLockUntilTick: 0,
           range: weaponDefOf(basicAttackId).range,
         },
       ],
@@ -461,11 +696,18 @@ describe("chooseSlot — the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)",
   it("never selects the basic-attack slot when disabled, even when it scores far above every ability", () => {
     BASIC_ATTACK_CONFIG.enabled = false;
     const decision = chooseSlot({
-      self: selfWithBasicAttack("bastion"), target, profile: BOT_PROFILES.hard,
-      weights: [1, 1, 1, 1], tick: 100, lastPressTick: 0, rng: makeRng(1),
+      self: selfWithBasicAttack("bastion"),
+      target,
+      profile: BOT_PROFILES.hard,
+      weights: [1, 1, 1, 1],
+      tick: 100,
+      lastPressTick: 0,
+      rng: makeRng(1),
       ultHold: new Map<number, UltHoldEntry>(),
       solutions: solutionsFor([
-        [0, 10], [1, 10], [2, 10],
+        [0, 10],
+        [1, 10],
+        [2, 10],
         [WEAPON_SLOT_CONFIG.basicAttackSlotIndex, 1_000_000],
       ]),
     });
@@ -473,12 +715,20 @@ describe("chooseSlot — the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)",
   });
 
   it("selects the basic-attack slot when enabled and it is the clear best score", () => {
+    BASIC_ATTACK_CONFIG.enabled = true;
     const decision = chooseSlot({
-      self: selfWithBasicAttack("bastion"), target, profile: BOT_PROFILES.hard,
-      weights: [1, 1, 1, 1], tick: 100, lastPressTick: 0, rng: makeRng(1),
+      self: selfWithBasicAttack("bastion"),
+      target,
+      profile: BOT_PROFILES.hard,
+      weights: [1, 1, 1, 1],
+      tick: 100,
+      lastPressTick: 0,
+      rng: makeRng(1),
       ultHold: new Map<number, UltHoldEntry>(),
       solutions: solutionsFor([
-        [0, 10], [1, 10], [2, 10],
+        [0, 10],
+        [1, 10],
+        [2, 10],
         [WEAPON_SLOT_CONFIG.basicAttackSlotIndex, 1_000_000],
       ]),
     });

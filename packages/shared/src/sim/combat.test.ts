@@ -1,9 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ARENA_01 } from "../arena/arena-01.js";
 import { CAR_TABLE, hpOf, ramDefenceOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
-import { WEAPON_TABLE, weaponDefOf } from "../config/weapon-config.js";
+import { BASIC_ATTACK_CONFIG, WEAPON_TABLE, weaponDefOf } from "../config/weapon-config.js";
 import { SPIKE_CONFIG } from "../config/spike-config.js";
 import { MS_PER_TICK, TICK_RATE_HZ } from "../constants.js";
 import {
@@ -598,7 +598,29 @@ describe("dealDamageTo", () => {
   });
 });
 
+/**
+ * Pins `BASIC_ATTACK_CONFIG.enabled` ON for the enclosing `describe`, restoring whatever the build
+ * ships afterwards.
+ *
+ * The hand-built one-slot fire states below put an ordinary ability at index 0 and press bit 0, but
+ * index 0 IS the basic-attack fire slot (VS6) and `beginFire` refuses it outright while the toggle
+ * is off — so in a build shipping `enabled: false` those fixtures fire nothing and measure nothing.
+ * Pinning the flag keeps them measuring the thing they were written for (damage scaling, presence
+ * effects) rather than the toggle, which has its own coverage in `weapons/fire.test.ts`.
+ */
+function pinBasicAttackEnabled(): void {
+  const shipped = BASIC_ATTACK_CONFIG.enabled;
+  beforeEach(() => {
+    BASIC_ATTACK_CONFIG.enabled = true;
+  });
+  afterEach(() => {
+    BASIC_ATTACK_CONFIG.enabled = shipped;
+  });
+}
+
 describe("chassis attack scales weapon damage through a real tick", () => {
+  pinBasicAttackEnabled();
+
   /** One shot, fired for real, from `carId` into a stationary mirage. Returns the hp it cost. */
   const damageDealtBy = (carId: "mirage" | "bullseye" | "bastion"): number => {
     // Slot 1 is forced to roadblock for every chassis, overriding `carId`'s real loadout: since
@@ -1342,6 +1364,8 @@ describe("real-row integration (2026-09-01 roster)", () => {
 });
 
 describe("tremor (the unassigned row): presence effects", () => {
+  pinBasicAttackEnabled();
+
   /**
    * No chassis carries `tremor`, so the real pipeline is reached the way any authored-but-uncarried
    * row is testable: a hand-built fire state whose slot 1 holds it. `beginFire` reads the slot's

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { basicAttackOf } from "../../config/car-config.js";
 import { BASIC_ATTACK_CONFIG } from "../../config/weapon-config.js";
 import { WEAPON_SLOT_CONFIG } from "../../config/weapon-slots.js";
@@ -20,6 +20,26 @@ const SLOT_2 = 0b010;
  * pressing `0b001` on a roster car fires its basic attack, not its opener.
  */
 const ABILITY_1 = 0b010;
+
+/**
+ * Pins `BASIC_ATTACK_CONFIG.enabled` ON for the enclosing `describe`, restoring whatever the build
+ * ships afterwards.
+ *
+ * Needed because `beginFire` refuses fire slot 0 outright while the toggle is off (VS6: slot 0 IS
+ * the basic-attack slot, whatever weapon a fixture happens to put there), so any block that presses
+ * bit 0 — including the hand-built fixtures below, whose first entry is an ordinary ability —
+ * measures nothing in a build shipping `enabled: false`. Blocks that test the TOGGLE set the flag
+ * themselves and do not call this.
+ */
+function pinBasicAttackEnabled(): void {
+  const shipped = BASIC_ATTACK_CONFIG.enabled;
+  beforeEach(() => {
+    BASIC_ATTACK_CONFIG.enabled = true;
+  });
+  afterEach(() => {
+    BASIC_ATTACK_CONFIG.enabled = shipped;
+  });
+}
 
 /** Bullseye, as shipped since the 2026-09-02 loadout swap: slot 1 predator, slot 2 pepperbox, slot 3 lance. */
 const fresh = () => newFireState("bullseye", 1);
@@ -319,6 +339,8 @@ describe("per-tick order", () => {
 });
 
 describe("the two lockouts", () => {
+  pinBasicAttackEnabled();
+
   /**
    * The roster splits the two clocks across two weapons, so the fixture carries both. `lance` in
    * slot 2 owns the recovery (1000ms == 30 ticks) — it is the only row with a substantial one, and
@@ -419,6 +441,8 @@ describe("cancelling", () => {
 });
 
 describe("beginFire pressId (B7)", () => {
+  pinBasicAttackEnabled();
+
   it("mints sessionId#tick#slot on the committed press", () => {
     const state = newFireState("mirage", 1);
     const next = beginFire("p1", state, 0b1, 10);
@@ -439,9 +463,16 @@ describe("beginFire pressId (B7)", () => {
 });
 
 describe("the basic attack slot", () => {
-  it("builds its slots with the basic attack first", () => {
+  // These cover the MECHANIC, which `BASIC_ATTACK_CONFIG.enabled` switches off without deleting —
+  // so they pin the flag on rather than lean on however the build happens to ship it. Without this
+  // the block silently stops testing anything the day the toggle goes off, which is exactly when a
+  // regression in it would go unnoticed. The toggle's own behaviour is covered further down.
+  pinBasicAttackEnabled();
+
+  it("builds its slots with the basic attack FIRST, ahead of an unmoved kit (VS6)", () => {
     // VS6/VS9. `newFireState`'s explicit-loadout path builds this order inline rather than calling
-    // `fireSlotsOf`, so it needs its own assertion or the two can silently diverge.
+    // `fireSlotsOf`, so it needs its own assertion or the two can silently diverge. This replaces
+    // BA13's "sits last": the basic attack moved to slot 0, the kit order behind it did not move.
     const state = newFireState("bastion", 1);
     expect(state.slots.map((s) => s.weaponId)).toEqual([
       basicAttackOf("bastion"),
@@ -508,8 +539,11 @@ describe("the basic attack slot", () => {
 });
 
 describe("the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)", () => {
+  // Captured, never hard-coded to `true`: this flag is edited per build, and a restore that typed
+  // one position would leak the wrong value into every later test the day the other one ships.
+  const shipped = BASIC_ATTACK_CONFIG.enabled;
   afterEach(() => {
-    BASIC_ATTACK_CONFIG.enabled = true;
+    BASIC_ATTACK_CONFIG.enabled = shipped;
   });
 
   it("drops a basic-attack-only press when disabled — the key does nothing", () => {
@@ -535,6 +569,8 @@ describe("the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)", () => {
 });
 
 describe("same-tick tie-breaking", () => {
+  pinBasicAttackEnabled();
+
   it("lets the basic attack lose a tie to an ability, from index 0", () => {
     // VS12. The rule is unchanged from the build where the basic attack sat LAST and lost by being
     // the highest index; at index 0 it loses by being the lowest, which is why the scan reversed.

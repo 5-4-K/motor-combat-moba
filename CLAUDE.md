@@ -40,14 +40,15 @@ authoritative list. `newFireState` does not call it — its
 explicit-loadout path builds the same list inline, since it also has to accept a caller-given
 weapon override `fireSlotsOf` has no parameter for. **The basic attack is always fire slot 0** as of
 the 2026-09-20 index flip — it sat LAST, at `kit.length`, until then, which was a constant only
-while every active kit was the same length. The flip moved no binding: it is still `H` / `LMB`, and
-the abilities are still `J`/`RMB`, `K`/`SHIFT`, `L`/`SPACE`, now at fire slots 1..`N` (`;`/MMB
-is authored for a fourth ability and is inert while `N` is 3). It rides the
-ordinary fire state machine with `recoveryMs: 0`, and it **loses** a same-tick tie against an
-ability, because `beginFire` now scans **descending** and takes the highest set bit — the basic
-attack, at index 0, is scanned last. The scan was reversed in the same pass that moved the index, so
-the basic attack loses the tie the same way it always has, just through a different index. One
-consequence of scanning highest-wins is deliberate rather than incidental: among the
+while every active kit was the same length. The flip moved no player-facing binding: the basic
+attack is still `H`, and only `H` — the abilities hold the whole mouse hand on `J`/`LMB`, `K`/`RMB`,
+`L`/`SPACE`, and the basic attack surrendered `LMB` when it was switched off — those abilities now
+sitting at fire slots 1..`N` (`;`/MMB is authored for a fourth ability and is inert while `N` is 3).
+It rides the ordinary fire state machine with `recoveryMs: 0`, and it **loses** a same-tick tie
+against an ability, because `beginFire` now scans **descending** and takes the highest set bit — the
+basic attack, at index 0, is scanned last. The scan was reversed in the same pass that moved the
+index, so the basic attack loses the tie the same way it always has, just through a different index.
+One consequence of scanning highest-wins is deliberate rather than incidental: among the
 abilities themselves, the **highest-indexed** one now wins a same-tick tie, so a player mashing every
 key fires their largest-cooldown ability, not their smallest. Its
 binding is taught **only** in the countdown action hint — it has no gutter pill, which is the one
@@ -56,7 +57,10 @@ place the "a binding nobody printed breaks quietly" rule is knowingly bent. See
 
 **The basic attack can be switched off without deleting any of that**, via
 `BASIC_ATTACK_CONFIG.enabled` (`config/weapon-config.ts`) — a build-time flag, not a live-session
-setting: flip it, rebuild shared/server/client, and `npm run build:manual`. Nothing about the nine
+setting: flip it, rebuild shared/server/client, and `npm run build:manual`. **It ships `false` as of
+2026-09-20**: cars fire their abilities and nothing else, and the page, the hint and the bot
+all already reflect that. Every test that covers the mechanic sets the flag itself rather than
+leaning on the shipped position, so both halves stay covered whichever way it ships. Nothing about the nine
 `basic-attack-*` rows, `CarDef.basicAttack`, or its schema row at index 0 goes away when it is
 `false`; only four things read it. `beginFire` refuses a press on the basic-attack fire slot, so the
 key does nothing. `BotController`'s `chooseSlot` never selects that slot either, so a bot does not

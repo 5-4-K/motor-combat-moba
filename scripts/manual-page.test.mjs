@@ -284,11 +284,16 @@ describe("the generated manual page", () => {
 });
 
 describe("the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)", () => {
+  // Captured, never hard-coded to `true` — see the same note in shared's `fire.test.ts`. Each case
+  // below SETS the position it is about rather than leaning on whichever way the build ships, so
+  // both halves of the toggle stay covered from either starting point.
+  const shipped = BASIC_ATTACK_CONFIG.enabled;
   afterEach(() => {
-    BASIC_ATTACK_CONFIG.enabled = true;
+    BASIC_ATTACK_CONFIG.enabled = shipped;
   });
 
-  it("prints a Basic attack card for a chassis by default", () => {
+  it("prints a Basic attack card for a chassis when the toggle is enabled", () => {
+    BASIC_ATTACK_CONFIG.enabled = true;
     assert.match(carSection("bastion"), /Basic attack/);
   });
 
@@ -298,6 +303,7 @@ describe("the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)", () => {
   });
 
   it("moves balanceStamp when the toggle changes, so a stale build fails loudly", () => {
+    BASIC_ATTACK_CONFIG.enabled = true;
     const enabledStamp = balanceStamp();
     BASIC_ATTACK_CONFIG.enabled = false;
     assert.notEqual(balanceStamp(), enabledStamp);

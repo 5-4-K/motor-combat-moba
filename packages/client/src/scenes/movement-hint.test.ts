@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { GameMode, PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
 import { isSpectating } from "./spectate.js";
-import { SLOT_KEYS, hintSlotOrder } from "../config/slot-keys.js";
+import { BASIC_ATTACK_CONFIG, WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
+import { HINT_SLOT_ORDER, SLOT_KEYS, hintSlotOrder } from "../config/slot-keys.js";
 import {
   MOVEMENT_ARROWS,
   MOVEMENT_KEYS,
@@ -97,8 +98,11 @@ describe("movementHintItems", () => {
     expect(actionKeysFor(3, true)).toEqual(["H", "J", "K", "L"]);
     expect(actionKeysFor(4, true)).toEqual(["H", "J", "K", "L", ";"]);
     expect(actionKeysFor(3, false)).toEqual(["J", "K", "L"]);
-    expect(actionAltsFor(2, true)).toEqual(["LMB", "RMB", "SHIFT"]);
-    expect(actionAltsFor(3, true)).toEqual(["LMB", "RMB", "SHIFT", "SPACE"]);
+    expect(actionAltsFor(2, true)).toEqual(["H", "LMB", "RMB"]);
+    expect(actionAltsFor(3, true)).toEqual(["H", "LMB", "RMB", "SPACE"]);
+    // Three pairs, not four, in the SHIPPED build: the basic attack is switched off, so slot 0 is
+    // dropped and its H never prints (BA19).
+    expect(actionAltsFor(3, false)).toEqual(["LMB", "RMB", "SPACE"]);
     expect(hintSlotOrder(true, 3)).toEqual([0, 1, 2, 3]);
     expect(hintSlotOrder(false, 3)).toEqual([1, 2, 3]);
     // Subset, not equality: SLOT_KEYS is ceiling-length while a hint row prints one chassis's kit.
@@ -108,6 +112,16 @@ describe("movementHintItems", () => {
     for (const glyph of actionKeysFor(4, true)) {
       expect(SLOT_KEYS.map((k) => k.keyGlyph)).toContain(glyph);
     }
+  });
+
+  it("teaches exactly the slots HINT_SLOT_ORDER names, and every binding each one holds", () => {
+    // Keyed off HINT_SLOT_ORDER rather than all of SLOT_KEYS, so the assertion survives the
+    // basic-attack toggle in either position instead of pinning one build's slot count. The row a
+    // full-kit chassis is taught in THIS build is exactly that order's glyphs.
+    const full = WEAPON_SLOT_CONFIG.maxAbilitySlots;
+    const enabled = BASIC_ATTACK_CONFIG.enabled;
+    expect(actionKeysFor(full, enabled)).toEqual(HINT_SLOT_ORDER.map((s) => SLOT_KEYS[s]!.keyGlyph));
+    expect(actionAltsFor(full, enabled)).toEqual(HINT_SLOT_ORDER.map((s) => SLOT_KEYS[s]!.glyph));
   });
 });
 

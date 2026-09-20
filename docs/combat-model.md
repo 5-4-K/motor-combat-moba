@@ -598,11 +598,14 @@ index flip: that was a constant only for as long as every active kit was the sam
 moment kits vary a last-placed basic attack answers to a different key on each car. At index 0 it is
 a true constant at every kit length.
 
-**The renumbering moved no binding.** Its binding is still `H` on keyboard and left mouse button on
-the mouse hand; the three abilities are still `J`/right mouse button, `K`/SHIFT and `L`/SPACE, now
-at fire slots 1, 2 and 3. `SLOT_KEYS` carries a fifth row, `;` / middle mouse button, for a fourth
-ability; it is inert while `N` is 3. Every key a player already used fires the weapon it fired
-before — what changed is the index behind it.
+**The renumbering moved no player-facing binding.** Its binding is `H`, and nothing else: the
+abilities hold the whole mouse hand — `J`/LMB, `K`/RMB and `L`/SPACE, now at fire slots 1, 2 and 3.
+The basic attack briefly owned LMB (with the abilities on RMB/SHIFT/SPACE) and gave it up when the
+toggle below was switched off, since two slots may never claim one input; re-enabling the mechanic
+means deciding a mouse binding for it again, or shipping it keyboard-only as it stands. `SLOT_KEYS`
+carries a fifth row, `;` / middle mouse button, for a fourth ability; it is inert while `N` is 3.
+Every key a player already used fires the weapon it fired before — what changed is the index behind
+it.
 
 It fires through the **same** fire state machine described above — spent, recharged, refire-locked
 and switch-locked by exactly the code every other weapon runs — and authors `recoveryMs: 0`, so
@@ -637,11 +640,13 @@ the one place the "a binding nobody printed breaks quietly" controls rule is kno
 
 `BASIC_ATTACK_CONFIG.enabled` (`config/weapon-config.ts`) can turn the whole mechanic off without
 touching any of the above — the nine rows, `CarDef.basicAttack` and its schema row at index 0 all
-stay exactly as described. It is a build-time flag: flip it, rebuild, `npm run build:manual`. Four
+stay exactly as described. It is a build-time flag: flip it, rebuild, `npm run build:manual`.
+**It ships `false` as of 2026-09-20**, so everything above this heading describes a mechanic that is
+authored and wired but not currently pressable. Four
 things read it when it is `false`: `beginFire` refuses a press on fire slot 0, so the key does
 nothing; the bot's `chooseSlot` never selects that slot either, so it does not waste a tick's press
 on a weapon that cannot fire; the client's `hintSlotOrder` drops the slot from the countdown action
-hint entirely, so the H/LMB pill disappears rather than sitting there doing nothing; and the guide
+hint entirely, so the `H` pill disappears rather than sitting there doing nothing; and the guide
 skips every chassis's "Basic attack" card, with the flag folded into `balanceStamp` so a stale
 manual build fails the suite. `fireSlotsOf` and the balance/ttk/playtest tooling do not read it —
 they sweep `WEAPON_TABLE` structurally and must always be able to find a carrier for each of the

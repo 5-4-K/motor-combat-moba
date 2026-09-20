@@ -1,14 +1,43 @@
-import { describe, expect, it } from "vitest";
-import { TICK_RATE_HZ, forwardMaxSpeedOf, hpOf, slotsOf, weaponDefOf } from "@motor-combat-moba/shared";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  BASIC_ATTACK_CONFIG,
+  TICK_RATE_HZ,
+  forwardMaxSpeedOf,
+  hpOf,
+  slotsOf,
+  weaponDefOf,
+} from "@motor-combat-moba/shared";
 import { makeRng } from "../rng.js";
 import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import type { BotCarView, BotSlotView, BotView } from "../types.js";
 import { HumanController } from "./controller.js";
 import { bestSustainedDpsOf, pressCeilingOf, runDuel } from "./duel.fixture.js";
 
+/**
+ * Pins `BASIC_ATTACK_CONFIG.enabled` ON for one test, restoring whatever the build ships afterwards.
+ *
+ * `slotsFor` builds a KIT-indexed fixture (`slotsOf`, three ability rows), so its index 0 holds an
+ * ability — but in production fire slot 0 IS the basic attack (VS6) and `chooseSlot` refuses that
+ * index outright while the toggle is off, which would drop a press the test is counting. Pinning
+ * the flag keeps these cases measuring what they were written for; the toggle has its own coverage
+ * in the `chooseSlot — the basic-attack toggle` block, which sets the flag itself.
+ */
+function pinBasicAttackEnabled(): void {
+  const shipped = BASIC_ATTACK_CONFIG.enabled;
+  beforeEach(() => {
+    BASIC_ATTACK_CONFIG.enabled = true;
+  });
+  afterEach(() => {
+    BASIC_ATTACK_CONFIG.enabled = shipped;
+  });
+}
+
 function slotsFor(carId: "bullseye" | "bastion" | "mirage"): BotSlotView[] {
   return slotsOf(carId).map((weaponId) => ({
-    weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+    weaponId,
+    stocks: 1,
+    rechargeEndsTick: 0,
+    refireLockUntilTick: 0,
     range: weaponDefOf(weaponId).range,
   }));
 }
@@ -17,19 +46,47 @@ function view(tick: number, over: Partial<BotView> = {}): BotView {
   return {
     tick,
     self: {
-      sessionId: "me", carId: "bullseye", team: 0, x: 200, y: 360, angle: 0, vx: forwardMaxSpeedOf("bullseye"), vy: 0,
-      hp: 65, maxHp: 65, alive: true, statuses: [], slots: slotsFor("bullseye"),
-      switchLockUntilTick: 0, maneuver: 0, maneuverTicksLeft: 0,
+      sessionId: "me",
+      carId: "bullseye",
+      team: 0,
+      x: 200,
+      y: 360,
+      angle: 0,
+      vx: forwardMaxSpeedOf("bullseye"),
+      vy: 0,
+      hp: 65,
+      maxHp: 65,
+      alive: true,
+      statuses: [],
+      slots: slotsFor("bullseye"),
+      switchLockUntilTick: 0,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
     },
-    others: [], instances: [], arena: { width: 1280, height: 720, obstacles: [] },
-    observedFires: [], rng: makeRng(17),
+    others: [],
+    instances: [],
+    arena: { width: 1280, height: 720, obstacles: [] },
+    observedFires: [],
+    rng: makeRng(17),
     ...over,
   };
 }
 
 const enemy: BotCarView = {
-  sessionId: "them", carId: "mirage", team: 0, x: 700, y: 360, angle: Math.PI, vx: -forwardMaxSpeedOf("mirage"), vy: 0,
-  hp: 70, maxHp: 70, alive: true, phased: false, statuses: [], maneuver: 0,
+  sessionId: "them",
+  carId: "mirage",
+  team: 0,
+  x: 700,
+  y: 360,
+  angle: Math.PI,
+  vx: -forwardMaxSpeedOf("mirage"),
+  vy: 0,
+  hp: 70,
+  maxHp: 70,
+  alive: true,
+  phased: false,
+  statuses: [],
+  maneuver: 0,
 };
 
 /**
@@ -43,11 +100,16 @@ const enemy: BotCarView = {
  * of a real stream — exactly the kind of bug this suite exists to catch, so the harness itself must
  * not commit it.
  */
-function run(tier: "easy" | "medium" | "hard", ticks: number, over: Partial<BotView>) {
+function run(
+  tier: "easy" | "medium" | "hard",
+  ticks: number,
+  over: Partial<BotView>,
+) {
   const bot = new HumanController(tier);
   const rng = makeRng(17);
   const out = [];
-  for (let tick = 0; tick < ticks; tick++) out.push(bot.decide(view(tick, { ...over, rng })));
+  for (let tick = 0; tick < ticks; tick++)
+    out.push(bot.decide(view(tick, { ...over, rng })));
   return { bot, out };
 }
 
@@ -93,23 +155,42 @@ describe("tier characterisation", () => {
     //    reverse keeps the gun on target. A reverse dodge needs no wheel under the Unity drive model,
     //    so `.steer` alone can no longer tell "dodged" from "did not" — that assumption predates the
     //    port. `.steer` was always a proxy for "did something change", not the property itself.
-    const incoming = [{
-      id: "shot", ownerSessionId: "them", weaponId: "predator" as const,
-      x: 210, y: -400, angle: Math.PI / 2,
-    }];
+    const incoming = [
+      {
+        id: "shot",
+        ownerSessionId: "them",
+        weaponId: "predator" as const,
+        x: 210,
+        y: -400,
+        angle: Math.PI / 2,
+      },
+    ];
     const intents = (tier: "easy" | "hard", dodgeChance: number) => {
       const profile = {
-        ...BOT_PROFILES[tier], dodgeChance, incomingCarChance: 0,
-        blunderChance: 0, idleFidgetChance: 0, aimErrorSigmaRad: 0,
+        ...BOT_PROFILES[tier],
+        dodgeChance,
+        incomingCarChance: 0,
+        blunderChance: 0,
+        idleFidgetChance: 0,
+        aimErrorSigmaRad: 0,
       };
       const bot = new HumanController(tier, { profile });
       const rng = makeRng(17);
       const out: string[] = [];
       const still = { ...enemy, vx: 0, vy: 0 };
       for (let tick = 0; tick < 90; tick++) {
-        const selfHalfSpeed = { ...view(tick).self, vx: forwardMaxSpeedOf("bullseye") * 0.5, vy: 0 };
+        const selfHalfSpeed = {
+          ...view(tick).self,
+          vx: forwardMaxSpeedOf("bullseye") * 0.5,
+          vy: 0,
+        };
         const intent = bot.decide(
-          view(tick, { self: selfHalfSpeed, others: [still], instances: incoming, rng }),
+          view(tick, {
+            self: selfHalfSpeed,
+            others: [still],
+            instances: incoming,
+            rng,
+          }),
         );
         out.push(`${intent.steer},${intent.throttle}`);
       }
@@ -142,7 +223,9 @@ describe("tier characterisation", () => {
     const ultOnly = (base: BotView["self"]): BotView["self"] => ({
       ...base,
       carId: "mirage",
-      slots: slotsFor("mirage").map((slot, i) => (i === 2 ? slot : { ...slot, stocks: 0 })),
+      slots: slotsFor("mirage").map((slot, i) =>
+        i === 2 ? slot : { ...slot, stocks: 0 },
+      ),
     });
     // Seed 12, not the file's usual 17: 17 rolls the `grudge` archetype, which is fine here, but 12
     // (`kiter`, which shifts no firing knob) is the seed under which BOTH halves are sensitive to
@@ -165,7 +248,10 @@ describe("tier characterisation", () => {
       const rng = makeRng(12);
       let fired = false;
       for (let tick = 0; tick < ticks; tick++) {
-        const scene = view(tick, { others: [{ ...enemy, x: BAD_MOMENT_X }], rng });
+        const scene = view(tick, {
+          others: [{ ...enemy, x: BAD_MOMENT_X }],
+          rng,
+        });
         const intent = bot.decide({ ...scene, self: ultOnly(scene.self) });
         if (intent.fireSlots === 1 << 2) fired = true;
       }
@@ -180,11 +266,13 @@ describe("tier characterisation", () => {
       const bot = new HumanController(tier);
       const rng = makeRng(17);
       for (let tick = 0; tick < 90; tick++) {
-        bot.decide(view(tick, {
-          others: [enemy],
-          self: { ...view(tick).self, hp: 5 },
-          rng,
-        }));
+        bot.decide(
+          view(tick, {
+            others: [enemy],
+            self: { ...view(tick).self, hp: 5 },
+            rng,
+          }),
+        );
       }
       return bot.debug()?.situation;
     };
@@ -204,14 +292,25 @@ describe("tier characterisation", () => {
     // `threatHeading` says the shot is actually coming at us, so a bolt parked next to its owner
     // out at the edge of the arena earns no grudge at all. Its owner is what matters, not where the
     // owner now is.
-    const incoming = [{
-      id: "s", ownerSessionId: "shooter", weaponId: "predator" as const,
-      x: 400, y: 360, angle: Math.PI,
-    }];
-    expect(run("hard", 120, {
-      others: [{ ...enemy, sessionId: "hurt", x: 900, y: 360, hp: 8 }, shooter],
-      instances: incoming,
-    }).bot.currentTargetSessionId).toBe("hurt");
+    const incoming = [
+      {
+        id: "s",
+        ownerSessionId: "shooter",
+        weaponId: "predator" as const,
+        x: 400,
+        y: 360,
+        angle: Math.PI,
+      },
+    ];
+    expect(
+      run("hard", 120, {
+        others: [
+          { ...enemy, sessionId: "hurt", x: 900, y: 360, hp: 8 },
+          shooter,
+        ],
+        instances: incoming,
+      }).bot.currentTargetSessionId,
+    ).toBe("hurt");
 
     // TEST FIX for the easy half. It used to share hard's scene, where the wounded car sits 700 u
     // out — outside easy's 520 u awareness, so easy had exactly ONE candidate and "picked the
@@ -228,10 +327,15 @@ describe("tier characterisation", () => {
     // only be straddled inside a margin narrower than easy's own `scoreNoiseSigma` of 0.3. A
     // knife-edge scene would pass or fail on which seed it was handed. This is the honest limit of
     // what this assertion covers, stated rather than papered over.
-    expect(run("easy", 200, {
-      others: [{ ...enemy, sessionId: "hurt", x: 250, y: 360, hp: 8 }, { ...enemy, sessionId: "shooter", x: 690, y: 360 }],
-      instances: incoming,
-    }).bot.currentTargetSessionId).toBe("shooter");
+    expect(
+      run("easy", 200, {
+        others: [
+          { ...enemy, sessionId: "hurt", x: 250, y: 360, hp: 8 },
+          { ...enemy, sessionId: "shooter", x: 690, y: 360 },
+        ],
+        instances: incoming,
+      }).bot.currentTargetSessionId,
+    ).toBe("shooter");
   });
 
   it("uses the rest of the kit when the top-value slot is unavailable (H27)", () => {
@@ -240,14 +344,19 @@ describe("tier characterisation", () => {
     // would prove nothing -- hence taking it out of the bot's hands.
     const withoutPredator = (base: BotView["self"]): BotView["self"] => ({
       ...base,
-      slots: base.slots.map((slot, i) => (i === 0 ? { ...slot, stocks: 0 } : slot)),
+      slots: base.slots.map((slot, i) =>
+        i === 0 ? { ...slot, stocks: 0 } : slot,
+      ),
     });
     const bot = new HumanController("hard");
     const rng = makeRng(17);
     const pressed = new Set<number>();
     for (let tick = 0; tick < 400; tick++) {
       const scene = view(tick, { others: [{ ...enemy, x: 500 }], rng });
-      const intent = bot.decide({ ...scene, self: withoutPredator(scene.self) });
+      const intent = bot.decide({
+        ...scene,
+        self: withoutPredator(scene.self),
+      });
       if (intent.fireSlots !== 0) pressed.add(intent.fireSlots);
     }
     expect(pressed.size).toBeGreaterThan(0);
@@ -334,8 +443,14 @@ describe("tier characterisation", () => {
       const intents: string[] = [];
       let tailGoal: string | undefined;
       for (let tick = 0; tick < 90; tick++) {
-        const scene = view(tick, { others: [{ ...enemy, x: x + 200, y: 360, vx: 0, vy: 0 }], rng });
-        const out = bot.decide({ ...scene, self: { ...scene.self, x, y: 360, angle: 0 } });
+        const scene = view(tick, {
+          others: [{ ...enemy, x: x + 200, y: 360, vx: 0, vy: 0 }],
+          rng,
+        });
+        const out = bot.decide({
+          ...scene,
+          self: { ...scene.self, x, y: 360, angle: 0 },
+        });
         intents.push(`${out.steer}/${out.throttle}`);
         if (tick >= 60) tailGoal = bot.debug()?.situation;
       }
@@ -359,14 +474,20 @@ describe("tier characterisation", () => {
 
   it("easy closes on a visible target, throttle forward (S13)", () => {
     const { bot, out } = run("easy", 90, { others: [enemy] });
-    expect(["close", "fight", "punish", "evade"]).toContain(bot.debug()?.situation);
+    expect(["close", "fight", "punish", "evade"]).toContain(
+      bot.debug()?.situation,
+    );
     const late = out.slice(60);
-    expect(late.filter((i) => i.throttle === 1).length).toBeGreaterThan(late.length / 2);
+    expect(late.filter((i) => i.throttle === 1).length).toBeGreaterThan(
+      late.length / 2,
+    );
   });
 
   it("hard Bastion fights then punishes once the stun lands (S13)", () => {
     const bastionOf = (base: BotView["self"]): BotView["self"] => ({
-      ...base, carId: "bastion", slots: slotsFor("bastion"),
+      ...base,
+      carId: "bastion",
+      slots: slotsFor("bastion"),
     });
     const bot = new HumanController("hard");
     const rng = makeRng(17);
@@ -374,11 +495,20 @@ describe("tier characterisation", () => {
       const scene = view(tick, { others: [enemy], rng });
       bot.decide({ ...scene, self: bastionOf(scene.self) });
     }
-    expect(["fight", "close", "unpin", "evade", "punish"]).toContain(bot.debug()?.situation);
+    expect(["fight", "close", "unpin", "evade", "punish"]).toContain(
+      bot.debug()?.situation,
+    );
 
     const stunned = {
       ...enemy,
-      statuses: [{ statusId: "stunned" as const, startTick: 0, endsTick: 999, sourceSessionId: "me" }],
+      statuses: [
+        {
+          statusId: "stunned" as const,
+          startTick: 0,
+          endsTick: 999,
+          sourceSessionId: "me",
+        },
+      ],
     };
     for (let tick = 90; tick < 180; tick++) {
       const scene = view(tick, { others: [stunned], rng });
@@ -393,23 +523,42 @@ describe("tier characterisation", () => {
     // narrow near-top-speed coincidence where `fight`'s own "too close, back off" masks the dodge —
     // see H25's comment for the full sweep), and the comparison reads the full intent rather than
     // `.steer` alone (the confirmed dodge here is a straight reverse, which needs no wheel).
-    const incoming = [{
-      id: "shot", ownerSessionId: "them", weaponId: "predator" as const,
-      x: 210, y: -400, angle: Math.PI / 2,
-    }];
+    const incoming = [
+      {
+        id: "shot",
+        ownerSessionId: "them",
+        weaponId: "predator" as const,
+        x: 210,
+        y: -400,
+        angle: Math.PI / 2,
+      },
+    ];
     const runDodge = (dodgeChance: number) => {
       const profile = {
-        ...BOT_PROFILES.hard, dodgeChance, incomingCarChance: 0,
-        blunderChance: 0, idleFidgetChance: 0, aimErrorSigmaRad: 0,
+        ...BOT_PROFILES.hard,
+        dodgeChance,
+        incomingCarChance: 0,
+        blunderChance: 0,
+        idleFidgetChance: 0,
+        aimErrorSigmaRad: 0,
       };
       const bot = new HumanController("hard", { profile });
       const rng = makeRng(17);
       const intents: string[] = [];
       const still = { ...enemy, vx: 0, vy: 0 };
       for (let tick = 0; tick < 90; tick++) {
-        const selfHalfSpeed = { ...view(tick).self, vx: forwardMaxSpeedOf("bullseye") * 0.5, vy: 0 };
+        const selfHalfSpeed = {
+          ...view(tick).self,
+          vx: forwardMaxSpeedOf("bullseye") * 0.5,
+          vy: 0,
+        };
         const out = bot.decide(
-          view(tick, { self: selfHalfSpeed, others: [still], instances: incoming, rng }),
+          view(tick, {
+            self: selfHalfSpeed,
+            others: [still],
+            instances: incoming,
+            rng,
+          }),
         );
         intents.push(`${out.steer},${out.throttle}`);
       }
@@ -419,24 +568,33 @@ describe("tier characterisation", () => {
     expect(runDodge(1)).not.toBe(runDodge(0));
   });
 
-  it("hard fires predator without a HUD lock (S20)", () => {
-    const predatorOnly = (base: BotView["self"]): BotView["self"] => ({
-      ...base,
-      slots: slotsFor("bullseye").map((slot, i) => (i === 0 ? slot : { ...slot, stocks: 0 })),
+  describe("with the basic attack enabled, so the kit-indexed fixture's slot 0 is pressable", () => {
+    pinBasicAttackEnabled();
+
+    it("hard fires predator without a HUD lock (S20)", () => {
+      const predatorOnly = (base: BotView["self"]): BotView["self"] => ({
+        ...base,
+        slots: slotsFor("bullseye").map((slot, i) =>
+          i === 0 ? slot : { ...slot, stocks: 0 },
+        ),
+      });
+      const fired = (tier: "easy" | "hard") => {
+        const bot = new HumanController(tier);
+        const rng = makeRng(12);
+        let presses = 0;
+        for (let tick = 0; tick < 200; tick++) {
+          const scene = view(tick, { others: [{ ...enemy, x: 500 }], rng });
+          const intent = bot.decide({
+            ...scene,
+            self: predatorOnly(scene.self),
+          });
+          if (intent.fireSlots === 1 << 0) presses++;
+        }
+        return presses;
+      };
+      expect(fired("easy")).toBeGreaterThan(0);
+      expect(fired("hard")).toBeGreaterThan(0);
     });
-    const fired = (tier: "easy" | "hard") => {
-      const bot = new HumanController(tier);
-      const rng = makeRng(12);
-      let presses = 0;
-      for (let tick = 0; tick < 200; tick++) {
-        const scene = view(tick, { others: [{ ...enemy, x: 500 }], rng });
-        const intent = bot.decide({ ...scene, self: predatorOnly(scene.self) });
-        if (intent.fireSlots === 1 << 0) presses++;
-      }
-      return presses;
-    };
-    expect(fired("easy")).toBeGreaterThan(0);
-    expect(fired("hard")).toBeGreaterThan(0);
   });
 });
 
@@ -456,7 +614,7 @@ describe("ladder monotonicity", () => {
         const scene = view(tick, { others: [sitting], rng });
         const intent = bot.decide({
           ...scene,
-          self: { ...scene.self},
+          self: { ...scene.self },
         });
         if (intent.fireSlots !== 0 && prev === 0) n++;
         prev = intent.fireSlots;
@@ -483,9 +641,22 @@ describe("ladder monotonicity", () => {
  * kills this target around tick 450, and a hit rate measured over 450 ticks is not comparable to one
  * measured over 600. The time-to-kill test obviously does not.
  */
-function duelAgainstDummy(tier: "easy" | "medium" | "hard", ticks = 600, immortalTarget = false) {
-  const { presses, hits, hitRate, ticks: elapsed, killed } = runDuel({
-    tier, ticks, resolveCombat: true, immortalTarget,
+function duelAgainstDummy(
+  tier: "easy" | "medium" | "hard",
+  ticks = 600,
+  immortalTarget = false,
+) {
+  const {
+    presses,
+    hits,
+    hitRate,
+    ticks: elapsed,
+    killed,
+  } = runDuel({
+    tier,
+    ticks,
+    resolveCombat: true,
+    immortalTarget,
     targetPos: { x: 600, y: 360 },
   });
   return { fires: presses, hits, hitRate, ticks: elapsed, killed };
@@ -552,7 +723,9 @@ describe("the reported symptoms stay fixed (P49)", () => {
     // either way: the kill lands around tick 471, well past this run's 300.
     const { fires } = duelAgainstDummy("hard", 300, true);
     expect(fires).toBeGreaterThan(0);
-    expect(fires).toBeGreaterThan(pressCeilingOf("bullseye", 300, BOT_PROFILES.hard.burstGapTicks) / 4);
+    expect(fires).toBeGreaterThan(
+      pressCeilingOf("bullseye", 300, BOT_PROFILES.hard.burstGapTicks) / 4,
+    );
   });
 });
 
@@ -640,21 +813,34 @@ describe("whole-brain determinism (P51)", () => {
   // The threat case still earns its place: it runs the whole threat path — `perceive`'s tracking
   // table, its unconditional per-threat `dodgeChance` roll (H21), the dodge steering it feeds — so
   // any of the leaks above hiding in that path is exercised rather than skipped.
-  const incoming = [{
-    id: "shot", ownerSessionId: "them", weaponId: "predator" as const,
-    x: 210, y: -400, angle: Math.PI / 2,
-  }];
+  const incoming = [
+    {
+      id: "shot",
+      ownerSessionId: "them",
+      weaponId: "predator" as const,
+      x: 210,
+      y: -400,
+      angle: Math.PI / 2,
+    },
+  ];
   for (const tier of ["easy", "medium", "hard"] as const) {
-    for (const [label, withThreat] of [["quiet", false], ["under fire", true]] as const) {
+    for (const [label, withThreat] of [
+      ["quiet", false],
+      ["under fire", true],
+    ] as const) {
       it(`${tier} replays identically from one seed, ${label}`, () => {
         const replay = () => {
           const bot = new HumanController(tier);
           const rng = makeRng(4242);
           const out: string[] = [];
           for (let tick = 0; tick < 400; tick++) {
-            const intent = bot.decide(view(tick, {
-              others: [enemy], instances: withThreat ? incoming : [], rng,
-            }));
+            const intent = bot.decide(
+              view(tick, {
+                others: [enemy],
+                instances: withThreat ? incoming : [],
+                rng,
+              }),
+            );
             out.push(`${intent.steer}:${intent.throttle}:${intent.fireSlots}`);
           }
           return out.join("|");
