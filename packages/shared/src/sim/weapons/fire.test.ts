@@ -530,4 +530,15 @@ describe("same-tick tie-breaking", () => {
     const after = beginFire("s1", state, 0b1111, 0);
     expect(after.pending?.weaponId).toBe("wildcharge");
   });
+
+  it("gives the HIGHEST ability the tie among abilities alone, with no basic-attack bit set", () => {
+    // VS13, isolated from VS12: the mask below carries no bit 0, so this pins the among-abilities
+    // ordering on its own rather than inferring it from a mask that also exercises the basic
+    // attack's tie against the kit.
+    const state = newFireState("bastion", 1);
+    const mask = 0b0110; // ability 1 (slot 1, thumper) + ability 2 (slot 2, roadblock)
+    const after = beginFire("s1", state, mask, 0);
+    expect(after.pending?.slot).toBe(2);
+    expect(after.pending?.weaponId).toBe("roadblock");
+  });
 });

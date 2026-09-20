@@ -631,8 +631,9 @@ Five archetypes still jitter hands and favorite guns inside the tier band (H47).
 
 ## One press per tick
 
-`chooseSlot` returns one slot index. `beginFire` takes the lowest set bit of the mask, so ORing
-every in-range slot would only ever fire slot 0.
+`chooseSlot` returns one slot index. `beginFire` takes the **highest** set bit of the mask (VS12),
+so ORing every in-range slot would only ever fire the highest-indexed one the bot is holding —
+never a combination, and never the basic attack at index 0 while any in-range ability is also set.
 
 ## Known limitations
 
