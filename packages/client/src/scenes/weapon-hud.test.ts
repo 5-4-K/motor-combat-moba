@@ -4,6 +4,8 @@ import type { TextureLookup } from "../assets/car-sprite.js";
 import type { AssetManifest, SpriteEntry } from "../assets/manifest-schema.js";
 import { ARENA_VIEW_WIDTH, HUD_GUTTER_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from "../config/display.js";
 import {
+  ABILITY_SLOT_OFFSET,
+  abilityCountOf,
   cooldownFillFraction,
   HUD_DIM,
   isRechargeDisplayed,
@@ -206,6 +208,37 @@ describe("resolveWeaponIcon", () => {
       64,
     );
     expect(resolved).toBeUndefined();
+  });
+});
+
+describe("abilityCountOf (BA15)", () => {
+  // The basic attack must never earn a HUD box. This used to be enforced by an accident of
+  // `slotBarLayout`'s clamp; VS22 removed that clamp, and this is where the rule lives now.
+
+  it("gives a 4-length fire-slot array 3 ability boxes", () => {
+    expect(abilityCountOf(4)).toBe(3);
+  });
+
+  it("gives a 2-length fire-slot array 1 ability box", () => {
+    expect(abilityCountOf(2)).toBe(1);
+  });
+
+  it("gives a car with no chassis zero boxes, not a basic attack alone", () => {
+    expect(abilityCountOf(0)).toBe(0);
+  });
+
+  it("never goes negative for a fire-slot array shorter than the offset", () => {
+    expect(abilityCountOf(0)).toBeGreaterThanOrEqual(0);
+  });
+
+  it("ties the count to the offset: ability box i reads fire slot i + ABILITY_SLOT_OFFSET, never fire slot 0", () => {
+    const fireSlots = ["basicAttack", "abilityA", "abilityB", "abilityC"];
+    const count = abilityCountOf(fireSlots.length);
+    for (let i = 0; i < count; i++) {
+      expect(fireSlots[i + ABILITY_SLOT_OFFSET]).not.toBe("basicAttack");
+    }
+    // And the offset itself never points at fire slot 0, the basic attack's own slot.
+    expect(ABILITY_SLOT_OFFSET).toBeGreaterThan(0);
   });
 });
 

@@ -141,6 +141,8 @@ import {
   type SpectateCandidate,
 } from "./spectate.js";
 import {
+  ABILITY_SLOT_OFFSET,
+  abilityCountOf,
   HUD_DIM,
   cooldownFillFraction,
   HUD_ICON_FIT_SCALE,
@@ -510,16 +512,6 @@ const MOVEMENT_HINT_GAP = 8;
  * printed — the gutter pill shows only the mouse-hand glyph. See `SLOT_KEYS`.
  */
 const ACTION_HINT_Y = MOVEMENT_HINT_Y + 34;
-/**
- * Where the ability kit starts in a car's fire-slot array. The array is `[basicAttack, ...kit]`, so
- * ability `i` is fire slot `i + ABILITY_SLOT_OFFSET` (VS23). The pooled HUD Text/Image arrays and
- * `slotBarLayout`'s boxes are ABILITY-indexed; `SLOT_KEYS` and `PlayerState.lastFiredSlot` are
- * FIRE-slot indexed, and this is the one place the two are bridged.
- *
- * Derived from `basicAttackSlotIndex` rather than typed as 1, so it cannot disagree with shared
- * about which end of the array the basic attack sits on.
- */
-const ABILITY_SLOT_OFFSET = WEAPON_SLOT_CONFIG.basicAttackSlotIndex + 1;
 /**
  * Stock count offset from the centre along the diagonal, as a fraction of the radius. Pulled in
  * from 0.55 when the black disc went: the count used to have an opaque backing and could sit near
@@ -2807,16 +2799,16 @@ export class ArenaScene extends Phaser.Scene {
    * How many ABILITY slots the local player's chassis carries — the fire-slot array minus its
    * basic attack. Falls back to this build's slot count before the player's car is known.
    *
-   * One helper, deliberately: the HUD's box count and (from a later task) the countdown hint's key
-   * row both need this number, and two derivations of it would drift.
+   * Delegates to `abilityCountOf` (`weapon-hud.ts`) rather than recomputing `weapons.length - 1`
+   * here: the HUD's box count and (from a later task) the countdown hint's key row both need this
+   * number, and this is the one place it is derived, so the two cannot drift (BA15).
    */
   private localAbilityCount(): number {
     const room = this.room;
     // `drivenSid`, the same access path `hudTargetPlayer` takes for a player who is not spectating
     // — never `room.sessionId`, which names a connection rather than a car.
     const player = room ? room.state.players.get(this.drivenSid(room)) : undefined;
-    // `max(0, …)`: a player with no chassis has no slots at all, not a basic attack alone.
-    return player ? Math.max(0, player.weapons.length - 1) : WEAPON_SLOT_CONFIG.maxAbilitySlots;
+    return player ? abilityCountOf(player.weapons.length) : WEAPON_SLOT_CONFIG.maxAbilitySlots;
   }
 
   /**
