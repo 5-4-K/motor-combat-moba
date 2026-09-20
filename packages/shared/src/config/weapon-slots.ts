@@ -26,14 +26,21 @@ const ABILITY_SLOTS = 3;
  * rejects an ability fire at or beyond this index and the HUD draws at most this many boxes.
  *
  * `maxFireSlots` is how many weapons a car can actually fire: the kit plus its basic attack (BA11).
- * `basicAttackSlotIndex` is `N` — the basic attack is LAST, behind an unmoved kit, which is what
- * keeps the ability indices stable regardless of kit length (BA13). Both are derived, never typed,
- * so they cannot disagree with `N`.
+ * `basicAttackSlotIndex` is 0. Both are derived rather than typed, so they cannot disagree with `N`.
  */
 export const WEAPON_SLOT_CONFIG = {
   maxAbilitySlots: ABILITY_SLOTS,
   maxFireSlots: ABILITY_SLOTS + 1,
-  basicAttackSlotIndex: ABILITY_SLOTS,
+  /**
+   * The basic attack is FIRST, so its index is 0 on every chassis at every kit length (VS6). It
+   * used to be last, at `kit.length`, which was a constant only for as long as every active kit
+   * was the same length — the moment kits vary, a last-placed basic attack answers to a different
+   * key on each car.
+   *
+   * The literal 0 IS the derivation, not a typed constant standing in for one: the fire-slot array
+   * is `[basicAttack, ...kit]`, so nothing about `N` can move it.
+   */
+  basicAttackSlotIndex: 0,
 } as const;
 
 /** Cars already warned about, so an over-long loadout logs once rather than once per tick. */
@@ -72,7 +79,7 @@ export function slotsOf(carId: CarId): readonly WeaponId[] {
 }
 
 /**
- * Everything this chassis can fire, in fire-slot order: its kit, then its basic attack (BA12).
+ * Everything this chassis can fire, in fire-slot order: its basic attack, then its kit (VS6).
  *
  * **The readers, named so a new one is a deliberate act rather than a habit:**
  *
@@ -89,7 +96,7 @@ export function slotsOf(carId: CarId): readonly WeaponId[] {
  *    `slotsOf` threw on the first basic-attack row and killed the run.
  *
  * `newFireState` (`sim/weapons/fire.ts`) does **not** call this — its explicit-loadout path builds
- * the same `[...kit, basicAttackOf(carId)]` list inline, because it also has to accept a caller-given
+ * the same `[basicAttackOf(carId), ...kit]` list inline, because it also has to accept a caller-given
  * `weaponIds` override that this function has no parameter for.
  *
  * Everything else wants `slotsOf`. The rule: **`fireSlotsOf` answers "what can this car fire",
@@ -98,5 +105,5 @@ export function slotsOf(carId: CarId): readonly WeaponId[] {
  * model all ask the second question.
  */
 export function fireSlotsOf(carId: CarId): readonly WeaponId[] {
-  return [...slotsOf(carId), basicAttackOf(carId)];
+  return [basicAttackOf(carId), ...slotsOf(carId)];
 }

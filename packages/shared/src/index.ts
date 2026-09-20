@@ -207,7 +207,7 @@ export type {
 } from "./config/weapon-types.js";
 export { WEAPON_TICKS, msToTicks, scaleTicks, weaponTicksOf } from "./config/weapon-ticks.js";
 export type { WeaponTicks } from "./config/weapon-ticks.js";
-export { WEAPON_SLOT_CONFIG, slotsFrom, slotsOf, fireSlotsOf } from "./config/weapon-slots.js";
+export { ABILITY_SLOT_CEILING, WEAPON_SLOT_CONFIG, slotsFrom, slotsOf, fireSlotsOf } from "./config/weapon-slots.js";
 export { COMBAT_CONFIG, DEATH_FADE_MS } from "./config/combat-config.js";
 export { activeTuning, setTuning } from "./config/tuning.js";
 export type { TuningOverrides, TuningValue } from "./config/tuning.js";

@@ -33,10 +33,13 @@ export const MOVEMENT_LABEL = "to move";
  * the gutter pill carries only the mouse-hand `glyph` — so between the two, every binding a slot
  * holds is on screen somewhere, which is what the no-hidden-alternates rule demands.
  *
- * Ordered by `HINT_SLOT_ORDER`, not by fire-slot index (BA19): the hint TEACHES the basic attack
- * first, because it is the first thing a new player should press, and because — unlike the three
- * ability slots — the gutter pill never teaches it at all. Slot order and teaching order have
- * diverged since the basic attack claimed slot 3 in the wire mask but reads first here.
+ * Ordered by `HINT_SLOT_ORDER`, which since 2026-09-20 is plain fire-slot order (VS6/VS15): the
+ * basic attack is slot 0, and the hint teaches it first because it is the first thing a new player
+ * should press and because — unlike the ability slots — the gutter pill never teaches it at all.
+ * Teaching order and slot order used to disagree, when the basic attack claimed the LAST slot in
+ * the wire mask and still read first here; they agree now, and `HINT_SLOT_ORDER` stays the seam
+ * because dropping the basic attack's pill when the toggle is off is still a reordering the raw
+ * index cannot express.
  */
 export const ACTION_KEYS: readonly string[] = HINT_SLOT_ORDER.map(
   (slot) => SLOT_KEYS[slot]!.keyGlyph,

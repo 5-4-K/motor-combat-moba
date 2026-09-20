@@ -134,10 +134,10 @@ describe("toCombatPlayers", () => {
 
     const players = toCombatPlayers(state, new Set(["aaa"]), new Map([["aaa", 0b001]]), memory);
     expect(players[0]!.fireState.slots.map((s) => s.weaponId)).toEqual([
+      "basic-attack-mirage",
       "magmablast",
       "thunderclap",
       "afterburner",
-      "basic-attack-mirage",
     ]);
     expect(players[0]!.fireMask).toBe(0b001);
   });
@@ -198,10 +198,10 @@ describe("toCombatPlayers", () => {
     player.carId = "mirage";
     const afterReveal = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
     expect(afterReveal.slots.map((s) => s.weaponId)).toEqual([
+      "basic-attack-mirage",
       "magmablast",
       "thunderclap",
       "afterburner",
-      "basic-attack-mirage",
     ]);
   });
 });
@@ -214,24 +214,24 @@ describe("explicit loadouts", () => {
   const CUSTOM: readonly WeaponId[] = ["lance", "thumper", "magmablast"];
 
   it("loadoutFor prefers the explicit list and falls back to the chassis kit", () => {
-    expect(loadoutFor("mirage", CUSTOM)).toEqual(["lance", "thumper", "magmablast", "basic-attack-mirage"]);
-    expect(loadoutFor("mirage", undefined)).toEqual([...slotsOf("mirage"), "basic-attack-mirage"]);
+    expect(loadoutFor("mirage", CUSTOM)).toEqual(["basic-attack-mirage", "lance", "thumper", "magmablast"]);
+    expect(loadoutFor("mirage", undefined)).toEqual(["basic-attack-mirage", ...slotsOf("mirage")]);
     // The empty-carId fallback the pre-reveal path relies on is unchanged.
     expect(loadoutFor("", undefined)).toEqual([]);
   });
 
-  it("resolves a loadout as the kit plus the chassis's basic attack (BA14)", () => {
+  it("resolves a loadout as the chassis's basic attack plus the kit (BA14, VS6)", () => {
     expect(loadoutFor("bastion", undefined)).toEqual([
+      "basic-attack-bastion",
       "thumper",
       "roadblock",
       "wildcharge",
-      "basic-attack-bastion",
     ]);
     expect(loadoutFor("mirage", ["predator", "lance", "thumper"])).toEqual([
+      "basic-attack-mirage",
       "predator",
       "lance",
       "thumper",
-      "basic-attack-mirage",
     ]);
   });
 
@@ -243,10 +243,10 @@ describe("explicit loadouts", () => {
 
     const fireState = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
     expect(fireState.slots.map((s) => s.weaponId)).toEqual([
+      "basic-attack-mirage",
       "lance",
       "thumper",
       "magmablast",
-      "basic-attack-mirage",
     ]);
   });
 
@@ -264,10 +264,10 @@ describe("explicit loadouts", () => {
 
     const second = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
     expect(second.slots.map((s) => s.weaponId)).toEqual([
+      "basic-attack-mirage",
       "lance",
       "thumper",
       "magmablast",
-      "basic-attack-mirage",
     ]);
     expect(second.switchLockUntilTick).toBe(77); // reused, not rebuilt
   });
@@ -295,10 +295,10 @@ describe("explicit loadouts", () => {
     );
 
     expect(memory.fireStates.get("aaa")!.slots.map((s) => s.weaponId)).toEqual([
+      "basic-attack-mirage",
       "lance",
       "thumper",
       "magmablast",
-      "basic-attack-mirage",
     ]);
     // And the rest of the respawn is unchanged: full hp for the chassis, back on the field.
     expect(player.hp).toBe(hpOf("mirage"));
@@ -417,10 +417,10 @@ describe("applyCombatResult", () => {
     );
     const player = state.players.get("aaa")!;
     expect(player.weapons.length).toBe(4);
-    expect(player.weapons.at(0)!.weaponId).toBe("magmablast");
-    expect(player.weapons.at(1)!.weaponId).toBe("thunderclap");
-    expect(player.weapons.at(2)!.weaponId).toBe("afterburner");
-    expect(player.weapons.at(3)!.weaponId).toBe("basic-attack-mirage");
+    expect(player.weapons.at(0)!.weaponId).toBe("basic-attack-mirage");
+    expect(player.weapons.at(1)!.weaponId).toBe("magmablast");
+    expect(player.weapons.at(2)!.weaponId).toBe("thunderclap");
+    expect(player.weapons.at(3)!.weaponId).toBe("afterburner");
     expect(player.weapons.at(0)!.stocks).toBe(1);
   });
 

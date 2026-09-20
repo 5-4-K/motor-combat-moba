@@ -255,6 +255,10 @@ export function chooseSlot(args: {
     // A press the sim would refuse is a press thrown away, same reasoning as the switch-lock check
     // above: a disabled basic attack never becomes the bot's one press for the tick, or it would
     // waste that tick's action on a weapon that cannot fire instead of an ability that could.
+    //
+    // `basicAttackSlotIndex` is 0 as of 2026-09-20 (VS6), not the LAST slot it used to be, so this
+    // guards the head of the scan rather than its tail. The line itself never changed — it reads
+    // the constant — which is exactly why it is worth saying out loud here.
     if (i === WEAPON_SLOT_CONFIG.basicAttackSlotIndex && !BASIC_ATTACK_CONFIG.enabled) continue;
     const slot = self.slots[i]!;
     if (!slotIsReady(slot, tick)) {

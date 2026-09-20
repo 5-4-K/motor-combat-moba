@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { GameMode, PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
 import { isSpectating } from "./spectate.js";
-import { SLOT_KEYS } from "../config/slot-keys.js";
+import { SLOT_KEYS, hintSlotOrder } from "../config/slot-keys.js";
 import {
   ACTION_ALTS,
   ACTION_KEYS,
@@ -86,12 +86,15 @@ describe("movementHintItems", () => {
   it("teaches every fire binding: the letters live here, the mouse glyphs match the gutter", () => {
     // The gutter pill prints only the mouse-hand glyph, so this countdown row is the one place the
     // J/K/L letters are shown. Derived from SLOT_KEYS, so a rebind cannot leave the hint stale.
-    // Teaching order, not slot order (BA19): the basic attack comes first, because it is the first
-    // thing a new player should press — and because the gutter pill never teaches it.
+    // The basic attack still comes first (BA19) — but it comes first because it IS fire slot 0 now,
+    // not because the hint reorders the table around it (VS15).
     expect(ACTION_KEYS).toEqual(["H", "J", "K", "L"]);
     expect(ACTION_ALTS).toEqual(["LMB", "RMB", "SHIFT", "SPACE"]);
-    expect(new Set(ACTION_ALTS)).toEqual(new Set(SLOT_KEYS.map((key) => key.glyph)));
-    expect(new Set(ACTION_KEYS)).toEqual(new Set(SLOT_KEYS.map((key) => key.keyGlyph)));
+    expect(hintSlotOrder(true)).toEqual([0, 1, 2, 3]);
+    expect(hintSlotOrder(false)).toEqual([1, 2, 3]);
+    // Subset, not equality: SLOT_KEYS is ceiling-length while the hint prints this build's N.
+    for (const glyph of ACTION_ALTS) expect(SLOT_KEYS.map((k) => k.glyph)).toContain(glyph);
+    for (const glyph of ACTION_KEYS) expect(SLOT_KEYS.map((k) => k.keyGlyph)).toContain(glyph);
   });
 });
 

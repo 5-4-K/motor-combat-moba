@@ -242,10 +242,12 @@ export interface SlotBox {
 /**
  * Camera-fixed slots, stacked down the HUD gutter and centred in it.
  *
- * The slot bar draws the ABILITY kit — `min(weapons.length, maxAbilitySlots)` boxes. A car's
- * `weapons` array carries four rows as of 2026-09-17; the fourth is its basic attack and it is
- * deliberately not drawn (BA15). That is a decision, not a truncation that happens to work: if the
- * basic attack ever needs a readout, it gets its own, not a fourth box here.
+ * The slot bar draws the ABILITY kit — `min(count, maxAbilitySlots)` boxes. `count` is the ABILITY
+ * count the caller derives, never the fire-slot array's length: that array is `[basicAttack, ...kit]`
+ * since 2026-09-20 (VS6), so handing over its length would push the clamp to drop ability N and
+ * leave the basic attack occupying a box (VS22). The basic attack is deliberately not drawn (BA15),
+ * and that is a decision rather than a truncation that happens to work: if it ever needs a readout,
+ * it gets its own, not an extra box here.
  *
  * The bar used to be a row centred over the floor, pinned above the view's bottom edge, which put
  * it squarely inside the play area — a car could park under the slots and both were hard to read.

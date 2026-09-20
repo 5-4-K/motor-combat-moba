@@ -503,12 +503,23 @@ const MOVEMENT_HINT_Y = 660;
 const MOVEMENT_HINT_FONT_PX = 18;
 const MOVEMENT_HINT_GAP = 8;
 /**
- * The action row ("J K L or LMB RMB SPACE to fire") sits one pill-height under the movement row,
+ * The action row ("H J K L or LMB RMB SHIFT SPACE to fire") sits one pill-height under the
+ * movement row,
  * still above the floor's bottom edge at `VIEW_HEIGHT` 720. It shares the movement row's lifetime
  * (countdown only), font, and pill styling, and it is the one place the letter bindings are
  * printed — the gutter pill shows only the mouse-hand glyph. See `SLOT_KEYS`.
  */
 const ACTION_HINT_Y = MOVEMENT_HINT_Y + 34;
+/**
+ * Where the ability kit starts in a car's fire-slot array. The array is `[basicAttack, ...kit]`, so
+ * ability `i` is fire slot `i + ABILITY_SLOT_OFFSET` (VS23). The pooled HUD Text/Image arrays and
+ * `slotBarLayout`'s boxes are ABILITY-indexed; `SLOT_KEYS` and `PlayerState.lastFiredSlot` are
+ * FIRE-slot indexed, and this is the one place the two are bridged.
+ *
+ * Derived from `basicAttackSlotIndex` rather than typed as 1, so it cannot disagree with shared
+ * about which end of the array the basic attack sits on.
+ */
+const ABILITY_SLOT_OFFSET = WEAPON_SLOT_CONFIG.basicAttackSlotIndex + 1;
 /**
  * Stock count offset from the centre along the diagonal, as a fraction of the radius. Pulled in
  * from 0.55 when the black disc went: the count used to have an opaque backing and could sit near
@@ -948,10 +959,16 @@ export class ArenaScene extends Phaser.Scene {
     this.keys = this.bindKeys();
     this.slotKeys = this.bindSlotKeys();
     this.pauseKey = this.bindPauseKey();
-    // Slot 2 lives on the right mouse button, so the browser's context menu would otherwise open on
-    // every shot. This is a listener on the game canvas, not scene state — it outlives the arena —
+    // Ability 1 lives on the right mouse button, so the browser's context menu would otherwise open
+    // on every shot. This is a listener on the game canvas, not scene state — it outlives the arena —
     // which is fine: no screen in this client offers anything on right-click.
     this.input.mouse?.disableContextMenu();
+    // The middle button is ability 4's binding (VS15/VS17). Left alone it starts the browser's
+    // autoscroll drag over the canvas, which is the same class of problem `disableContextMenu`
+    // solves for the right button and `addKey` solves for Space.
+    this.game.canvas.addEventListener("mousedown", (event: MouseEvent) => {
+      if (event.button === 1) event.preventDefault();
+    });
 
     // Guarded rather than resolved directly: `getArena` throws, and this line runs before the rest
     // of create() builds anything, so an unknown id would leave a half-constructed scene and a
@@ -2787,6 +2804,22 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
+   * How many ABILITY slots the local player's chassis carries — the fire-slot array minus its
+   * basic attack. Falls back to this build's slot count before the player's car is known.
+   *
+   * One helper, deliberately: the HUD's box count and (from a later task) the countdown hint's key
+   * row both need this number, and two derivations of it would drift.
+   */
+  private localAbilityCount(): number {
+    const room = this.room;
+    // `drivenSid`, the same access path `hudTargetPlayer` takes for a player who is not spectating
+    // — never `room.sessionId`, which names a connection rather than a car.
+    const player = room ? room.state.players.get(this.drivenSid(room)) : undefined;
+    // `max(0, …)`: a player with no chassis has no slots at all, not a basic attack alone.
+    return player ? Math.max(0, player.weapons.length - 1) : WEAPON_SLOT_CONFIG.maxAbilitySlots;
+  }
+
+  /**
    * The roster panel at the top of the gutter: a colour swatch and a name per player in the match,
    * alive or dead. Returns the panel's height, which is the slot bar's `topInset` — see the call in
    * `update()` for why exactly one place derives it.
@@ -2851,12 +2884,12 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * The slot bar draws the ABILITY kit — `min(weapons.length, maxAbilitySlots)` boxes — for
-   * whichever car `hudTargetPlayer` names. A car's `weapons` array carries four rows as of
-   * 2026-09-17; the fourth is its basic attack and it is deliberately not drawn (BA15). That is a
-   * decision, not a truncation that happens to work: if the basic attack ever needs a readout, it
-   * gets its own, not a fourth box here. Slots beyond the current target (or with no target at all)
-   * just hide their pooled text objects rather than destroying anything, so switching who is watched
+   * The slot bar draws the ABILITY kit — `localAbilityCount()` boxes — for whichever car
+   * `hudTargetPlayer` names. A car's `weapons` array is `[basicAttack, ...kit]` as of 2026-09-20
+   * (VS6); slot 0 is its basic attack and it is deliberately not drawn (BA15). That is a decision,
+   * not a truncation that happens to work: if the basic attack ever needs a readout, it gets its
+   * own, not an extra box here. Slots beyond the current target (or with no target at all) just
+   * hide their pooled text objects rather than destroying anything, so switching who is watched
    * costs no allocation.
    *
    * `topInset` is the roster panel's height, passed in rather than derived here: the panel lists
@@ -2871,13 +2904,18 @@ export class ArenaScene extends Phaser.Scene {
     sweepGfx.clear();
 
     const player = this.hudTargetPlayer(room);
+    // The ABILITY count, not the array length: the fire-slot array is `[basicAttack, ...kit]`, and
+    // the bar draws the kit (BA15). Passing the length would hand `slotBarLayout` one box too many
+    // and its `min(count, maxAbilitySlots)` clamp would silently drop ability N (VS22).
     const boxes = player
-      ? slotBarLayout(player.weapons.length, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH, topInset)
+      ? slotBarLayout(this.localAbilityCount(), VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH, topInset)
       : [];
 
     for (let i = 0; i < this.hudKeyTexts.length; i++) {
       const box = boxes[i];
-      const slot = player && box ? player.weapons.at(i) : undefined;
+      // `+ ABILITY_SLOT_OFFSET`: ability `i` is fire slot `i + 1`, because fire slot 0 is the basic
+      // attack (VS23).
+      const slot = player && box ? player.weapons.at(i + ABILITY_SLOT_OFFSET) : undefined;
       if (!player || !box || !slot) {
         this.hudKeyTexts[i]!.setVisible(false);
         this.hudNameTexts[i]!.setVisible(false);
@@ -2981,6 +3019,11 @@ export class ArenaScene extends Phaser.Scene {
   ): void {
     const def = isWeaponId(slot.weaponId) ? weaponDefOf(slot.weaponId) : undefined;
 
+    // `index` is the ABILITY index — it addresses the pooled Text/Image arrays and the box layout,
+    // both of which are ability-sized. Two things here are indexed by FIRE slot instead:
+    // `SLOT_KEYS` and `PlayerState.lastFiredSlot`. Ability `i` is fire slot `i + 1` (VS23).
+    const fireSlot = index + ABILITY_SLOT_OFFSET;
+
     // Two independent questions now, deliberately kept apart. `slotVisualState` answers what this
     // SLOT is (its own cooldown, whether the player owns it) and picks the alpha; `isSlotBlocked`
     // answers whether the CAR can press anything this instant and picks whether a sign is drawn.
@@ -2997,7 +3040,7 @@ export class ArenaScene extends Phaser.Scene {
       state,
       tick < player.pendingUntilTick ? { slot: player.lastFiredSlot } : null,
       player.switchLockUntilTick,
-      index === player.lastFiredSlot,
+      fireSlot === player.lastFiredSlot,
       modifiersFromRows(player.statuses, tick).disarmed,
       tick,
     );
@@ -3062,7 +3105,7 @@ export class ArenaScene extends Phaser.Scene {
     // slot's key reads as unavailable too. The band under the slot belongs to the name now.
     const keyText = this.hudKeyTexts[index]!;
     keyText
-      .setText(SLOT_KEYS[index]?.glyph ?? "")
+      .setText(SLOT_KEYS[fireSlot]?.glyph ?? "")
       .setPosition(box.keyX + HUD_KEY_PILL_PAD_X, cy)
       .setAlpha(dim)
       .setVisible(true);

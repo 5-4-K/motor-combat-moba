@@ -34,14 +34,14 @@ const report = reporter.report.bind(reporter);
 /**
  * Which FIRE slot (bitmask) this chassis presses to fire this weapon.
  *
- * `fireSlotsOf`, not `slotsOf`: a car fires four weapons — its three abilities, then its basic
- * attack at index 3 (BA13). The two lists agree on every ability, since the kit comes first in
- * fire-slot order, so this only widens what can be asked for; it never moves an existing bit.
+ * `fireSlotsOf`, not `slotsOf`: a car fires four weapons — its basic attack at index 0, then its
+ * three abilities (VS6). Every ability's bit is one left of its place in the kit, which is the
+ * whole of what the 2026-09-20 index flip did to this probe.
  *
- * `indexOf` takes the FIRST match on purpose. A chassis may carry one row both as an ability and in
- * its basic-attack slot (`basicAttackIds()` documents that as deliberate), and this then presses the
- * ability — which is what the sim does with that press anyway, since the lowest set bit wins a
- * same-tick tie.
+ * `indexOf` takes the FIRST match. Under the old order that meant the ability won when a chassis
+ * carried one row both as an ability and in its basic-attack slot; now the basic-attack slot would
+ * win instead. No chassis does that today (`weapon-slots.test.ts` holds every car's kit clear of its
+ * own basic attack), so this only matters to whoever makes one.
  */
 function slotBitFor(carId: CarId, weaponId: WeaponId): number {
   const i = fireSlotsOf(carId).indexOf(weaponId);

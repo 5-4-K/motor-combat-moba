@@ -13,15 +13,11 @@ describe("loadouts", () => {
     // handling long before anyone has authored the three exclusive weapons it will eventually ship
     // with.
     //
-    // The floor is EXACT, not "at least one", because `fireSlotsOf` places the basic attack at
-    // `kit.length` while `WEAPON_SLOT_CONFIG.basicAttackSlotIndex` is pinned at
-    // `maxAbilitySlots` (3, BA13's "always"). A two-ability active chassis would pass an "at least
-    // one" floor and then break silently in two directions: `beginFire`'s `usable` cap would never
-    // scan index 3, so H / LMB would fire nothing and the basic attack would answer to the last
-    // ability's key instead; and the HUD's slot bar, capped at `maxAbilitySlots`, would draw the
-    // basic attack as a visible ability box (forbidden by BA15). Pinning every active chassis to
-    // exactly `maxAbilitySlots` weapons is what makes `basicAttackSlotIndex` true rather than
-    // merely typical.
+    // The floor is EXACT rather than "at least one" for now, and the reason has changed shape: it
+    // used to be load-bearing, because `fireSlotsOf` placed the basic attack at `kit.length` and a
+    // short kit moved the key that fires it. Since 2026-09-20 the basic attack is fire slot 0 at
+    // every kit length (VS6), so a short kit no longer breaks the binding — what an exact floor
+    // still buys is that every shipped car presents the full bar this build advertises.
     for (const car of Object.values(CAR_TABLE)) {
       if (car.isActive) expect(car.weapons.length).toBe(WEAPON_SLOT_CONFIG.maxAbilitySlots);
       expect(car.weapons.length).toBeLessThanOrEqual(WEAPON_SLOT_CONFIG.maxAbilitySlots);
@@ -115,22 +111,22 @@ describe("loadouts", () => {
     }
   });
 
-  it("derives the fire-slot constants from the ability count, so the two cannot drift (BA11, BA13)", () => {
+  it("derives the fire-slot constants from the ability count, so the two cannot drift (BA11, VS6)", () => {
     expect(WEAPON_SLOT_CONFIG.maxAbilitySlots).toBe(3);
     expect(WEAPON_SLOT_CONFIG.maxFireSlots).toBe(WEAPON_SLOT_CONFIG.maxAbilitySlots + 1);
-    expect(WEAPON_SLOT_CONFIG.basicAttackSlotIndex).toBe(WEAPON_SLOT_CONFIG.maxAbilitySlots);
+    expect(WEAPON_SLOT_CONFIG.basicAttackSlotIndex).toBe(0);
   });
 
-  it("puts the basic attack last in the fire order, behind an unmoved kit (BA12, BA13)", () => {
+  it("puts the basic attack first in the fire order, ahead of an unmoved kit (BA12, VS6)", () => {
     expect(fireSlotsOf("bastion")).toEqual([
+      "basic-attack-bastion",
       "thumper",
       "roadblock",
       "wildcharge",
-      "basic-attack-bastion",
     ]);
     // A prototype carries no abilities at all, so its basic attack is its only fire slot — and it
-    // still lands at index 0, not index 3: the fire order is the kit followed by the basic attack,
-    // not a fixed four-element array with holes.
+    // lands at index 0 there for exactly the reason it does on a full kit, rather than by falling
+    // off the end of an empty list: the fire order is the basic attack followed by the kit.
     expect(fireSlotsOf("taurus")).toEqual(["basic-attack-taurus"]);
   });
 });
@@ -142,6 +138,20 @@ describe("the slot count", () => {
     expect(ABILITY_SLOT_CEILING).toBe(4);
     expect(WEAPON_SLOT_CONFIG.maxAbilitySlots).toBeGreaterThanOrEqual(1);
     expect(WEAPON_SLOT_CONFIG.maxAbilitySlots).toBeLessThanOrEqual(ABILITY_SLOT_CEILING);
+  });
+
+  it("puts the basic attack at fire slot 0, before the kit", () => {
+    // VS6. Under the old order the basic attack sat at `kit.length`, a constant only because every
+    // active kit was the same length. Once kits vary, `kit.length` varies, and the key that fires
+    // the basic attack would change when the player changed chassis. At index 0 it is a true
+    // constant at every kit length.
+    expect(WEAPON_SLOT_CONFIG.basicAttackSlotIndex).toBe(0);
+    expect(fireSlotsOf("bastion")).toEqual([
+      basicAttackOf("bastion"),
+      "thumper",
+      "roadblock",
+      "wildcharge",
+    ]);
   });
 
   it("derives the fire-slot count rather than typing it", () => {

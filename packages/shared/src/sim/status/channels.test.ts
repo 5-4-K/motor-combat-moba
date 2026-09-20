@@ -334,14 +334,15 @@ describe("applyHeal is the only way hp goes up", () => {
 
 describe("weaponCooldown reaches the three refire clocks and no others", () => {
   it("shortens a recharge", () => {
-    // Bullseye's slot 1 since the 2026-09-02 loadout swap — predator's 1000ms cooldown is what the
-    // assertion below is pinned against, not CAR (mirage), whose slot 1 is magmablast now.
+    // Bullseye's ability 1 since the 2026-09-02 loadout swap — predator's 1000ms cooldown is what
+    // the assertion below is pinned against, not CAR (mirage), whose ability 1 is magmablast now.
+    // Ability 1 is FIRE SLOT 1: slot 0 is the basic attack (VS6).
     const state = newFireState("bullseye", 1);
     const spent = { ...state, slots: state.slots.map((s) => ({ ...s, stocks: 0 })) };
     const hasted = tickRecharge(spent, 0, 0.5);
     const plain = tickRecharge(spent, 0, 1);
-    expect(hasted.slots[0]!.rechargeEndsTick).toBe(scaleTicks(weaponTicksOf("predator").cooldown, 0.5));
-    expect(hasted.slots[0]!.rechargeEndsTick).toBeLessThan(plain.slots[0]!.rechargeEndsTick);
+    expect(hasted.slots[1]!.rechargeEndsTick).toBe(scaleTicks(weaponTicksOf("predator").cooldown, 0.5));
+    expect(hasted.slots[1]!.rechargeEndsTick).toBeLessThan(plain.slots[1]!.rechargeEndsTick);
   });
 
   it("shortens the switch lock a release sets", () => {

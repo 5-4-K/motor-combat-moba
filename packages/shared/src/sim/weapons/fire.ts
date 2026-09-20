@@ -100,14 +100,15 @@ export interface FireState {
  *
  * `weaponIds` is an optional explicit loadout, in slot order, that overrides the roster's own kit —
  * the dev-only playground picks any car/weapon combination rather than the shipped pairing (PG13).
- * It still runs through `slotsFrom` so the 3-slot cap holds exactly as it does for a roster loadout.
+ * It still runs through `slotsFrom` so the ability-slot cap holds exactly as it does for a roster
+ * loadout, and the basic attack is prepended to whatever comes back (VS6).
  */
 export function newFireState(carId: CarId | "", level: number, weaponIds?: readonly WeaponId[]): FireState {
-  // The KIT, then the basic attack (BA12/BA14). An explicit playground loadout overrides the three
+  // The basic attack FIRST, then the kit (VS6). An explicit playground loadout overrides the
   // ability slots and nothing else: the basic attack is a property of the chassis, not of the
-  // loadout, so it is appended either way and the settings panel never offers it.
+  // loadout, so it is prepended either way and the settings panel never offers it.
   const kit = weaponIds ? slotsFrom(carId, weaponIds) : isCarId(carId) ? slotsOf(carId) : [];
-  const weapons = isCarId(carId) ? [...kit, basicAttackOf(carId)] : kit;
+  const weapons = isCarId(carId) ? [basicAttackOf(carId), ...kit] : kit;
   return {
     slots: weapons.map((weaponId) => ({
       weaponId,

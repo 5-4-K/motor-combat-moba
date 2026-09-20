@@ -129,7 +129,7 @@ describe("status pulses", () => {
     const interval = statusPulseTicksOf("overheated");
     const result = runCombat({
       world: world({ tick: 100 + interval }),
-      players: [player("aaa", { hp: 5, fireMask: 0b001, statuses: live("overheated", 100, 400) })],
+      players: [player("aaa", { hp: 5, fireMask: 0b010, statuses: live("overheated", 100, 400) })],
       instances: [],
       instanceSeq: 0,
     });
@@ -213,7 +213,7 @@ describe("weapons apply statuses", () => {
   /** A shooter facing a target close enough for one press to land within a few ticks. */
   function duel(shooterOver: Partial<CombatPlayer> = {}): CombatPlayer[] {
     return [
-      player("aaa", { fireMask: 0b001, x: 300, angle: 0, ...shooterOver }),
+      player("aaa", { fireMask: 0b010, x: 300, angle: 0, ...shooterOver }),
       player("bbb", { x: 360, team: 1 }),
     ];
   }
@@ -269,7 +269,7 @@ describe("weapons apply statuses", () => {
     const result = runCombat({
       world: world(),
       players: [
-        player("aaa", { carId: "bastion", fireState: newFireState("bastion", 1), fireMask: 0b100 }),
+        player("aaa", { carId: "bastion", fireState: newFireState("bastion", 1), fireMask: 0b1000 }),
       ],
       instances: [],
       instanceSeq: 0,
@@ -285,7 +285,7 @@ describe("weapons apply statuses", () => {
     const first = runCombat({
       world: world(),
       players: [
-        player("aaa", { carId: "bastion", fireState: newFireState("bastion", 1), fireMask: 0b100 }),
+        player("aaa", { carId: "bastion", fireState: newFireState("bastion", 1), fireMask: 0b1000 }),
       ],
       instances: [],
       instanceSeq: 0,
@@ -294,7 +294,7 @@ describe("weapons apply statuses", () => {
 
     const second = runCombat({
       world: world({ tick: 101 }),
-      players: first.players.map((p) => ({ ...p, fireMask: 0b100 })),
+      players: first.players.map((p) => ({ ...p, fireMask: 0b1000 })),
       instances: first.instances,
       instanceSeq: first.instanceSeq,
     });
@@ -307,7 +307,7 @@ describe("weapons apply statuses", () => {
     let state = runCombat({
       world: world({ mode: "team" }),
       players: [
-        player("aaa", { carId: "bullseye", fireState: newFireState("bullseye", 1), fireMask: 0b001, x: 300 }),
+        player("aaa", { carId: "bullseye", fireState: newFireState("bullseye", 1), fireMask: 0b010, x: 300 }),
         player("bbb", { x: 360, team: 0 }),
       ],
       instances: [],
@@ -327,7 +327,7 @@ describe("weapons apply statuses", () => {
   it("`disarmed` blocks a new press and spends no stock", () => {
     const jammed = runCombat({
       world: world(),
-      players: [player("aaa", { fireMask: 0b001, statuses: live("stunned", 99, 400) })],
+      players: [player("aaa", { fireMask: 0b010, statuses: live("stunned", 99, 400) })],
       instances: [],
       instanceSeq: 0,
     });
@@ -341,7 +341,7 @@ describe("weapons apply statuses", () => {
     // wind-up at all — every row that used to carry one (`skewer`) is retired.
     const pressed = runCombat({
       world: world(),
-      players: [player("aaa", { carId: "bullseye", fireState: newFireState("bullseye", 1), fireMask: 0b100 })],
+      players: [player("aaa", { carId: "bullseye", fireState: newFireState("bullseye", 1), fireMask: 0b1000 })],
       instances: [],
       instanceSeq: 0,
     });
@@ -365,7 +365,7 @@ describe("weapons apply statuses", () => {
       let state = runCombat({
         world: world(),
         players: [
-          player("aaa", { carId: "bullseye", fireState: newFireState("bullseye", 1), fireMask: 0b001, x: 300 }),
+          player("aaa", { carId: "bullseye", fireState: newFireState("bullseye", 1), fireMask: 0b010, x: 300 }),
           player("bbb", { x: 360, team: 1, statuses }),
         ],
         instances: [],
@@ -384,7 +384,7 @@ describe("weapons apply statuses", () => {
     // A status lapsing on this very tick must not act on it.
     const lapsed = runCombat({
       world: world({ tick: 100 }),
-      players: [player("aaa", { fireMask: 0b001, statuses: live("stunned", 60, 100) })],
+      players: [player("aaa", { fireMask: 0b010, statuses: live("stunned", 60, 100) })],
       instances: [],
       instanceSeq: 0,
     });

@@ -795,7 +795,14 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // not move again inside this work", written before this bug was found — flagged in the stage 5
 // Task 8 report rather than silently overridden. Balance reports across this line are not
 // comparable.
-export const BOT_BRAIN_VERSION = "6.0.1";
+// 6.1.0 (2026-09-20) — the fire-slot index flip: the basic attack moved from the LAST fire slot to
+// slot 0, so every ability's index shifted up by one (VS6). `BOT_PROFILES` did not move and no brain
+// module was rewritten, but two things in brain code changed behaviour anyway, which is exactly what
+// this string exists to record: `personality.ts` draws one `slotWeights` entry per fire slot in
+// index order, so every bot's per-weapon weighting is now drawn against a different weapon; and
+// `firing.ts`'s `chooseSlot` scans slots ascending, so it now reaches the basic attack first and an
+// ability last. Balance reports across this line are not comparable.
+export const BOT_BRAIN_VERSION = "6.1.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency

@@ -195,7 +195,7 @@ describe("firing", () => {
   it("spawns one instance at the muzzle when slot 1 is pressed", () => {
     const result = runCombat({
       world: world(),
-      players: [player({ fireMask: 0b001 })],
+      players: [player({ fireMask: 0b010 })],
       instances: [],
       instanceSeq: 0,
     });
@@ -206,14 +206,14 @@ describe("firing", () => {
   it("does not fire again inside the cooldown, held or tapped", () => {
     const state: CombatInput = {
       world: world(),
-      players: [player({ fireMask: 0b001 })],
+      players: [player({ fireMask: 0b010 })],
       instances: [],
       instanceSeq: 0,
     };
     const first = runCombat(state);
     const second = runCombat({
       world: world({ tick: 101 }),
-      players: first.players.map((p) => ({ ...p, fireMask: 0b001 })),
+      players: first.players.map((p) => ({ ...p, fireMask: 0b010 })),
       instances: first.instances,
       instanceSeq: first.instanceSeq,
     });
@@ -223,7 +223,7 @@ describe("firing", () => {
   it("fires nothing for a player with no chassis", () => {
     const result = runCombat({
       world: world(),
-      players: [player({ carId: "", fireState: newFireState("", 1), fireMask: 0b001 })],
+      players: [player({ carId: "", fireState: newFireState("", 1), fireMask: 0b010 })],
       instances: [],
       instanceSeq: 0,
     });
@@ -233,7 +233,7 @@ describe("firing", () => {
   it("does not fire for a player who is not on the roster", () => {
     const result = runCombat({
       world: world(),
-      players: [player({ fireMask: 0b001, inRoster: false })],
+      players: [player({ fireMask: 0b010, inRoster: false })],
       instances: [],
       instanceSeq: 0,
     });
@@ -313,7 +313,7 @@ describe("firing", () => {
       x: 300,
       carId: "bullseye",
       fireState: newFireState("bullseye", 1),
-      fireMask: 0b001,
+      fireMask: 0b010,
     });
     // A fresh press spawns its instance at the muzzle and is hit-tested THIS tick, without a tick of
     // travel — so a same-tick hit is necessarily point-blank. `predator`'s hitbox is a capsule whose
@@ -341,7 +341,7 @@ describe("firing", () => {
 
   it("does not mutate the caller's players or instances", () => {
     const fireState = newFireState("mirage", 1);
-    const players = [player({ fireMask: 0b001, fireState })];
+    const players = [player({ fireMask: 0b010, fireState })];
     const instances: WeaponInstance[] = [];
     runCombat({
       world: world(),
@@ -623,7 +623,7 @@ describe("chassis attack scales weapon damage through a real tick", () => {
           y: OPEN_Y,
           angle: 0,
           carId,
-          fireMask: 1,
+          fireMask: 0b001, // a hand-built ONE-slot state: roadblock is index 0, not an ability offset
           fireState: roadblockSlot1,
         }),
         player("b", { x: 400 + DRIVE_CONFIG.carWidth + 40, y: OPEN_Y }),
@@ -754,7 +754,7 @@ describe("shot direction through a real tick", () => {
     // The regression guard for the targeting removal. "b" sits 18 degrees off "a"'s nose -- the
     // exact geometry the old ambient lock was built to snap onto, well inside the cone it used --
     // so a shot that leaves at anything but `a.angle` means something is still steering it.
-    const a = player("a", { x: 300, y: 300, angle: 0, fireMask: 1 });
+    const a = player("a", { x: 300, y: 300, angle: 0, fireMask: 0b010 });
     const b = player("b", { x: 480, y: 360, angle: Math.PI });
     const result = run({ players: [a, b] });
     const shot = result.instances.find((i) => i.ownerSessionId === "a");
@@ -769,7 +769,7 @@ describe("shot direction through a real tick", () => {
     // `muzzleOf` outlived the targeting system it was written for -- it is where every shot is
     // born and where the client draws a charge orb -- so its offset is pinned here now that
     // `lock.test.ts` is gone.
-    const a = player("a", { x: 300, y: 300, angle: 0, fireMask: 1 });
+    const a = player("a", { x: 300, y: 300, angle: 0, fireMask: 0b010 });
     const result = run({ players: [a, player("b", { x: 900, y: 300, angle: Math.PI })] });
     const shot = result.instances.find((i) => i.ownerSessionId === "a");
     expect(shot!.x).toBeCloseTo(300 + DRIVE_CONFIG.carWidth / 2, 6);
@@ -796,7 +796,7 @@ it("damages a target with a real attached beam fired from a real loadout, once i
   // ~73.3 (past 52) — so the first damage lands on the third call.
   let world_ = world();
   let players: CombatPlayer[] = [
-    player("aaa", { x: 300, y: OPEN_Y, angle: 0, fireMask: 0b100 }),
+    player("aaa", { x: 300, y: OPEN_Y, angle: 0, fireMask: 0b1000 }),
     player("bbb", { x: 400, y: OPEN_Y }),
   ];
   let instances: readonly WeaponInstance[] = [];
@@ -841,7 +841,7 @@ it("pulses lance for its whole life, spending a full connect over four ticks ins
       carId: "bullseye",
       hp: hpOf("bullseye"),
       fireState: newFireState("bullseye", 1),
-      fireMask: 0b100,
+      fireMask: 0b1000,
     }),
     player("bbb", { x: 400, y: OPEN_Y }),
   ];
@@ -1056,7 +1056,7 @@ describe("spike damage", () => {
     // mirage's real slot 1 is magmablast (2026-09-02 loadout swap): pressing it would spawn one
     // instance if the car were still alive when the firing phase ran. Exactly enough hp that the
     // spike hit itself is the kill.
-    const dying = player("a", { hp: SPIKE_CONFIG.damage, fireMask: 0b001 });
+    const dying = player("a", { hp: SPIKE_CONFIG.damage, fireMask: 0b010 });
     const result = runCombat({
       world: world(),
       players: [dying],
@@ -1124,7 +1124,7 @@ describe("stun interruption (O8)", () => {
     // Bullseye presses lance (slot 3, fireMask bit 2 == 4) on tick 100; the stun lands the same
     // tick. Lance's 700ms wind-up means `beginFire` spends the stock and schedules a shot for a
     // LATER tick, so the pending burst is still sitting there for the sweep to cancel.
-    const p = bullseyeAt("a", { fireMask: 0b100 });
+    const p = bullseyeAt("a", { fireMask: 0b1000 });
     const result = runCombat({
       world: world(),
       players: [p, other()],
@@ -1134,7 +1134,7 @@ describe("stun interruption (O8)", () => {
     });
     const out = find(result, "a");
     expect(out.fireState.pending).toBeNull(); // wind-up cancelled
-    expect(out.fireState.slots[2]!.stocks).toBe(0); // the press stayed spent (O14)
+    expect(out.fireState.slots[3]!.stocks).toBe(0); // the press stayed spent (O14)
   });
 
   it("kills the stunned car's attached beams and spares detached ones", () => {
@@ -1191,7 +1191,7 @@ describe("stun interruption (O8)", () => {
   it("a stun does not end wildcharge — the roster's isUnInterruptable exemption (O8)", () => {
     // Bastion presses wildcharge (slot 3, fireMask bit 2 == 4) on tick 100, opening the charge
     // window for real through the fire pipeline.
-    const charger = player("a", { x: 300, y: OPEN_Y, carId: "bastion", fireMask: 0b100 });
+    const charger = player("a", { x: 300, y: OPEN_Y, carId: "bastion", fireMask: 0b1000 });
     let state = runCombat({
       world: world(),
       players: [charger, other()],
@@ -1232,7 +1232,7 @@ describe("stun interruption (O8)", () => {
  */
 describe("real-row integration (2026-09-01 roster)", () => {
   it("a thunderclap press starts a dash through the real fire pipeline", () => {
-    const shooter = player("a", { x: 300, y: OPEN_Y, angle: 0, carId: "mirage", fireMask: 0b010 });
+    const shooter = player("a", { x: 300, y: OPEN_Y, angle: 0, carId: "mirage", fireMask: 0b100 });
     // 15 degrees off-axis, 300 units out. Placed off the nose on purpose: this is the geometry the
     // retired ambient lock would have snapped the dash onto, so the angle assertion below is the
     // end-to-end guard that nothing steers a maneuver any more.
@@ -1253,7 +1253,7 @@ describe("real-row integration (2026-09-01 roster)", () => {
     expect(out.maneuverSpeed).toBe(1600);
     expect(out.maneuverTicksLeft).toBe(8); // ceil(range 400 / speed 1600 * 30)
     expect(out.maneuverWeaponId).toBe("thunderclap");
-    expect(out.fireState.slots[1]!.stocks).toBe(0); // the press spent its stock
+    expect(out.fireState.slots[2]!.stocks).toBe(0); // the press spent its stock
     expect(out.maneuverAngle).toBeCloseTo(shooter.angle, 10); // the heading, not the car off the nose
     expect(out.maneuverAngle).not.toBeCloseTo(
       Math.atan2(target.y - shooter.y, target.x - shooter.x), 2,
@@ -1261,7 +1261,7 @@ describe("real-row integration (2026-09-01 roster)", () => {
   });
 
   it("a wildcharge press opens the charge window and self-applies fortified", () => {
-    const p = player("a", { x: 300, y: OPEN_Y, carId: "bastion", fireMask: 0b100 }); // slot 3
+    const p = player("a", { x: 300, y: OPEN_Y, carId: "bastion", fireMask: 0b1000 }); // slot 3
     const result = runCombat({
       world: world(),
       players: [p],
@@ -1286,7 +1286,7 @@ describe("real-row integration (2026-09-01 roster)", () => {
     // covers the other half through the full `runCombat` pipeline: once proximity acquisition
     // sticks, steering keeps bending toward the target's LIVE pose each tick, not a pose frozen at
     // the moment it committed.
-    const shooter = player("a", { x: 300, y: OPEN_Y, angle: 0, carId: "bullseye", fireMask: 0b001 });
+    const shooter = player("a", { x: 300, y: OPEN_Y, angle: 0, carId: "bullseye", fireMask: 0b010 });
     // Off-axis on +y, same geometry as "grabs a car that comes within acquireRadius" above: the
     // muzzle sits at x=324 and the shot closes 30u/tick, so it is not yet within the 200u bubble at
     // spawn (276u away) and commits a few ticks later — proximity, not the lock, does the finding.
@@ -1524,18 +1524,18 @@ describe("kill attribution", () => {
 describe("fired events (B6)", () => {
   it("emits one event per committed press, not per pellet", () => {
     const events = newCombatEvents();
-    const shooter = combatant("p1", { carId: "bullseye", fireMask: 0b10 }); // pepperbox, a fan
+    const shooter = combatant("p1", { carId: "bullseye", fireMask: 0b100 }); // pepperbox, a fan
     runCombat({ world: worldAt(1), players: [shooter], instances: [], instanceSeq: 0, events });
     expect(events.fired).toHaveLength(1);
     expect(events.fired[0]).toMatchObject({
-      shooterSessionId: "p1", carId: "bullseye", weaponId: "pepperbox", slot: 1,
+      shooterSessionId: "p1", carId: "bullseye", weaponId: "pepperbox", slot: 2,
     });
   });
 
   it("emits nothing on the ticks a held burst continues", () => {
     const events = newCombatEvents();
     // A press already pending coming into the tick must not re-emit.
-    const shooter = combatant("p1", { carId: "bullseye", fireMask: 0b10 });
+    const shooter = combatant("p1", { carId: "bullseye", fireMask: 0b100 });
     let state = runCombat({ world: worldAt(1), players: [shooter], instances: [], instanceSeq: 0, events });
     const before = events.fired.length;
     runCombat({ world: worldAt(2), players: state.players, instances: state.instances, instanceSeq: state.instanceSeq, events });
@@ -1543,8 +1543,8 @@ describe("fired events (B6)", () => {
   });
 
   it("allocates nothing and behaves identically with no sink", () => {
-    const shooter = combatant("p1", { carId: "bullseye", fireMask: 0b10 });
-    const withSink = runCombat({ world: worldAt(1), players: [combatant("p1", { carId: "bullseye", fireMask: 0b10 })], instances: [], instanceSeq: 0, events: newCombatEvents() });
+    const shooter = combatant("p1", { carId: "bullseye", fireMask: 0b100 });
+    const withSink = runCombat({ world: worldAt(1), players: [combatant("p1", { carId: "bullseye", fireMask: 0b100 })], instances: [], instanceSeq: 0, events: newCombatEvents() });
     const without = runCombat({ world: worldAt(1), players: [shooter], instances: [], instanceSeq: 0 });
     expect(without.players).toEqual(withSink.players);
     expect(without.instances).toEqual(withSink.instances);
@@ -1582,11 +1582,11 @@ describe("damaged and killed events (B4, B5)", () => {
     // Same point-blank geometry as "lands bullseye's real slot-1 predator on a car in front" above:
     // predator's capsule reaches 19u past the hull, and 50.5u leaves 2.5u of slack — a fresh press
     // is hit-tested the same tick it spawns, so this connects with no travel.
-    const shooter = combatant("p1", { x: 300, carId: "bullseye", fireMask: 0b001 });
+    const shooter = combatant("p1", { x: 300, carId: "bullseye", fireMask: 0b010 });
     const target = combatant("p2", { x: 300 + 50.5, fireMask: 0 });
     runCombat({ world: worldAt(100), players: [shooter, target], instances: [], instanceSeq: 0, events });
     expect(events.damaged[0]?.source).toMatchObject({ kind: "weapon", weaponId: "predator" });
-    expect((events.damaged[0]?.source as { pressId: string }).pressId).toMatch(/^p1#\d+#0$/);
+    expect((events.damaged[0]?.source as { pressId: string }).pressId).toMatch(/^p1#\d+#1$/);
   });
 
   it("tags contact damage with the maneuver weapon and its press", () => {
@@ -1644,7 +1644,7 @@ describe("damaged and killed events (B4, B5)", () => {
     // (the roster's only `invulnerable` row) is what actually drives `amount` to 0 here — the same
     // "hit registers, hp does not move" rule `dealDamageTo`'s own describe block pins directly.
     // Travel distance and settle window match "wall-piercing projectiles"'s own roadblock fixture.
-    const shooter = combatant("p1", { x: 200, y: 50, angle: 0, carId: "bastion", fireMask: 0b010 });
+    const shooter = combatant("p1", { x: 200, y: 50, angle: 0, carId: "bastion", fireMask: 0b100 });
     const target = combatant("p2", {
       x: 500, y: 50,
       statuses: [{ statusId: "armored", startTick: 0, endsTick: 300, sourceSessionId: "" }],
@@ -1769,7 +1769,7 @@ describe("spawn protection: a phased car is not a target", () => {
     // for a phased car. Gating the shooter side would make spawn protection unbreakable by firing
     // and silently change the state machine. Fold it in and this test goes red.
     const result = run({
-      players: [player("aaa", { x: 300, y: OPEN_Y, fireMask: 1, statuses: [PHASED] })],
+      players: [player("aaa", { x: 300, y: OPEN_Y, fireMask: 0b010, statuses: [PHASED] })],
     });
     expect(result.instances.filter((i) => i.ownerSessionId === "aaa").length).toBeGreaterThan(0);
   });
@@ -1799,7 +1799,7 @@ describe("wall-piercing projectiles (`piercesWalls`, roadblock's row)", () => {
     let state = runCombat({
       world: world(),
       players: [
-        bastionAt("aaa", { x: 200, y: 50, angle: 0, fireMask: 0b010 }),
+        bastionAt("aaa", { x: 200, y: 50, angle: 0, fireMask: 0b100 }),
         player("bbb", { x: 500, y: 50, team: 1 }),
       ],
       instances: [],
@@ -1820,7 +1820,7 @@ describe("wall-piercing projectiles (`piercesWalls`, roadblock's row)", () => {
 
     let pierced = runCombat({
       world: world({ obstacles: [wall] }),
-      players: [bastionAt("aaa", { x: 200, y: 360, angle: 0, fireMask: 0b010 }), { ...camper }],
+      players: [bastionAt("aaa", { x: 200, y: 360, angle: 0, fireMask: 0b100 }), { ...camper }],
       instances: [],
       instanceSeq: 0,
     });
@@ -1832,7 +1832,7 @@ describe("wall-piercing projectiles (`piercesWalls`, roadblock's row)", () => {
     let blocked = runCombat({
       world: world({ obstacles: [wall] }),
       players: [
-        player("aaa", { carId: "bullseye", fireState: newFireState("bullseye", 1), x: 200, y: 360, angle: 0, fireMask: 0b001 }),
+        player("aaa", { carId: "bullseye", fireState: newFireState("bullseye", 1), x: 200, y: 360, angle: 0, fireMask: 0b010 }),
         { ...camper },
       ],
       instances: [],
@@ -1847,7 +1847,7 @@ describe("wall-piercing projectiles (`piercesWalls`, roadblock's row)", () => {
     // instance sliding along outside the field. 500u at 20u/tick is 25 ticks; 40 is slack.
     let state = runCombat({
       world: world(),
-      players: [bastionAt("aaa", { x: 200, y: 50, angle: 0, fireMask: 0b010 })],
+      players: [bastionAt("aaa", { x: 200, y: 50, angle: 0, fireMask: 0b100 })],
       instances: [],
       instanceSeq: 0,
     });
@@ -1870,7 +1870,7 @@ describe("proximity homing (spec P1-P6)", () => {
   function fireAndStep(bystanders: CombatPlayer[], ticks: number): CombatResult {
     let world_ = world();
     let players: CombatPlayer[] = [
-      player("aaa", { x: 300, y: OPEN_Y, angle: 0, carId: "bullseye", fireMask: 0b001 }),
+      player("aaa", { x: 300, y: OPEN_Y, angle: 0, carId: "bullseye", fireMask: 0b010 }),
       ...bystanders,
     ];
     let instances: readonly WeaponInstance[] = [];
@@ -1970,7 +1970,7 @@ describe("proximity homing (spec P1-P6)", () => {
     // so a teammate must be exactly as invisible to proximity acquisition as the shooter itself.
     let world_ = world({ mode: "team" });
     let players: CombatPlayer[] = [
-      player("aaa", { x: 300, y: OPEN_Y, angle: 0, carId: "bullseye", fireMask: 0b001, team: 0 }),
+      player("aaa", { x: 300, y: OPEN_Y, angle: 0, carId: "bullseye", fireMask: 0b010, team: 0 }),
       player("bbb", { x: 600, y: OPEN_Y + 150, team: 0 }),
     ];
     let instances: readonly WeaponInstance[] = [];
@@ -1993,7 +1993,7 @@ describe("proximity homing (spec P1-P6)", () => {
     // not swing to the other car.
     let world_ = world();
     let players: CombatPlayer[] = [
-      player("aaa", { x: 300, y: OPEN_Y, angle: 0, carId: "bullseye", fireMask: 0b001 }),
+      player("aaa", { x: 300, y: OPEN_Y, angle: 0, carId: "bullseye", fireMask: 0b010 }),
       player("bbb", { x: 600, y: OPEN_Y + 150 }),
       player("ccc", { x: 700, y: OPEN_Y - 150 }),
     ];
@@ -2047,7 +2047,7 @@ describe("magma blast detonation (spec P13-P21)", () => {
     obstacles: CombatWorld["obstacles"] = [],
   ): CombatResult {
     let world_ = world({ obstacles });
-    let players: CombatPlayer[] = [shooter({ ...from, fireMask: 0b001 }), ...others];
+    let players: CombatPlayer[] = [shooter({ ...from, fireMask: 0b010 }), ...others];
     let instances: readonly WeaponInstance[] = [];
     let instanceSeq = 0;
     let result: CombatResult | null = null;
@@ -2106,8 +2106,9 @@ describe("magma blast detonation (spec P13-P21)", () => {
       [player("bbb", { x: 400, y: OPEN_Y, hp: MIRAGE_HP })],
       6,
     );
-    // `fire()` presses slot 1 (mask 0b001, slot index 0) on tick `world().tick` (100) from "aaa".
-    expect(bursts(result)[0]!.pressId).toBe("aaa#100#0");
+    // `fire()` presses ability 1 (mask 0b010, fire slot 1 — slot 0 is the basic attack) on tick
+    // `world().tick` (100) from "aaa".
+    expect(bursts(result)[0]!.pressId).toBe("aaa#100#1");
   });
 
   it("expires the burst on its OWN clock, not the shell's flight-plus-lifetime (P25b)", () => {

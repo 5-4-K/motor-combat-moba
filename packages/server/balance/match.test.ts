@@ -408,7 +408,37 @@ describe("runMatch", () => {
     //
     // 1 by the lowest-decisive-seed rule: it is `a: 1 kill / 0 deaths, b: 0 / 1` — decisive on
     // kills alone, so it does not rest on the deaths tiebreak.
-    const out = runMatch({ ...SETUP, seed: 1, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    // `seed: 22`, not 1: the 2026-09-20 fire-slot index flip (VS6) moved the basic attack from the
+    // LAST fire slot to slot 0, so every ability's index shifted up by one. `BOT_PROFILES` did not
+    // move and no brain module was rewritten, but two things in brain code changed behaviour with
+    // the indices, and `BOT_BRAIN_VERSION` went 6.0.1 -> 6.1.0 for exactly this: `personality.ts`
+    // draws one `slotWeights` entry per fire slot IN INDEX ORDER, so every bot's per-weapon
+    // weighting is now drawn against a different weapon; and `firing.ts`'s `chooseSlot` keeps the
+    // FIRST slot at the best score, which is now the basic attack rather than ability 1.
+    //
+    // Seed 1 comes back `a: 1 kill / 1 death, b: 1 / 1`, `hitClock: false` — a 1-1 RANKING TIE, the
+    // non-defect failure mode several entries in this history describe: the kills assertion passes
+    // and only `winnerSessionId` is empty, because `deathmatchOutcome` ranks on kills then fewest
+    // deaths and the seats tie on both. Not the clock defect this test guards.
+    //
+    // Swept 1-60 against this build (the same partial range the previous entry used, so the two
+    // numbers compare like for like): 17 of 60 seeds land a decisive kill inside the 30 s window,
+    // down from that entry's 42 of 60. That IS a regime move, not just a seed move, and it is
+    // reported rather than smoothed over: every non-decisive seed in the sweep reads exactly
+    // `a: 1/1 b: 1/1`, so the matchup has become a reliable mutual trade rather than going quiet —
+    // 17/60 (28%) is inside the ~20/150-to-42/60 band this pin's history records, but the
+    // uniformity of the ties is new. The likely cause is the `slotWeights` remap above handing both
+    // seats a differently-weighted kit; `npm run balance` is the tool that would price it, and this
+    // test is not it.
+    // Decisive seeds in 1-60: 9, 18, 21, 22, 25, 28, 32, 34, 35, 38, 39, 40, 41, 45, 46, 51, 55.
+    //
+    // 22 by the durability rule rather than the lowest-decisive-seed rule the previous entry used:
+    // 22 is a prior pick of this very pin (see the stage-3-Task-4 entry below), it is decisive here
+    // at `a: 2 kills / 0 deaths, b: 0 / 2` — decisive on KILLS ALONE, so it does not rest on the
+    // deaths tiebreak that has repeatedly killed this fixture — and 9, the lowest decisive seed, is
+    // a 1-0 with no pedigree at all. No existing history comment was deleted, reworded or reordered.
+    //
+    const out = runMatch({ ...SETUP, seed: 22, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);

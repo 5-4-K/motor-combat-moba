@@ -164,10 +164,10 @@ export function loadoutFor(
   carId: CarId | "",
   explicit: readonly WeaponId[] | undefined,
 ): readonly string[] {
-  // Mirrors `newFireState` exactly, including the appended basic attack — the staleness check above
-  // compares against this, so a divergence here would rebuild every car's fire state every tick.
+  // Mirrors `newFireState` exactly, including the PREPENDED basic attack (VS6) — the staleness check
+  // above compares against this, so a divergence here would rebuild every car's fire state every tick.
   const kit = explicit ? slotsFrom(carId, explicit) : isCarId(carId) ? slotsOf(carId) : [];
-  return isCarId(carId) ? [...kit, basicAttackOf(carId)] : kit;
+  return isCarId(carId) ? [basicAttackOf(carId), ...kit] : kit;
 }
 
 /**

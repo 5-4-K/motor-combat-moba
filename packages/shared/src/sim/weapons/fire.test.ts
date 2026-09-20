@@ -1,10 +1,23 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { basicAttackOf } from "../../config/car-config.js";
 import { BASIC_ATTACK_CONFIG } from "../../config/weapon-config.js";
 import { beginFire, cancelPending, newFireState, releaseShots, tickRecharge, type FireState } from "./fire.js";
 import type { ShotOrder } from "./instances.js";
 
+/**
+ * Bits addressing the FIRST and SECOND entry of whatever slot array a fixture carries. The
+ * hand-built fixtures below (`stocked`, `twoSlots`, `duplicate`) list their weapons directly, so
+ * these are what press them.
+ */
 const SLOT_1 = 0b001;
 const SLOT_2 = 0b010;
+
+/**
+ * Bits addressing ability 1 and ability 2 of a ROSTER-built state. `newFireState` returns
+ * `[basicAttack, ...kit]` (VS6), so an ability's bit sits one left of its place in the kit —
+ * pressing `0b001` on a roster car fires its basic attack, not its opener.
+ */
+const ABILITY_1 = 0b010;
 
 /** Bullseye, as shipped since the 2026-09-02 loadout swap: slot 1 predator, slot 2 pepperbox, slot 3 lance. */
 const fresh = () => newFireState("bullseye", 1);
@@ -21,10 +34,10 @@ describe("slots", () => {
     const state = fresh();
     expect(state.slots).toHaveLength(4);
     expect(state.slots.map((s) => s.weaponId)).toEqual([
+      "basic-attack-bullseye",
       "predator",
       "pepperbox",
       "lance",
-      "basic-attack-bullseye",
     ]);
     expect(state.slots.every((s) => s.stocks === 1)).toBe(true);
   });
@@ -36,10 +49,10 @@ describe("slots", () => {
   it("takes an explicit weaponIds loadout in place of the roster's, for the playground (PG13)", () => {
     const state = newFireState("mirage", 1, ["lance", "pepperbox", "thumper"]);
     expect(state.slots.map((s) => s.weaponId)).toEqual([
+      "basic-attack-mirage",
       "lance",
       "pepperbox",
       "thumper",
-      "basic-attack-mirage",
     ]);
   });
 
@@ -50,15 +63,15 @@ describe("slots", () => {
 
 describe("pressing", () => {
   it("schedules a shot and spends a stock immediately", () => {
-    const state = beginFire("p1", fresh(), SLOT_1, 100);
+    const state = beginFire("p1", fresh(), ABILITY_1, 100);
     expect(state.pending).toEqual({
       weaponId: "predator",
-      slot: 0,
+      slot: 1,
       shotsLeft: 1,
       nextShotTick: 100,
-      pressId: "p1#100#0",
+      pressId: "p1#100#1",
     });
-    expect(state.slots[0]!.stocks).toBe(0);
+    expect(state.slots[1]!.stocks).toBe(0);
   });
 
   it("ignores a press for a slot the car does not have", () => {
@@ -69,9 +82,9 @@ describe("pressing", () => {
   });
 
   it("ignores a press with no stock left", () => {
-    const spent = beginFire("p1", fresh(), SLOT_1, 100);
+    const spent = beginFire("p1", fresh(), ABILITY_1, 100);
     const released = releaseShots(spent, 100).state;
-    expect(beginFire("p1", released, SLOT_1, 101).pending).toBeNull();
+    expect(beginFire("p1", released, ABILITY_1, 101).pending).toBeNull();
   });
 
   it("fires the lowest pressed slot when two arrive on one tick", () => {
@@ -97,18 +110,18 @@ describe("pressing", () => {
 
 describe("releasing", () => {
   it("emits the order on the scheduled tick and starts the recharge", () => {
-    const pressed = beginFire("p1", fresh(), SLOT_1, 100);
+    const pressed = beginFire("p1", fresh(), ABILITY_1, 100);
     const { state, orders } = releaseShots(pressed, 100);
     expect(orders).toEqual([
-      { weaponId: "predator", slot: 0, finalVolley: true, pressId: "p1#100#0" },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1" },
     ]);
     expect(state.pending).toBeNull();
-    expect(state.slots[0]!.rechargeEndsTick).toBe(130); // 1000ms == 30 ticks
-    expect(state.lastFiredSlot).toBe(0);
+    expect(state.slots[1]!.rechargeEndsTick).toBe(130); // 1000ms == 30 ticks
+    expect(state.lastFiredSlot).toBe(1);
   });
 
   it("emits nothing before the scheduled tick", () => {
-    const pressed = beginFire("p1", fresh(), SLOT_1, 100);
+    const pressed = beginFire("p1", fresh(), ABILITY_1, 100);
     expect(releaseShots(pressed, 99).orders).toEqual([]);
   });
 });
@@ -215,14 +228,14 @@ describe("per-tick order", () => {
     // Tick 100: press and fire must both land on this SAME tick — not the next one. Under the
     // plan's old order (recharge -> releaseShots -> beginFire), releaseShots would run before this
     // press was registered, and the shot would never go out at all (see the regression case below).
-    let step1 = step(state, 100, SLOT_1);
+    let step1 = step(state, 100, ABILITY_1);
     state = step1.state;
     seen.push(...step1.orders);
     expect(seen).toEqual([
-      { weaponId: "predator", slot: 0, finalVolley: true, pressId: "p1#100#0" },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1" },
     ]);
     expect(state.pending).toBeNull();
-    expect(state.slots[0]!.stocks).toBe(0);
+    expect(state.slots[1]!.stocks).toBe(0);
 
     // Ticks 101-129: idle, no stock yet, nothing fires.
     for (let tick = 101; tick < 130; tick++) {
@@ -231,16 +244,16 @@ describe("per-tick order", () => {
       seen.push(...idled.orders);
     }
     expect(seen).toHaveLength(1);
-    expect(state.slots[0]!.stocks).toBe(0);
+    expect(state.slots[1]!.stocks).toBe(0);
 
     // Tick 130: the stock lands on this exact tick (100 + 30). A second press must fire again, same
     // tick, proving the cycle repeats rather than being a one-shot fluke.
-    const step2 = step(state, 130, SLOT_1);
+    const step2 = step(state, 130, ABILITY_1);
     state = step2.state;
     seen.push(...step2.orders);
     expect(seen).toEqual([
-      { weaponId: "predator", slot: 0, finalVolley: true, pressId: "p1#100#0" },
-      { weaponId: "predator", slot: 0, finalVolley: true, pressId: "p1#130#0" },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1" },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#130#1" },
     ]);
   });
 
@@ -257,19 +270,19 @@ describe("per-tick order", () => {
     const releasedBeforePress = releaseShots(state, 100); // nothing pending yet: no-op
     expect(releasedBeforePress.orders).toEqual([]);
     state = releasedBeforePress.state;
-    state = beginFire("p1", state, SLOT_1, 100); // press registers AFTER release already ran this tick
+    state = beginFire("p1", state, ABILITY_1, 100); // press registers AFTER release already ran this tick
     expect(state.pending).toEqual({
       weaponId: "predator",
-      slot: 0,
+      slot: 1,
       shotsLeft: 1,
       nextShotTick: 100,
-      pressId: "p1#100#0",
+      pressId: "p1#100#1",
     });
 
     // The next call to releaseShots happens on the NEXT tick, 101 — one tick after nextShotTick.
     const releasedNextTick = releaseShots(state, 101);
     expect(releasedNextTick.orders).toEqual([
-      { weaponId: "predator", slot: 0, finalVolley: true, pressId: "p1#100#0" },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1" },
     ]); // late, but not lost
     expect(releasedNextTick.state.pending).toBeNull();
   });
@@ -370,7 +383,7 @@ describe("the two lockouts", () => {
 
 describe("cancelling", () => {
   it("drops a pending burst, as a wreck does mid-volley", () => {
-    const pressed = beginFire("p1", fresh(), SLOT_1, 100);
+    const pressed = beginFire("p1", fresh(), ABILITY_1, 100);
     expect(cancelPending(pressed).pending).toBeNull();
   });
 });
@@ -396,39 +409,55 @@ describe("beginFire pressId (B7)", () => {
 });
 
 describe("the basic attack slot", () => {
-  it("sits last in the fire state, behind an unmoved kit (BA13)", () => {
+  it("builds its slots with the basic attack first", () => {
+    // VS6/VS9. `newFireState`'s explicit-loadout path builds this order inline rather than calling
+    // `fireSlotsOf`, so it needs its own assertion or the two can silently diverge.
     const state = newFireState("bastion", 1);
     expect(state.slots.map((s) => s.weaponId)).toEqual([
+      basicAttackOf("bastion"),
       "thumper",
       "roadblock",
       "wildcharge",
-      "basic-attack-bastion",
     ]);
   });
 
-  it("fires on bit 3", () => {
-    const fired = beginFire("p1", newFireState("bastion", 1), 1 << 3, 0);
-    expect(fired.pending?.weaponId).toBe("basic-attack-bastion");
-    expect(fired.pending?.slot).toBe(3);
+  it("puts the basic attack first on an explicit playground loadout too", () => {
+    const state = newFireState("bastion", 1, ["lance", "predator"]);
+    expect(state.slots.map((s) => s.weaponId)).toEqual([
+      basicAttackOf("bastion"),
+      "lance",
+      "predator",
+    ]);
   });
 
-  it("loses a same-tick tie to an ability, because the lowest usable bit wins (BA21)", () => {
-    const fired = beginFire("p1", newFireState("bastion", 1), (1 << 0) | (1 << 3), 0);
-    expect(fired.pending?.weaponId).toBe("thumper");
+  it("fires on bit 0 (VS6)", () => {
+    const fired = beginFire("p1", newFireState("bastion", 1), 1 << 0, 0);
+    expect(fired.pending?.weaponId).toBe("basic-attack-bastion");
+    expect(fired.pending?.slot).toBe(0);
+  });
+
+  it("WINS a same-tick tie for now, because the scan is still ascending", () => {
+    // BA21 says the basic attack loses a tie to an ability, and it did so by being the HIGHEST
+    // index under an ascending scan. Moving it to index 0 inverts that, and this records the
+    // inversion rather than hiding it: the next task reverses `beginFire`'s scan to highest-wins
+    // (VS12), which restores BA21 through the index that moved, and this assertion flips back to
+    // "thumper" there. It is asserted, not skipped, so the window is one commit wide and visible.
+    const fired = beginFire("p1", newFireState("bastion", 1), (1 << 0) | (1 << 1), 0);
+    expect(fired.pending?.weaponId).toBe("basic-attack-bastion");
   });
 
   it("rides an explicit playground loadout too, and is not overridable by it (BA14)", () => {
     const state = newFireState("mirage", 1, ["predator", "lance", "thumper"]);
     expect(state.slots.map((s) => s.weaponId)).toEqual([
+      "basic-attack-mirage",
       "predator",
       "lance",
       "thumper",
-      "basic-attack-mirage",
     ]);
   });
 
   it("leaves no switch lock behind, so pressing it never locks an ability out (BA20)", () => {
-    const pressed = beginFire("p1", newFireState("bastion", 1), 1 << 3, 0);
+    const pressed = beginFire("p1", newFireState("bastion", 1), 1 << 0, 0);
     const { state } = releaseShots(pressed, 0);
     expect(state.switchLockUntilTick).toBe(0);
   });
@@ -437,12 +466,13 @@ describe("the basic attack slot", () => {
     // `afterburner` authors `recoveryMs: 200` == 6 ticks at 30 Hz. This is the shared machinery
     // doing its job, not a bug: a future reader tempted to carve the basic attack out of the switch
     // lock should change the spec first, because that carve-out is a second press pipeline (BA22).
-    const pressed = beginFire("p1", newFireState("mirage", 1), 1 << 2, 0);
+    // `afterburner` is Mirage's ability 3, which is FIRE SLOT 3 now (slot 0 is the basic attack).
+    const pressed = beginFire("p1", newFireState("mirage", 1), 1 << 3, 0);
     const { state } = releaseShots(pressed, 0);
     expect(state.switchLockUntilTick).toBeGreaterThan(0);
-    expect(beginFire("p1", state, 1 << 3, 1).pending).toBeNull();
+    expect(beginFire("p1", state, 1 << 0, 1).pending).toBeNull();
     // ...and it is free again the moment that recovery lapses.
-    expect(beginFire("p1", state, 1 << 3, state.switchLockUntilTick).pending?.weaponId).toBe(
+    expect(beginFire("p1", state, 1 << 0, state.switchLockUntilTick).pending?.weaponId).toBe(
       "basic-attack-mirage",
     );
   });
@@ -455,21 +485,21 @@ describe("the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)", () => {
 
   it("drops a basic-attack-only press when disabled — the key does nothing", () => {
     BASIC_ATTACK_CONFIG.enabled = false;
-    const fired = beginFire("p1", newFireState("bastion", 1), 1 << 3, 0);
+    const fired = beginFire("p1", newFireState("bastion", 1), 1 << 0, 0);
     expect(fired.pending).toBeNull();
   });
 
-  it("still lets an ability fire on the same tick, since only the lowest bit was ever eligible", () => {
+  it("still lets an ability fire on the same tick, since a skipped slot is not a stopped scan", () => {
     BASIC_ATTACK_CONFIG.enabled = false;
-    const fired = beginFire("p1", newFireState("bastion", 1), (1 << 0) | (1 << 3), 0);
+    const fired = beginFire("p1", newFireState("bastion", 1), (1 << 0) | (1 << 1), 0);
     expect(fired.pending?.weaponId).toBe("thumper");
   });
 
   it("fires again once the flag is re-enabled", () => {
     BASIC_ATTACK_CONFIG.enabled = false;
-    expect(beginFire("p1", newFireState("bastion", 1), 1 << 3, 0).pending).toBeNull();
+    expect(beginFire("p1", newFireState("bastion", 1), 1 << 0, 0).pending).toBeNull();
     BASIC_ATTACK_CONFIG.enabled = true;
-    expect(beginFire("p1", newFireState("bastion", 1), 1 << 3, 0).pending?.weaponId).toBe(
+    expect(beginFire("p1", newFireState("bastion", 1), 1 << 0, 0).pending?.weaponId).toBe(
       "basic-attack-bastion",
     );
   });

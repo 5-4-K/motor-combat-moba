@@ -30,7 +30,7 @@ const reporter = new Reporter(
 const report = reporter.report.bind(reporter);
 /**
  * The chassis these probes seat to fire a row. `fireSlotsOf`, not `slotsOf`: a car fires four
- * weapons — its three abilities and its basic attack — and a sweep over `WEAPON_TABLE` asking
+ * weapons — its basic attack at index 0, then its three abilities (VS6) — and a sweep over `WEAPON_TABLE` asking
  * `slotsOf` who carries a row threw on the first basic-attack row it reached, which stopped this
  * probe measuring anything after it. `activeCarIds()`, not the whole `CAR_TABLE`, for the other
  * half: the six unreleased prototypes carry `weapons: []` but each still fills its basic-attack
