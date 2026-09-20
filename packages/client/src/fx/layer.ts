@@ -1,4 +1,4 @@
-import { CAR_TABLE, DEFAULT_CAR_ID, isCarId, speedOf } from "@motor-combat-moba/shared";
+import { CAR_TABLE, DEFAULT_CAR_ID, isCarId, MAX_PLAYERS, speedOf } from "@motor-combat-moba/shared";
 import Phaser from "phaser";
 import { carSpriteKey } from "../assets/asset-keys.js";
 import {
@@ -139,8 +139,11 @@ export class FxLayer {
   private readonly decals: Phaser.GameObjects.RenderTexture;
   /** Every smoke particle, redrawn and re-masked every frame. See `maskSmoke`. */
   private readonly smoke: Phaser.GameObjects.RenderTexture;
-  /** One reusable image, moved and re-erased per car. See `maskSmoke`. */
-  private readonly eraser: Phaser.GameObjects.Image;
+  /**
+   * One eraser image PER CAR, pooled. See `maskSmoke` for why one shared image cannot work: an
+   * erase is queued, not drawn, and a queued command holds the image rather than a copy of its pose.
+   */
+  private readonly erasers: Phaser.GameObjects.Image[] = [];
   /** Blast and death marks. Its own buffer, so 240 tyre marks a second cannot evict it. */
   private scorchDecals: LiveDecal[] = [];
   /** Rubber. Its own buffer, and the one that actually turns over during a fight. */
@@ -260,7 +263,7 @@ export class FxLayer {
 
     // Exists only to be handed to `RenderTexture.erase`, so it is invisible. It is still a display
     // object on the scene's list, so `displayObjects()` keeps it too — see the note there.
-    this.eraser = scene.add.image(0, 0, FX_TEXTURE_KEYS.spark).setVisible(false);
+    for (let i = 0; i < MAX_PLAYERS; i++) this.erasers.push(this.makeEraser());
 
     for (let i = 0; i < LAVA_POOL_SIZE; i++) {
       const v = i % LAVA_VARIANTS;
@@ -437,7 +440,7 @@ export class FxLayer {
    */
   displayObjects(): Phaser.GameObjects.GameObject[] {
     const lava = this.lavaPool.flatMap((p) => [p.crust, p.seam]);
-    return [...Object.values(this.emitters), this.decals, this.smoke, this.eraser, ...lava];
+    return [...Object.values(this.emitters), this.decals, this.smoke, ...this.erasers, ...lava];
   }
 
   /**
@@ -662,12 +665,22 @@ export class FxLayer {
     // the erase is exactly the "before" half of VFX18's before/after, and it must leave the smoke
     // itself untouched or the comparison shows nothing.
     if (!this.disabled.has("mask")) {
+      // **One image per car, never one image moved per car.** `erase` does not draw: it queues a
+      // command holding the IMAGE, and `render()` below reads that image's pose when it finally
+      // runs. One shared image, re-posed in a loop, is therefore drawn N times at the LAST car's
+      // pose — which is what this did until it was measured in a six-car playground: smoke on
+      // every car, a hole round the last one in the list, and the other five buried (a 0/255
+      // difference between mask on and mask off, against 96/255 for the sixth). The pool keeps the
+      // original point — no Game Object is created per car per frame — and it lets the whole mask
+      // go down as one queued command instead of six.
+      const used: Phaser.GameObjects.Image[] = [];
       for (const stamp of eraserStampsFor(view.cars, env)) {
         const key = eraserKeyOf(stamp.carId);
         if (!this.scene.textures.exists(key)) continue;
-        // One reusable image, moved and re-erased per car. Creating a Game Object per car per frame
-        // would allocate six objects a frame for the life of the match.
-        this.eraser
+        // `MAX_PLAYERS` are made up front; growing here only covers a caller that hands in more.
+        if (used.length === this.erasers.length) this.erasers.push(this.makeEraser());
+        const eraser = this.erasers[used.length]!;
+        eraser
           .setTexture(key)
           // The stamp's own size, with NO multiplier: `EraserStamp.width`/`height` are the final
           // world size of the hole and `env.occlusion.halo` is the one number that decides it. A
@@ -676,12 +689,18 @@ export class FxLayer {
           .setDisplaySize(stamp.width, stamp.height)
           .setRotation(stamp.angle)
           .setPosition(stamp.x, stamp.y);
-        this.smoke.erase([this.eraser]);
+        used.push(eraser);
       }
+      if (used.length > 0) this.smoke.erase(used);
     }
 
     // Buffered until here, same as the decal layer.
     this.smoke.render();
+  }
+
+  /** An eraser for the pool: invisible, because it only ever draws INTO the smoke texture. */
+  private makeEraser(): Phaser.GameObjects.Image {
+    return this.scene.add.image(0, 0, FX_TEXTURE_KEYS.spark).setVisible(false);
   }
 
   /**
@@ -879,7 +898,7 @@ export class FxLayer {
     for (const emitter of Object.values(this.emitters)) emitter.destroy();
     this.decals.destroy();
     this.smoke.destroy();
-    this.eraser.destroy();
+    for (const eraser of this.erasers) eraser.destroy();
     for (const pair of this.lavaPool) {
       pair.crust.destroy();
       pair.seam.destroy();
