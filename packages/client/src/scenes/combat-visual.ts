@@ -1121,6 +1121,16 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
 /** A beam layer resolved to world-space vertices and a Phaser fill, ready to fill. */
 export interface DrawBeamLayer {
   points: { x: number; y: number }[];
+  /**
+   * Set when `points` is a RIBBON: this many stations down one edge, then the same stations back
+   * up the other edge, then (optionally) a convex cap closing the start. The count is per edge.
+   *
+   * It is a hint about how to FILL the polygon, never a different shape: `points` is still the
+   * whole outline, which is what the containment tests sweep and what `fillPoints` would draw. A
+   * renderer that knows the layout can fill it as a strip (`fillRibbon`) and skip triangulating
+   * several hundred vertices it already knows the triangulation of. See `scenes/ribbon-fill.ts`.
+   */
+  ribbon?: number;
   fill: number;
   /**
    * Resolved opacity, still to be multiplied by the instance's fade alpha at the call site. 1 for
@@ -1934,15 +1944,21 @@ export function beamDrawLayers(
   const grown = beamGrownExtent({ weaponId, isExplosion: false, x, y, angle, extent }, elapsedMs);
   const layers: DrawBeamLayer[] = [];
   for (const [index, layer] of style.layers.entries()) {
-    const points =
+    const outline =
       def.hitbox.shape === "cone"
         ? conePoints(def.hitbox.angleDeg, x, y, angle, grown, layer, style, nowMs, index)
         : rectPoints(def.hitbox.width, x, y, angle, grown, layer, style, nowMs, index);
+    const { points } = outline;
     // Fewer than three vertices is a beam on its spawn tick, whose extent is still zero. Dropping
     // it here keeps `fillPoints` off a degenerate shape rather than making the render loop
     // re-check what this already knows.
     if (points.length < 3) continue;
-    layers.push({ points, fill: hexToFill(layer.color), alpha: alphaOf(layer.alpha) });
+    layers.push({
+      points,
+      ...(outline.ribbon === undefined ? {} : { ribbon: outline.ribbon }),
+      fill: hexToFill(layer.color),
+      alpha: alphaOf(layer.alpha),
+    });
   }
   // Last, so they draw ON TOP of every layer: an ember is in front of the fire, not inside it, and
   // a shard is a mote of light running down the beam rather than a part of its silhouette. Exactly
@@ -2047,10 +2063,10 @@ function conePoints(
   style: BeamStyle,
   nowMs: number,
   index: number,
-): { x: number; y: number }[] {
+): LayerOutline {
   const reach = Math.max(0, extent) * clamp01(layer.extentScale);
   const half = ((angleDeg * Math.PI) / 360) * clamp01(layer.crossScale);
-  if (reach <= 0 || half <= 0) return [];
+  if (reach <= 0 || half <= 0) return { points: [] };
 
   const billow = clamp01(layer.billow ?? 0);
   const breakUp = clamp01(layer.breakUp ?? 0);
@@ -2076,7 +2092,7 @@ function conePoints(
       const r = (reach / Math.cos(theta)) * (1 - depth * (1 - wave));
       fan.push(rotateBy(x, y, heading, r * Math.cos(theta), r * Math.sin(theta)));
     }
-    return fan;
+    return { points: fan };
   }
 
   const flow = jetProfile(layer, style, nowMs, index);
@@ -2149,7 +2165,9 @@ function conePoints(
     near.push(put(along, centre - wNear));
     far.push(put(along, centre + wFar));
   }
-  return [...near, ...far.reverse()];
+  // `centre - wNear <= centre + wFar` at every station and `put` clamps monotonically, so the two
+  // edges never cross: a strip between them is exactly this polygon, necks and all.
+  return { points: [...near, ...far.reverse()], ribbon: JET_STATIONS + 1 };
 }
 
 /**
@@ -2614,6 +2632,24 @@ const BOLT_STATIONS = 200;
 const DOME_SEGMENTS = 14;
 
 /**
+ * The widest a bolt layer's edge must be able to move, in world units, before it is drawn torn.
+ *
+ * A layer's edge moves by at most `half * crackle`, and its centreline by less (`wander` is bounded
+ * by what the tear frees). The arena camera sits at zoom 1 on a fixed backing store, so a world unit
+ * IS a pixel: under half of one the tear cannot be seen, and the layer is drawn with straight edges
+ * instead of `BOLT_STATIONS` of them. On `lance` that is the three innermost layers (0.31, 0.09
+ * and 0 units) — three-eighths of the beam's vertices, spent moving nothing visible, on the one
+ * weapon whose single instance measured more per frame than the rest of the scene put together.
+ */
+export const BOLT_VISIBLE_TEAR = 0.5;
+
+/** One layer's outline, and how it is laid out if it is a ribbon. See `DrawBeamLayer.ribbon`. */
+interface LayerOutline {
+  points: { x: number; y: number }[];
+  ribbon?: number;
+}
+
+/**
  * A rect beam's layer.
  *
  * Two shapes live here. With no `crackle`, no `wander` and no `domeScale` this is the plain nested
@@ -2638,30 +2674,49 @@ function rectPoints(
   style: BeamStyle,
   nowMs: number,
   index: number,
-): { x: number; y: number }[] {
+): LayerOutline {
   const reach = Math.max(0, extent) * clamp01(layer.extentScale);
   const halfWidth = width / 2;
   const half = halfWidth * clamp01(layer.crossScale);
-  if (reach <= 0 || half <= 0) return [];
+  if (reach <= 0 || half <= 0) return { points: [] };
 
-  const crackle = clamp01(layer.crackle ?? 0);
-  const wander = clamp01(layer.wander ?? 0);
+  // A tear too small to see is no tear. See `BOLT_VISIBLE_TEAR`.
+  const torn = half * clamp01(layer.crackle ?? 0) >= BOLT_VISIBLE_TEAR;
+  const crackle = torn ? clamp01(layer.crackle ?? 0) : 0;
+  const wander = torn ? clamp01(layer.wander ?? 0) : 0;
   const dome = Math.max(0, style.domeScale ?? 0) * halfWidth * clamp01(layer.crossScale);
   // The dome is carved out of the beam, so the shaft cannot start past the beam's own end.
   const start = Math.min(dome, reach);
 
+  // Hoisted for the reason `conePoints` hoists them: a bolt places ~415 vertices a layer, and
+  // `rotateBy` takes both per call. Same arithmetic as `rotateBy`, computed once.
+  const cos = Math.cos(heading);
+  const sin = Math.sin(heading);
   /** Clamp into the rect. Cheap, and it makes containment structural rather than an argument. */
-  const put = (along: number, across: number): { x: number; y: number } =>
-    rotateBy(
-      x,
-      y,
-      heading,
-      Math.max(0, Math.min(reach, along)),
-      Math.max(-half, Math.min(half, across)),
-    );
+  const put = (along: number, across: number): { x: number; y: number } => {
+    const a = Math.max(0, Math.min(reach, along));
+    const c = Math.max(-half, Math.min(half, across));
+    return { x: x + a * cos - c * sin, y: y + a * sin + c * cos };
+  };
 
   if (crackle <= 0 && wander <= 0 && dome <= 0) {
-    return [put(0, -half), put(reach, -half), put(reach, half), put(0, half)];
+    return { points: [put(0, -half), put(reach, -half), put(reach, half), put(0, half)] };
+  }
+
+  /** The rounded cap, from the far edge round to the near edge, apex at `start - dome`. */
+  const capInto = (points: { x: number; y: number }[]): void => {
+    for (let i = 1; i < DOME_SEGMENTS; i++) {
+      const th = Math.PI / 2 - (Math.PI * i) / DOME_SEGMENTS;
+      points.push(put(start - dome * Math.cos(th), half * Math.sin(th)));
+    }
+  };
+
+  if (crackle <= 0 && wander <= 0) {
+    // Straight edges behind a dome: the torn shape's own layout with two stations instead of 201,
+    // so it is still a ribbon and still closes round the same cap.
+    const points = [put(start, -half), put(reach, -half), put(reach, half), put(start, half)];
+    capInto(points);
+    return { points, ribbon: 2 };
   }
 
   // Re-rolls `crackleHz` times a second, interpolated between one roll and the next — the layer's
@@ -2684,14 +2739,10 @@ function rectPoints(
   }
 
   const points = [...near, ...far.reverse()];
-  if (dome <= 0) return points;
-  // Close the far edge back to the near edge around a rounded cap, apex at `start - dome`. Its
-  // flanks land on +/-half at `start`, which is exactly where station 0 sits.
-  for (let i = 1; i < DOME_SEGMENTS; i++) {
-    const th = Math.PI / 2 - (Math.PI * i) / DOME_SEGMENTS;
-    points.push(put(start - dome * Math.cos(th), half * Math.sin(th)));
-  }
-  return points;
+  // Close the far edge back to the near edge around a rounded cap. Its flanks land on +/-half at
+  // `start`, which is exactly where station 0 sits.
+  if (dome > 0) capInto(points);
+  return { points, ribbon: BOLT_STATIONS + 1 };
 }
 
 /**

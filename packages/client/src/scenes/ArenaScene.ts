@@ -91,6 +91,7 @@ import {
 } from "./impact-feedback.js";
 import { pts } from "./graphics-points.js";
 import { HUD_BAKE_SCALE, sameCommands } from "./hud-bake.js";
+import { fillDisc, fillRibbon } from "./ribbon-fill.js";
 import {
   carFillFor,
   carShapeOf,
@@ -2641,7 +2642,10 @@ export class ArenaScene extends Phaser.Scene {
         // resolves to 1 and draws exactly what it drew before `BeamLayer.alpha` existed.
         for (const layer of layers) {
           gfx.fillStyle(layer.fill, alpha * layer.alpha);
-          gfx.fillPoints(pts(layer.points), true);
+          // A flame or bolt layer is a ribbon, and a ribbon is filled as the strip it was built
+          // as rather than handed to Phaser's per-frame triangulator. See `scenes/ribbon-fill.ts`.
+          if (layer.ribbon !== undefined) fillRibbon(gfx, layer.points, layer.ribbon);
+          else gfx.fillPoints(pts(layer.points), true);
         }
         // The muzzle starburst, OVER every layer and outside the hitbox — the one shape here that
         // is neither. See `BeamStyle.flare`. Drawn from the instance's own age so the flash lands
@@ -2654,7 +2658,7 @@ export class ArenaScene extends Phaser.Scene {
           (room.state.tick - instance.spawnTick) * MS_PER_TICK + elapsedMs,
         )) {
           gfx.fillStyle(burst.fill, alpha * burst.alpha);
-          if (burst.kind === "disc") gfx.fillCircle(burst.x, burst.y, burst.radius);
+          if (burst.kind === "disc") fillDisc(gfx, burst.x, burst.y, burst.radius);
           else gfx.fillPoints(pts(burst.points), true);
         }
         return;
@@ -2665,7 +2669,7 @@ export class ArenaScene extends Phaser.Scene {
       if (glow) {
         for (const band of instanceHaloBands(instance.weaponId, shape.radius)) {
           glow.fillStyle(band.fill, alpha * (band.alpha ?? 1));
-          glow.fillCircle(shape.x, shape.y, band.radius);
+          fillDisc(glow, shape.x, shape.y, band.radius);
         }
       }
 
@@ -2675,12 +2679,12 @@ export class ArenaScene extends Phaser.Scene {
       const bands = instanceGlowBands(instance.weaponId, shape.radius, instance.spawnTick, nowMs);
       if (bands.length === 0) {
         gfx.fillStyle(weaponFillOf(instance.weaponId), alpha);
-        gfx.fillCircle(shape.x, shape.y, shape.radius);
+        fillDisc(gfx, shape.x, shape.y, shape.radius);
         return;
       }
       for (const band of bands) {
         gfx.fillStyle(band.fill, alpha * band.alpha);
-        gfx.fillCircle(shape.x, shape.y, band.radius);
+        fillDisc(gfx, shape.x, shape.y, band.radius);
       }
     });
 
@@ -2826,7 +2830,7 @@ export class ArenaScene extends Phaser.Scene {
         // The band's own opacity, so the orb gathers at the same falloff the beam will draw at.
         // A band authoring none resolves to 1, which is what every orb drew before this existed.
         gfx.fillStyle(orb.fill, orb.alpha);
-        gfx.fillCircle(muzzle.x, muzzle.y, orb.radius);
+        fillDisc(gfx, muzzle.x, muzzle.y, orb.radius);
       }
     });
   }

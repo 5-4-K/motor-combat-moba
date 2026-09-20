@@ -225,6 +225,21 @@ the maths lives in `combat-visual.ts` rather than in `ArenaScene`, which no test
 
 The weapon slot HUD (`scenes/weapon-hud.ts` for the pure derivations, drawn by `ArenaScene.drawHudSlot`) reads `PlayerState.weapons` (`WeaponSlotState[]`, one row per slot) plus four car-wide fields: `level`, `switchLockUntilTick`, `pendingUntilTick` and `lastFiredSlot`. The last two are what let the car-wide lockout dim be correct for any weapon — every slot through a wind-up or volley (`tick < pendingUntilTick`), the other slots through recovery (`index !== lastFiredSlot`) — so a weapon with `startUpMs > 0`, `volleys > 1`, or `recoveryMs > 0` needs no wire change. `fire.ts`'s `pending` machine itself is never networked. See [`docs/schema-reference.md`](../../docs/schema-reference.md#playerstate).
 
+**On the shot layers, never hand Phaser a shape whose triangulation you already know.** `fillPoints`
+and `fillCircle` both become a path, and Phaser runs Earcut over every path every frame into fresh
+arrays. `scenes/ribbon-fill.ts` holds the two fills that skip it: `fillRibbon` for a flame or bolt
+layer (a `DrawBeamLayer` carrying `ribbon`, the per-edge station count — `points` is still the whole
+outline, so the containment sweeps are untouched), and `fillDisc` for every filled circle, from a
+cached unit rim. Measured per live instance per frame: `lance` 1.68 -> 0.52 ms, `afterburner`
+0.43 -> 0.25, a `magmablast` shell 0.12 -> 0.024, a basic attack 0.04 -> 0.011. **The way to price a
+new look is the one that found these**: twelve synthetic instances of one weapon on a paused
+playground frame, build ms plus added render ms — `lance` was costing more per beam than the rest of
+the scene and no fill count would have said so. Part of `lance`'s gain is `BOLT_VISIBLE_TEAR`: a
+bolt layer whose edge can move less than half a unit (a pixel, at the arena's fixed zoom of 1) is
+drawn with straight edges, which on `lance` is the three innermost layers — three-eighths of its
+vertices were animating a tear of 0.31 units and under. A new crackling layer that thin gets the
+same treatment, and `combat-visual.test.ts` holds both sides of the rule.
+
 **The slot bar is a baked picture, not a live `Graphics`.** Phaser re-tessellates a `Graphics` every
 frame it is on screen whether or not its commands moved, and the slot bar's rings, glows and
 rounded pills cost ~0.5 ms of render a frame for a picture that changes a few times a second.

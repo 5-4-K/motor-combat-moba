@@ -15,6 +15,7 @@ import {
   type WeaponId,
 } from "@motor-combat-moba/shared";
 import {
+  BOLT_VISIBLE_TEAR,
   allegianceOf,
   BEAM_FADE_OUT_MS,
   beamFadeAlpha,
@@ -960,14 +961,30 @@ describe("lance beam layers", () => {
 
   it("re-rolls the crackle over time, so the bolt is alive rather than a frozen jagged stripe", () => {
     const style = WEAPON_BEAM_STYLES.lance!;
+    const def = weaponDefOf("lance");
+    if (def.kind !== "beam" || def.hitbox.shape !== "rect") throw new Error("lance is a rect beam");
+    const halfWidth = def.hitbox.width / 2;
+    let alive = 0;
     for (const [i, layer] of style.layers.entries()) {
       if (!layer.crackle) continue;
       const hz = layer.crackleHz ?? style.crackleHz!;
       expect(hz).toBeGreaterThan(0);
       const at = (nowMs: number) => shaft(nowMs)[i]!.points;
-      // A full period apart, every crackling layer is materially different.
-      expect(at(1000 / hz).map((p) => p.y)).not.toEqual(at(0).map((p) => p.y));
+      // A layer whose edge can move less than `BOLT_VISIBLE_TEAR` is drawn straight — its tear was
+      // never on screen, and 200 stations of it were the most expensive invisible thing in the
+      // scene. So the rule is two-sided: a tear that CAN be seen must re-roll, and one that cannot
+      // must not be paid for.
+      const visible = halfWidth * layer.crossScale * layer.crackle >= BOLT_VISIBLE_TEAR;
+      if (visible) {
+        alive += 1;
+        // A full period apart, every visibly crackling layer is materially different.
+        expect(at(1000 / hz).map((p) => p.y)).not.toEqual(at(0).map((p) => p.y));
+      } else {
+        expect(at(1000 / hz)).toEqual(at(0));
+      }
     }
+    // The bolt must still BE a bolt: the threshold may take the hairline layers, not the look.
+    expect(alive).toBeGreaterThanOrEqual(5);
   });
 
   it("runs the shallow layers faster than the deep ones, which is what buys the flicker", () => {
