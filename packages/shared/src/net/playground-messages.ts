@@ -4,7 +4,7 @@ import { DEFAULT_CAR_ID, isCarId } from "../config/car-config.js";
 import { isColorId } from "../config/color-config.js";
 import type { CarId } from "../config/types.js";
 import { isWeaponId } from "../config/weapon-config.js";
-import { slotsOf } from "../config/weapon-slots.js";
+import { WEAPON_SLOT_CONFIG, slotsOf } from "../config/weapon-slots.js";
 import type { WeaponId } from "../config/weapon-types.js";
 import { MAX_PLAYERS } from "../constants.js";
 
@@ -140,7 +140,8 @@ export interface PlaygroundCarSetup {
   carId: CarId;
   /** Index into `COLOR_TABLE` (PG31). Purely visual: a colour change never respawns (PG32). */
   colorId: number;
-  weapons: readonly [WeaponId, WeaponId, WeaponId];
+  /** One to `WEAPON_SLOT_CONFIG.maxAbilitySlots` distinct weapons (VS34) — no longer always three. */
+  weapons: readonly WeaponId[];
   /**
    * Is this seat on the field (PG60)?
    *
@@ -162,12 +163,13 @@ export interface PlaygroundSetup {
 }
 
 /**
- * One seat's chassis, colour, three-slot loadout and on/off flag.
+ * One seat's chassis, colour, one-to-`N` loadout and on/off flag.
  *
  * `carId` may be ANY valid `CarId`, not only an active one — spec PG20 lets the playground drive a
  * chassis the live roster has retired or not yet activated, which is most of the table as of
- * 2026-09-16. The three weapons must be real and pairwise DISTINCT within this seat; the same weapon
- * on another seat is legal (PG17), and so is the same `colorId` (PG31).
+ * 2026-09-16. The weapons must be real, at least one and no more than
+ * `WEAPON_SLOT_CONFIG.maxAbilitySlots`, and pairwise DISTINCT within this seat (VS34); the same
+ * weapon on another seat is legal (PG17), and so is the same `colorId` (PG31).
  */
 function isPlaygroundCarSetup(value: unknown): value is PlaygroundCarSetup {
   if (value === null || typeof value !== "object") return false;
@@ -176,7 +178,8 @@ function isPlaygroundCarSetup(value: unknown): value is PlaygroundCarSetup {
   if (!isColorId(rec.colorId)) return false;
   if (typeof rec.enabled !== "boolean") return false;
   const weapons = rec.weapons;
-  if (!Array.isArray(weapons) || weapons.length !== 3) return false;
+  if (!Array.isArray(weapons)) return false;
+  if (weapons.length < 1 || weapons.length > WEAPON_SLOT_CONFIG.maxAbilitySlots) return false;
   if (!weapons.every((w) => isWeaponId(w))) return false;
   return new Set(weapons).size === weapons.length;
 }
@@ -227,8 +230,7 @@ export function isPlaygroundSetup(msg: unknown): msg is PlaygroundSetup {
  * Nothing enforces distinctness beyond this default (PG31).
  */
 export function defaultPlaygroundSetup(): PlaygroundSetup {
-  const [slot0, slot1, slot2] = slotsOf(DEFAULT_CAR_ID);
-  const weapons: readonly [WeaponId, WeaponId, WeaponId] = [slot0!, slot1!, slot2!];
+  const weapons: readonly WeaponId[] = slotsOf(DEFAULT_CAR_ID);
   return {
     botEnabled: false,
     botDifficulty: "medium",

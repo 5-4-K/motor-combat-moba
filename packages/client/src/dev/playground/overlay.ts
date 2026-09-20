@@ -236,13 +236,34 @@ const CSS = `
 .pg-loadout {
   display: flex;
   gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 .pg-loadout select {
   flex: 1;
+  min-width: 0;
 }
 .pg-loadout.pg-illegal {
   outline: 2px solid #d94040;
   border-radius: 4px;
+}
+/* One weapon select plus its own − button (VS34): the select grows, the button stays tight. */
+.pg-weapon-slot {
+  display: flex;
+  gap: 4px;
+  flex: 1 1 120px;
+  min-width: 0;
+}
+.pg-weapon-slot select {
+  flex: 1;
+  min-width: 0;
+}
+.pg-weapon-remove,
+.pg-weapon-add {
+  flex: 0 0 auto;
+  width: auto;
+  margin: 0;
+  padding: 4px 9px;
 }
 .pg-mode label {
   display: inline-block;

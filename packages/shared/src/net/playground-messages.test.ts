@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_PLAYERS } from "../constants.js";
+import { WEAPON_SLOT_CONFIG } from "../config/weapon-slots.js";
 import {
   BOT_SESSION_ID,
   MSG_PLAYGROUND_PAUSE,
@@ -121,6 +122,33 @@ describe("isPlaygroundSetup (PG63)", () => {
     const base = valid();
     const cars = base.cars.map((c, i) => (i === 1 ? { ...c, weapons: base.cars[0]!.weapons } : c));
     expect(isPlaygroundSetup({ ...base, cars })).toBe(true);
+  });
+
+  it("accepts a seat with fewer than N distinct weapons (VS34)", () => {
+    const cars = valid().cars.map((c, i) => (i === 0 ? { ...c, weapons: [c.weapons[0]!] } : c));
+    expect(isPlaygroundSetup({ ...valid(), cars })).toBe(true);
+  });
+
+  it("rejects a seat with no weapons at all", () => {
+    const cars = valid().cars.map((c, i) => (i === 0 ? { ...c, weapons: [] } : c));
+    expect(isPlaygroundSetup({ ...valid(), cars })).toBe(false);
+  });
+
+  it("rejects a seat with more weapons than this build's N ability slots", () => {
+    const over = Array.from(
+      { length: WEAPON_SLOT_CONFIG.maxAbilitySlots + 1 },
+      (_, i) => (["lance", "predator", "pepperbox", "tremor", "thumper"] as const)[i]!,
+    );
+    const cars = valid().cars.map((c, i) => (i === 0 ? { ...c, weapons: over } : c));
+    expect(isPlaygroundSetup({ ...valid(), cars })).toBe(false);
+  });
+
+  it("still loads a three-entry setup written by an older build (VS34)", () => {
+    // No length field was ever persisted; three distinct weapons is legal at any N >= 3.
+    const cars = valid().cars.map((c, i) =>
+      i === 0 ? { ...c, weapons: ["thumper", "roadblock", "wildcharge"] } : c,
+    );
+    expect(isPlaygroundSetup({ ...valid(), cars })).toBe(true);
   });
 
   it("accepts the same colour on two seats (PG31)", () => {

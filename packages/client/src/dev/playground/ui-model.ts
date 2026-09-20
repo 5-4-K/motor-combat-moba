@@ -2,6 +2,7 @@ import type { CarId, PlaygroundSetup, TunableField, TuningValue, WeaponId } from
 import {
   ARENAS,
   CAR_TABLE,
+  WEAPON_SLOT_CONFIG,
   WEAPON_TABLE,
   basicAttackIds,
   basicAttackOf,
@@ -135,15 +136,66 @@ export function arenaOptions(): string[] {
 }
 
 /**
- * A car's three slot picks are legal iff there are exactly three and they are pairwise distinct
- * (spec PG17 — the same weapon on the OTHER car is fine, only a dupe within one car is rejected).
- * Mirrors `isPlaygroundSetup`'s own per-car check so the overlay can catch an illegal pick locally,
- * before ever building a payload the server would silently reject.
+ * A seat's slot picks are legal iff there is at least one, no more than this build's `N`
+ * (`WEAPON_SLOT_CONFIG.maxAbilitySlots`), and they are pairwise distinct (PG17, VS34 — the same
+ * weapon on ANOTHER seat is fine; only a dupe within one seat is rejected). Mirrors
+ * `isPlaygroundSetup`'s own per-seat check so the overlay catches an illegal pick locally, before
+ * building a payload the server would silently reject.
+ *
+ * No longer a type predicate: a variable-length loadout has no tuple type to narrow to.
  */
-export function isLoadoutLegal(
+export function isLoadoutLegal(weapons: readonly WeaponId[]): boolean {
+  return (
+    weapons.length >= 1 &&
+    weapons.length <= WEAPON_SLOT_CONFIG.maxAbilitySlots &&
+    new Set(weapons).size === weapons.length
+  );
+}
+
+/** May the Car select panel's ＋ button add another row to this seat's loadout (VS34)? */
+export function canAddWeaponSlot(weapons: readonly WeaponId[]): boolean {
+  return weapons.length < WEAPON_SLOT_CONFIG.maxAbilitySlots;
+}
+
+/** May the Car select panel's − button remove a row from this seat's loadout (VS34)? A seat may
+ * never be left with zero weapons, so this is refused at exactly one entry. */
+export function canRemoveWeaponSlot(weapons: readonly WeaponId[]): boolean {
+  return weapons.length > 1;
+}
+
+/**
+ * What a freshly-added row should start on: the first option this seat does not already carry, so
+ * the new row does not open on an immediate duplicate the user has to notice and fix. Falls back to
+ * the first option at all when every option is already in use — the panel's own legality check
+ * still catches that seat, but this function makes no claim to prevent it.
+ */
+export function addedWeaponPick(
+  current: readonly WeaponId[],
+  options: readonly { id: WeaponId }[],
+): WeaponId {
+  const used = new Set(current);
+  return options.find((o) => !used.has(o.id))?.id ?? options[0]!.id;
+}
+
+/** This seat's loadout with one more entry appended (VS34). A no-op at `maxAbilitySlots` — callers
+ * should disable the ＋ control via `canAddWeaponSlot` rather than rely on this silently refusing. */
+export function withAddedWeaponSlot(
   weapons: readonly WeaponId[],
-): weapons is [WeaponId, WeaponId, WeaponId] {
-  return weapons.length === 3 && new Set(weapons).size === 3;
+  options: readonly { id: WeaponId }[],
+): readonly WeaponId[] {
+  if (!canAddWeaponSlot(weapons)) return weapons;
+  return [...weapons, addedWeaponPick(weapons, options)];
+}
+
+/** This seat's loadout with the entry at `index` removed (VS34). A no-op at one entry left —
+ * callers should disable the − control via `canRemoveWeaponSlot` rather than rely on this silently
+ * refusing. */
+export function withRemovedWeaponSlot(
+  weapons: readonly WeaponId[],
+  index: number,
+): readonly WeaponId[] {
+  if (!canRemoveWeaponSlot(weapons)) return weapons;
+  return weapons.filter((_, i) => i !== index);
 }
 
 export type StatsTabKey = "global" | "cars" | "weapons";
@@ -277,13 +329,13 @@ export function stepInRange(range: StepRange, current: number, direction: 1 | -1
 }
 
 /**
- * A chassis's shipped kit (PG34) — what the "restore loadout" button beside each car select writes.
- * `undefined` when the kit is not three distinct weapons, so a future chassis with a short or
- * duplicated kit disables the button rather than producing a loadout `isPlaygroundSetup` rejects.
+ * A chassis's shipped kit (PG34) — what the "restore loadout" button beside each seat writes.
+ * `undefined` when the kit is not a legal loadout (an inactive prototype carrying nothing), so the
+ * button disables rather than producing a setup `isPlaygroundSetup` rejects.
  */
-export function shippedLoadoutOf(carId: CarId): [WeaponId, WeaponId, WeaponId] | undefined {
+export function shippedLoadoutOf(carId: CarId): readonly WeaponId[] | undefined {
   const kit = slotsOf(carId);
-  return isLoadoutLegal(kit) ? [kit[0], kit[1], kit[2]] : undefined;
+  return isLoadoutLegal(kit) ? kit : undefined;
 }
 
 /**

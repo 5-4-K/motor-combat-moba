@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CAR_TABLE,
   WEAPON_TABLE,
+  WEAPON_SLOT_CONFIG,
   ARENAS,
   activeCarIds,
   basicAttackIds,
@@ -10,8 +11,11 @@ import {
 import type { CarId, PlaygroundSetup, TunableField, WeaponId } from "@motor-combat-moba/shared";
 import { CAR_EVENT_IDS } from "../../fx/table.js";
 import {
+  addedWeaponPick,
   arenaOptions,
+  canAddWeaponSlot,
   canDisableSeat,
+  canRemoveWeaponSlot,
   canStep,
   carOptions,
   enabledSeats,
@@ -25,6 +29,8 @@ import {
   stepInRange,
   steppedValue,
   weaponOptions,
+  withAddedWeaponSlot,
+  withRemovedWeaponSlot,
   type StatsTabKey,
 } from "./ui-model.js";
 
@@ -92,22 +98,108 @@ describe("arenaOptions", () => {
 });
 
 describe("isLoadoutLegal", () => {
-  it("accepts three distinct weapon ids", () => {
+  it("accepts a full N-weapon kit of distinct ids", () => {
     expect(isLoadoutLegal(["predator", "thunderclap", "afterburner"])).toBe(true);
   });
 
-  it("rejects a duplicate within the three slots", () => {
+  it("rejects a duplicate within one seat", () => {
     expect(isLoadoutLegal(["predator", "predator", "afterburner"])).toBe(false);
   });
 
-  it("rejects short arrays", () => {
+  it("rejects an empty loadout", () => {
     expect(isLoadoutLegal([])).toBe(false);
-    expect(isLoadoutLegal(["predator"])).toBe(false);
-    expect(isLoadoutLegal(["predator", "afterburner"])).toBe(false);
   });
 
-  it("rejects arrays longer than three", () => {
-    expect(isLoadoutLegal(["predator", "thunderclap", "afterburner", "lance"])).toBe(false);
+  it("rejects more weapons than this build's N ability slots", () => {
+    const tooMany = Array.from(
+      { length: WEAPON_SLOT_CONFIG.maxAbilitySlots + 1 },
+      (_, i) => (["lance", "predator", "pepperbox", "tremor", "thumper"] as const)[i]!,
+    );
+    expect(isLoadoutLegal(tooMany)).toBe(false);
+  });
+});
+
+describe("a playground seat's loadout", () => {
+  it("accepts one to N distinct weapons", () => {
+    // VS34. Was "exactly three distinct". A seat may now carry a short kit, which is how a tester
+    // reaches the shapes the roster does not ship.
+    expect(isLoadoutLegal(["lance"])).toBe(true);
+    expect(isLoadoutLegal(["lance", "predator"])).toBe(true);
+    expect(isLoadoutLegal([])).toBe(false);
+  });
+
+  it("still rejects a dupe within one seat", () => {
+    // PG17 unchanged: the same weapon on the OTHER car is fine, a dupe within one car is not.
+    expect(isLoadoutLegal(["lance", "lance"])).toBe(false);
+  });
+
+  it("rejects more weapons than this build has slots", () => {
+    const tooMany = Array.from(
+      { length: WEAPON_SLOT_CONFIG.maxAbilitySlots + 1 },
+      (_, i) => (["lance", "predator", "pepperbox", "tremor", "thumper"] as const)[i]!,
+    );
+    expect(isLoadoutLegal(tooMany)).toBe(false);
+  });
+
+  it("hands back a chassis's shipped kit at whatever length it is", () => {
+    expect(shippedLoadoutOf("bastion" as CarId)).toEqual(["thumper", "roadblock", "wildcharge"]);
+  });
+
+  it("still loads a three-entry setup written by an older build", () => {
+    // VS34. A persisted localStorage setup has no length field; three distinct weapons is a legal
+    // loadout at any N >= 3 and is truncated by the same rule as a roster kit below that.
+    expect(isLoadoutLegal(["thumper", "roadblock", "wildcharge"])).toBe(true);
+  });
+});
+
+describe("the Car select panel's add/remove weapon controls (VS34)", () => {
+  // These are the pure predicates and reducers the ＋/− buttons wire onto the DOM in car-panel.ts.
+  // No browser is available to click the actual buttons, so this is the coverage that exists for
+  // that behaviour — the DOM wiring itself just has to call these and repaint.
+
+  it("＋ is available below N entries and disabled at N", () => {
+    expect(canAddWeaponSlot(["lance"])).toBe(true);
+    expect(canAddWeaponSlot(["lance", "predator"])).toBe(true);
+    expect(canAddWeaponSlot(["lance", "predator", "afterburner"])).toBe(false);
+  });
+
+  it("− is available above one entry and disabled at one", () => {
+    expect(canRemoveWeaponSlot(["lance", "predator"])).toBe(true);
+    expect(canRemoveWeaponSlot(["lance"])).toBe(false);
+  });
+
+  it("picks the first option this seat does not already carry", () => {
+    const options = weaponOptions();
+    const firstTwo = options.slice(0, 2).map((o) => o.id);
+    expect(addedWeaponPick([firstTwo[0]!], options)).toBe(firstTwo[1]);
+  });
+
+  it("falls back to the first option when every option is already taken", () => {
+    const options = weaponOptions().slice(0, 1);
+    expect(addedWeaponPick([options[0]!.id], options)).toBe(options[0]!.id);
+  });
+
+  it("appends a non-duplicate entry, growing the loadout by one", () => {
+    const options = weaponOptions();
+    const before = [options[0]!.id];
+    const after = withAddedWeaponSlot(before, options);
+    expect(after).toHaveLength(2);
+    expect(isLoadoutLegal(after)).toBe(true);
+  });
+
+  it("does not grow past maxAbilitySlots", () => {
+    const options = weaponOptions();
+    const full = options.slice(0, WEAPON_SLOT_CONFIG.maxAbilitySlots).map((o) => o.id);
+    expect(withAddedWeaponSlot(full, options)).toEqual(full);
+  });
+
+  it("removes the entry at the given index, shrinking the loadout by one", () => {
+    const weapons: WeaponId[] = ["lance", "predator", "afterburner"];
+    expect(withRemovedWeaponSlot(weapons, 1)).toEqual(["lance", "afterburner"]);
+  });
+
+  it("does not shrink below one entry", () => {
+    expect(withRemovedWeaponSlot(["lance"], 0)).toEqual(["lance"]);
   });
 });
 

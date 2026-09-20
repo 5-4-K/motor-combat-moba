@@ -416,6 +416,27 @@ describe("seat lifecycle (PG66/PG67/PG68)", () => {
     expect(room.state.players.get(PLAYGROUND_SEAT_IDS[1]!)!.hp).toBe(5);
   });
 
+  it("accepts and respawns a seat carrying fewer than N weapons (VS34)", () => {
+    // A seat's loadout is no longer always three: `applySetup` has no length assumption of its own,
+    // and this is the room-level proof that a short kit reaches `combat.loadouts` and the fresh
+    // `FireState` intact rather than being padded, truncated, or rejected.
+    const room = readyRoom();
+    room.applySetup(defaultPlaygroundSetup());
+
+    const short = ["thumper"] as const;
+    room.applySetup(
+      setupWith((s) => ({
+        ...s,
+        cars: s.cars.map((c, i) => (i === 0 ? { ...c, carId: "bastion", weapons: short } : c)),
+      })),
+    );
+
+    const seat0 = PLAYGROUND_SEAT_IDS[0]!;
+    expect(room.combat.loadouts.get(seat0)).toEqual(short);
+    // Basic attack (slot 0) plus the one-weapon kit (VS6/BA-basic-attack-slot-0).
+    expect(room.combat.fireStates.get(seat0)!.slots).toHaveLength(2);
+  });
+
   it("respawns every enabled car on an arena change", () => {
     const room = readyRoom();
     room.applySetup(setupWith((s) => enable(s, 0, 1, 3)));

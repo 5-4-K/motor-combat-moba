@@ -77,6 +77,21 @@ describe("decodeStored", () => {
     expect(result.setup).toEqual(setup);
     expect(result.overrides).toEqual({ "car.mirage.speed": 10 });
   });
+
+  it("still loads a full six-seat setup an older (pre-VS34) build persisted (VS34)", () => {
+    // Every build before this task wrote exactly three weapons per seat and no length field at all
+    // — there was nothing else to write. That shape must keep decoding intact now that a seat's
+    // loadout is 1..N rather than always three.
+    const setup = defaultPlaygroundSetup();
+    const cars = setup.cars.map((c, i) => ({
+      ...c,
+      weapons: i === 0 ? ["thumper", "roadblock", "wildcharge"] : ["predator", "thunderclap", "afterburner"],
+    }));
+    const raw = JSON.stringify({ setup: { ...setup, cars }, overrides: {} });
+    const result = decodeStored(raw);
+    expect(result.setup.cars[0]!.weapons).toEqual(["thumper", "roadblock", "wildcharge"]);
+    expect(result.setup.cars[1]!.weapons).toEqual(["predator", "thunderclap", "afterburner"]);
+  });
 });
 
 describe("the view section", () => {

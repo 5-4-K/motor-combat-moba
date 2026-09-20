@@ -1,17 +1,26 @@
 import type { CarId, PlaygroundSetup, WeaponId } from "@motor-combat-moba/shared";
-import { CAR_TABLE, COLOR_TABLE, PLAYGROUND_SEAT_IDS } from "@motor-combat-moba/shared";
+import {
+  CAR_TABLE,
+  COLOR_TABLE,
+  PLAYGROUND_SEAT_IDS,
+  WEAPON_SLOT_CONFIG,
+} from "@motor-combat-moba/shared";
 import { button, h } from "../../ui/dom.js";
 import { carFillOf } from "../../scenes/car-visual.js";
 import type { CarTintOverrides } from "../../fx/car-tint.js";
 import {
   arenaOptions,
+  canAddWeaponSlot,
   canDisableSeat,
+  canRemoveWeaponSlot,
   carOptions,
   enabledSeats,
   isLoadoutLegal,
   nextDrivenSeat,
   shippedLoadoutOf,
   weaponOptions,
+  withAddedWeaponSlot,
+  withRemovedWeaponSlot,
 } from "./ui-model.js";
 
 export interface CarPanelProps {
@@ -167,7 +176,7 @@ export function buildCarPanel(props: CarPanelProps): CarPanel {
       cars: rows.map((row) => ({
         carId: row.car.value as CarId,
         colorId: Number(row.color.value),
-        weapons: row.weapons.map((s) => s.value) as [WeaponId, WeaponId, WeaponId],
+        weapons: row.weapons.map((s) => s.value) as WeaponId[],
         enabled: row.enabled.checked,
       })),
       drivenSeat: rows.findIndex((row) => row.drive.checked),
@@ -339,20 +348,86 @@ export function buildCarPanel(props: CarPanelProps): CarPanel {
     const carSelect = selectFor(cars, car.carId);
     carSelect.classList.add("pg-car");
     const colorSel = colorSelect(car.colorId);
-    const weaponSelects = car.weapons.map((w) => selectFor(weapons, w));
-    const loadoutRow = h("div", { class: "pg-loadout" }, weaponSelects);
     const tint = tintPicker(seatId, colorSel);
 
-    /** Writes this chassis's shipped kit into the three weapon selects (PG34), then runs the
-     * ordinary edit path so the send and the persistence follow. Disabled for a chassis whose kit
-     * is not three distinct weapons, so it can never build a loadout the validator would reject —
-     * which is every unreleased prototype today, since they all carry `weapons: []`. */
+    // -- variable-length loadout (VS34) ----------------------------------------------------------
+    // The selects themselves are this seat's weapons — `readSetup` reads their values, so there is
+    // exactly one write path and it is the DOM. `setLoadout` is the only thing that rebuilds it, and
+    // every control (initial build, restore, ＋, −) hands it a list produced by the pure reducers in
+    // `ui-model.ts`, which is where the add/remove RULES live and are unit-tested. `weaponSelects`
+    // is spliced in place rather than reassigned, so the reference `rows.push` hands out below stays
+    // live through every later add or remove.
+    const weaponSelects: HTMLSelectElement[] = [];
+    const currentWeapons = (): readonly WeaponId[] =>
+      weaponSelects.map((select) => select.value as WeaponId);
+
+    const addBtn = button({ class: "pg-weapon-add" }, ["＋"], () => {
+      const current = currentWeapons();
+      const next = withAddedWeaponSlot(current, weapons);
+      if (next.length === current.length) return; // already at `maxAbilitySlots`
+      setLoadout(next);
+      evaluate(true);
+    });
+    const loadoutRow = h("div", { class: "pg-loadout" }, [addBtn]);
+
+    /** Enables/disables ＋ at `maxAbilitySlots` and every row's − at one entry left (VS34). Run
+     * after every add, remove or restore — never a one-time setup, since the count it reacts to
+     * changes under it. */
+    function refreshLoadoutControls(): void {
+      const current = currentWeapons();
+      addBtn.disabled = !canAddWeaponSlot(current);
+      addBtn.title = addBtn.disabled
+        ? `This build allows at most ${WEAPON_SLOT_CONFIG.maxAbilitySlots} weapons`
+        : "Add a weapon";
+      const removable = canRemoveWeaponSlot(current);
+      loadoutRow.querySelectorAll<HTMLButtonElement>(".pg-weapon-remove").forEach((btn) => {
+        btn.disabled = !removable;
+      });
+    }
+
+    /** Appends one row (a select plus its own − button) for `value`, wiring the select exactly like
+     * the ordinary edit path below (`evaluate(true)` on change). Inserted before `addBtn`, which
+     * always stays last. */
+    function addWeaponRow(value: WeaponId): void {
+      const select = selectFor(weapons, value);
+      select.addEventListener("change", () => evaluate(true));
+      const rowEl = h("div", { class: "pg-weapon-slot" }, [select]);
+      const removeBtn = button({ class: "pg-weapon-remove" }, ["−"], () => {
+        const idx = weaponSelects.indexOf(select);
+        if (idx === -1) return;
+        const current = currentWeapons();
+        const next = withRemovedWeaponSlot(current, idx);
+        if (next.length === current.length) return; // last remaining weapon
+        setLoadout(next);
+        evaluate(true);
+      });
+      rowEl.append(removeBtn);
+      weaponSelects.push(select);
+      loadoutRow.insertBefore(rowEl, addBtn);
+    }
+
+    /** Repaints the whole loadout as `newWeapons`, at whatever length it is — the one place a seat's
+     * weapon COUNT changes rather than just one slot's value, used by the initial build, by ＋ and −
+     * and by "restore shipped loadout" alike, so a kit shorter or longer than what is on screen
+     * still lands correctly. */
+    function setLoadout(newWeapons: readonly WeaponId[]): void {
+      for (const select of weaponSelects.splice(0, weaponSelects.length)) {
+        select.parentElement?.remove();
+      }
+      newWeapons.forEach((w) => addWeaponRow(w));
+      refreshLoadoutControls();
+    }
+
+    setLoadout(car.weapons);
+
+    /** Writes this chassis's shipped kit into the loadout (PG34), then runs the ordinary edit path
+     * so the send and the persistence follow. Disabled for a chassis whose kit is not a legal
+     * loadout, so it can never build one the validator would reject — every unreleased prototype
+     * today, since they all carry `weapons: []`. */
     const restoreBtn = button({ class: "pg-restore" }, ["↺"], () => {
       const kit = shippedLoadoutOf(carSelect.value as CarId);
       if (!kit) return;
-      weaponSelects.forEach((select, i) => {
-        select.value = kit[i]!;
-      });
+      setLoadout(kit);
       evaluate(true);
     });
     const syncRestore = (): void => {
@@ -361,7 +436,7 @@ export function buildCarPanel(props: CarPanelProps): CarPanel {
       restoreBtn.disabled = kit === undefined;
       restoreBtn.title = kit
         ? `Restore ${CAR_TABLE[carId].name}'s shipped loadout`
-        : "This chassis has no three-weapon kit";
+        : "This chassis has no legal kit";
     };
     syncRestore();
 
@@ -429,9 +504,9 @@ export function buildCarPanel(props: CarPanelProps): CarPanel {
       evaluate(true);
     });
 
-    for (const select of [colorSel, ...weaponSelects]) {
-      select.addEventListener("change", () => evaluate(true));
-    }
+    // Each weapon select is wired individually, in `addWeaponRow`, since rows can be added and
+    // removed after this point — only the colour select is fixed for the seat's lifetime.
+    colorSel.addEventListener("change", () => evaluate(true));
 
     rows.push({
       enabled: enabledBox,
