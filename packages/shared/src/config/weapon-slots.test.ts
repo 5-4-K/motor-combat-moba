@@ -102,8 +102,8 @@ describe("loadouts", () => {
   });
 
   it("keeps the basic attack out of the chassis's own kit (BA10)", () => {
-    // `weapons` means the three ABILITY slots and nothing else. A chassis's OWN basic attack
-    // leaking into it would double-arm the car and put a fourth box in the HUD.
+    // `weapons` means the ABILITY slots and nothing else. A chassis's OWN basic attack
+    // leaking into it would double-arm the car and put an extra box in the HUD.
     //
     // Only its own: another chassis's basic attack appearing in this kit is not a defect. The two
     // slots hold weapons, and the same weapon may legally be one car's ability and another's basic

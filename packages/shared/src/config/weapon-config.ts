@@ -44,7 +44,7 @@ const BASIC_ATTACK_BASE = {
  * Deliberately NOT `as const` — every other `_CONFIG` object in this package is a frozen balance
  * table nothing should ever reassign, but this one field exists specifically to be edited, and a
  * literal `true` type would make `enabled = false` a compile error. `false` does not remove the nine
- * `basic-attack-*` rows, `CarDef.basicAttack`, or the schema's fourth `WeaponSlotState` — the
+ * `basic-attack-*` rows, `CarDef.basicAttack`, or its `WeaponSlotState` at index 0 — the
  * structure stays exactly as BA1-BA38 left it. What actually reads this flag: `beginFire`
  * (`sim/weapons/fire.ts`) refuses a press on the basic-attack fire slot so the key does nothing;
  * `BotController`'s `chooseSlot` (`server/src/bot/brain/firing.ts`) never selects that slot either,

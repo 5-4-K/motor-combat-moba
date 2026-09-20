@@ -233,8 +233,8 @@ export function releaseShots(
 }
 
 /**
- * Resolve this tick's presses. `mask` is the slot bitmask from the wire (bit 0 = slot 1); the
- * highest set bit the car can actually use wins.
+ * Resolve this tick's presses. `mask` is the slot bitmask from the wire (bit 0 = fire slot 0, the
+ * basic attack; 1..N are the abilities); the highest set bit the car can actually use wins.
  *
  * A press is a commitment: the stock is spent here, at press time, because a wind-up cannot be
  * cancelled. Nothing is queued — a press that cannot fire is dropped.

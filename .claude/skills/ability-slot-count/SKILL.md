@@ -49,8 +49,11 @@ Read this list before promising what a change will do. Verified against the code
 - **The HUD box count.** `ArenaScene`'s `localAbilityCount` / `slotBarLayout`
   (`packages/client/src/scenes/weapon-hud.ts`) — at most `N` boxes, and fewer for a chassis whose kit
   is shorter.
-- **The countdown action hint.** `hintSlotOrder(enabled, abilities = maxAbilitySlots)` builds
-  `[0, 1..N]`, and `movement-hint.ts` reads the same cap.
+- **The countdown action hint.** `hintSlotOrder(enabled, abilities)` builds `[0, 1..abilities]`.
+  `N` is only the DEFAULT for that parameter: production passes the local car's ability count
+  (`ArenaScene` → `actionKeysFor(this.localAbilityCount(), …)`, VS19), so the hint follows the kit.
+  `movement-hint.ts`'s `ACTION_KEYS`/`ACTION_ALTS` module constants do read `maxAbilitySlots`
+  directly, but nothing in production reads them — only `movement-hint.test.ts` does.
 - **The guide.** `scripts/build-cars-and-weapons.mjs` publishes `min(kit, N)` per active chassis,
   and `balanceStamp` hashes `N` as `abilitySlots`.
 - **The playground's per-seat cap.** `ui-model.ts`'s add/remove controls and
@@ -135,11 +138,10 @@ rather than trusting this paragraph if any of those constants has moved:**
 | 4 | 581 | 651 | **663** | yes |
 | 5 | 673 | 743 | **755** | no |
 
-The spec's VS21 quotes "663" and "743" side by side; those are not the same measure — 663 is the
-four-box stack's `nameY + SLOT_NAME_FONT_PX` and 743 is the five-box stack's bare `nameY`. The
-quantity the test actually compares against `VIEW_HEIGHT` is `nameY + SLOT_NAME_FONT_PX`, which is
-**755** at five boxes. The conclusion is the same either way; the arithmetic above is the one to
-copy.
+Spec clause VS21 originally quoted "663" and "743" side by side — two different measures (the
+four-box stack's `nameY + SLOT_NAME_FONT_PX` against the five-box stack's bare `nameY`). It was
+corrected on 2026-09-20 and now reads 663 and **755**, matching the table above and the quantity the
+test compares against `VIEW_HEIGHT`. The conclusion never changed.
 
 Raising `ABILITY_SLOT_CEILING` is therefore a HUD layout piece of work as well as a config edit, and
 is out of scope here.
@@ -176,8 +178,11 @@ playtest rule:
 
 ## Verifying it actually took
 
-- The countdown action hint prints `N + 1` pills (`H` plus one per ability) — or `N`, with no
-  `H`/LMB pill, if `BASIC_ATTACK_CONFIG.enabled` is `false`.
+- The countdown action hint prints **`min(kit.length, N) + 1`** pills — the local car's abilities
+  plus `H` — not `N + 1`. `ArenaScene` calls `actionKeysFor(this.localAbilityCount(), …)`, so the
+  row follows the chassis, not the config. **At `N = 4` with today's three-weapon kits it still
+  prints 4 pills (`H J K L`), and that is the change working, not failing** — see section 5. Drop
+  the `H` pill from that count if `BASIC_ATTACK_CONFIG.enabled` is `false`.
 - The gutter's slot stack draws `min(kit, N)` boxes, and its TOP does not move with the count —
   the stack is top-anchored (VS20), so a shorter kit shortens it downward only.
 - `?dev=playground` is the fastest check: set a seat to one weapon and to `N`, and confirm the box

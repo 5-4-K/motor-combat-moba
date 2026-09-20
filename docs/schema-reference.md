@@ -98,7 +98,7 @@ field at all, so the check is always false there. See root `CLAUDE.md` and
 | `deaths` | uint8 | `0` | Counted in every mode; the tie-break under `deathmatchOutcome` |
 | `killedBySessionId` | string | `""` | Who landed the killing blow, or `""` while alive. Render-only — `stepSim` never reads it. Networked for the same reason `diedAtTick` is: a spectator or a late joiner who never saw the death still needs to be able to name the killer. Cleared on respawn, which is also what dismisses the "killed you" banner |
 | `selectLocked` | boolean | `false` | Car-select lock; pick still hidden |
-| `weapons` | array `WeaponSlotState` | empty | Per-slot state; array **position** is the slot index. Four rows per car as of the basic attack (BA15): index 0 is the basic attack and indices 1-3 are the ability kit, since the 2026-09-20 index flip — the HUD draws only the kit |
+| `weapons` | array `WeaponSlotState` | empty | Per-slot state; array **position** is the slot index. `1 + min(kit.length, N)` rows per car: index 0 is the basic attack (BA15) and indices 1..`N` are the ability kit, since the 2026-09-20 index flip — the HUD draws only the kit |
 | `switchLockUntilTick` | uint32 | `0` | Tick a DIFFERENT weapon may fire; the weapon that just fired instead is gated by its own slot's `refireLockUntilTick` |
 | `level` | uint8 | `1` | In-match level; pinned to 1 until the level system exists. Gates `unlocksAt` |
 | `pendingUntilTick` | uint32 | `0` | Tick a committed press next puts a shot out (wind-up, or the next volley of a burst). `0` = nothing pending; the HUD reads mid-press as `tick < pendingUntilTick` |

@@ -1,6 +1,6 @@
 # Networking
 
-Clients must never send poses. The wire message is `INPUT_MESSAGE` (`"input"`): `{ seq, steer, throttle, fireSlots }` (`InputMessage` in shared) — `fireSlots` is a uint8 bitmask, bit 0 = slot 1, replacing the old single `fire` boolean. Server `isInputMessage` validates then enqueues. `withSimulatedLatency` delays enqueue when `SIM_LATENCY_MS` / `SIM_JITTER_MS` are set; otherwise pass-through.
+Clients must never send poses. The wire message is `INPUT_MESSAGE` (`"input"`): `{ seq, steer, throttle, fireSlots }` (`InputMessage` in shared) — `fireSlots` is a uint8 bitmask, bit 0 = **fire slot 0, the basic attack** (abilities are 1..`N`, since the 2026-09-20 index flip), replacing the old single `fire` boolean. Server `isInputMessage` validates then enqueues. `withSimulatedLatency` delays enqueue when `SIM_LATENCY_MS` / `SIM_JITTER_MS` are set; otherwise pass-through.
 
 `ArenaRoom` ticks at sim rate (`TICK_RATE_HZ`) and patches at a different rate (`DEFAULT_PATCH_RATE_HZ`). `serverTick` applies queued inputs through shared `stepSim`.
 

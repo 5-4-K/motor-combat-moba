@@ -31,9 +31,12 @@ reach model all depend on that and are the reason it did not widen. Since the 20
 variable-slot work that kit is **1 to `N`** weapons rather than exactly three, where `N` is
 `WEAPON_SLOT_CONFIG.maxAbilitySlots` (3 in this build). `fireSlotsOf(carId)` is where
 the two are joined, and its live readers are `packages/server/balance/stats.ts`'s accumulator
-seeding, `scripts/ttk.mjs` (two call sites) and `packages/server/src/bot/brain/duel.fixture.ts` (two
-call sites) — the latter's `bestSustainedDpsOf` deliberately counts the basic attack in its DPS
-ceiling, moving Bastion's figure from 18.3 to 22.5. `newFireState` does not call it — its
+seeding, `scripts/ttk.mjs` (two call sites), `packages/server/src/bot/brain/duel.fixture.ts` (two
+call sites) and the playtest probes (`packages/server/playtest/weapons.ts`, `weapons2.ts`,
+`geometry.ts`, which sweep `WEAPON_TABLE` whole and need "who can fire this, and on which slot") —
+`duel.fixture.ts`'s `bestSustainedDpsOf` deliberately counts the basic attack in its DPS
+ceiling, moving Bastion's figure from 18.3 to 22.5. `fireSlotsOf`'s own doc comment carries the
+authoritative list. `newFireState` does not call it — its
 explicit-loadout path builds the same list inline, since it also has to accept a caller-given
 weapon override `fireSlotsOf` has no parameter for. **The basic attack is always fire slot 0** as of
 the 2026-09-20 index flip — it sat LAST, at `kit.length`, until then, which was a constant only
@@ -54,7 +57,7 @@ place the "a binding nobody printed breaks quietly" rule is knowingly bent. See
 **The basic attack can be switched off without deleting any of that**, via
 `BASIC_ATTACK_CONFIG.enabled` (`config/weapon-config.ts`) — a build-time flag, not a live-session
 setting: flip it, rebuild shared/server/client, and `npm run build:manual`. Nothing about the nine
-`basic-attack-*` rows, `CarDef.basicAttack`, or the schema's fourth slot goes away when it is
+`basic-attack-*` rows, `CarDef.basicAttack`, or its schema row at index 0 goes away when it is
 `false`; only four things read it. `beginFire` refuses a press on the basic-attack fire slot, so the
 key does nothing. `BotController`'s `chooseSlot` never selects that slot either, so a bot does not
 burn its one press a tick on a weapon that cannot fire. The client's `hintSlotOrder`

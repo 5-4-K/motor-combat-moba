@@ -448,8 +448,10 @@ table row. `WEAPON_SLOT_CONFIG.maxAbilitySlots` — `N`, the **build-time** abil
 this build and legal from 1 to `ABILITY_SLOT_CEILING` (4) — caps how many slots any chassis may
 present. A chassis may author **1 to 4** weapons; a kit longer than `N` is truncated **silently**,
 because a four-weapon chassis running in an `N = 3` build is the designed case rather than a mistake
-(VS11). Only a kit longer than the CEILING is an authoring error, and that logs one `console.warn`
-naming the car — never a thrown error or a failed test. Changing `N` is the
+(VS11). A kit longer than the CEILING is an authoring error: it logs one `console.warn` naming the
+car and, since the 2026-09-20 variable-slot work, **fails the suite** —
+`weapon-slots.test.ts` asserts `weapons.length <= ABILITY_SLOT_CEILING` for every `CAR_TABLE` row
+(VS26). Neither case throws at run time; only the within-the-ceiling one is silent. Changing `N` is the
 [`ability-slot-count`](../.claude/skills/ability-slot-count/SKILL.md) skill's job; see
 [`the variable-weapon-slots spec`](superpowers/specs/2026-09-20-variable-weapon-slots-design.md)
 (VS1–VS34). Today's roster ships three exclusive kits, one per chassis, redistributed on
@@ -634,7 +636,7 @@ the one place the "a binding nobody printed breaks quietly" controls rule is kno
 #### The basic-attack toggle
 
 `BASIC_ATTACK_CONFIG.enabled` (`config/weapon-config.ts`) can turn the whole mechanic off without
-touching any of the above — the nine rows, `CarDef.basicAttack` and the schema's fourth slot all
+touching any of the above — the nine rows, `CarDef.basicAttack` and its schema row at index 0 all
 stay exactly as described. It is a build-time flag: flip it, rebuild, `npm run build:manual`. Four
 things read it when it is `false`: `beginFire` refuses a press on fire slot 0, so the key does
 nothing; the bot's `chooseSlot` never selects that slot either, so it does not waste a tick's press

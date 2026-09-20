@@ -222,7 +222,7 @@ whose readers are enumerated in `fireSlotsOf`'s own doc comment in
 
 **`BASIC_ATTACK_CONFIG.enabled`** (same file, beside `BASIC_ATTACK_BASE`) is a build-time on/off
 switch for the whole mechanic — `false` disables firing, the countdown hint's pill and the guide's
-"Basic attack" card without removing this field, the nine rows, or the schema's fourth slot. See
+"Basic attack" card without removing this field, the nine rows, or its schema row at index 0. See
 [`combat-model.md`](combat-model.md#the-basic-attack-toggle) and the `basic-attack-toggle` skill.
 
 ## COLOR_TABLE
@@ -450,8 +450,10 @@ chassis may author **1 to `ABILITY_SLOT_CEILING`** weapons since the 2026-09-20 
 and an inactive prototype may author none at all. Two different over-lengths, handled differently
 (VS11): a kit longer than `N` but within the ceiling is the **designed** case and is truncated
 **silently** (warning on it would log on every boot for a configuration working exactly as
-intended); a kit longer than the ceiling is an authoring error and logs one `console.warn` naming
-the car. Neither throws, and neither fails a test. `maxAbilitySlots` was called `maxWeaponSlots`
+intended); a kit longer than the ceiling is an authoring error, logs one `console.warn` naming the
+car, and **fails the suite** — `weapon-slots.test.ts` asserts
+`weapons.length <= ABILITY_SLOT_CEILING` for every row (VS26). Neither case throws at run time, and
+only the within-the-ceiling one is silent. `maxAbilitySlots` was called `maxWeaponSlots`
 until the 2026-09-17 basic-attack feature, when it was renamed: a constant called "max weapon slots"
 reading 3 on a car that fires four weapons would have been the quiet lie this codebase documents its
 way out of everywhere else.
