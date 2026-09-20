@@ -212,16 +212,20 @@ is created, never patched after.
 
 `PlayerState.weapons` is an `ArraySchema<WeaponSlotState>` — array **position** is the slot index,
 matching `fireSlotsOf(car)`'s ordering: index 0 is that chassis's basic attack
-(`CarDef.basicAttack`), PREPENDED ahead of the kit and never overridable, and indices 1-3 are
+(`CarDef.basicAttack`), PREPENDED ahead of the kit and never overridable, and indices 1..`N` are
 `CAR_TABLE[car].weapons` in kit order (index 1 = ability slot 1). The basic attack sat LAST, at
 `kit.length`, until the 2026-09-20 index flip; at index 0 it is a constant at every kit length
-rather than only while every active kit is the same length. Four rows per car, always — `maxFireSlots` (`WEAPON_SLOT_CONFIG`)
-is what sizes both this array and the wire mask. Populated when the chassis is revealed; a player
+rather than only while every active kit is the same length. **The row count is
+`1 + min(kit.length, maxAbilitySlots)`, not a fixed four** — a chassis may carry 1 to `N` abilities
+since that same pass, and an inactive prototype with an empty kit has a single row. `maxFireSlots`
+(`WEAPON_SLOT_CONFIG`) is the upper bound, and is what sizes the wire mask. Populated when the chassis is revealed; a player
 with no chassis yet (or an unrecognised `carId`) has an empty array and can fire nothing.
 
-**The HUD only draws the kit.** `slotBarLayout` (`weapon-hud.ts`) caps its box count at
-`min(count, maxAbilitySlots)` and its caller passes the ABILITY count (the array length minus its
-basic attack) and reads each box from index `i + 1`, so index 0 — the basic attack — is on the wire,
+**The HUD only draws the kit.** `slotBarLayout` (`weapon-hud.ts`) draws exactly the count it is
+handed — its old `min(count, maxAbilitySlots)` clamp was removed as VS22, since it was only ever
+excluding the basic attack by accident. The caller passes the ABILITY count (the array length minus
+its basic attack, via `abilityCountOf`) and reads each box from index `i + 1`, so index 0 — the
+basic attack — is on the wire,
 ticks through the same recharge/refire/recovery fields as any other slot, and is simply never drawn
 as a box. That is a decision, not a truncation that happens to work: if the basic attack ever needs
 a readout, it gets its own, not an extra box here. See [`combat-model.md`](combat-model.md#basic-attack) for the
@@ -240,9 +244,12 @@ slot with nothing left to fire.
 
 ## InputMessage.fireSlots
 
-`fireSlots: number` — a uint8 bitmask, bit 0 = slot 1 — replaced the single `fire: boolean`. The
-server masks it to `WEAPON_SLOT_CONFIG.maxAbilitySlots` bits and to the car's actual slot count
-before the sim ever sees it; multiple bits set on one tick resolve to the lowest slot.
+`fireSlots: number` — a uint8 bitmask, bit 0 = **fire slot 0, the basic attack** — replaced the
+single `fire: boolean`. The server masks it to `WEAPON_SLOT_CONFIG.maxFireSlots` bits (`SLOT_MASK`
+in `packages/server/src/sim/tick.ts`) and to the car's actual slot count before the sim ever sees
+it; multiple bits set on one tick resolve to the **highest** slot the car can fire, since
+`beginFire`'s scan runs downward (VS12/VS13) — which is what still makes the basic attack, at index
+0, lose a tie to an ability.
 
 It carries **key state, not presses**. The server derives the press edge itself from its own
 `prevFireMasks`, so holding the trigger fires once — see [`combat-model.md`](combat-model.md).

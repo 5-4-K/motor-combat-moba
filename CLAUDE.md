@@ -19,15 +19,17 @@ duration, and (since the car-physics rework's stage 4) a hard slam for
 through the `ImpulseDef` seam rather than through `applies`. See the car-physics section below. See
 [`docs/combat-model.md`](docs/combat-model.md#statuses).
 
-**Every car carries a fourth weapon it never sees in the HUD: its basic attack.** It is an
+**Every car carries one weapon beyond its ability kit, and never sees it in the HUD: its basic attack.** It is an
 ordinary `WEAPON_TABLE` row wired into a second slot — `CarDef.basicAttack`, a plain `WeaponId`
-sitting **beside** the three-weapon kit rather than inside it — and **any weapon may occupy it**.
+sitting **beside** the ability kit rather than inside it — and **any weapon may occupy it**.
 Nothing constrains which row a chassis points it at, or what that row's id is spelled like; a
 weapon is a basic attack because a chassis slots it there, and `basicAttackIds()` is the only
 honest way to ask which ones are. The nine rows the chassis carry there today are identical seeds
-spreading one `BASIC_ATTACK_BASE`, which is a balance state, not a rule. **`CarDef.weapons` and `slotsOf` still mean the three ABILITY slots** — the HUD, the
+spreading one `BASIC_ATTACK_BASE`, which is a balance state, not a rule. **`CarDef.weapons` and `slotsOf` still mean the ABILITY slots alone** — the HUD, the
 guide, the playground's loadout picker, the balance seat filter, ttk's attacker axis and the bot's
-reach model all depend on that and are the reason it did not widen. `fireSlotsOf(carId)` is where
+reach model all depend on that and are the reason it did not widen. Since the 2026-09-20
+variable-slot work that kit is **1 to `N`** weapons rather than exactly three, where `N` is
+`WEAPON_SLOT_CONFIG.maxAbilitySlots` (3 in this build). `fireSlotsOf(carId)` is where
 the two are joined, and its live readers are `packages/server/balance/stats.ts`'s accumulator
 seeding, `scripts/ttk.mjs` (two call sites) and `packages/server/src/bot/brain/duel.fixture.ts` (two
 call sites) — the latter's `bestSustainedDpsOf` deliberately counts the basic attack in its DPS
@@ -36,12 +38,13 @@ explicit-loadout path builds the same list inline, since it also has to accept a
 weapon override `fireSlotsOf` has no parameter for. **The basic attack is always fire slot 0** as of
 the 2026-09-20 index flip — it sat LAST, at `kit.length`, until then, which was a constant only
 while every active kit was the same length. The flip moved no binding: it is still `H` / `LMB`, and
-the abilities are still `J`/`RMB`, `K`/`SHIFT`, `L`/`SPACE`, now at fire slots 1-3. It rides the
+the abilities are still `J`/`RMB`, `K`/`SHIFT`, `L`/`SPACE`, now at fire slots 1..`N` (`;`/MMB
+is authored for a fourth ability and is inert while `N` is 3). It rides the
 ordinary fire state machine with `recoveryMs: 0`, and it **loses** a same-tick tie against an
 ability, because `beginFire` now scans **descending** and takes the highest set bit — the basic
 attack, at index 0, is scanned last. The scan was reversed in the same pass that moved the index, so
 the basic attack loses the tie the same way it always has, just through a different index. One
-consequence of scanning highest-wins is deliberate rather than incidental: among the three
+consequence of scanning highest-wins is deliberate rather than incidental: among the
 abilities themselves, the **highest-indexed** one now wins a same-tick tie, so a player mashing every
 key fires their largest-cooldown ability, not their smallest. Its
 binding is taught **only** in the countdown action hint — it has no gutter pill, which is the one
@@ -64,6 +67,24 @@ the balance harness, `npm run ttk` and the playtest probes are deliberately left
 — they sweep every `WEAPON_TABLE` row structurally, and `carrierOf` must always be able to find a
 chassis for each of the nine basic-attack rows or those tools crash outright. See the
 [`basic-attack-toggle`](.claude/skills/basic-attack-toggle/SKILL.md) skill for the full checklist.
+
+**How many ABILITY slots a car has is itself a build-time number, `N`.** `ABILITY_SLOTS` in
+`packages/shared/src/config/weapon-slots.ts` seeds `WEAPON_SLOT_CONFIG.maxAbilitySlots`; it is **3**
+today, legal from 1 to `ABILITY_SLOT_CEILING` (4) and held to that range by a config test.
+`maxFireSlots` (`N + 1`) and `basicAttackSlotIndex` (`0`) are derived, never typed, so they cannot
+drift from it. The ceiling is **structural** — it sizes `SLOT_KEYS` (which carries a fifth `;`/MMB
+row for a fourth ability, inert at `N` 3), bounds the wire mask and bounds `N` — and is never a
+tuning act. An active chassis may now carry **1 to 4** weapons rather than exactly three; a kit
+longer than `N` is truncated **silently** (that is the designed case, not an error), while only a kit
+past the ceiling warns. Raising `N` does nothing for a chassis whose kit is shorter — its effective
+count is `min(kit.length, N)` — and giving a car another weapon is a `CAR_TABLE` edit needing a row
+nobody else carries, since weapon exclusivity is unconditional (`tremor` is the only spare). Changing
+`N` moves `rollPersonality`'s per-bot RNG **draw count** (`1 + maxFireSlots`), which shifts every
+seeded stream downstream, so it owes a `BOT_BRAIN_VERSION` bump and invalidates every earlier balance
+and playtest report. See the
+[`ability-slot-count`](.claude/skills/ability-slot-count/SKILL.md) skill and
+[`docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md`](docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md)
+(VS1–VS34).
 
 An **aura** is a beam with a `disc` hitbox at `origin: "center"` — a field around a car rather than a
 line of fire. It shipped once, as `shockwave` on Mirage's slot 2, and the 2026-09-01 overhaul retired
@@ -423,6 +444,7 @@ something, discuss it — do not answer with a parameter sweep.
 | **Car physics rework — stages 1-4 landed, spec now on revision 2** | **start at [`docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md`](docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md)** — see below |
 | **Unity physics port — stages 1-4 landed (drive model, walls/bumps, rams, slam/effects), stage 5 (tune-and-reconcile) in progress; supersedes the car-physics rework's contest model** | **start at [`docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md`](docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md)** |
 | Weapon system decisions (D1–D22), online-play review, future work — plus the **retired** aim assist and target lock (A1–A14), removed 2026-09-17 and kept only as a record | [`docs/superpowers/specs/2026-08-27-weapon-system-design.md`](docs/superpowers/specs/2026-08-27-weapon-system-design.md), [`docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md), [`docs/superpowers/plans/2026-08-27-weapon-system.md`](docs/superpowers/plans/2026-08-27-weapon-system.md) |
+| How many ability slots a build has: the build-time count `N`, the structural `ABILITY_SLOT_CEILING`, the basic attack's move to fire slot 0, and the variable-length kit (VS1–VS34) | [`docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md`](docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md) — and the [`ability-slot-count`](.claude/skills/ability-slot-count/SKILL.md) skill to change it |
 | The ten-ability-weapon roster (nine shipped plus dormant `tremor`), per-chassis kits (L1–L7) — now alongside nine identical basic-attack rows (BA1–BA38, see above) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
 | The three chassis types and their triangle, the `accel`/`handling` ratings, the weapon redistribution (T1–T22) — **supersedes L1–L7's assignments** | [`docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md`](docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md) |
 | Ram CC and knockback decisions (R1–R20): severity, side bonus, authority/shove/spin, the `mass` rating | [`docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md`](docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md) |
@@ -796,7 +818,7 @@ npm run balance        # headless win-rate/matchup harness -> packages/server/ba
 ## The cars & weapons guide is generated, committed, and easy to leave stale
 
 `packages/client/public/manual.html` is the player-facing guide — three chassis, each with a basic
-attack plus a three-weapon kit — that the join screen's "Cars & weapons guide" button opens. **It is written by
+attack plus its ability kit — that the join screen's "Cars & weapons guide" button opens. **It is written by
 `scripts/build-cars-and-weapons.mjs`, never by hand.** Every number on it is read from built shared
 (`WEAPON_TABLE`, `CAR_TABLE`, `WEAPON_TICKS`, `weaponDamageOf`, `hpOf`); the prose lives beside it in
 `scripts/cars-and-weapons-copy.mjs`.
@@ -804,7 +826,8 @@ attack plus a three-weapon kit — that the join screen's "Cars & weapons guide"
 **It is a stat sheet, and as of 2026-09-17 it has exactly two sections.** The thirteen A4-style
 sheets (cover, legend, a page per chassis, a page per weapon, a compare table, a ceilings table) are
 gone, replaced by one continuous scrolling page: **Cars** — each active chassis's seven ratings, then
-its weapons as a stat list, a "Basic attack" card first and its three-weapon kit after (BA26) — and
+its weapons as a stat list, a "Basic attack" card first and its `min(kit, N)` ability kit after
+(BA26, VS28) — and
 **Effects** — every status a player can be put in, what it
 does, and what applies it. Two rules run the weapon lists. A point that does not apply is **left
 out**, never printed as a dash (most rows have no wind-up at all, and a charge has no range), and
@@ -817,8 +840,9 @@ tables (`reeling` and `ramLock` from the contact pass, `phased` from the deathma
 the 2026-09-18 Unity ram port makes landing a ram cost its own attacker something. `armored` and
 `overhauled` have neither today and so do not appear at all.
 
-**The prose quotes numbers through placeholders, never by hand.** Write `{roster.slotsPerCar}`,
-not `3`; `{token:words}` spells small whole numbers out. Tokens are defined in
+**The prose quotes numbers through placeholders, never by hand.** Write `{namespace.fact}` for
+a figure the tables own rather than typing the digits; `{token:words}` spells small whole numbers
+out. Tokens are defined in
 `scripts/manual-facts.mjs`, every one derived from a table, and an unknown token fails the build.
 This exists because `balanceStamp` **cannot** catch a stale number inside a sentence: it hashes the
 copy file, so it only asks "was the page rebuilt from this text", never "is this text true". Three
@@ -828,13 +852,18 @@ table reading 1000, on a page whose own generated cell two lines above said "1 p
 spelled-out measurement ("two seconds", "four muzzles") appears at all. It deliberately does **not**
 watch the word "car": "a dash that clips two cars in the same tick" is prose, not a figure.
 The 2026-09-17 restructure cut the prose to **one line per chassis and one per weapon** — the page
-generates everything else — so the token map is down to a single entry. That is the map shrinking
-with the sentences, not the guard weakening: a fact the prose never quotes fails the suite, so the
-two can only ever be the same size. Adding a sentence that measures something adds its fact back.
+generates everything else — so the token map shrank to one entry, and the 2026-09-20 variable-slot
+work emptied it outright: `{roster.slotsPerCar}` was the last token, and it asserted a uniform kit
+length across the roster that a variable `N` no longer guarantees (VS29). `manualFacts()` returns
+`{}` today, so **there is no live token to copy as an example** — write the token a new sentence
+needs and define it there. That is the map shrinking with the sentences, not the guard weakening: a
+fact the prose never quotes fails the suite, so the two can only ever be the same size. Adding a
+sentence that measures something adds its fact back.
 
 **Re-run `npm run build:manual` and commit the page whenever you change:** a weapon row, an ACTIVE
 chassis row, an active car's loadout, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `STATUS_TABLE`,
-`TICK_RATE_HZ`, `ARENA_WIDTH`, or the prose in `cars-and-weapons-copy.mjs`. (`AIM_CONFIG.lockRange`
+`TICK_RATE_HZ`, `ARENA_WIDTH`, `WEAPON_SLOT_CONFIG.maxAbilitySlots`, or the prose in
+`cars-and-weapons-copy.mjs`. (`AIM_CONFIG.lockRange`
 was on this list until 2026-09-17, when the aim-lock feature and the whole config were deleted.)
 The page carries a fingerprint of all of that and `scripts/manual-page.test.mjs` recomputes it, so
 forgetting fails the suite with the command to run rather than quietly shipping last week's numbers

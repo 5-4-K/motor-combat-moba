@@ -215,8 +215,9 @@ which is what makes "every car can shoot" a compile error rather than a surprise
 about the slot, so `CAR_TABLE` is the only thing that can answer it.
 It is never counted toward `maxAbilitySlots` and never truncated the way an over-long `weapons` list
 is — it is a structurally separate slot, joined to the kit only through `fireSlotsOf(carId)` (=
-`[...slotsOf(carId), basicAttackOf(carId)]`), which has exactly three readers named in
-[`combat-model.md`](combat-model.md#basic-attack). All nine rows point at the same
+`[basicAttackOf(carId), ...slotsOf(carId)]`, the basic attack FIRST since the 2026-09-20 index flip),
+whose readers are enumerated in `fireSlotsOf`'s own doc comment in
+[`weapon-slots.ts`](../packages/shared/src/config/weapon-slots.ts). All nine rows point at the same
 `BASIC_ATTACK_BASE` — see [`WEAPON_TABLE`](#weapon_table) below.
 
 **`BASIC_ATTACK_CONFIG.enabled`** (same file, beside `BASIC_ATTACK_BASE`) is a build-time on/off
@@ -422,28 +423,53 @@ the dump's first shot rather than its last), was retired with the 2026-09-01 ove
 is dormant, not deleted: it stays real in `sim/weapons/fire.ts` and covered by `fire.test.ts`, waiting
 for the next weapon that authors a `stock` block.
 
-## WEAPON_SLOT_CONFIG
+## ABILITY_SLOT_CEILING and WEAPON_SLOT_CONFIG
 
-| Knob | Value | Derivation |
+Two numbers, and the difference between them is the whole point.
+
+| Name | Value | What it is |
 |---|---|---|
-| `maxAbilitySlots` | 3 | `MAX_ABILITY_SLOTS`, hoisted |
-| `maxFireSlots` | 4 | `maxAbilitySlots + 1` — never typed, so the two cannot drift |
-| `basicAttackSlotIndex` | 3 | `maxAbilitySlots` — the basic attack is always last |
+| `ABILITY_SLOT_CEILING` | 4 | **Structural.** How many ability slots the game is BUILT for. Never a tuning act. |
+| `ABILITY_SLOTS` (module-local) | 3 | **`N`, the build-time count.** The one knob. 1 to `ABILITY_SLOT_CEILING`. |
+| `WEAPON_SLOT_CONFIG.maxAbilitySlots` | 3 | `ABILITY_SLOTS`, hoisted |
+| `WEAPON_SLOT_CONFIG.maxFireSlots` | 4 | `maxAbilitySlots + 1` — never typed, so the two cannot drift |
+| `WEAPON_SLOT_CONFIG.basicAttackSlotIndex` | 0 | The literal 0. The fire-slot array is `[basicAttack, ...kit]`, so nothing about `N` can move it |
 
-`maxAbilitySlots` caps how many slots a chassis's **kit** — `CarDef.weapons` — may present. A car
-whose `weapons` list is longer logs one `console.warn` naming the car and the extras are truncated —
-a warning, never a thrown error or a failed test. It was called `maxWeaponSlots` until the
-2026-09-17 basic-attack feature, when it was renamed: every car now carries four weapons, and a
-constant called "max weapon slots" reading 3 would have been the quiet lie this codebase documents
-its way out of everywhere else.
+All of them live in
+[`packages/shared/src/config/weapon-slots.ts`](../packages/shared/src/config/weapon-slots.ts).
+
+**`ABILITY_SLOT_CEILING` sizes things, `N` turns them on.** The ceiling sizes `SLOT_KEYS`
+(`ABILITY_SLOT_CEILING + 1` rows, so the key table never has to grow when `N` does), bounds the wire
+mask's width, and is the upper bound `N` is validated against. `weapon-slots.test.ts` holds
+`1 <= maxAbilitySlots <= ABILITY_SLOT_CEILING`, so an out-of-range `N` fails the suite rather than
+clipping a slot off the bottom of the HUD. Raising the ceiling is a HUD layout piece of work, not a
+config edit: four slot boxes fit inside the 720 px view and five do not (`weapon-hud.test.ts`).
+
+**`maxAbilitySlots` caps how many slots a chassis's kit — `CarDef.weapons` — may present.** A
+chassis may author **1 to `ABILITY_SLOT_CEILING`** weapons since the 2026-09-20 variable-slot work,
+and an inactive prototype may author none at all. Two different over-lengths, handled differently
+(VS11): a kit longer than `N` but within the ceiling is the **designed** case and is truncated
+**silently** (warning on it would log on every boot for a configuration working exactly as
+intended); a kit longer than the ceiling is an authoring error and logs one `console.warn` naming
+the car. Neither throws, and neither fails a test. `maxAbilitySlots` was called `maxWeaponSlots`
+until the 2026-09-17 basic-attack feature, when it was renamed: a constant called "max weapon slots"
+reading 3 on a car that fires four weapons would have been the quiet lie this codebase documents its
+way out of everywhere else.
 
 `maxFireSlots` is how many weapons a car can actually **fire** — the kit plus the basic attack
-(below). It is what the wire mask (`SLOT_MASK` in `packages/server/src/sim/tick.ts`) is sized to and
-what the client's `slotMaskFrom`/`SLOT_KEYS` run to. `basicAttackSlotIndex` is where the basic attack
-sits in that four-slot fire order — always last, so the three ability indices never move.
-`slotsOf`/`weapons` still mean the three ability slots alone; see
-[`combat-model.md`](combat-model.md#basic-attack) for the full model and `fireSlotsOf`'s three
-readers.
+(above). It is what the wire mask (`SLOT_MASK` in `packages/server/src/sim/tick.ts`) is sized to,
+what the client's `slotMaskFrom` caps its scan at, and what `beginFire`'s descending scan starts
+from. `basicAttackSlotIndex` is where the basic attack sits in that fire order — **first**, at 0,
+since the 2026-09-20 index flip (it was last, at `kit.length`, which was a constant only while every
+active kit was the same length). `slotsOf`/`weapons` still mean the ability slots alone; see
+[`combat-model.md`](combat-model.md#basic-attack) for the full model and `fireSlotsOf`'s readers.
+
+**Changing `N` is the [`ability-slot-count`](../.claude/skills/ability-slot-count/SKILL.md) skill's
+job.** It owes a root rebuild, `npm run build:manual` (`balanceStamp` hashes `N`) and a
+`BOT_BRAIN_VERSION` bump — `rollPersonality` draws `1 + maxFireSlots` random numbers per bot, so
+moving `N` shifts every seeded RNG stream and invalidates every earlier balance and playtest report.
+See [`the variable-weapon-slots spec`](superpowers/specs/2026-09-20-variable-weapon-slots-design.md)
+(VS1–VS34).
 
 ## AIM_CONFIG — deleted
 

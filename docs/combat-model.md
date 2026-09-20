@@ -444,9 +444,15 @@ banner reads it as self-inflicted, exactly as an environment death should.
 
 Every car carries an ordered list of weapons, `CAR_TABLE[car].weapons` — index 0 is slot 1, and
 order *is* the slot mapping, so a chassis's whole identity (speed, attack, hp, guns) lives in one
-table row. `WEAPON_SLOT_CONFIG.maxAbilitySlots` (3) caps how many slots any chassis may present; a
-car listing more logs one `console.warn` naming the car and truncates the extras, never a thrown
-error or a failed test. Today's roster ships three exclusive kits, one per chassis, redistributed on
+table row. `WEAPON_SLOT_CONFIG.maxAbilitySlots` — `N`, the **build-time** ability-slot count, 3 in
+this build and legal from 1 to `ABILITY_SLOT_CEILING` (4) — caps how many slots any chassis may
+present. A chassis may author **1 to 4** weapons; a kit longer than `N` is truncated **silently**,
+because a four-weapon chassis running in an `N = 3` build is the designed case rather than a mistake
+(VS11). Only a kit longer than the CEILING is an authoring error, and that logs one `console.warn`
+naming the car — never a thrown error or a failed test. Changing `N` is the
+[`ability-slot-count`](../.claude/skills/ability-slot-count/SKILL.md) skill's job; see
+[`the variable-weapon-slots spec`](superpowers/specs/2026-09-20-variable-weapon-slots-design.md)
+(VS1–VS34). Today's roster ships three exclusive kits, one per chassis, redistributed on
 2026-08-30 and then re-authored outright by the 2026-09-01 weapon-status overhaul so each kit serves
 its chassis's **type**:
 
@@ -489,10 +495,12 @@ trigger therefore fires exactly once; the player must release and press again. T
 on the server, not the client, because a hand-rolled client could otherwise pulse the mask and buy
 back auto-fire — and the weapon cooldown still bounds the rate on top of it.
 
-`InputMessage.fireSlots` is a **uint8 bitmask** (bit 0 = slot 1), the successor to the old single
-`fire: boolean`. The server masks it to `maxAbilitySlots` bits and to the car's actual slot count
+`InputMessage.fireSlots` is a **uint8 bitmask** (bit 0 = fire slot 0, the basic attack), the
+successor to the old single `fire: boolean`. The server masks it to `maxFireSlots` bits
+(`SLOT_MASK` in `packages/server/src/sim/tick.ts`) and to the car's actual slot count
 before the sim ever sees it, so a hand-rolled client cannot fire a slot it does not own. Multiple
-bits set on the same tick resolve to the **lowest** slot. Each slot's key binding is client-only
+bits set on the same tick resolve to the **highest** slot the car can fire — `beginFire` scans
+downward (VS12), which is what keeps the basic attack at index 0 losing a tie to an ability. Each slot's key binding is client-only
 (`config/slot-keys.ts`) — the server never sees a key, only an index — so rebinding a key is a local
 change with no protocol consequence.
 
@@ -572,8 +580,8 @@ it could have been a `cooldownMs` edit, so the field is not even writable outsid
 
 ### Basic attack
 
-Every car carries a fourth weapon that is not in `weapons` at all: `CarDef.basicAttack`, a single
-`WeaponId` field sitting **beside** the three-weapon kit rather than inside it
+Every car carries one weapon beyond its kit that is not in `weapons` at all: `CarDef.basicAttack`, a single
+`WeaponId` field sitting **beside** the ability kit rather than inside it
 (`basicAttackOf(carId)` is its accessor). The field takes any `WeaponId`: the slot constrains
 nothing about the weapon in it, and a chassis may point it at a row another chassis carries as an
 ability. The nine rows the chassis carry there today are identical, all spread from one
@@ -590,8 +598,9 @@ a true constant at every kit length.
 
 **The renumbering moved no binding.** Its binding is still `H` on keyboard and left mouse button on
 the mouse hand; the three abilities are still `J`/right mouse button, `K`/SHIFT and `L`/SPACE, now
-at fire slots 1, 2 and 3. Every key a player already used fires the weapon it fired before — what
-changed is the index behind it.
+at fire slots 1, 2 and 3. `SLOT_KEYS` carries a fifth row, `;` / middle mouse button, for a fourth
+ability; it is inert while `N` is 3. Every key a player already used fires the weapon it fired
+before — what changed is the index behind it.
 
 It fires through the **same** fire state machine described above — spent, recharged, refire-locked
 and switch-locked by exactly the code every other weapon runs — and authors `recoveryMs: 0`, so
@@ -612,14 +621,14 @@ the losing press is dropped exactly like any other press this game has ever refu
 own `recoveryMs` briefly blocks the basic attack right back, for a different reason —
 `switchLockUntilTick` does not care which slot is locking which.
 
-**It never reaches the HUD's weapon panel, and that is a decision, not the three-slot truncation
-you'd get from listing a fourth entry in `weapons`.** `slotsOf`/`weapons` cap a chassis's KIT at
-`WEAPON_SLOT_CONFIG.maxAbilitySlots` (3) and would silently drop and warn about a fourth entry
-listed there — but the basic attack was never *in* `weapons` to be dropped. It is a separate field
-that only `fireSlotsOf`'s three named readers (the sim's fire state, the balance harness's per-weapon
-seeding, and `npm run ttk`) ever read alongside the kit; the HUD, the players' guide, the playground's
-loadout picker and everything else that draws or lists "this chassis's weapons" keeps calling
-`slotsOf` and keeps seeing three. Its binding is taught only in the countdown action hint, which is
+**It never reaches the HUD's weapon panel, and that is a decision, not the `N`-slot truncation
+you'd get from listing an extra entry in `weapons`.** `slotsOf`/`weapons` cap a chassis's KIT at
+`WEAPON_SLOT_CONFIG.maxAbilitySlots` and would silently drop an entry past it — but the basic attack
+was never *in* `weapons` to be dropped. It is a separate field that only `fireSlotsOf`'s named
+readers (the balance harness's per-weapon seeding, `npm run ttk`, `duel.fixture.ts` and the playtest
+probes — the list is kept in `fireSlotsOf`'s own doc comment) ever read alongside the kit; the HUD,
+the players' guide, the playground's loadout picker and everything else that draws or lists "this
+chassis's weapons" keeps calling `slotsOf` and keeps seeing the kit alone. Its binding is taught only in the countdown action hint, which is
 the one place the "a binding nobody printed breaks quietly" controls rule is knowingly bent.
 
 #### The basic-attack toggle
@@ -878,7 +887,7 @@ a cone `angleDeg` strictly inside 0–180 and the `color` rules above. A row tha
 suite immediately rather than misbehaving at run time.
 
 **3. Give it to a car.** Add the id to that chassis's `weapons` array in `CAR_TABLE` — array index
-is the slot index, and `maxAbilitySlots` (3) is the cap. A weapon in the table that no car carries is
+is the slot index, and `maxAbilitySlots` (`N`, 3 in this build) is the cap. A weapon in the table that no car carries is
 inert but legal — `tremor` is the shipped example, authored in full but assigned to nobody while its
 loadout decision is pending. `weapon-slots.test.ts` names the deliberately-uncarried set, so an id
 accidentally dropped from a kit still fails while a conscious "not yet" passes.

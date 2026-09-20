@@ -61,7 +61,10 @@ Then edit six files, in this order:
    means `"all"`) decides whether the status rides every wave or only the last — `shockwave`'s
    `corroded` is `"final"`, so the first two waves are the commitment and the debuff is the payoff.
 3. **`config/car-config.ts`** — add the id to that chassis's `weapons` array. Index is the slot;
-   `maxWeaponSlots` is 3.
+   the cap is `WEAPON_SLOT_CONFIG.maxAbilitySlots` (`N`, 3 in this build — renamed from
+   `maxWeaponSlots` in 2026-09-17 and made variable in 2026-09-20). A kit may hold 1 to `N`
+   weapons; an entry past `N` stays in `CAR_TABLE` but is silently unreachable in this build. To
+   change `N` itself, use the [`ability-slot-count`](../ability-slot-count/SKILL.md) skill.
 4. **`config/weapon-slots.test.ts`** — it pins each car's loadout by value, so a loadout change
    fails it by design. Update it in the same edit.
 5. **`docs/config-reference.md`** — the `WEAPON_TABLE` and `CAR_TABLE` tables.

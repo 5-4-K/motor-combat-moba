@@ -12,12 +12,16 @@ description: >-
 
 # Basic-attack toggle
 
-Every car carries a fourth weapon, the basic attack (`CarDef.basicAttack`, fire slot 3, `H`/LMB) —
+Every car carries one weapon beyond its ability kit, the basic attack (`CarDef.basicAttack`,
+**fire slot 0**, `H`/LMB — it moved from last to first in the 2026-09-20 variable-slot work, and the
+binding did not change) —
 see [`docs/combat-model.md`](../../../docs/combat-model.md#basic-attack) and
 [`docs/superpowers/specs/2026-09-17-basic-attack-design.md`](../../../docs/superpowers/specs/2026-09-17-basic-attack-design.md)
 (BA1–BA38) for the mechanic itself. This skill is for switching that whole mechanic off or back on
-**without deleting any of it** — the nine `basic-attack-*` rows, `CarDef.basicAttack`, and the
-schema's fourth `WeaponSlotState` all stay exactly as authored either way.
+**without deleting any of it** — the nine `basic-attack-*` rows, `CarDef.basicAttack`, and its
+`WeaponSlotState` at index 0 all stay exactly as authored either way. How MANY ability slots sit
+beside it is a different knob with its own skill:
+[`ability-slot-count`](../ability-slot-count/SKILL.md).
 
 **One flag, one place:** `BASIC_ATTACK_CONFIG.enabled` in
 [`packages/shared/src/config/weapon-config.ts`](../../../packages/shared/src/config/weapon-config.ts),
@@ -42,7 +46,7 @@ unaware of the toggle (see "What does NOT change" below).
    worth firing instead.
 3. **`hintSlotOrder`** (`packages/client/src/config/slot-keys.ts`) drops the slot from the countdown
    action hint's order entirely when disabled, so `HINT_SLOT_ORDER` (resolved once from the flag at
-   module load) has three entries instead of four and the H/LMB pill never prints. The hint is the
+   module load) has `N` entries instead of `N + 1` and the H/LMB pill never prints. The hint is the
    *only* place the basic attack's binding is taught (BA19) — hiding the weapon means removing that
    pill, not leaving a dead one on screen.
 4. **`scripts/build-cars-and-weapons.mjs`**'s `carSection` skips the "Basic attack" card for every
@@ -64,7 +68,7 @@ not a bug to fix here.
 
 `CAR_TABLE`, `WEAPON_TABLE`, the schema, and the sim's fire state machine (`newFireState`,
 `tickRecharge`, `releaseShots`) are all untouched. A disabled basic-attack slot still recharges,
-still holds a stock, still occupies fire slot 3 in `FireState.slots` — it simply can never be
+still holds a stock, still occupies fire slot 0 in `FireState.slots` — it simply can never be
 *pressed into* firing.
 
 ## Path to flip it
@@ -83,9 +87,10 @@ still holds a stock, still occupies fire slot 3 in `FireState.slots` — it simp
 
 ## Verifying it actually took
 
-- In a running client, the countdown hint reads `"J K L or RMB SHIFT SPACE to fire"` (three pairs),
-  not four, and pressing H or left-clicking does nothing once the match starts.
+- In a running client, the countdown hint reads `"J K L or RMB SHIFT SPACE to fire"` (one pair per
+  ability, at this build's `N`), with no `H`/LMB pill, and pressing H or left-clicking does nothing
+  once the match starts.
 - `packages/client/public/manual.html` (or `http://localhost:5173/manual.html`) shows each
-  chassis's three ability cards only — no "Basic attack" card first.
-- A bot never fires an H-glyph shot; watching `?dev=playground`'s bot line, `slot 3` never appears
+  chassis's ability cards only — no "Basic attack" card first.
+- A bot never fires an H-glyph shot; watching `?dev=playground`'s bot line, `slot 0` never appears
   as a chosen slot.
