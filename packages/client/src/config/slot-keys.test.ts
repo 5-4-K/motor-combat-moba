@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
-import { SLOT_KEYS, slotMaskFrom } from "./slot-keys.js";
+import { HINT_SLOT_ORDER, SLOT_KEYS, hintSlotOrder, slotMaskFrom } from "./slot-keys.js";
 
 describe("slot keys", () => {
   it("binds every fire slot, the basic attack included", () => {
@@ -68,5 +68,19 @@ describe("slot key glyphs", () => {
     for (const code of [81, 69]) {
       expect(SLOT_KEYS.some((key) => (key.codes as readonly number[]).includes(code))).toBe(false);
     }
+  });
+});
+
+describe("hintSlotOrder (basic-attack-toggle)", () => {
+  it("teaches the basic attack first when the toggle is enabled (BA19)", () => {
+    expect(hintSlotOrder(true)).toEqual([3, 0, 1, 2]);
+  });
+
+  it("drops the basic attack's pill entirely when the toggle is disabled", () => {
+    expect(hintSlotOrder(false)).toEqual([0, 1, 2]);
+  });
+
+  it("HINT_SLOT_ORDER reflects the toggle's default (enabled) value", () => {
+    expect(HINT_SLOT_ORDER).toEqual(hintSlotOrder(true));
   });
 });

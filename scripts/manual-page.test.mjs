@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 import {
+  BASIC_ATTACK_CONFIG,
   CAR_TABLE,
   TICK_RATE_HZ,
   WEAPON_TABLE,
@@ -19,6 +20,7 @@ import {
   OUT_WEB_HTML,
   STAMP_META_NAME,
   balanceStamp,
+  carSection,
   carrierOf,
   hitsPerTargetOf,
 } from "./build-cars-and-weapons.mjs";
@@ -265,5 +267,26 @@ describe("the generated manual page", () => {
         `manual references ${src}, which is not in packages/client/public/`,
       );
     }
+  });
+});
+
+describe("the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)", () => {
+  afterEach(() => {
+    BASIC_ATTACK_CONFIG.enabled = true;
+  });
+
+  it("prints a Basic attack card for a chassis by default", () => {
+    assert.match(carSection("bastion"), /Basic attack/);
+  });
+
+  it("omits the Basic attack card when the toggle is disabled", () => {
+    BASIC_ATTACK_CONFIG.enabled = false;
+    assert.doesNotMatch(carSection("bastion"), /Basic attack/);
+  });
+
+  it("moves balanceStamp when the toggle changes, so a stale build fails loudly", () => {
+    const enabledStamp = balanceStamp();
+    BASIC_ATTACK_CONFIG.enabled = false;
+    assert.notEqual(balanceStamp(), enabledStamp);
   });
 });

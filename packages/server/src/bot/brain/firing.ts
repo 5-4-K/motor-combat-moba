@@ -1,4 +1,4 @@
-import { hasStatus, weaponDefOf } from "@motor-combat-moba/shared";
+import { BASIC_ATTACK_CONFIG, WEAPON_SLOT_CONFIG, hasStatus, weaponDefOf } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
 import type { Rng } from "../rng.js";
 import type { BotCarView, BotSelfView, BotSlotView, SituationId } from "../types.js";
@@ -252,6 +252,10 @@ export function chooseSlot(args: {
   let bestScore = -Infinity;
 
   for (let i = 0; i < self.slots.length; i++) {
+    // A press the sim would refuse is a press thrown away, same reasoning as the switch-lock check
+    // above: a disabled basic attack never becomes the bot's one press for the tick, or it would
+    // waste that tick's action on a weapon that cannot fire instead of an ability that could.
+    if (i === WEAPON_SLOT_CONFIG.basicAttackSlotIndex && !BASIC_ATTACK_CONFIG.enabled) continue;
     const slot = self.slots[i]!;
     if (!slotIsReady(slot, tick)) {
       // Not ready: fired, or still mid-recharge. The episode that memo belonged to is over — the

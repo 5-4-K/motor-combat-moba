@@ -605,6 +605,20 @@ loadout picker and everything else that draws or lists "this chassis's weapons" 
 `slotsOf` and keeps seeing three. Its binding is taught only in the countdown action hint, which is
 the one place the "a binding nobody printed breaks quietly" controls rule is knowingly bent.
 
+#### The basic-attack toggle
+
+`BASIC_ATTACK_CONFIG.enabled` (`config/weapon-config.ts`) can turn the whole mechanic off without
+touching any of the above — the nine rows, `CarDef.basicAttack` and the schema's fourth slot all
+stay exactly as described. It is a build-time flag: flip it, rebuild, `npm run build:manual`. Four
+things read it when it is `false`: `beginFire` refuses a press on fire slot 3, so the key does
+nothing; the bot's `chooseSlot` never selects that slot either, so it does not waste a tick's press
+on a weapon that cannot fire; the client's `hintSlotOrder` drops the slot from the countdown action
+hint entirely, so the H/LMB pill disappears rather than sitting there doing nothing; and the guide
+skips every chassis's "Basic attack" card, with the flag folded into `balanceStamp` so a stale
+manual build fails the suite. `fireSlotsOf` and the balance/ttk/playtest tooling do not read it —
+they sweep `WEAPON_TABLE` structurally and must always be able to find a carrier for each of the
+nine rows. See the `basic-attack-toggle` skill for the full flip checklist.
+
 ### Stocks
 
 A weapon with a `stock: { max, refireDelayMs }` block holds charges instead of firing on a flat

@@ -38,6 +38,27 @@ const BASIC_ATTACK_BASE = {
 } as const;
 
 /**
+ * The basic-attack toggle. A build-time flag, not a live-session setting: flip it, rebuild
+ * shared/server/client and `npm run build:manual`, the same weight as `CarDef.isActive`.
+ *
+ * Deliberately NOT `as const` — every other `_CONFIG` object in this package is a frozen balance
+ * table nothing should ever reassign, but this one field exists specifically to be edited, and a
+ * literal `true` type would make `enabled = false` a compile error. `false` does not remove the nine
+ * `basic-attack-*` rows, `CarDef.basicAttack`, or the schema's fourth `WeaponSlotState` — the
+ * structure stays exactly as BA1-BA38 left it. What actually reads this flag: `beginFire`
+ * (`sim/weapons/fire.ts`) refuses a press on the basic-attack fire slot so the key does nothing;
+ * `BotController`'s `chooseSlot` (`server/src/bot/brain/firing.ts`) never selects that slot either,
+ * so a bot does not waste its one press a tick on a weapon that cannot fire; the client's
+ * `hintSlotOrder` (`config/slot-keys.ts`) drops the slot from the countdown action hint entirely,
+ * not merely from firing; and `scripts/build-cars-and-weapons.mjs` skips the "Basic attack" card on
+ * every chassis and folds this flag into `balanceStamp` so a stale manual build fails loudly.
+ * `fireSlotsOf`, the balance harness, `npm run ttk` and the playtest probes are deliberately left
+ * unaware of it — they sweep every `WEAPON_TABLE` row structurally and gating them risks breaking
+ * `carrierOf`'s lookup for the nine rows it must always be able to find a chassis for.
+ */
+export const BASIC_ATTACK_CONFIG: { enabled: boolean } = { enabled: true };
+
+/**
  * Every weapon in the game, mirroring `CAR_TABLE`. Balance lives here and nowhere else.
  *
  * `color` is the one render-only number here besides `name`. It is per weapon on purpose: every

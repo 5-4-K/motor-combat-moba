@@ -40,6 +40,23 @@ binding is taught **only** in the countdown action hint — it has no gutter pil
 place the "a binding nobody printed breaks quietly" rule is knowingly bent. See
 [`docs/superpowers/specs/2026-09-17-basic-attack-design.md`](docs/superpowers/specs/2026-09-17-basic-attack-design.md) (BA1–BA38).
 
+**The basic attack can be switched off without deleting any of that**, via
+`BASIC_ATTACK_CONFIG.enabled` (`config/weapon-config.ts`) — a build-time flag, not a live-session
+setting: flip it, rebuild shared/server/client, and `npm run build:manual`. Nothing about the nine
+`basic-attack-*` rows, `CarDef.basicAttack`, or the schema's fourth slot goes away when it is
+`false`; only four things read it. `beginFire` refuses a press on the basic-attack fire slot, so the
+key does nothing. `BotController`'s `chooseSlot` never selects that slot either, so a bot does not
+burn its one press a tick on a weapon that cannot fire. The client's `hintSlotOrder`
+(`config/slot-keys.ts`) drops the slot from the countdown action hint entirely, not merely from
+firing — the hint is the only place its binding is taught, and hiding the weapon means removing the
+pill, not leaving a dead one on screen. And `scripts/build-cars-and-weapons.mjs` skips every
+chassis's "Basic attack" card and folds the flag into `balanceStamp`, so toggling it without
+rebuilding the manual fails `npm test` the same way any other stale-manual edit does. `fireSlotsOf`,
+the balance harness, `npm run ttk` and the playtest probes are deliberately left unaware of the flag
+— they sweep every `WEAPON_TABLE` row structurally, and `carrierOf` must always be able to find a
+chassis for each of the nine basic-attack rows or those tools crash outright. See the
+[`basic-attack-toggle`](.claude/skills/basic-attack-toggle/SKILL.md) skill for the full checklist.
+
 An **aura** is a beam with a `disc` hitbox at `origin: "center"` — a field around a car rather than a
 line of fire. It shipped once, as `shockwave` on Mirage's slot 2, and the 2026-09-01 overhaul retired
 that weapon's aura identity, leaving no row using a `disc` hitbox — but a disc ships again as of the

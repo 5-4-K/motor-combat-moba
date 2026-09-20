@@ -219,6 +219,11 @@ is — it is a structurally separate slot, joined to the kit only through `fireS
 [`combat-model.md`](combat-model.md#basic-attack). All nine rows point at the same
 `BASIC_ATTACK_BASE` — see [`WEAPON_TABLE`](#weapon_table) below.
 
+**`BASIC_ATTACK_CONFIG.enabled`** (same file, beside `BASIC_ATTACK_BASE`) is a build-time on/off
+switch for the whole mechanic — `false` disables firing, the countdown hint's pill and the guide's
+"Basic attack" card without removing this field, the nine rows, or the schema's fourth slot. See
+[`combat-model.md`](combat-model.md#the-basic-attack-toggle) and the `basic-attack-toggle` skill.
+
 ## COLOR_TABLE
 
 | colorId | name | hex |

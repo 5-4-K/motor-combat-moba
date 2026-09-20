@@ -1,4 +1,4 @@
-import { WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
+import { BASIC_ATTACK_CONFIG, WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
 
 /**
  * Which inputs fire which FIRE SLOT, indexed by slot: 0-2 are the ability kit, 3 is the basic
@@ -39,8 +39,21 @@ export const SLOT_KEYS = [
   { codes: [72], buttonsMask: 1, glyph: "LMB", keyGlyph: "H" },
 ] as const;
 
-/** Fire slots in the order the countdown hint teaches them: basic attack first (BA19). */
-export const HINT_SLOT_ORDER = [3, 0, 1, 2] as const;
+/**
+ * Fire slots in the order the countdown hint teaches them: basic attack first when it can fire at
+ * all (BA19), dropped from the row entirely rather than merely unpressable when
+ * `BASIC_ATTACK_CONFIG.enabled` is false — the hint is the only place its binding is taught, so
+ * disabling the weapon must remove the pill, not just the effect of pressing it.
+ *
+ * Takes an explicit `enabled` rather than reading the config directly so it stays a pure function —
+ * `HINT_SLOT_ORDER` below is what production code reads, resolved once from the live flag.
+ */
+export function hintSlotOrder(enabled: boolean): readonly number[] {
+  return enabled ? [3, 0, 1, 2] : [0, 1, 2];
+}
+
+/** The countdown hint's slot order, resolved from the toggle's current (build-time) value. */
+export const HINT_SLOT_ORDER = hintSlotOrder(BASIC_ATTACK_CONFIG.enabled);
 
 /**
  * Held slot inputs as the wire's bitmask. Bit 0 is slot 1; anything past the limit is dropped.

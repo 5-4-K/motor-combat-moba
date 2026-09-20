@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { BASIC_ATTACK_CONFIG } from "../../config/weapon-config.js";
 import { beginFire, cancelPending, newFireState, releaseShots, tickRecharge, type FireState } from "./fire.js";
 import type { ShotOrder } from "./instances.js";
 
@@ -443,6 +444,33 @@ describe("the basic attack slot", () => {
     // ...and it is free again the moment that recovery lapses.
     expect(beginFire("p1", state, 1 << 3, state.switchLockUntilTick).pending?.weaponId).toBe(
       "basic-attack-mirage",
+    );
+  });
+});
+
+describe("the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)", () => {
+  afterEach(() => {
+    BASIC_ATTACK_CONFIG.enabled = true;
+  });
+
+  it("drops a basic-attack-only press when disabled — the key does nothing", () => {
+    BASIC_ATTACK_CONFIG.enabled = false;
+    const fired = beginFire("p1", newFireState("bastion", 1), 1 << 3, 0);
+    expect(fired.pending).toBeNull();
+  });
+
+  it("still lets an ability fire on the same tick, since only the lowest bit was ever eligible", () => {
+    BASIC_ATTACK_CONFIG.enabled = false;
+    const fired = beginFire("p1", newFireState("bastion", 1), (1 << 0) | (1 << 3), 0);
+    expect(fired.pending?.weaponId).toBe("thumper");
+  });
+
+  it("fires again once the flag is re-enabled", () => {
+    BASIC_ATTACK_CONFIG.enabled = false;
+    expect(beginFire("p1", newFireState("bastion", 1), 1 << 3, 0).pending).toBeNull();
+    BASIC_ATTACK_CONFIG.enabled = true;
+    expect(beginFire("p1", newFireState("bastion", 1), 1 << 3, 0).pending?.weaponId).toBe(
+      "basic-attack-bastion",
     );
   });
 });

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { slotsOf, weaponDefOf } from "@motor-combat-moba/shared";
+import { afterEach, describe, expect, it } from "vitest";
+import { BASIC_ATTACK_CONFIG, WEAPON_SLOT_CONFIG, basicAttackOf, slotsOf, weaponDefOf } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotCarView, BotSelfView, BotSlotView } from "../types.js";
@@ -435,5 +435,53 @@ describe("chooseSlot — expected value gate (P14, R20)", () => {
     }).slot;
     expect(at(0.05)).toBe(0);
     expect(at(0.3)).toBeUndefined();
+  });
+});
+
+describe("chooseSlot — the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)", () => {
+  afterEach(() => {
+    BASIC_ATTACK_CONFIG.enabled = true;
+  });
+
+  /** A real four-slot loadout — kit plus the chassis's own basic attack, as `newFireState` builds it. */
+  function selfWithBasicAttack(carId: "bullseye" | "mirage" | "bastion"): BotSelfView {
+    const basicAttackId = basicAttackOf(carId);
+    return {
+      ...self(carId),
+      slots: [
+        ...slotsFor(carId),
+        {
+          weaponId: basicAttackId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+          range: weaponDefOf(basicAttackId).range,
+        },
+      ],
+    };
+  }
+
+  it("never selects the basic-attack slot when disabled, even when it scores far above every ability", () => {
+    BASIC_ATTACK_CONFIG.enabled = false;
+    const decision = chooseSlot({
+      self: selfWithBasicAttack("bastion"), target, profile: BOT_PROFILES.hard,
+      weights: [1, 1, 1, 1], tick: 100, lastPressTick: 0, rng: makeRng(1),
+      ultHold: new Map<number, UltHoldEntry>(),
+      solutions: solutionsFor([
+        [0, 10], [1, 10], [2, 10],
+        [WEAPON_SLOT_CONFIG.basicAttackSlotIndex, 1_000_000],
+      ]),
+    });
+    expect(decision.slot).not.toBe(WEAPON_SLOT_CONFIG.basicAttackSlotIndex);
+  });
+
+  it("selects the basic-attack slot when enabled and it is the clear best score", () => {
+    const decision = chooseSlot({
+      self: selfWithBasicAttack("bastion"), target, profile: BOT_PROFILES.hard,
+      weights: [1, 1, 1, 1], tick: 100, lastPressTick: 0, rng: makeRng(1),
+      ultHold: new Map<number, UltHoldEntry>(),
+      solutions: solutionsFor([
+        [0, 10], [1, 10], [2, 10],
+        [WEAPON_SLOT_CONFIG.basicAttackSlotIndex, 1_000_000],
+      ]),
+    });
+    expect(decision.slot).toBe(WEAPON_SLOT_CONFIG.basicAttackSlotIndex);
   });
 });

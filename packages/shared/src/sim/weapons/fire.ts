@@ -1,6 +1,6 @@
 import { basicAttackOf, isCarId } from "../../config/car-config.js";
 import type { CarId } from "../../config/types.js";
-import { weaponDefOf } from "../../config/weapon-config.js";
+import { BASIC_ATTACK_CONFIG, weaponDefOf } from "../../config/weapon-config.js";
 import { WEAPON_SLOT_CONFIG, slotsFrom, slotsOf } from "../../config/weapon-slots.js";
 import { scaleTicks, weaponTicksOf } from "../../config/weapon-ticks.js";
 import type { WeaponId } from "../../config/weapon-types.js";
@@ -250,6 +250,9 @@ export function beginFire(
   const usable = Math.min(state.slots.length, WEAPON_SLOT_CONFIG.maxFireSlots);
   for (let index = 0; index < usable; index++) {
     if ((mask & (1 << index)) === 0) continue;
+    // The toggle: disabled means the press is dropped exactly like a slot that never had a bit set,
+    // not a slot that exists but always fails a later gate (BASIC_ATTACK_CONFIG).
+    if (index === WEAPON_SLOT_CONFIG.basicAttackSlotIndex && !BASIC_ATTACK_CONFIG.enabled) continue;
 
     const slot = state.slots[index]!;
     const def = weaponDefOf(slot.weaponId);

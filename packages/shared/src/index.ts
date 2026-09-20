@@ -178,7 +178,13 @@ export {
   isGameMode,
 } from "./config/mode-config.js";
 export { COLOR_TABLE, isColorId } from "./config/color-config.js";
-export { WEAPON_TABLE, instanceDefOf, isWeaponId, weaponDefOf } from "./config/weapon-config.js";
+export {
+  BASIC_ATTACK_CONFIG,
+  WEAPON_TABLE,
+  instanceDefOf,
+  isWeaponId,
+  weaponDefOf,
+} from "./config/weapon-config.js";
 export type {
   BeamHitbox,
   BeamOrigin,

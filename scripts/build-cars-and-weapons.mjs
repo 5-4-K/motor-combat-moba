@@ -34,6 +34,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   ACTIVE_ARENA_ID,
+  BASIC_ATTACK_CONFIG,
   CAR_TABLE,
   COMBAT_CONFIG,
   DRIVE_CONFIG,
@@ -319,6 +320,9 @@ export function carrierOf(weaponId) {
 export function balanceStamp() {
   const inputs = {
     weapons: WEAPON_TABLE,
+    // Whether the Basic attack card prints at all — the toggle changes what the page says without
+    // touching any table the other keys already hash.
+    basicAttackEnabled: BASIC_ATTACK_CONFIG.enabled,
     // ACTIVE cars only, matching `CAR_IDS` — the stamp fingerprints what the page SAYS, and the
     // page says nothing about an inactive chassis. Hashing `CAR_TABLE` whole would fail `npm test`
     // on every ratings tweak to an unreleased car. Flipping `isActive` to true still moves the
@@ -661,7 +665,7 @@ function weaponCard(w) {
  * Handling prints turn RADIUS beside the rate for the same reason: the rate is what the rating sets,
  * the radius is what a corner costs.
  */
-function carSection(carId) {
+export function carSection(carId) {
   const car = CAR_TABLE[carId];
   const ratings = [
     ["Speed", car.speed, `${round(forwardMaxSpeedOf(carId))} u/s top`],
@@ -690,7 +694,10 @@ function carSection(carId) {
           `<li><span class="bl">${esc(label)}</span><span class="bt"><i style="width:${value}%"></i></span><span class="bv">${value}</span><span class="bn">${esc(note)}</span></li>`,
       )
       .join("")}</ul>
-    <div class="weapons">${[basicAttackOf(carId), ...slotsOf(carId)].map((id) => weaponCard(byId[id])).join("")}</div>
+    <div class="weapons">${[
+      ...(BASIC_ATTACK_CONFIG.enabled ? [basicAttackOf(carId)] : []),
+      ...slotsOf(carId),
+    ].map((id) => weaponCard(byId[id])).join("")}</div>
   </section>`;
 }
 
