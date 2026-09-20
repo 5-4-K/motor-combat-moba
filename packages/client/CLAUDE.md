@@ -225,4 +225,19 @@ the maths lives in `combat-visual.ts` rather than in `ArenaScene`, which no test
 
 The weapon slot HUD (`scenes/weapon-hud.ts` for the pure derivations, drawn by `ArenaScene.drawHudSlot`) reads `PlayerState.weapons` (`WeaponSlotState[]`, one row per slot) plus four car-wide fields: `level`, `switchLockUntilTick`, `pendingUntilTick` and `lastFiredSlot`. The last two are what let the car-wide lockout dim be correct for any weapon — every slot through a wind-up or volley (`tick < pendingUntilTick`), the other slots through recovery (`index !== lastFiredSlot`) — so a weapon with `startUpMs > 0`, `volleys > 1`, or `recoveryMs > 0` needs no wire change. `fire.ts`'s `pending` machine itself is never networked. See [`docs/schema-reference.md`](../../docs/schema-reference.md#playerstate).
 
+**The slot bar is a baked picture, not a live `Graphics`.** Phaser re-tessellates a `Graphics` every
+frame it is on screen whether or not its commands moved, and the slot bar's rings, glows and
+rounded pills cost ~0.5 ms of render a frame for a picture that changes a few times a second.
+`hudGfx` is therefore on no display list: `renderWeaponHud` still builds its commands every frame
+(0.05 ms), and `bakeHud` draws them into the `hudBake` render texture only when `sameCommands`
+(`scenes/hud-bake.ts`) says they differ from the ones last baked — comparing the OUTPUT, so there is
+no second description of what the HUD depends on to drift from the draw code. Baked at
+`HUD_BAKE_SCALE` (2x) and displayed at half scale, because a render texture is not multisampled and
+the canvas the HUD camera used to draw to is. **Anything that changes every tick belongs on
+`hudSweepGfx`, the live layer, not on `hudGfx`**: the cooldown arc always was, and the status
+strip's drain bars were moved there for this reason — on `hudGfx` one active status re-baked the
+whole bar at the tick rate. A new HUD element that reads a clock and draws into `hudGfx` will not
+break anything; it will quietly turn the bake back into a per-frame redraw, and `bakes per second`
+in a profile is how to notice.
+
 Art is data, not code. `public/art/manifest.json` maps namespaced keys (`car.bastion`, `weapon-icon.thumper`) to sprite entries; `src/assets/` parses and fits them. A missing, malformed, or unloadable entry falls back to the procedural silhouette in `drawCar` — that fallback is permanent, not legacy, and is what lets art be added one file at a time. Sprites are cosmetic: they are fitted to the OBB hull and never change it. `?dev=assets` opens the asset tuning tool, which is stripped from release builds and asserted absent by `scripts/build-release.mjs`.

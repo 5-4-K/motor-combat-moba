@@ -90,6 +90,7 @@ import {
   type ImpactTracker,
 } from "./impact-feedback.js";
 import { pts } from "./graphics-points.js";
+import { HUD_BAKE_SCALE, sameCommands } from "./hud-bake.js";
 import {
   carFillFor,
   carShapeOf,
@@ -831,12 +832,21 @@ export class ArenaScene extends Phaser.Scene {
   /**
    * The weapon slot HUD: one Graphics for every box and glyph, a second Graphics for the cooldown
    * sweep wedge (kept separate so it can sit at `HUD_SWEEP_DEPTH`, above the icon pool — see that
-   * constant's comment), both cleared and redrawn each frame same as `shotGfx`/`hpGfx`, and a
+   * constant's comment), both cleared and rebuilt each frame same as `shotGfx`/`hpGfx`, and a
    * fixed-size pool of Text objects — one per possible slot — reused across frames rather than
    * created and destroyed at the render rate.
+   *
+   * **`hudGfx` is on no display list.** It is a scratch pad whose commands are baked into
+   * `hudBake` whenever they differ from the ones last baked — see `scenes/hud-bake.ts` for the
+   * measurement and for why the comparison is of the commands rather than of their inputs.
+   * `hudSweepGfx` is still drawn live: it is empty unless a cooldown or a block is showing.
    */
   private hudCamera: Phaser.Cameras.Scene2D.Camera | undefined;
   private hudGfx: Phaser.GameObjects.Graphics | undefined;
+  /** The gutter, as a picture of `hudGfx`. Camera-fixed at `HUD_BOX_DEPTH`, where `hudGfx` drew. */
+  private hudBake: Phaser.GameObjects.RenderTexture | undefined;
+  /** `hudGfx`'s commands as of the last bake. Copied only when a bake happens. */
+  private hudBakedCommands: unknown[] = [];
   private hudSweepGfx: Phaser.GameObjects.Graphics | undefined;
   private hudKeyTexts: Phaser.GameObjects.Text[] = [];
   private hudNameTexts: Phaser.GameObjects.Text[] = [];
@@ -1031,7 +1041,22 @@ export class ArenaScene extends Phaser.Scene {
     this.hpGfx = this.add.graphics().setDepth(HP_BAR_DEPTH);
     this.arrowGfx = this.add.graphics().setDepth(ARROW_DEPTH);
     this.maneuverGfx = this.add.graphics().setDepth(MANEUVER_DEPTH);
-    this.hudGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH);
+    // Made, not added: nothing draws `hudGfx` but `bakeHud`. Scaled and shifted so the gutter's
+    // left edge lands on the bake texture's, at `HUD_BAKE_SCALE` texels per pixel.
+    const gutterX = VIEW_WIDTH - HUD_GUTTER_WIDTH;
+    this.hudGfx = this.make
+      .graphics({}, false)
+      .setScale(HUD_BAKE_SCALE)
+      .setPosition(-gutterX * HUD_BAKE_SCALE, 0);
+    this.hudBake = this.add
+      .renderTexture(gutterX, 0, HUD_GUTTER_WIDTH * HUD_BAKE_SCALE, VIEW_HEIGHT * HUD_BAKE_SCALE)
+      .setOrigin(0, 0)
+      .setScale(1 / HUD_BAKE_SCALE)
+      .setScrollFactor(0)
+      .setDepth(HUD_BOX_DEPTH);
+    // Same mode the decal layer runs in: the texture shows itself, `render()` is called by hand.
+    this.hudBake.setRenderMode("render");
+    this.hudBakedCommands = [];
     this.hudSweepGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_SWEEP_DEPTH);
     this.rosterGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH);
     this.buildHudTextPool();
@@ -1406,7 +1431,7 @@ export class ArenaScene extends Phaser.Scene {
     this.hudCamera = hud;
 
     const hudObjects: Phaser.GameObjects.GameObject[] = [
-      ...(this.hudGfx ? [this.hudGfx] : []),
+      ...(this.hudBake ? [this.hudBake] : []),
       ...(this.hudSweepGfx ? [this.hudSweepGfx] : []),
       ...(this.rosterGfx ? [this.rosterGfx] : []),
       ...(this.countdownText ? [this.countdownText] : []),
@@ -1566,6 +1591,9 @@ export class ArenaScene extends Phaser.Scene {
     this.fx = undefined;
     this.hudGfx?.destroy();
     this.hudGfx = undefined;
+    this.hudBake?.destroy();
+    this.hudBake = undefined;
+    this.hudBakedCommands = [];
     this.hudSweepGfx?.destroy();
     this.hudSweepGfx = undefined;
     this.rosterGfx?.destroy();
@@ -3023,9 +3051,34 @@ export class ArenaScene extends Phaser.Scene {
       this.drawHudSlot(gfx, sweepGfx, i, box, slot, player, room.state.tick);
     }
 
-    // Same `gfx`, same clear, same target car: the badges belong to the slot bar's column and share
-    // its lifetime, so they are drawn here rather than from their own pass with their own Graphics.
-    this.drawStatusStrip(gfx, player, boxes[0]?.y ?? VIEW_HEIGHT / 2, room.state.tick);
+    // Same clear, same target car: the badges belong to the slot bar's column and share its
+    // lifetime, so they are drawn here rather than from their own pass with their own Graphics.
+    //
+    // Into `sweepGfx`, the LIVE layer, not the baked `gfx`: a badge's drain bar moves every tick it
+    // is up, so on `gfx` one active status re-baked the whole slot bar at the tick rate (measured:
+    // ~8 bakes a second in a six-car fight, all from here). A badge is two `fillRect`s — quads,
+    // nothing to tessellate — so drawing it live costs nothing worth baking away. `HUD_SWEEP_DEPTH`
+    // is under `HUD_TEXT_DEPTH`, so the labels still sit on their pills, and the strip is above the
+    // slots, so it overlaps no icon.
+    this.drawStatusStrip(sweepGfx, player, boxes[0]?.y ?? VIEW_HEIGHT / 2, room.state.tick);
+    this.bakeHud(gfx);
+  }
+
+  /**
+   * Put `hudGfx`'s picture into `hudBake` if it is not the one already there.
+   *
+   * Every frame but a handful this is one array comparison and a return. See `scenes/hud-bake.ts`.
+   */
+  private bakeHud(gfx: Phaser.GameObjects.Graphics): void {
+    const bake = this.hudBake;
+    if (!bake) return;
+    const commands: readonly unknown[] = gfx.commandBuffer;
+    if (sameCommands(commands, this.hudBakedCommands)) return;
+    this.hudBakedCommands = commands.slice();
+    bake.clear();
+    // `gfx` carries its own scale and offset (set where it is made), which `draw` honours.
+    bake.draw(gfx);
+    bake.render();
   }
 
   /**
