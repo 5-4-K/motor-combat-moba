@@ -4,7 +4,9 @@ import {
   BOT_SESSION_ID,
   PLAYGROUND_SEATS,
   PLAYGROUND_SEAT_IDS,
+  WEAPON_SLOT_CONFIG,
   defaultPlaygroundSetup,
+  isPlaygroundSetup,
 } from "@motor-combat-moba/shared";
 import { envKey } from "../../fx/env-tuning.js";
 import {
@@ -16,6 +18,7 @@ import {
   saveStored,
   sanitizeStoredEnv,
   sanitizeStoredVfx,
+  upgradeStoredSetup,
   type StoredPlayground,
 } from "./storage.js";
 
@@ -342,6 +345,97 @@ describe("upgrading a two-car blob to six seats (PG85)", () => {
   it("falls back whole on garbage", () => {
     expect(decodeStored("not json").setup).toEqual(defaultPlaygroundSetup());
     expect(decodeStored(null).setup).toEqual(defaultPlaygroundSetup());
+  });
+});
+
+/**
+ * VS34. A blob saved at a higher `N` carries seats whose loadouts this build no longer accepts, and
+ * `isPlaygroundCarSetup` rejects a seat with more than `maxAbilitySlots` weapons. Without a
+ * truncation in the upgrade path that rejection costs the ENTIRE setup — six chassis, six colours,
+ * the enabled flags, the driven seat and the arena — replaced by `defaultPlaygroundSetup()` over one
+ * trailing weapon, where the same over-long kit on a `CAR_TABLE` row is simply cut by `slotsFrom`.
+ *
+ * `N` is build-time and a test cannot move it, so the cap is a parameter with the live value bound
+ * as its default (spec §11): these drive `upgradeStoredSetup` at a cap of 1, which is below every
+ * legal `N`, so the cases mean the same thing at `N = 1, 2, 3, 4`. The one case that must go through
+ * the live cap — the whole-setup survival that `decodeStored` decides — measures against
+ * `WEAPON_SLOT_CONFIG.maxAbilitySlots` rather than against 3.
+ */
+describe("truncating a stored loadout to this build's slot count (VS34)", () => {
+  /** Four distinct real weapons: longer than any legal `N` but one, so there is always something
+   * to cut. Split across chassis on purpose — the playground lets a seat mix them (PG17). */
+  const OVERLONG = ["thumper", "roadblock", "wildcharge", "predator"] as const;
+
+  const seatBlob = {
+    ...defaultPlaygroundSetup(),
+    botDifficulty: "hard" as const,
+    drivenSeat: 1,
+    cars: defaultPlaygroundSetup().cars.map((car) => ({ ...car, weapons: [...OVERLONG] })),
+  };
+
+  it("cuts every seat's loadout to the cap, in authored order, and keeps the rest of the setup", () => {
+    const upgraded = upgradeStoredSetup(seatBlob, 1) as typeof seatBlob;
+    expect(upgraded.cars.map((c) => c.weapons)).toEqual(
+      seatBlob.cars.map(() => [OVERLONG[0]]),
+    );
+    expect(upgraded.cars.map((c) => c.carId)).toEqual(seatBlob.cars.map((c) => c.carId));
+    expect(upgraded.cars.map((c) => c.colorId)).toEqual(seatBlob.cars.map((c) => c.colorId));
+    expect(upgraded.cars.map((c) => c.enabled)).toEqual(seatBlob.cars.map((c) => c.enabled));
+    expect(upgraded.drivenSeat).toBe(1);
+    expect(upgraded.arenaId).toBe(seatBlob.arenaId);
+    expect(upgraded.botDifficulty).toBe("hard");
+  });
+
+  it("hands the validator something it accepts, which is the whole point", () => {
+    // One weapon per seat is legal at every `N` (the floor is 1), so this assertion holds at any
+    // build count without knowing which one this build is.
+    expect(isPlaygroundSetup(upgradeStoredSetup(seatBlob, 1))).toBe(true);
+  });
+
+  it("truncates a LEGACY me/opponent blob on its way to six seats, too", () => {
+    const legacy = {
+      botEnabled: true,
+      botDifficulty: "hard" as const,
+      arenaId: ACTIVE_ARENA_ID,
+      me: { carId: "bastion", colorId: 3, weapons: [...OVERLONG] },
+      opponent: { carId: "bullseye", colorId: 5, weapons: [...OVERLONG] },
+    };
+    const upgraded = upgradeStoredSetup(legacy, 1) as { cars: { carId: string; weapons: string[] }[] };
+    expect(upgraded.cars[0]!.weapons).toEqual([OVERLONG[0]]);
+    expect(upgraded.cars[1]!.weapons).toEqual([OVERLONG[0]]);
+    expect(upgraded.cars[0]!.carId).toBe("bastion");
+    expect(isPlaygroundSetup(upgraded)).toBe(true);
+  });
+
+  it("leaves a loadout already inside the cap exactly as it was", () => {
+    const short = {
+      ...defaultPlaygroundSetup(),
+      cars: defaultPlaygroundSetup().cars.map((car) => ({ ...car, weapons: [OVERLONG[0]] })),
+    };
+    expect(upgradeStoredSetup(short, WEAPON_SLOT_CONFIG.maxAbilitySlots)).toEqual(short);
+  });
+
+  it("is not fooled into repairing a malformed seat — that still falls back whole", () => {
+    const broken = {
+      ...defaultPlaygroundSetup(),
+      cars: defaultPlaygroundSetup().cars.map((car, seat) =>
+        seat === 2 ? { ...car, weapons: "thumper" } : car,
+      ),
+    };
+    expect(decodeStored(JSON.stringify({ setup: broken })).setup).toEqual(defaultPlaygroundSetup());
+  });
+
+  it("SURVIVES a real load: the stored setup is truncated, never discarded for the defaults", () => {
+    // The regression this exists for. At any `N` below `OVERLONG.length` the old code handed
+    // `isPlaygroundSetup` a four-weapon seat, it said no, and six seats of configuration went to
+    // `defaultPlaygroundSetup()`.
+    const raw = JSON.stringify({ setup: { ...seatBlob, arenaId: ACTIVE_ARENA_ID } });
+    const { setup } = decodeStored(raw);
+    const kept = Math.min(OVERLONG.length, WEAPON_SLOT_CONFIG.maxAbilitySlots);
+    expect(setup.cars[0]!.weapons).toEqual(OVERLONG.slice(0, kept));
+    expect(setup.drivenSeat).toBe(1);
+    expect(setup.botDifficulty).toBe("hard");
+    expect(setup).not.toEqual(defaultPlaygroundSetup());
   });
 });
 

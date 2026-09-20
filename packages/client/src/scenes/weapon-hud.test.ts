@@ -270,12 +270,45 @@ describe("abilityCountOf (BA15)", () => {
     // Positive: the real call site imports and uses this helper, not just some code that happens
     // to exist near it.
     expect(ARENA_SCENE_CODE).toMatch(/import\s*\{[^}]*\babilityCountOf\b[^}]*\}\s*from\s*"\.\/weapon-hud\.js"/);
-    expect(ARENA_SCENE_CODE).toMatch(/slotBarLayout\(\s*this\.localAbilityCount\(\)/);
+    // The bar is sized from the car it DRAWS — `hudTargetPlayer`'s `player` — not from the car the
+    // viewer drives. The two differ while spectating, and sizing from `localAbilityCount()` there
+    // loses the watched car's trailing abilities (or draws boxes it has no weapons for) and
+    // anchors the status strip off a `boxes[0]` belonging to neither car.
+    expect(ARENA_SCENE_CODE).toMatch(/slotBarLayout\(\s*abilityCountOf\(player\.weapons\.length\)/);
+    // ...and `localAbilityCount()` keeps the job it IS right for: the countdown hint teaches the
+    // local player their own keys. If this ever moves, it must not move back onto the slot bar.
+    expect(ARENA_SCENE_CODE).toMatch(/actionKeysFor\(\s*this\.localAbilityCount\(\)/);
+    expect(ARENA_SCENE_CODE).toMatch(/actionAltsFor\(\s*this\.localAbilityCount\(\)/);
 
     // Negative: nobody re-derived the count by hand instead of calling the helper. Whitespace
     // variants (`- 1`, `-1`, `- 1`) are all covered, since that is exactly the kind of edit that
     // would slip past a narrower pattern.
     expect(ARENA_SCENE_CODE).not.toMatch(/weapons\.length\s*-\s*1\b/);
+    // And the slot bar is never sized from a raw array length, the other way to get this wrong.
+    expect(ARENA_SCENE_CODE).not.toMatch(/slotBarLayout\(\s*\w+(?:\.\w+)*\.weapons\.length/);
+  });
+
+  /**
+   * The other half of the same stopgap, and the same caveat applies: source text, because
+   * `ArenaScene.ts` cannot be exercised here.
+   *
+   * `ABILITY_SLOT_OFFSET` is what keeps fire slot 0 out of the ability HUD. Delete the three `+
+   * ABILITY_SLOT_OFFSET` / `fireSlot` sites and every suite in this repo stays green while the HUD
+   * silently draws the BASIC ATTACK as ability 1 — with ability 1's key pill over it, and a
+   * fired-slot highlight one slot out. Nothing else pins them.
+   */
+  it("pins ArenaScene's fire-slot offsets so ability 1 can never become the basic attack (BA15/VS23 source guard)", () => {
+    // The slot the ability bar READS: ability `i` is fire slot `i + ABILITY_SLOT_OFFSET`.
+    expect(ARENA_SCENE_CODE).toMatch(
+      /player\.weapons\.at\(\s*i\s*\+\s*ABILITY_SLOT_OFFSET\s*\)/,
+    );
+    // `drawHudSlot` derives the fire slot once, from the ability index...
+    expect(ARENA_SCENE_CODE).toMatch(/const fireSlot\s*=\s*index\s*\+\s*ABILITY_SLOT_OFFSET\s*;/);
+    // ...and both of its fire-slot-indexed readers go through that variable, never through `index`.
+    expect(ARENA_SCENE_CODE).toMatch(/fireSlot\s*===\s*player\.lastFiredSlot/);
+    expect(ARENA_SCENE_CODE).toMatch(/SLOT_KEYS\[fireSlot\]/);
+    expect(ARENA_SCENE_CODE).not.toMatch(/SLOT_KEYS\[index\]/);
+    expect(ARENA_SCENE_CODE).not.toMatch(/index\s*===\s*player\.lastFiredSlot/);
   });
 });
 

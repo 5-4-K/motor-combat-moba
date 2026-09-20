@@ -1,4 +1,4 @@
-import { BASIC_ATTACK_CONFIG, RoomPhase, WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
+import { RoomPhase } from "@motor-combat-moba/shared";
 import { hintSlotOrder, SLOT_KEYS } from "../config/slot-keys.js";
 
 /**
@@ -44,15 +44,15 @@ export function actionAltsFor(abilities: number, enabled: boolean): readonly str
   return hintSlotOrder(enabled, abilities).map((slot) => SLOT_KEYS[slot]!.glyph);
 }
 
-/** This build's full row, for a caller with no chassis in hand. */
-export const ACTION_KEYS: readonly string[] = actionKeysFor(
-  WEAPON_SLOT_CONFIG.maxAbilitySlots,
-  BASIC_ATTACK_CONFIG.enabled,
-);
-export const ACTION_ALTS: readonly string[] = actionAltsFor(
-  WEAPON_SLOT_CONFIG.maxAbilitySlots,
-  BASIC_ATTACK_CONFIG.enabled,
-);
+/**
+ * Closes the action row, the way `MOVEMENT_LABEL` closes the movement one.
+ *
+ * There is deliberately no `ACTION_KEYS`/`ACTION_ALTS` constant beside it. Those existed for "a
+ * caller with no chassis in hand" and were bound to `WEAPON_SLOT_CONFIG.maxAbilitySlots`; once
+ * `ArenaScene` started passing the driven car's own ability count (VS19) nothing in production read
+ * them, and a `N`-bound row that no screen draws is a row that can rot into teaching keys the
+ * player's chassis does not have. Call `actionKeysFor`/`actionAltsFor` with a real count.
+ */
 export const ACTION_LABEL = "to fire";
 
 /**

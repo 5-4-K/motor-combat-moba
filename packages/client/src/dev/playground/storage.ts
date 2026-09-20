@@ -2,6 +2,7 @@ import type { PlaygroundSetup, TuningOverrides } from "@motor-combat-moba/shared
 import {
   BOT_SESSION_ID,
   PLAYGROUND_SEAT_IDS,
+  WEAPON_SLOT_CONFIG,
   defaultPlaygroundSetup,
   isPlaygroundSetup,
   sanitizeStoredTuning,
@@ -88,15 +89,36 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
  * `botEnabled`, or without both car records stays invalid and falls back whole, exactly as before.
  * This never loosens the wire — the server still rejects an incomplete payload; only what this
  * browser saved for itself is upgraded.
+ *
+ * The one thing here that REMOVES rather than adds is the per-seat loadout truncation (VS34). A
+ * blob saved at a higher `N` carries more weapons per seat than `isPlaygroundCarSetup` accepts, and
+ * without this the whole setup — six seats' chassis, colours, enabled flags, the driven seat and
+ * the arena — is discarded for a trailing weapon, where a roster kit at the same length is simply
+ * truncated by `slotsFrom`. The stored loadout gets the same treatment its `CAR_TABLE` counterpart
+ * does, and raising `N` again brings back nothing: the trailing weapons are gone from storage once
+ * the setup is saved. That is the same one-way trade `slotsFrom` makes, at the price of a blob the
+ * developer can rebuild in two clicks rather than a whole sandbox they cannot.
+ *
+ * `maxAbilitySlots` is a parameter with the live value bound as its default, per the spec's
+ * `N`-testability rule (§11): production never passes it, and the tests drive every count.
  */
-function upgradeStoredSetup(value: unknown): unknown {
+export function upgradeStoredSetup(
+  value: unknown,
+  // `: number`, not the inferred literal: `maxAbilitySlots` is `as const`, so the inferred type
+  // would pin this parameter to this build's `N` and no test could pass another.
+  maxAbilitySlots: number = WEAPON_SLOT_CONFIG.maxAbilitySlots,
+): unknown {
   if (!isPlainRecord(value)) return value;
   const fallback = defaultPlaygroundSetup();
   const withDifficulty =
     value.botDifficulty === undefined ? { ...value, botDifficulty: fallback.botDifficulty } : value;
-  // Already a seat blob: nothing to do. Checked by presence rather than by shape, so a malformed
-  // `cars` is handed to the validator to reject rather than being silently replaced.
-  if (withDifficulty.cars !== undefined) return withDifficulty;
+  // Already a seat blob: only the loadouts need capping. Checked by presence rather than by shape,
+  // so a malformed `cars` is handed to the validator to reject rather than being silently replaced.
+  if (withDifficulty.cars !== undefined) {
+    const cars = withDifficulty.cars;
+    if (!Array.isArray(cars)) return withDifficulty;
+    return { ...withDifficulty, cars: cars.map((car) => capSeatWeapons(car, maxAbilitySlots)) };
+  }
 
   const { me, opponent, ...rest } = withDifficulty as Record<string, unknown>;
   if (me === undefined || opponent === undefined) return withDifficulty;
@@ -116,10 +138,32 @@ function upgradeStoredSetup(value: unknown): unknown {
   return {
     ...rest,
     cars: fallback.cars.map((base, seat) =>
-      seat === 0 ? seatFrom(me, 0, true) : seat === 1 ? seatFrom(opponent, 1, true) : { ...base, enabled: false },
+      capSeatWeapons(
+        seat === 0
+          ? seatFrom(me, 0, true)
+          : seat === 1
+            ? seatFrom(opponent, 1, true)
+            : { ...base, enabled: false },
+        maxAbilitySlots,
+      ),
     ),
     drivenSeat: 0,
   };
+}
+
+/**
+ * One seat's loadout cut to this build's `N`, in authored order — the same rule `slotsFrom` applies
+ * to a `CAR_TABLE` kit, so a stored seat and a roster chassis are narrowed by one rule (VS34).
+ *
+ * Anything that is not a record with an array of weapons is returned untouched: this upgrades, it
+ * does not repair, and a malformed seat belongs to `isPlaygroundSetup` to reject. A loadout already
+ * within the cap is returned by identity rather than copied, so the common case allocates nothing.
+ */
+function capSeatWeapons(car: unknown, maxAbilitySlots: number): unknown {
+  if (!isPlainRecord(car)) return car;
+  const weapons = car.weapons;
+  if (!Array.isArray(weapons) || weapons.length <= maxAbilitySlots) return car;
+  return { ...car, weapons: weapons.slice(0, maxAbilitySlots) };
 }
 
 /**

@@ -185,9 +185,21 @@ length.** Today `slotBarLayout` is handed `weapons.length` and clamps it with
 `min(count, maxAbilitySlots)`, which worked only because the basic attack was the array's last
 element and the clamp happened to cut it off. At index 0 that clamp would drop ability `N` and draw
 the basic attack instead. The caller therefore passes the ability count — the fire-slot array length
-minus one — and `slotBarLayout` clamps to `maxAbilitySlots` as a guard rather than as the mechanism.
+minus one — and the clamp stops being the mechanism.
 BA15 is preserved by construction: the basic attack is not an ability slot, so it is never a box. If
 it ever needs a readout it gets its own.
+
+*Corrected 2026-09-20:* this clause originally ended "and `slotBarLayout` clamps to
+`maxAbilitySlots` as a guard rather than as the mechanism". The clamp was **removed outright**, not
+demoted, and the code and the spec are reconciled here on the code's side. Keeping it as a guard is
+not free: `slotBarLayout` is the function VS21's own ceiling case is measured through, and that case
+asks it for **four and five** boxes — counts deliberately at and above the shipped `N` of 3. A
+`min(count, maxAbilitySlots)` guard inside it would answer 3 to both, and the HUD's only
+layout-ceiling evidence would quietly become a tautology. A guard that has to be disabled to test
+the thing it guards is worse than no guard, so the rule moved to where it can be stated once and
+exercised: `abilityCountOf` derives the count, and `weapon-hud.test.ts`'s BA15 source guard pins
+`renderWeaponHud`'s call site to it. `slotBarLayout` is pure layout now — one box per count — and an
+over-long count is the caller's error rather than something silently absorbed.
 
 **VS23. Key pills read `SLOT_KEYS[abilityIndex + 1]`.** The `+ 1` is the one place the basic
 attack's index-0 position leaks into the HUD, and it is written once.
@@ -297,14 +309,43 @@ than trusting a reader to remember. No baseline run is being taken before this w
   every count (VS20).
 - `manual-page.test.mjs` / `manual-facts.test.mjs`: the guide publishing `min(kit, N)` (VS28), the
   deleted token (VS29), and the stamp moving with `N` (VS30).
-- The suite must be green at `N = 1, 2, 3, 4`, not only at the shipped default. `N` is a
+- **Production code must be correct at `N = 1, 2, 3, 4`** — no crash, no off-by-one, no slot lost
+  or invented — while roster-pinned FIXTURES are expected to fail at any `N` but the shipped one,
+  and updating them is part of the cost of changing `N`. `N` is a
   build-time constant and a test cannot move it, so **every function whose behaviour depends on `N`
   takes it as a parameter and is re-exported with the live value bound** — the shape
   `hintSlotOrder(enabled)` / `HINT_SLOT_ORDER` already uses. That covers `slotsFrom`, the hint
-  order, the mask limit and the HUD's clamp. Production code reads the bound form; tests call the
-  parameterised one across the whole range. A function that reads `WEAPON_SLOT_CONFIG` directly is
+  order, the mask limit and the playground's stored-setup upgrade. Production code reads the bound
+  form; tests call the parameterised one across the whole range. A function that reads `WEAPON_SLOT_CONFIG` directly is
   a function no test can exercise at another `N`, which is how a slot count that only works at 3
   would ship.
+
+*Corrected 2026-09-20:* this bullet originally read "The suite must be green at `N = 1, 2, 3, 4`,
+not only at the shipped default." That is measurably false, and stating it as a requirement makes
+every count but 3 look like a broken build. Measured by editing `ABILITY_SLOTS`, rebuilding shared
+and running each suite, against a green baseline at `N = 3` of shared 1027 / client 1069 /
+scripts 160 passing:
+
+| `N` | shared failures | client failures | script failures |
+|---|---|---|---|
+| 4 | 1 | 5 | 1 |
+| 3 | 0 | 0 | 0 |
+| 2 | 20 | 13 | 2 |
+| 1 | 28 | 18 | 3 |
+
+Nearly all of those are fixtures pinning the three-weapon shipped roster — a full kit's length, a
+three-bit fire mask, a three-box HUD stack, a three-row manual card — and they are legitimate: they
+are what catches a weapon silently dropped from a shipped loadout. **Narrowing `N` breaks far more
+than widening it** — nearly thirty times more on the shared suite alone — because widening leaves
+every three-weapon expectation still true (a kit shorter than `N` is the designed case, VS11) while
+narrowing falsifies all of them at once. The obligation is the one stated above, that the CODE is
+right at every count; it was never that an unedited fixture set is green at every count.
+
+The table was first measured before the VS34 stored-setup truncation landed, at a client baseline of
+1063 and reading 6 / 16 / 20 client failures and 1 / 1 / 2 script failures. That earlier row set is
+superseded: the truncation removed four `storage.test.ts` failures and one
+`playground-messages.test.ts` failure at `N = 1` and `N = 2`, and these rows are a fresh measurement
+of the tree that shipped, not the old numbers with the delta subtracted.
 
 ## 12. The skill
 

@@ -40,8 +40,8 @@ export const CHASSIS_COPY = {
   },
   bastion: {
     line:
-      "The slowest chassis and the biggest hull. It cannot chase you, so it stops you instead: two " +
-      "of its kit stun or slam.",
+      "The slowest chassis and the biggest hull. It cannot chase you, so it stops you instead: " +
+      "there is a stun in its kit, and a slam beside it.",
   },
 };
 

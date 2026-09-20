@@ -3,8 +3,6 @@ import { GameMode, PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
 import { isSpectating } from "./spectate.js";
 import { SLOT_KEYS, hintSlotOrder } from "../config/slot-keys.js";
 import {
-  ACTION_ALTS,
-  ACTION_KEYS,
   MOVEMENT_ARROWS,
   MOVEMENT_KEYS,
   actionAltsFor,
@@ -85,27 +83,31 @@ describe("movementHintItems", () => {
     expect(MOVEMENT_ARROWS).toHaveLength(MOVEMENT_KEYS.length);
   });
 
-  it("teaches every fire binding: the letters live here, the mouse glyphs match the gutter", () => {
+  it("teaches only the slots the driven chassis actually has", () => {
+    // VS19. This used to be a pair of module constants bound to `maxAbilitySlots`, so a two-weapon
+    // chassis would have been taught the semicolon for a slot it does not carry. Those constants
+    // are gone — nothing in production read them once `ArenaScene` passed the driven car's own
+    // count — and these cases are the coverage that was always doing the work.
+    //
     // The gutter pill prints only the mouse-hand glyph, so this countdown row is the one place the
     // J/K/L letters are shown. Derived from SLOT_KEYS, so a rebind cannot leave the hint stale.
     // The basic attack still comes first (BA19) — but it comes first because it IS fire slot 0 now,
     // not because the hint reorders the table around it (VS15).
-    expect(ACTION_KEYS).toEqual(["H", "J", "K", "L"]);
-    expect(ACTION_ALTS).toEqual(["LMB", "RMB", "SHIFT", "SPACE"]);
-    expect(hintSlotOrder(true)).toEqual([0, 1, 2, 3]);
-    expect(hintSlotOrder(false)).toEqual([1, 2, 3]);
-    // Subset, not equality: SLOT_KEYS is ceiling-length while the hint prints this build's N.
-    for (const glyph of ACTION_ALTS) expect(SLOT_KEYS.map((k) => k.glyph)).toContain(glyph);
-    for (const glyph of ACTION_KEYS) expect(SLOT_KEYS.map((k) => k.keyGlyph)).toContain(glyph);
-  });
-
-  it("teaches only the slots the driven chassis actually has", () => {
-    // VS19. `ACTION_KEYS` was a module constant, so a two-weapon chassis would have been taught
-    // the semicolon for a slot it does not carry.
     expect(actionKeysFor(2, true)).toEqual(["H", "J", "K"]);
+    expect(actionKeysFor(3, true)).toEqual(["H", "J", "K", "L"]);
     expect(actionKeysFor(4, true)).toEqual(["H", "J", "K", "L", ";"]);
     expect(actionKeysFor(3, false)).toEqual(["J", "K", "L"]);
     expect(actionAltsFor(2, true)).toEqual(["LMB", "RMB", "SHIFT"]);
+    expect(actionAltsFor(3, true)).toEqual(["LMB", "RMB", "SHIFT", "SPACE"]);
+    expect(hintSlotOrder(true, 3)).toEqual([0, 1, 2, 3]);
+    expect(hintSlotOrder(false, 3)).toEqual([1, 2, 3]);
+    // Subset, not equality: SLOT_KEYS is ceiling-length while a hint row prints one chassis's kit.
+    for (const glyph of actionAltsFor(4, true)) {
+      expect(SLOT_KEYS.map((k) => k.glyph)).toContain(glyph);
+    }
+    for (const glyph of actionKeysFor(4, true)) {
+      expect(SLOT_KEYS.map((k) => k.keyGlyph)).toContain(glyph);
+    }
   });
 });
 

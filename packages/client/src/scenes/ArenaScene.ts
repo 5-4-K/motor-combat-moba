@@ -2800,9 +2800,12 @@ export class ArenaScene extends Phaser.Scene {
    * How many ABILITY slots the local player's chassis carries — the fire-slot array minus its
    * basic attack. Falls back to this build's slot count before the player's car is known.
    *
+   * For the countdown action hint ONLY, which teaches the keys this player presses on their own
+   * car. The slot bar deliberately does not use it: that draws whichever car `hudTargetPlayer`
+   * names, and while spectating that is somebody else's chassis — see `renderWeaponHud`.
+   *
    * Delegates to `abilityCountOf` (`weapon-hud.ts`) rather than recomputing `weapons.length - 1`
-   * here: the HUD's box count and (from a later task) the countdown hint's key row both need this
-   * number, and this is the one place it is derived, so the two cannot drift (BA15).
+   * here, so the one subtraction lives in one place (BA15).
    */
   private localAbilityCount(): number {
     const room = this.room;
@@ -2877,13 +2880,20 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * The slot bar draws the ABILITY kit — `localAbilityCount()` boxes — for whichever car
-   * `hudTargetPlayer` names. A car's `weapons` array is `[basicAttack, ...kit]` as of 2026-09-20
-   * (VS6); slot 0 is its basic attack and it is deliberately not drawn (BA15). That is a decision,
-   * not a truncation that happens to work: if the basic attack ever needs a readout, it gets its
-   * own, not an extra box here. Slots beyond the current target (or with no target at all) just
-   * hide their pooled text objects rather than destroying anything, so switching who is watched
-   * costs no allocation.
+   * The slot bar draws the ABILITY kit — `abilityCountOf(player.weapons.length)` boxes — for
+   * whichever car `hudTargetPlayer` names. A car's `weapons` array is `[basicAttack, ...kit]` as of
+   * 2026-09-20 (VS6); slot 0 is its basic attack and it is deliberately not drawn (BA15). That is a
+   * decision, not a truncation that happens to work: if the basic attack ever needs a readout, it
+   * gets its own, not an extra box here. Slots beyond the current target (or with no target at all)
+   * just hide their pooled text objects rather than destroying anything, so switching who is
+   * watched costs no allocation.
+   *
+   * The count comes off the TARGET, never `localAbilityCount()`. Those two name different cars the
+   * moment a dead player spectates someone else: sizing the bar from the driven car while filling
+   * it from the watched one loses the watched car's trailing abilities when the spectator's own
+   * chassis is shorter, draws empty boxes when it is longer, and anchors `drawStatusStrip` off a
+   * `boxes[0]` that belongs to neither. `localAbilityCount()` stays for the countdown hint, which
+   * really is about the local player's own keys.
    *
    * `topInset` is the roster panel's height, passed in rather than derived here: the panel lists
    * every player in the match while this lays out for one car, so the two count different things
@@ -2897,11 +2907,18 @@ export class ArenaScene extends Phaser.Scene {
     sweepGfx.clear();
 
     const player = this.hudTargetPlayer(room);
-    // The ABILITY count, not the array length: the fire-slot array is `[basicAttack, ...kit]`, and
-    // the bar draws the kit (BA15). Passing the length would hand `slotBarLayout` one box too many
-    // and its `min(count, maxAbilitySlots)` clamp would silently drop ability N (VS22).
+    // The TARGET car's ABILITY count, not the array length and not the local car's: the fire-slot
+    // array is `[basicAttack, ...kit]`, and the bar draws the kit (BA15). `slotBarLayout` has no
+    // clamp of its own (VS22), so passing the length would simply draw a box for the basic attack
+    // with ability 1's key pill over it.
     const boxes = player
-      ? slotBarLayout(this.localAbilityCount(), VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH, topInset)
+      ? slotBarLayout(
+          abilityCountOf(player.weapons.length),
+          VIEW_WIDTH,
+          VIEW_HEIGHT,
+          HUD_GUTTER_WIDTH,
+          topInset,
+        )
       : [];
 
     for (let i = 0; i < this.hudKeyTexts.length; i++) {

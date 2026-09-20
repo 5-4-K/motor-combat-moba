@@ -46,18 +46,24 @@ Read this list before promising what a change will do. Verified against the code
   (`packages/client/src/config/slot-keys.ts`) also caps its scan at `maxFireSlots`, so a `SLOT_KEYS`
   row this build has no slot for never reaches the wire, and the server's `SLOT_MASK`
   (`packages/server/src/sim/tick.ts`) masks it off again.
-- **The HUD box count.** `ArenaScene`'s `localAbilityCount` / `slotBarLayout`
-  (`packages/client/src/scenes/weapon-hud.ts`) — at most `N` boxes, and fewer for a chassis whose kit
-  is shorter.
+- **The HUD box count.** `ArenaScene`'s `renderWeaponHud` sizes the bar with
+  `abilityCountOf(player.weapons.length)` — the count of the car it DRAWS, which while spectating is
+  not the car the viewer drives — and hands it to `slotBarLayout`
+  (`packages/client/src/scenes/weapon-hud.ts`). At most `N` boxes, and fewer for a chassis whose kit
+  is shorter. `localAbilityCount()` is the local player's own count and belongs to the countdown
+  hint only.
 - **The countdown action hint.** `hintSlotOrder(enabled, abilities)` builds `[0, 1..abilities]`.
   `N` is only the DEFAULT for that parameter: production passes the local car's ability count
   (`ArenaScene` → `actionKeysFor(this.localAbilityCount(), …)`, VS19), so the hint follows the kit.
-  `movement-hint.ts`'s `ACTION_KEYS`/`ACTION_ALTS` module constants do read `maxAbilitySlots`
-  directly, but nothing in production reads them — only `movement-hint.test.ts` does.
+  `movement-hint.ts` used to also export `ACTION_KEYS`/`ACTION_ALTS`, bound to `maxAbilitySlots`;
+  nothing in production read them and they were deleted on 2026-09-20, so there is no `N`-bound
+  hint row left to keep in step.
 - **The guide.** `scripts/build-cars-and-weapons.mjs` publishes `min(kit, N)` per active chassis,
   and `balanceStamp` hashes `N` as `abilitySlots`.
 - **The playground's per-seat cap.** `ui-model.ts`'s add/remove controls and
-  `playground-messages.ts`'s validator both accept 1 to `maxAbilitySlots` distinct weapons.
+  `playground-messages.ts`'s validator both accept 1 to `maxAbilitySlots` distinct weapons, and
+  `storage.ts`'s `upgradeStoredSetup` truncates a stored seat's loadout to the cap on load (VS34) —
+  so lowering `N` costs a developer's saved sandbox its trailing weapons, never the whole blob.
 - **The offline tools' sweep.** `npm run balance`, `npm run ttk` and the playtest probes sweep what
   is reachable at this `N` and skip-and-name what is not. `ttk.mjs`'s `carrierOf` is total and
   returns `undefined` for a row no chassis can fire, and `unreachableWeaponIds` collects them for
@@ -146,6 +152,55 @@ test compares against `VIEW_HEIGHT`. The conclusion never changed.
 Raising `ABILITY_SLOT_CEILING` is therefore a HUD layout piece of work as well as a config edit, and
 is out of scope here.
 
+## 6b. What `npm test` actually does at each `N`
+
+Measured on 2026-09-20 by editing `ABILITY_SLOTS`, rebuilding shared and running each suite, against
+a green baseline at the shipped `N = 3` of **shared 1027 / client 1069 / scripts 160 passing**:
+
+| `N` | shared failures | client failures | script failures |
+|---|---|---|---|
+| 4 | 1 | 5 | 1 |
+| 3 | 0 | 0 | 0 |
+| 2 | 20 | 13 | 2 |
+| 1 | 28 | 18 | 3 |
+
+**Narrowing `N` breaks far more fixtures than widening it — twenty-eight shared failures at
+`N = 1` against one at `N = 4`.** That asymmetry is not noise and it is not a defect in the change; it is what the
+fixtures are for. Almost every one of those failures pins the **three-weapon shipped roster**: a
+full kit's length, a three-bit fire mask, a three-box HUD stack, a three-row manual card, a
+three-entry playground loadout. Widening leaves all of that still true — a kit shorter than `N` is
+the designed case (section 5), so a three-weapon chassis in an `N = 4` build behaves exactly as it
+did, and only the handful of fixtures that assert `maxAbilitySlots === 3` or a four-bit mask move.
+Narrowing falsifies every one of those roster expectations at once, because the shipped kits really
+are cut.
+
+Budget the work accordingly: going **up** is an afternoon of re-pinning; going **down** is a pass
+over every fixture that mentions a kit.
+
+What is NOT expected at any `N` is a production failure — a crash, an off-by-one, a slot drawn that
+cannot be fired or a slot fired that is not drawn. The spec's §11 makes that the obligation, and
+these counts are the reason it does not instead promise a green suite at every count. If something
+that is not a roster-pinned fixture fails, that is a real defect: fix it rather than re-pinning it.
+
+An earlier draft of this skill listed the `N = 4` failure set and said to expect the same set at any
+other `N`. That was wrong by a factor of nearly thirty on the shared suite alone, and is corrected
+here (2026-09-20). The rows above are measured on the tree that shipped the variable-slot work,
+including the VS34 stored-setup truncation; an earlier measurement taken before that fix read 6 / 16
+/ 20 client failures, because an over-long stored loadout still discarded the whole blob.
+
+The `N = 4` set specifically, since it is the small one and the likely direction of travel:
+
+- shared: `src/config/weapon-slots.test.ts` — "derives the fire-slot constants from the ability
+  count (BA11, VS6)" asserts `maxAbilitySlots` is 3.
+- client: `src/config/slot-keys.test.ts` (the two mask-limit tests and both `hintSlotOrder` cases),
+  `src/dev/playground/ui-model.test.ts`'s add/remove control, and the manual/stamp pairing once the
+  page is rebuilt.
+- server: `src/sim/tick.test.ts`'s two fire-mask tests, plus the two seeded tests named in step 4
+  (`tiers.test.ts`'s H30 and `balance/match.test.ts`'s deathmatch-clock canary) — those two are the
+  shifted RNG stream, not a slot-count defect.
+
+Do not copy that list forward to another `N`. Run the suite and read it.
+
 ## 7. Say it loudly, and recommend the harnesses
 
 `N` reaches `sim/weapons/fire.ts`, `WEAPON_SLOT_CONFIG` and the per-slot columns in both harnesses'
@@ -162,15 +217,9 @@ playtest rule:
 1. Edit `ABILITY_SLOTS` in `weapon-slots.ts`.
 2. Bump `BOT_BRAIN_VERSION` (step 4).
 3. Root `npm run build`, then `npm run build:manual`.
-4. `npm test`, and update the tests that pin the shipped value. Measured at `N = 4` on 2026-09-20,
-   these are the ones that pin `3` or a four-bit mask — expect the same set at any other `N`:
-   - shared: `src/config/weapon-slots.test.ts` — "derives the fire-slot constants from the ability
-     count (BA11, VS6)" asserts `maxAbilitySlots` is 3.
-   - client: `src/config/slot-keys.test.ts` (four cases — the two mask-limit tests and both
-     `hintSlotOrder` cases), `src/scenes/movement-hint.test.ts`'s binding list,
-     `src/dev/playground/ui-model.test.ts`'s add/remove control.
-   - server: `src/sim/tick.test.ts`'s two fire-mask tests, plus the two seeded tests named in step 4.
-   Update the expectation to the new `N`; do not weaken an assertion into a tautology.
+4. `npm test`, and update the tests that pin the shipped value. **How many that is depends
+   enormously on which way you move `N` — see "What `npm test` actually does at each `N`" below.**
+   Update each expectation to the new `N`; do not weaken an assertion into a tautology.
 5. `npm run check:art` — no change expected (it is deliberately `N`-unaware), but the manual moved.
 6. `npm run ttk` — confirm it prints a matrix and names the newly-unreachable rows rather than
    throwing.
