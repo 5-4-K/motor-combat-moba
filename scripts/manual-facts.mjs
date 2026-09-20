@@ -8,8 +8,8 @@
  * nowhere on the page. `balanceStamp` cannot catch that class of error: it hashes the prose, so it
  * only ever asks "was the page rebuilt from this text", never "is this text true".
  *
- * So the prose writes `{roster.slotsPerCar:words}` and this file answers it. A retune now rewrites
- * the sentence exactly as it already rewrote the cell beside it.
+ * So the prose writes a token like `{namespace.fact:words}` and this file answers it. A retune now
+ * rewrites the sentence exactly as it already rewrote the cell beside it.
  *
  * **Adding a fact:** put it here, derived — never typed. If you find yourself writing a literal,
  * that is the bug this file exists to prevent. `manual-facts.test.mjs` fails on a token the prose
@@ -17,7 +17,6 @@
  * status duration or a modifier percentage out of the tables went with the paragraphs that used
  * them in the 2026-09-17 restructure; the git history has them if a sentence needs one back.
  */
-import { activeCarIds, slotsOf } from "@motor-combat-moba/shared";
 
 /**
  * The flat token map the prose is rendered against. Keys are `weapon.fact`; every value is a number
@@ -28,18 +27,15 @@ import { activeCarIds, slotsOf } from "@motor-combat-moba/shared";
  * went with the paragraphs that quoted them. `manual-facts.test.mjs` fails on a fact the prose never
  * uses, so this map can only ever be as long as the sentences justify. Adding a sentence that
  * measures something is what adds its fact back.
+ *
+ * **Empty as of VS29.** `roster.slotsPerCar` (`slotsOf(activeCarIds()[0]).length`) asserted a
+ * uniform kit length across the roster that a variable `N` no longer guarantees, so it and the two
+ * sentences that quoted it are gone — see `cars-and-weapons-copy.mjs`'s chassis lines. The map is
+ * left here, empty, rather than deleted outright, because a future sentence measuring something real
+ * adds its fact back in.
  */
 export function manualFacts() {
-  // ACTIVE cars only, exactly as `build-cars-and-weapons.mjs` derives its own `CAR_IDS` — a chassis
-  // in development must not be able to rewrite a shipped chassis's sentence.
-  const carIds = activeCarIds();
-
-  return {
-    // Every chassis carries the same number of slots, so this is one number rather than three. The
-    // chassis lines say "two of its {roster.slotsPerCar:words} weapons", which is a measurement and
-    // therefore not something the prose may spell out by hand.
-    "roster.slotsPerCar": slotsOf(carIds[0]).length,
-  };
+  return {};
 }
 
 const ONES = [

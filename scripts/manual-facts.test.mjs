@@ -128,13 +128,13 @@ describe("manual copy facts", () => {
 
   it("derives every fact from the tables, so a retune rewrites the sentence", () => {
     // Not a value check -- the point is that these are computed, and the surest evidence of that is
-    // that they track a table nobody edited by hand here. Spot-checked against the live rows.
+    // that they track a table nobody edited by hand here.
     //
-    // There is one fact left to spot-check, because the 2026-09-17 restructure cut the prose to one
-    // line per chassis and one per weapon and those lines measure almost nothing. That is the map
-    // shrinking correctly, not the guard weakening: "defines no fact the prose never uses" above is
-    // what holds the two in step, whatever the count.
-    const facts = manualFacts();
-    assert.equal(facts["roster.slotsPerCar"], 3);
+    // There is no fact left to spot-check: the 2026-09-17 restructure cut the prose to one line per
+    // chassis and one per weapon, and VS29 deleted the one fact those lines still quoted
+    // (`roster.slotsPerCar`, which asserted a uniform kit length a variable `N` no longer holds).
+    // That is the map shrinking correctly, not the guard weakening: "defines no fact the prose never
+    // uses" above is what holds the two in step, whatever the count.
+    assert.deepEqual(manualFacts(), {});
   });
 });

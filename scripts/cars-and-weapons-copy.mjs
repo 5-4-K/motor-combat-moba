@@ -10,10 +10,10 @@
  * number that appears nowhere on the page. `balanceStamp` cannot catch that: it hashes this file, so
  * it only asks "was the page rebuilt from this text", never "is this text true".
  *
- * So write `{roster.slotsPerCar}`, not `3`. Tokens are defined in `manual-facts.mjs`, derived from
- * the tables; `{token:words}` spells small whole numbers out ("three"). An unknown token fails the
- * build, and `manual-facts.test.mjs` fails if a token's current value is typed as a literal here
- * instead.
+ * So write a token like `{namespace.fact}`, not the digits. Tokens are defined in
+ * `manual-facts.mjs`, derived from the tables; `{token:words}` spells small whole numbers out
+ * ("three"). An unknown token fails the build, and `manual-facts.test.mjs` fails if a token's
+ * current value is typed as a literal here instead.
  *
  * **One line each, and no more.** The 2026-09-17 restructure cut this file from a magazine to a
  * caption track: the page is a stat sheet now, and every figure on it is generated. A sentence here
@@ -30,8 +30,8 @@ export const MANUAL_META = {
 export const CHASSIS_COPY = {
   mirage: {
     line:
-      "The fastest chassis and the thinnest hull. Two of its {roster.slotsPerCar:words} weapons " +
-      "only reach at contact range, so it has to arrive, land the kit, and leave.",
+      "The fastest chassis and the thinnest hull. Most of its kit " +
+      "only reaches at contact range, so it has to arrive, land the kit, and leave.",
   },
   bullseye: {
     line:
@@ -41,7 +41,7 @@ export const CHASSIS_COPY = {
   bastion: {
     line:
       "The slowest chassis and the biggest hull. It cannot chase you, so it stops you instead: two " +
-      "of its {roster.slotsPerCar:words} weapons stun or slam.",
+      "of its kit stun or slam.",
   },
 };
 

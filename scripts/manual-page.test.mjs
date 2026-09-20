@@ -158,6 +158,19 @@ describe("the generated manual page", () => {
   });
 
   /**
+   * VS30. `N` (`WEAPON_SLOT_CONFIG.maxAbilitySlots`) changes what the page SAYS — how many weapons
+   * each chassis lists — so a change to it that skipped `npm run build:manual` would ship a guide
+   * advertising slots the build lacks. The module exposes no inputs-key helper to assert against
+   * directly, so this reads `balanceStamp`'s own source and checks the literal input is there —
+   * a structural check that fails if the line is ever deleted, rather than a value check that
+   * cannot see whether the field was wired into the hash at all.
+   */
+  it("folds the build's slot count into the stamp", () => {
+    const src = read(BUILDER);
+    assert.match(src, /abilitySlots: WEAPON_SLOT_CONFIG\.maxAbilitySlots/);
+  });
+
+  /**
    * The staleness guard above proves the page was REBUILT after the tables changed. It cannot prove
    * the rebuild computed anything real: a field the builder reads that has moved to a different path
    * on `WeaponDef` resolves to `undefined`, every arithmetic expression built from it turns to `NaN`,

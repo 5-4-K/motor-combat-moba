@@ -40,6 +40,7 @@ import {
   DRIVE_CONFIG,
   STATUS_TABLE,
   TICK_RATE_HZ,
+  WEAPON_SLOT_CONFIG,
   WEAPON_TABLE,
   WEAPON_TICKS,
   activeCarIds,
@@ -333,6 +334,9 @@ export function balanceStamp() {
     drive: DRIVE_CONFIG,
     tickRateHz: TICK_RATE_HZ,
     arenaWidth: ARENA_WIDTH,
+    // How many ability slots this build has. N changes how many weapons each chassis lists, which
+    // is something the page SAYS, so it belongs in the fingerprint (VS30).
+    abilitySlots: WEAPON_SLOT_CONFIG.maxAbilitySlots,
     // The RENDERED copy, not the raw templates: the stamp should fingerprint what the page says.
     copy: { MANUAL_META, CHASSIS_COPY, WEAPON_COPY, EFFECT_SOURCES },
   };
@@ -696,6 +700,7 @@ export function carSection(carId) {
       .join("")}</ul>
     <div class="weapons">${[
       ...(BASIC_ATTACK_CONFIG.enabled ? [basicAttackOf(carId)] : []),
+      // `slotsOf` already truncates to this build's N (VS30) — no second cap needed here.
       ...slotsOf(carId),
     ].map((id) => weaponCard(byId[id])).join("")}</div>
   </section>`;
