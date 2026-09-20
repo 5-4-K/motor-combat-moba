@@ -226,6 +226,13 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
     // `fireSlotsOf`, not `slotsOf` (BA30): the bots press the basic attack, and a weapon nobody
     // seeded accumulates into maps that `weaponCarOf.entries()` never reads — silently absent from
     // the report, which is the exact failure this up-front seeding exists to prevent.
+    //
+    // This is also how the harness honours `N` (VS31): `fireSlotsOf` already truncates a chassis's
+    // kit to `WEAPON_SLOT_CONFIG.maxAbilitySlots` (Tasks 1-2), so a weapon authored past the cut is
+    // simply absent from this loop's list — never seeded, never pressed by a bot, never reported.
+    // No separate reachability check is needed here the way `ttk.mjs`'s `unreachableWeaponIds` and
+    // the playtest probes' `hasCarrier` need one: this loop only ever asks a real chassis for its
+    // own already-truncated list, so it never looks up a weapon by id and risks missing a carrier.
     for (const weaponId of fireSlotsOf(carId)) {
       weaponCarOf.set(weaponId, carId);
       weaponPresses.set(weaponId, 0);

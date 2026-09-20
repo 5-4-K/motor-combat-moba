@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, test } from "node:test";
 
 import {
   CAR_TABLE,
@@ -10,7 +10,14 @@ import {
   slotsOf,
   weaponTicksOf,
 } from "../packages/shared/dist/index.js";
-import { armedCarIds, pressPlan, simulateTtk, TTK_LIMIT_SECONDS } from "./ttk.mjs";
+import {
+  armedCarIds,
+  carrierOf,
+  pressPlan,
+  simulateTtk,
+  TTK_LIMIT_SECONDS,
+  unreachableWeaponIds,
+} from "./ttk.mjs";
 
 /**
  * The DEFENDER axis: every chassis in the table, unreleased prototypes included — they all have a
@@ -168,5 +175,30 @@ describe("simulateTtk", () => {
     const lance = pressPlan("bullseye", "lance");
     assert.ok(lance.recovery >= TICK_RATE_HZ, "fixture assumes lance still owns a ~1s recovery");
     assert.ok(lance.exit > 0, "fixture assumes lance still winds up before it fires");
+  });
+});
+
+describe("carrierOf / unreachableWeaponIds", () => {
+  test("names the weapons it could not reach instead of crashing", () => {
+    // VS32. A row with no reachable carrier — uncarried like `tremor`, or parked past N — must be
+    // skipped and NAMED. Crashing the run was acceptable while every authored row was reachable.
+    const skipped = unreachableWeaponIds();
+    assert.ok(Array.isArray(skipped));
+    assert.ok(skipped.includes("tremor"));
+  });
+
+  it("is total: every WEAPON_TABLE row resolves to either a carrier or nothing, never a throw", () => {
+    for (const weaponId of Object.keys(WEAPON_TABLE)) {
+      assert.doesNotThrow(() => carrierOf(weaponId));
+    }
+  });
+
+  it("never calls a basic-attack row unreachable — every chassis carries one", () => {
+    const skipped = new Set(unreachableWeaponIds());
+    for (const weaponId of Object.keys(WEAPON_TABLE)) {
+      if (weaponId.startsWith("basic-attack-")) {
+        assert.ok(!skipped.has(weaponId), `${weaponId} should always have a carrier`);
+      }
+    }
   });
 });

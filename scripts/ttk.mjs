@@ -231,6 +231,24 @@ const carIds = () => Object.keys(CAR_TABLE);
  */
 export const armedCarIds = () => carIds().filter((id) => slotsOf(id).length > 0);
 
+/**
+ * Which chassis can fire this weapon in THIS build, or `undefined` when nobody can (VS32).
+ *
+ * Total on purpose. It used to throw, which was safe only while every authored row was reachable:
+ * a row parked past `N` (`WEAPON_SLOT_CONFIG.maxAbilitySlots`), or authored and uncarried like
+ * `tremor`, has no reachable carrier and must be skipped and named rather than killing the whole
+ * run. `fireSlotsOf` is already truncated to `N` (Tasks 1-2), so this needs no truncation of its
+ * own — a weapon past the cut is simply absent from every chassis's list.
+ */
+export function carrierOf(weaponId) {
+  return carIds().find((id) => fireSlotsOf(id).includes(weaponId));
+}
+
+/** Every `WEAPON_TABLE` row no chassis can fire in this build, for the matrix's footer. */
+export function unreachableWeaponIds() {
+  return Object.keys(WEAPON_TABLE).filter((id) => carrierOf(id) === undefined);
+}
+
 const nameOf = (id) => CAR_TABLE[id].name;
 const cell = (result) => (result.killed ? `${result.seconds.toFixed(1)}s` : "never");
 
@@ -250,6 +268,13 @@ function matrix(label, options) {
     lines.push(
       `  (no attacker row for ${unarmed.map(nameOf).join(", ")} — no kit authored yet, so they ` +
         `appear as targets only)`,
+    );
+  }
+  const unreachable = unreachableWeaponIds();
+  if (unreachable.length > 0) {
+    lines.push(
+      `  (unreachable this build, swept nowhere above: ${unreachable.join(", ")} — authored in ` +
+        `WEAPON_TABLE but on no chassis's fire slots, whether parked past N or carried by nobody)`,
     );
   }
   return lines.join("\n");
