@@ -250,16 +250,30 @@ persisted localStorage setup written by an older build — three entries, no len
 load; it is already a legal loadout at any `N >= 3` and is truncated by the same rule as a roster kit
 below that.
 
-**The bot needs no behavioural change, but `BOT_BRAIN_VERSION` must be bumped.**
-`personality.ts` draws `1 + maxFireSlots` random numbers per bot, always. `N` changes `maxFireSlots`,
-so it changes the draw count, so it shifts every seeded RNG stream downstream of it. No bot decides
-anything differently, and yet every bot in a seeded run behaves differently. `chooseSlot` needs only
-the moved `basicAttackSlotIndex` constant; `reach.ts` and `solution.ts` read `slotsOf` and get the
-truncated kit for free.
+**The bot needs no code change beyond the moved constant, but `BOT_BRAIN_VERSION` must be bumped
+— and not for the reason it first appears.**
 
-**Balance and playtest reports are not comparable across a change to `N`, or across this merge.**
-The bot fingerprint will say so, and the harness's own `--baseline` flag will refuse the comparison
-rather than trust a reader to remember. No baseline run is being taken before this work.
+`personality.ts` draws `1 + maxFireSlots` random numbers per bot, one weight per fire slot. At the
+default `N = 3`, `maxFireSlots` is `3 + 1 = 4`, exactly what `MAX_ABILITY_SLOTS + 1` produces today,
+so **this merge does not change the draw count and does not re-seed anything**. What it does change
+is which slot each already-drawn weight lands on: `weights[i]` is indexed by fire slot, so moving the
+basic attack from index 3 to index 0 re-assigns every bot's per-slot weighting. `chooseSlot` also
+resolves a score tie with a strict `score > bestScore` over an ascending scan, so the first slot
+holding the maximum wins — and the basic attack is now first rather than last.
+
+Both are behaviour changes with `BOT_PROFILES` unmoved, which is precisely what
+`BOT_BRAIN_VERSION` exists to record. Bump it.
+
+The scan-direction reversal (VS12) does **not** reach the bot: `controller.ts` emits
+`fireSlots: 1 << slot`, exactly one bit, so a bot never presents a tie for `beginFire` to break.
+`reach.ts` and `solution.ts` read `slotsOf` and get the truncated kit for free.
+
+**A change to `N` is a strictly larger disturbance than this merge**, and the skill must say so: it
+moves `maxFireSlots`, which changes the draw count, which shifts every seeded RNG stream downstream
+of it. Balance and playtest reports do not survive it. Reports across *this merge* are likewise not
+comparable — by re-weighting rather than by re-seeding — and the bot fingerprint will say so, since
+`BOT_BRAIN_VERSION` rides in it and the harness's `--baseline` flag refuses the comparison rather
+than trusting a reader to remember. No baseline run is being taken before this work.
 
 ## 11. Testing
 
