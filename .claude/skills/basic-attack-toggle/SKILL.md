@@ -12,7 +12,7 @@ description: >-
 
 # Basic-attack toggle
 
-Every car carries a fourth weapon, the basic attack (`CarDef.basicAttack`, fire slot 3, `H`/LMB) —
+Every car carries a fourth weapon, the basic attack (`CarDef.basicAttack`, fire slot 3, `H`) —
 see [`docs/combat-model.md`](../../../docs/combat-model.md#basic-attack) and
 [`docs/superpowers/specs/2026-09-17-basic-attack-design.md`](../../../docs/superpowers/specs/2026-09-17-basic-attack-design.md)
 (BA1–BA38) for the mechanic itself. This skill is for switching that whole mechanic off or back on
@@ -42,7 +42,7 @@ unaware of the toggle (see "What does NOT change" below).
    worth firing instead.
 3. **`hintSlotOrder`** (`packages/client/src/config/slot-keys.ts`) drops the slot from the countdown
    action hint's order entirely when disabled, so `HINT_SLOT_ORDER` (resolved once from the flag at
-   module load) has three entries instead of four and the H/LMB pill never prints. The hint is the
+   module load) has three entries instead of four and the `H` pill never prints. The hint is the
    *only* place the basic attack's binding is taught (BA19) — hiding the weapon means removing that
    pill, not leaving a dead one on screen.
 4. **`scripts/build-cars-and-weapons.mjs`**'s `carSection` skips the "Basic attack" card for every
@@ -83,8 +83,9 @@ still holds a stock, still occupies fire slot 3 in `FireState.slots` — it simp
 
 ## Verifying it actually took
 
-- In a running client, the countdown hint reads `"J K L or RMB SHIFT SPACE to fire"` (three pairs),
-  not four, and pressing H or left-clicking does nothing once the match starts.
+- In a running client, the countdown hint reads `"J K L or LMB RMB SPACE to fire"` (three pairs),
+  not four, and pressing H does nothing once the match starts. LMB now fires ability 1, so it is not
+  a dead button — check slot 1, not "nothing happens", when verifying this half.
 - `packages/client/public/manual.html` (or `http://localhost:5173/manual.html`) shows each
   chassis's three ability cards only — no "Basic attack" card first.
 - A bot never fires an H-glyph shot; watching `?dev=playground`'s bot line, `slot 3` never appears

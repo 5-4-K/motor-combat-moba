@@ -56,7 +56,7 @@ const BASIC_ATTACK_BASE = {
  * unaware of it — they sweep every `WEAPON_TABLE` row structurally and gating them risks breaking
  * `carrierOf`'s lookup for the nine rows it must always be able to find a chassis for.
  */
-export const BASIC_ATTACK_CONFIG: { enabled: boolean } = { enabled: true };
+export const BASIC_ATTACK_CONFIG: { enabled: boolean } = { enabled: false };
 
 /**
  * Every weapon in the game, mirroring `CAR_TABLE`. Balance lives here and nowhere else.

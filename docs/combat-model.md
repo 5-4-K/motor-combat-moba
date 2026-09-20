@@ -583,9 +583,11 @@ ability. The nine rows the chassis carry there today are identical, all spread f
 
 `fireSlotsOf(carId)` is the kit plus the basic attack, in that order — `[...slotsOf(carId),
 basicAttackOf(carId)]` — so **the basic attack is always fire slot 3**, one past the three ability
-indices `slotsOf` and `weapons` still mean on their own. Its binding is `H` on keyboard and left
-mouse button on the mouse hand; the three abilities shifted to make room, to `J`/right mouse button,
-`K`/SHIFT and `L`/SPACE.
+indices `slotsOf` and `weapons` still mean on their own. Its binding is `H`, and nothing else: the
+three abilities hold the whole mouse hand — `J`/LMB, `K`/RMB and `L`/SPACE. It briefly owned LMB
+(with the abilities on RMB/SHIFT/SPACE) and gave it up when the toggle below was switched off, since
+two slots may never claim one input. Re-enabling the mechanic means deciding a mouse binding for it
+again, or shipping it keyboard-only as it stands.
 
 It fires through the **same** fire state machine described above — spent, recharged, refire-locked
 and switch-locked by exactly the code every other weapon runs — and authors `recoveryMs: 0`, so
@@ -609,11 +611,13 @@ the one place the "a binding nobody printed breaks quietly" controls rule is kno
 
 `BASIC_ATTACK_CONFIG.enabled` (`config/weapon-config.ts`) can turn the whole mechanic off without
 touching any of the above — the nine rows, `CarDef.basicAttack` and the schema's fourth slot all
-stay exactly as described. It is a build-time flag: flip it, rebuild, `npm run build:manual`. Four
+stay exactly as described. It is a build-time flag: flip it, rebuild, `npm run build:manual`.
+**It ships `false` as of 2026-09-20**, so everything above this heading describes a mechanic that is
+authored and wired but not currently pressable. Four
 things read it when it is `false`: `beginFire` refuses a press on fire slot 3, so the key does
 nothing; the bot's `chooseSlot` never selects that slot either, so it does not waste a tick's press
 on a weapon that cannot fire; the client's `hintSlotOrder` drops the slot from the countdown action
-hint entirely, so the H/LMB pill disappears rather than sitting there doing nothing; and the guide
+hint entirely, so the `H` pill disappears rather than sitting there doing nothing; and the guide
 skips every chassis's "Basic attack" card, with the flag folded into `balanceStamp` so a stale
 manual build fails the suite. `fireSlotsOf` and the balance/ttk/playtest tooling do not read it —
 they sweep `WEAPON_TABLE` structurally and must always be able to find a carrier for each of the

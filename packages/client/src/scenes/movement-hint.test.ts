@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { GameMode, PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
 import { isSpectating } from "./spectate.js";
-import { SLOT_KEYS } from "../config/slot-keys.js";
+import { HINT_SLOT_ORDER, SLOT_KEYS } from "../config/slot-keys.js";
 import {
   ACTION_ALTS,
   ACTION_KEYS,
@@ -86,12 +86,17 @@ describe("movementHintItems", () => {
   it("teaches every fire binding: the letters live here, the mouse glyphs match the gutter", () => {
     // The gutter pill prints only the mouse-hand glyph, so this countdown row is the one place the
     // J/K/L letters are shown. Derived from SLOT_KEYS, so a rebind cannot leave the hint stale.
-    // Teaching order, not slot order (BA19): the basic attack comes first, because it is the first
-    // thing a new player should press — and because the gutter pill never teaches it.
-    expect(ACTION_KEYS).toEqual(["H", "J", "K", "L"]);
-    expect(ACTION_ALTS).toEqual(["LMB", "RMB", "SHIFT", "SPACE"]);
-    expect(new Set(ACTION_ALTS)).toEqual(new Set(SLOT_KEYS.map((key) => key.glyph)));
-    expect(new Set(ACTION_KEYS)).toEqual(new Set(SLOT_KEYS.map((key) => key.keyGlyph)));
+    // Three pairs, not four: the basic attack is switched off, so HINT_SLOT_ORDER drops slot 3
+    // and its H never prints (BA19).
+    expect(ACTION_KEYS).toEqual(["J", "K", "L"]);
+    expect(ACTION_ALTS).toEqual(["LMB", "RMB", "SPACE"]);
+  });
+
+  it("teaches exactly the slots HINT_SLOT_ORDER names, and every binding each one holds", () => {
+    // Keyed off HINT_SLOT_ORDER rather than all of SLOT_KEYS, so the assertion survives the
+    // basic-attack toggle in either position instead of pinning one build's slot count.
+    expect(ACTION_KEYS).toEqual(HINT_SLOT_ORDER.map((slot) => SLOT_KEYS[slot].keyGlyph));
+    expect(ACTION_ALTS).toEqual(HINT_SLOT_ORDER.map((slot) => SLOT_KEYS[slot].glyph));
   });
 });
 

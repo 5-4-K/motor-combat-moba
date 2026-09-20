@@ -33,8 +33,9 @@ seeding, `scripts/ttk.mjs` (two call sites) and `packages/server/src/bot/brain/d
 call sites) — the latter's `bestSustainedDpsOf` deliberately counts the basic attack in its DPS
 ceiling, moving Bastion's figure from 18.3 to 22.5. `newFireState` does not call it — its
 explicit-loadout path builds the same list inline, since it also has to accept a caller-given
-weapon override `fireSlotsOf` has no parameter for. The basic attack is always fire slot 3 (`H` / `LMB`; the
-abilities moved to `J`/`RMB`, `K`/`SHIFT`, `L`/`SPACE`), rides the ordinary fire state machine with
+weapon override `fireSlotsOf` has no parameter for. The basic attack is always fire slot 3 (`H`, and
+only `H` — the three abilities hold the whole mouse hand on `J`/`LMB`, `K`/`RMB`, `L`/`SPACE`, and
+the basic attack surrendered `LMB` when it was switched off), rides the ordinary fire state machine with
 `recoveryMs: 0`, and loses a same-tick tie to an ability because the lowest set bit wins. Its
 binding is taught **only** in the countdown action hint — it has no gutter pill, which is the one
 place the "a binding nobody printed breaks quietly" rule is knowingly bent. See
@@ -42,7 +43,10 @@ place the "a binding nobody printed breaks quietly" rule is knowingly bent. See
 
 **The basic attack can be switched off without deleting any of that**, via
 `BASIC_ATTACK_CONFIG.enabled` (`config/weapon-config.ts`) — a build-time flag, not a live-session
-setting: flip it, rebuild shared/server/client, and `npm run build:manual`. Nothing about the nine
+setting: flip it, rebuild shared/server/client, and `npm run build:manual`. **It ships `false` as of
+2026-09-20**: cars fire their three abilities and nothing else, and the page, the hint and the bot
+all already reflect that. Every test that covers the mechanic sets the flag itself rather than
+leaning on the shipped position, so both halves stay covered whichever way it ships. Nothing about the nine
 `basic-attack-*` rows, `CarDef.basicAttack`, or the schema's fourth slot goes away when it is
 `false`; only four things read it. `beginFire` refuses a press on the basic-attack fire slot, so the
 key does nothing. `BotController`'s `chooseSlot` never selects that slot either, so a bot does not

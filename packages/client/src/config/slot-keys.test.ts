@@ -32,16 +32,17 @@ describe("slot keys", () => {
     expect(slotMaskFrom([true, true, true, true, true])).toBe(0b1111);
   });
 
-  it("fires the basic attack from the left mouse button and ability 1 from the right (BA16)", () => {
-    // LMB is the basic attack now — the button a mouse hand reaches for first, for the weapon
-    // pressed most. The abilities shifted to RMB / SHIFT / SPACE.
-    expect(slotMaskFrom([], 0b01)).toBe(0b1000);
-    expect(slotMaskFrom([], 0b10)).toBe(0b0001);
-    expect(slotMaskFrom([], 0b11)).toBe(0b1001);
+  it("fires ability 1 from the left mouse button and ability 2 from the right", () => {
+    // The mouse hand belongs to the abilities: LMB fires ability 1, RMB ability 2. The basic
+    // attack surrendered LMB when the toggle went off and now carries no mouse binding at all,
+    // which is what keeps bit 3 clear here.
+    expect(slotMaskFrom([], 0b01)).toBe(0b0001);
+    expect(slotMaskFrom([], 0b10)).toBe(0b0010);
+    expect(slotMaskFrom([], 0b11)).toBe(0b0011);
   });
 
   it("ORs mouse buttons with keys instead of replacing them", () => {
-    expect(slotMaskFrom([false, false, true], 0b01)).toBe(0b1100);
+    expect(slotMaskFrom([false, false, true], 0b10)).toBe(0b0110);
     expect(slotMaskFrom([true, false, false], 0)).toBe(0b0001);
   });
 
@@ -52,16 +53,29 @@ describe("slot keys", () => {
 });
 
 describe("slot key glyphs", () => {
-  it("binds H / J / K / L with the mouse-hand alternates, in FIRE SLOT order (BA16)", () => {
-    // Indexed by fire slot: 0-2 are the ability kit, 3 is the basic attack. SHIFT (16) is a second
-    // keyCode on ability 2 the same way SPACE (32) already is on ability 3.
-    expect(SLOT_KEYS.map((key) => [...key.codes])).toEqual([[74], [75, 16], [76, 32], [72]]);
-    expect(SLOT_KEYS.map((key) => key.buttonsMask)).toEqual([2, 0, 0, 1]);
+  it("binds J / K / L with the mouse-hand alternates, in FIRE SLOT order", () => {
+    // Indexed by fire slot: 0-2 are the ability kit, 3 is the basic attack. SPACE (32) is a second
+    // keyCode on ability 3; slot 3 is keyboard-only (H) since the basic attack gave up LMB.
+    expect(SLOT_KEYS.map((key) => [...key.codes])).toEqual([[74], [75], [76, 32], [72]]);
+    expect(SLOT_KEYS.map((key) => key.buttonsMask)).toEqual([1, 2, 0, 0]);
+  });
+
+  it("never lets two slots claim the same input", () => {
+    // The whole reason the basic attack lost LMB: a duplicate binding fires two slots at once.
+    const codes = SLOT_KEYS.flatMap((key) => [...key.codes]);
+    expect(new Set(codes).size).toBe(codes.length);
+    const masks = SLOT_KEYS.map((key) => key.buttonsMask).filter((mask) => mask !== 0);
+    expect(masks.reduce((a, b) => a & b, 0b11)).toBe(0);
+    expect(new Set(masks).size).toBe(masks.length);
   });
 
   it("prints the mouse-hand binding on the gutter pill and keeps a letter glyph for the hint", () => {
-    expect(SLOT_KEYS.map((key) => key.glyph)).toEqual(["RMB", "SHIFT", "SPACE", "LMB"]);
+    expect(SLOT_KEYS.map((key) => key.glyph)).toEqual(["LMB", "RMB", "SPACE", "H"]);
     expect(SLOT_KEYS.map((key) => key.keyGlyph)).toEqual(["J", "K", "L", "H"]);
+  });
+
+  it("leaves SHIFT unbound — it left with the basic attack's mouse binding", () => {
+    expect(SLOT_KEYS.some((key) => (key.codes as readonly number[]).includes(16))).toBe(false);
   });
 
   it("leaves Q and E unbound — still reserved", () => {
@@ -80,7 +94,7 @@ describe("hintSlotOrder (basic-attack-toggle)", () => {
     expect(hintSlotOrder(false)).toEqual([0, 1, 2]);
   });
 
-  it("HINT_SLOT_ORDER reflects the toggle's default (enabled) value", () => {
-    expect(HINT_SLOT_ORDER).toEqual(hintSlotOrder(true));
+  it("HINT_SLOT_ORDER reflects the toggle's shipped (disabled) value", () => {
+    expect(HINT_SLOT_ORDER).toEqual(hintSlotOrder(false));
   });
 });

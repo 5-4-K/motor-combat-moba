@@ -439,8 +439,10 @@ describe("chooseSlot — expected value gate (P14, R20)", () => {
 });
 
 describe("chooseSlot — the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)", () => {
+  // Captured, never hard-coded to `true` — see the same note in shared's `fire.test.ts`.
+  const shipped = BASIC_ATTACK_CONFIG.enabled;
   afterEach(() => {
-    BASIC_ATTACK_CONFIG.enabled = true;
+    BASIC_ATTACK_CONFIG.enabled = shipped;
   });
 
   /** A real four-slot loadout — kit plus the chassis's own basic attack, as `newFireState` builds it. */
@@ -473,6 +475,7 @@ describe("chooseSlot — the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)",
   });
 
   it("selects the basic-attack slot when enabled and it is the clear best score", () => {
+    BASIC_ATTACK_CONFIG.enabled = true;
     const decision = chooseSlot({
       self: selfWithBasicAttack("bastion"), target, profile: BOT_PROFILES.hard,
       weights: [1, 1, 1, 1], tick: 100, lastPressTick: 0, rng: makeRng(1),

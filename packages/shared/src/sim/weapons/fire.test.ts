@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { BASIC_ATTACK_CONFIG } from "../../config/weapon-config.js";
 import { beginFire, cancelPending, newFireState, releaseShots, tickRecharge, type FireState } from "./fire.js";
 import type { ShotOrder } from "./instances.js";
@@ -396,6 +396,18 @@ describe("beginFire pressId (B7)", () => {
 });
 
 describe("the basic attack slot", () => {
+  // These cover the MECHANIC, which `BASIC_ATTACK_CONFIG.enabled` switches off without deleting —
+  // so they pin the flag on rather than lean on however the build happens to ship it. Without this
+  // the block silently stops testing anything the day the toggle goes off, which is exactly when a
+  // regression in it would go unnoticed. The toggle's own behaviour is covered further down.
+  const shipped = BASIC_ATTACK_CONFIG.enabled;
+  beforeEach(() => {
+    BASIC_ATTACK_CONFIG.enabled = true;
+  });
+  afterEach(() => {
+    BASIC_ATTACK_CONFIG.enabled = shipped;
+  });
+
   it("sits last in the fire state, behind an unmoved kit (BA13)", () => {
     const state = newFireState("bastion", 1);
     expect(state.slots.map((s) => s.weaponId)).toEqual([
@@ -449,8 +461,11 @@ describe("the basic attack slot", () => {
 });
 
 describe("the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)", () => {
+  // Captured, never hard-coded to `true`: this flag is edited per build, and a restore that typed
+  // one position would leak the wrong value into every later test the day the other one ships.
+  const shipped = BASIC_ATTACK_CONFIG.enabled;
   afterEach(() => {
-    BASIC_ATTACK_CONFIG.enabled = true;
+    BASIC_ATTACK_CONFIG.enabled = shipped;
   });
 
   it("drops a basic-attack-only press when disabled — the key does nothing", () => {
