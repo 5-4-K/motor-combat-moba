@@ -37,11 +37,13 @@ weapon override `fireSlotsOf` has no parameter for. **The basic attack is always
 the 2026-09-20 index flip — it sat LAST, at `kit.length`, until then, which was a constant only
 while every active kit was the same length. The flip moved no binding: it is still `H` / `LMB`, and
 the abilities are still `J`/`RMB`, `K`/`SHIFT`, `L`/`SPACE`, now at fire slots 1-3. It rides the
-ordinary fire state machine with `recoveryMs: 0`, and it currently **WINS** a same-tick tie against
-an ability, because `beginFire` still scans ascending and takes the lowest set bit — which the basic
-attack now is. The scan direction and the index together decide that tie, and only the index has
-moved so far; the basic attack lost the same tie, under the same rule, while it was the highest
-index. Its
+ordinary fire state machine with `recoveryMs: 0`, and it **loses** a same-tick tie against an
+ability, because `beginFire` now scans **descending** and takes the highest set bit — the basic
+attack, at index 0, is scanned last. The scan was reversed in the same pass that moved the index, so
+the basic attack loses the tie the same way it always has, just through a different index. One
+consequence of scanning highest-wins is deliberate rather than incidental: among the three
+abilities themselves, the **highest-indexed** one now wins a same-tick tie, so a player mashing every
+key fires their largest-cooldown ability, not their smallest. Its
 binding is taught **only** in the countdown action hint — it has no gutter pill, which is the one
 place the "a binding nobody printed breaks quietly" rule is knowingly bent. See
 [`docs/superpowers/specs/2026-09-17-basic-attack-design.md`](docs/superpowers/specs/2026-09-17-basic-attack-design.md) (BA1–BA38).

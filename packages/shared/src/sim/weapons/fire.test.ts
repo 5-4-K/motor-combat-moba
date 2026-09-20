@@ -87,11 +87,11 @@ describe("pressing", () => {
     expect(beginFire("p1", released, ABILITY_1, 101).pending).toBeNull();
   });
 
-  it("fires the lowest pressed slot when two arrive on one tick", () => {
+  it("fires the highest pressed slot when two arrive on one tick (VS12)", () => {
     const twoSlot = newFireState("mirage", 1);
     twoSlot.slots.push({ ...twoSlot.slots[0]!, weaponId: "predator" });
     const state = beginFire("p1", twoSlot, SLOT_1 | SLOT_2, 100);
-    expect(state.pending!.slot).toBe(0);
+    expect(state.pending!.slot).toBe(1);
   });
 
   it("refuses a weapon whose unlocksAt is above the player's level", () => {
@@ -436,14 +436,13 @@ describe("the basic attack slot", () => {
     expect(fired.pending?.slot).toBe(0);
   });
 
-  it("WINS a same-tick tie for now, because the scan is still ascending", () => {
+  it("loses a same-tick tie to an ability, because the scan is now descending (VS12)", () => {
     // BA21 says the basic attack loses a tie to an ability, and it did so by being the HIGHEST
-    // index under an ascending scan. Moving it to index 0 inverts that, and this records the
-    // inversion rather than hiding it: the next task reverses `beginFire`'s scan to highest-wins
-    // (VS12), which restores BA21 through the index that moved, and this assertion flips back to
-    // "thumper" there. It is asserted, not skipped, so the window is one commit wide and visible.
+    // index under an ascending scan. Moving it to index 0 inverted that for one commit; this task
+    // reverses `beginFire`'s scan to highest-wins (VS12), which restores BA21 through the index
+    // that moved — the basic attack is scanned last again and loses.
     const fired = beginFire("p1", newFireState("bastion", 1), (1 << 0) | (1 << 1), 0);
-    expect(fired.pending?.weaponId).toBe("basic-attack-bastion");
+    expect(fired.pending?.weaponId).toBe("thumper");
   });
 
   it("rides an explicit playground loadout too, and is not overridable by it (BA14)", () => {
@@ -502,5 +501,33 @@ describe("the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)", () => {
     expect(beginFire("p1", newFireState("bastion", 1), 1 << 0, 0).pending?.weaponId).toBe(
       "basic-attack-bastion",
     );
+  });
+});
+
+describe("same-tick tie-breaking", () => {
+  it("lets the basic attack lose a tie to an ability, from index 0", () => {
+    // VS12. The rule is unchanged from the build where the basic attack sat LAST and lost by being
+    // the highest index; at index 0 it loses by being the lowest, which is why the scan reversed.
+    const state = newFireState("bastion", 1);
+    const mask = 0b0011; // basic attack (slot 0) + ability 1 (slot 1)
+    const after = beginFire("s1", state, mask, 0);
+    expect(after.pending?.slot).toBe(1);
+    expect(after.pending?.weaponId).toBe("thumper");
+  });
+
+  it("fires the basic attack when it is the only bit set", () => {
+    const state = newFireState("bastion", 1);
+    const after = beginFire("s1", state, 0b0001, 0);
+    expect(after.pending?.slot).toBe(0);
+    expect(after.pending?.weaponId).toBe(basicAttackOf("bastion"));
+  });
+
+  it("gives the HIGHEST ability the tie, not the lowest", () => {
+    // VS13. Accepted consequence of VS12, asserted rather than discovered: a player mashing every
+    // key burns their largest cooldown instead of their smallest. Recorded here so a future reader
+    // finds a decision, not a bug.
+    const state = newFireState("bastion", 1);
+    const after = beginFire("s1", state, 0b1111, 0);
+    expect(after.pending?.weaponId).toBe("wildcharge");
   });
 });

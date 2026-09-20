@@ -234,7 +234,7 @@ export function releaseShots(
 
 /**
  * Resolve this tick's presses. `mask` is the slot bitmask from the wire (bit 0 = slot 1); the
- * lowest set bit the car can actually use wins.
+ * highest set bit the car can actually use wins.
  *
  * A press is a commitment: the stock is spent here, at press time, because a wind-up cannot be
  * cancelled. Nothing is queued — a press that cannot fire is dropped.
@@ -248,8 +248,13 @@ export function beginFire(
   if (state.pending) return state;
   if (mask <= 0) return state;
 
+  // HIGHEST set bit the car can actually use wins (VS12). The basic attack sits at index 0, so
+  // scanning downward is what makes it lose a same-tick tie to an ability — the behaviour it had
+  // when it was the LAST slot and an ascending scan reached an ability first. The consequence among
+  // abilities is deliberate and recorded as VS13: the highest ability wins, so mashing every key
+  // fires the largest cooldown rather than the smallest.
   const usable = Math.min(state.slots.length, WEAPON_SLOT_CONFIG.maxFireSlots);
-  for (let index = 0; index < usable; index++) {
+  for (let index = usable - 1; index >= 0; index--) {
     if ((mask & (1 << index)) === 0) continue;
     // The toggle: disabled means the press is dropped exactly like a slot that never had a bit set,
     // not a slot that exists but always fails a later gate (BASIC_ATTACK_CONFIG).

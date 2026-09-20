@@ -597,17 +597,20 @@ It fires through the **same** fire state machine described above — spent, rech
 and switch-locked by exactly the code every other weapon runs — and authors `recoveryMs: 0`, so
 firing it never locks an ability out.
 
-A same-tick tie is decided by `beginFire`'s **scan direction** and by nothing else. The scan is
-ascending and takes the lowest set bit the car can fire, and since the 2026-09-20 index flip the
-basic attack IS the lowest index — so pressing an ability and the basic attack on one input
-currently fires the **basic attack** and drops the ability press. That is the reverse of the
-outcome the same rule produced while the basic attack sat at the highest index, and it is a
-consequence of the index moving rather than a decision taken alongside it: the index and the scan
-direction together decide the tie, so restoring the old outcome means reversing the scan to
-highest-wins, not moving the weapon back. Either way the losing press is dropped exactly like any
-other press this game has ever refused. An ability's own `recoveryMs` briefly blocks the basic
-attack right back, for a different reason — `switchLockUntilTick` does not care which slot is
-locking which.
+A same-tick tie is decided by `beginFire`'s **scan direction** and by nothing else. The 2026-09-20
+index flip moved the basic attack to the lowest index and, for one commit, left the scan ascending —
+which inverted the tie outcome, since the lowest index then won. The scan was reversed in the very
+next commit and is now **descending**: it takes the highest set bit the car can fire, so pressing an
+ability and the basic attack on one input fires the **ability** and drops the basic-attack press,
+restoring the original outcome through the index that moved rather than by moving the weapon back.
+The same rule has a second, deliberate consequence among abilities themselves: when two or more
+ability presses land on one tick, the **highest-indexed** ability wins, so a player mashing every
+key fires their largest-cooldown ability rather than their smallest. That is accepted, not
+incidental — a player who presses everything is choosing not to choose, and the descending scan
+answers that the same way regardless of whether the basic attack is one of the bits set. Either way
+the losing press is dropped exactly like any other press this game has ever refused. An ability's
+own `recoveryMs` briefly blocks the basic attack right back, for a different reason —
+`switchLockUntilTick` does not care which slot is locking which.
 
 **It never reaches the HUD's weapon panel, and that is a decision, not the three-slot truncation
 you'd get from listing a fourth entry in `weapons`.** `slotsOf`/`weapons` cap a chassis's KIT at
