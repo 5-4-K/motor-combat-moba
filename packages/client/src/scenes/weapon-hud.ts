@@ -1,4 +1,3 @@
-import { WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
 import { weaponIconKey } from "../assets/asset-keys.js";
 import type { TextureLookup } from "../assets/car-sprite.js";
 import type { AssetManifest, SpriteEntry } from "../assets/manifest-schema.js";
@@ -93,6 +92,20 @@ export const SLOT_NAME_FONT_PX = 12;
 
 /** The name band, plus enough air that the column reads as separate slots rather than one strip. */
 const GAP_PX = SLOT_NAME_GAP_PX + SLOT_NAME_FONT_PX + 10;
+
+/**
+ * How far below the roster panel the slot stack starts (VS20).
+ *
+ * The stack is TOP-ANCHORED, not centred. Centring made the top move with the slot count: a fourth
+ * box pushed the stack up 46 px, and since `statusStripLayout` anchors to the stack's top and grows
+ * UPWARD, the badge strip climbed into a roster panel it clears by only 11 px. Anchoring also keeps
+ * ability 1 in one place on screen whatever chassis the player drives.
+ *
+ * The value is what the old centred 3-slot layout produced at the shipped constants, so the HUD is
+ * pixel-identical at N = 3. It is expressed as a gap below `topInset` rather than as an absolute y
+ * so it still tracks `rosterPanelLayout` if the panel's height ever changes.
+ */
+export const SLOT_STACK_TOP_GAP_PX = 167;
 
 /**
  * How much of the ring the cooldown has REFILLED: 0 the tick it starts, 1 the tick it ends.
@@ -240,34 +253,40 @@ export interface SlotBox {
 }
 
 /**
- * Camera-fixed slots, stacked down the HUD gutter and centred in it.
+ * Camera-fixed slots, stacked down the HUD gutter and TOP-ANCHORED below the roster panel.
  *
- * The slot bar draws the ABILITY kit — `min(count, maxAbilitySlots)` boxes. `count` is the ABILITY
- * count the caller derives, never the fire-slot array's length: that array is `[basicAttack, ...kit]`
- * since 2026-09-20 (VS6), so handing over its length would push the clamp to drop ability N and
- * leave the basic attack occupying a box (VS22). The basic attack is deliberately not drawn (BA15),
- * and that is a decision rather than a truncation that happens to work: if it ever needs a readout,
- * it gets its own, not an extra box here.
+ * The slot bar draws one box per ABILITY slot. `count` is the ABILITY count the caller derives,
+ * never the fire-slot array's length: that array is `[basicAttack, ...kit]` since 2026-09-20 (VS6),
+ * so handing over its length would leave the basic attack occupying a box. The basic attack is
+ * deliberately not drawn (BA15), and that is a decision rather than a truncation that happens to
+ * work: if it ever needs a readout, it gets its own, not an extra box here. There is no clamp on
+ * `count` any more (VS22) — the old `min(count, maxAbilitySlots)` was only ever excluding the basic
+ * attack by accident, because it used to be the array's last element; now that the caller passes the
+ * ability count directly, an over-long `count` is the caller's business, not this function's.
  *
  * The bar used to be a row centred over the floor, pinned above the view's bottom edge, which put
  * it squarely inside the play area — a car could park under the slots and both were hard to read.
  * The gutter (`HUD_GUTTER_WIDTH`, the strip the arena camera's viewport deliberately does not
  * cover) has no world under it at all.
  *
- * What is centred is the whole slot-plus-key group, not the circle: centring the circle alone would
+ * What is aligned is the whole slot-plus-key group, not the circle: aligning the circle alone would
  * push the key label against the canvas edge, since the key only ever hangs off the right.
  *
  * `gutterWidth` is a parameter rather than an import so this stays a pure function of the layout it
  * is given, the same way `viewWidth`/`viewHeight` already were.
  *
- * `topInset` is the height of the roster panel above the slots (`rosterPanelLayout`), and the stack
- * is centred in what is left **below** it rather than in the whole column (D12). Insetting rather
- * than hard-coding a new slot top is what keeps the third thing in the gutter working for free:
- * `statusStripLayout` derives its position from `slotBarLayout(...)[0].y`, so the badge strip
- * follows the slots down with no signature change of its own. It also means the strip's headroom
- * grows with the panel, and the strip grows UPWARD — which is why the worst case (six rows, six
- * badges, three slots) is asserted in the tests rather than assumed. `topInset` 0 is exactly the
- * layout this had before the panel existed.
+ * `topInset` is the height of the roster panel above the slots (`rosterPanelLayout`); the stack
+ * starts `SLOT_STACK_TOP_GAP_PX` below it (VS20) rather than centring in what is left, so its top
+ * never moves with the slot count. Growing downward from a fixed top is what keeps the third thing
+ * in the gutter working for free: `statusStripLayout` derives its position from
+ * `slotBarLayout(...)[0].y`, so the badge strip's clearance from the panel no longer depends on how
+ * many boxes the stack draws — the worst case (six rows, six badges, four slots) is asserted in the
+ * tests rather than assumed. `topInset` 0 is exactly the layout this had before the panel existed.
+ *
+ * `viewHeight` is unused in the body — the stack no longer centres against it — but stays a
+ * parameter because callers pass it uniformly and VS21's overflow case (a five-slot stack running
+ * off the bottom) is tested against it: `viewHeight` is the bound the layout is checked against, not
+ * a value the layout itself consults.
  */
 export function slotBarLayout(
   count: number,
@@ -276,13 +295,12 @@ export function slotBarLayout(
   gutterWidth: number,
   topInset: number,
 ): SlotBox[] {
-  const shown = Math.min(count, WEAPON_SLOT_CONFIG.maxAbilitySlots);
-  if (shown <= 0) return [];
-  const totalHeight = shown * SLOT_BOX_PX + (shown - 1) * GAP_PX;
-  const top = topInset + (viewHeight - topInset - totalHeight) / 2;
+  void viewHeight;
+  if (count <= 0) return [];
+  const top = topInset + SLOT_STACK_TOP_GAP_PX;
   const groupWidth = SLOT_BOX_PX + SLOT_KEY_GAP_PX + SLOT_KEY_COLUMN_PX;
   const x = viewWidth - gutterWidth + (gutterWidth - groupWidth) / 2;
-  return Array.from({ length: shown }, (_, i) => {
+  return Array.from({ length: count }, (_, i) => {
     const y = top + i * (SLOT_BOX_PX + GAP_PX);
     return {
       x,

@@ -16,6 +16,7 @@ import {
   SLOT_NAME_FONT_PX,
   SLOT_NAME_GAP_PX,
   SLOT_RING_BOX_PX,
+  SLOT_STACK_TOP_GAP_PX,
   slotBarLayout,
   slotVisualState,
   type SlotVisual,
@@ -209,9 +210,7 @@ describe("resolveWeaponIcon", () => {
 });
 
 describe("layout", () => {
-  // Inset 0: the layout as it was before the roster panel existed. Every assertion below is the
-  // regression guard for that — with nothing above them, the slots must still centre in the whole
-  // column exactly as they used to.
+  // Inset 0: the layout as it was before the roster panel existed.
   const boxes = slotBarLayout(3, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH, 0);
 
   /**
@@ -244,10 +243,8 @@ describe("layout", () => {
     expect(boxes[2]!.x).toBe(boxes[0]!.x);
   });
 
-  it("centres the column vertically", () => {
-    const top = boxes[0]!.y;
-    const bottom = boxes[2]!.y + boxes[2]!.size;
-    expect(top).toBeCloseTo(VIEW_HEIGHT - bottom, 0);
+  it("anchors the stack's top a fixed gap below the inset, not centred in the column (VS20)", () => {
+    expect(boxes[0]!.y).toBe(SLOT_STACK_TOP_GAP_PX);
   });
 
   /** The name sits in the band between two slots: too tight and slot 1's name lands on slot 2. */
@@ -265,9 +262,10 @@ describe("layout", () => {
     expect(slotBarLayout(0, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH, 0)).toEqual([]);
   });
 
-  it("draws the ability kit only, never the basic attack, however many slots a car carries (BA15)", () => {
-    // A car's schema `weapons` array carries four rows now. The bar is the ABILITY panel.
-    expect(slotBarLayout(4, 1280, 720, 200, 0)).toHaveLength(WEAPON_SLOT_CONFIG.maxAbilitySlots);
+  it("draws exactly one box per slot passed in, uncapped (VS22)", () => {
+    // The basic attack's exclusion (BA15) is the CALLER's job now — it passes the ability count,
+    // never the fire-slot array's length — not an internal clamp that used to do it by accident.
+    expect(slotBarLayout(4, 1280, 720, 200, 0)).toHaveLength(4);
   });
 });
 
@@ -280,10 +278,8 @@ describe("layout with a roster panel above it", () => {
     expect(inset[0]!.y).toBeGreaterThanOrEqual(INSET);
   });
 
-  it("centres the stack in what is left, not in the whole column", () => {
-    const top = inset[0]!.y - INSET;
-    const bottom = VIEW_HEIGHT - (inset[2]!.y + inset[2]!.size);
-    expect(top).toBeCloseTo(bottom, 0);
+  it("starts the stack a fixed gap below the panel, not centred in what is left (VS20)", () => {
+    expect(inset[0]!.y - INSET).toBe(SLOT_STACK_TOP_GAP_PX);
   });
 
   /** The panel moves the slots; it must never resize them, or the icons stop fitting their boxes. */
@@ -347,5 +343,40 @@ describe("the gutter budget", () => {
    */
   it("clears the panel by 11 px, and no more", () => {
     expect(strip[0]!.y - panel.height).toBe(11);
+  });
+
+  it("keeps the badge strip clear of the panel at four slots too", () => {
+    const four = slotBarLayout(4, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH, panel.height);
+    const wide = statusStripLayout(
+      STATUS_CONFIG.maxActive, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH, four[0]!.y,
+    );
+    expect(wide[0]!.y - panel.height).toBe(11);
+  });
+});
+
+describe("the slot stack's anchor", () => {
+  const at = (count: number) =>
+    slotBarLayout(count, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH, 138);
+
+  it("puts the stack's top in the same place at every count", () => {
+    // VS20. Centring made the top move with the count, which pushed the badge strip into the
+    // roster panel at four boxes and made ability 1 jump when the player switched chassis.
+    expect(at(1)[0]!.y).toBe(at(2)[0]!.y);
+    expect(at(2)[0]!.y).toBe(at(3)[0]!.y);
+    expect(at(3)[0]!.y).toBe(at(4)[0]!.y);
+  });
+
+  it("lands exactly where the centred 3-slot layout used to", () => {
+    // The anchor's VALUE is chosen for this: at N=3 the HUD is pixel-identical to the build before
+    // this change, so nothing about the shipped game's appearance moves.
+    expect(at(3)[0]!.y).toBe(305);
+  });
+
+  it("fits four slots inside the view and would not fit five", () => {
+    // VS21. Four is the layout's limit as well as the config's. Writing the overflow down is what
+    // makes raising ABILITY_SLOT_CEILING fail loudly instead of clipping a label off-screen.
+    expect(at(4).at(-1)!.nameY + SLOT_NAME_FONT_PX).toBeLessThanOrEqual(VIEW_HEIGHT);
+    const five = slotBarLayout(5, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH, 138);
+    expect(five.at(-1)!.nameY + SLOT_NAME_FONT_PX).toBeGreaterThan(VIEW_HEIGHT);
   });
 });
