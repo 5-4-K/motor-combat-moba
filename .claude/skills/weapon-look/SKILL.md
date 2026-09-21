@@ -62,6 +62,8 @@ with the instance alive. Temporarily wrap the body of the `room.state.weapons.fo
 five seconds in Chrome's Performance panel, and read the mean frame's render time against the
 same frame with the loop count at 0. Revert the loop. Report both halves as
 `weapon: build X ms, render Y ms per instance per frame`, beside the reference row's figures.
+No browser where you are running? Then the render half is **unpriced**, and the summary says the
+look is not shippable until someone runs it — it is not done with a caveat.
 
 **Stop and say so** before any of: a `setBlendMode` per instance, 15+ bands to fake a gradient, a
 `Graphics` per shot, or a per-frame allocation that scales with band count.
