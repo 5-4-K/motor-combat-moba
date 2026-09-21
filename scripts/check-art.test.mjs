@@ -4,7 +4,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 
-import { artFilesOnDisk, checkManifestShape, isKnownNamespace } from "./check-art.mjs";
+import {
+  artFilesOnDisk,
+  checkManifestShape,
+  checkTurretSprite,
+  isKnownNamespace,
+  namespaceScopeOf,
+} from "./check-art.mjs";
 import { checkCars, checkCarSprite, GREYSCALE_CHROMA_LIMIT } from "./check-cars.mjs";
 import {
   checkWeaponIcon,
@@ -201,6 +207,11 @@ describe("isKnownNamespace", () => {
     assert.ok(isKnownNamespace("weapon-icon.magmablast"));
   });
 
+  it("accepts turret keys, in the same scope as chassis sprites", () => {
+    assert.ok(isKnownNamespace("turret.default"));
+    assert.ok(isKnownNamespace("turret.mirage"));
+  });
+
   it("accepts arena keys, whose convention is live before any arena art exists", () => {
     assert.ok(isKnownNamespace("arena.arena-02.floor"));
     assert.ok(isKnownNamespace("arena.common.rubble"));
@@ -209,6 +220,58 @@ describe("isKnownNamespace", () => {
   it("rejects a key in no namespace, and a malformed arena key", () => {
     assert.ok(!isKnownNamespace("power.boost"));
     assert.ok(!isKnownNamespace("arena..floor"));
+  });
+});
+
+describe("namespaceScopeOf", () => {
+  it("puts a turret row in the same scope as a car row: cars", () => {
+    assert.equal(namespaceScopeOf("turret.default"), "cars");
+    assert.equal(namespaceScopeOf("turret.mirage"), "cars");
+    assert.equal(namespaceScopeOf("car.mirage"), "cars");
+  });
+
+  it("puts a weapon icon in its own scope, and an unknown key in none", () => {
+    assert.equal(namespaceScopeOf("weapon-icon.thumper"), "weapons");
+    assert.equal(namespaceScopeOf("power.boost"), undefined);
+  });
+});
+
+describe("checkTurretSprite", () => {
+  it("passes a greyscale, 32-bit turret image", () => {
+    const out = checkTurretSprite({ turretId: "default", row: goodSpriteRow, image: goodSprite });
+    assert.deepEqual(out, []);
+  });
+
+  it("blocks a turret row naming a file that is not on disk", () => {
+    const out = checkTurretSprite({ turretId: "default", row: goodSpriteRow, image: undefined });
+    assert.equal(levelOf(out, "missing-file"), "blocker");
+  });
+
+  it("blocks a turret image saved without an alpha channel", () => {
+    const out = checkTurretSprite({
+      turretId: "default",
+      row: goodSpriteRow,
+      image: { ...goodSprite, hasAlpha: false, channels: 3 },
+    });
+    assert.equal(levelOf(out, "no-alpha"), "blocker");
+  });
+
+  it("warns when a tinted turret still carries colour", () => {
+    const out = checkTurretSprite({
+      turretId: "default",
+      row: goodSpriteRow,
+      image: { ...goodSprite, maxChroma: GREYSCALE_CHROMA_LIMIT + 1 },
+    });
+    assert.equal(levelOf(out, "not-greyscale"), "warning");
+  });
+
+  it('exempts pre-coloured art, because colorMode "none" opts out of the tint', () => {
+    const out = checkTurretSprite({
+      turretId: "default",
+      row: { ...goodSpriteRow, colorMode: "none" },
+      image: { ...goodSprite, maxChroma: 200 },
+    });
+    assert.ok(!codes(out).includes("not-greyscale"));
   });
 });
 

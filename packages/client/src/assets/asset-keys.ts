@@ -56,6 +56,21 @@ export function loadsEveryArena(devToolId: string | undefined): boolean {
   return devToolId === "playground";
 }
 
+/** The manifest namespace turret sprites live under. */
+export const TURRET_KEY_PREFIX = "turret.";
+
+/**
+ * The manifest key resolution order for a car's turret sprite: its own custom turret first, then
+ * the shared default. Unlike `carSpriteKey`, which falls back to a different CAR's art
+ * (`DEFAULT_CAR_ID`), a turret's fallback is a shared ASSET — every chassis's turret plate is
+ * interchangeable, so there is one default rather than nine. A car with neither row still draws:
+ * the caller tries each key in turn and falls to a procedural turret when neither resolves, the
+ * same three-step chain `car.<id>` already takes to its silhouette fallback.
+ */
+export function turretSpriteKeys(carId: string): readonly [string, string] {
+  return [`${TURRET_KEY_PREFIX}${carId}`, `${TURRET_KEY_PREFIX}default`];
+}
+
 /**
  * The manifest key for an arena's floor art. Namespaced `arena.<id>.floor` so
  * `scripts/build-release.mjs` prunes every inactive arena's art out of the zip and

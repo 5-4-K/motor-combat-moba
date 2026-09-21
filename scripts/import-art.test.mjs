@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   describeFit,
+  importTargetFor,
   importWarnings,
   formatManifest,
   keyBackgroundInPlace,
   mergeManifestEntry,
   outputSizeFor,
+  TURRET_DEFAULT_ORIGIN,
+  TURRET_TARGET_PX,
 } from "./import-art.mjs";
 
 const HULL = { width: 48, height: 32 };
@@ -49,6 +52,14 @@ describe("outputSizeFor", () => {
     assert.equal(size.width, 192);
     assert.equal(size.height, 1);
   });
+
+  it("puts a turret's long edge at TURRET_TARGET_PX (36u x 2px/u), preserving aspect", () => {
+    assert.equal(TURRET_TARGET_PX, 72);
+    assert.deepEqual(outputSizeFor({ width: 2462, height: 1448 }, TURRET_TARGET_PX), {
+      width: 72,
+      height: 42,
+    });
+  });
 });
 
 describe("describeFit", () => {
@@ -74,11 +85,60 @@ describe("describeFit", () => {
   });
 });
 
+describe("importTargetFor", () => {
+  it("names a car import under the car namespace with no seeded default", () => {
+    assert.deepEqual(importTargetFor("mirage"), {
+      key: "car.mirage",
+      file: "cars/mirage.png",
+      defaults: {},
+    });
+  });
+
+  it("names the default turret and seeds its mount-plate origin", () => {
+    assert.deepEqual(importTargetFor("default", { turret: true }), {
+      key: "turret.default",
+      file: "turrets/default.png",
+      defaults: { origin: TURRET_DEFAULT_ORIGIN },
+    });
+  });
+
+  it("names a car-specific turret with no seeded default, so the schema default applies", () => {
+    assert.deepEqual(importTargetFor("mirage", { turret: true }), {
+      key: "turret.mirage",
+      file: "turrets/mirage.png",
+      defaults: {},
+    });
+  });
+});
+
 describe("mergeManifestEntry", () => {
   it("adds a bare row to an empty manifest", () => {
     const next = mergeManifestEntry({ sprites: {} }, "car.mirage", "cars/mirage.png");
     assert.deepEqual(next.sprites, {
       "car.mirage": { file: "cars/mirage.png" },
+    });
+  });
+
+  it("seeds defaults on a brand-new row", () => {
+    const next = mergeManifestEntry({ sprites: {} }, "turret.default", "turrets/default.png", {
+      origin: TURRET_DEFAULT_ORIGIN,
+    });
+    assert.deepEqual(next.sprites["turret.default"], {
+      origin: TURRET_DEFAULT_ORIGIN,
+      file: "turrets/default.png",
+    });
+  });
+
+  it("keeps a hand-edited field across a re-import even though the same defaults are passed again", () => {
+    const before = {
+      sprites: { "turret.default": { file: "turrets/old.png", origin: [0.28, 0.52] } },
+    };
+    const next = mergeManifestEntry(before, "turret.default", "turrets/default.png", {
+      origin: TURRET_DEFAULT_ORIGIN,
+    });
+    assert.deepEqual(next.sprites["turret.default"], {
+      file: "turrets/default.png",
+      origin: [0.28, 0.52],
     });
   });
 
@@ -163,6 +223,27 @@ describe("importWarnings", () => {
       hull: HULL,
     });
     assert.equal(warnings.length, 2);
+  });
+});
+
+describe("importWarnings with no hull (turret art)", () => {
+  it("skips the car-only hull-coverage check regardless of aspect", () => {
+    const warnings = importWarnings({
+      hasAlpha: true,
+      format: "png",
+      source: { width: 2462, height: 200 }, // would fail hull coverage if a hull were checked
+    });
+    assert.deepEqual(warnings, []);
+  });
+
+  it("still warns about missing alpha with no hull to compare against", () => {
+    const warnings = importWarnings({
+      hasAlpha: false,
+      format: "jpeg",
+      source: { width: 100, height: 100 },
+    });
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /alpha/i);
   });
 });
 
