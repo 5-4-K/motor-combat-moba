@@ -384,6 +384,7 @@ describe("the two lockouts", () => {
     lastFiredSlot: -1,
     pending: null,
     level: 1,
+    turretAngle: 0,
   });
 
   /** Press `mask` at `pressTick`, then run ticks until the shot actually exits. */
@@ -537,8 +538,15 @@ describe("the basic attack slot", () => {
   });
 
   it("leaves no switch lock behind, so pressing it never locks an ability out (BA20)", () => {
-    const pressed = beginFire("p1", newFireState("bastion", 1), 1 << 0, 0);
-    const { state } = releaseShots(pressed, 0);
+    // The basic attack carries a turret mount (Task 1) too, so the press must align before
+    // `releaseShots` will actually let it go — otherwise `pending.aligned === false` early-returns
+    // the unmodified state and `switchLockUntilTick === 0` would pass for the wrong reason (the
+    // release never ran at all). Confirm the release actually happened before trusting the lock.
+    let pressed = beginFire("p1", newFireState("bastion", 1), 1 << 0, 0);
+    pressed = turnTurret(pressed, 0, 0);
+    const { state, orders } = releaseShots(pressed, 0);
+    expect(orders).toHaveLength(1);
+    expect(state.pending).toBeNull();
     expect(state.switchLockUntilTick).toBe(0);
   });
 
