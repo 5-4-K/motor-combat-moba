@@ -1,4 +1,7 @@
 import { turretMountOf } from "../../config/car-config.js";
+import { TURRET_TICKS } from "../../config/turret-config.js";
+import { weaponTicksOf } from "../../config/weapon-ticks.js";
+import type { FireState } from "./fire.js";
 
 const TAU = Math.PI * 2;
 
@@ -23,4 +26,30 @@ export function turretPivotOf(
   const c = Math.cos(pose.angle);
   const s = Math.sin(pose.angle);
   return { x: pose.x + mount.x * c - mount.y * s, y: pose.y + mount.x * s + mount.y * c };
+}
+
+/**
+ * One tick of the turret (spec TR13). Pure. With a pending turret press, turn toward the frozen world
+ * bearing along the shortest arc, at most `step` per tick, snapping when within one step. The first
+ * tick on target marks the press aligned and starts its wind-up. With nothing to aim at the turret
+ * holds its car-relative angle (D2), which is why a fixed-muzzle press leaves it alone.
+ */
+export function turnTurret(
+  state: FireState,
+  carAngle: number,
+  tick: number,
+  step: number = TURRET_TICKS.turnPerTick,
+): FireState {
+  const pending = state.pending;
+  if (!pending || pending.bearing === null || pending.bearing === undefined) return state;
+  const target = wrapAngle(pending.bearing - carAngle);
+  const delta = wrapAngle(target - state.turretAngle);
+  const arrived = Math.abs(delta) <= step;
+  const turretAngle = arrived ? target : wrapAngle(state.turretAngle + Math.sign(delta) * step);
+  if (pending.aligned !== false || !arrived) return { ...state, turretAngle };
+  return {
+    ...state,
+    turretAngle,
+    pending: { ...pending, aligned: true, nextShotTick: tick + weaponTicksOf(pending.weaponId).startUp },
+  };
 }

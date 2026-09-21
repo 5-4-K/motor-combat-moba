@@ -5,6 +5,7 @@ import { WEAPON_SLOT_CONFIG } from "../../config/weapon-slots.js";
 import type { WeaponId } from "../../config/weapon-types.js";
 import { beginFire, cancelPending, newFireState, releaseShots, tickRecharge, type FireState } from "./fire.js";
 import type { ShotOrder } from "./instances.js";
+import { turnTurret } from "./turret.js";
 
 /**
  * Bits addressing the FIRST and SECOND entry of whatever slot array a fixture carries. The
@@ -113,15 +114,22 @@ describe("variable kit length (Task 5)", () => {
 
 describe("pressing", () => {
   it("schedules a shot and spends a stock immediately", () => {
-    const state = beginFire("p1", fresh(), ABILITY_1, 100);
+    // predator carries a turret mount (Task 1), so the press alone commits the stock but leaves the
+    // shot unscheduled until `turnTurret` aligns it (TR12/TR13) — see turret.test.ts for that phase
+    // in isolation. Aligning here with the default aim (the car's own heading, matching the fresh
+    // turret's 0) restores the exact pre-turret nextShotTick.
+    let state = beginFire("p1", fresh(), ABILITY_1, 100);
+    expect(state.slots[1]!.stocks).toBe(0);
+    state = turnTurret(state, 0, 100);
     expect(state.pending).toEqual({
       weaponId: "predator",
       slot: 1,
       shotsLeft: 1,
       nextShotTick: 100,
       pressId: "p1#100#1",
+      bearing: 0,
+      aligned: true,
     });
-    expect(state.slots[1]!.stocks).toBe(0);
   });
 
   it("ignores a press for a slot the car does not have", () => {
@@ -132,7 +140,8 @@ describe("pressing", () => {
   });
 
   it("ignores a press with no stock left", () => {
-    const spent = beginFire("p1", fresh(), ABILITY_1, 100);
+    let spent = beginFire("p1", fresh(), ABILITY_1, 100);
+    spent = turnTurret(spent, 0, 100); // let predator's turret align so the shot actually exits
     const released = releaseShots(spent, 100).state;
     expect(beginFire("p1", released, ABILITY_1, 101).pending).toBeNull();
   });
@@ -160,10 +169,11 @@ describe("pressing", () => {
 
 describe("releasing", () => {
   it("emits the order on the scheduled tick and starts the recharge", () => {
-    const pressed = beginFire("p1", fresh(), ABILITY_1, 100);
+    let pressed = beginFire("p1", fresh(), ABILITY_1, 100);
+    pressed = turnTurret(pressed, 0, 100); // predator's turret; aligns instantly at the default aim
     const { state, orders } = releaseShots(pressed, 100);
     expect(orders).toEqual([
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1" },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: 0 },
     ]);
     expect(state.pending).toBeNull();
     expect(state.slots[1]!.rechargeEndsTick).toBe(130); // 1000ms == 30 ticks
@@ -264,14 +274,21 @@ describe.skip("refire delay", () => {
 });
 
 describe("per-tick order", () => {
-  /** Every function call below uses the SAME tick number, exactly as a real per-tick loop would. */
+  /**
+   * Every function call below uses the SAME tick number, exactly as a real per-tick loop would.
+   * `turnTurret` sits between `beginFire` and `releaseShots` per the canonical order (fire.ts's
+   * module doc); predator carries a turret mount (Task 1), and aiming at `carAngle` 0 — the same
+   * heading the turret already starts at — aligns it instantly, so this reproduces the exact
+   * pre-turret timing for a zero-start-up press.
+   */
   function step(state: FireState, tick: number, mask: number): { state: FireState; orders: ShotOrder[] } {
     const recharged = tickRecharge(state, tick);
     const pressed = beginFire("p1", recharged, mask, tick);
-    return releaseShots(pressed, tick);
+    const turned = turnTurret(pressed, 0, tick);
+    return releaseShots(turned, tick);
   }
 
-  it("fires a zero-start-up weapon on the tick it is pressed, in the canonical recharge -> beginFire -> releaseShots order", () => {
+  it("fires a zero-start-up weapon on the tick it is pressed, in the canonical recharge -> beginFire -> turnTurret -> releaseShots order", () => {
     let state = fresh(); // predator: startUpMs 0, cooldownMs 1000ms == 30 ticks, single stock
     const seen: ShotOrder[] = [];
 
@@ -282,7 +299,7 @@ describe("per-tick order", () => {
     state = step1.state;
     seen.push(...step1.orders);
     expect(seen).toEqual([
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1" },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: 0 },
     ]);
     expect(state.pending).toBeNull();
     expect(state.slots[1]!.stocks).toBe(0);
@@ -302,8 +319,8 @@ describe("per-tick order", () => {
     state = step2.state;
     seen.push(...step2.orders);
     expect(seen).toEqual([
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1" },
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#130#1" },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: 0 },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#130#1", bearing: 0 },
     ]);
   });
 
@@ -321,18 +338,21 @@ describe("per-tick order", () => {
     expect(releasedBeforePress.orders).toEqual([]);
     state = releasedBeforePress.state;
     state = beginFire("p1", state, ABILITY_1, 100); // press registers AFTER release already ran this tick
+    state = turnTurret(state, 0, 100); // predator's turret; aligns instantly at the default aim
     expect(state.pending).toEqual({
       weaponId: "predator",
       slot: 1,
       shotsLeft: 1,
       nextShotTick: 100,
       pressId: "p1#100#1",
+      bearing: 0,
+      aligned: true,
     });
 
     // The next call to releaseShots happens on the NEXT tick, 101 — one tick after nextShotTick.
     const releasedNextTick = releaseShots(state, 101);
     expect(releasedNextTick.orders).toEqual([
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1" },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: 0 },
     ]); // late, but not lost
     expect(releasedNextTick.state.pending).toBeNull();
   });

@@ -9,7 +9,7 @@ import type { ShotOrder } from "./instances.js";
 /**
  * Per-tick call order for this module, and callers must use exactly this order:
  *
- *     tickRecharge -> beginFire -> releaseShots
+ *     tickRecharge -> beginFire -> turnTurret -> releaseShots
  *
  * `tickRecharge` and `releaseShots` both take the car's `weaponCooldown` multiplier (1 = unaffected).
  * It scales the three "when may I shoot again" clocks and nothing else — see `scaleTicks`. It is a
@@ -25,6 +25,10 @@ import type { ShotOrder } from "./instances.js";
  * a LATER tick to ever go out, which only happens to work here because `releaseShots` gates on
  * `tick >= pending.nextShotTick` rather than exact equality (see its doc comment) — but relying on
  * that instead of the documented order is fragile and not how `runCombat`'s tick loop is wired.
+ *
+ * A turret press is committed by `beginFire` with `nextShotTick = +Infinity`, and `turnTurret` (in
+ * `turret.ts`) sets the real one on the first tick the turret is on the bearing, so wind-up counts
+ * from alignment rather than from the press (spec TR11–TR13).
  */
 export interface SlotState {
   weaponId: WeaponId;
@@ -67,6 +71,16 @@ export interface PendingFire {
    * `pepperbox`.
    */
   pressId: string;
+  /**
+   * The world bearing a turret press was aimed along, frozen at press time (spec D5, TR8). Absent or
+   * `null` for a fixed-muzzle weapon.
+   */
+  bearing?: number | null;
+  /**
+   * `false` while the turret is still turning toward `bearing` (TR13); `releaseShots` refuses to
+   * release until it is true (TR14). Absent means aligned — every fixed-muzzle press.
+   */
+  aligned?: boolean;
 }
 
 export interface FireState {
@@ -91,6 +105,12 @@ export interface FireState {
    * one with it (D14). Nothing moves it off 1 today.
    */
   level: number;
+  /**
+   * The turret's angle RELATIVE to the car's heading, radians in (-pi, pi] (spec TR7). Held between
+   * shots, so the turret turns with the hull (D2); only `turnTurret` moves it. Mirrored to
+   * `PlayerState.turretAngle` for drawing.
+   */
+  turretAngle: number;
 }
 
 /**
@@ -120,6 +140,7 @@ export function newFireState(carId: CarId | "", level: number, weaponIds?: reado
     lastFiredSlot: -1,
     pending: null,
     level,
+    turretAngle: 0,
   };
 }
 
@@ -182,7 +203,7 @@ export function releaseShots(
   cooldownMult = 1,
 ): { state: FireState; orders: ShotOrder[] } {
   const pending = state.pending;
-  if (!pending || tick < pending.nextShotTick) return { state, orders: [] };
+  if (!pending || pending.aligned === false || tick < pending.nextShotTick) return { state, orders: [] };
 
   const ticks = weaponTicksOf(pending.weaponId);
   const cooldown = scaleTicks(ticks.cooldown, cooldownMult);
@@ -194,6 +215,7 @@ export function releaseShots(
       slot: pending.slot,
       finalVolley: pending.shotsLeft === 1,
       pressId: pending.pressId,
+      bearing: pending.bearing ?? null,
     },
   ];
   const shotsLeft = pending.shotsLeft - 1;
@@ -238,12 +260,20 @@ export function releaseShots(
  *
  * A press is a commitment: the stock is spent here, at press time, because a wind-up cannot be
  * cancelled. Nothing is queued — a press that cannot fire is dropped.
+ *
+ * `aimBearing` is the world bearing a turret press was aimed along (the player's mouse-aim ray, or
+ * whatever the caller resolved it to), and `carAngle` is the car's heading at press time — both
+ * ignored for a fixed-muzzle weapon. A turret press freezes its bearing here: `aimBearing` if one
+ * came in, else the direction the turret already points (`carAngle + state.turretAngle`), so a press
+ * with no aim input still commits to somewhere rather than to nothing.
  */
 export function beginFire(
   sessionId: string,
   state: FireState,
   mask: number,
   tick: number,
+  aimBearing: number | null = null,
+  carAngle = 0,
 ): FireState {
   if (state.pending) return state;
   if (mask <= 0) return state;
@@ -273,6 +303,7 @@ export function beginFire(
     if (!sameSlot && tick < state.switchLockUntilTick) continue;
 
     const volleys = def.volley.volleys;
+    const turret = def.turret !== undefined;
     return {
       ...state,
       slots: state.slots.map((s, i) => (i === index ? { ...s, stocks: s.stocks - 1 } : s)),
@@ -281,8 +312,11 @@ export function beginFire(
         weaponId: slot.weaponId,
         slot: index,
         shotsLeft: volleys,
-        nextShotTick: tick + weaponTicksOf(slot.weaponId).startUp,
+        // A turret press waits for `turnTurret` to name the real tick (TR12/TR13).
+        nextShotTick: turret ? Number.POSITIVE_INFINITY : tick + weaponTicksOf(slot.weaponId).startUp,
         pressId: `${sessionId}#${tick}#${index}`,
+        bearing: turret ? (aimBearing ?? carAngle + state.turretAngle) : null,
+        aligned: !turret,
       },
     };
   }

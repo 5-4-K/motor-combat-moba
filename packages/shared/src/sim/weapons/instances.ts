@@ -115,6 +115,11 @@ export interface ShotOrder {
   finalVolley: boolean;
   /** The press this order belongs to (B8). Sim-only; carried onto every instance it spawns. */
   pressId: string;
+  /**
+   * The turret press's frozen world bearing (spec TR9), or absent/null for a fixed muzzle. The only
+   * carrier of the bearing from the fire state machine to `spawnInstances`.
+   */
+  bearing?: number | null;
 }
 
 export interface OwnerPose {
