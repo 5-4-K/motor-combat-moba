@@ -119,6 +119,16 @@ export type Hitbox = ProjectileHitbox | BeamHitbox;
 /** Where a beam grows from. See `BeamWeaponDef.origin`. */
 export type BeamOrigin = "muzzle" | "center";
 
+/**
+ * Fires from the car's turret along a player-chosen world bearing (spec TR2). Presence IS the flag.
+ * `additionalOffset` pushes the spawn point further out along the line of fire, on top of
+ * `TURRET_CONFIG.defaultOffset`. Legal only on a single-muzzle projectile row (TR3,
+ * `turret-config.test.ts`).
+ */
+export interface TurretDef {
+  additionalOffset: number;
+}
+
 interface WeaponBase {
   id: WeaponId;
   /** Display name. Render-only: `stepSim` never reads it, so it is not a schema field. */
@@ -154,6 +164,8 @@ interface WeaponBase {
    * pellet fan (or its own beam instance).
    */
   muzzles?: readonly number[];
+  /** Fire from the turret rather than a fixed muzzle (spec TR2). Absent = a fixed muzzle. */
+  turret?: TurretDef;
   /**
    * Exempt from the stun interrupt sweep (O8). Absent = false; `wildcharge` is the one shipped row
    * that authors `true`.

@@ -35,6 +35,7 @@ const BASIC_ATTACK_BASE = {
   pierce: 0,
   volley: { volleys: 1, volleyIntervalMs: 0 },
   pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
+  turret: { additionalOffset: 0 },
 } as const;
 
 /**
@@ -133,6 +134,7 @@ export const WEAPON_TABLE = {
     homing: { acquire: "proximity", acquireRadius: 200, turnRateDegPerSec: 300, durationMs: 2000 },
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
+    turret: { additionalOffset: 0 },
   },
   /**
    * Mirage's slot 2: the dash (O12/O13). `speed` is the dash speed and `range` the dash distance —
@@ -251,6 +253,7 @@ export const WEAPON_TABLE = {
     pierce: 0,
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
+    turret: { additionalOffset: 0 },
     explosion: {
       radius: 60,
       damage: 15,
@@ -414,6 +417,7 @@ export const WEAPON_TABLE = {
     lifetimeMs: 2900, // just under the 3000ms cooldown — a second bouncing instance can never coexist
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
+    turret: { additionalOffset: 0 },
     applies: [{ statusId: "spiked", target: "opponents", durationMs: 3000 }],
   },
   /**

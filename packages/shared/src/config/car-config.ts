@@ -63,9 +63,9 @@ import type { WeaponId } from "./weapon-types.js";
  * swapping a pair, never copying one.
  */
 export const CAR_TABLE = {
-  mirage: { id: "mirage", name: "Mirage", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, brakeDecel: 500, weapons: ["magmablast", "thunderclap", "afterburner"], basicAttack: "basic-attack-mirage", isActive: true },
-  bullseye: { id: "bullseye", name: "Bullseye", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30, brakeDecel: 520, weapons: ["predator", "pepperbox", "lance"], basicAttack: "basic-attack-bullseye", isActive: true },
-  bastion: { id: "bastion", name: "Bastion", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, brakeDecel: 430, weapons: ["thumper", "roadblock", "wildcharge"], basicAttack: "basic-attack-bastion", isActive: true },
+  mirage: { id: "mirage", name: "Mirage", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, brakeDecel: 500, weapons: ["magmablast", "thunderclap", "afterburner"], basicAttack: "basic-attack-mirage", turretMount: { x: 0, y: 0 }, isActive: true },
+  bullseye: { id: "bullseye", name: "Bullseye", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30, brakeDecel: 520, weapons: ["predator", "pepperbox", "lance"], basicAttack: "basic-attack-bullseye", turretMount: { x: 0, y: 0 }, isActive: true },
+  bastion: { id: "bastion", name: "Bastion", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, brakeDecel: 430, weapons: ["thumper", "roadblock", "wildcharge"], basicAttack: "basic-attack-bastion", turretMount: { x: 0, y: 0 }, isActive: true },
 
   // --- Unreleased prototypes (`isActive: false`) ------------------------------------------------
   //
@@ -80,12 +80,12 @@ export const CAR_TABLE = {
   // `docs/config-reference.md`): the at-least-one-weapon floor in `weapon-slots.test.ts` applies to
   // active cars only, and weapon exclusivity (L1) is unconditional, so a prototype may not borrow a
   // shipped kit — it gets its own `WEAPON_TABLE` rows when someone authors them.
-  taurus: { id: "taurus", name: "Taurus", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-taurus", isActive: false },
-  anvil: { id: "anvil", name: "Anvil", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-anvil", isActive: false },
-  prowler: { id: "prowler", name: "Prowler", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, brakeDecel: 500, weapons: [], basicAttack: "basic-attack-prowler", isActive: false },
-  cleaver: { id: "cleaver", name: "Cleaver", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, brakeDecel: 500, weapons: [], basicAttack: "basic-attack-cleaver", isActive: false },
-  skorpios: { id: "skorpios", name: "Skorpios", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30, brakeDecel: 520, weapons: [], basicAttack: "basic-attack-skorpios", isActive: false },
-  caprico: { id: "caprico", name: "Caprico", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-caprico", isActive: false },
+  taurus: { id: "taurus", name: "Taurus", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-taurus", turretMount: { x: 0, y: 0 }, isActive: false },
+  anvil: { id: "anvil", name: "Anvil", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-anvil", turretMount: { x: 0, y: 0 }, isActive: false },
+  prowler: { id: "prowler", name: "Prowler", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, brakeDecel: 500, weapons: [], basicAttack: "basic-attack-prowler", turretMount: { x: 0, y: 0 }, isActive: false },
+  cleaver: { id: "cleaver", name: "Cleaver", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, brakeDecel: 500, weapons: [], basicAttack: "basic-attack-cleaver", turretMount: { x: 0, y: 0 }, isActive: false },
+  skorpios: { id: "skorpios", name: "Skorpios", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30, brakeDecel: 520, weapons: [], basicAttack: "basic-attack-skorpios", turretMount: { x: 0, y: 0 }, isActive: false },
+  caprico: { id: "caprico", name: "Caprico", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-caprico", turretMount: { x: 0, y: 0 }, isActive: false },
 } as const satisfies Record<CarId, CarDef>;
 
 /**
@@ -102,6 +102,13 @@ export const DEFAULT_CAR_ID: CarId = "mirage";
  */
 export function isCarId(value: unknown): value is CarId {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(CAR_TABLE, value);
+}
+
+const NO_MOUNT = { x: 0, y: 0 } as const;
+
+/** The turret mount of a chassis; the centre for an unknown id (spec TR5). */
+export function turretMountOf(carId: string): { x: number; y: number } {
+  return isCarId(carId) ? CAR_TABLE[carId].turretMount : NO_MOUNT;
 }
 
 /** True only for an id that both exists AND is active — real matches gate on this, not `isCarId`. */

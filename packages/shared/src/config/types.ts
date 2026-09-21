@@ -86,6 +86,11 @@ export interface CarDef {
    * be judged in the playground, and `isActive: true` stays a one-field change.
    */
   basicAttack: WeaponId;
+  /**
+   * Where the turret sits on the hull, car-local world units: `x` along the heading, `y` along the
+   * car's +y in the sim frame (spec TR5). The line of fire is measured from here, not the centre.
+   */
+  turretMount: { x: number; y: number };
   /** Selectable in real matches. The playground ignores this — that is how a car is tested before release (spec PG18). */
   isActive: boolean;
 }

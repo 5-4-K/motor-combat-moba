@@ -145,6 +145,7 @@ export { resolveInstanceHits } from "./sim/weapons/hits.js";
 export type { PoseEntry, PoseSnapshot } from "./sim/weapons/hits.js";
 export { beamShapeAt, projectileShapeAt, shapeHitsObb, smear } from "./sim/weapons/shapes.js";
 export type { WorldShape } from "./sim/weapons/shapes.js";
+export { turretPivotOf, wrapAngle } from "./sim/weapons/turret.js";
 export type { Aabb, Bounds, CarObstacle, Obb, Vec2 } from "./sim/collide.js";
 export { carHullOf, carIdOf, isOnField, isSolid, otherCarHulls } from "./sim/context.js";
 export type { ContextEntry, ContextPlayer } from "./sim/context.js";
@@ -168,6 +169,7 @@ export {
   ramDefenceOf,
   reverseAccelOf,
   turnRateOf,
+  turretMountOf,
 } from "./config/car-config.js";
 export type { ChassisDrive } from "./config/car-config.js";
 export {
@@ -201,6 +203,7 @@ export type {
   StatusApplication,
   StatusTarget,
   StockDef,
+  TurretDef,
   VolleyDef,
   WeaponDef,
   WeaponId,
@@ -208,6 +211,7 @@ export type {
 export { WEAPON_TICKS, msToTicks, scaleTicks, weaponTicksOf } from "./config/weapon-ticks.js";
 export type { WeaponTicks } from "./config/weapon-ticks.js";
 export { ABILITY_SLOT_CEILING, WEAPON_SLOT_CONFIG, slotsFrom, slotsOf, fireSlotsOf } from "./config/weapon-slots.js";
+export { TURRET_CONFIG, TURRET_TICKS } from "./config/turret-config.js";
 export { COMBAT_CONFIG, DEATH_FADE_MS } from "./config/combat-config.js";
 export { activeTuning, setTuning } from "./config/tuning.js";
 export type { TuningOverrides, TuningValue } from "./config/tuning.js";
