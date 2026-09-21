@@ -309,9 +309,14 @@ hands — the same rule as the icon's `colorMode: "none"`, applied to the shot.
 ### How much detail a shot can afford
 
 Shots are drawn in immediate mode by `ArenaScene.renderShots`: one shared `Graphics`
-(`this.shotGfx`) is `clear()`ed and rebuilt every frame, a projectile becomes one `fillCircle` per
-band from `instanceGlowBands`, and a beam becomes one `fillPoints` polygon. Detail therefore costs
-**one extra fill call per band, per shot, per frame** — and nothing else.
+(`this.shotGfx`) is `clear()`ed and rebuilt every frame, a projectile becomes one disc per band from
+`instanceGlowBands`, and a beam becomes one polygon per layer. Detail costs **one fill per band or
+layer, per shot, per frame — plus whatever it costs Phaser to triangulate that fill.** The second
+half was invisible until 2026-09-21 and turned out to be the larger: `fillPoints` and `fillCircle`
+both become a path that Earcut re-triangulates every frame, so one `lance` beam of eight
+two-hundred-station layers cost more per frame than the rest of the scene. A fill count would never
+have said so. The shot layers now fill a strip as a strip and a disc as a fan
+(`scenes/ribbon-fill.ts`) and skip the triangulator; the fill count is what is left, and it is cheap.
 
 **That budget is much larger than it sounds, so do not design timidly.** A car has one fire state
 machine, so a player can only have one weapon mid-volley at a time; the worst realistic case is a
@@ -322,10 +327,11 @@ batches one Graphics object's fills into a single vertex buffer, and the `fillSt
 *between* bands do not break that batch. Authoring a look for every weapon is comfortably within
 budget.
 
-Four things do cost, and they are the only ones worth stopping for:
+Five things do cost, and they are the only ones worth stopping for:
 
 | Cliff | Why it hurts |
 |---|---|
+| **A polygon of hundreds of vertices handed to `fillPoints`** | Earcut runs over it every frame into fresh arrays. A jet is 194 vertices a layer and a bolt 415; a look that walks stations must carry `DrawBeamLayer.ribbon` so `fillRibbon` tiles it as the strip it is. `ribbon-fill.test.ts` fails any un-ribboned shot polygon past 64 vertices. |
 | A **blend mode per instance** (`setBlendMode` for additive glow) | Every change flushes the batch. This is the one that turns a single draw call into one per shot. |
 | **Faking a gradient** with 15–20 bands per shot | Phaser `Graphics` has no gradient fill, so a smooth ramp means many bands. This is the only way band count itself becomes the problem. |
 | **A `Graphics` object per shot** instead of the shared `shotGfx` | Loses the batch entirely, and adds a create/destroy cycle per instance. |
@@ -336,9 +342,13 @@ the flicker only ever *shrinks*, so a drawn shot can never render larger than th
 actually hits — a shot that looks bigger than it is makes players believe in hits that never
 happened. `combat-visual.test.ts` enforces it. Design detail inside that rule, not around it.
 
-Beams take detail differently: they are `fillPoints` polygons, so the equivalent of a band is a
-smaller cone or rect nested inside the outer one (a bright core inside a translucent cone). Same
-cost story, a few more polygons.
+Beams take detail differently: they are polygons, so the equivalent of a band is a smaller cone or
+rect nested inside the outer one (a bright core inside a translucent cone). A plain nested rect or
+fan is a handful of vertices and costs what a band does. An animated flame or bolt is a station walk
+of hundreds, and its cost is set by how many stations it hands the triangulator — which is why
+those layers are ribbons. Price a new one the way `packages/client/CLAUDE.md` says: build
+milliseconds plus render milliseconds at twelve live instances, not a fill count. The
+[`weapon-look`](../.claude/skills/weapon-look/SKILL.md) skill walks that.
 
 A third kind of detail is a **marking**: geometry drawn inside a non-circular projectile's hull, since
 neither of the tables above can reach an ellipse or a capsule. `WEAPON_PROJECTILE_STYLES` holds

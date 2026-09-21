@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { beamDrawLayers } from "./combat-visual.js";
+import { WEAPON_TABLE } from "@motor-combat-moba/shared";
+import {
+  beamDrawLayers,
+  beamFlareShapes,
+  projectileDrawLayers,
+  projectileHaloShapes,
+} from "./combat-visual.js";
 import { discSegments, fillDisc, fillRibbon } from "./ribbon-fill.js";
 
 interface Tri {
@@ -158,4 +164,61 @@ describe("fillDisc", () => {
     fillDisc(sink, 0, 0, Number.NaN);
     expect(sink.tris).toHaveLength(0);
   });
+});
+
+/**
+ * The most vertices one shot polygon may hand to Phaser's per-frame triangulator.
+ *
+ * Every un-ribboned shape the shot layers draw today is small — a marking is 12 to 24 vertices, an
+ * ember 10, a shard 4, `tremor`'s frozen fan 4 — while a station walk is 194 (a jet) or 415 (a
+ * bolt). 64 sits between the two with room either side: ten tongues on a fan is 62. A layer past
+ * it is a strip somebody built station by station, and the renderer can only fill it as one if the
+ * builder says so. See `DrawBeamLayer.ribbon` and `packages/client/CLAUDE.md`.
+ */
+const EARCUT_VERTEX_BUDGET = 64;
+
+/** Poses that are not axis-aligned, at spawn, mid-growth and full reach, on two clock times. */
+const HEADINGS = [0.7, 2.1, -2.6];
+const EXTENT_FRACTIONS = [0.05, 0.5, 1];
+const CLOCKS = [0, 12_345];
+
+describe("every shot polygon is either small or a ribbon", () => {
+  // The guard the ribbon rule needs to outlive `lance` and `afterburner`: a NEW beam look that walks
+  // hundreds of stations and forgets to say `ribbon` would silently fall back to `fillPoints`,
+  // costing exactly what those two cost before `fillRibbon` existed, with every other test green.
+  for (const def of Object.values(WEAPON_TABLE)) {
+    it(`${def.id}: no layer past ${EARCUT_VERTEX_BUDGET} vertices without a ribbon layout`, () => {
+      for (const heading of HEADINGS) {
+        for (const fraction of EXTENT_FRACTIONS) {
+          for (const nowMs of CLOCKS) {
+            const extent = def.range * fraction;
+            const instance = { weaponId: def.id, isExplosion: false, x: 300, y: 200, angle: heading, extent };
+            const layers =
+              def.kind === "beam"
+                ? [
+                    ...beamDrawLayers(def.id, 300, 200, heading, extent, 0, nowMs),
+                    ...beamFlareShapes(def.id, 300, 200, heading, 40).flatMap((s) => (s.kind === "poly" ? [s] : [])),
+                  ]
+                : [...projectileDrawLayers(instance, 40), ...projectileHaloShapes(instance, 40)];
+            for (const layer of layers) {
+              const ribbon = "ribbon" in layer ? layer.ribbon : undefined;
+              if (ribbon !== undefined) {
+                // A ribbon is only a saving if it is also correct: it must tile the outline exactly.
+                const sink = recorder();
+                fillRibbon(sink, layer.points, ribbon);
+                const covered = sink.tris.reduce((sum, t) => sum + triArea(t), 0);
+                expect(covered / polygonArea(layer.points)).toBeCloseTo(1, 6);
+                continue;
+              }
+              expect(
+                layer.points.length,
+                `${def.id} hands Phaser a ${layer.points.length}-vertex polygon to triangulate every frame; ` +
+                  "a shape built station by station must carry `ribbon` (see scenes/ribbon-fill.ts)",
+              ).toBeLessThanOrEqual(EARCUT_VERTEX_BUDGET);
+            }
+          }
+        }
+      }
+    });
+  }
 });
