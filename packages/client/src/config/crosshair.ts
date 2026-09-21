@@ -2,6 +2,9 @@
 export const CROSSHAIR_STYLE = {
   radius: 10,
   dotRadius: 1.5,
+  /** The outline pass's centre dot, drawn a touch larger than `dotRadius` so the white dot on top
+   *  keeps a visible dark ring (final-fixes item 7). */
+  outlineDotRadius: 2.5,
   /** Gap between the dot and where each arm starts. */
   armGap: 4,
   /** How far each arm runs past the circle. */

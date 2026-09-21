@@ -54,6 +54,23 @@ export function fireButtons(s: LockState, buttons: number): number {
 }
 
 /**
+ * Should a canvas click ask the browser for the lock (final-fixes item 1)? `menuOpen` alone is not
+ * enough: practice and the playground read it off `state.paused`, which stays false for a whole
+ * round trip after a pause has been requested — a click in that window would otherwise re-lock the
+ * cursor just before the menu mounts under it, invisible. `pauseRequested` closes that window: the
+ * caller sets it the moment it asks the server to pause and clears it once the patch lands.
+ */
+export function shouldRequestLock(locked: boolean, menuOpen: boolean, pauseRequested: boolean): boolean {
+  return !locked && !menuOpen && !pauseRequested;
+}
+
+/** Should a held lock be given up right now? A per-frame safety net for any room kind: if a menu is
+ * considered open while the cursor is still locked, the lock has no business being held. */
+export function shouldReleaseLock(locked: boolean, menuOpen: boolean): boolean {
+  return locked && menuOpen;
+}
+
+/**
  * Ask the browser for the lock on `canvas`. Current browsers answer with a promise and reject it
  * when they refuse (no gesture, a lock released too recently, an automated browser); older ones
  * return nothing. A refusal only means the next click asks again, so it is logged, not thrown —

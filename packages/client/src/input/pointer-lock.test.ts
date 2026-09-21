@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fireButtons, initialLock, reduceLock } from "./pointer-lock.js";
+import { fireButtons, initialLock, reduceLock, shouldReleaseLock, shouldRequestLock } from "./pointer-lock.js";
 
 describe("pointer lock reducer (TR31)", () => {
   it("starts unlocked, cursor at the canvas centre, and fires no mouse button", () => {
@@ -49,5 +49,34 @@ describe("pointer lock reducer (TR31)", () => {
     s = reduceLock(s, { type: "move", dx: 10, dy: 10, w: 800, h: 600 }).state;
     s = reduceLock(s, { type: "lost" }).state;
     expect(s.cursor).toEqual({ x: 410, y: 310 });
+  });
+});
+
+describe("relock race guards (final-fixes item 1)", () => {
+  it("requests the lock only when unlocked, no menu is up, and no pause is in flight", () => {
+    expect(shouldRequestLock(false, false, false)).toBe(true);
+  });
+
+  it("refuses to (re)lock while already locked", () => {
+    expect(shouldRequestLock(true, false, false)).toBe(false);
+  });
+
+  it("refuses to lock while the menu is open", () => {
+    expect(shouldRequestLock(false, true, false)).toBe(false);
+  });
+
+  it("refuses to lock while a pause was requested but its patch has not landed yet", () => {
+    // This is the race: state.paused is still false (so menuOpen() reads false) but a pause
+    // message is already in flight, so a canvas click here must not re-acquire the lock.
+    expect(shouldRequestLock(false, false, true)).toBe(false);
+  });
+
+  it("releases a held lock the moment a menu is considered open", () => {
+    expect(shouldReleaseLock(true, true)).toBe(true);
+  });
+
+  it("leaves an unlocked cursor or an open lock with no menu alone", () => {
+    expect(shouldReleaseLock(false, true)).toBe(false);
+    expect(shouldReleaseLock(true, false)).toBe(false);
   });
 });

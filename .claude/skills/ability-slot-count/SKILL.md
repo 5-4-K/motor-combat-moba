@@ -118,7 +118,8 @@ re-seed them deliberately, and say which you did.
 
 A chassis's effective slot count is `min(kit.length, N)`. Going from 3 to 4 while every shipped
 chassis authors three weapons changes nothing a player sees on those chassis — the HUD still draws
-three boxes, the hint still teaches three abilities, and the `;`/MMB key does nothing.
+three boxes, the hint still teaches three abilities, and the `SPACE` key does nothing (final-fixes
+item 10: the one-control-layout pass moved the fourth ability's binding off `;`/MMB).
 
 Giving a car a fourth weapon is a **`CAR_TABLE` edit**, and it needs a `WEAPON_TABLE` row nobody else
 carries: **weapon exclusivity (L1) is unconditional**, active chassis or not. `tremor` is the only

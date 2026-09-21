@@ -76,6 +76,8 @@ import {
   initialLock,
   reduceLock,
   requestLock,
+  shouldReleaseLock,
+  shouldRequestLock,
   type LockEvent,
   type LockState,
 } from "../input/pointer-lock.js";
@@ -862,6 +864,11 @@ export class ArenaScene extends Phaser.Scene {
   /** Mirrors whether `pauseOverlay` is currently mounted, so `syncPauseOverlay` renders on a change
    *  in `state.paused` and not on every patch while it holds steady. */
   private pauseMenuShown = false;
+  /** Set the instant practice or the playground asks the server to pause, cleared once `state.paused`
+   *  patches to true (or match state resets). Closes the relock race (final-fixes item 1): `menuOpen`
+   *  reads `state.paused`, which stays false for a whole round trip after the request, and a canvas
+   *  click in that window must not re-lock the cursor just before the menu mounts under it. */
+  private pauseRequested = false;
   /**
    * Where `onLeave` routes after this room closes. Undefined resolves to "join", the room-close
    * fallback every other exit from the arena already used; `exitPractice` (PR22/PR23/PR24) sets it
@@ -1683,6 +1690,7 @@ export class ArenaScene extends Phaser.Scene {
     this.pauseOverlay?.destroy();
     this.pauseOverlay = undefined;
     this.pauseMenuShown = false;
+    this.pauseRequested = false;
     // The lock never outlives the arena (TR40): results, a leave and every exit come through here,
     // and no other scene draws a crosshair to show where a locked, invisible cursor is.
     this.unbindPointerLock?.();
@@ -1786,7 +1794,10 @@ export class ArenaScene extends Phaser.Scene {
     if (!this.pauseKey || isPlaygroundRoom(room)) return;
     if (!Phaser.Input.Keyboard.JustDown(this.pauseKey)) return;
     if (isPracticeRoom(room)) {
-      if (!isSimPaused(room.state)) this.releaseLock();
+      if (!isSimPaused(room.state)) {
+        this.releaseLock();
+        this.pauseRequested = true;
+      }
       room.send(MSG_PRACTICE_PAUSE);
     } else if (this.arenaMenuOpen) {
       this.closeArenaMenu(false);
@@ -1812,11 +1823,17 @@ export class ArenaScene extends Phaser.Scene {
   private openMenu(room: Room<ArenaState>): void {
     this.releaseLock();
     if (isPracticeRoom(room)) {
-      if (!isSimPaused(room.state)) room.send(MSG_PRACTICE_PAUSE);
+      if (!isSimPaused(room.state)) {
+        room.send(MSG_PRACTICE_PAUSE);
+        this.pauseRequested = true;
+      }
       return;
     }
     if (isPlaygroundRoom(room)) {
-      if (!isSimPaused(room.state)) room.send(MSG_PLAYGROUND_PAUSE);
+      if (!isSimPaused(room.state)) {
+        room.send(MSG_PLAYGROUND_PAUSE);
+        this.pauseRequested = true;
+      }
       return;
     }
     this.arenaMenuOpen = true;
@@ -1866,8 +1883,11 @@ export class ArenaScene extends Phaser.Scene {
     this.lock = initialLock(cam.width, cam.height);
 
     // A lock needs a user gesture, so it is only ever asked for from a click on the canvas.
+    // `shouldRequestLock` also guards the relock race (final-fixes item 1): `pauseRequested` covers
+    // the round trip between asking practice/the playground to pause and `state.paused` patching
+    // true, during which `menuOpen` still reads false.
     const onDown = (): void => {
-      if (!this.lock.locked && !this.menuOpen(room)) requestLock(canvas);
+      if (shouldRequestLock(this.lock.locked, this.menuOpen(room), this.pauseRequested)) requestLock(canvas);
     };
     const onChange = (): void => {
       if (document.pointerLockElement === canvas) {
@@ -1900,6 +1920,7 @@ export class ArenaScene extends Phaser.Scene {
       if (event.repeat || (event.key !== "p" && event.key !== "P")) return;
       if (isPlaygroundRoom(room) && this.lock.locked && !isSimPaused(room.state)) {
         this.dispatchLock({ type: "release" });
+        this.pauseRequested = true;
       }
     };
 
@@ -1922,6 +1943,12 @@ export class ArenaScene extends Phaser.Scene {
    * field and no menu is up. Otherwise hidden — while a menu is open the OS cursor is the pointer.
    */
   private syncCrosshair(room: Room<ArenaState>): void {
+    // Per-frame safety net for the relock race (final-fixes item 1), covering every room kind: if a
+    // menu is considered open while the cursor is still locked — however that happened — give the
+    // lock up immediately rather than let an invisible cursor sit under a mounted menu.
+    if (shouldReleaseLock(this.lock.locked, this.menuOpen(room))) this.releaseLock();
+    // The request-side race window closes once the pause we asked for actually patches in.
+    if (this.pauseRequested && isSimPaused(room.state)) this.pauseRequested = false;
     const gfx = this.crosshair;
     if (!gfx) return;
     const local = room.state.players.get(this.drivenSid(room));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TICK_RATE_HZ } from "../constants.js";
-import { CAR_TABLE, turretMountOf } from "./car-config.js";
+import { CAR_TABLE, basicAttackIds, turretMountOf } from "./car-config.js";
 import { TURRET_CONFIG, TURRET_TICKS } from "./turret-config.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
 
@@ -23,7 +23,10 @@ describe("turret config (TR1-TR5)", () => {
 
   it("ships the turret on exactly the basic attacks, predator, magmablast and thumper (TR4)", () => {
     const turretIds = Object.values(WEAPON_TABLE).filter((d) => d.turret).map((d) => d.id).sort();
-    const basics = Object.keys(WEAPON_TABLE).filter((id) => id.startsWith("basic-attack-"));
+    // The one honest way to ask "is this weapon a basic attack" is the slot, not the id (final-fixes
+    // item 8) — `basicAttackIds()` reads `CAR_TABLE`, never a naming convention this table happens
+    // to follow today.
+    const basics = [...basicAttackIds()];
     expect(turretIds).toEqual([...basics, "magmablast", "predator", "thumper"].sort());
   });
 

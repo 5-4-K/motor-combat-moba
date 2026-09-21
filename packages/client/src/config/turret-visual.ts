@@ -3,7 +3,15 @@
  * NOT the sim's spawn offset: `TURRET_CONFIG.defaultOffset` is tuned to put the shot on this length's
  * barrel tip, and `?dev=assets` draws the spawn dot to show whether the two still agree (TR45).
  */
-export const TURRET_VISUAL = { lengthUnits: 36 } as const;
+export const TURRET_VISUAL = {
+  lengthUnits: 36,
+  /**
+   * `easeTurretAngle`'s snap threshold (spec TR42, final-fixes item 6): a gap this wide or wider is a
+   * respawn or a lost patch, not a turn in progress, so the drawn turret jumps straight to the
+   * networked angle instead of easing toward it at the turret's own turn rate.
+   */
+  snapAboveRad: Math.PI / 2,
+} as const;
 
 /**
  * The procedural turret a car draws when neither `turret.<carId>` nor `turret.default` resolves —

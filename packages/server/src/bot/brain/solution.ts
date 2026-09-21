@@ -180,7 +180,9 @@ export function solve(args: SolveArgs): FiringSolution {
 /**
  * Ticks the turret needs to swing from where it points now onto `bearing` (TR26): the shortest arc
  * over `TURRET_TICKS.turnPerTick`. Fractional on purpose — `turnTurret` snaps inside one step, so the
- * real delay is this on the tick grid, and every `PosePredictor` rounds its argument anyway.
+ * gap between this fractional budget and the real delay on the tick grid is under one tick (final-fixes
+ * item 9; the earlier claim that every `PosePredictor` rounds its argument was false —
+ * `constantVelocityPredictor` does not).
  */
 export function turretTurnTicksOf(shooter: SolverShooter, bearing: number): number {
   const pointing = shooter.angle + (shooter.turretAngle ?? 0);
@@ -195,6 +197,10 @@ export function turretTurnTicksOf(shooter: SolverShooter, bearing: number): numb
  * cannot simply call that function: a turret shot's time to arrive has two halves, the turret's TURN
  * (which depends on the very bearing being solved) and the FLIGHT, which starts at the barrel tip
  * rather than the car centre. Each round aims from the pivot at where the target will be after both.
+ *
+ * The lead does not model the SHOOTER's own motion during the turn (final-fixes item 9): `pivot` is
+ * fixed at the shooter's pose when `solve` was called, even though the turn itself takes real ticks
+ * during which a moving shooter's pivot would have moved too.
  */
 function turretLeadOf(
   shooter: SolverShooter,

@@ -14,6 +14,7 @@ import {
   ramDefenceOf,
   speedOf,
   stepSim,
+  wrapAngle,
   type ArenaDef,
   type ContextEntry,
   type InputMessage,
@@ -246,7 +247,10 @@ export function serverTick(
           // The LAST pressing input in the batch decides the aim (TR23), not the last one that
           // happened to carry one: a later press with no `aimAngle` must overwrite an earlier
           // press's bearing with "none", not leave it in place.
-          if (msg.aimAngle !== undefined) aims.set(sessionId, msg.aimAngle);
+          // Normalised through `wrapAngle` before it is stored: a client is untrusted input (local
+          // invariant), and an absurd-but-finite value (say, 1e300) would otherwise ride all the way
+          // to `PlayerState.aimBearing` and the turret/lead math built on top of it unnormalised.
+          if (msg.aimAngle !== undefined) aims.set(sessionId, wrapAngle(msg.aimAngle));
           else aims.delete(sessionId);
         }
       }

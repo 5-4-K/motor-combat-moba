@@ -81,6 +81,19 @@ dealt-versus-taken asymmetry on a spiked arena as that, not as a bug.
 applied only by `afterburner`. An earlier project draft had that backwards; the harness's own
 `attribution.ts` carries the correction in its header. Don't reintroduce the swap.)
 
+**`proxyValue` still scores a turret weapon (TR26) by the shooter's nose, not its turret bearing —
+this does not touch a report's pressed-shot numbers, only what the bot's planner reads into them.**
+The exact gate a report's bots actually fire on, `solution.ts`'s `solve()`, is correct for a turret
+row: it leads from the pivot and budgets the swing before pricing the shot, so hit rates and
+per-weapon damage in a report are unaffected by this. `proxyValue` (and `proxyDangerAgainst`, built
+on it) is the cheap stand-in the PLANNER uses to judge a candidate pose, and it was never updated to
+know a weapon can be turreted — it still measures the angle off the nose. So a report's win rates and
+positioning-driven numbers for a turret-armed chassis are conditioned on a planner that under-rates
+danger from an opponent who is nose-off but turret-on-target, and may steer its own bot to face a
+target it does not need to face. See [`docs/bot-behavior.md`](../../../docs/bot-behavior.md#known-limitations)
+for the fuller note; this is a known bot limitation carried into every report, not something a
+config edit here can fix.
+
 ---
 
 ## Step by step: running a balance run

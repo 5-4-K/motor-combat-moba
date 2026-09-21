@@ -549,8 +549,14 @@ row keeps its fixed muzzle.
   the weapon's `startUpMs`. `releaseShots` never releases an unaligned press. A turret already on
   the bearing therefore fires on the press tick, like every weapon without a wind-up. Through
   wind-up the turret keeps tracking the bearing as the hull turns beneath it. The turn cannot be
-  cancelled, but a wreck drops it with the rest of `pending`, and `disarmed` blocks new presses
-  only — a turn already under way finishes.
+  cancelled by a NEW event — `disarmed` blocks new presses only, a turn already under way finishes,
+  and `turnTurret` runs every tick a press is pending, disarmed or not (TR11/TR15). Two things do
+  end it early, both of them the sim dropping `pending` outright rather than the turn resolving: a
+  wreck drops it with the rest of `pending` (isFighting gates the whole per-player phase), and so
+  does a stun **landing that same tick** — the O8 interrupt sweep at the end of `runCombat` cancels
+  any pending press (turret or not) for a car freshly stunned this tick, unless the weapon is
+  `isUnInterruptable`. A stun already running when the tick starts does not re-trigger this: it only
+  fires for a stun that is new this tick.
 - **Between shots the turret is bolted on.** `turretAngle` is relative to the car's heading and
   holds while nothing turret-bound is pending, so it turns with the hull. `newFireState` resets it
   to 0, so a respawn faces it forward.

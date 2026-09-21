@@ -16,7 +16,7 @@ export function turretDisplayLength(scale: "fit" | number): number {
  */
 export function easeTurretAngle(shown: number, target: number, dtSeconds: number): number {
   const delta = wrapAngle(target - shown);
-  if (Math.abs(delta) > Math.PI / 2) return target;
+  if (Math.abs(delta) > TURRET_VISUAL.snapAboveRad) return target;
   const max = RATE * dtSeconds;
   return Math.abs(delta) <= max ? target : wrapAngle(shown + Math.sign(delta) * max);
 }

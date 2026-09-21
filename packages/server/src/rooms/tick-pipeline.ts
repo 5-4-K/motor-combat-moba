@@ -148,7 +148,11 @@ function combatTick(
   dt: number,
   masks: ReadonlyMap<string, number>,
   contact: ContactTickResult,
-  aims: ReadonlyMap<string, number> = new Map(),
+  // No default (final-fixes item 5): `serverTick` always reports an `aims` map, empty or not, and a
+  // future caller that forgets to pass it through should fail to compile rather than silently drop
+  // every turret press's bearing onto `toCombatPlayers`'s own default. `toCombatPlayers` keeps its
+  // own default — its many direct callers in tests and the playtest harness do not care about aim.
+  aims: ReadonlyMap<string, number>,
 ): CombatResultPlayer[] | null {
   const state = ctx.state;
   if (state.phase !== RoomPhase.MATCH || ctx.matchRoster.size === 0) {

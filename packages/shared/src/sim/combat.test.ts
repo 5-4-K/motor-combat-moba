@@ -25,7 +25,7 @@ import type { ManeuverWeaponDef, WeaponId } from "../config/weapon-types.js";
 import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import { applyStatus } from "./status/statuses.js";
 import { damageFor, weaponDamageOf } from "./damage.js";
-import { newFireState } from "./weapons/fire.js";
+import { newFireState, type FireState } from "./weapons/fire.js";
 import { muzzleOf, type WeaponInstance } from "./weapons/instances.js";
 import { stepSim } from "./step.js";
 import type { SimBody } from "./step.js";
@@ -86,6 +86,31 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
 /** A player at a given pose, for tests that only care about position and heading. */
 function playerAt(sessionId: string, x: number, y: number, angle: number): CombatPlayer {
   return player(sessionId, { x, y, angle });
+}
+
+/**
+ * A mirage already mid-way through a `magmablast` turret press (slot 1): the stock is already
+ * spent (`beginFire` spends it at press time, before this file's tests pick the story up), the
+ * press is frozen on `bearing`, and `turretAngle` is wherever the turn has gotten to so far. Shared
+ * by the TR15 lifecycle tests below (final-fixes item 3), which each drive one more `runCombat`
+ * tick over a press that started earlier rather than replaying the whole turn from a fresh press.
+ */
+function turretFireState(turretAngle: number, bearing: number): FireState {
+  const base = newFireState("mirage", 1);
+  return {
+    ...base,
+    slots: base.slots.map((s, i) => (i === 1 ? { ...s, stocks: 0 } : s)),
+    turretAngle,
+    pending: {
+      weaponId: "magmablast",
+      slot: 1,
+      shotsLeft: 1,
+      nextShotTick: Number.POSITIVE_INFINITY,
+      pressId: "a#40#1",
+      bearing,
+      aligned: false,
+    },
+  };
 }
 
 /**
@@ -828,6 +853,81 @@ describe("turret press through a real tick (TR18-TR24)", () => {
   });
 });
 
+describe("TR15: a turret press's lifecycle at the runCombat level (final-fixes item 3)", () => {
+  it("(a) a car that becomes disarmed mid-turn still finishes the turn and fires", () => {
+    // `stunned` (which carries the `disarmed` flag) has been running since tick 40 and is still
+    // active going into tick 50 — an OLD stun, already reflected in `wasStunned`, not a fresh one
+    // landing this tick. `turnTurret` runs every tick a turret press is pending, disarmed or not
+    // (TR11/TR15, combat.ts ~line 487): the turn in progress finishes exactly as a wind-up would,
+    // and the shot goes out despite the car being unable to have STARTED a press this tick.
+    const step = TURRET_TICKS.turnPerTick;
+    const a = player("a", {
+      x: 300,
+      y: 300,
+      angle: 0,
+      fireMask: 0,
+      fireState: turretFireState(Math.PI / 2 - step / 2, Math.PI / 2),
+      statuses: applyStatus([], "stunned", 40, 20, "attacker"),
+    });
+    const result = run({ world: world({ tick: 50 }), players: [a] });
+    const shot = result.instances.find((i) => i.weaponId === "magmablast");
+    expect(shot).toBeDefined();
+    expect(shot!.angle).toBeCloseTo(Math.PI / 2, 5);
+    expect(find(result, "a").fireState.pending).toBeNull();
+
+    // The claim only holds because `turnTurret` sits AFTER the `!mods.disarmed` block rather than
+    // inside it: move it in (see the fix-wave report for the RED this produced), and `aligned`
+    // never flips true while disarmed, so `releaseShots` refuses and this same setup fires nothing.
+  });
+
+  it("(b) a stun landing mid-turn cancels the press (no shot) and the stock stays spent", () => {
+    // The turn has barely started (`turretAngle: 0`, 90 degrees still to go — many steps, not one),
+    // and this tick's own `statusRequests` land a FRESH stun on "a". Modifiers are read once at the
+    // top of the tick (before phase 0d applies this request), so this tick's `turnTurret` still
+    // advances the turn as normal and does not arrive — no release either way this tick. The O8
+    // interrupt sweep at the end of the tick then finds "a" newly stunned (absent from `wasStunned`)
+    // and cancels the pending press outright: no shot, ever, for this press.
+    const a = player("a", {
+      x: 300,
+      y: 300,
+      angle: 0,
+      fireMask: 0,
+      fireState: turretFireState(0, Math.PI / 2),
+    });
+    const result = run({
+      world: world({ tick: 50 }),
+      players: [a],
+      statusRequests: [{ targetSessionId: "a", statusId: "stunned", durationTicks: 20 }],
+    });
+    const after = find(result, "a");
+    expect(result.instances.find((i) => i.weaponId === "magmablast")).toBeUndefined();
+    expect(after.fireState.pending).toBeNull();
+    // `cancelPending` only drops the press; it does not refund the stock `beginFire` spent when the
+    // press began. Nothing in this tick starts a fresh recharge for it either (that is next tick's
+    // `tickRecharge`, once `pending` reads null) — spent stays spent for the tick under test.
+    expect(after.fireState.slots[1]!.stocks).toBe(0);
+  });
+
+  it("(c) a wreck (hp 0, not fighting) mid-turn drops the pending press", () => {
+    // `isFighting` gates the whole per-player loop, including `turnTurret`, so a wreck's press is
+    // dropped in phase 1 (`cancelPending`) before a turn or a release ever gets a chance to run —
+    // the same "nothing survives" rule already covers a wreck holding a fixed-muzzle wind-up.
+    const a = player("a", {
+      x: 300,
+      y: 300,
+      angle: 0,
+      fireMask: 0,
+      hp: 0,
+      alive: false,
+      fireState: turretFireState(0, Math.PI / 2),
+    });
+    const result = run({ world: world({ tick: 50 }), players: [a] });
+    const after = find(result, "a");
+    expect(result.instances.find((i) => i.weaponId === "magmablast")).toBeUndefined();
+    expect(after.fireState.pending).toBeNull();
+  });
+});
+
 it("damages a target with a real attached beam fired from a real loadout, once it has grown to reach", () => {
   // afterburner is Mirage's slot 3 and the game's first beam. Its cone is 55 degrees out to
   // 220 units, so a target 100 units directly ahead at angle 0 is inside it once the beam has
@@ -842,9 +942,10 @@ it("damages a target with a real attached beam fired from a real loadout, once i
   // beyond it (combat.ts's own module comment). This drives three ticks of `runCombat`, feeding
   // each tick's returned players/instances back in as the next tick's input exactly as `stepSim`
   // does, until the beam's growing extent reaches the target's near edge:
-  // muzzle at x = 300 + carWidth/2 = 324; target's near hull edge at x = 400 - carWidth/2 = 376;
-  // distance 52. Extent after tick 1 (spawn) is 0; after tick 2, ~36.7 (still short); after tick 3,
-  // ~73.3 (past 52) — so the first damage lands on the third call.
+  // afterburner is a fixed muzzle, so it leaves from the nose: x = 300 + carWidth/2 = 330; target's
+  // near hull edge at x = 400 - carWidth/2 = 370; distance 40. Extent after tick 1 (spawn) is 0;
+  // after tick 2, ~36.7 (still short); after tick 3, ~73.3 (past 40) — so the first damage lands on
+  // the third call.
   let world_ = world();
   let players: CombatPlayer[] = [
     player("aaa", { x: 300, y: OPEN_Y, angle: 0, fireMask: 0b1000 }),
@@ -1339,9 +1440,10 @@ describe("real-row integration (2026-09-01 roster)", () => {
     // sticks, steering keeps bending toward the target's LIVE pose each tick, not a pose frozen at
     // the moment it committed.
     const shooter = player("a", { x: 300, y: OPEN_Y, angle: 0, carId: "bullseye", fireMask: 0b010 });
-    // Off-axis on +y, same geometry as "grabs a car that comes within acquireRadius" above: the
-    // muzzle sits at x=324 and the shot closes 30u/tick, so it is not yet within the 200u bubble at
-    // spawn (276u away) and commits a few ticks later — proximity, not the lock, does the finding.
+    // Off-axis on +y, same geometry as "grabs a car that comes within acquireRadius" above: predator
+    // is a turret row (turret pivot + TURRET_CONFIG.defaultOffset 25, additionalOffset 0), so the
+    // shot leaves at x = 300 + 25 = 325 and closes 30u/tick — not yet within the 200u bubble at
+    // spawn (275u away) and commits a few ticks later — proximity, not the lock, does the finding.
     let state = runCombat({
       world: world(),
       players: [shooter, player("b", { x: 600, y: OPEN_Y + 150, angle: Math.PI })],
@@ -1354,8 +1456,8 @@ describe("real-row integration (2026-09-01 roster)", () => {
     expect(spawned.homingTargetId).toBe(""); // no pre-commit at spawn (P1/P7)
 
     // Step until proximity acquisition sticks. `acquireByProximity` reads the PRE-step pose each
-    // tick, so the shot is checked at x=324, 354, ..., 474 before it moves each time — it clears
-    // the 200u bubble (sqrt(126^2+150^2) ~= 196u) on the check at x=474, seven ticks after spawn.
+    // tick, so the shot is checked at x=325, 355, ..., 475 before it moves each time — it clears
+    // the 200u bubble (sqrt(125^2+150^2) ~= 195u) on the check at x=475, seven ticks after spawn.
     for (let i = 0; i < 6; i++) {
       state = runCombat({
         world: world({ tick: 101 + i }),
@@ -1945,8 +2047,9 @@ describe("proximity homing (spec P1-P6)", () => {
     // Bystander dead ahead at x=700, lateral offset 0: well inside the lock cone (lateralMax 120)
     // and lock range (aimRangeUnits 800), so a lock exists and aim assist succeeds on tick one —
     // this is exactly the shape of shot the old `def.homing && aim !== null` check welded to
-    // `player.lock.targetSessionId` at spawn, regardless of `acquire`. The muzzle sits at x=324, so
-    // the bystander at x=700 is 376u away on the spawn tick — outside the 200u proximity bubble.
+    // `player.lock.targetSessionId` at spawn, regardless of `acquire`. Predator is a turret row, so
+    // the muzzle sits at the turret pivot + 25 = x=325, and the bystander at x=700 is 375u away on
+    // the spawn tick — outside the 200u proximity bubble.
     // A correct proximity weapon must NOT commit here; only `acquire: "lock"` rows may use the lock
     // at spawn, and predator is `acquire: "proximity"`.
     const spawnTick = fireAndStep([player("bbb", { x: 700, y: OPEN_Y })], 1);
@@ -1964,8 +2067,9 @@ describe("proximity homing (spec P1-P6)", () => {
 
   it("grabs a car that comes within acquireRadius and bends toward it", () => {
     // Bystander 150u off the line: unlockable (lateralMax is 120), so only proximity can find it.
-    // The shot leaves the muzzle at x=324 and covers 30u/tick, so it closes to within 200u of
-    // (600, 300) around x=474 — on the sixth tick. Ten ticks leaves room to see the turn.
+    // The shot leaves the muzzle at the turret pivot + 25 = x=325 and covers 30u/tick, so it closes
+    // to within 200u of (600, 300) around x=475 — on the sixth tick. Ten ticks leaves room to see
+    // the turn.
     const result = fireAndStep([player("bbb", { x: 600, y: OPEN_Y + 150 })], 10);
     const shot = result.instances.find((i) => i.weaponId === "predator");
     expect(shot).toBeDefined();
@@ -1982,8 +2086,9 @@ describe("proximity homing (spec P1-P6)", () => {
   });
 
   it("never grabs its own shooter, whose hull the muzzle sits on", () => {
-    // The shot spawns 24u from the shooter's centre — inside its own 200u bubble from tick one.
-    // `canDamage` refusing the owner is the only thing stopping it homing on itself immediately.
+    // The shot spawns 25u from the shooter's centre (turret pivot + TURRET_CONFIG.defaultOffset) —
+    // inside its own 200u bubble from tick one. `canDamage` refusing the owner is the only thing
+    // stopping it homing on itself immediately.
     const result = fireAndStep([], 4);
     const shot = result.instances.find((i) => i.weaponId === "predator");
     expect(shot!.homingTargetId).toBe("");
@@ -2118,8 +2223,9 @@ describe("magma blast detonation (spec P13-P21)", () => {
   const bursts = (r: CombatResult) => r.instances.filter((i) => i.isExplosion);
 
   it("costs a directly-hit car contact PLUS splash, and corrodes it (P16)", () => {
-    // Muzzle at x=324, shell at 600 u/s = 20 u/tick, target hull's near edge at 400-24=376.
-    // Contact around tick 4; one more tick for the burst to resolve.
+    // magmablast is a turret row: muzzle at the turret pivot + 25 = x=325. Shell at 600 u/s =
+    // 20 u/tick; target hull's near edge (an actual hull dimension, DRIVE_CONFIG.carWidth/2) at
+    // 400-30=370. Contact around tick 4; one more tick for the burst to resolve.
     const result = fire(
       { x: 300, y: OPEN_Y, angle: 0 },
       [player("bbb", { x: 400, y: OPEN_Y, hp: MIRAGE_HP })],

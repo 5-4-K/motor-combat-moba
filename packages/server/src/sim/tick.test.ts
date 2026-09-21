@@ -13,6 +13,7 @@ import {
   forwardOf,
   lateralOf,
   toWorld,
+  wrapAngle,
   type CarId,
   type InputMessage,
   type Modifiers,
@@ -751,6 +752,27 @@ describe("serverTick fire mask reporting", () => {
     );
     // Seq 2 is the last input whose PRESSED mask was non-zero (seq 3 only holds the same bit down).
     expect(aims.get("p1")).toBe(0.2);
+  });
+
+  it("normalises an absurd finite aimAngle before storing it (final-fixes item 4)", () => {
+    // A malformed or hostile client could send anything finite; `wrapAngle` is the one place the
+    // sim/client turret code agrees an angle is normalised, so the captured aim must go through it
+    // too rather than reach `PlayerState.aimBearing` (and the turret/lead math built on it) raw.
+    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const { aims } = serverTick(
+      stateWith(player),
+      new Map([["p1", [{ seq: 1, steer: 0, throttle: 0, fireSlots: 0b010, aimAngle: 1e300 }]]]),
+      DT,
+      RoomPhase.MATCH,
+      NO_EFFECTS,
+      new Map(),
+      new Map(),
+    );
+    const aim = aims.get("p1");
+    expect(aim).toBeDefined();
+    expect(aim).toBeCloseTo(wrapAngle(1e300), 10);
+    expect(aim!).toBeGreaterThan(-Math.PI);
+    expect(aim!).toBeLessThanOrEqual(Math.PI);
   });
 
   it("reports no aim when the pressing input carried none", () => {
