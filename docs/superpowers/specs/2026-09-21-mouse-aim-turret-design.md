@@ -258,6 +258,24 @@ Four changes that ship together because each needs the others to make sense:
   match, death and spectating alike (the crosshair hides when the car is off the field, per TR32, but
   the lock stays so a respawn needs no extra click). The scene releases it on shutdown — which covers
   the move to results, a room leave, and every exit. Lobby, car select, join and results never lock.
+- **TR54** (2026-09-22 follow-up) **P is ignored while a pause is in flight.** In practice and the
+  playground P sends a server toggle, and the menu (and the end of the relock gate TR31a names, "a
+  pause in flight") waits on `state.paused` patching back true. A second P inside that round trip
+  used to send a second toggle: the server paused and un-paused within one patch interval, the
+  client never saw `paused` go true, the in-flight flag never cleared, and the mouse could not
+  relock — LMB and RMB dead — until the room reset. Now:
+  - While a pause request is in flight, P does nothing in practice **and** the playground. In the
+    playground both P listeners respect it: the overlay's own handler (`dev/playground/overlay.ts`)
+    sends nothing, and `ArenaScene`'s document keydown marks nothing. The Esc path (`openMenu`)
+    never re-sends a pause that is already in flight either.
+  - **Backstop:** a request clears on its own if the paused patch has not arrived within
+    `PAUSE_REQUEST_TIMEOUT_MS` (1000, client config `config/pause-request.ts`), so a refused or
+    lost request cannot wedge the lock for good.
+  - The decision is the pure `pauseInFlight`/`settlePauseRequest` pair in
+    `input/pause-request.ts`: the caller holds only the request's timestamp (or `null`), and the
+    pair answers in flight (asked, not yet paused, not timed out) and drops the request once it has
+    landed or expired. `ArenaScene` and the playground overlay each hold their own timestamp, off
+    the same key press.
 
 ## 6. Turret art and drawing
 

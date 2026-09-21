@@ -40,6 +40,7 @@ import {
   sanitizeStoredTuning,
 } from "@motor-combat-moba/shared";
 import { button, h } from "../../ui/dom.js";
+import { pauseInFlight } from "../../input/pause-request.js";
 import { requestLock } from "../../input/pointer-lock.js";
 import { loadStored, saveStored } from "./storage.js";
 import { stepperPair } from "./steppers.js";
@@ -728,6 +729,11 @@ export function mountPlaygroundOverlay(
   }
 
   let wasPaused = room.state.paused;
+  /** When P last asked to pause (`performance.now()`), or null (TR54). While that request is in
+   * flight — no paused patch yet, `PAUSE_REQUEST_TIMEOUT_MS` not yet up — P is ignored, or the
+   * second toggle would un-pause before the first ever patched back. `ArenaScene` keeps its own copy
+   * off the same key, for its relock gates. */
+  let pauseRequestedAtMs: number | null = null;
   let lastSentArenaId = isArenaId(room.state.arenaId)
     ? room.state.arenaId
     : defaultPlaygroundSetup().arenaId;
@@ -1097,9 +1103,13 @@ export function mountPlaygroundOverlay(
     const tag = (e.target as HTMLElement | null)?.tagName ?? "";
     const action = pauseKeyAction(effectiveView(), tag);
     if (action === "toggle") {
-      // Pausing hands the OS cursor back for the menu (TR37). `ArenaScene` has already marked this
-      // release as asked-for, so it does not read as an Esc and send a second toggle.
-      if (!room.state.paused) document.exitPointerLock();
+      if (!room.state.paused) {
+        if (pauseInFlight(pauseRequestedAtMs, room.state.paused, performance.now())) return;
+        pauseRequestedAtMs = performance.now();
+        // Pausing hands the OS cursor back for the menu (TR37). `ArenaScene` has already marked this
+        // release as asked-for, so it does not read as an Esc and send a second toggle.
+        document.exitPointerLock();
+      }
       room.send(MSG_PLAYGROUND_PAUSE);
     } else if (action === "back-to-menu") {
       if (effectiveView() === "cars") {
@@ -1125,6 +1135,7 @@ export function mountPlaygroundOverlay(
   window.addEventListener("keydown", onKeyDown);
 
   function onState(): void {
+    if (room.state.paused) pauseRequestedAtMs = null; // the request landed (TR54)
     if (room.state.paused === wasPaused) return;
     wasPaused = room.state.paused;
     // Always land back on the menu next time the sim pauses -- the settings sub-view is local and

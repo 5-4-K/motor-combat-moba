@@ -83,6 +83,7 @@ import {
   type LockEvent,
   type LockState,
 } from "../input/pointer-lock.js";
+import { settlePauseRequest } from "../input/pause-request.js";
 import { InterpolationBuffer } from "../net/interpolation.js";
 import { PredictionBuffer } from "../net/prediction.js";
 import { blendPose } from "../net/interpolation.js";
@@ -880,11 +881,13 @@ export class ArenaScene extends Phaser.Scene {
   /** Mirrors whether `pauseOverlay` is currently mounted, so `syncPauseOverlay` renders on a change
    *  in `state.paused` and not on every patch while it holds steady. */
   private pauseMenuShown = false;
-  /** Set the instant practice or the playground asks the server to pause, cleared once `state.paused`
-   *  patches to true (or match state resets). Closes the relock race (final-fixes item 1): `menuOpen`
-   *  reads `state.paused`, which stays false for a whole round trip after the request, and a canvas
-   *  click in that window must not re-lock the cursor just before the menu mounts under it. */
-  private pauseRequested = false;
+  /** When practice or the playground last asked the server to pause (`performance.now()`), or null.
+   *  Read only through `pauseInFlight` (TR54): in flight until `state.paused` patches true, the
+   *  match state resets, or `PAUSE_REQUEST_TIMEOUT_MS` passes. Closes the relock race (final-fixes
+   *  item 1): `menuOpen` reads `state.paused`, which stays false for a whole round trip after the
+   *  request, and a canvas click in that window must not re-lock the cursor just before the menu
+   *  mounts under it. It is also what makes a second P in that window do nothing (TR54). */
+  private pauseRequestedAtMs: number | null = null;
   /**
    * Where `onLeave` routes after this room closes. Undefined resolves to "join", the room-close
    * fallback every other exit from the arena already used; `exitPractice` (PR22/PR23/PR24) sets it
@@ -1706,7 +1709,7 @@ export class ArenaScene extends Phaser.Scene {
     this.pauseOverlay?.destroy();
     this.pauseOverlay = undefined;
     this.pauseMenuShown = false;
-    this.pauseRequested = false;
+    this.pauseRequestedAtMs = null;
     // The lock never outlives the arena (TR40): results, a leave and every exit come through here,
     // and no other scene draws a crosshair to show where a locked, invisible cursor is.
     this.unbindPointerLock?.();
@@ -1799,7 +1802,8 @@ export class ArenaScene extends Phaser.Scene {
    * `P`, the menu toggle in every room kind (spec TR35).
    *
    * - **Practice**: the toggle `MSG_PRACTICE_PAUSE` message (spec PR22/PR23), plus giving up the lock
-   *   when it pauses. No menu is mounted here — `syncPauseOverlay` does that, and only once the
+   *   when it pauses. While that pause is still in flight, P does nothing (TR54): a second toggle
+   *   would un-pause before the first ever patched back. No menu is mounted here — `syncPauseOverlay` does that, and only once the
    *   server's own `state.paused` comes back in a patch, so the player is never looking at a menu the
    *   sim has not actually stopped for yet.
    * - **Arena**: opens or closes the client-only menu. Closing does not relock: a keypress is not a
@@ -1811,8 +1815,9 @@ export class ArenaScene extends Phaser.Scene {
     if (!Phaser.Input.Keyboard.JustDown(this.pauseKey)) return;
     if (isPracticeRoom(room)) {
       if (!isSimPaused(room.state)) {
+        if (this.pauseInFlight(room)) return;
         this.releaseLock();
-        this.pauseRequested = true;
+        this.pauseRequestedAtMs = performance.now();
       }
       room.send(MSG_PRACTICE_PAUSE);
     } else if (this.arenaMenuOpen) {
@@ -1838,17 +1843,18 @@ export class ArenaScene extends Phaser.Scene {
    */
   private openMenu(room: Room<ArenaState>): void {
     this.releaseLock();
+    // A pause already in flight is not asked for twice (TR54): the second would be a toggle back.
     if (isPracticeRoom(room)) {
-      if (!isSimPaused(room.state)) {
+      if (!isSimPaused(room.state) && !this.pauseInFlight(room)) {
         room.send(MSG_PRACTICE_PAUSE);
-        this.pauseRequested = true;
+        this.pauseRequestedAtMs = performance.now();
       }
       return;
     }
     if (isPlaygroundRoom(room)) {
-      if (!isSimPaused(room.state)) {
+      if (!isSimPaused(room.state) && !this.pauseInFlight(room)) {
         room.send(MSG_PLAYGROUND_PAUSE);
-        this.pauseRequested = true;
+        this.pauseRequestedAtMs = performance.now();
       }
       return;
     }
@@ -1865,6 +1871,17 @@ export class ArenaScene extends Phaser.Scene {
         "overlay",
       ).root,
     );
+  }
+
+  /** Is a practice/playground pause request still waiting on its patch (TR54)? Settles the stored
+   *  request as it asks, so a patched or timed-out request is dropped here and nowhere else. */
+  private pauseInFlight(room: Room<ArenaState>): boolean {
+    this.pauseRequestedAtMs = settlePauseRequest(
+      this.pauseRequestedAtMs,
+      isSimPaused(room.state),
+      performance.now(),
+    );
+    return this.pauseRequestedAtMs !== null;
   }
 
   private closeArenaMenu(relock: boolean): void {
@@ -1903,16 +1920,16 @@ export class ArenaScene extends Phaser.Scene {
     // is still inside the browser's transient-activation window; when it is not, the browser refuses
     // and the refusal is expected, so it asks `requestLock` to stay quiet about it — the first
     // driving key or canvas click (below) tries again with its own fresh gesture.
-    if (shouldRequestLock(this.lock.locked, this.menuOpen(room), this.pauseRequested)) {
+    if (shouldRequestLock(this.lock.locked, this.menuOpen(room), this.pauseInFlight(room))) {
       requestLock(canvas, true);
     }
 
     // A lock needs a user gesture, so it is only ever asked for from a click on the canvas.
-    // `shouldRequestLock` also guards the relock race (final-fixes item 1): `pauseRequested` covers
+    // `shouldRequestLock` also guards the relock race (final-fixes item 1): `pauseInFlight` covers
     // the round trip between asking practice/the playground to pause and `state.paused` patching
     // true, during which `menuOpen` still reads false.
     const onDown = (): void => {
-      if (shouldRequestLock(this.lock.locked, this.menuOpen(room), this.pauseRequested)) requestLock(canvas);
+      if (shouldRequestLock(this.lock.locked, this.menuOpen(room), this.pauseInFlight(room))) requestLock(canvas);
     };
     const onChange = (): void => {
       if (document.pointerLockElement === canvas) {
@@ -1941,19 +1958,22 @@ export class ArenaScene extends Phaser.Scene {
     // `document` listener fires before that overlay's `window` one — so the release is marked before
     // its `pointerlockchange` arrives. Unmarked, that change would read as an Esc and `openMenu` would
     // send a second pause toggle straight after the overlay's, before the first had patched back.
+    //
+    // A P while a pause is already in flight is ignored here exactly as the overlay ignores it
+    // (TR54): nothing is marked, and the overlay's own tracker sends nothing.
     const onKey = (event: KeyboardEvent): void => {
       if (event.repeat) return;
       if (event.key === "p" || event.key === "P") {
-        if (isPlaygroundRoom(room) && this.lock.locked && !isSimPaused(room.state)) {
-          this.dispatchLock({ type: "release" });
-          this.pauseRequested = true;
+        if (isPlaygroundRoom(room) && !isSimPaused(room.state) && !this.pauseInFlight(room)) {
+          if (this.lock.locked) this.dispatchLock({ type: "release" });
+          this.pauseRequestedAtMs = performance.now();
         }
         return;
       }
       // TR31a: the first key after a menu closes with no gesture-capable relock (P has none) gets one
       // for free — a keydown is a user gesture too, and this fires on the very press that drives the
       // car, never consuming or blocking it (no preventDefault, no stopPropagation).
-      if (shouldAutoLockOnKey(this.lock.locked, this.menuOpen(room), this.pauseRequested, event.key)) {
+      if (shouldAutoLockOnKey(this.lock.locked, this.menuOpen(room), this.pauseInFlight(room), event.key)) {
         requestLock(canvas);
       }
     };
@@ -1981,8 +2001,9 @@ export class ArenaScene extends Phaser.Scene {
     // menu is considered open while the cursor is still locked — however that happened — give the
     // lock up immediately rather than let an invisible cursor sit under a mounted menu.
     if (shouldReleaseLock(this.lock.locked, this.menuOpen(room))) this.releaseLock();
-    // The request-side race window closes once the pause we asked for actually patches in.
-    if (this.pauseRequested && isSimPaused(room.state)) this.pauseRequested = false;
+    // The request-side race window closes once the pause we asked for actually patches in, or times
+    // out (TR54) — settled every frame so a stale request never outlives its backstop unread.
+    this.pauseInFlight(room);
     const gfx = this.crosshair;
     if (!gfx) return;
     const local = room.state.players.get(this.drivenSid(room));
