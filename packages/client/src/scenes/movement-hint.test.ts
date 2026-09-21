@@ -90,38 +90,35 @@ describe("movementHintItems", () => {
     // are gone — nothing in production read them once `ArenaScene` passed the driven car's own
     // count — and these cases are the coverage that was always doing the work.
     //
-    // The gutter pill prints only the mouse-hand glyph, so this countdown row is the one place the
-    // J/K/L letters are shown. Derived from SLOT_KEYS, so a rebind cannot leave the hint stale.
-    // The basic attack still comes first (BA19) — but it comes first because it IS fire slot 0 now,
-    // not because the hint reorders the table around it (VS15).
-    expect(actionKeysFor(2, true)).toEqual(["H", "J", "K"]);
-    expect(actionKeysFor(3, true)).toEqual(["H", "J", "K", "L"]);
-    expect(actionKeysFor(4, true)).toEqual(["H", "J", "K", "L", ";"]);
-    expect(actionKeysFor(3, false)).toEqual(["J", "K", "L"]);
-    expect(actionAltsFor(2, true)).toEqual(["H", "LMB", "RMB"]);
-    expect(actionAltsFor(3, true)).toEqual(["H", "LMB", "RMB", "SPACE"]);
-    // Three pairs, not four, in the SHIPPED build: the basic attack is switched off, so slot 0 is
-    // dropped and its H never prints (BA19).
-    expect(actionAltsFor(3, false)).toEqual(["LMB", "RMB", "SPACE"]);
+    // One layout now (TR29): `actionKeysFor` prints one glyph per slot and `actionAltsFor` prints
+    // no alternates at all, since there is no second binding left to show. The basic attack still
+    // comes first (BA19) — but it comes first because it IS fire slot 0 now, not because the hint
+    // reorders the table around it (VS15).
+    expect(actionKeysFor(2, true)).toEqual(["LMB", "RMB", "Q"]);
+    expect(actionKeysFor(3, true)).toEqual(["LMB", "RMB", "Q", "E"]);
+    expect(actionKeysFor(4, true)).toEqual(["LMB", "RMB", "Q", "E", "SPACE"]);
+    expect(actionKeysFor(3, false)).toEqual(["RMB", "Q", "E"]);
+    expect(actionAltsFor(2, true)).toEqual([]);
+    expect(actionAltsFor(3, true)).toEqual([]);
+    expect(actionAltsFor(3, false)).toEqual([]);
     expect(hintSlotOrder(true, 3)).toEqual([0, 1, 2, 3]);
     expect(hintSlotOrder(false, 3)).toEqual([1, 2, 3]);
     // Subset, not equality: SLOT_KEYS is ceiling-length while a hint row prints one chassis's kit.
-    for (const glyph of actionAltsFor(4, true)) {
-      expect(SLOT_KEYS.map((k) => k.glyph)).toContain(glyph);
-    }
     for (const glyph of actionKeysFor(4, true)) {
-      expect(SLOT_KEYS.map((k) => k.keyGlyph)).toContain(glyph);
+      expect(SLOT_KEYS.map((k) => k.glyph)).toContain(glyph);
     }
   });
 
-  it("teaches exactly the slots HINT_SLOT_ORDER names, and every binding each one holds", () => {
+  it("teaches the basic attack first now it is on, LMB RMB Q E, with no alternates (TR30)", () => {
     // Keyed off HINT_SLOT_ORDER rather than all of SLOT_KEYS, so the assertion survives the
     // basic-attack toggle in either position instead of pinning one build's slot count. The row a
-    // full-kit chassis is taught in THIS build is exactly that order's glyphs.
+    // full-kit chassis is taught in THIS build is exactly that order's glyphs, and with one layout
+    // now `actionAltsFor` has nothing left to print.
     const full = WEAPON_SLOT_CONFIG.maxAbilitySlots;
     const enabled = BASIC_ATTACK_CONFIG.enabled;
-    expect(actionKeysFor(full, enabled)).toEqual(HINT_SLOT_ORDER.map((s) => SLOT_KEYS[s]!.keyGlyph));
-    expect(actionAltsFor(full, enabled)).toEqual(HINT_SLOT_ORDER.map((s) => SLOT_KEYS[s]!.glyph));
+    expect(actionKeysFor(full, enabled)).toEqual(["LMB", "RMB", "Q", "E"]);
+    expect(actionKeysFor(full, enabled)).toEqual(HINT_SLOT_ORDER.map((s) => SLOT_KEYS[s]!.glyph));
+    expect(actionAltsFor(full, enabled)).toEqual([]);
   });
 });
 

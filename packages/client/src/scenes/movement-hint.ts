@@ -28,20 +28,29 @@ export const MOVEMENT_JOINER = "or";
 export const MOVEMENT_LABEL = "to move";
 
 /**
- * The action row's clusters for a chassis carrying `abilities` weapons, derived from `SLOT_KEYS` so
- * a rebind can never leave the hint teaching keys the game stopped listening to.
+ * The action row's keys for a chassis carrying `abilities` weapons, derived from `SLOT_KEYS` so a
+ * rebind can never leave the hint teaching keys the game stopped listening to.
  *
  * Parameterised by kit size (VS19): with variable kits a module constant would teach a two-weapon
- * chassis the semicolon for a slot it does not carry. The basic attack is taught FIRST and is the
- * only place either of its bindings appears — the gutter pill never carries it (BA19) — so dropping
- * it when `BASIC_ATTACK_CONFIG.enabled` is false must remove the pill, not leave a dead one.
+ * chassis a binding for a slot it does not carry. The basic attack is taught FIRST and is the only
+ * place its binding appears — the gutter pill never carries it (BA19) — so dropping it when
+ * `BASIC_ATTACK_CONFIG.enabled` is false must remove the pill, not leave a dead one.
  */
 export function actionKeysFor(abilities: number, enabled: boolean): readonly string[] {
-  return hintSlotOrder(enabled, abilities).map((slot) => SLOT_KEYS[slot]!.keyGlyph);
+  return hintSlotOrder(enabled, abilities).map((slot) => SLOT_KEYS[slot]!.glyph);
 }
 
-export function actionAltsFor(abilities: number, enabled: boolean): readonly string[] {
-  return hintSlotOrder(enabled, abilities).map((slot) => SLOT_KEYS[slot]!.glyph);
+/**
+ * No alternates (TR29). The old two-binding scheme gave every ability slot a home-row key AND a
+ * mouse-hand alternate, which is what `actionKeysFor`/`actionAltsFor` used to split between them —
+ * `buildHintRow` drew the two as "keys or alts". The one-layout controls pass left every slot with
+ * exactly one input, so there is nothing left for a second cluster to show. Kept as its own
+ * function, rather than deleted, so `buildHintRow`'s shared (keys, alts, label) shape — still live
+ * for the movement row's WASD/arrows pair — has an explicit "this row has no alternates" value to
+ * pass, instead of a caller improvising an empty array inline.
+ */
+export function actionAltsFor(_abilities: number, _enabled: boolean): readonly string[] {
+  return [];
 }
 
 /**

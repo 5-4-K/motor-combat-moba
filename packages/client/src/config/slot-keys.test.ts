@@ -32,38 +32,28 @@ describe("slot keys", () => {
     expect(slotMaskFrom([true, true, true, true, true])).toBe(0b1111);
   });
 
-  it("fires ability 1 from the left mouse button and ability 2 from the right", () => {
-    // The mouse hand belongs to the abilities: LMB fires ability 1, RMB ability 2. The basic
-    // attack surrendered LMB when the toggle went off and now carries no mouse binding at all —
-    // it is fire slot 0 (VS6), so what keeps bit 0 clear here is that slot 0 has no `buttonsMask`.
-    expect(slotMaskFrom([], 0b01)).toBe(0b0010);
-    expect(slotMaskFrom([], 0b10)).toBe(0b0100);
-    expect(slotMaskFrom([], 0b11)).toBe(0b0110);
+  it("binds exactly one layout: LMB, RMB, Q, E, Space (TR29)", () => {
+    expect(SLOT_KEYS.map((k) => k.glyph)).toEqual(["LMB", "RMB", "Q", "E", "SPACE"]);
+    expect(SLOT_KEYS.map((k) => k.buttonsMask)).toEqual([1, 2, 0, 0, 0]);
+    expect(SLOT_KEYS.map((k) => [...k.codes])).toEqual([[], [], [81], [69], [32]]);
+  });
+
+  it("maps held inputs to fire slots, capped at maxFireSlots", () => {
+    expect(slotMaskFrom([], 1)).toBe(1 << 0);
+    expect(slotMaskFrom([], 2)).toBe(1 << 1);
+    expect(slotMaskFrom([false, false, true])).toBe(1 << 2);
+    expect(slotMaskFrom([false, false, false, true])).toBe(1 << 3);
+    expect(slotMaskFrom([false, false, false, false, true])).toBe(0); // slot 4 inert while N = 3
   });
 
   it("ORs mouse buttons with keys instead of replacing them", () => {
-    // Ability 2's own key (K, slot 2) held alongside LMB (ability 1, slot 1).
-    expect(slotMaskFrom([false, false, true], 0b01)).toBe(0b0110);
-    expect(slotMaskFrom([true, false, false], 0)).toBe(0b0001);
-  });
-
-  it("ignores a mouse bit whose slot this build does not have", () => {
-    // The middle button (bit 2 of MouseEvent.buttons, value 4) belongs to ability 4 now, which is
-    // fire slot 4 — past `maxFireSlots` at N = 3, so `slotMaskFrom` never scans its row (VS18).
-    expect(slotMaskFrom([], 0b100)).toBe(0);
+    // Ability 2's own key (Q, slot 2) held alongside LMB (the basic attack, slot 0).
+    expect(slotMaskFrom([false, false, true], 0b01)).toBe(0b0101);
+    expect(slotMaskFrom([false, false, false], 0b01)).toBe(0b0001);
   });
 });
 
 describe("slot key glyphs", () => {
-  it("binds slot 0 to the basic attack and the abilities after it", () => {
-    // VS15. Every player-facing binding the 2026-09-19 controls pass chose survives untouched:
-    // J/LMB still fires ability 1, K/RMB ability 2, L/SPACE ability 3, and H is still the basic
-    // attack with no mouse button. Only the INDICES moved — H was slot 3 and is now slot 0, and
-    // each ability shifted up one behind it. The renumbering is internal.
-    expect(SLOT_KEYS.map((k) => k.keyGlyph)).toEqual(["H", "J", "K", "L", ";"]);
-    expect(SLOT_KEYS.map((k) => k.glyph)).toEqual(["H", "LMB", "RMB", "SPACE", "MMB"]);
-  });
-
   it("is ceiling-length at every N, so the table never has to grow again", () => {
     // VS16. `slotMaskFrom` limits its own scan to `maxFireSlots`, so rows past N are simply never
     // read into a mask — the key for a slot this build does not have does nothing.
@@ -78,24 +68,15 @@ describe("slot key glyphs", () => {
     expect(slotMaskFrom(all, 0)).toBe((1 << WEAPON_SLOT_CONFIG.maxFireSlots) - 1);
   });
 
-  it("gives the basic attack no mouse button at all, so bit 0 is keyboard-only", () => {
-    // The basic attack surrendered LMB when the toggle went off; moving it to fire slot 0 did not
-    // give it back. No mouse button may set bit 0.
-    expect(SLOT_KEYS[WEAPON_SLOT_CONFIG.basicAttackSlotIndex]!.buttonsMask).toBe(0);
-    for (const buttons of [0b001, 0b010, 0b100, 0b111]) {
-      expect(slotMaskFrom([], buttons) & 0b0001).toBe(0);
-    }
-  });
-
-  it("binds H / J / K / L / ; with the mouse-hand alternates, in FIRE SLOT order (BA16, VS15)", () => {
-    // Indexed by fire slot: 0 is the basic attack, 1..4 are the ability kit. SPACE (32) is a second
-    // keyCode on ability 3; slot 0 is keyboard-only (H) since the basic attack gave up LMB.
-    expect(SLOT_KEYS.map((key) => [...key.codes])).toEqual([[72], [74], [75], [76, 32], [186]]);
-    expect(SLOT_KEYS.map((key) => key.buttonsMask)).toEqual([0, 1, 2, 0, 4]);
+  it("gives the basic attack the left mouse button, in fire-slot 0 (TR29, TR46)", () => {
+    // The basic attack takes LMB back now that it is switched on: bit 0 is set by the left button
+    // alone, never a keyboard code.
+    expect(SLOT_KEYS[WEAPON_SLOT_CONFIG.basicAttackSlotIndex]!.buttonsMask).toBe(1);
+    expect(SLOT_KEYS[WEAPON_SLOT_CONFIG.basicAttackSlotIndex]!.codes).toEqual([]);
+    expect(slotMaskFrom([], 0b01) & 0b0001).toBe(0b0001);
   });
 
   it("never lets two slots claim the same input", () => {
-    // The whole reason the basic attack lost LMB: a duplicate binding fires two slots at once.
     const codes = SLOT_KEYS.flatMap((key) => [...key.codes]);
     expect(new Set(codes).size).toBe(codes.length);
     const masks = SLOT_KEYS.map((key) => key.buttonsMask).filter((mask) => mask !== 0);
@@ -105,17 +86,12 @@ describe("slot key glyphs", () => {
     expect(new Set(masks).size).toBe(masks.length);
   });
 
-  it("prints the mouse-hand binding on the gutter pill and keeps a letter glyph for the hint", () => {
-    expect(SLOT_KEYS.map((key) => key.glyph)).toEqual(["H", "LMB", "RMB", "SPACE", "MMB"]);
-    expect(SLOT_KEYS.map((key) => key.keyGlyph)).toEqual(["H", "J", "K", "L", ";"]);
-  });
-
-  it("leaves SHIFT unbound — it left with the basic attack's mouse binding", () => {
+  it("leaves SHIFT unbound", () => {
     expect(SLOT_KEYS.some((key) => (key.codes as readonly number[]).includes(16))).toBe(false);
   });
 
-  it("leaves Q and E unbound — still reserved", () => {
-    for (const code of [81, 69]) {
+  it("leaves H, J, K, L and ; unbound — retired with the old two-binding layout", () => {
+    for (const code of [72, 74, 75, 76, 186]) {
       expect(SLOT_KEYS.some((key) => (key.codes as readonly number[]).includes(code))).toBe(false);
     }
   });
@@ -137,7 +113,7 @@ describe("hintSlotOrder (basic-attack-toggle)", () => {
     expect(hintSlotOrder(false, 4)).toEqual([1, 2, 3, 4]);
   });
 
-  it("HINT_SLOT_ORDER reflects the toggle's shipped (disabled) value", () => {
-    expect(HINT_SLOT_ORDER).toEqual(hintSlotOrder(false));
+  it("teaches the basic attack first now it is on (TR30)", () => {
+    expect(HINT_SLOT_ORDER).toEqual([0, 1, 2, 3]);
   });
 });

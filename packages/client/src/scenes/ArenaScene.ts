@@ -183,6 +183,7 @@ import {
   placeMovementHint,
   showMovementHint,
 } from "./movement-hint.js";
+import type { HintItem } from "./movement-hint.js";
 import {
   ROSTER_NAME_FONT_PX,
   rosterPanelLayout,
@@ -511,11 +512,10 @@ const MOVEMENT_HINT_Y = 660;
 const MOVEMENT_HINT_FONT_PX = 18;
 const MOVEMENT_HINT_GAP = 8;
 /**
- * The action row ("H J K L or LMB RMB SHIFT SPACE to fire") sits one pill-height under the
- * movement row,
- * still above the floor's bottom edge at `VIEW_HEIGHT` 720. It shares the movement row's lifetime
- * (countdown only), font, and pill styling, and it is the one place the letter bindings are
- * printed — the gutter pill shows only the mouse-hand glyph. See `SLOT_KEYS`.
+ * The action row ("LMB RMB Q E to fire") sits one pill-height under the movement row, still above
+ * the floor's bottom edge at `VIEW_HEIGHT` 720. It shares the movement row's lifetime (countdown
+ * only), font, and pill styling, and it is the only place the basic attack's binding is taught
+ * (BA19) — the gutter pill never carries it. See `SLOT_KEYS`.
  */
 const ACTION_HINT_Y = MOVEMENT_HINT_Y + 34;
 /**
@@ -969,16 +969,10 @@ export class ArenaScene extends Phaser.Scene {
     this.keys = this.bindKeys();
     this.slotKeys = this.bindSlotKeys();
     this.pauseKey = this.bindPauseKey();
-    // Ability 1 lives on the right mouse button, so the browser's context menu would otherwise open
-    // on every shot. This is a listener on the game canvas, not scene state — it outlives the arena —
-    // which is fine: no screen in this client offers anything on right-click.
+    // Ability 1 lives on the right mouse button (TR29), so the browser's context menu would
+    // otherwise open on every shot. This is a listener on the game canvas, not scene state — it
+    // outlives the arena — which is fine: no screen in this client offers anything on right-click.
     this.input.mouse?.disableContextMenu();
-    // The middle button is ability 4's binding (VS15/VS17). Left alone it starts the browser's
-    // autoscroll drag over the canvas, which is the same class of problem `disableContextMenu`
-    // solves for the right button and `addKey` solves for Space.
-    this.game.canvas.addEventListener("mousedown", (event: MouseEvent) => {
-      if (event.button === 1) event.preventDefault();
-    });
 
     // Guarded rather than resolved directly: `getArena` throws, and this line runs before the rest
     // of create() builds anything, so an unknown id would leave a half-constructed scene and a
@@ -1177,10 +1171,10 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * `P`, for the practice pause menu (spec PR22). `SLOT_KEYS` claims J/K/L and Space, and none of
-   * the drive or spectate bindings reach it either, so it is free. Bound here unconditionally, same
-   * as every other key this scene binds — `pumpPauseKey` and `bindRoom`'s `onState` are what gate
-   * its effect on `isPracticeRoom`, not this method.
+   * `P`, for the practice pause menu (spec PR22). `SLOT_KEYS` claims Q, E and Space now (TR29), and
+   * none of the drive or spectate bindings reach it either, so it is free. Bound here
+   * unconditionally, same as every other key this scene binds — `pumpPauseKey` and `bindRoom`'s
+   * `onState` are what gate its effect on `isPracticeRoom`, not this method.
    */
   private bindPauseKey(): Phaser.Input.Keyboard.Key | undefined {
     return this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.P);
@@ -3752,6 +3746,9 @@ export class ArenaScene extends Phaser.Scene {
     this.movementHintGfx = gfx;
     this.movementHintTexts = [
       ...this.buildHintRow(gfx, MOVEMENT_KEYS, MOVEMENT_ARROWS, MOVEMENT_LABEL, MOVEMENT_HINT_Y),
+      // `actionAltsFor` always answers `[]` now (TR29): the one-layout controls pass left every
+      // fire slot with exactly one input, so `buildHintRow`'s `alts` cluster has nothing left to
+      // show.
       ...this.buildHintRow(
         gfx,
         actionKeysFor(this.localAbilityCount(), BASIC_ATTACK_CONFIG.enabled),
@@ -3763,8 +3760,13 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * One hint row: `keys` or `alts` label, e.g. "W A S D or ↑ ← ↓ → to move". Creates the texts,
-   * lays them out through `placeMovementHint`, and strokes the pill plates into `gfx`.
+   * One hint row: `keys` alone, or `keys` "or" `alts`, e.g. "W A S D or ↑ ← ↓ → to move". Creates
+   * the texts, lays them out through `placeMovementHint`, and strokes the pill plates into `gfx`.
+   *
+   * `alts` is empty for the action row now (TR29): the one-layout controls pass left every fire
+   * slot with exactly one input, so `actionAltsFor` always hands this an empty array. That branch
+   * is removed rather than left drawing a phantom "or" with nothing after it — the movement row
+   * (WASD/arrows) is the only caller that still exercises the two-cluster form.
    */
   private buildHintRow(
     gfx: Phaser.GameObjects.Graphics,
@@ -3773,11 +3775,12 @@ export class ArenaScene extends Phaser.Scene {
     label: string,
     y: number,
   ): Phaser.GameObjects.Text[] {
-    const glyphs = [...keys, MOVEMENT_JOINER, ...alts, label];
+    const hasAlts = alts.length > 0;
+    const glyphs = hasAlts ? [...keys, MOVEMENT_JOINER, ...alts, label] : [...keys, label];
     // Pills carry the white-on-copper of the slot keys; the joiner and the trailing label are plain
     // HUD text on the floor, so the row reads as a sentence with keys set into it.
     const isPill = (index: number): boolean =>
-      index < keys.length || (index > keys.length && index <= keys.length + alts.length);
+      index < keys.length || (hasAlts && index > keys.length && index <= keys.length + alts.length);
     const texts = glyphs.map((glyph, index) =>
       this.add
         .text(0, y, glyph, {
@@ -3791,12 +3794,17 @@ export class ArenaScene extends Phaser.Scene {
     );
 
     const width = (index: number): number => texts[index]!.width;
-    const items = movementHintItems(
-      keys.map((_, i) => width(i)),
-      width(keys.length),
-      alts.map((_, i) => width(keys.length + 1 + i)),
-      width(glyphs.length - 1),
-    );
+    const items: HintItem[] = hasAlts
+      ? movementHintItems(
+          keys.map((_, i) => width(i)),
+          width(keys.length),
+          alts.map((_, i) => width(keys.length + 1 + i)),
+          width(glyphs.length - 1),
+        )
+      : [
+          ...keys.map((_, i): HintItem => ({ kind: "pill", width: width(i) })),
+          { kind: "label", width: width(glyphs.length - 1) },
+        ];
     const { placements } = placeMovementHint(items, {
       padX: HUD_KEY_PILL_PAD_X,
       gap: MOVEMENT_HINT_GAP,
