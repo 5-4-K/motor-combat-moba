@@ -153,6 +153,13 @@ matches what you agreed.
 The HUD draws a procedural glyph when a weapon has no art, permanently, so a weapon is fully playable
 without one. Offer the `process-weapon-icon` skill; do not block on it.
 
+## Look — forge only
+
+A new weapon draws as a flat fill of its own `color` in the exact shape of its hitbox, permanently,
+so it is fully playable with no look authored. Offer the `weapon-look` skill for anything beyond
+that — a glow, a flame, a bolt, markings — and do not author one inside this skill: a look has its
+own honesty and cost rules, and is priced before it ships.
+
 ## Common mistakes
 
 | Mistake | Instead |
