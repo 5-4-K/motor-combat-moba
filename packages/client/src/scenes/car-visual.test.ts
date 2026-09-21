@@ -10,6 +10,7 @@ import {
   deathFadeAlpha,
   ellipsePoints,
   hexagonPoints,
+  weaponLoadoutSignature,
 } from "./car-visual.js";
 
 describe("carShapeOf", () => {
@@ -188,5 +189,27 @@ describe("carFillFor (playground per-car tint)", () => {
 
   it("still falls back to the first colour for an out-of-range colorId", () => {
     expect(carFillFor("abc", 99)).toBe(carFillOf(0));
+  });
+});
+
+describe("weaponLoadoutSignature", () => {
+  it("joins each slot's weapon id in fire-slot order", () => {
+    expect(
+      weaponLoadoutSignature([
+        { weaponId: "basic-attack-mirage" },
+        { weaponId: "magmablast" },
+        { weaponId: "thunderclap" },
+      ]),
+    ).toBe("basic-attack-mirage,magmablast,thunderclap");
+  });
+
+  it("is empty for an empty loadout", () => {
+    expect(weaponLoadoutSignature([])).toBe("");
+  });
+
+  it("changes when a playground swap replaces one slot", () => {
+    const before = weaponLoadoutSignature([{ weaponId: "predator" }, { weaponId: "pepperbox" }]);
+    const after = weaponLoadoutSignature([{ weaponId: "lance" }, { weaponId: "pepperbox" }]);
+    expect(before).not.toBe(after);
   });
 });

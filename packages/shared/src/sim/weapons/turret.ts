@@ -1,6 +1,8 @@
 import { turretMountOf } from "../../config/car-config.js";
 import { TURRET_TICKS } from "../../config/turret-config.js";
+import { BASIC_ATTACK_CONFIG, isWeaponId, weaponDefOf } from "../../config/weapon-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
+import { WEAPON_SLOT_CONFIG } from "../../config/weapon-slots.js";
 import type { FireState } from "./fire.js";
 
 const TAU = Math.PI * 2;
@@ -52,4 +54,31 @@ export function turnTurret(
     turretAngle,
     pending: { ...pending, aligned: true, nextShotTick: tick + weaponTicksOf(pending.weaponId).startUp },
   };
+}
+
+/**
+ * Whether this car draws a turret at all (spec TR53): true when at least one weapon it can actually
+ * FIRE carries `WeaponDef.turret`. `fireSlotWeaponIds` is index-aligned with a fire slot exactly the
+ * way `fireSlotsOf`/`PlayerState.weapons` are — 0 is the basic attack, 1..N the ability kit — so the
+ * client's synced `WeaponSlotState` rows are a direct fit, and a playground loadout swap is covered
+ * for free without this function knowing anything about the playground.
+ *
+ * Two things a caller does NOT have to pre-trim, because this does it: the basic-attack slot counts
+ * only while `basicAttackEnabled` (default `BASIC_ATTACK_CONFIG.enabled`, the shipped flag), and
+ * nothing at or past `WEAPON_SLOT_CONFIG.maxFireSlots` counts — a longer array (an un-truncated kit,
+ * say) simply has its tail ignored, the same way an unfireable slot never reaches a player. An
+ * unrecognised id (empty string, a stale row) is skipped rather than thrown on: a malformed slot
+ * must never crash a render.
+ */
+export function carHasTurretWeapon(
+  fireSlotWeaponIds: readonly string[],
+  basicAttackEnabled: boolean = BASIC_ATTACK_CONFIG.enabled,
+): boolean {
+  const fireSlots = Math.min(fireSlotWeaponIds.length, WEAPON_SLOT_CONFIG.maxFireSlots);
+  for (let index = 0; index < fireSlots; index++) {
+    if (index === WEAPON_SLOT_CONFIG.basicAttackSlotIndex && !basicAttackEnabled) continue;
+    const id = fireSlotWeaponIds[index];
+    if (isWeaponId(id) && weaponDefOf(id).turret) return true;
+  }
+  return false;
 }

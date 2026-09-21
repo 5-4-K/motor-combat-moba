@@ -28,6 +28,7 @@ import {
   PRACTICE_CONFIG,
   PRACTICE_IDLE_CLOSE_CODE,
   PRACTICE_IDLE_ERROR,
+  carHasTurretWeapon,
   carIdOf,
   muzzleOf,
   RoomPhase,
@@ -113,6 +114,7 @@ import {
   carShapeOf,
   deathFadeAlpha,
   hexagonPoints,
+  weaponLoadoutSignature,
 } from "./car-visual.js";
 import {
   contactBandsFor,
@@ -638,6 +640,17 @@ interface ArenaPlayer {
   name: string;
   /** Car-relative, render-only: drawn by `syncTurret`, never read by prediction. */
   turretAngle: number;
+  /**
+   * One row per fire slot (index 0 = basic attack, 1..N the kit). Structurally typed on `map` alone,
+   * like `LobbySignatureState.players`' `forEach` — an `ArraySchema<WeaponSlotState>` and a plain
+   * array both satisfy it, so `carHasTurretWeapon` (TR53) and the loadout signature `visualKeyOf`
+   * folds in need no schema instance to test. A full array type (`readonly {weaponId}[]`) does NOT
+   * work here: `ArraySchema` also implements `concat`/`push` at its own wider element type, which
+   * makes it fail structural assignment to any narrower array type — `map` alone avoids that.
+   */
+  weapons: {
+    map<T>(callbackfn: (value: { weaponId: string }) => T): T[];
+  };
 }
 
 /**
@@ -684,12 +697,14 @@ function bodyOf(player: ArenaPlayer): SimBody {
 }
 
 /**
- * A car is redrawn from scratch only when its chassis, colour, or living state changes, not every
- * frame. `alive` is part of the key because a dead car is drawn differently, and without it a car that
- * died would keep its living silhouette until something else happened to change the key.
+ * A car is redrawn from scratch only when its chassis, colour, living state, or fireable loadout
+ * changes, not every frame. `alive` is part of the key because a dead car is drawn differently, and
+ * without it a car that died would keep its living silhouette until something else happened to
+ * change the key. The loadout signature (TR53) is what lets a playground loadout swap show or hide
+ * the turret mid-session: chassis and colour alone would miss a same-car, same-colour weapon change.
  */
 function visualKeyOf(player: ArenaPlayer): string {
-  return `${player.carId}:${player.colorId}:${player.alive}`;
+  return `${player.carId}:${player.colorId}:${player.alive}:${weaponLoadoutSignature(player.weapons)}`;
 }
 
 export class ArenaScene extends Phaser.Scene {
@@ -2367,7 +2382,13 @@ export class ArenaScene extends Phaser.Scene {
     let gfx = this.cars.get(sessionId);
     if (!gfx || this.visualKeys.get(sessionId) !== key) {
       gfx?.destroy();
-      gfx = this.drawCar(sessionId, player.carId, player.colorId, player.alive);
+      gfx = this.drawCar(
+        sessionId,
+        player.carId,
+        player.colorId,
+        player.alive,
+        player.weapons.map((w) => w.weaponId),
+      );
       // The one world object born after `splitCameras` ran, so it opts out of the HUD camera here or
       // it would be drawn a second time, unclipped, over the gutter. Ignoring the container covers
       // the sprite and hitbox inside it.
@@ -2592,12 +2613,18 @@ export class ArenaScene extends Phaser.Scene {
    * through to the silhouette the game has always drawn. The fallback is permanent, not legacy: it
    * is what lets art be added one file at a time and what keeps a missing or malformed entry from
    * costing the game its render.
+   *
+   * `weaponIds` is this car's CURRENT fireable loadout (index 0 = basic attack, 1..N the kit, exactly
+   * `PlayerState.weapons`' shape) — the turret is added only when `carHasTurretWeapon` (TR53) says at
+   * least one of them actually fires from it. A car that never gains one back keeps its stale
+   * `turretShown` entry cleaned up here rather than left to mislead a later re-add.
    */
   private drawCar(
     sessionId: string,
     carId: string,
     colorId: number,
     alive: boolean,
+    weaponIds: readonly string[],
   ): Phaser.GameObjects.Container {
     const { carWidth: w, carHeight: h } = DRIVE_CONFIG;
     const fill = carFillFor(sessionId, colorId);
@@ -2611,7 +2638,18 @@ export class ArenaScene extends Phaser.Scene {
     // separate layer would draw over another car's body wherever two overlap — the reason the
     // shadows had to leave the container, run the other way. Parented, it also takes the container's
     // alpha, visibility and destruction, so the death fade and the phased ghost reach it for free.
-    container.add(this.drawTurret(carId, fill));
+    //
+    // Built only when this car can actually fire something from a turret (TR53): a car whose current
+    // loadout carries none does not draw one at all, rather than drawing a barrel that can never
+    // turn toward a shot. `carHasTurretWeapon` already knows the basic-attack toggle and this
+    // build's fire-slot cap, so this call needs no config read of its own.
+    if (carHasTurretWeapon(weaponIds)) {
+      container.add(this.drawTurret(carId, fill));
+    } else {
+      // Never left mid-ease from a loadout this car no longer carries: a later swap back onto a
+      // turret weapon should start from the car's networked angle, not an old eased value.
+      this.turretShown.delete(sessionId);
+    }
 
     // The lit edge: a COPY of the body's own artwork, tinted and nudged toward the light behind the
     // body, so a bright sliver shows along whatever edge the art actually has. `drawCarLook` moves

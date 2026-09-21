@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { TURRET_TICKS } from "../../config/turret-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import { beginFire, newFireState, releaseShots, tickRecharge, type FireState } from "./fire.js";
-import { turnTurret, turretPivotOf, wrapAngle } from "./turret.js";
+import { carHasTurretWeapon, turnTurret, turretPivotOf, wrapAngle } from "./turret.js";
 
 describe("wrapAngle", () => {
   it("maps into (-pi, pi]", () => {
@@ -123,5 +123,50 @@ describe("releaseShots carries the bearing (TR9)", () => {
     let s = beginFire("a", mirage(), 1 << 1, 0, 0.25, 0.25);
     s = turnTurret(s, 0.25, 0);
     expect(releaseShots(s, 0).orders[0]!.bearing).toBe(0.25);
+  });
+});
+
+describe("carHasTurretWeapon (TR53)", () => {
+  it("is false when nothing fireable carries a turret", () => {
+    // mirage's kit minus its turret weapon (magmablast); basic attack disabled so index 0 doesn't count.
+    expect(carHasTurretWeapon(["basic-attack-mirage", "thunderclap", "afterburner"], false)).toBe(
+      false,
+    );
+  });
+
+  it("is true when the basic attack carries a turret and is enabled", () => {
+    expect(carHasTurretWeapon(["basic-attack-mirage", "thunderclap", "afterburner"], true)).toBe(
+      true,
+    );
+  });
+
+  it("is false when the basic attack is disabled and the kit carries no turret weapon", () => {
+    expect(carHasTurretWeapon(["basic-attack-mirage", "thunderclap", "afterburner"], false)).toBe(
+      false,
+    );
+  });
+
+  it("ignores a turret weapon sitting past this build's fire-slot count", () => {
+    // Index 4 is past `maxFireSlots` (4, i.e. slots 0-3) at the shipped N=3 — bullseye's turret
+    // weapon (predator) parked one slot too far out never counts.
+    expect(
+      carHasTurretWeapon(["basic-attack-bullseye", "pepperbox", "lance", "wildcharge", "predator"], false),
+    ).toBe(false);
+  });
+
+  it("is true for a turret ability within this build's slots", () => {
+    expect(carHasTurretWeapon(["basic-attack-bullseye", "predator", "pepperbox", "lance"], false)).toBe(
+      true,
+    );
+  });
+
+  it("defaults the basic-attack flag to BASIC_ATTACK_CONFIG.enabled", () => {
+    // Shipped `true` today (TR46) — the basic attack's own turret carries every car.
+    expect(carHasTurretWeapon(["basic-attack-mirage", "thunderclap", "afterburner"])).toBe(true);
+  });
+
+  it("ignores an unknown or empty weapon id rather than throwing", () => {
+    expect(() => carHasTurretWeapon(["", "not-a-real-weapon"], true)).not.toThrow();
+    expect(carHasTurretWeapon(["", "not-a-real-weapon"], true)).toBe(false);
   });
 });

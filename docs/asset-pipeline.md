@@ -217,7 +217,9 @@ Each chassis cell also draws its **turret** at the car's mount, through the same
 the arena uses (see [Turret art](#turret-art)), and a dot where a turret shot with
 `additionalOffset: 0` would spawn — `TURRET_CONFIG.defaultOffset` along the turret's facing. The dot
 should sit on the barrel tip; this is where `defaultOffset`, `CarDef.turretMount`, the turret row's
-`origin` and `TURRET_VISUAL.lengthUnits` are lined up by eye.
+`origin` and `TURRET_VISUAL.lengthUnits` are lined up by eye. A cell whose shipped `fireSlotsOf`
+carries no turret weapon (`carHasTurretWeapon`, TR53) draws neither the turret nor the dot and reads
+`turret: none` instead — the same rule the arena applies to a live car's current loadout.
 
 It exists because `rotationOffset`, `scale`, and `origin` have to be tuned by eye per sprite, and
 the alternative loop is a full rejoin per attempt — the client has no reconnect or session
@@ -309,6 +311,10 @@ carId ("bastion")
   a row naming a missing file); `check-art.mjs`'s `namespaceScopeOf` puts `turret.*` in the `"cars"`
   scope, so `npm run check:cars` includes them. A car with no `turret.<id>` row is not a finding —
   `turret.default` is a complete answer.
+- **Not drawn at all is also a valid answer (TR53).** A row's art is only ever reached once
+  `carHasTurretWeapon` says this car has a turret weapon to draw one FOR — a car with none skips the
+  mount, the sprite lookup and the TR45 spawn dot together, both in the arena and in `?dev=assets`.
+  Importing turret art for a car with no turret weapon is not wrong, just inert until it gets one.
 
 ## Weapon icons
 

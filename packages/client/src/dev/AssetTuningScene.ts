@@ -2,7 +2,9 @@ import Phaser from "phaser";
 import {
   CAR_TABLE,
   type CarId,
+  carHasTurretWeapon,
   DRIVE_CONFIG,
+  fireSlotsOf,
   TURRET_CONFIG,
   turretPivotOf,
   WEAPON_TABLE,
@@ -257,13 +259,18 @@ export class AssetTuningScene extends Phaser.Scene {
   }
 
   /**
-   * The car's turret at its mount, facing forward, and the dot where a turret shot spawns (TR45).
-   * `defaultOffset`, `turretMount`, the row's `origin` and `TURRET_VISUAL.lengthUnits` are lined
-   * up by eye against that dot, which should sit on the barrel tip. Resolved through
-   * `resolveTurretSprite` — the arena's own chain — and returns the key it landed on, or
-   * `"procedural"` when neither turret key resolved.
+   * The car's turret at its mount, facing forward, and the dot where a turret shot spawns (TR45) —
+   * both skipped for a car with no turret weapon in its SHIPPED fire slots (TR53): `carHasTurretWeapon`
+   * over `fireSlotsOf(carId)` is the same test the arena runs against a car's live loadout, applied
+   * here to what this chassis actually carries at rest. `defaultOffset`, `turretMount`, the row's
+   * `origin` and `TURRET_VISUAL.lengthUnits` are lined up by eye against the dot, which should sit
+   * on the barrel tip. Resolved through `resolveTurretSprite` — the arena's own chain — and returns
+   * the key it landed on, `"procedural"` when neither turret key resolved, or `"none"` when this car
+   * draws no turret at all.
    */
   private drawTurret(carId: string, x: number, y: number): string {
+    if (!carHasTurretWeapon(fireSlotsOf(carId as CarId))) return "none";
+
     // `turretPivotOf` at the cell's centre facing +x: the one place the mount is rotated into place.
     const pivot = turretPivotOf({ x, y, angle: 0 }, carId);
     const resolved = resolveTurretSprite(assetManifest(), phaserTextures(this.textures), carId);

@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-21
 **Status:** implemented (2026-09-22, plan `docs/superpowers/plans/2026-09-21-mouse-aim-turret.md`)
-**Clauses:** TR1–TR52
+**Clauses:** TR1–TR53
 
 ## 1. What this is
 
@@ -242,6 +242,20 @@ Four changes that ship together because each needs the others to make sense:
   with `additionalOffset: 0` would spawn (`defaultOffset` along the turret's facing). This is how
   `defaultOffset`, `turretMount`, the row's `origin` and `TURRET_VISUAL.lengthUnits` are lined up by
   eye: the dot should sit on the barrel tip.
+- **TR53** (2026-09-22 follow-up) A car draws no turret at all when nothing it can actually FIRE
+  carries one: `carHasTurretWeapon` (`sim/weapons/turret.ts`) walks a car's fire slots — the basic
+  attack at index 0 counting only while `BASIC_ATTACK_CONFIG.enabled`, an ability counting up to
+  `WEAPON_SLOT_CONFIG.maxAbilitySlots` and nothing past it — and `ArenaScene` skips building the
+  turret mount (and drops any in-flight `turretShown` easing) when it answers false. The check runs
+  against the car's CURRENT loadout, `PlayerState.weapons`, so a playground loadout swap shows or
+  hides the turret without a chassis or colour change; `visualKeyOf` folds in a loadout signature so
+  that swap rebuilds the car even though `carId`/`colorId`/`alive` all stayed the same. `?dev=assets`
+  applies the identical test to each car's shipped `fireSlotsOf(carId)`, skipping the drawn turret
+  and the TR45 spawn dot and printing `turret: none` in its readout instead. No sim change: this is
+  draw-only, exactly like the drawing itself. It ships with no visible effect while
+  `BASIC_ATTACK_CONFIG.enabled` is `true` (TR46), since the basic attack's own row carries `turret` on
+  every car including the six empty-kit prototypes — the rule is dormant on the current build's
+  default and only shows once the basic attack (or a car's whole kit) has no turret weapon in it.
 
 ## 7. The basic attack comes on
 

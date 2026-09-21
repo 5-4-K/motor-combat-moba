@@ -525,7 +525,7 @@ the bearing for the turret — and a multi-muzzle row fans its muzzles off the h
 ### Turret muzzle
 
 Since the 2026-09-21 mouse-aim work
-([spec](superpowers/specs/2026-09-21-mouse-aim-turret-design.md), TR1–TR52) a shot can leave from
+([spec](superpowers/specs/2026-09-21-mouse-aim-turret-design.md), TR1–TR53) a shot can leave from
 **six** kinds of place: the four fixed muzzles the roster authors on the hull's faces (`muzzles`
 degrees off the heading — `0` the nose, which is also what an absent `muzzles` means, then `90`,
 `180` and `270`), the car's **centre** (`origin: "center"`, which an aura or an explosion's disc
@@ -575,6 +575,11 @@ row keeps its fixed muzzle.
 - **The HUD.** While a turret press is still turning, the bridge writes `pendingUntilTick` one tick
   ahead so the car reads as mid-press; `PlayerState.turretAngle` mirrors `FireState.turretAngle` for
   drawing only — `stepSim` never reads it, and the client does not predict it.
+- **No turret weapon, no turret drawn (TR53).** `carHasTurretWeapon` answers whether at least one
+  weapon a car can actually fire carries `turret` — the basic attack counting only while
+  `BASIC_ATTACK_CONFIG.enabled`, an ability counting only up to `WEAPON_SLOT_CONFIG.maxAbilitySlots`
+  — and the client skips building the turret mount entirely when it says no. This is draw-only: the
+  sim never checks it, and a car with no turret weapon simply never turns one.
 
 The bot aims a turret weapon the same way: it solves a lead bearing from its own turret pivot and
 budgets the turn time (arc ÷ turn rate) into its time-to-impact, and sends the bearing as
