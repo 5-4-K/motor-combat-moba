@@ -77,6 +77,7 @@ import {
   initialLock,
   reduceLock,
   requestLock,
+  shouldAutoLockOnKey,
   shouldReleaseLock,
   shouldRequestLock,
   type LockEvent,
@@ -1897,6 +1898,15 @@ export class ArenaScene extends Phaser.Scene {
     // The world camera's viewport, not the canvas: the cursor stays over the arena and off the gutter.
     this.lock = initialLock(cam.width, cam.height);
 
+    // TR31a: try for the lock the instant the scene stands up, before any listener below runs. This
+    // succeeds when the click that started the match (practice Start, lobby Ready, playground launch)
+    // is still inside the browser's transient-activation window; when it is not, the browser refuses
+    // and the refusal is expected, so it asks `requestLock` to stay quiet about it — the first
+    // driving key or canvas click (below) tries again with its own fresh gesture.
+    if (shouldRequestLock(this.lock.locked, this.menuOpen(room), this.pauseRequested)) {
+      requestLock(canvas, true);
+    }
+
     // A lock needs a user gesture, so it is only ever asked for from a click on the canvas.
     // `shouldRequestLock` also guards the relock race (final-fixes item 1): `pauseRequested` covers
     // the round trip between asking practice/the playground to pause and `state.paused` patching
@@ -1932,10 +1942,19 @@ export class ArenaScene extends Phaser.Scene {
     // its `pointerlockchange` arrives. Unmarked, that change would read as an Esc and `openMenu` would
     // send a second pause toggle straight after the overlay's, before the first had patched back.
     const onKey = (event: KeyboardEvent): void => {
-      if (event.repeat || (event.key !== "p" && event.key !== "P")) return;
-      if (isPlaygroundRoom(room) && this.lock.locked && !isSimPaused(room.state)) {
-        this.dispatchLock({ type: "release" });
-        this.pauseRequested = true;
+      if (event.repeat) return;
+      if (event.key === "p" || event.key === "P") {
+        if (isPlaygroundRoom(room) && this.lock.locked && !isSimPaused(room.state)) {
+          this.dispatchLock({ type: "release" });
+          this.pauseRequested = true;
+        }
+        return;
+      }
+      // TR31a: the first key after a menu closes with no gesture-capable relock (P has none) gets one
+      // for free — a keydown is a user gesture too, and this fires on the very press that drives the
+      // car, never consuming or blocking it (no preventDefault, no stopPropagation).
+      if (shouldAutoLockOnKey(this.lock.locked, this.menuOpen(room), this.pauseRequested, event.key)) {
+        requestLock(canvas);
       }
     };
 

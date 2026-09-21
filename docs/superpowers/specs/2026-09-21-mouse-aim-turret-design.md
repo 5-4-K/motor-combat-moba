@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-21
 **Status:** implemented (2026-09-22, plan `docs/superpowers/plans/2026-09-21-mouse-aim-turret.md`)
-**Clauses:** TR1–TR53
+**Clauses:** TR1–TR53, plus TR31a
 
 ## 1. What this is
 
@@ -176,6 +176,19 @@ Four changes that ship together because each needs the others to make sense:
   - **Acquiring.** While the arena scene is live and no menu is open, a click on the game canvas
     calls `canvas.requestPointerLock()`. The browser allows nothing else: a lock needs a user
     gesture.
+  - **TR31a (2026-09-22). Acquiring, automatically, as far as the browser allows.** A zero-input lock
+    is impossible — `requestPointerLock()` needs a recent user gesture — so the scene gets as close as
+    it can with two attempts, gated by the same `shouldRequestLock` (not locked, no menu open, no
+    pause in flight) as the click path above. First, the instant the scene stands up it tries once
+    immediately: this succeeds when the click that started the match (practice Start, lobby Ready, a
+    playground launch) is still inside the browser's transient-activation window, and a refusal here
+    is the expected case, not logged as a warning. Second, if that failed, the first keydown after the
+    scene starts is itself a gesture and tries again (`shouldAutoLockOnKey`) — except Escape and P,
+    which have their own jobs and must never relock as a side effect; the key still does its normal
+    thing (steers, fires) on the same press, since the handler never calls `preventDefault`. The
+    existing click-to-lock path is unchanged and stays the fallback. The same two gates mean a menu
+    open or a pause in flight never auto-locks: after Esc or P opens the menu, Resume's click (or, in
+    practice/the playground, its own relock) is what brings the cursor back, exactly as before.
   - **The locking click never fires.** Mouse buttons contribute nothing to the fire mask until the
     lock is held **and** every button that was down when it was acquired has been released.
   - **The virtual cursor.** While locked, a cursor position in canvas pixels is integrated from

@@ -70,13 +70,40 @@ export function shouldReleaseLock(locked: boolean, menuOpen: boolean): boolean {
   return locked && menuOpen;
 }
 
+/** Keys that must never trigger the first-keypress auto-lock (TR31a): Escape is what closes the
+ * lock/opens the menu, and P is the menu toggle in every room kind — neither should relock the
+ * cursor as a side effect of the very key that is trying to get the menu open. */
+const AUTO_LOCK_EXCLUDED_KEYS = new Set(["Escape", "p", "P"]);
+
+/**
+ * Should a keydown ask the browser for the lock (TR31a, the auto-lock follow-up)? A keydown is a
+ * user gesture just like a click, so the very first driving key pressed after a match starts (or
+ * after a menu closes with no gesture-capable relock) can re-acquire the lock without making the
+ * player click first. Same three gates as `shouldRequestLock`, plus Escape/P are never the key that
+ * does it — they have their own jobs (closing to the menu, toggling it) and must not fight a relock.
+ */
+export function shouldAutoLockOnKey(
+  locked: boolean,
+  menuOpen: boolean,
+  pauseRequested: boolean,
+  key: string,
+): boolean {
+  return shouldRequestLock(locked, menuOpen, pauseRequested) && !AUTO_LOCK_EXCLUDED_KEYS.has(key);
+}
+
 /**
  * Ask the browser for the lock on `canvas`. Current browsers answer with a promise and reject it
  * when they refuse (no gesture, a lock released too recently, an automated browser); older ones
  * return nothing. A refusal only means the next click asks again, so it is logged, not thrown —
  * left unhandled it would surface as an uncaught rejection on every refused click.
+ *
+ * `quiet` is for the one caller that EXPECTS to be refused often: the scene-start auto-attempt
+ * (TR31a) fires before any gesture may exist yet, so a rejection there is the normal case, not a
+ * surprise worth a console warning every time a match starts.
  */
-export function requestLock(canvas: HTMLCanvasElement): void {
+export function requestLock(canvas: HTMLCanvasElement, quiet = false): void {
   const pending = canvas.requestPointerLock() as Promise<void> | undefined;
-  pending?.catch((error: unknown) => console.warn(`[input] pointer lock refused: ${String(error)}`));
+  pending?.catch((error: unknown) => {
+    if (!quiet) console.warn(`[input] pointer lock refused: ${String(error)}`);
+  });
 }

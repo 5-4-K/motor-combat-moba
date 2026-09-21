@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { fireButtons, initialLock, reduceLock, shouldReleaseLock, shouldRequestLock } from "./pointer-lock.js";
+import {
+  fireButtons,
+  initialLock,
+  reduceLock,
+  shouldAutoLockOnKey,
+  shouldReleaseLock,
+  shouldRequestLock,
+} from "./pointer-lock.js";
 
 describe("pointer lock reducer (TR31)", () => {
   it("starts unlocked, cursor at the canvas centre, and fires no mouse button", () => {
@@ -78,5 +85,32 @@ describe("relock race guards (final-fixes item 1)", () => {
   it("leaves an unlocked cursor or an open lock with no menu alone", () => {
     expect(shouldReleaseLock(false, true)).toBe(false);
     expect(shouldReleaseLock(true, false)).toBe(false);
+  });
+});
+
+describe("auto-lock on first keydown (TR31a)", () => {
+  it("accepts a driving key when unlocked, no menu, no pause pending", () => {
+    expect(shouldAutoLockOnKey(false, false, false, "w")).toBe(true);
+  });
+
+  it("refuses Escape even when every other gate is open", () => {
+    expect(shouldAutoLockOnKey(false, false, false, "Escape")).toBe(false);
+  });
+
+  it("refuses P (both cases) even when every other gate is open", () => {
+    expect(shouldAutoLockOnKey(false, false, false, "p")).toBe(false);
+    expect(shouldAutoLockOnKey(false, false, false, "P")).toBe(false);
+  });
+
+  it("refuses a driving key while already locked", () => {
+    expect(shouldAutoLockOnKey(true, false, false, "w")).toBe(false);
+  });
+
+  it("refuses a driving key while the menu is open", () => {
+    expect(shouldAutoLockOnKey(false, true, false, "w")).toBe(false);
+  });
+
+  it("refuses a driving key while a pause is in flight", () => {
+    expect(shouldAutoLockOnKey(false, false, true, "w")).toBe(false);
   });
 });
