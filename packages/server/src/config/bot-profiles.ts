@@ -802,7 +802,11 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // index order, so every bot's per-weapon weighting is now drawn against a different weapon; and
 // `firing.ts`'s `chooseSlot` scans slots ascending, so it now reaches the basic attack first and an
 // ability last. Balance reports across this line are not comparable.
-export const BOT_BRAIN_VERSION = "6.1.0";
+// 6.2.0 (2026-09-22) — turret aim: bearing solved from the pivot, turn time budgeted (spec TR26).
+// A turret weapon's firing solution no longer needs the hull to face the target, and the bot puts
+// its lead bearing (plus its realized aim error) on the wire as `aimAngle` (TR25). `BOT_PROFILES`
+// did not move. Balance and playtest reports across this line are not comparable (TR28).
+export const BOT_BRAIN_VERSION = "6.2.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency

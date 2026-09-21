@@ -229,6 +229,7 @@ export function runDuel(opts: DuelOptions): DuelResult {
         x: body.x, y: body.y, angle: body.angle, vx: body.vx, vy: body.vy,
         hp: me.hp, maxHp: hpOf(chassis), alive: me.alive, statuses: me.statuses, slots,
         switchLockUntilTick: resolveCombat ? me.fireState.switchLockUntilTick : 0,
+        turretAngle: resolveCombat ? me.fireState.turretAngle : 0,
         maneuver: 0, maneuverTicksLeft: 0,
       },
       others: them.alive ? [dummy] : [],
@@ -249,7 +250,10 @@ export function runDuel(opts: DuelOptions): DuelResult {
 
     body = stepDrive(
       body,
-      { seq: tick, steer: intent.steer, throttle: intent.throttle, fireSlots: 0 },
+      {
+        seq: tick, steer: intent.steer, throttle: intent.throttle, fireSlots: 0,
+        ...(intent.aimAngle === undefined ? {} : { aimAngle: intent.aimAngle }),
+      },
       1 / TICK_RATE_HZ,
       driveOf(chassis),
       NEUTRAL_MODIFIERS,
@@ -261,6 +265,9 @@ export function runDuel(opts: DuelOptions): DuelResult {
     // car actually ended the tick at.
     me = {
       ...me, x: body.x, y: body.y, angle: body.angle, fireMask: intent.fireSlots,
+      // The bearing rides with the press it came with (TR24): `serverTick` hands `runCombat` null
+      // when the pressing input carried none, and so does this.
+      aimBearing: intent.aimAngle ?? null,
       statuses: expireStatuses([...me.statuses], tick),
     };
     them = { ...them, fireMask: 0, statuses: expireStatuses([...them.statuses], tick) };

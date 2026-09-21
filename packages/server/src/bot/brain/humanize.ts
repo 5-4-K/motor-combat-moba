@@ -181,8 +181,9 @@ export function applyBlunder(
       return { ...intent, throttle: 1 };
     case "hold-fire":
       // Hesitating on a shot that was there. Carried over unchanged from the old set — it was
-      // already a mistake rather than a spasm.
-      return { ...intent, fireSlots: 0 };
+      // already a mistake rather than a spasm. A held shot carries no turret bearing either (TR25):
+      // the bearing belongs to the press, so it goes where the press goes.
+      return { steer: intent.steer, throttle: intent.throttle, fireSlots: 0 };
   }
 }
 

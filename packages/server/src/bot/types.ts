@@ -9,6 +9,8 @@ export interface BotIntent {
   steer: -1 | 0 | 1;
   throttle: -1 | 0 | 1;
   fireSlots: number;
+  /** World bearing for a turret weapon (spec TR25); absent for fixed muzzles. */
+  aimAngle?: number;
 }
 
 /** One of this car's weapon slots, as its own HUD draws it. */
@@ -36,6 +38,11 @@ export interface BotSelfView {
   statuses: readonly ActiveStatus[];
   slots: readonly BotSlotView[];
   switchLockUntilTick: number;
+  /**
+   * The turret's angle relative to the hull (`PlayerState.turretAngle`) — drawn on the car, so fair.
+   * What a turret press has to turn away from (TR26). Absent reads as 0, along the nose.
+   */
+  turretAngle?: number;
   maneuver: number;
   maneuverTicksLeft: number;
 }

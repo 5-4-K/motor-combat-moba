@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  TICK_RATE_HZ, boundsOf, carHullOf, instanceExpired, resolveInstanceHits, spawnInstances,
-  stepInstance, weaponDefOf, type PoseSnapshot,
+  TICK_RATE_HZ, TURRET_TICKS, boundsOf, carHullOf, instanceExpired, resolveInstanceHits,
+  spawnInstances, stepInstance, turretPivotOf, weaponDefOf, wrapAngle, type PoseSnapshot,
 } from "@motor-combat-moba/shared";
 import type { BotArenaView, BotCarView, BotSlotView } from "../types.js";
 import {
   AIM_QUADRATURE, constantVelocityPredictor, dangerEvAgainst, proxyDangerAgainst, proxyValue, solve,
-  type PosePredictor, type SolverShooter,
+  turretTurnTicksOf, type PosePredictor, type SolverShooter,
 } from "./solution.js";
 
 const arena: BotArenaView = { width: 1280, height: 720, obstacles: [] };
@@ -59,11 +59,13 @@ describe("solve — projectile", () => {
     expect(solution.hitChance).toBeGreaterThan(0.95);
   });
 
-  it("is near zero when the shooter is pointed 90 degrees away", () => {
+  it("is near zero when a fixed muzzle is pointed 90 degrees away", () => {
+    // `roadblock`, not `predator`: predator is a turret row now (TR26), and a turret aims by
+    // bearing — see "solve — turret" below for what the same geometry reads there.
     const target = targetAt(400, 0);
     const solution = solve({
-      shooter: shooterAt(0, 0, Math.PI / 2),
-      slot: slotFor("predator"), slotIndex: 0,
+      shooter: { ...shooterAt(0, 0, Math.PI / 2), carId: "bastion" },
+      slot: slotFor("roadblock"), slotIndex: 0,
       target, targetAt: constantVelocityPredictor(target),
       aimSigmaRad: 0, tick: 0, arena,
     });
@@ -249,8 +251,25 @@ describe("solve — nose, not bearing", () => {
   it("prices every weapon through the shooter's own aim error, off-nose included", () => {
     // Was "solve — aim assist": `predator` held a live lock used to be steered onto the bearing
     // with sigma forced to 0, so an off-nose shot read as near certain. Nothing steers a shot now,
-    // so a shooter aimed 0.25 rad off a target 300 units away must read as a likely miss, and the
-    // same shooter pointed AT it must read as a likely hit. That pair is the regression guard.
+    // so a shooter aimed off a target 300 units away must read as a likely miss, and the same
+    // shooter pointed AT it must read as a likely hit. That pair is the regression guard.
+    //
+    // A FIXED muzzle since TR26 (`roadblock`, 0.4 rad off — its 120-unit bar still clips a hull
+    // 0.25 rad off at this range): `predator` became a turret row, and a turret is the one case
+    // where the nose genuinely does not matter. Its half of the pair is the second case below.
+    const target = targetAt(300, 300);
+    const common = {
+      slot: slotFor("roadblock"), slotIndex: 0,
+      target, targetAt: constantVelocityPredictor(target),
+      aimSigmaRad: 0, tick: 0, arena,
+    };
+    const offNose = solve({ shooter: { ...shooterAt(0, 300, 0.4), carId: "bastion" }, ...common });
+    const onNose = solve({ shooter: { ...shooterAt(0, 300, 0), carId: "bastion" }, ...common });
+    expect(onNose.hitChance).toBeGreaterThan(0.9);
+    expect(offNose.hitChance).toBeLessThan(onNose.hitChance);
+  });
+
+  it("does not care where the nose points for a turret weapon (TR26)", () => {
     const target = targetAt(300, 300);
     const common = {
       slot: slotFor("predator"), slotIndex: 0,
@@ -260,12 +279,93 @@ describe("solve — nose, not bearing", () => {
     const offNose = solve({ shooter: shooterAt(0, 300, 0.25), ...common });
     const onNose = solve({ shooter: shooterAt(0, 300, 0), ...common });
     expect(onNose.hitChance).toBeGreaterThan(0.9);
-    expect(offNose.hitChance).toBeLessThan(onNose.hitChance);
+    expect(offNose.hitChance).toBeGreaterThan(0.9);
+  });
+});
+
+describe("solve — turret (TR26)", () => {
+  // `magmablast` on its own chassis: a turret row (`WeaponDef.turret`), so the shot leaves the pivot
+  // along a bearing rather than the nose. Mirage's mount is the hull centre today, but the assertions
+  // go through `turretPivotOf` so a moved mount cannot make them pass by coincidence.
+  const shooter: SolverShooter = { ...shooterAt(300, 100, 0), carId: "mirage" };
+  const pivot = turretPivotOf(shooter, shooter.carId);
+
+  it("aims a stationary target 90 degrees off the nose by bearing, from the pivot", () => {
+    const target = targetAt(300, 500);
+    const solution = solve({
+      shooter, slot: slotFor("magmablast"), slotIndex: 1,
+      target, targetAt: constantVelocityPredictor(target),
+      aimSigmaRad: 0, tick: 0, arena,
+    });
+    expect(solution.hitChance).toBeGreaterThan(0.95);
+    expect(solution.turretBearingRad).toBeDefined();
+    expect(Math.abs(solution.turretBearingRad! - Math.atan2(500 - pivot.y, 300 - pivot.x)))
+      .toBeLessThan(1e-3);
+  });
+
+  it("leads a crossing target, budgeting the turret's turn into the time to impact", () => {
+    // Crossing left to right at 150 u/s, 400 units off the shooter's left flank.
+    const target = targetAt(250, 500, 0, 150);
+    const predictor = constantVelocityPredictor(target);
+    const solution = solve({
+      shooter, slot: slotFor("magmablast"), slotIndex: 1,
+      target, targetAt: predictor,
+      aimSigmaRad: 0, tick: 0, arena,
+    });
+    const bearing = solution.turretBearingRad!;
+    // It leads: not the bearing to where the target is now.
+    expect(Math.abs(bearing - Math.atan2(500 - pivot.y, 250 - pivot.x))).toBeGreaterThan(0.05);
+    expect(solution.hitChance).toBeGreaterThan(0.95);
+
+    // A real shot along that bearing, fired once the turret has turned, lands on the hull where the
+    // target will be by then.
+    const turnTicks = Math.abs(wrapAngle(bearing - (shooter.angle + 0))) / TURRET_TICKS.turnPerTick;
+    expect(turnTicks).toBeGreaterThan(1);
+    expect(firesAndConnects("magmablast", shooter, target, predictor, { bearing, delayTicks: turnTicks }))
+      .toBe(true);
+    // And the turn is not decoration: the same bearing, read against a target that had NOT moved
+    // on during the turn, is not the solution.
+    expect(firesAndConnects("magmablast", shooter, target, predictor, { bearing, delayTicks: turnTicks + 12 }))
+      .toBe(false);
+  });
+
+  it("charges no turn when the turret already points along the bearing", () => {
+    const target = targetAt(250, 500, 0, 150);
+    const common = {
+      slot: slotFor("magmablast"), slotIndex: 1,
+      target, targetAt: constantVelocityPredictor(target),
+      aimSigmaRad: 0, tick: 0, arena,
+    };
+    const fromNose = solve({ shooter, ...common }).turretBearingRad!;
+    const preTurned = solve({ shooter: { ...shooter, turretAngle: fromNose }, ...common }).turretBearingRad!;
+    expect(turretTurnTicksOf({ ...shooter, turretAngle: fromNose }, fromNose)).toBe(0);
+    // Less time to impact, so less lead: the pre-turned bearing sits closer to the target's current
+    // position than the one that had to budget a quarter-turn.
+    const now = Math.atan2(500 - pivot.y, 250 - pivot.x);
+    expect(Math.abs(preTurned - now)).toBeLessThan(Math.abs(fromNose - now));
+  });
+
+  it("keeps a fixed muzzle bound to the nose, and reports no bearing for it", () => {
+    const target = targetAt(300, 400);
+    const solution = solve({
+      shooter: { ...shooterAt(300, 100, 0), carId: "bastion" },
+      slot: slotFor("roadblock"), slotIndex: 2,
+      target, targetAt: constantVelocityPredictor(target),
+      aimSigmaRad: 0, tick: 0, arena,
+    });
+    expect(solution.hitChance).toBeLessThan(0.05);
+    expect(solution.turretBearingRad).toBeUndefined();
   });
 });
 
 describe("solver ground truth (P48)", () => {
-  it("agrees with resolveInstanceHits about whether a predator shot lands", () => {
+  // THIS BLOCK IS ABOUT A FIXED MUZZLE, and it flew `predator` until TR26 made predator a turret
+  // row. A turret shot is aimed AT the target by bearing, so a lateral sweep against it reads "hit"
+  // at every offset on both sides and measures nothing; the heading-bound path is what these two
+  // cases exist to hold honest, so they now fly `roadblock` — the roster's one single-pellet
+  // fixed-muzzle projectile. The comments below keep predator's measurements as the record of what
+  // was found; the turret path's own ground truth is "leads a crossing target" in "solve — turret".
+  it("agrees with resolveInstanceHits about whether a fixed-muzzle shot lands", () => {
     // Walk the target across a range of lateral offsets. For each, ask the solver with perfect
     // hands, then fire the real shot through the sim and see whether it connects. The two must
     // agree on every offset -- this is what makes the solver honest about the game rather than
@@ -287,17 +387,22 @@ describe("solver ground truth (P48)", () => {
     // probe over 15-35 put the last connecting offset at 25 and the first miss at 26, and the old
     // 12-22 pass then sat entirely on the hit side, bracketing the edge only by the coarse 22/30
     // pair.
-    const offsets = [0, 10, 16, 18, 20, 22, 24, 26, 28, 30, 40, 50, 60];
+    //
+    // ROADBLOCK (TR26): its bar is 120 units across (`radiusAcross` 60), so the edge sits near
+    // 60 + 20 = 80; a 1-unit probe over 60-100 put the last connecting offset at 79. The fine pass
+    // brackets it every 2 units, for the same reason predator's did.
+    const offsets = [0, 20, 40, 60, 70, 74, 76, 78, 80, 82, 84, 90, 100, 120];
+    const shooter: SolverShooter = { ...shooterAt(0, 300, 0), carId: "bastion" };
     for (const offset of offsets) {
       const target = targetAt(400, 300 + offset);
       const claimed = solve({
-        shooter: shooterAt(0, 300, 0),
-        slot: slotFor("predator"), slotIndex: 0,
+        shooter,
+        slot: slotFor("roadblock"), slotIndex: 0,
         target, targetAt: constantVelocityPredictor(target),
         aimSigmaRad: 0, tick: 0, arena,
       }).hitChance > 0.5;
 
-      const actual = firesAndConnects("predator", shooterAt(0, 300, 0), target);
+      const actual = firesAndConnects("roadblock", shooter, target);
       expect(actual, `lateral offset ${offset}`).toBe(claimed);
     }
   });
@@ -318,20 +423,25 @@ describe("solver ground truth (P48)", () => {
   // middle of a 4-unit-wide band (offset 43-46) where deleting `smear()` flips the verdict from hit
   // to miss -- found by sweeping target speed/heading/offset/distance and picking a comfortably
   // interior point rather than an edge value.
+  //
+  // ROADBLOCK (TR26): same construction, re-found for the bar. Its sweep also leaves the stationary
+  // edge untouched with `smear()` deleted (79 either way), so the moving case is again the one that
+  // guards it. Deleting `smear()` flips the verdict across a band of offsets 110-114 at 150 u/s from
+  // 100 units out (grid: distance 100-300, offset 30-140 by 2, speed 100-250); 112 is its middle.
   it("still agrees when the target is moving fast enough to cross the shot's corridor between ticks", () => {
-    const shooter = shooterAt(0, 300, 0);
-    // Target starts 45 units above the shot's line, driving straight down into it at 125 u/s --
+    const shooter: SolverShooter = { ...shooterAt(0, 300, 0), carId: "bastion" };
+    // Target starts 112 units above the shot's line, driving straight down into it at 150 u/s --
     // angle -90deg is both its facing and its heading, matching `constantVelocityPredictor`'s
     // straight-line assumption.
-    const target = targetAt(100, 300 + 45, -Math.PI / 2, 125);
+    const target = targetAt(100, 300 + 112, -Math.PI / 2, 150);
     const claimed = solve({
       shooter,
-      slot: slotFor("predator"), slotIndex: 0,
+      slot: slotFor("roadblock"), slotIndex: 0,
       target, targetAt: constantVelocityPredictor(target),
       aimSigmaRad: 0, tick: 0, arena,
     }).hitChance > 0.5;
 
-    const actual = firesAndConnects("predator", shooter, target, constantVelocityPredictor(target));
+    const actual = firesAndConnects("roadblock", shooter, target, constantVelocityPredictor(target));
     expect(actual).toBe(claimed);
     expect(actual).toBe(true); // this configuration is a genuine hit; smear is what makes it one
   });
@@ -348,9 +458,15 @@ function firesAndConnects(
   shooter: SolverShooter,
   target: BotCarView,
   targetAt: PosePredictor = constantVelocityPredictor(target),
+  // A turret press: the shot leaves along `bearing`, `delayTicks` after the press (the turn).
+  turret?: { bearing: number; delayTicks: number },
 ): boolean {
+  const delay = turret?.delayTicks ?? 0;
   const { instances } = spawnInstances(
-    { weaponId, slot: 0, finalVolley: true, pressId: "truth" },
+    {
+      weaponId, slot: 0, finalVolley: true, pressId: "truth",
+      ...(turret ? { bearing: turret.bearing } : {}),
+    },
     {
       sessionId: shooter.sessionId, team: shooter.team, carId: shooter.carId,
       x: shooter.x, y: shooter.y, angle: shooter.angle,
@@ -370,7 +486,7 @@ function firesAndConnects(
         ownerPose: { x: shooter.x, y: shooter.y, angle: shooter.angle },
         homingTarget: { x: target.x, y: target.y },
       });
-      const pose = targetAt(tick);
+      const pose = targetAt(tick + delay);
       // A snapshot of one car, sorted trivially (a single entry needs no real sort) -- the same
       // shape `runCombat` builds from every living fighter each tick (`sim/combat.ts`).
       const snapshot: PoseSnapshot = [
