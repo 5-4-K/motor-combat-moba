@@ -2079,11 +2079,12 @@ export class ArenaScene extends Phaser.Scene {
         (this.cursors?.down.isDown ?? false) || (this.driveKeys?.down.isDown ?? false),
         (this.cursors?.up.isDown ?? false) || (this.driveKeys?.up.isDown ?? false),
       ),
-      // Held, not tapped: the server's weapon cooldown decides the rate, so holding a slot key fires
-      // it as fast as that slot allows and no faster. Sampling `JustDown` here instead would drop
-      // shots whenever a frame straddled two input ticks. `mousePointer`, not `activePointer`: the
-      // slot bindings are mouse BUTTONS, and on a touch device the active pointer is a finger whose
-      // synthetic `buttons` bit would fire slot 1 on every drag. Buttons only count while the pointer
+      // Raw held state, not a tap: the SERVER finds the press edge (`serverTick`'s `prevFireMasks`),
+      // so holding a slot key fires it exactly once and the player must release and press again.
+      // Sampling `JustDown` here instead would drop presses whenever a frame straddled two input
+      // ticks. `mousePointer`, not `activePointer`: the slot bindings include mouse BUTTONS, and on a
+      // touch device the active pointer is a finger whose synthetic `buttons` bit would fire the
+      // basic attack (LMB, fire slot 0) on every drag. Buttons only count while the pointer
       // is locked, and never the click that took the lock (TR31); the keyboard slots are unaffected.
       fireSlots: slotMaskFrom(
         this.slotKeys?.map((keys) => keys.some((key) => key.isDown)) ?? [],

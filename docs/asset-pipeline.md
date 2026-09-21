@@ -13,6 +13,7 @@ packages/client/public/art/
   manifest.json   # namespaced key -> sprite entry
   README.md       # the same field table reproduced below, for whoever is dropping in a PNG
   cars/           # convention for car PNGs (README.md), created the first time you add one
+  turrets/        # turret PNGs: default.png ships; <carId>.png for a per-car turret (see Turret art)
 ```
 
 Everything under `public/` is served unhashed and unbundled — Vite copies it straight to the
@@ -212,6 +213,12 @@ connection:
   is built from kits, so a weapon no car carries has no cell; the header names it rather than
   dropping it silently.
 
+Each chassis cell also draws its **turret** at the car's mount, through the same resolution chain
+the arena uses (see [Turret art](#turret-art)), and a dot where a turret shot with
+`additionalOffset: 0` would spawn — `TURRET_CONFIG.defaultOffset` along the turret's facing. The dot
+should sit on the barrel tip; this is where `defaultOffset`, `CarDef.turretMount`, the turret row's
+`origin` and `TURRET_VISUAL.lengthUnits` are lined up by eye.
+
 It exists because `rotationOffset`, `scale`, and `origin` have to be tuned by eye per sprite, and
 the alternative loop is a full rejoin per attempt — the client has no reconnect or session
 persistence, so checking one sprite's alignment any other way means the name prompt, lobby, car
@@ -258,6 +265,50 @@ to join the asset tuner eventually (see the note in the plan's "explicitly out o
 and one selector (`?dev=<id>`) with one registry, one dynamic-import site, and one guard is what
 keeps adding tool number two a one-line change instead of a second copy of this whole strip
 mechanism.
+
+## Turret art
+
+Since the 2026-09-21 mouse-aim work every car draws a **turret** on top of its hull — the barrel a
+turret weapon fires from (see [`combat-model.md`](combat-model.md#turret-muzzle)). It is a second,
+independently rotating layer, a mount nested in the car's container (placed by `turretPivotOf` at
+the car-local origin, so the container composes it to exactly
+`turretPivotOf(rendered pose)` — the car's `CarDef.turretMount`, the centre on every row today),
+rotated to the car's rendered angle plus the networked `PlayerState.turretAngle` (eased toward it at
+the turret's own turn rate by `easeTurretAngle`, snapping on a gap over a quarter turn), tinted with
+the same car fill and four-corner lighting as the hull (re-lit each frame for the turret's own world
+heading, so it shades as it swings), and faded and hidden with the car.
+
+```
+carId ("bastion")
+  -> turretSpriteKeys    ["turret.bastion", "turret.default"]   packages/client/src/assets/asset-keys.ts
+  -> manifest lookup     the first key whose row exists AND whose texture loaded
+  -> procedural fallback drawProceduralTurret (a block with a barrel), otherwise
+```
+
+- **Two keys, one shared default.** `turret.<carId>` is a per-car turret; `turret.default` is the
+  one every car without its own falls back to. Unlike `car.<id>`, whose fallback is a different
+  CAR's art, a turret's fallback is a shared asset — turrets are interchangeable. Only
+  `turret.default` ships (`turrets/default.png`); no per-car turret does. A car with neither still
+  draws, as a procedural block and barrel (`drawProceduralTurret` in `scenes/turret-visual.ts`,
+  shared with `?dev=assets`) — art stays optional here as everywhere else.
+- **`origin` is the pivot.** Turret art faces `+x`, like car art, and its row's `origin` is the
+  point inside the image that sits on the mount. The default ships `[0.31, 0.5]`, on its mount
+  plate. `colorMode` defaults to `"tint"`, so turret art is desaturated like a chassis sprite.
+- **Size is a client knob, not `"fit"`.** A turret is not fitted inside the hull. Its long edge is
+  `TURRET_VISUAL.lengthUnits` (`packages/client/src/config/turret-visual.ts`, 36 u) times the row's
+  numeric `scale` (`"fit"` counts as 1). Resizing it does **not** move where a shot spawns — that is
+  the sim's `TURRET_CONFIG.defaultOffset` (25) — so re-line the two up in `?dev=assets` after
+  changing either.
+- **Importing.** `node scripts/import-art.mjs <image> <carId|default> --turret` (the skill's `preflight.mjs`
+  accepts the same flag) trims, downscales to 2 px per world unit — `TURRET_TARGET_PX`, a 72 px long
+  edge for 36 u — desaturates unless `--keep-color`, writes `turrets/<id>.png`, and upserts the
+  `turret.<id>` row, preserving hand-tuned fields as the car path does. A first import of `default`
+  seeds its `origin`. The [`process-car-asset`](../.claude/skills/process-car-asset/SKILL.md) skill
+  documents the turret path.
+- **Checking.** `npm run check:art` covers turret rows with the car blockers (a lost alpha channel,
+  a row naming a missing file); `check-art.mjs`'s `namespaceScopeOf` puts `turret.*` in the `"cars"`
+  scope, so `npm run check:cars` includes them. A car with no `turret.<id>` row is not a finding —
+  `turret.default` is a complete answer.
 
 ## Weapon icons
 

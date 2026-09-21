@@ -228,10 +228,10 @@ playtest rule:
 ## Verifying it actually took
 
 - The countdown action hint prints **`min(kit.length, N) + 1`** pills — the local car's abilities
-  plus `H` — not `N + 1`. `ArenaScene` calls `actionKeysFor(this.localAbilityCount(), …)`, so the
+  plus `LMB` — not `N + 1`. `ArenaScene` calls `actionKeysFor(this.localAbilityCount(), …)`, so the
   row follows the chassis, not the config. **At `N = 4` with today's three-weapon kits it still
-  prints 4 pills (`H J K L`), and that is the change working, not failing** — see section 5. Drop
-  the `H` pill from that count if `BASIC_ATTACK_CONFIG.enabled` is `false`.
+  prints 4 pills (`LMB RMB Q E`), and that is the change working, not failing** — see section 5. Drop
+  the `LMB` pill from that count if `BASIC_ATTACK_CONFIG.enabled` is `false`.
 - The gutter's slot stack draws `min(kit, N)` boxes, and its TOP does not move with the count —
   the stack is top-anchored (VS20), so a shorter kit shortens it downward only.
 - `?dev=playground` is the fastest check: set a seat to one weapon and to `N`, and confirm the box

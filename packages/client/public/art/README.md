@@ -42,10 +42,11 @@ in-game       drawn 60.0 x 34.0 inside the 60x40 hull  (100% x 85%)
 ```
 
 Warnings never stop an import — a questionable source still lands, and you judge it in
-`?dev=assets`. Two flags:
+`?dev=assets`. Three flags:
 
 | Flag | Use |
 |---|---|
+| `--turret` | Import turret art instead of a chassis sprite: `<carId>` may also be `default`, and the output is `turrets/<carId>.png` under `turret.<carId>`. See [Turret art](../../../../docs/asset-pipeline.md#turret-art). |
 | `--keep-color` | Skip desaturation, for art you intend to ship with `"colorMode": "none"`. Implied when the manifest row already says so. |
 | `--key-background` | Flood-fill an opaque background away, for a source that arrived without alpha (a JPEG, or a checkerboard baked in as real pixels). Only works when the vehicle has a continuous dark outline for the fill to stop against — exporting a real PNG is always the better fix. |
 

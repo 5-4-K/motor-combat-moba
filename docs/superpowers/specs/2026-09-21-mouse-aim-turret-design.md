@@ -1,7 +1,7 @@
 # Mouse aim, the turret muzzle, and one control layout
 
 **Date:** 2026-09-21
-**Status:** approved design (brainstorm 2026-09-21), awaiting implementation plan
+**Status:** implemented (2026-09-22, plan `docs/superpowers/plans/2026-09-21-mouse-aim-turret.md`)
 **Clauses:** TR1–TR52
 
 ## 1. What this is

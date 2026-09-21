@@ -68,6 +68,13 @@ is a config edit with its own doc obligations, not something a runtime sandbox s
 `config.test.ts` requires at least one active car and `DEFAULT_CAR_ID` to be among them, which is what
 keeps `carAtDeadline`'s fallback legal.
 
+`turretMount` (spec TR5) is where the car's turret pivot sits, in car-local world units: `x` along the
+heading, `y` along the car's +y axis in the sim frame. **Every row ships `{ x: 0, y: 0 }`** — the
+pivot at the car's centre — and it is a sim number, not art: a turret shot is measured from it
+(see [`TURRET_CONFIG`](#turret_config) below). `turretMountOf(carId)` resolves it (an unknown id
+resolves to `{ x: 0, y: 0 }`), and `turretPivotOf(pose, carId)` in `sim/weapons/turret.ts` is the one
+place it is rotated into the world. Line it up with the drawn turret by eye in `?dev=assets`.
+
 ### Adding an inactive chassis
 
 `isActive: false` is how a chassis is authored and driven before it is published. What follows from
@@ -286,6 +293,15 @@ bindings and how it fits the fire state machine, and BA1–BA7 in
 [`docs/superpowers/specs/2026-09-17-basic-attack-design.md`](superpowers/specs/2026-09-17-basic-attack-design.md)
 for the numbers' authoring rationale.
 
+**`turret` (optional, `WeaponBase.turret`, spec TR2)** — `{ additionalOffset }`, world units ≥ 0.
+**Presence is the flag**: a row carrying it fires from the car's turret along the bearing the
+player aimed with the mouse, after the turret turns to it; a row without it fires from its fixed
+muzzle exactly as before. The shot spawns `TURRET_CONFIG.defaultOffset + additionalOffset` from the
+turret pivot. `turret-config.test.ts` holds it to `kind: "projectile"` rows with no `muzzles`, and
+pins the exact set carrying it: the nine `basic-attack-*` rows (through `BASIC_ATTACK_BASE`),
+`predator`, `magmablast` and `thumper`, all at `additionalOffset: 0`. See
+[`combat-model.md`](combat-model.md#turret-muzzle).
+
 `fireball`, `needler`, `skewer` and `bulwark` were retired outright by the 2026-09-01 weapon-status
 overhaul; their ids are gone from `WeaponId` and their comment history lives in git rather than here.
 `shockwave` carried the roster's one aura (a `disc` hitbox beam, `origin: "center"`) on Mirage's slot
@@ -478,10 +494,30 @@ See [`the variable-weapon-slots spec`](superpowers/specs/2026-09-20-variable-wea
 `AIM_CONFIG` held the aim-assist geometry and feel: `coneDeg`, `lateralMax`, `lockRange`, three
 retention pads, `scorePerDistanceUnit`, `stealMarginFraction`, `commitMs`, `lockTimeoutMs` and
 `losGraceMs`, plus the derived `AIM_TICKS`. **The whole table and the feature it configured were
-removed on 2026-09-17.** Nothing replaced it — shots leave along the firing car's heading, and there
-is no knob for that because there is no assist to size. `WeaponDef.usesAimAssist`,
+removed on 2026-09-17.** Nothing replaced it — a fixed-muzzle shot leaves along the firing car's
+heading and a turret shot along the player's mouse bearing (2026-09-21, see
+[`TURRET_CONFIG`](#turret_config)), and there is no knob for either because there is no assist to
+size. `WeaponDef.usesAimAssist`,
 `WeaponDef.aimRangeUnits` and `carAimRangeOf` went with it. See
-[`combat-model.md`](combat-model.md#shot-direction-the-heading-always).
+[`combat-model.md`](combat-model.md#shot-direction-the-heading-or-the-turret).
+
+## TURRET_CONFIG
+
+The knobs every turret weapon shares (spec TR1), in
+[`packages/shared/src/config/turret-config.ts`](../packages/shared/src/config/turret-config.ts).
+
+| Knob | Value | What it is |
+|---|---|---|
+| `turnRateDegPerSec` | 540 | How fast the turret turns toward a press's frozen bearing. The weapon's wind-up starts only once it is on target, so this is added reaction time for a shot aimed off the turret's current facing — up to 1/3 s for a full 180° |
+| `defaultOffset` | 25 | World units from the turret **pivot** to the barrel tip at the shipped drawn size — where a turret shot is born, before a row's own `turret.additionalOffset` |
+
+`TURRET_TICKS.turnPerTick` is the rate resolved to radians per tick from `TICK_RATE_HZ`, once, at
+module load. `defaultOffset` is a sim number because the server spawns the shot there; resizing the
+turret art (`TURRET_VISUAL.lengthUnits`, client-side, 36) does not move it. Line the two up in
+`?dev=assets`, which draws a dot where an `additionalOffset: 0` shot would spawn — the dot should sit
+on the barrel tip. `turnRateDegPerSec` is printed on the players' guide (each turret weapon's Aim
+point) and is folded into `balanceStamp`, so changing it owes `npm run build:manual`. See
+[`combat-model.md`](combat-model.md#turret-muzzle).
 
 ## COMBAT_CONFIG
 

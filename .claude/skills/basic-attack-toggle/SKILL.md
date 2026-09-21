@@ -13,8 +13,8 @@ description: >-
 # Basic-attack toggle
 
 Every car carries one weapon beyond its ability kit, the basic attack (`CarDef.basicAttack`,
-**fire slot 0**, `H` and nothing else — it moved from last to first in the 2026-09-20 variable-slot
-work, and no player-facing binding changed with it) —
+**fire slot 0**, bound to `LMB` and nothing else since the 2026-09-21 one-layout change — it moved
+from last to first in the 2026-09-20 variable-slot work; it ships enabled as of 2026-09-21) —
 see [`docs/combat-model.md`](../../../docs/combat-model.md#basic-attack) and
 [`docs/superpowers/specs/2026-09-17-basic-attack-design.md`](../../../docs/superpowers/specs/2026-09-17-basic-attack-design.md)
 (BA1–BA38) for the mechanic itself. This skill is for switching that whole mechanic off or back on
@@ -46,7 +46,7 @@ unaware of the toggle (see "What does NOT change" below).
    worth firing instead.
 3. **`hintSlotOrder`** (`packages/client/src/config/slot-keys.ts`) drops the slot from the countdown
    action hint's order entirely when disabled, so `HINT_SLOT_ORDER` (resolved once from the flag at
-   module load) has `N` entries instead of `N + 1` and the `H` pill never prints. The hint is the
+   module load) has `N` entries instead of `N + 1` and the `LMB` pill never prints. The hint is the
    *only* place the basic attack's binding is taught (BA19) — hiding the weapon means removing that
    pill, not leaving a dead one on screen.
 4. **`scripts/build-cars-and-weapons.mjs`**'s `carSection` skips the "Basic attack" card for every
@@ -87,11 +87,11 @@ still holds a stock, still occupies fire slot 0 in `FireState.slots` — it simp
 
 ## Verifying it actually took
 
-- In a running client, the countdown hint reads `"J K L or LMB RMB SPACE to fire"` — one pair per
-  ability at this build's `N`, so three pairs and not four — with no `H` pill, and pressing H does
-  nothing once the match starts. LMB fires ability 1, so it is not a dead button: check slot 1, not
-  "nothing happens", when verifying that half.
+- In a running client, the countdown hint reads `"RMB Q E to fire"` when disabled and
+  `"LMB RMB Q E to fire"` when enabled — one pill per ability at this build's `N`, plus `LMB` only
+  when enabled. Disabled, pressing LMB does nothing once the match starts; LMB is bound to nothing
+  else, so a dead LMB is the disabled state working.
 - `packages/client/public/manual.html` (or `http://localhost:5173/manual.html`) shows each
   chassis's ability cards only — no "Basic attack" card first.
-- A bot never fires an H-glyph shot; watching `?dev=playground`'s bot line, `slot 0` never appears
+- Disabled, a bot never fires a basic-attack shot; watching `?dev=playground`'s bot line, `slot 0` never appears
   as a chosen slot.
