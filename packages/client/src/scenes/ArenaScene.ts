@@ -47,6 +47,7 @@ import {
   applyCarSprite,
   phaserTextures,
   resolveCarSprite,
+  resolveTurretSprite,
   tintCarSprite,
 } from "../assets/car-sprite.js";
 import {
@@ -104,6 +105,7 @@ import {
 import { pts } from "./graphics-points.js";
 import { HUD_BAKE_SCALE, sameCommands } from "./hud-bake.js";
 import { fillDisc, fillRibbon } from "./ribbon-fill.js";
+import { drawProceduralTurret, easeTurretAngle } from "./turret-visual.js";
 import {
   carFillFor,
   carShapeOf,
@@ -238,6 +240,12 @@ const CAR_SHADOW_DROP_KEY = "car-shadow.drop";
 const CAR_SHADOW_CONTACT_KEY = "car-shadow.contact";
 const BODY_NAME = "body";
 const RIM_NAME = "rim";
+/**
+ * The turret's mount inside a car's container (a nested container, turned by the eased turret
+ * angle), and the tinted sprite inside that mount, re-lit each frame. See `drawTurret`.
+ */
+const TURRET_NAME = "turret";
+const TURRET_LIT_NAME = "turret-lit";
 
 // --- the world layer stack ---------------------------------------------------------------------
 /**
@@ -626,6 +634,8 @@ interface ArenaPlayer {
   alive: boolean;
   diedAtTick: number;
   name: string;
+  /** Car-relative, render-only: drawn by `syncTurret`, never read by prediction. */
+  turretAngle: number;
 }
 
 /**
@@ -686,6 +696,12 @@ export class ArenaScene extends Phaser.Scene {
   private readonly interps = new Map<string, InterpolationBuffer>();
   private readonly cars = new Map<string, Phaser.GameObjects.Container>();
   private readonly visualKeys = new Map<string, string>();
+  /**
+   * Each car's DRAWN turret angle, car-relative, easing toward the networked `turretAngle` (TR42).
+   * Kept outside the container so a rebuild (a colour change, art finishing loading) does not snap
+   * a turning turret back to the patch value; dropped wherever the car itself is dropped.
+   */
+  private readonly turretShown = new Map<string, number>();
   private arenaGfx: Phaser.GameObjects.Graphics | undefined;
   /**
    * The generated asphalt, one `TileSprite` covering the whole arena at `FLOOR_DEPTH` (VFX36).
@@ -1570,6 +1586,7 @@ export class ArenaScene extends Phaser.Scene {
     for (const gfx of this.cars.values()) gfx.destroy();
     this.cars.clear();
     this.visualKeys.clear();
+    this.turretShown.clear();
     this.interps.clear();
     this.arenaGfx?.destroy();
     this.arenaGfx = undefined;
@@ -2170,6 +2187,7 @@ export class ArenaScene extends Phaser.Scene {
         this.cars.delete(sessionId);
         this.dropCarShadow(sessionId);
         this.visualKeys.delete(sessionId);
+        this.turretShown.delete(sessionId);
         return;
       }
 
@@ -2188,6 +2206,7 @@ export class ArenaScene extends Phaser.Scene {
       this.syncCar(sessionId, player, pose);
       this.cars.get(sessionId)?.setAlpha(alpha);
       this.drawCarLook(sessionId, player.carId, player.colorId, pose, alpha);
+      this.syncTurret(sessionId, player, pose, delta);
       poses.set(sessionId, pose);
       const mods = modifiersFromRows(player.statuses, room.state.tick);
       // **NOT `pose.vx`/`pose.vy`.** `RamCar`'s own doc requires the PRE-COLLISION velocity — the
@@ -2266,6 +2285,7 @@ export class ArenaScene extends Phaser.Scene {
       this.cars.delete(sessionId);
       this.dropCarShadow(sessionId);
       this.visualKeys.delete(sessionId);
+      this.turretShown.delete(sessionId);
       this.interps.delete(sessionId);
     }
   }
@@ -2558,6 +2578,12 @@ export class ArenaScene extends Phaser.Scene {
     const body = this.spriteFor(carId, fill) ?? this.silhouette(carId, fill, w, h);
     body.setName(BODY_NAME);
     container.add(body);
+    // Above the body and below the hitbox, INSIDE the container rather than on a depth of its own:
+    // every car sits at `CAR_DEPTH` and Phaser breaks that tie by insertion order, so a turret on a
+    // separate layer would draw over another car's body wherever two overlap — the reason the
+    // shadows had to leave the container, run the other way. Parented, it also takes the container's
+    // alpha, visibility and destruction, so the death fade and the phased ghost reach it for free.
+    container.add(this.drawTurret(carId, fill));
 
     // The lit edge: a COPY of the body's own artwork, tinted and nudged toward the light behind the
     // body, so a bright sliver shows along whatever edge the art actually has. `drawCarLook` moves
@@ -2612,6 +2638,68 @@ export class ArenaScene extends Phaser.Scene {
     // Built lit rather than flat, and re-lit per frame by `drawCarLook`: a container is only rebuilt
     // when its `visualKeyOf` changes, so a car placed flat here would draw one unlit frame.
     return applyCarSprite(this.add.image(0, 0, resolved.key), resolved, fill, this.resolveEnv().carLook);
+  }
+
+  /**
+   * The turret mount (TR42): a container at the chassis's turret pivot in the car's own frame, which
+   * `syncTurret` turns by the eased turret angle. The pivot is `turretPivotOf` at the car-local
+   * origin, so the parent's position and rotation compose to exactly `turretPivotOf(rendered pose)`
+   * without a second copy of the mount rotation.
+   *
+   * Holds the `turret.<carId>` / `turret.default` sprite when one resolves, otherwise the procedural
+   * turret — permanent, like the chassis silhouette, so a missing turret file never costs a car its
+   * gun. The procedural one is a flat fill (a `Graphics` has no corners to light), exactly as the
+   * silhouette is.
+   */
+  private drawTurret(carId: string, fill: number): Phaser.GameObjects.Container {
+    const pivot = turretPivotOf({ x: 0, y: 0, angle: 0 }, carId);
+    const mount = this.add.container(pivot.x, pivot.y);
+    mount.setName(TURRET_NAME);
+    const resolved = resolveTurretSprite(assetManifest(), phaserTextures(this.textures), carId);
+    if (resolved) {
+      const image = applyCarSprite(
+        this.add.image(0, 0, resolved.key),
+        resolved,
+        fill,
+        this.resolveEnv().carLook,
+      );
+      // Named for `syncTurret`'s per-frame re-light only when the row takes the player colour, the
+      // same `colorMode` rule `applyCarSprite` just applied — so the frame loop needs no manifest
+      // lookup to know whether to leave a `"none"` turret alone.
+      if (resolved.entry.colorMode === "tint") image.setName(TURRET_LIT_NAME);
+      mount.add(image);
+      return mount;
+    }
+    mount.add(drawProceduralTurret(this.add.graphics(), fill));
+    return mount;
+  }
+
+  /**
+   * One car's turret for this frame (TR42): ease the drawn angle toward the networked one at the
+   * turret's own rate, turn the mount to it, and re-light the sprite for its WORLD heading — the
+   * light is world-fixed, so a turret swinging across the car must shade like one, not carry the
+   * body's corners round with it.
+   */
+  private syncTurret(sessionId: string, player: ArenaPlayer, pose: SimBody, deltaMs: number): void {
+    const mount = this.cars.get(sessionId)?.getByName(TURRET_NAME);
+    if (!(mount instanceof Phaser.GameObjects.Container)) return;
+    const shown = easeTurretAngle(
+      this.turretShown.get(sessionId) ?? player.turretAngle,
+      player.turretAngle,
+      deltaMs / 1000,
+    );
+    this.turretShown.set(sessionId, shown);
+    mount.setRotation(shown);
+    // Found only on a `"tint"` row's sprite — see `drawTurret` — so a pre-coloured turret and the
+    // procedural one are left exactly as built.
+    const image = mount.getByName(TURRET_LIT_NAME);
+    if (!(image instanceof Phaser.GameObjects.Image)) return;
+    tintCarSprite(
+      image,
+      carFillFor(sessionId, player.colorId),
+      this.resolveEnv().carLook,
+      pose.angle + shown,
+    );
   }
 
   /** The procedural chassis. Unchanged from what the game drew before any art existed. */

@@ -1,9 +1,10 @@
 import type Phaser from "phaser";
-import { carSpriteKey } from "./asset-keys.js";
+import { carSpriteKey, turretSpriteKeys } from "./asset-keys.js";
 import type { AssetManifest, SpriteEntry } from "./manifest-schema.js";
 import { fitSprite, type Size, type SpriteFit } from "./sprite-fit.js";
 import { ENVIRONMENT_FX, type EnvironmentFx } from "../fx/environment.js";
 import { tintCornersFor } from "../scenes/car-lighting.js";
+import { turretDisplayLength } from "../scenes/turret-visual.js";
 
 /**
  * The slice of Phaser's `TextureManager` the resolution chain needs. Narrowed to two methods so the
@@ -42,6 +43,42 @@ export function resolveCarSprite(
   const entry = manifest.sprites[key];
   if (!entry || !textures.exists(key)) return undefined;
   return { key, entry, fit: fitSprite(entry, textures.sizeOf(key), hull) };
+}
+
+/**
+ * A car's turret sprite (spec TR42): the first of `turretSpriteKeys(carId)` — its own `turret.<id>`,
+ * then the shared `turret.default` — whose entry exists and whose texture loaded, or `undefined` for
+ * the procedural turret. The same two absent cases as `resolveCarSprite`, tried once per key.
+ *
+ * Shared by `ArenaScene` and the `?dev=assets` tool for `resolveCarSprite`'s fidelity reason.
+ *
+ * Sized against the turret's own display length, not the hull: `fitSprite`'s `"fit"` contains art
+ * in a 60x40 box, which would draw a 72x42 turret plate as big as the car. Here the texture's long
+ * edge becomes `turretDisplayLength(entry.scale)` and the aspect is the texture's.
+ */
+export function resolveTurretSprite(
+  manifest: AssetManifest,
+  textures: TextureLookup,
+  carId: string,
+): ResolvedSprite | undefined {
+  for (const key of turretSpriteKeys(carId)) {
+    const entry = manifest.sprites[key];
+    if (!entry || !textures.exists(key)) continue;
+    const size = textures.sizeOf(key);
+    const long = Math.max(size.width, size.height);
+    return {
+      key,
+      entry,
+      fit: {
+        // The same zero-size guard `fitSprite` takes, written the same NaN-catching way.
+        scale: long > 0 ? turretDisplayLength(entry.scale) / long : 1,
+        rotation: entry.rotationOffset,
+        originX: entry.origin[0],
+        originY: entry.origin[1],
+      },
+    };
+  }
+  return undefined;
 }
 
 /**
