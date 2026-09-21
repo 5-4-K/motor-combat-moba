@@ -73,6 +73,13 @@ import { ARENA_VIEW_WIDTH, HUD_GUTTER_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from "../
 import { SLOT_KEYS, slotMaskFrom } from "../config/slot-keys.js";
 import { aimBearingOf } from "../input/aim.js";
 import {
+  cssDeltaToWorld,
+  initialAimOffset,
+  moveAimOffset,
+  projectToScreen,
+  type AimOffset,
+} from "../input/aim-offset.js";
+import {
   fireButtons,
   initialLock,
   reduceLock,
@@ -866,9 +873,15 @@ export class ArenaScene extends Phaser.Scene {
   /** `P`, the menu toggle (spec TR35): the practice pause, or the arena's own menu. Inert in the
    *  playground, whose overlay owns P (`pumpPauseKey`). */
   private pauseKey: Phaser.Input.Keyboard.Key | undefined;
-  /** Pointer lock and the virtual cursor (spec TR31), reduced from the DOM events `bindPointerLock`
-   *  listens for. Screen pixels of the world camera's viewport. */
-  private lock: LockState = initialLock(ARENA_VIEW_WIDTH, VIEW_HEIGHT);
+  /** Pointer lock (spec TR31), reduced from the DOM events `bindPointerLock` listens for. */
+  private lock: LockState = initialLock();
+  /** The crosshair, as a WORLD offset from the driven car's centre (spec TR56): it rides with the car
+   *  and keeps its world direction as the car turns. Undefined until the first frame that has a car
+   *  to aim from, which seeds it straight ahead (`initialAimOffset`). */
+  private aimOffset: AimOffset | undefined;
+  /** Mouse movement, world units, not yet folded into `aimOffset`. DOM moves land between frames,
+   *  and folding one in needs the car's rendered heading (the arc clamp), which only a frame has. */
+  private pendingAimDelta: AimOffset = { x: 0, y: 0 };
   /** Removes `bindPointerLock`'s DOM listeners; they are on `document`, so they outlive the scene. */
   private unbindPointerLock: (() => void) | undefined;
   /** Drawn at the virtual cursor, on the HUD camera (spec TR32). */
@@ -1715,7 +1728,9 @@ export class ArenaScene extends Phaser.Scene {
     this.unbindPointerLock?.();
     this.unbindPointerLock = undefined;
     if (document.pointerLockElement === this.game.canvas) document.exitPointerLock();
-    this.lock = initialLock(ARENA_VIEW_WIDTH, VIEW_HEIGHT);
+    this.lock = initialLock();
+    this.aimOffset = undefined;
+    this.pendingAimDelta = { x: 0, y: 0 };
     this.crosshair?.destroy();
     this.crosshair = undefined;
     this.arenaMenu?.destroy();
@@ -1912,8 +1927,7 @@ export class ArenaScene extends Phaser.Scene {
   private bindPointerLock(room: Room<ArenaState>): void {
     const canvas = this.game.canvas;
     const cam = this.cameras.main;
-    // The world camera's viewport, not the canvas: the cursor stays over the arena and off the gutter.
-    this.lock = initialLock(cam.width, cam.height);
+    this.lock = initialLock();
 
     // TR31a: try for the lock the instant the scene stands up, before any listener below runs. This
     // succeeds when the click that started the match (practice Start, lobby Ready, playground launch)
@@ -1938,18 +1952,19 @@ export class ArenaScene extends Phaser.Scene {
         this.openMenu(room);
       }
     };
-    // movementX/Y are CSS pixels; the cursor lives in game pixels, which differ whenever the Scale
-    // Manager has fitted the canvas to a window of another size.
+    // The crosshair moves only while the lock is held (TR56). movementX/Y are CSS pixels, converted
+    // to world units through the canvas's fitted size and the world camera's zoom, then banked until
+    // the next frame folds them in against the car's heading (`aimPointFor`).
     const onMove = (event: MouseEvent): void => {
-      const sx = canvas.clientWidth > 0 ? this.scale.width / canvas.clientWidth : 1;
-      const sy = canvas.clientHeight > 0 ? this.scale.height / canvas.clientHeight : 1;
-      this.dispatchLock({
-        type: "move",
-        dx: event.movementX * sx,
-        dy: event.movementY * sy,
-        w: cam.width,
-        h: cam.height,
-      });
+      if (!this.lock.locked) return;
+      const delta = cssDeltaToWorld(
+        event.movementX,
+        event.movementY,
+        { width: this.scale.width, height: this.scale.height },
+        { width: canvas.clientWidth, height: canvas.clientHeight },
+        cam.zoom,
+      );
+      this.pendingAimDelta = { x: this.pendingAimDelta.x + delta.x, y: this.pendingAimDelta.y + delta.y };
     };
     const onUp = (event: MouseEvent): void => {
       this.dispatchLock({ type: "buttons", buttons: event.buttons });
@@ -1993,8 +2008,23 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * The crosshair (spec TR32): at the virtual cursor while the lock is held, the driven car is on the
-   * field and no menu is up. Otherwise hidden — while a menu is open the OS cursor is the pointer.
+   * The crosshair's world point this frame (spec TR56): the car's rendered centre plus `aimOffset`,
+   * after folding in any banked mouse movement and re-applying both limits against the car's
+   * rendered heading — every frame, since the car may have turned the offset out of the swing arc.
+   * The one place the offset changes, and the one both the drawing and `aimAngle` read.
+   */
+  private aimPointFor(pose: SimBody): { x: number; y: number } {
+    const offset = this.aimOffset ?? initialAimOffset(pose.angle);
+    this.aimOffset = moveAimOffset(offset, this.pendingAimDelta.x, this.pendingAimDelta.y, pose.angle);
+    this.pendingAimDelta = { x: 0, y: 0 };
+    return { x: pose.x + this.aimOffset.x, y: pose.y + this.aimOffset.y };
+  }
+
+  /**
+   * The crosshair (spec TR32, TR56): at `aimPointFor`'s world point, projected to the screen, while
+   * the lock is held, the driven car is on the field and no menu is up. Otherwise hidden — while a
+   * menu is open the OS cursor is the pointer. The offset is re-clamped every frame the driven car
+   * exists, shown or not, so keyboard fire aims at a crosshair that is always inside its limits.
    */
   private syncCrosshair(room: Room<ArenaState>): void {
     // Per-frame safety net for the relock race (final-fixes item 1), covering every room kind: if a
@@ -2007,13 +2037,33 @@ export class ArenaScene extends Phaser.Scene {
     const gfx = this.crosshair;
     if (!gfx) return;
     const local = room.state.players.get(this.drivenSid(room));
+    const aim = local ? this.aimPointFor(this.localRenderPose(bodyOf(local))) : undefined;
     const show =
+      aim !== undefined &&
       this.lock.locked &&
       local?.status === PlayerStatus.IN_MATCH &&
       local.alive &&
       !this.menuOpen(room);
     gfx.setVisible(show);
-    if (show) drawCrosshair(gfx, this.lock.cursor.x, this.lock.cursor.y);
+    if (!show) return;
+    const cam = this.cameras.main;
+    const screen = projectToScreen(
+      {
+        x: cam.x,
+        y: cam.y,
+        width: cam.width,
+        height: cam.height,
+        originX: cam.originX,
+        originY: cam.originY,
+        zoomX: cam.zoomX,
+        zoomY: cam.zoomY,
+        // Bounds-clamped as the camera's own `preRender` will clamp it, since `centerOn` does not.
+        scrollX: cam.useBounds ? cam.clampX(cam.scrollX) : cam.scrollX,
+        scrollY: cam.useBounds ? cam.clampY(cam.scrollY) : cam.scrollY,
+      },
+      aim,
+    );
+    drawCrosshair(gfx, screen.x, screen.y);
   }
 
   /**
@@ -2122,12 +2172,12 @@ export class ArenaScene extends Phaser.Scene {
 
     this.inputSeq += 1;
     // Aimed from the RENDERED pose, not the schema one: it is what the player aimed at on screen
-    // (TR33). Keyboard fire keys aim at the crosshair too, and before the first lock the cursor sits
-    // at the viewport centre. The fallback — the turret's current world bearing — only answers when
-    // the cursor sits exactly on the pivot.
-    const pivot = turretPivotOf(this.localRenderPose(bodyOf(local)), carIdOf(local));
-    const world = this.cameras.main.getWorldPoint(this.lock.cursor.x, this.lock.cursor.y);
-    const aimAngle = aimBearingOf(pivot, world, local.angle + local.turretAngle);
+    // (TR33), at the crosshair's world point (TR56). Keyboard fire keys aim at the crosshair too, and
+    // before the first lock it sits straight ahead of the car. The fallback — the turret's current
+    // world bearing — only answers when the crosshair sits exactly on the pivot.
+    const pose = this.localRenderPose(bodyOf(local));
+    const pivot = turretPivotOf(pose, carIdOf(local));
+    const aimAngle = aimBearingOf(pivot, this.aimPointFor(pose), local.angle + local.turretAngle);
     // A menu is up (TR34): neutral input for as long as it is, so an arena car coasts rather than
     // driving on whatever keys were held when the menu opened. Practice and the playground never get
     // here while paused — `pumpInput`'s gate stops them first.

@@ -536,11 +536,13 @@ name. It ships on the nine basic-attack rows, `predator`, `magmablast` and `thum
 row keeps its fixed muzzle.
 
 - **The bearing is frozen at the click.** A turret press records a **world** bearing in `beginFire`:
-  the input's `aimAngle` (the mouse ray from the turret pivot to the crosshair), or — when the input
-  carried none — `carAngle + turretAngle`, i.e. "fire where the turret already points". The car
-  may move and turn afterwards; the shot still leaves along that bearing. On the wire, `serverTick`
-  records `TickResult.aims`: the `aimAngle` of the **last** input in the batch that carried a press,
-  and a pressing input with no `aimAngle` clears it rather than leaving an earlier bearing in place.
+  the input's `aimAngle` (the mouse ray from the turret pivot to the crosshair — a world offset
+  that rides the car, at most the client's `CROSSHAIR_CONFIG.maxDistance`, 60 u, from its centre and
+  held inside the swing arc below; TR56), or — when the input carried none — `carAngle +
+  turretAngle`, i.e. "fire where the turret already points". The car may move and turn
+  afterwards; the shot still leaves along that bearing. On the wire, `serverTick` records
+  `TickResult.aims`: the `aimAngle` of the **last** input in the batch that carried a press, and a
+  pressing input with no `aimAngle` clears it rather than leaving an earlier bearing in place.
 - **Turn, then wind-up.** The per-tick order is `tickRecharge → beginFire → turnTurret →
   releaseShots`. `beginFire` commits the press (the stock is spent now, as for every weapon) with
   `aligned: false` and no release tick. `turnTurret` turns `FireState.turretAngle` toward the

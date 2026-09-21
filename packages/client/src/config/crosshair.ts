@@ -1,3 +1,13 @@
+/**
+ * Where the crosshair may go (spec TR56). `maxDistance` is WORLD units from the driven car's CENTRE:
+ * the crosshair is an offset from the car that rides with it, never further out than this. Read at
+ * use time (`input/aim-offset.ts`'s defaults), never copied, so a live retune lands on the next
+ * frame — hence a plain mutable object rather than `as const`.
+ */
+export const CROSSHAIR_CONFIG: { maxDistance: number } = {
+  maxDistance: 60,
+};
+
 /** The crosshair's look (spec TR32), screen pixels. White with a dark outline, to read on both floors. */
 export const CROSSHAIR_STYLE = {
   radius: 10,

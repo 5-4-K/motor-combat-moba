@@ -207,7 +207,7 @@ Four changes that ship together because each needs the others to make sense:
   - **TR31a (2026-09-22). Acquiring, automatically, as far as the browser allows.** A zero-input lock
     is impossible — `requestPointerLock()` needs a recent user gesture — so the scene gets as close as
     it can with two attempts, gated by the same `shouldRequestLock` (not locked, no menu open, no
-    pause in flight) as the click path above. First, the instant the scene stands up it tries once
+    pause in flight — TR54 defines "in flight") as the click path above. First, the instant the scene stands up it tries once
     immediately: this succeeds when the click that started the match (practice Start, lobby Ready, a
     playground launch) is still inside the browser's transient-activation window, and a refusal here
     is the expected case, not logged as a warning. Second, if that failed, the first keydown after the
@@ -219,24 +219,46 @@ Four changes that ship together because each needs the others to make sense:
     practice/the playground, its own relock) is what brings the cursor back, exactly as before.
   - **The locking click never fires.** Mouse buttons contribute nothing to the fire mask until the
     lock is held **and** every button that was down when it was acquired has been released.
-  - **The virtual cursor.** While locked, a cursor position in canvas pixels is integrated from
-    `movementX/Y`, clamped to the canvas rectangle. It starts at the canvas centre on first lock and
-    persists across unlocks within the scene.
+  - **The virtual cursor.** *Superseded by TR56 (2026-09-22):* there is no canvas-pixel cursor any
+    more. While locked, `movementX/Y` moves the crosshair's world offset from the car (TR56); while
+    unlocked, mouse movement moves nothing. The offset persists across unlocks within the scene. The
+    lock reducer keeps only the lock itself — `locked`, `swallow`, `releasing` and the
+    open-the-menu answer.
   - **Losing the lock.** A `pointerlockchange` to unlocked that the game did not ask for (Esc, alt-tab,
     focus loss) opens the menu (TR35).
-- **TR32** The crosshair is drawn at the virtual cursor while the lock is held **and** the controlled
-  car is on the field (`isOnField`). It is a circle with a centre dot, and four lines running from
+- **TR32** The crosshair is drawn at the crosshair's world point (TR56), projected to the screen,
+  while the lock is held **and** the controlled car is on the field (`isOnField`). It is a circle with a centre dot, and four lines running from
   near the dot out past the circle, up/down/left/right. It is white with a dark outline so it reads
   on both arena floors, and sits on a screen-space layer above the HUD. Its dimensions are a small
   client config (`CROSSHAIR_STYLE`), not literals in the scene. While the menu is open the OS cursor
   shows and the crosshair is hidden.
 - **TR33** `aimAngle` (TR21) is `atan2` from `turretPivotOf(controlled car's rendered pose)` to
-  `camera.getWorldPoint(virtual cursor)`. The **rendered** pose is used because it is what the
-  player aimed at on screen. Keyboard fire keys (Q/E/Space) aim at the crosshair too. Before the
-  first lock, the cursor sits at the canvas centre.
+  the crosshair's world point — the rendered car centre plus the TR56 offset (it was
+  `camera.getWorldPoint(virtual cursor)` until TR56). The **rendered** pose is used because it is
+  what the player aimed at on screen. Keyboard fire keys (Q/E/Space) aim at the crosshair too.
+  Before the first lock, the crosshair sits straight ahead of the car at the max distance.
 - **TR34** While a menu is open (any room kind) the client sends **neutral** input — no steer,
   throttle or fire — for as long as the menu is up. In practice and the playground the pause already
   stops input; in an arena match this is new, and the car coasts.
+- **TR56** (2026-09-22 follow-up) **The crosshair rides the car, within `CROSSHAIR_CONFIG.maxDistance`.**
+  - `CROSSHAIR_CONFIG.maxDistance` (**60** world units, measured from the car's **centre**) is a
+    client config, `config/crosshair.ts`, beside `CROSSHAIR_STYLE`.
+  - The crosshair is a **world-space offset** from the driven car's centre: it rides with the car and
+    keeps its **world** direction when the car turns. Pointer-lock `movementX/Y` (CSS pixels,
+    converted through the canvas's fitted size and the world camera's zoom to world units) adds to
+    the offset while the lock is held. The offset is held to length ≤ `maxDistance` **and** to a
+    direction inside the turret's swing arc about the car's current heading (`clampToSwing`, TR55;
+    no angular limit at 360).
+  - The clamp is re-applied **every frame**, not only on movement: the car may have turned the
+    offset's unchanged world direction out of the arc, which pushes it to the nearer arc edge.
+  - It starts straight ahead of the car at `maxDistance`, and resets with the match state.
+  - It is drawn at `worldToScreen(carCentre + offset)`, on the same screen-space HUD layer as
+    before. The projection is computed from the camera's current (bounds-clamped) scroll rather than
+    last frame's matrix, so the crosshair does not trail a camera that follows the car.
+  - `aimAngle` is TR33's bearing to `carCentre + offset`; keyboard Q/E aim the same way.
+  - Both limits are read at use time (`input/aim-offset.ts`'s defaults), never copied, so a live
+    retune lands on the next frame. The pure helpers `initialAimOffset`, `clampAimOffset`,
+    `moveAimOffset`, `cssDeltaToWorld` and `projectToScreen` carry the unit tests.
 
 ## 5. The menu
 

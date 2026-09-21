@@ -527,6 +527,19 @@ next press. The guide does not print it and `balanceStamp` does not hash it (the
 is held inside the same arc ([`CROSSHAIR_CONFIG`](#crosshair_config-client)), and the bot clamps
 its solved lead to it.
 
+## CROSSHAIR_CONFIG (client)
+
+Client-only, in [`packages/client/src/config/crosshair.ts`](../packages/client/src/config/crosshair.ts)
+beside `CROSSHAIR_STYLE` (the crosshair's look, screen pixels). Spec TR56.
+
+| Knob | Value | What it is |
+|---|---|---|
+| `maxDistance` | 60 | World units from the driven car's **centre** the crosshair may sit. The crosshair is a world offset from the car: it rides with the car, keeps its world direction as the car turns, and is also held inside the turret's swing arc ([`TURRET_CONFIG.maxSwingDeg`](#turret_config)) about the car's current heading — re-clamped every frame. It starts straight ahead at this distance |
+
+Read at use time (`input/aim-offset.ts`'s defaults) and deliberately not `as const`, so a live
+retune lands on the next frame. The sim never sees it: the server only ever receives the bearing
+the crosshair produces (`InputMessage.aimAngle`).
+
 ## COMBAT_CONFIG
 
 | Knob | Value |

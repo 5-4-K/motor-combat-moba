@@ -1,10 +1,11 @@
 /**
- * Pointer lock as a pure reducer (spec TR31). `ArenaScene` feeds it DOM events and reads back the
- * cursor, the buttons it may fire with, and whether to open the menu.
+ * Pointer lock as a pure reducer (spec TR31). `ArenaScene` feeds it DOM events and reads back
+ * whether the lock is held, the buttons it may fire with, and whether to open the menu. The
+ * crosshair itself is not here: since TR56 it is a world offset from the car
+ * (`input/aim-offset.ts`), which the scene moves only while `locked`.
  *
  * - A lock needs a user gesture, so the first click on the canvas asks for it — and that click never
  *   fires: every button down when the lock arrives is swallowed until it is released.
- * - While locked, the cursor is integrated from movementX/Y and clamped to the canvas.
  * - Losing the lock unasked (the browser's Esc, alt-tab, focus loss) opens the menu; a release the
  *   game asked for (`release`, e.g. the menu opening) does not.
  */
@@ -12,8 +13,6 @@ export interface LockState {
   locked: boolean;
   /** Mouse buttons held when the lock arrived; ignored until released. */
   swallow: number;
-  /** Virtual cursor, canvas pixels. */
-  cursor: { x: number; y: number };
   /** The game asked for the lock to go; the next `lost` is expected. */
   releasing: boolean;
 }
@@ -22,11 +21,10 @@ export type LockEvent =
   | { type: "acquired"; buttons: number }
   | { type: "lost" }
   | { type: "release" }
-  | { type: "move"; dx: number; dy: number; w: number; h: number }
   | { type: "buttons"; buttons: number };
 
-export function initialLock(w: number, h: number): LockState {
-  return { locked: false, swallow: 0, cursor: { x: w / 2, y: h / 2 }, releasing: false };
+export function initialLock(): LockState {
+  return { locked: false, swallow: 0, releasing: false };
 }
 
 export function reduceLock(s: LockState, e: LockEvent): { state: LockState; openMenu: boolean } {
@@ -37,12 +35,6 @@ export function reduceLock(s: LockState, e: LockEvent): { state: LockState; open
       return { state: { ...s, releasing: true }, openMenu: false };
     case "lost":
       return { state: { ...s, locked: false, swallow: 0, releasing: false }, openMenu: s.locked && !s.releasing };
-    case "move": {
-      if (!s.locked) return { state: s, openMenu: false };
-      const x = Math.min(e.w, Math.max(0, s.cursor.x + e.dx));
-      const y = Math.min(e.h, Math.max(0, s.cursor.y + e.dy));
-      return { state: { ...s, cursor: { x, y } }, openMenu: false };
-    }
     case "buttons":
       return { state: { ...s, swallow: s.swallow & e.buttons }, openMenu: false };
   }
