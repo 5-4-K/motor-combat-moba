@@ -282,7 +282,6 @@ describe("damageDealt reaches the shot, frozen at spawn", () => {
       owner,
       0,
       0,
-      null,
       1.25,
     ).instances[0]!;
     expect(buffed.damage).toBe(scaleDamage(plain.damage, 1.25));
@@ -295,7 +294,6 @@ describe("damageDealt reaches the shot, frozen at spawn", () => {
       owner,
       0,
       0,
-      null,
       1.13,
     ).instances[0]!;
     expect(Number.isInteger(shot.damage)).toBe(true);

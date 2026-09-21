@@ -5,6 +5,7 @@ import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import { BASIC_ATTACK_CONFIG, WEAPON_TABLE, weaponDefOf } from "../config/weapon-config.js";
 import { SPIKE_CONFIG } from "../config/spike-config.js";
+import { TURRET_CONFIG, TURRET_TICKS } from "../config/turret-config.js";
 import { MS_PER_TICK, TICK_RATE_HZ } from "../constants.js";
 import {
   clearManeuver,
@@ -787,15 +788,43 @@ describe("shot direction through a real tick", () => {
     expect(shot!.angle).not.toBeCloseTo(Math.atan2(b.y - muzzle.y, b.x - muzzle.x), 2);
   });
 
-  it("leaves the muzzle, not the car centre", () => {
-    // `muzzleOf` outlived the targeting system it was written for -- it is where every shot is
-    // born and where the client draws a charge orb -- so its offset is pinned here now that
-    // `lock.test.ts` is gone.
+  it("leaves the turret pivot, not the car centre", () => {
+    // `muzzleOf` outlived the targeting system it was written for -- it is still where the client
+    // draws a charge orb -- but mirage's real slot 1 (magmablast) is a turret row now (spec TR18),
+    // so what actually leaves the barrel is pinned to the turret's own offset, not the hull's nose.
+    // A press with no aim input fires along the heading with the turret resting at 0 (TR24), so this
+    // still reads as "straight out the front" — just from the pivot's own reach, not the hull's.
     const a = player("a", { x: 300, y: 300, angle: 0, fireMask: 0b010 });
     const result = run({ players: [a, player("b", { x: 900, y: 300, angle: Math.PI })] });
     const shot = result.instances.find((i) => i.ownerSessionId === "a");
-    expect(shot!.x).toBeCloseTo(300 + DRIVE_CONFIG.carWidth / 2, 6);
+    expect(shot!.x).toBeCloseTo(300 + TURRET_CONFIG.defaultOffset, 6);
     expect(shot!.y).toBeCloseTo(300, 6);
+  });
+});
+
+describe("turret press through a real tick (TR18-TR24)", () => {
+  it("waits for the turret to turn onto the aimed bearing before firing", () => {
+    const shooter = player("a", { x: 300, y: 300, angle: 0, fireMask: 1 << 1, aimBearing: Math.PI / 2 });
+    let state = run({ world: world({ tick: 0 }), players: [shooter] });
+    // The press commits and the turret starts turning (TR11-TR13), but nothing has aligned yet, so
+    // `releaseShots` refuses to release: no magmablast instance exists on the press tick itself.
+    expect(state.instances.find((i) => i.weaponId === "magmablast")).toBeUndefined();
+
+    // At 540 deg/s and 30 Hz the turn from 0 to 90 degrees is exactly 5 steps of 18 degrees; +1
+    // absorbs float rounding at an exact multiple.
+    const ticksToAlign = Math.ceil(Math.PI / 2 / TURRET_TICKS.turnPerTick) + 1;
+    let shot: WeaponInstance | undefined;
+    for (let tick = 1; tick <= ticksToAlign && !shot; tick++) {
+      state = run({
+        world: world({ tick }),
+        players: state.players.map((p) => (p.sessionId === "a" ? { ...p, fireMask: 0 } : p)),
+        instances: state.instances,
+        instanceSeq: state.instanceSeq,
+      });
+      shot = state.instances.find((inst) => inst.weaponId === "magmablast");
+    }
+    expect(shot).toBeDefined();
+    expect(shot!.angle).toBeCloseTo(Math.PI / 2, 5);
   });
 });
 
