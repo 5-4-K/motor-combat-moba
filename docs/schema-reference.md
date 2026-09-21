@@ -103,6 +103,7 @@ field at all, so the check is always false there. See root `CLAUDE.md` and
 | `level` | uint8 | `1` | In-match level; pinned to 1 until the level system exists. Gates `unlocksAt` |
 | `pendingUntilTick` | uint32 | `0` | Tick a committed press next puts a shot out (wind-up, or the next volley of a burst). `0` = nothing pending; the HUD reads mid-press as `tick < pendingUntilTick` |
 | `lastFiredSlot` | int8 | `-1` | Slot the car most recently committed to firing; `-1` = never fired. Signed because `-1` is the natural "never" for an index |
+| `turretAngle` | number | `0` | The turret's angle relative to the car's heading, radians (spec TR10). Mirrored from the server-only `FireState.turretAngle`. Render-only — `stepSim` never reads it, so invariant 8 does not apply and the client does not predict it |
 | `statuses` | array `StatusState` | empty | The statuses this car is in, capped at `STATUS_CONFIG.maxActive` (6). Sorted by `statusId` so a patch carries a diff rather than a reshuffle |
 
 `weaponCooldown` (a single counter for the one pre-weapon-system shot) is gone — replaced by

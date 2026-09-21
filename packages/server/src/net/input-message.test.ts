@@ -53,4 +53,13 @@ describe("isInputMessage", () => {
     expect(isInputMessage({ ...valid, fireSlots: -5 })).toBe(true);
     expect(isInputMessage({ ...valid, fireSlots: 0b1111_1111 })).toBe(true);
   });
+
+  it("accepts an absent or finite aimAngle and rejects anything else (TR22)", () => {
+    const base = { seq: 1, steer: 0, throttle: 0, fireSlots: 0 };
+    expect(isInputMessage(base)).toBe(true);
+    expect(isInputMessage({ ...base, aimAngle: 1.25 })).toBe(true);
+    expect(isInputMessage({ ...base, aimAngle: Number.NaN })).toBe(false);
+    expect(isInputMessage({ ...base, aimAngle: Infinity })).toBe(false);
+    expect(isInputMessage({ ...base, aimAngle: "1" })).toBe(false);
+  });
 });

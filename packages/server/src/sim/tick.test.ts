@@ -733,6 +733,58 @@ describe("serverTick fire mask reporting", () => {
     expect(player.lastProcessedInputSeq).toBe(NET_CONFIG.maxInputsPerTick + 1);
   });
 
+  it("reports the aimAngle of the last simulated input whose PRESS mask was non-zero", () => {
+    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const queue: InputMessage[] = [
+      { seq: 1, steer: 0, throttle: 0, fireSlots: 0, aimAngle: 0.1 },
+      { seq: 2, steer: 0, throttle: 0, fireSlots: 0b010, aimAngle: 0.2 },
+      { seq: 3, steer: 0, throttle: 0, fireSlots: 0b010, aimAngle: 0.3 },
+    ];
+    const { aims } = serverTick(
+      stateWith(player),
+      new Map([["p1", queue]]),
+      DT,
+      RoomPhase.MATCH,
+      NO_EFFECTS,
+      new Map(),
+      new Map(),
+    );
+    // Seq 2 is the last input whose PRESSED mask was non-zero (seq 3 only holds the same bit down).
+    expect(aims.get("p1")).toBe(0.2);
+  });
+
+  it("reports no aim when the pressing input carried none", () => {
+    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const { aims } = serverTick(
+      stateWith(player),
+      new Map([["p1", [fires(1, 0b010)]]]),
+      DT,
+      RoomPhase.MATCH,
+      NO_EFFECTS,
+      new Map(),
+      new Map(),
+    );
+    expect(aims.has("p1")).toBe(false);
+  });
+
+  it("contributes no aim from an input past the per-tick simulate cap", () => {
+    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const queue: InputMessage[] = [
+      ...ups(...Array.from({ length: NET_CONFIG.maxInputsPerTick }, (_, i) => i + 1)),
+      { ...fires(NET_CONFIG.maxInputsPerTick + 1, 0b010), aimAngle: 0.9 },
+    ];
+    const { aims } = serverTick(
+      stateWith(player),
+      new Map([["p1", queue]]),
+      DT,
+      RoomPhase.MATCH,
+      NO_EFFECTS,
+      new Map(),
+      new Map(),
+    );
+    expect(aims.has("p1")).toBe(false);
+  });
+
   it("names every player who fired, not just the first", () => {
     const a = makePlayer("aaa", 300, CORRIDOR_Y, 0);
     const b = makePlayer("bbb", 900, CORRIDOR_Y, 0);

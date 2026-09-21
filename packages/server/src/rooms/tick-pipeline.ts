@@ -103,7 +103,7 @@ export function runPipeline(ctx: PipelineCtx): {
   // effect whose last tick was the previous one. New effects are only ever added at the far end of
   // the tick, by combat, and take hold on the next one.
   const statusMods = statusTick(state, state.tick);
-  const { masks, approachVelocities } = serverTick(
+  const { masks, aims, approachVelocities } = serverTick(
     state,
     ctx.inputQueues,
     dt,
@@ -132,7 +132,7 @@ export function runPipeline(ctx: PipelineCtx): {
       state.tick,
     );
   }
-  return { masks, combatPlayers: combatTick(ctx, dt, masks, contact) };
+  return { masks, combatPlayers: combatTick(ctx, dt, masks, contact, aims) };
 }
 
 /**
@@ -148,6 +148,7 @@ function combatTick(
   dt: number,
   masks: ReadonlyMap<string, number>,
   contact: ContactTickResult,
+  aims: ReadonlyMap<string, number> = new Map(),
 ): CombatResultPlayer[] | null {
   const state = ctx.state;
   if (state.phase !== RoomPhase.MATCH || ctx.matchRoster.size === 0) {
@@ -164,7 +165,7 @@ function combatTick(
       obstacles: arena.obstacles,
       bounds: boundsOf(arena),
     },
-    players: toCombatPlayers(state, ctx.matchRoster, masks, ctx.combat),
+    players: toCombatPlayers(state, ctx.matchRoster, masks, ctx.combat, aims),
     instances: toInstances(ctx.combat),
     instanceSeq: ctx.combat.instanceSeq,
     contactHits: contact.contactHits,

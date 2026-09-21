@@ -104,6 +104,21 @@ describe("toCombatPlayers", () => {
     expect(players.find((p) => p.sessionId === "b")!.fireMask).toBe(0b010);
   });
 
+  it("puts the aims map's value on aimBearing, and null when absent (TR24)", () => {
+    const state = new ArenaState();
+    playerIn(state, "a");
+    playerIn(state, "b");
+    const players = toCombatPlayers(
+      state,
+      new Set(["a", "b"]),
+      new Map(),
+      newCombatMemory(),
+      new Map([["b", 0.75]]),
+    );
+    expect(players.find((p) => p.sessionId === "a")!.aimBearing).toBeNull();
+    expect(players.find((p) => p.sessionId === "b")!.aimBearing).toBe(0.75);
+  });
+
   it("carries pose, chassis, and hp across", () => {
     const state = new ArenaState();
     playerIn(state, "a", { x: 12, y: 34, angle: 0.5, carId: "bullseye", hp: 7 });
@@ -452,6 +467,34 @@ describe("applyCombatResult", () => {
     const fireState = { ...newFireState("mirage", 1), lastFiredSlot: 0 };
     applyCombatResult(state, result({ players: [combatPlayerFor(player, { fireState })] }), newCombatMemory());
     expect(player.pendingUntilTick).toBe(0);
+  });
+
+  it("mirrors the fire state's turretAngle onto the schema (TR10)", () => {
+    const state = new ArenaState();
+    const player = playerIn(state, "a");
+    const fireState = { ...newFireState("mirage", 1), turretAngle: 0.4 };
+    applyCombatResult(state, result({ players: [combatPlayerFor(player, { fireState })] }), newCombatMemory());
+    expect(player.turretAngle).toBe(0.4);
+  });
+
+  it("holds pendingUntilTick at tick + 1 while the turret is still turning, since +Infinity cannot ride a uint32 (TR17)", () => {
+    const state = new ArenaState();
+    state.tick = 500;
+    const player = playerIn(state, "a");
+    const fireState = {
+      ...newFireState("mirage", 1),
+      pending: {
+        weaponId: "magmablast" as const,
+        slot: 1,
+        shotsLeft: 1,
+        pressId: "a#500#1",
+        bearing: 0.2,
+        aligned: false,
+        nextShotTick: Number.POSITIVE_INFINITY,
+      },
+    };
+    applyCombatResult(state, result({ players: [combatPlayerFor(player, { fireState })] }), newCombatMemory());
+    expect(player.pendingUntilTick).toBe(state.tick + 1);
   });
 
   it("resizes the slot array down when a rebuilt fire state has fewer slots", () => {

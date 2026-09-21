@@ -85,6 +85,12 @@ export class PlayerState extends Schema {
    */
   @type("int8") lastFiredSlot = -1;
   /**
+   * The turret's angle relative to the heading, radians (spec TR10). Mirrored from the server-only
+   * `FireState.turretAngle`. Render-only: `stepSim` never reads it, so invariant 8 does not apply and
+   * the client does not predict it.
+   */
+  @type("number") turretAngle = 0;
+  /**
    * The statuses this car is currently in, capped at `STATUS_CONFIG.maxActive`.
    *
    * Networked because `stepSim` reads it (invariant 8) — `modifiersOf` turns this list into the

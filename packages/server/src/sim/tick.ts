@@ -65,6 +65,12 @@ export interface TickResult {
    * the attacker or the victim.
    */
   approachVelocities: Map<string, { vx: number; vy: number }>;
+  /**
+   * Per session id, the `aimAngle` of the LAST simulated input this tick whose fire mask carried a
+   * new press (spec TR23). Absent when that input carried no aim — the press then fires where the
+   * turret already points (TR12).
+   */
+  aims: Map<string, number>;
 }
 
 /**
@@ -154,6 +160,7 @@ export function serverTick(
   // of the hulls built from it, so it is threaded through rather than recomputed.
   const entries = sortedEntries(state);
   const masks = new Map<string, number>();
+  const aims = new Map<string, number>();
   const approachVelocities = new Map<string, { vx: number; vy: number }>();
 
   for (const { sessionId, player } of entries) {
@@ -232,13 +239,16 @@ export function serverTick(
         const prev = prevFireMasks.get(sessionId) ?? 0;
         const pressed = clean & ~prev;
         prevFireMasks.set(sessionId, clean);
-        if (pressed !== 0) masks.set(sessionId, (masks.get(sessionId) ?? 0) | pressed);
+        if (pressed !== 0) {
+          masks.set(sessionId, (masks.get(sessionId) ?? 0) | pressed);
+          if (msg.aimAngle !== undefined) aims.set(sessionId, msg.aimAngle);
+        }
       }
       player.lastProcessedInputSeq = msg.seq;
     }
   }
 
-  return { masks, approachVelocities };
+  return { masks, aims, approachVelocities };
 }
 
 function bySeq(a: InputMessage, b: InputMessage): number {

@@ -12,6 +12,7 @@ export function isInputMessage(msg: unknown): msg is InputMessage {
     Number.isFinite(rec.seq) &&
     isAxis(rec.steer) &&
     isAxis(rec.throttle) &&
-    Number.isInteger(rec.fireSlots)
+    Number.isInteger(rec.fireSlots) &&
+    (rec.aimAngle === undefined || (typeof rec.aimAngle === "number" && Number.isFinite(rec.aimAngle)))
   );
 }
