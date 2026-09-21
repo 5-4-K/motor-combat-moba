@@ -767,6 +767,30 @@ describe("serverTick fire mask reporting", () => {
     expect(aims.has("p1")).toBe(false);
   });
 
+  it("clears an earlier press's aim when a LATER pressing input in the same batch carries none (fix round 1)", () => {
+    // TR23: the aim is that of the LAST pressing input, and a pressing input with no aimAngle
+    // records nothing — it must not leave an earlier press's stale bearing in place.
+    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const { aims } = serverTick(
+      stateWith(player),
+      new Map([
+        [
+          "p1",
+          [
+            { seq: 1, steer: 0, throttle: 0, fireSlots: 0b010, aimAngle: 0.5 },
+            { seq: 2, steer: 0, throttle: 0, fireSlots: 0b110 },
+          ],
+        ],
+      ]),
+      DT,
+      RoomPhase.MATCH,
+      NO_EFFECTS,
+      new Map(),
+      new Map(),
+    );
+    expect(aims.has("p1")).toBe(false);
+  });
+
   it("contributes no aim from an input past the per-tick simulate cap", () => {
     const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
     const queue: InputMessage[] = [

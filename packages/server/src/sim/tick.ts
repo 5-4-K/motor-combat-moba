@@ -67,8 +67,10 @@ export interface TickResult {
   approachVelocities: Map<string, { vx: number; vy: number }>;
   /**
    * Per session id, the `aimAngle` of the LAST simulated input this tick whose fire mask carried a
-   * new press (spec TR23). Absent when that input carried no aim — the press then fires where the
-   * turret already points (TR12).
+   * new press (spec TR23) — not the last one that happened to carry an aim. A later press in the same
+   * batch overwrites an earlier one's entry, including clearing it: if THAT last pressing input
+   * carried no `aimAngle`, the session is absent here, and the press then fires where the turret
+   * already points (TR12).
    */
   aims: Map<string, number>;
 }
@@ -241,7 +243,11 @@ export function serverTick(
         prevFireMasks.set(sessionId, clean);
         if (pressed !== 0) {
           masks.set(sessionId, (masks.get(sessionId) ?? 0) | pressed);
+          // The LAST pressing input in the batch decides the aim (TR23), not the last one that
+          // happened to carry one: a later press with no `aimAngle` must overwrite an earlier
+          // press's bearing with "none", not leave it in place.
           if (msg.aimAngle !== undefined) aims.set(sessionId, msg.aimAngle);
+          else aims.delete(sessionId);
         }
       }
       player.lastProcessedInputSeq = msg.seq;
