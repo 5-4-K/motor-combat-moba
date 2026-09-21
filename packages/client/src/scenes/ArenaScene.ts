@@ -22,6 +22,7 @@ import {
   MAX_PLAYERS,
   MS_PER_TICK,
   MSG_PRACTICE_IDLE_WARNING,
+  MSG_PLAYGROUND_PAUSE,
   MSG_PRACTICE_PAUSE,
   PlayerStatus,
   PRACTICE_CONFIG,
@@ -31,6 +32,7 @@ import {
   muzzleOf,
   RoomPhase,
   TICK_RATE_HZ,
+  turretPivotOf,
   WEAPON_SLOT_CONFIG,
   getArena,
   isArenaId,
@@ -67,6 +69,15 @@ import { isDebugEnabled } from "../config/client-mode.js";
 import { showHitboxes } from "../config/view-options.js";
 import { ARENA_VIEW_WIDTH, HUD_GUTTER_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from "../config/display.js";
 import { SLOT_KEYS, slotMaskFrom } from "../config/slot-keys.js";
+import { aimBearingOf } from "../input/aim.js";
+import {
+  fireButtons,
+  initialLock,
+  reduceLock,
+  requestLock,
+  type LockEvent,
+  type LockState,
+} from "../input/pointer-lock.js";
 import { InterpolationBuffer } from "../net/interpolation.js";
 import { PredictionBuffer } from "../net/prediction.js";
 import { blendPose } from "../net/interpolation.js";
@@ -79,6 +90,7 @@ import type { PracticeSummaryPlayer } from "../ui/screens/practice-summary.js";
 import { arenaMismatchMessage } from "./arena-mismatch.js";
 import { axisOf, drainTicks } from "./arena-input.js";
 import { releaseKeyboardCaptures } from "./keyboard-captures.js";
+import { drawCrosshair } from "./crosshair.js";
 import { controlledCarOf, isPlaygroundRoom, isPracticeRoom, isSimPaused } from "./controlled-car.js";
 import { arenaBorderRect, arenaColorsOf, arenaDecoration, drawableObstacles } from "./arena-visual.js";
 import { fitsViewport } from "./arena-camera.js";
@@ -331,6 +343,8 @@ const HUD_BOX_DEPTH = HUD_DEPTH;
 const HUD_ICON_DEPTH = HUD_DEPTH + 1;
 const HUD_SWEEP_DEPTH = HUD_DEPTH + 2;
 const HUD_TEXT_DEPTH = HUD_DEPTH + 3;
+/** The crosshair (TR32): screen space, one above the topmost HUD layer so nothing covers it. */
+const CROSSHAIR_DEPTH = HUD_TEXT_DEPTH + 1;
 /**
  * The slot's copper ring and the wash inside it.
  *
@@ -814,10 +828,20 @@ export class ArenaScene extends Phaser.Scene {
    */
   private lastPatchMs = 0;
   private mismatchOverlay: ScreenOverlay | undefined;
-  /** `P` inside a practice room only (spec PR22). Bound unconditionally in `create` like every other
-   *  key; every *read* of it is gated on `isPracticeRoom`, which is what actually keeps it inert in
-   *  a real match. */
+  /** `P`, the menu toggle (spec TR35): the practice pause, or the arena's own menu. Inert in the
+   *  playground, whose overlay owns P (`pumpPauseKey`). */
   private pauseKey: Phaser.Input.Keyboard.Key | undefined;
+  /** Pointer lock and the virtual cursor (spec TR31), reduced from the DOM events `bindPointerLock`
+   *  listens for. Screen pixels of the world camera's viewport. */
+  private lock: LockState = initialLock(ARENA_VIEW_WIDTH, VIEW_HEIGHT);
+  /** Removes `bindPointerLock`'s DOM listeners; they are on `document`, so they outlive the scene. */
+  private unbindPointerLock: (() => void) | undefined;
+  /** Drawn at the virtual cursor, on the HUD camera (spec TR32). */
+  private crosshair: Phaser.GameObjects.Graphics | undefined;
+  /** The arena's client-only menu (TR38). Practice and the playground read `state.paused` instead
+   *  (`menuOpen`). */
+  private arenaMenuOpen = false;
+  private arenaMenu: ScreenOverlay | undefined;
   private pauseOverlay: ScreenOverlay | undefined;
   /** Mirrors whether `pauseOverlay` is currently mounted, so `syncPauseOverlay` renders on a change
    *  in `state.paused` and not on every patch while it holds steady. */
@@ -1117,6 +1141,11 @@ export class ArenaScene extends Phaser.Scene {
 
     this.buildMovementHint();
 
+    // Before `splitCameras`, which hands the crosshair to the HUD camera: that camera is unzoomed and
+    // anchored at the canvas origin, so the cursor's screen pixels are its pixels too.
+    this.crosshair = this.add.graphics().setScrollFactor(0).setDepth(CROSSHAIR_DEPTH).setVisible(false);
+    this.bindPointerLock(this.room);
+
     this.splitCameras();
     this.bindRoom(this.room);
     this.syncMatchHud();
@@ -1171,10 +1200,10 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * `P`, for the practice pause menu (spec PR22). `SLOT_KEYS` claims Q, E and Space now (TR29), and
+   * `P`, the menu toggle (spec PR22, TR35). `SLOT_KEYS` claims Q, E and Space now (TR29), and
    * none of the drive or spectate bindings reach it either, so it is free. Bound here
-   * unconditionally, same as every other key this scene binds — `pumpPauseKey` and `bindRoom`'s
-   * `onState` are what gate its effect on `isPracticeRoom`, not this method.
+   * unconditionally, same as every other key this scene binds — `pumpPauseKey` is what decides what
+   * it does in each room kind, not this method.
    */
   private bindPauseKey(): Phaser.Input.Keyboard.Key | undefined {
     return this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.P);
@@ -1439,6 +1468,7 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.idleWarningText ? [this.idleWarningText] : []),
       ...(this.movementHintGfx ? [this.movementHintGfx] : []),
       ...this.movementHintTexts,
+      ...(this.crosshair ? [this.crosshair] : []),
       ...this.hudKeyTexts,
       ...this.hudNameTexts,
       ...this.hudStockTexts,
@@ -1636,6 +1666,17 @@ export class ArenaScene extends Phaser.Scene {
     this.pauseOverlay?.destroy();
     this.pauseOverlay = undefined;
     this.pauseMenuShown = false;
+    // The lock never outlives the arena (TR40): results, a leave and every exit come through here,
+    // and no other scene draws a crosshair to show where a locked, invisible cursor is.
+    this.unbindPointerLock?.();
+    this.unbindPointerLock = undefined;
+    if (document.pointerLockElement === this.game.canvas) document.exitPointerLock();
+    this.lock = initialLock(ARENA_VIEW_WIDTH, VIEW_HEIGHT);
+    this.crosshair?.destroy();
+    this.crosshair = undefined;
+    this.arenaMenu?.destroy();
+    this.arenaMenu = undefined;
+    this.arenaMenuOpen = false;
     // Cleared on every entry, not just after a deliberate Exit: a stale target here would send some
     // LATER real match's kick or dropped connection to "practice-setup" instead of "join".
     this.exitTarget = undefined;
@@ -1664,6 +1705,7 @@ export class ArenaScene extends Phaser.Scene {
     // before the cut lands.
     this.syncRespawnCamera(room);
     this.renderCars(room, delta);
+    this.syncCrosshair(room);
     this.renderShots(room);
     this.renderFx(room, delta);
     // The panel's height is the slots' top inset, so the roster draws first and hands that one
@@ -1713,16 +1755,166 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * `P`, sent as the toggle `MSG_PRACTICE_PAUSE` message and nothing else (spec PR22/PR23). No local
-   * state changes here — `syncPauseOverlay` is what shows the menu, and only once the server's own
-   * `state.paused` comes back in a patch, so the player is never looking at a menu the sim has not
-   * actually stopped for yet.
+   * `P`, the menu toggle in every room kind (spec TR35).
+   *
+   * - **Practice**: the toggle `MSG_PRACTICE_PAUSE` message (spec PR22/PR23), plus giving up the lock
+   *   when it pauses. No menu is mounted here — `syncPauseOverlay` does that, and only once the
+   *   server's own `state.paused` comes back in a patch, so the player is never looking at a menu the
+   *   sim has not actually stopped for yet.
+   * - **Arena**: opens or closes the client-only menu. Closing does not relock: a keypress is not a
+   *   gesture the browser accepts for pointer lock, so the next canvas click does it.
+   * - **Playground**: nothing. Its overlay owns P (and `bindPointerLock` marks the release it causes).
    */
   private pumpPauseKey(room: Room<ArenaState>): void {
-    if (!this.pauseKey || !isPracticeRoom(room)) return;
-    if (Phaser.Input.Keyboard.JustDown(this.pauseKey)) {
+    if (!this.pauseKey || isPlaygroundRoom(room)) return;
+    if (!Phaser.Input.Keyboard.JustDown(this.pauseKey)) return;
+    if (isPracticeRoom(room)) {
+      if (!isSimPaused(room.state)) this.releaseLock();
       room.send(MSG_PRACTICE_PAUSE);
+    } else if (this.arenaMenuOpen) {
+      this.closeArenaMenu(false);
+    } else {
+      this.openMenu(room);
     }
+  }
+
+  /**
+   * Is a menu up (spec TR34, TR35)? Practice and the playground answer from the server's own pause;
+   * a real match has no pause, only this client's overlay.
+   */
+  private menuOpen(room: Room<ArenaState>): boolean {
+    return isPracticeRoom(room) || isPlaygroundRoom(room) ? isSimPaused(room.state) : this.arenaMenuOpen;
+  }
+
+  /**
+   * Open the menu, from P or from a lock the browser took away (Esc, alt-tab). Opening always
+   * releases the lock, so the OS cursor is back to click the menu with (TR35). Practice and the
+   * playground ask the server to pause and let their existing menus mount off `state.paused`; a
+   * real match cannot pause, so it gets a client-only overlay over a match that keeps running (TR38).
+   */
+  private openMenu(room: Room<ArenaState>): void {
+    this.releaseLock();
+    if (isPracticeRoom(room)) {
+      if (!isSimPaused(room.state)) room.send(MSG_PRACTICE_PAUSE);
+      return;
+    }
+    if (isPlaygroundRoom(room)) {
+      if (!isSimPaused(room.state)) room.send(MSG_PLAYGROUND_PAUSE);
+      return;
+    }
+    this.arenaMenuOpen = true;
+    this.arenaMenu ??= new ScreenOverlay(this);
+    this.arenaMenu.render(
+      renderPause(
+        {
+          // The Resume click is the user gesture the relock needs.
+          onResume: () => this.closeArenaMenu(true),
+          // `exitTarget` stays unset, so `onLeave` routes to "join" — the existing disconnect path (D4).
+          onExit: () => void room.leave(),
+        },
+        "overlay",
+      ).root,
+    );
+  }
+
+  private closeArenaMenu(relock: boolean): void {
+    this.arenaMenu?.destroy();
+    this.arenaMenu = undefined;
+    this.arenaMenuOpen = false;
+    if (relock) requestLock(this.game.canvas);
+  }
+
+  /** Give the lock up on purpose, marked first so its `pointerlockchange` does not read as an Esc. */
+  private releaseLock(): void {
+    if (!this.lock.locked) return;
+    this.dispatchLock({ type: "release" });
+    document.exitPointerLock();
+  }
+
+  /** Feed one event to the lock reducer; answers whether it asks for the menu. */
+  private dispatchLock(event: LockEvent): boolean {
+    const { state, openMenu } = reduceLock(this.lock, event);
+    this.lock = state;
+    return openMenu;
+  }
+
+  /**
+   * The DOM half of pointer lock (spec TR31, TR40). Everything here is on `document` or the game
+   * canvas, which outlive the scene, so `resetMatchState` removes it all through `unbindPointerLock`.
+   */
+  private bindPointerLock(room: Room<ArenaState>): void {
+    const canvas = this.game.canvas;
+    const cam = this.cameras.main;
+    // The world camera's viewport, not the canvas: the cursor stays over the arena and off the gutter.
+    this.lock = initialLock(cam.width, cam.height);
+
+    // A lock needs a user gesture, so it is only ever asked for from a click on the canvas.
+    const onDown = (): void => {
+      if (!this.lock.locked && !this.menuOpen(room)) requestLock(canvas);
+    };
+    const onChange = (): void => {
+      if (document.pointerLockElement === canvas) {
+        this.dispatchLock({ type: "acquired", buttons: this.input.mousePointer?.buttons ?? 0 });
+      } else if (this.dispatchLock({ type: "lost" })) {
+        this.openMenu(room);
+      }
+    };
+    // movementX/Y are CSS pixels; the cursor lives in game pixels, which differ whenever the Scale
+    // Manager has fitted the canvas to a window of another size.
+    const onMove = (event: MouseEvent): void => {
+      const sx = canvas.clientWidth > 0 ? this.scale.width / canvas.clientWidth : 1;
+      const sy = canvas.clientHeight > 0 ? this.scale.height / canvas.clientHeight : 1;
+      this.dispatchLock({
+        type: "move",
+        dx: event.movementX * sx,
+        dy: event.movementY * sy,
+        w: cam.width,
+        h: cam.height,
+      });
+    };
+    const onUp = (event: MouseEvent): void => {
+      this.dispatchLock({ type: "buttons", buttons: event.buttons });
+    };
+    // The playground's P lives in its overlay, which releases the lock itself. This runs first — a
+    // `document` listener fires before that overlay's `window` one — so the release is marked before
+    // its `pointerlockchange` arrives. Unmarked, that change would read as an Esc and `openMenu` would
+    // send a second pause toggle straight after the overlay's, before the first had patched back.
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.repeat || (event.key !== "p" && event.key !== "P")) return;
+      if (isPlaygroundRoom(room) && this.lock.locked && !isSimPaused(room.state)) {
+        this.dispatchLock({ type: "release" });
+      }
+    };
+
+    canvas.addEventListener("mousedown", onDown);
+    document.addEventListener("pointerlockchange", onChange);
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    document.addEventListener("keydown", onKey);
+    this.unbindPointerLock = () => {
+      canvas.removeEventListener("mousedown", onDown);
+      document.removeEventListener("pointerlockchange", onChange);
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.removeEventListener("keydown", onKey);
+    };
+  }
+
+  /**
+   * The crosshair (spec TR32): at the virtual cursor while the lock is held, the driven car is on the
+   * field and no menu is up. Otherwise hidden — while a menu is open the OS cursor is the pointer.
+   */
+  private syncCrosshair(room: Room<ArenaState>): void {
+    const gfx = this.crosshair;
+    if (!gfx) return;
+    const local = room.state.players.get(this.drivenSid(room));
+    const show =
+      this.lock.locked &&
+      local?.status === PlayerStatus.IN_MATCH &&
+      local.alive &&
+      !this.menuOpen(room);
+    gfx.setVisible(show);
+    if (show) drawCrosshair(gfx, this.lock.cursor.x, this.lock.cursor.y);
   }
 
   /**
@@ -1740,7 +1932,11 @@ export class ArenaScene extends Phaser.Scene {
       this.pauseOverlay ??= new ScreenOverlay(this);
       this.pauseOverlay.render(
         renderPause({
-          onResume: () => room.send(MSG_PRACTICE_PAUSE),
+          // The Resume click is the user gesture the relock needs (TR35).
+          onResume: () => {
+            room.send(MSG_PRACTICE_PAUSE);
+            requestLock(this.game.canvas);
+          },
           onExit: () => this.exitPractice(room),
         }).root,
       );
@@ -1826,26 +2022,19 @@ export class ArenaScene extends Phaser.Scene {
     if (!local) return;
 
     this.inputSeq += 1;
-    const input: InputMessage = {
-      seq: this.inputSeq,
-      steer: axisOf(
-        (this.cursors?.left.isDown ?? false) || (this.driveKeys?.left.isDown ?? false),
-        (this.cursors?.right.isDown ?? false) || (this.driveKeys?.right.isDown ?? false),
-      ),
-      throttle: axisOf(
-        (this.cursors?.down.isDown ?? false) || (this.driveKeys?.down.isDown ?? false),
-        (this.cursors?.up.isDown ?? false) || (this.driveKeys?.up.isDown ?? false),
-      ),
-      // Held, not tapped: the server's weapon cooldown decides the rate, so holding a slot key fires
-      // it as fast as that slot allows and no faster. Sampling `JustDown` here instead would drop
-      // shots whenever a frame straddled two input ticks. `mousePointer`, not `activePointer`: the
-      // slot bindings are mouse BUTTONS, and on a touch device the active pointer is a finger whose
-      // synthetic `buttons` bit would fire slot 1 on every drag.
-      fireSlots: slotMaskFrom(
-        this.slotKeys?.map((keys) => keys.some((key) => key.isDown)) ?? [],
-        this.input.mousePointer?.buttons ?? 0,
-      ),
-    };
+    // Aimed from the RENDERED pose, not the schema one: it is what the player aimed at on screen
+    // (TR33). Keyboard fire keys aim at the crosshair too, and before the first lock the cursor sits
+    // at the viewport centre. The fallback — the turret's current world bearing — only answers when
+    // the cursor sits exactly on the pivot.
+    const pivot = turretPivotOf(this.localRenderPose(bodyOf(local)), carIdOf(local));
+    const world = this.cameras.main.getWorldPoint(this.lock.cursor.x, this.lock.cursor.y);
+    const aimAngle = aimBearingOf(pivot, world, local.angle + local.turretAngle);
+    // A menu is up (TR34): neutral input for as long as it is, so an arena car coasts rather than
+    // driving on whatever keys were held when the menu opened. Practice and the playground never get
+    // here while paused — `pumpInput`'s gate stops them first.
+    const input: InputMessage = this.menuOpen(room)
+      ? { seq: this.inputSeq, steer: 0, throttle: 0, fireSlots: 0, aimAngle }
+      : this.readInput(aimAngle);
     room.send(INPUT_MESSAGE, input);
 
     // Mirrors the server's own `isActiveInput` (PracticeRoom's presence stamp): a real steer,
@@ -1859,6 +2048,32 @@ export class ArenaScene extends Phaser.Scene {
     const from = this.predicted ?? bodyOf(local);
     this.predictedPrev = from;
     this.predicted = this.prediction.predict(from, { seq: input.seq, input }, this.stepContext(room));
+  }
+
+  /** This tick's keys and buttons, as an input carrying `aimAngle`. */
+  private readInput(aimAngle: number): InputMessage {
+    return {
+      seq: this.inputSeq,
+      steer: axisOf(
+        (this.cursors?.left.isDown ?? false) || (this.driveKeys?.left.isDown ?? false),
+        (this.cursors?.right.isDown ?? false) || (this.driveKeys?.right.isDown ?? false),
+      ),
+      throttle: axisOf(
+        (this.cursors?.down.isDown ?? false) || (this.driveKeys?.down.isDown ?? false),
+        (this.cursors?.up.isDown ?? false) || (this.driveKeys?.up.isDown ?? false),
+      ),
+      // Held, not tapped: the server's weapon cooldown decides the rate, so holding a slot key fires
+      // it as fast as that slot allows and no faster. Sampling `JustDown` here instead would drop
+      // shots whenever a frame straddled two input ticks. `mousePointer`, not `activePointer`: the
+      // slot bindings are mouse BUTTONS, and on a touch device the active pointer is a finger whose
+      // synthetic `buttons` bit would fire slot 1 on every drag. Buttons only count while the pointer
+      // is locked, and never the click that took the lock (TR31); the keyboard slots are unaffected.
+      fireSlots: slotMaskFrom(
+        this.slotKeys?.map((keys) => keys.some((key) => key.isDown)) ?? [],
+        fireButtons(this.lock, this.input.mousePointer?.buttons ?? 0),
+      ),
+      aimAngle,
+    };
   }
 
   private stepContext(room: Room<ArenaState>): StepContext {

@@ -40,6 +40,7 @@ import {
   sanitizeStoredTuning,
 } from "@motor-combat-moba/shared";
 import { button, h } from "../../ui/dom.js";
+import { requestLock } from "../../input/pointer-lock.js";
 import { loadStored, saveStored } from "./storage.js";
 import { stepperPair } from "./steppers.js";
 import { setShowHitboxes, showHitboxes } from "../../config/view-options.js";
@@ -768,7 +769,13 @@ export function mountPlaygroundOverlay(
   function buildMenu(): HTMLElement {
     return h("div", { class: "pg-panel" }, [
       h("h2", {}, ["Paused"]),
-      button({}, ["Resume"], () => room.send(MSG_PLAYGROUND_PAUSE)),
+      button({}, ["Resume"], () => {
+        room.send(MSG_PLAYGROUND_PAUSE);
+        // The Resume click is the user gesture a relock needs (TR37). Queried rather than handed in:
+        // the overlay outlives the ArenaScene it sits over, and the page has one canvas, Phaser's.
+        const canvas = document.querySelector<HTMLCanvasElement>("canvas");
+        if (canvas) requestLock(canvas);
+      }),
       button({}, ["Car select"], () => {
         subView = "cars";
         render();
@@ -1090,6 +1097,9 @@ export function mountPlaygroundOverlay(
     const tag = (e.target as HTMLElement | null)?.tagName ?? "";
     const action = pauseKeyAction(effectiveView(), tag);
     if (action === "toggle") {
+      // Pausing hands the OS cursor back for the menu (TR37). `ArenaScene` has already marked this
+      // release as asked-for, so it does not read as an Esc and send a second toggle.
+      if (!room.state.paused) document.exitPointerLock();
       room.send(MSG_PLAYGROUND_PAUSE);
     } else if (action === "back-to-menu") {
       if (effectiveView() === "cars") {

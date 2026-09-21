@@ -300,6 +300,12 @@ textarea.input { min-height: 90px; resize: vertical; }
   padding: var(--space-4);
   background: color-mix(in srgb, var(--color-bg) 72%, transparent);
 }
+/* The arena's menu (TR38): the match keeps running, so the backdrop only dims it. The `.dialog`
+   panel on top keeps its opaque surface, which is what keeps the title and buttons readable. */
+.dialog-backdrop.overlay-translucent { background: rgba(10, 10, 16, 0.35); }
+/* ...and the overlay root it sits in has to let the canvas through too: `.mc-ui` paints the page
+   background, which is right for a full-screen menu and would hide the match here. */
+.mc-ui:has(> .overlay-translucent) { background: transparent; }
 .dialog {
   width: min(440px, 100%); display: flex; flex-direction: column; gap: var(--space-3);
   padding: var(--space-4); border-radius: var(--radius-lg);
