@@ -7,7 +7,7 @@ import { rectPlanes } from "../boundary.js";
 import { pointInAabb, pointOutsideBounds, type Aabb, type Bounds } from "../collide.js";
 import { carIdOf } from "../context.js";
 import { scaleDamage, weaponDamageOf } from "../damage.js";
-import { turretPivotOf } from "./turret.js";
+import { clampBearingToSwing, turretPivotOf } from "./turret.js";
 
 /**
  * One live hitbox in the world. Projectiles use `x/y/angle/distance`; beams use `x/y/angle` as the
@@ -206,6 +206,7 @@ export function spawnInstances(
   homingTargetId = "", // consumed in Task 6; "" = none
   def: WeaponDef = weaponDefOf(order.weaponId), // test seam — see plan "Testing seams"
   world?: { obstacles: readonly Aabb[]; bounds: Bounds }, // turret only — TR19's wall clip
+  maxSwingDeg?: number, // turret only — TR55's arc; test seam, defaults to TURRET_CONFIG.maxSwingDeg
 ): { instances: WeaponInstance[]; seq: number } {
   // A maneuver moves the car instead of spawning an instance (Task 10's real branch); no table row
   // is one yet, so this narrows `def` back to the two kinds this function has ever had to handle.
@@ -242,7 +243,9 @@ export function spawnInstances(
   // One exit per fixed muzzle, or the turret's single exit along the frozen bearing (spec TR18).
   const exits: { x: number; y: number; axis: number; dir: number }[] = [];
   if (def.turret) {
-    const bearing = order.bearing ?? owner.angle;
+    // TR55: clamped again against the pose AT RELEASE, so a car that turned during the wind-up
+    // sends the shot out along the arc edge rather than through its own blind side.
+    const bearing = clampBearingToSwing(order.bearing ?? owner.angle, owner.angle, maxSwingDeg);
     const pivot = turretPivotOf(owner, owner.carId);
     let reach = TURRET_CONFIG.defaultOffset + def.turret.additionalOffset;
     // TR19: never born through a wall. At the wall face it dies (or detonates) on its first step,

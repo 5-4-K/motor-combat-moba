@@ -286,6 +286,19 @@ describe("turret spawn (TR18-TR19)", () => {
     expect(shot!.muzzleDir).toBeCloseTo(Math.PI / 2, 12);
   });
 
+  it("clamps a bearing the car has turned away from to the arc edge at release (TR55)", () => {
+    // Pressed along +y; by release the car faces nearly -y, so +y is almost straight behind it. A
+    // 180 arc sends the shot out along the nearer arc edge instead of through the car's blind side.
+    const order = { weaponId: "magmablast" as const, slot: 1, finalVolley: true, pressId: "p", bearing: Math.PI / 2 };
+    const turned = { ...owner, angle: -Math.PI / 2 + 0.1 };
+    const [shot] = spawnInstances(order, turned, 0, 0, 1, "", undefined, undefined, 180).instances;
+    expect(shot!.angle).toBeCloseTo(0.1, 12);
+    expect(shot!.muzzleDir).toBeCloseTo(Math.PI / 2, 12);
+    // At 360 the same order leaves along its frozen bearing, through the car's back.
+    const [free] = spawnInstances(order, turned, 0, 0, 1, "", undefined, undefined, 360).instances;
+    expect(free!.angle).toBeCloseTo(Math.PI / 2, 12);
+  });
+
   it("uses the heading when a turret order carries no bearing", () => {
     const order = { weaponId: "magmablast" as const, slot: 1, finalVolley: true, pressId: "p" };
     const [shot] = spawnInstances(order, owner, 0, 0).instances;

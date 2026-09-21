@@ -557,6 +557,17 @@ row keeps its fixed muzzle.
   any pending press (turret or not) for a car freshly stunned this tick, unless the weapon is
   `isUnInterruptable`. A stun already running when the tick starts does not re-trigger this: it only
   fires for a stun that is new this tick.
+- **The swing arc (TR55).** `TURRET_CONFIG.maxSwingDeg` (360 shipped, i.e. unrestricted) is the arc
+  the turret may point in, centred on the nose. Aim outside it is **clamped to the nearer arc edge and
+  fires there** — never refused. The clamp runs three times, each against the car's heading at that
+  moment: `beginFire` stores `carAngle + clampToSwing(wrap(aim − carAngle))` as the press bearing;
+  `turnTurret` re-clamps its target every tick, because the car may have turned the frozen bearing
+  out of the arc since the click; and `spawnInstances` clamps again against the pose **at release**,
+  so a car that turned during the wind-up sends the shot along the arc edge rather than through its
+  own blind side. Below 360 the turret also turns in **unwrapped** relative space — both ends inside
+  the arc, so the straight line between them never crosses the dead zone behind the car, even when
+  the short way round would. At 360 every one of these is the identity and the turret takes the
+  shortest arc as it always has.
 - **Between shots the turret is bolted on.** `turretAngle` is relative to the car's heading and
   holds while nothing turret-bound is pending, so it turns with the hull. `newFireState` resets it
   to 0, so a respawn faces it forward.
@@ -583,7 +594,9 @@ row keeps its fixed muzzle.
 
 The bot aims a turret weapon the same way: it solves a lead bearing from its own turret pivot and
 budgets the turn time (arc ÷ turn rate) into its time-to-impact, and sends the bearing as
-`aimAngle`. A fixed-muzzle weapon keeps its heading-based solution.
+`aimAngle`. The lead is clamped into the swing arc exactly as `beginFire` will clamp it, and the
+turn is budgeted along the arc `turnTurret` will really take; a target outside the arc yields the
+arc edge, whose shot the solver's own march then judges (usually a miss) — no new behaviour. A fixed-muzzle weapon keeps its heading-based solution.
 
 **This replaced an ambient target lock, removed on 2026-09-17.** Four rows — `predator`,
 `magmablast`, `thumper` and `thunderclap` — used to carry `usesAimAssist: true` and fire at a

@@ -1,5 +1,5 @@
 import { turretMountOf } from "../../config/car-config.js";
-import { TURRET_TICKS } from "../../config/turret-config.js";
+import { TURRET_CONFIG, TURRET_TICKS } from "../../config/turret-config.js";
 import { BASIC_ATTACK_CONFIG, isWeaponId, weaponDefOf } from "../../config/weapon-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import { WEAPON_SLOT_CONFIG } from "../../config/weapon-slots.js";
@@ -31,21 +31,65 @@ export function turretPivotOf(
 }
 
 /**
- * One tick of the turret (spec TR13). Pure. With a pending turret press, turn toward the frozen world
- * bearing along the shortest arc, at most `step` per tick, snapping when within one step. The first
- * tick on target marks the press aligned and starts its wind-up. With nothing to aim at the turret
- * holds its car-relative angle (D2), which is why a fixed-muzzle press leaves it alone.
+ * Clamp a turret angle RELATIVE to the car's heading into the swing arc (spec TR55):
+ * [-maxSwingDeg/2, +maxSwingDeg/2] radians. The identity at 360 or more — an unrestricted turret —
+ * so the shipped value changes nothing. `relAngle` is expected already wrapped into (-pi, pi].
+ * `maxSwingDeg` defaults to `TURRET_CONFIG.maxSwingDeg`, read on every call so a live retune lands.
+ */
+export function clampToSwing(relAngle: number, maxSwingDeg: number = TURRET_CONFIG.maxSwingDeg): number {
+  if (maxSwingDeg >= 360) return relAngle;
+  const half = (Math.max(0, maxSwingDeg) * Math.PI) / 360;
+  return Math.min(half, Math.max(-half, relAngle));
+}
+
+/**
+ * A WORLD bearing clamped into the swing arc of a car heading `carAngle` (spec TR55): the press
+ * bearing in `beginFire`, the spawn bearing in `spawnInstances`, the bot's solved lead. Returns
+ * `bearing` itself, untouched, at 360 or more, so an unrestricted turret is byte-for-byte what it
+ * was before the arc existed.
+ */
+export function clampBearingToSwing(
+  bearing: number,
+  carAngle: number,
+  maxSwingDeg: number = TURRET_CONFIG.maxSwingDeg,
+): number {
+  if (maxSwingDeg >= 360) return bearing;
+  return carAngle + clampToSwing(wrapAngle(bearing - carAngle), maxSwingDeg);
+}
+
+/**
+ * The signed turn from `fromRel` to `toRel`, both car-relative (spec TR13, TR55). Unrestricted, it
+ * is the shortest arc, through the back if that is shorter. Below 360 it is the plain difference in
+ * UNWRAPPED relative space: with both ends inside the arc, the straight line between them never
+ * leaves it, so the turret never sweeps through the dead zone behind the car. The bot budgets its
+ * turn time with the same function, so the two cannot disagree about which way round is taken.
+ */
+export function turretTurnDelta(
+  fromRel: number,
+  toRel: number,
+  maxSwingDeg: number = TURRET_CONFIG.maxSwingDeg,
+): number {
+  return maxSwingDeg >= 360 ? wrapAngle(toRel - fromRel) : toRel - fromRel;
+}
+
+/**
+ * One tick of the turret (spec TR13, TR55). Pure. With a pending turret press, turn toward the frozen
+ * world bearing — clamped into the swing arc, recomputed every tick because the car may have turned
+ * the bearing out of it since the press — at most `step` per tick, snapping when within one step.
+ * The first tick on target marks the press aligned and starts its wind-up. With nothing to aim at the
+ * turret holds its car-relative angle (D2), which is why a fixed-muzzle press leaves it alone.
  */
 export function turnTurret(
   state: FireState,
   carAngle: number,
   tick: number,
   step: number = TURRET_TICKS.turnPerTick,
+  maxSwingDeg: number = TURRET_CONFIG.maxSwingDeg,
 ): FireState {
   const pending = state.pending;
   if (!pending || pending.bearing === null || pending.bearing === undefined) return state;
-  const target = wrapAngle(pending.bearing - carAngle);
-  const delta = wrapAngle(target - state.turretAngle);
+  const target = clampToSwing(wrapAngle(pending.bearing - carAngle), maxSwingDeg);
+  const delta = turretTurnDelta(state.turretAngle, target, maxSwingDeg);
   const arrived = Math.abs(delta) <= step;
   const turretAngle = arrived ? target : wrapAngle(state.turretAngle + Math.sign(delta) * step);
   if (pending.aligned !== false || !arrived) return { ...state, turretAngle };

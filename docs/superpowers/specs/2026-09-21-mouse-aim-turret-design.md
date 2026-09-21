@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-21
 **Status:** implemented (2026-09-22, plan `docs/superpowers/plans/2026-09-21-mouse-aim-turret.md`)
-**Clauses:** TR1–TR53, plus TR31a
+**Clauses:** TR1–TR56, plus TR31a
 
 ## 1. What this is
 
@@ -82,8 +82,9 @@ Four changes that ship together because each needs the others to make sense:
   turret arrives. A non-turret commit is unchanged, with `bearing: null, aligned: true`. The stock is
   still spent at press time: a press is a commitment.
 - **TR13** `turnTurret(state, carAngle, tick)` (in `sim/weapons/turret.ts`) is pure:
-  - With a pending turret press, it turns `turretAngle` toward `bearing − carAngle` along the
-    **shortest arc**, at most `TURRET_TICKS.turnPerTick` per tick. If the remaining arc is within one
+  - With a pending turret press, it turns `turretAngle` toward `bearing − carAngle` (clamped into
+    the swing arc, TR55) along the **shortest arc** (below a 360 arc: the arc that stays inside it,
+    TR55), at most `TURRET_TICKS.turnPerTick` per tick. If the remaining arc is within one
     tick's step, it snaps to the target.
   - The **first** tick it is on target while `aligned` is false, it sets `aligned = true` and
     `nextShotTick = tick + weaponTicksOf(id).startUp`. So a turret that already points the right way
@@ -102,6 +103,33 @@ Four changes that ship together because each needs the others to make sense:
 - **TR17** The HUD reads a mid-press car as `tick < pendingUntilTick`. While a turret press is
   turning, the bridge writes `pendingUntilTick = tick + 1`, so the turn reads as mid-press;
   afterwards it writes `nextShotTick` exactly as today.
+- **TR55** (2026-09-22 follow-up) **The swing limit.** `TURRET_CONFIG.maxSwingDeg` (shipped **360**)
+  is the arc the turret may point in, centred on the car's nose: ±`maxSwingDeg`/2. 360 or more is
+  unrestricted and behaves exactly as before this clause, byte for byte. Out-of-arc aim is
+  **clamped** to the nearer arc edge and fires there — never refused:
+  - `clampToSwing(relAngle, maxSwingDeg = TURRET_CONFIG.maxSwingDeg)` (`sim/weapons/turret.ts`)
+    clamps a car-relative angle to [−half, +half] and is the identity at ≥ 360;
+    `clampBearingToSwing(bearing, carAngle, maxSwingDeg)` applies it to a world bearing and returns
+    the bearing untouched at ≥ 360.
+  - **At press** (amends TR12), `beginFire` stores
+    `bearing = carAngle + clampToSwing(wrap(aim − carAngle))`, where `aim` is TR12's
+    `aimBearing ?? carAngle + turretAngle`.
+  - **Every tick** (amends TR13), `turnTurret` targets `clampToSwing(wrap(bearing − carAngle))`.
+    Below 360 it turns in **unwrapped** relative space: target and current both sit inside the arc,
+    so the straight line between them never sweeps the dead zone behind the car, even where the
+    short way round would. At 360 it keeps TR13's shortest-arc wrap. `turretTurnDelta` is that
+    rule, shared with the bot.
+  - **At release** (amends TR18), `spawnInstances` spawns along
+    `carAngle + clampToSwing(wrap(bearing − carAngle))` using the car's angle **at release**, so a
+    car that turned during the wind-up sends the shot out along the arc edge rather than through its
+    blind side.
+  - The value is read at use time (as those functions' default), never copied into a derived
+    table, so a live retune reaches the next call. It is not printed on the guide and not folded
+    into `balanceStamp`, which hashes `turnRateDegPerSec` alone.
+  - **The bot** (amends TR26) clamps its solved lead the same way every fixed-point round and budgets
+    the turn along the `turretTurnDelta` arc; a target outside the arc yields the arc edge, and the
+    solver's existing march judges that shot (usually a miss). No new behaviour.
+  - **The client** holds the crosshair inside the same arc (TR56).
 
 ### 3.4 Spawning
 

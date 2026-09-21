@@ -345,6 +345,20 @@ describe("solve — turret (TR26)", () => {
     expect(Math.abs(preTurned - now)).toBeLessThan(Math.abs(fromNose - now));
   });
 
+  it("never solves a bearing outside the turret's swing arc (TR55)", () => {
+    // Dead astern of a car facing +x, with a 180 arc (+-90): the lead is clamped to an arc edge, and
+    // the shot that edge fires is judged by the ordinary march — it flies off sideways and misses.
+    const target = targetAt(0, 100);
+    const solution = solve({
+      shooter, slot: slotFor("magmablast"), slotIndex: 1,
+      target, targetAt: constantVelocityPredictor(target),
+      aimSigmaRad: 0, tick: 0, arena, maxSwingDeg: 180,
+    });
+    expect(solution.turretBearingRad).toBeDefined();
+    expect(Math.abs(wrapAngle(solution.turretBearingRad! - shooter.angle))).toBeLessThanOrEqual(Math.PI / 2 + 1e-12);
+    expect(solution.hitChance).toBeLessThan(0.05);
+  });
+
   it("keeps a fixed muzzle bound to the nose, and reports no bearing for it", () => {
     const target = targetAt(300, 400);
     const solution = solve({

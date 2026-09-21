@@ -145,7 +145,15 @@ export { resolveInstanceHits } from "./sim/weapons/hits.js";
 export type { PoseEntry, PoseSnapshot } from "./sim/weapons/hits.js";
 export { beamShapeAt, projectileShapeAt, shapeHitsObb, smear } from "./sim/weapons/shapes.js";
 export type { WorldShape } from "./sim/weapons/shapes.js";
-export { carHasTurretWeapon, turnTurret, turretPivotOf, wrapAngle } from "./sim/weapons/turret.js";
+export {
+  carHasTurretWeapon,
+  clampBearingToSwing,
+  clampToSwing,
+  turnTurret,
+  turretPivotOf,
+  turretTurnDelta,
+  wrapAngle,
+} from "./sim/weapons/turret.js";
 export type { Aabb, Bounds, CarObstacle, Obb, Vec2 } from "./sim/collide.js";
 export { carHullOf, carIdOf, isOnField, isSolid, otherCarHulls } from "./sim/context.js";
 export type { ContextEntry, ContextPlayer } from "./sim/context.js";

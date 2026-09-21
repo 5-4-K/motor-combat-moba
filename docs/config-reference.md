@@ -510,6 +510,7 @@ The knobs every turret weapon shares (spec TR1), in
 |---|---|---|
 | `turnRateDegPerSec` | 540 | How fast the turret turns toward a press's frozen bearing. The weapon's wind-up starts only once it is on target, so this is added reaction time for a shot aimed off the turret's current facing — up to 1/3 s for a full 180° |
 | `defaultOffset` | 25 | World units from the turret **pivot** to the barrel tip at the shipped drawn size — where a turret shot is born, before a row's own `turret.additionalOffset` |
+| `maxSwingDeg` | 360 | The arc the turret may point in, centred on the car's nose — ±`maxSwingDeg`/2 either side (spec TR55). Aim outside it is **clamped** to the nearer arc edge and fires there, at press and again at release. 360 (or more) is unrestricted: the turret turns the short way round, through the back when that is shorter — the shipped value, and exactly the behaviour before the knob existed |
 
 `TURRET_TICKS.turnPerTick` is the rate resolved to radians per tick from `TICK_RATE_HZ`, once, at
 module load. `defaultOffset` is a sim number because the server spawns the shot there; resizing the
@@ -518,6 +519,13 @@ turret art (`TURRET_VISUAL.lengthUnits`, client-side, 36) does not move it. Line
 on the barrel tip. `turnRateDegPerSec` is printed on the players' guide (each turret weapon's Aim
 point) and is folded into `balanceStamp`, so changing it owes `npm run build:manual`. See
 [`combat-model.md`](combat-model.md#turret-muzzle).
+
+`maxSwingDeg` is read at use time — as the default of `clampToSwing`/`clampBearingToSwing` in
+`sim/weapons/turret.ts` — and never copied into a derived table, so a live retune reaches the very
+next press. The guide does not print it and `balanceStamp` does not hash it (the stamp takes
+`turnRateDegPerSec` alone), so changing it owes no manual rebuild. Below 360 the client's crosshair
+is held inside the same arc ([`CROSSHAIR_CONFIG`](#crosshair_config-client)), and the bot clamps
+its solved lead to it.
 
 ## COMBAT_CONFIG
 

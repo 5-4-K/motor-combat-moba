@@ -1,7 +1,8 @@
 import {
   DRIVE_CONFIG, TICK_RATE_HZ, TURRET_CONFIG, TURRET_TICKS, beamShapeAt, carHullOf, forwardMaxSpeedOf,
   instanceExpired, projectileShapeAt, shapeHitsObb, slotsOf, smear, spawnInstances, stepInstance,
-  turretPivotOf, weaponDamageOf, weaponDefOf, weaponTicksOf, wrapAngle, type CarId, type WeaponId,
+  clampBearingToSwing, clampToSwing, turretPivotOf, turretTurnDelta, weaponDamageOf, weaponDefOf,
+  weaponTicksOf, wrapAngle, type CarId, type WeaponId,
   type WeaponInstance, type WorldShape,
 } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
@@ -91,6 +92,11 @@ export interface SolveArgs {
   aimSigmaRad: number;
   tick: number;
   arena: BotArenaView;
+  /**
+   * The turret's swing arc (TR55). A test seam: absent reads `TURRET_CONFIG.maxSwingDeg` at call
+   * time, exactly as the sim does, so production callers leave it out.
+   */
+  maxSwingDeg?: number;
 }
 
 const NO_SOLUTION: FiringSolution = Object.freeze({
@@ -147,7 +153,7 @@ export function solve(args: SolveArgs): FiringSolution {
   // muzzle; a turret shot leaves the pivot along whatever bearing its press carries, so the
   // quadrature is centred on the solved lead instead of the nose, and the target is read as many
   // ticks later as the turret needs to get there first.
-  const lead = def.turret ? turretLeadOf(shooter, slot.weaponId, args.targetAt) : undefined;
+  const lead = def.turret ? turretLeadOf(shooter, slot.weaponId, args.targetAt, args.maxSwingDeg) : undefined;
   const marchArgs: SolveArgs = lead
     ? { ...args, targetAt: (ticksAhead) => args.targetAt(ticksAhead + lead.turnTicks) }
     : args;
@@ -178,15 +184,25 @@ export function solve(args: SolveArgs): FiringSolution {
 }
 
 /**
- * Ticks the turret needs to swing from where it points now onto `bearing` (TR26): the shortest arc
- * over `TURRET_TICKS.turnPerTick`. Fractional on purpose — `turnTurret` snaps inside one step, so the
- * gap between this fractional budget and the real delay on the tick grid is under one tick (final-fixes
- * item 9; the earlier claim that every `PosePredictor` rounds its argument was false —
- * `constantVelocityPredictor` does not).
+ * Ticks the turret needs to swing from where it points now onto `bearing` (TR26): the arc
+ * `turnTurret` will actually take — the shortest one unrestricted, the one that stays inside the
+ * swing arc below 360 (TR55, `turretTurnDelta`) — over `TURRET_TICKS.turnPerTick`. Fractional on
+ * purpose — `turnTurret` snaps inside one step, so the gap between this fractional budget and the
+ * real delay on the tick grid is under one tick (final-fixes item 9; the earlier claim that every
+ * `PosePredictor` rounds its argument was false — `constantVelocityPredictor` does not).
  */
-export function turretTurnTicksOf(shooter: SolverShooter, bearing: number): number {
-  const pointing = shooter.angle + (shooter.turretAngle ?? 0);
-  return Math.abs(wrapAngle(bearing - pointing)) / TURRET_TICKS.turnPerTick;
+export function turretTurnTicksOf(
+  shooter: SolverShooter,
+  bearing: number,
+  maxSwingDeg: number = TURRET_CONFIG.maxSwingDeg,
+): number {
+  // Unrestricted: the pre-TR55 expression exactly, so the shipped 360 moves no solver float.
+  if (maxSwingDeg >= 360) {
+    const pointing = shooter.angle + (shooter.turretAngle ?? 0);
+    return Math.abs(wrapAngle(bearing - pointing)) / TURRET_TICKS.turnPerTick;
+  }
+  const target = clampToSwing(wrapAngle(bearing - shooter.angle), maxSwingDeg);
+  return Math.abs(turretTurnDelta(shooter.turretAngle ?? 0, target, maxSwingDeg)) / TURRET_TICKS.turnPerTick;
 }
 
 /**
@@ -201,26 +217,33 @@ export function turretTurnTicksOf(shooter: SolverShooter, bearing: number): numb
  * The lead does not model the SHOOTER's own motion during the turn (final-fixes item 9): `pivot` is
  * fixed at the shooter's pose when `solve` was called, even though the turn itself takes real ticks
  * during which a moving shooter's pivot would have moved too.
+ *
+ * The bearing is clamped into the swing arc every round (TR55), exactly as `beginFire` will clamp
+ * it, so a target outside the arc yields the nearer arc edge — whose shot usually misses, and the
+ * march in `solve` is what says so. No new behaviour rides on it.
  */
 function turretLeadOf(
   shooter: SolverShooter,
   weaponId: WeaponId,
   targetAt: PosePredictor,
+  maxSwingDeg?: number,
 ): { bearing: number; turnTicks: number } {
   const def = weaponDefOf(weaponId);
   const pivot = turretPivotOf(shooter, shooter.carId);
   const barrel = TURRET_CONFIG.defaultOffset + (def.turret?.additionalOffset ?? 0);
   let aimPoint = targetAt(0);
-  let bearing = Math.atan2(aimPoint.y - pivot.y, aimPoint.x - pivot.x);
+  const bearingTo = (point: { x: number; y: number }): number =>
+    clampBearingToSwing(Math.atan2(point.y - pivot.y, point.x - pivot.x), shooter.angle, maxSwingDeg);
+  let bearing = bearingTo(aimPoint);
   for (let round = 0; round < BRAIN_CONSTANTS.interceptFixedPointRounds; round++) {
     const distance = Math.hypot(aimPoint.x - pivot.x, aimPoint.y - pivot.y);
     const flightTicks = def.speed > 0
       ? (Math.max(0, distance - barrel) / def.speed) * TICK_RATE_HZ
       : 0;
-    aimPoint = targetAt(turretTurnTicksOf(shooter, bearing) + flightTicks);
-    bearing = Math.atan2(aimPoint.y - pivot.y, aimPoint.x - pivot.x);
+    aimPoint = targetAt(turretTurnTicksOf(shooter, bearing, maxSwingDeg) + flightTicks);
+    bearing = bearingTo(aimPoint);
   }
-  return { bearing, turnTicks: turretTurnTicksOf(shooter, bearing) };
+  return { bearing, turnTicks: turretTurnTicksOf(shooter, bearing, maxSwingDeg) };
 }
 
 /** `bestAchievableValueOf` keys its cache on carId and sigma together — a kit is fixed per match,
@@ -329,6 +352,11 @@ function marchPress(
     },
     tick,
     0,
+    1,
+    "",
+    def,
+    undefined,
+    args.maxSwingDeg,
   );
 
   let hits = 0;

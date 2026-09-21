@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import { TURRET_TICKS } from "../../config/turret-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import { beginFire, newFireState, releaseShots, tickRecharge, type FireState } from "./fire.js";
-import { carHasTurretWeapon, turnTurret, turretPivotOf, wrapAngle } from "./turret.js";
+import {
+  carHasTurretWeapon,
+  clampBearingToSwing,
+  clampToSwing,
+  turnTurret,
+  turretPivotOf,
+  wrapAngle,
+} from "./turret.js";
 
 describe("wrapAngle", () => {
   it("maps into (-pi, pi]", () => {
@@ -168,5 +175,73 @@ describe("carHasTurretWeapon (TR53)", () => {
   it("ignores an unknown or empty weapon id rather than throwing", () => {
     expect(() => carHasTurretWeapon(["", "not-a-real-weapon"], true)).not.toThrow();
     expect(carHasTurretWeapon(["", "not-a-real-weapon"], true)).toBe(false);
+  });
+});
+
+describe("the turret swing limit (TR55)", () => {
+  const HALF_PI = Math.PI / 2;
+
+  it("clampToSwing is the identity at 360", () => {
+    for (const a of [0, 1, -2.5, Math.PI, -Math.PI + 1e-9]) expect(clampToSwing(a, 360)).toBe(a);
+  });
+
+  it("clampToSwing holds a 180 arc to +-90 degrees", () => {
+    expect(clampToSwing(0.3, 180)).toBe(0.3);
+    expect(clampToSwing(2.5, 180)).toBeCloseTo(HALF_PI, 12);
+    expect(clampToSwing(-3, 180)).toBeCloseTo(-HALF_PI, 12);
+  });
+
+  it("clampBearingToSwing leaves the bearing untouched at 360, and clamps relative to the car below", () => {
+    expect(clampBearingToSwing(7.5, 1, 360)).toBe(7.5);
+    // Car faces +x; aiming nearly straight behind is pushed to the nearer arc edge.
+    expect(clampBearingToSwing(Math.PI - 0.1, 0, 180)).toBeCloseTo(HALF_PI, 12);
+    expect(clampBearingToSwing(-Math.PI + 0.1, 0, 180)).toBeCloseTo(-HALF_PI, 12);
+    // Relative to a turned car: heading 1 rad, aim 1 + 2 rad -> 1 + pi/2.
+    expect(clampBearingToSwing(3, 1, 180)).toBeCloseTo(1 + HALF_PI, 12);
+  });
+
+  it("beginFire clamps an out-of-arc bearing to the arc edge at press time", () => {
+    const s = beginFire("a", mirage(), 1 << 1, 10, Math.PI - 0.2, 0, 180);
+    expect(s.pending?.bearing).toBeCloseTo(HALF_PI, 12);
+  });
+
+  it("beginFire keeps an in-arc bearing exactly, and every bearing at 360", () => {
+    expect(beginFire("a", mirage(), 1 << 1, 10, 0.4, 0, 180).pending?.bearing).toBe(0.4);
+    expect(beginFire("a", mirage(), 1 << 1, 10, Math.PI - 0.2, 0, 360).pending?.bearing).toBe(Math.PI - 0.2);
+  });
+
+  it("turnTurret takes the long way when the short way crosses the back", () => {
+    // From +100 deg to -100 deg: the short arc (160 deg) runs through the back (180), which a 240
+    // arc (+-120) forbids, so the turret sweeps the long way (200 deg) forward through 0 instead.
+    const from = (100 * Math.PI) / 180;
+    const to = (-100 * Math.PI) / 180;
+    const limited = beginFire("a", { ...mirage(), turretAngle: from }, 1 << 1, 0, to, 0, 240);
+    expect(turnTurret(limited, 0, 0, step, 240).turretAngle).toBeCloseTo(from - step, 12);
+    // At 360 the same press takes the short way, through the back.
+    const free = beginFire("a", { ...mirage(), turretAngle: from }, 1 << 1, 0, to, 0, 360);
+    expect(turnTurret(free, 0, 0, step, 360).turretAngle).toBeCloseTo(from + step, 12);
+  });
+
+  it("turnTurret sweeps edge to edge through the front at 180", () => {
+    // +90 to -90 is a dead heat, and the unrestricted wrap resolves it through the back (+pi).
+    const limited = beginFire("a", { ...mirage(), turretAngle: HALF_PI }, 1 << 1, 0, -HALF_PI, 0, 180);
+    expect(turnTurret(limited, 0, 0, step, 180).turretAngle).toBeCloseTo(HALF_PI - step, 12);
+  });
+
+  it("turnTurret never leaves the arc on its way round", () => {
+    let s: FireState = { ...mirage(), turretAngle: HALF_PI - 0.01 };
+    s = beginFire("a", s, 1 << 1, 0, -HALF_PI + 0.01, 0, 180);
+    for (let t = 0; t < 200 && s.pending?.aligned === false; t++) {
+      s = turnTurret(s, 0, t, step, 180);
+      expect(Math.abs(s.turretAngle)).toBeLessThanOrEqual(HALF_PI + 1e-12);
+    }
+    expect(s.pending?.aligned).toBe(true);
+  });
+
+  it("turnTurret targets the clamped angle once the car has turned the bearing out of the arc", () => {
+    // Pressed dead ahead; the car then turns 2 rad, which puts the frozen bearing behind it.
+    let s = beginFire("a", mirage(), 1 << 1, 0, 0, 0, 180);
+    for (let t = 0; t < 100; t++) s = turnTurret(s, 2, t, step, 180);
+    expect(s.turretAngle).toBeCloseTo(-HALF_PI, 12);
   });
 });

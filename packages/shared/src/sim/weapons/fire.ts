@@ -5,6 +5,7 @@ import { WEAPON_SLOT_CONFIG, slotsFrom, slotsOf } from "../../config/weapon-slot
 import { scaleTicks, weaponTicksOf } from "../../config/weapon-ticks.js";
 import type { WeaponId } from "../../config/weapon-types.js";
 import type { ShotOrder } from "./instances.js";
+import { clampBearingToSwing } from "./turret.js";
 
 /**
  * Per-tick call order for this module, and callers must use exactly this order:
@@ -265,7 +266,10 @@ export function releaseShots(
  * whatever the caller resolved it to), and `carAngle` is the car's heading at press time — both
  * ignored for a fixed-muzzle weapon. A turret press freezes its bearing here: `aimBearing` if one
  * came in, else the direction the turret already points (`carAngle + state.turretAngle`), so a press
- * with no aim input still commits to somewhere rather than to nothing.
+ * with no aim input still commits to somewhere rather than to nothing. Either way the bearing is
+ * clamped into the turret's swing arc about `carAngle` (spec TR55): out-of-arc aim fires along the
+ * nearer arc edge. `maxSwingDeg` is a test seam defaulting to `TURRET_CONFIG.maxSwingDeg`; at 360
+ * the bearing is kept exactly as it came in.
  */
 export function beginFire(
   sessionId: string,
@@ -274,6 +278,7 @@ export function beginFire(
   tick: number,
   aimBearing: number | null = null,
   carAngle = 0,
+  maxSwingDeg?: number,
 ): FireState {
   if (state.pending) return state;
   if (mask <= 0) return state;
@@ -315,7 +320,9 @@ export function beginFire(
         // A turret press waits for `turnTurret` to name the real tick (TR12/TR13).
         nextShotTick: turret ? Number.POSITIVE_INFINITY : tick + weaponTicksOf(slot.weaponId).startUp,
         pressId: `${sessionId}#${tick}#${index}`,
-        bearing: turret ? (aimBearing ?? carAngle + state.turretAngle) : null,
+        bearing: turret
+          ? clampBearingToSwing(aimBearing ?? carAngle + state.turretAngle, carAngle, maxSwingDeg)
+          : null,
         aligned: !turret,
       },
     };
