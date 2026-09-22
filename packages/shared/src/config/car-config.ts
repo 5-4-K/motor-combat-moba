@@ -321,19 +321,10 @@ export const CHASSIS_DRIVE: Readonly<Record<CarId, ChassisDrive>> = resolveChass
 /**
  * Everything `stepDrive` needs to move one chassis for one tick, resolved from the active mode
  * bundle's own `derived.chassisDrive` (MC14) — computed once by `assembleModeConfig`, not
- * recomputed per call and not rebuildable by `setTuning` any more (see `rebuildResolvedDrive`).
+ * recomputed per call. `setTuning` (`config/tuning.ts`) moves it by installing a freshly-assembled
+ * bundle rather than by rebuilding a cached table in place — there is no `ACTIVE_DRIVE` left, and no
+ * `rebuildResolvedDrive` either.
  */
 export function driveOf(id: CarId): ChassisDrive {
   return derived().chassisDrive[id];
-}
-
-/**
- * Retired by the accessor-layer rewrite (MC14): `driveOf` now reads the active mode bundle's own
- * frozen `derived.chassisDrive`, resolved once when that bundle was assembled — there is no mutable
- * `ACTIVE_DRIVE` left for a playground override to rebuild. `setTuning` still calls this on every
- * write so it keeps compiling; the call is now a no-op. Per-mode runtime tuning is an overlay that
- * rebuilds a whole `ModeConfig` (phase 5, `modes/overlay.ts`), not a rebuild of one cached table.
- */
-export function rebuildResolvedDrive(_hasOverrides: boolean): void {
-  // phase 5 deletes this
 }

@@ -250,20 +250,10 @@ const DEFAULT_RAM_TICKS: Readonly<RamTicks> = resolveRamTicks();
 
 /**
  * The ram durations in ticks, from the active mode bundle's own `derived.ramTicks` (MC14) — resolved
- * once by `assembleModeConfig` when that bundle was built, not recomputed per call and not
- * rebuildable by `setTuning` any more (see `rebuildRamTicks`).
+ * once by `assembleModeConfig` when that bundle was built, not recomputed per call. `setTuning`
+ * (`config/tuning.ts`) moves it by installing a freshly-assembled bundle rather than by rebuilding a
+ * cached table in place — there is no `ACTIVE_RAM_TICKS` left, and no `rebuildRamTicks` either.
  */
 export function ramTicks(): Readonly<RamTicks> {
   return derived().ramTicks;
-}
-
-/**
- * Retired by the accessor-layer rewrite (MC14): `ramTicks()` now reads the active mode bundle's own
- * frozen `derived.ramTicks`, resolved once when that bundle was assembled — there is no mutable
- * `ACTIVE_RAM_TICKS` left for a playground override to rebuild. `setTuning` still calls this on
- * every write so it keeps compiling; the call is now a no-op. Per-mode runtime tuning is an overlay
- * that rebuilds a whole `ModeConfig` (phase 5, `modes/overlay.ts`), not a rebuild of one cached table.
- */
-export function rebuildRamTicks(_hasOverrides: boolean): void {
-  // phase 5 deletes this
 }

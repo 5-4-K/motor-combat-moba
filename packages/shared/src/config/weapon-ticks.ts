@@ -164,22 +164,12 @@ export function resolveTicks(
 
 /**
  * The active mode bundle's own `derived.weaponTicks` (MC14) — resolved once by `assembleModeConfig`
- * when that bundle was built, not recomputed per call and not rebuildable by `setTuning` any more
- * (see `rebuildWeaponTicks`).
+ * when that bundle was built, not recomputed per call. `setTuning` (`config/tuning.ts`) moves it by
+ * installing a freshly-assembled bundle rather than by rebuilding a cached table in place — there is
+ * no `ACTIVE_TICKS` left, and no `rebuildWeaponTicks` either.
  */
 export function weaponTicksOf(id: WeaponId): WeaponTicks {
   return derived().weaponTicks[id];
-}
-
-/**
- * Retired by the accessor-layer rewrite (MC14): `weaponTicksOf` now reads the active mode bundle's
- * own frozen `derived.weaponTicks`, resolved once when that bundle was assembled — there is no
- * mutable `ACTIVE_TICKS` left for a playground override to rebuild. `setTuning` still calls this on
- * every write so it keeps compiling; the call is now a no-op. Per-mode runtime tuning is an overlay
- * that rebuilds a whole `ModeConfig` (phase 5, `modes/overlay.ts`), not a rebuild of one cached table.
- */
-export function rebuildWeaponTicks(_hasOverrides: boolean): void {
-  // phase 5 deletes this
 }
 
 /**

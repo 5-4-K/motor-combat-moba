@@ -685,22 +685,13 @@ export function explosionDamageModeOf(id: WeaponId): ExplosionDamageMode | undef
  * through `weaponDefOf` first (declared to return `WeaponDef`) sidesteps that: ordinary discriminated
  * narrowing on `.kind` and `.explosion` then works exactly as it does everywhere else in this file.
  *
- * Kept as a standalone export — it used to back the rebuildable `ACTIVE_BURST_DEFS` below;
- * `instanceDefOf` no longer reads it. The active mode bundle's own `derived.burstDefs` (MC14) is a
- * separately-resolved, value-equal object.
+ * Kept as a standalone export — it used to back the rebuildable `ACTIVE_BURST_DEFS`; `instanceDefOf`
+ * no longer reads it. The active mode bundle's own `derived.burstDefs` (MC14) is a
+ * separately-resolved, value-equal object, installed by `setTuning` (`config/tuning.ts`) as a whole
+ * fresh bundle rather than rebuilt in place — there is no `ACTIVE_BURST_DEFS` left, and no
+ * `rebuildBurstDefs` either.
  */
 const BURST_DEFS: Partial<Record<WeaponId, BeamWeaponDef>> = buildBurstDefs();
-
-/**
- * Retired by the accessor-layer rewrite (MC14): `instanceDefOf` now reads the active mode bundle's
- * own frozen `derived.burstDefs`, resolved once when that bundle was assembled — there is no mutable
- * `ACTIVE_BURST_DEFS` left for a playground override to rebuild. `setTuning` still calls this on
- * every write so it keeps compiling; the call is now a no-op. Per-mode runtime tuning is an overlay
- * that rebuilds a whole `ModeConfig` (phase 5, `modes/overlay.ts`), not a rebuild of one cached table.
- */
-export function rebuildBurstDefs(_hasOverrides: boolean): void {
-  // phase 5 deletes this
-}
 
 /**
  * Reads `table` only, never `WEAPON_TABLE` directly — a resolver whose default parameter stayed the

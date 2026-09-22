@@ -56,8 +56,3 @@ export function resolveTurretTicks(turret: TurretConfig = TURRET_CONFIG): Turret
  * sees a playground retune (TR57).
  */
 export const TURRET_TICKS: TurretTicks = resolveTurretTicks();
-
-/** Playground tuning only (TR57) — called by `setTuning` after every write, never from the sim. */
-export function rebuildTurretTicks(): void {
-  TURRET_TICKS.turnPerTick = resolveTurretTicks().turnPerTick;
-}

@@ -141,10 +141,11 @@ describe("tuning store", () => {
     // at module load, and `setTuning` never rebuilt it. `ramTicks()` now reads the installed
     // bundle's own `derived.ramTicks`, assembled fresh on every `setTuning` call, so this holds
     // again exactly as it did before the accessor-layer migration broke it.
+    const shippedMs: number = RAM_CONFIG.ramUncontrolMs;
     const before = ramTicks().uncontrol;
-    setTuning({ "ram.ramUncontrolMs": RAM_CONFIG.ramUncontrolMs * 2 });
+    setTuning({ "ram.ramUncontrolMs": shippedMs * 2 });
     expect(ramTicks().uncontrol).toBeGreaterThan(before);
-    expect(RAM_CONFIG.ramUncontrolMs as number).toBe(RAM_CONFIG.ramUncontrolMs); // never mutated
+    expect(RAM_CONFIG.ramUncontrolMs as number).toBe(shippedMs); // never mutated
 
     setTuning(null);
     expect(ramTicks().uncontrol).toBe(before);
