@@ -57,13 +57,16 @@ import { fileURLToPath } from "node:url";
 import {
   CAR_TABLE,
   COMBAT_CONFIG,
+  DEFAULT_GAME_MODE,
   TICK_RATE_HZ,
   WEAPON_TABLE,
   damageFor,
   fireSlotsOf,
   hpOf,
+  modeConfigOf,
   slotsOf,
   weaponTicksOf,
+  withMode,
 } from "../packages/shared/dist/index.js";
 
 /** Give up on a matchup after this long rather than looping forever on a kit that cannot kill. */
@@ -324,5 +327,11 @@ export function report() {
 
 const invoked = process.argv[1] && resolve(process.argv[1]);
 if (invoked && invoked === resolve(fileURLToPath(import.meta.url))) {
-  process.stdout.write(report());
+  // Single wrapper at the CLI entry point (MC12) — the only mode-scoped boundary in this file,
+  // deliberately, rather than one scattered around each config read. This reports for
+  // DEFAULT_GAME_MODE's bundle only: per-mode ttk reporting (a --mode flag, or a matrix per mode)
+  // is outstanding follow-up work this wrapper does not take on.
+  withMode(modeConfigOf(DEFAULT_GAME_MODE), () => {
+    process.stdout.write(report());
+  });
 }

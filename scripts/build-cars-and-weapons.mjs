@@ -37,6 +37,7 @@ import {
   BASIC_ATTACK_CONFIG,
   CAR_TABLE,
   COMBAT_CONFIG,
+  DEFAULT_GAME_MODE,
   DRIVE_CONFIG,
   STATUS_TABLE,
   TICK_RATE_HZ,
@@ -52,6 +53,8 @@ import {
   forwardMaxSpeedOf,
   getArena,
   hpOf,
+  installMode,
+  modeConfigOf,
   playableExtentOf,
   slotsOf,
   statusDefOf,
@@ -66,6 +69,15 @@ import {
   WEAPON_COPY as RAW_WEAPON_COPY,
 } from "./cars-and-weapons-copy.mjs";
 import { manualFacts, renderCopy } from "./manual-facts.mjs";
+
+// ---------------------------------------------------------------------------- mode scope (MC12)
+//
+// The one boundary in this file: everything below reads config, so the mode is installed here,
+// once, before any of it runs — not scoped around each individual read. This is a one-shot CLI
+// script (the process exits once `main` finishes), so there is nothing to restore afterward, and
+// this reports for DEFAULT_GAME_MODE's bundle only. Per-mode building (a --mode flag, or one page
+// per mode) is outstanding follow-up work this line does not take on.
+installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 /**
  * The prose with its `{roster.fact}` placeholders resolved against the live tables.
