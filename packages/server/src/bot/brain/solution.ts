@@ -1,7 +1,7 @@
 import {
-  DRIVE_CONFIG, TICK_RATE_HZ, TURRET_CONFIG, TURRET_TICKS, beamShapeAt, carHullOf, forwardMaxSpeedOf,
+  TICK_RATE_HZ, beamShapeAt, carHullOf, derived, drive, forwardMaxSpeedOf,
   instanceExpired, projectileShapeAt, shapeHitsObb, slotsOf, smear, spawnInstances, stepInstance,
-  clampBearingToSwing, clampToSwing, turretPivotOf, turretTurnDelta, weaponDamageOf, weaponDefOf,
+  clampBearingToSwing, clampToSwing, turret, turretPivotOf, turretTurnDelta, weaponDamageOf, weaponDefOf,
   weaponTicksOf, wrapAngle, type CarId, type WeaponId,
   type WeaponInstance, type WorldShape,
 } from "@motor-combat-moba/shared";
@@ -93,7 +93,7 @@ export interface SolveArgs {
   tick: number;
   arena: BotArenaView;
   /**
-   * The turret's swing arc (TR55). A test seam: absent reads `TURRET_CONFIG.maxSwingDeg` at call
+   * The turret's swing arc (TR55). A test seam: absent reads `turret().maxSwingDeg` at call
    * time, exactly as the sim does, so production callers leave it out.
    */
   maxSwingDeg?: number;
@@ -186,7 +186,7 @@ export function solve(args: SolveArgs): FiringSolution {
 /**
  * Ticks the turret needs to swing from where it points now onto `bearing` (TR26): the arc
  * `turnTurret` will actually take — the shortest one unrestricted, the one that stays inside the
- * swing arc below 360 (TR55, `turretTurnDelta`) — over `TURRET_TICKS.turnPerTick`. Fractional on
+ * swing arc below 360 (TR55, `turretTurnDelta`) — over `derived().turretTicks.turnPerTick`. Fractional on
  * purpose — `turnTurret` snaps inside one step, so the gap between this fractional budget and the
  * real delay on the tick grid is under one tick (final-fixes item 9; the earlier claim that every
  * `PosePredictor` rounds its argument was false — `constantVelocityPredictor` does not).
@@ -194,15 +194,16 @@ export function solve(args: SolveArgs): FiringSolution {
 export function turretTurnTicksOf(
   shooter: SolverShooter,
   bearing: number,
-  maxSwingDeg: number = TURRET_CONFIG.maxSwingDeg,
+  maxSwingDeg: number = turret().maxSwingDeg,
 ): number {
+  const turnPerTick = derived().turretTicks.turnPerTick;
   // Unrestricted: the pre-TR55 expression exactly, so the shipped 360 moves no solver float.
   if (maxSwingDeg >= 360) {
     const pointing = shooter.angle + (shooter.turretAngle ?? 0);
-    return Math.abs(wrapAngle(bearing - pointing)) / TURRET_TICKS.turnPerTick;
+    return Math.abs(wrapAngle(bearing - pointing)) / turnPerTick;
   }
   const target = clampToSwing(wrapAngle(bearing - shooter.angle), maxSwingDeg);
-  return Math.abs(turretTurnDelta(shooter.turretAngle ?? 0, target, maxSwingDeg)) / TURRET_TICKS.turnPerTick;
+  return Math.abs(turretTurnDelta(shooter.turretAngle ?? 0, target, maxSwingDeg)) / turnPerTick;
 }
 
 /**
@@ -230,7 +231,7 @@ function turretLeadOf(
 ): { bearing: number; turnTicks: number } {
   const def = weaponDefOf(weaponId);
   const pivot = turretPivotOf(shooter, shooter.carId);
-  const barrel = TURRET_CONFIG.defaultOffset + (def.turret?.additionalOffset ?? 0);
+  const barrel = turret().defaultOffset + (def.turret?.additionalOffset ?? 0);
   let aimPoint = targetAt(0);
   const bearingTo = (point: { x: number; y: number }): number =>
     clampBearingToSwing(Math.atan2(point.y - pivot.y, point.x - pivot.x), shooter.angle, maxSwingDeg);
@@ -648,7 +649,7 @@ export function proxyValue(args: ProxyArgs): number {
   if (distance > reach || distance < 1) return 0;
 
   // Half the target's angular width from here — how much room the shot has to be wrong by.
-  const subtense = Math.atan2(DRIVE_CONFIG.carHeight / 2, distance);
+  const subtense = Math.atan2(drive().carHeight / 2, distance);
   const offBy = Math.abs(signedDelta(shooter.angle, Math.atan2(dy, dx)));
   // Total angular budget: how far off I am now, plus how far my hands wander.
   const spread = Math.hypot(offBy, aimSigmaRad);

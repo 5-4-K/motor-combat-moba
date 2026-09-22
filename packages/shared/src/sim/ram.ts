@@ -411,7 +411,7 @@ export function contactPointOn(victim: RamCar, attacker: RamCar): Vec2 {
   const dx = attacker.x - victim.x;
   const dy = attacker.y - victim.y;
 
-  // Derived from `DRIVE_CONFIG` rather than typed, same as `inertiaRadiusSquared` — both must move
+  // Derived from the drive config rather than typed, same as `inertiaRadiusSquared` — both must move
   // with `carHullOf` in lockstep, or the recovered lever arm would silently disagree about the hull
   // the ram actually collided against.
   const hullHalfLength = drive().carWidth / 2;

@@ -233,7 +233,7 @@ export function spawnInstances(
   const homingUntil = homing ? tick + msToTicks(homing.durationMs) : 0;
   // Any row authoring a lifetime expires on the clock, bouncing or not (spec P28a). Read straight
   // off `def` rather than `weaponTicksOf(def.id)`: `def` is an injectable test seam whose `id` need
-  // not be a real WEAPON_TABLE key.
+  // not be a real weapon-table key.
   const expiresAt =
     def.kind === "projectile" && def.lifetimeMs !== undefined
       ? tick + msToTicks(def.lifetimeMs)

@@ -32,11 +32,12 @@ describe("tuning store", () => {
   // 2. Every accessor that reads the installed bundle (`driveOf`, `hpOf`, `weaponDefOf`,
   //    `weaponTicksOf`, `ramTicks()`, `instanceDefOf`, `ramAttackOf`/`ramDefenceOf`,
   //    `turretMountOf`, `impulse()`, `turret()`, ...) DOES reflect a live override again — this is
-  //    the fix. Two roots are the exception: `IMPULSE_CONFIG` and `TURRET_CONFIG`/`TURRET_TICKS` are
-  //    still read RAW, at call time, by `sim/impulse.ts`/`sim/contact.ts` and
-  //    `sim/weapons/turret.ts` — converting those onto `impulse()`/`turret()` is Phase 1 Tasks 4 and
-  //    5's job, not this fix's. Until then, tuning those two roots moves the accessor but not yet
-  //    real gameplay; see the two tests for them below.
+  //    the fix. `sim/impulse.ts`/`sim/contact.ts`/`sim/weapons/turret.ts` were converted onto
+  //    `impulse()`/`turret()` in Phase 1 Tasks 4 and 5, and the client's drawn turret
+  //    (`scenes/turret-visual.ts`, `ArenaScene.ts`) and the bot's aim solver
+  //    (`bot/brain/solution.ts`) were converted in the fix round after them, so tuning either root
+  //    now reaches real gameplay end to end, not merely the accessor; see the two tests for them
+  //    below.
 
   it("null tuning installs a bundle whose values match the shipped defaults", () => {
     setTuning(null);
@@ -224,10 +225,9 @@ describe("tuning store", () => {
     // `sim/contact.ts` read `spinScale`/`wallContactPad` live off it, at call time, with nothing
     // cached in between. That justification no longer holds: `setTuning` never writes to
     // `IMPULSE_CONFIG` any more (see the file-level note) — the override reaches `impulse()` (the
-    // accessor) through the installed bundle instead. `sim/impulse.ts`/`sim/contact.ts` have not
-    // been converted from the raw global onto `impulse()` yet (Phase 1 Task 4's job), so a live
-    // override of this root does not yet reach real gameplay — only the accessor, same shape as the
-    // turret root below.
+    // accessor) through the installed bundle instead. `sim/impulse.ts`/`sim/contact.ts` now read
+    // `impulse()` exclusively (Phase 1 Task 4), so a live override of this root reaches real
+    // gameplay, not merely the accessor.
     const shippedSpin = IMPULSE_CONFIG.spinScale;
     const shippedPad = IMPULSE_CONFIG.wallContactPad;
 
@@ -249,10 +249,11 @@ describe("tuning store", () => {
     // from it once at module load, and otherwise only rebuilt by `rebuildTurretTicks`, which
     // `setTuning` no longer calls — never moves either. The override reaches `turret()`/
     // `turretMountOf()` (the accessors) through the installed bundle instead. `sim/weapons/
-    // turret.ts` has not been converted from raw `TURRET_CONFIG`/`TURRET_TICKS` reads onto the
-    // bundle yet (Phase 1 Task 5's job — the same reason `turret-config.ts` itself is untouched by
-    // this rewrite), so a live override of this root does not yet reach real gameplay turret
-    // behaviour — only the accessors.
+    // turret.ts` reads `turret()`/`derived().turretTicks` exclusively (Phase 1 Task 5), and the
+    // client's drawn turret and the bot's aim solver were converted the same way in the fix round
+    // after it, so a live override of this root reaches real gameplay turret behaviour end to end,
+    // not merely the accessors. `TURRET_CONFIG`/`TURRET_TICKS` themselves stay untouched, since
+    // `turret-config.ts` is not part of this rewrite — only its raw readers are.
     const shippedStep = TURRET_TICKS.turnPerTick;
     const shippedSwing = TURRET_CONFIG.maxSwingDeg;
     const shippedTurnRate = TURRET_CONFIG.turnRateDegPerSec;

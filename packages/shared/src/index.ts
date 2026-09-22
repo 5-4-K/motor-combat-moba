@@ -20,6 +20,11 @@ import "./modes/legacy.js";
 // scope a bundle of their own — a test bundle, or eventually a real non-default mode — rather than
 // only ever reading whatever this process last installed.
 export { withMode, cfg, installMode, hasMode } from "./modes/active.js";
+// The bundle accessors themselves (MC13/MC14): `sim/` has read exclusively through these since the
+// accessor-layer work, and server/client code that used to read a raw config global in place —
+// `setTuning` rebuilds the bundle rather than mutating those globals — needs the same accessors to
+// stay live under a tuning retune. Exported as they are needed outside `sim/`, not all at once.
+export { drive, turret, derived } from "./modes/active.js";
 export { assembleModeConfig } from "./modes/build.js";
 export type { ModeConfig, ModeTables } from "./modes/types.js";
 

@@ -1,5 +1,5 @@
 import type Phaser from "phaser";
-import { TURRET_CONFIG, wrapAngle } from "@motor-combat-moba/shared";
+import { turret, wrapAngle } from "@motor-combat-moba/shared";
 import { TURRET_FALLBACK, TURRET_VISUAL } from "../config/turret-visual.js";
 
 /**
@@ -17,13 +17,13 @@ export function turretDisplayLength(
 /**
  * The drawn turret chases the networked one at the turret's own turn rate — what the sim does between
  * patches (spec TR42). A gap wider than a quarter turn is a respawn or a lost patch, not a turn, so it
- * snaps. The rate is read from `TURRET_CONFIG` on every call, never cached at module load, so a
+ * snaps. The rate is read from `turret()` on every call, never cached at module load, so a
  * playground turn-rate retune reaches the drawn turret the frame the tuning store takes it (TR59).
  */
 export function easeTurretAngle(shown: number, target: number, dtSeconds: number): number {
   const delta = wrapAngle(target - shown);
   if (Math.abs(delta) > TURRET_VISUAL.snapAboveRad) return target;
-  const max = ((TURRET_CONFIG.turnRateDegPerSec * Math.PI) / 180) * dtSeconds;
+  const max = ((turret().turnRateDegPerSec * Math.PI) / 180) * dtSeconds;
   return Math.abs(delta) <= max ? target : wrapAngle(shown + Math.sign(delta) * max);
 }
 
@@ -39,7 +39,7 @@ export function drawProceduralTurret(
   y = 0,
 ): Phaser.GameObjects.Graphics {
   const f = TURRET_FALLBACK;
-  const barrel = TURRET_CONFIG.defaultOffset;
+  const barrel = turret().defaultOffset;
   gfx.fillStyle(fill, 1);
   gfx.lineStyle(f.outlineWidth, f.outlineColor, f.outlineAlpha);
   gfx.fillRect(x, y - f.barrelWidth / 2, barrel, f.barrelWidth);

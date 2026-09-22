@@ -97,7 +97,7 @@ export function carIdOf(player: Pick<ContextPlayer, "carId">): CarId {
  * car-vs-car separation `resolveWorld` runs on every touching pair. (It never changed how hard that
  * car's OWN rams hit — spec R11 gives statuses no offence channel — and since the Unity ram port it
  * has no attacker-side effect of any kind.) Latent rather than a live bug today — no
- * shipped `STATUS_TABLE` row carries a `ramDefence` channel — but the two lockstep halves (server and
+ * shipped status row carries a `ramDefence` channel — but the two lockstep halves (server and
  * client prediction) both read this same function, so they still agree with each other.
  *
  * **`entries` must be sorted by `sessionId`, and the resulting order is load-bearing rather than
