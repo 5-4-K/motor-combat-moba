@@ -510,16 +510,95 @@ Firing still rides the same gate as movement: `serverTick` reports which session
 on an input it actually **simulated**, so an input past `NET_CONFIG.maxInputsPerTick` cannot buy a
 shot the sim never ran, and a lobby player spamming a fire key spawns nothing.
 
-### Shot direction: the heading, always
+### Shot direction: the heading, or the turret
 
-Every shot leaves along the firing car's **heading**, measured from the muzzle rather than the car
-centre. There is no targeting aid of any kind: no lock, no snap, no assist, no lead. Where the nose
-points is where the shot goes, and carrying the lead against a moving target is entirely the
-player's job.
+A fixed-muzzle shot leaves along the firing car's **heading**, measured from the muzzle rather than
+the car centre. A **turret** shot (a row carrying `turret`, see [Turret muzzle](#turret-muzzle)
+below) leaves along the world bearing the player aimed with the mouse. There is no targeting aid of
+any kind on either: no lock, no snap, no assist, no lead. Where the nose — or the crosshair — points
+is where the shot goes, and carrying the lead against a moving target is entirely the player's job.
 
-A pellet fan spreads around that heading (`pellets.spreadAngleDeg`), and a multi-muzzle row fans its
-muzzles off it (`muzzles`, `pepperbox`'s four). Both are offsets from the heading, not departures
-from it.
+A pellet fan spreads around its axis (`pellets.spreadAngleDeg`) — the heading for a fixed muzzle,
+the bearing for the turret — and a multi-muzzle row fans its muzzles off the heading (`muzzles`,
+`pepperbox`'s four). Both are offsets from that axis, not departures from it.
+
+### Turret muzzle
+
+Since the 2026-09-21 mouse-aim work
+([spec](superpowers/specs/2026-09-21-mouse-aim-turret-design.md), TR1–TR53) a shot can leave from
+**six** kinds of place: the four fixed muzzles the roster authors on the hull's faces (`muzzles`
+degrees off the heading — `0` the nose, which is also what an absent `muzzles` means, then `90`,
+`180` and `270`), the car's **centre** (`origin: "center"`, which an aura or an explosion's disc
+grows from), and the **turret**. A row opts into the turret with `WeaponBase.turret`
+(`{ additionalOffset }`); presence is the flag. A config test holds it to single-muzzle
+`kind: "projectile"` rows, so a beam, a maneuver or a multi-muzzle row carrying it fails the suite by
+name. It ships on the nine basic-attack rows, `predator`, `magmablast` and `thumper`; every other
+row keeps its fixed muzzle.
+
+- **The bearing is frozen at the click.** A turret press records a **world** bearing in `beginFire`:
+  the input's `aimAngle` (the mouse ray from the turret pivot to the crosshair — a world offset
+  that rides the car, at most the client's `CROSSHAIR_CONFIG.maxDistance`, 60 u, from its centre and
+  held inside the swing arc below; TR56), or — when the input carried none — `carAngle +
+  turretAngle`, i.e. "fire where the turret already points". The car may move and turn
+  afterwards; the shot still leaves along that bearing. On the wire, `serverTick` records
+  `TickResult.aims`: the `aimAngle` of the **last** input in the batch that carried a press, and a
+  pressing input with no `aimAngle` clears it rather than leaving an earlier bearing in place.
+- **Turn, then wind-up.** The per-tick order is `tickRecharge → beginFire → turnTurret →
+  releaseShots`. `beginFire` commits the press (the stock is spent now, as for every weapon) with
+  `aligned: false` and no release tick. `turnTurret` turns `FireState.turretAngle` toward the
+  bearing along the shortest arc at `TURRET_CONFIG.turnRateDegPerSec` (540°/s), snapping when within
+  one tick's step; the first tick it is on target, it marks the press aligned and only then starts
+  the weapon's `startUpMs`. `releaseShots` never releases an unaligned press. A turret already on
+  the bearing therefore fires on the press tick, like every weapon without a wind-up. Through
+  wind-up the turret keeps tracking the bearing as the hull turns beneath it. The turn cannot be
+  cancelled by a NEW event — `disarmed` blocks new presses only, a turn already under way finishes,
+  and `turnTurret` runs every tick a press is pending, disarmed or not (TR11/TR15). Two things do
+  end it early, both of them the sim dropping `pending` outright rather than the turn resolving: a
+  wreck drops it with the rest of `pending` (isFighting gates the whole per-player phase), and so
+  does a stun **landing that same tick** — the O8 interrupt sweep at the end of `runCombat` cancels
+  any pending press (turret or not) for a car freshly stunned this tick, unless the weapon is
+  `isUnInterruptable`. A stun already running when the tick starts does not re-trigger this: it only
+  fires for a stun that is new this tick.
+- **The swing arc (TR55).** `TURRET_CONFIG.maxSwingDeg` (360 shipped, i.e. unrestricted) is the arc
+  the turret may point in, centred on the nose. Aim outside it is **clamped to the nearer arc edge and
+  fires there** — never refused. The clamp runs three times, each against the car's heading at that
+  moment: `beginFire` stores `carAngle + clampToSwing(wrap(aim − carAngle))` as the press bearing;
+  `turnTurret` re-clamps its target every tick, because the car may have turned the frozen bearing
+  out of the arc since the click; and `spawnInstances` clamps again against the pose **at release**,
+  so a car that turned during the wind-up sends the shot along the arc edge rather than through its
+  own blind side. Below 360 the turret also turns in **unwrapped** relative space — both ends inside
+  the arc, so the straight line between them never crosses the dead zone behind the car, even when
+  the short way round would. At 360 every one of these is the identity and the turret takes the
+  shortest arc as it always has.
+- **Between shots the turret is bolted on.** `turretAngle` is relative to the car's heading and
+  holds while nothing turret-bound is pending, so it turns with the hull. `newFireState` resets it
+  to 0, so a respawn faces it forward.
+- **The pivot and the two offsets.** The line of fire is measured from the turret **pivot**,
+  `turretPivotOf(pose, carId)` — the car's `CarDef.turretMount` (car-local, `{ x: 0, y: 0 }` on
+  every row today) rotated into the world. It is the only place that rotation is written; the
+  client's turret drawing and crosshair bearing call it too. The shot is born at
+  `pivot + dir(bearing) × (TURRET_CONFIG.defaultOffset + turret.additionalOffset)` — 25 u, the
+  barrel tip at the shipped drawn size, plus a per-row extra (0 on every shipped row). The pose is
+  the one **at release**: the bearing is frozen, the pivot is not.
+- **Never born through a wall.** That distance is clamped with `wallClipDistance` against the arena's
+  obstacles and bounds, so a car hugging a wall and aiming out spawns its shot at the wall face,
+  where it dies (or detonates) on its first step, exactly as a shot flying into that wall would.
+  `spawnInstances` takes the world as an optional trailing argument for this; `runCombat` always
+  passes it.
+- **The HUD.** While a turret press is still turning, the bridge writes `pendingUntilTick` one tick
+  ahead so the car reads as mid-press; `PlayerState.turretAngle` mirrors `FireState.turretAngle` for
+  drawing only — `stepSim` never reads it, and the client does not predict it.
+- **No turret weapon, no turret drawn (TR53).** `carHasTurretWeapon` answers whether at least one
+  weapon a car can actually fire carries `turret` — the basic attack counting only while
+  `BASIC_ATTACK_CONFIG.enabled`, an ability counting only up to `WEAPON_SLOT_CONFIG.maxAbilitySlots`
+  — and the client skips building the turret mount entirely when it says no. This is draw-only: the
+  sim never checks it, and a car with no turret weapon simply never turns one.
+
+The bot aims a turret weapon the same way: it solves a lead bearing from its own turret pivot and
+budgets the turn time (arc ÷ turn rate) into its time-to-impact, and sends the bearing as
+`aimAngle`. The lead is clamped into the swing arc exactly as `beginFire` will clamp it, and the
+turn is budgeted along the arc `turnTurret` will really take; a target outside the arc yields the
+arc edge, whose shot the solver's own march then judges (usually a miss) — no new behaviour. A fixed-muzzle weapon keeps its heading-based solution.
 
 **This replaced an ambient target lock, removed on 2026-09-17.** Four rows — `predator`,
 `magmablast`, `thumper` and `thunderclap` — used to carry `usesAimAssist: true` and fire at a
@@ -554,8 +633,10 @@ may fire while it runs. Presses are **ignored**, never queued or buffered:
 
 A wind-up **cannot be cancelled** — the press is a commitment, and its stock is spent at press time,
 not at the moment a shot actually exits. An instance is born from the car's pose **at the tick it
-exits**, so steering during a wind-up (or through a multi-shot burst) is what aims the shot, and a
-sequential burst sprays across whatever arc the driver turns through.
+exits**, so for a fixed muzzle steering during a wind-up (or through a multi-shot burst) is what
+aims the shot, and a sequential burst sprays across whatever arc the driver turns through. A turret
+shot is the exception: its bearing was frozen at the press, so steering moves only where it leaves
+from, not which way it goes (see [Turret muzzle](#turret-muzzle)).
 
 Three clocks, each with exactly one meaning:
 
@@ -598,14 +679,11 @@ index flip: that was a constant only for as long as every active kit was the sam
 moment kits vary a last-placed basic attack answers to a different key on each car. At index 0 it is
 a true constant at every kit length.
 
-**The renumbering moved no player-facing binding.** Its binding is `H`, and nothing else: the
-abilities hold the whole mouse hand — `J`/LMB, `K`/RMB and `L`/SPACE, now at fire slots 1, 2 and 3.
-The basic attack briefly owned LMB (with the abilities on RMB/SHIFT/SPACE) and gave it up when the
-toggle below was switched off, since two slots may never claim one input; re-enabling the mechanic
-means deciding a mouse binding for it again, or shipping it keyboard-only as it stands. `SLOT_KEYS`
-carries a fifth row, `;` / middle mouse button, for a fourth ability; it is inert while `N` is 3.
-Every key a player already used fires the weapon it fired before — what changed is the index behind
-it.
+**The renumbering moved no player-facing binding.** At the time, its binding was `H` and the
+abilities held `J`/LMB, `K`/RMB and `L`/SPACE. **Since 2026-09-21 there is one control layout**
+(`SLOT_KEYS`, spec TR29), indexed by fire slot: the basic attack is **LMB**, the abilities are
+**RMB**, **Q** and **E**, and **Space** is a fifth row for a fourth ability, inert while `N` is 3.
+`H`, `J`/`K`/`L`, `;` and the middle mouse button are unbound.
 
 It fires through the **same** fire state machine described above — spent, recharged, refire-locked
 and switch-locked by exactly the code every other weapon runs — and authors `recoveryMs: 0`, so
@@ -641,12 +719,12 @@ the one place the "a binding nobody printed breaks quietly" controls rule is kno
 `BASIC_ATTACK_CONFIG.enabled` (`config/weapon-config.ts`) can turn the whole mechanic off without
 touching any of the above — the nine rows, `CarDef.basicAttack` and its schema row at index 0 all
 stay exactly as described. It is a build-time flag: flip it, rebuild, `npm run build:manual`.
-**It ships `false` as of 2026-09-20**, so everything above this heading describes a mechanic that is
-authored and wired but not currently pressable. Four
+It shipped `false` from 2026-09-20 and **ships `true` as of 2026-09-21** (spec TR46), bound to LMB.
+Four
 things read it when it is `false`: `beginFire` refuses a press on fire slot 0, so the key does
 nothing; the bot's `chooseSlot` never selects that slot either, so it does not waste a tick's press
 on a weapon that cannot fire; the client's `hintSlotOrder` drops the slot from the countdown action
-hint entirely, so the `H` pill disappears rather than sitting there doing nothing; and the guide
+hint entirely, so the `LMB` pill disappears rather than sitting there doing nothing; and the guide
 skips every chassis's "Basic attack" card, with the flag folded into `balanceStamp` so a stale
 manual build fails the suite. `fireSlotsOf` and the balance/ttk/playtest tooling do not read it —
 they sweep `WEAPON_TABLE` structurally and must always be able to find a carrier for each of the

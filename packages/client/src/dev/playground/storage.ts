@@ -17,6 +17,7 @@ import {
 } from "../../fx/tuning.js";
 import { ENV_FIELDS, envKey, isAcceptableEnvValue, type EnvOverrides } from "../../fx/env-tuning.js";
 import { sanitizeCarTints, type CarTintOverrides } from "../../fx/car-tint.js";
+import { sanitizeTurretView, type TurretViewOverrides } from "../../scenes/turret-view.js";
 
 /**
  * localStorage persistence for the playground overlay (Task 11, spec PG19/PG20). Pure codec + a thin
@@ -51,6 +52,12 @@ export interface StoredPlayground {
    * beats the Colyseus session id this used to be keyed on.
    */
   carTint: CarTintOverrides;
+  /**
+   * The Turret settings panel's client-only knobs (TR62): crosshair distance, turret length and the
+   * per-car size multipliers. Its SIM knobs live in `overrides` beside the Physics panel's, since
+   * both go to the server as one tuning blob. Never sent anywhere, like `vfx` and `env`.
+   */
+  turret: TurretViewOverrides;
 }
 
 /** Everything off. What a browser with nothing saved, or a saved blob from before this existed, gets. */
@@ -284,6 +291,7 @@ export function decodeStored(raw: string | null): StoredPlayground {
     vfx: sanitizeStoredVfx(rec.vfx),
     env: sanitizeStoredEnv(rec.env),
     carTint: migrateTintKeys(sanitizeCarTints(rec.carTint)),
+    turret: sanitizeTurretView(rec.turret),
   };
 }
 

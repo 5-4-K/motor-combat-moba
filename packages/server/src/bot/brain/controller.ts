@@ -1,5 +1,5 @@
 import {
-  hasStatus, rectPlanes, TICK_RATE_HZ, WEAPON_TABLE, weaponDefOf,
+  hasStatus, rectPlanes, TICK_RATE_HZ, WEAPON_TABLE, weaponDefOf, wrapAngle,
   type BotDifficulty, type WeaponId,
 } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
@@ -365,6 +365,7 @@ export class HumanController implements BotController {
           shooter: {
             sessionId: self.sessionId, carId: self.carId, team: self.team,
             x: self.x, y: self.y, angle: self.angle, vx: self.vx, vy: self.vy,
+            turretAngle: self.turretAngle,
           },
           slot: candidate, slotIndex: i, target, targetAt: predictor,
           aimSigmaRad: profile.aimErrorSigmaRad, tick, arena: view.arena,
@@ -569,7 +570,13 @@ export class HumanController implements BotController {
     // (P45) — no `void` placeholder needed here any more; both are genuinely consumed now.
 
     if (sit === "recover") return COAST;
-    return { steer, throttle, fireSlots: slot === undefined ? 0 : 1 << slot };
+    const intent: BotIntent = { steer, throttle, fireSlots: slot === undefined ? 0 : 1 << slot };
+    // TR25/TR26: a turret press carries its bearing — the solver's lead, off by the same realized
+    // hand error R-O5 above rotates the planner's target by. `solve()` priced this press over the
+    // error's DISTRIBUTION; the barrel, like the wheels, gets the SAMPLE. Draws no `rng()` (H21).
+    const turretBearing = slot === undefined ? undefined : solutions.get(slot)?.turretBearingRad;
+    if (turretBearing !== undefined) intent.aimAngle = wrapAngle(turretBearing + offset);
+    return intent;
   }
 
   /**

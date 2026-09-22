@@ -22,15 +22,20 @@ import {
   MAX_PLAYERS,
   MS_PER_TICK,
   MSG_PRACTICE_IDLE_WARNING,
+  MSG_PLAYGROUND_PAUSE,
   MSG_PRACTICE_PAUSE,
   PlayerStatus,
   PRACTICE_CONFIG,
   PRACTICE_IDLE_CLOSE_CODE,
   PRACTICE_IDLE_ERROR,
+  carHasTurretWeapon,
   carIdOf,
   muzzleOf,
   RoomPhase,
   TICK_RATE_HZ,
+  TURRET_CONFIG,
+  turretMountOf,
+  turretPivotOf,
   WEAPON_SLOT_CONFIG,
   getArena,
   isArenaId,
@@ -45,6 +50,7 @@ import {
   applyCarSprite,
   phaserTextures,
   resolveCarSprite,
+  resolveTurretSprite,
   tintCarSprite,
 } from "../assets/car-sprite.js";
 import {
@@ -62,11 +68,38 @@ import type { FxEvent } from "../fx/events.js";
 import { FX_TEXTURE_KEYS, FxLayer } from "../fx/layer.js";
 import { CAR_SHADOW_DEPTH, FLOOR_DEPTH, GLOW_DEPTH } from "../fx/depths.js";
 import { liveFxResolver } from "../fx/override-store.js";
+import { TURRET_VISUAL } from "../config/turret-visual.js";
+import {
+  liveTurretViewResolver,
+  shippedTurretView,
+  turretLengthOf,
+  type TurretViewResolver,
+} from "./turret-view.js";
 import type { EmitterSpec } from "../fx/emitters.js";
 import { isDebugEnabled } from "../config/client-mode.js";
 import { showHitboxes } from "../config/view-options.js";
 import { ARENA_VIEW_WIDTH, HUD_GUTTER_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from "../config/display.js";
 import { SLOT_KEYS, slotMaskFrom } from "../config/slot-keys.js";
+import { aimBearingOf } from "../input/aim.js";
+import {
+  cssDeltaToWorld,
+  initialAimOffset,
+  moveAimOffset,
+  projectToScreen,
+  type AimOffset,
+} from "../input/aim-offset.js";
+import {
+  fireButtons,
+  initialLock,
+  reduceLock,
+  requestLock,
+  shouldAutoLockOnKey,
+  shouldReleaseLock,
+  shouldRequestLock,
+  type LockEvent,
+  type LockState,
+} from "../input/pointer-lock.js";
+import { clearPauseRequest, isPauseInFlight, markPauseRequested } from "../input/pause-request.js";
 import { InterpolationBuffer } from "../net/interpolation.js";
 import { PredictionBuffer } from "../net/prediction.js";
 import { blendPose } from "../net/interpolation.js";
@@ -79,7 +112,10 @@ import type { PracticeSummaryPlayer } from "../ui/screens/practice-summary.js";
 import { arenaMismatchMessage } from "./arena-mismatch.js";
 import { axisOf, drainTicks } from "./arena-input.js";
 import { releaseKeyboardCaptures } from "./keyboard-captures.js";
+import { drawCrosshair } from "./crosshair.js";
 import { controlledCarOf, isPlaygroundRoom, isPracticeRoom, isSimPaused } from "./controlled-car.js";
+import { AIM_HUD_CONFIG } from "../config/aim-hud.js";
+import { aimHudIsEmpty, aimHudSignature, drawAimHud, type AimHudSpec } from "./aim-hud.js";
 import { arenaBorderRect, arenaColorsOf, arenaDecoration, drawableObstacles } from "./arena-visual.js";
 import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
@@ -92,11 +128,13 @@ import {
 import { pts } from "./graphics-points.js";
 import { HUD_BAKE_SCALE, sameCommands } from "./hud-bake.js";
 import { fillDisc, fillRibbon } from "./ribbon-fill.js";
+import { drawProceduralTurret, easeTurretAngle } from "./turret-visual.js";
 import {
   carFillFor,
   carShapeOf,
   deathFadeAlpha,
   hexagonPoints,
+  weaponLoadoutSignature,
 } from "./car-visual.js";
 import {
   contactBandsFor,
@@ -131,8 +169,8 @@ import {
   isProjectileWeapon,
   projectileDrawLayers,
   weaponFillOf,
+  HP_BAR_GEOMETRY,
   type Allegiance,
-  type HpBarGeometry,
 } from "./combat-visual.js";
 import {
   cycleSpectate,
@@ -183,6 +221,7 @@ import {
   placeMovementHint,
   showMovementHint,
 } from "./movement-hint.js";
+import type { HintItem } from "./movement-hint.js";
 import {
   ROSTER_NAME_FONT_PX,
   rosterPanelLayout,
@@ -225,6 +264,12 @@ const CAR_SHADOW_DROP_KEY = "car-shadow.drop";
 const CAR_SHADOW_CONTACT_KEY = "car-shadow.contact";
 const BODY_NAME = "body";
 const RIM_NAME = "rim";
+/**
+ * The turret's mount inside a car's container (a nested container, turned by the eased turret
+ * angle), and the tinted sprite inside that mount, re-lit each frame. See `drawTurret`.
+ */
+const TURRET_NAME = "turret";
+const TURRET_LIT_NAME = "turret-lit";
 
 // --- the world layer stack ---------------------------------------------------------------------
 /**
@@ -252,6 +297,16 @@ const ARROW_DEPTH = 52;
  */
 const CAR_DEPTH = 0;
 /**
+ * The local player's aim HUD: the crosshair-reach ring, the turret's swing limits and the four
+ * muzzle arrows (`aim-hud.ts`). BELOW the cars, which is what the feature asks for — the HUD is a
+ * ruler laid on the floor and the chassis sits on top of it, not inside a cage — and above
+ * `GLOW_DEPTH` (-4) so a shell halo crossing your own car cannot wash the ring out.
+ *
+ * One `Graphics` for one car, never a per-car layer: nobody but the driver ever sees theirs, so the
+ * tie-breaking problem `CAR_SHADOW_DEPTH` documents cannot arise here.
+ */
+const AIM_HUD_DEPTH = -2;
+/**
  * The wild-charge outline and the thunderclap dash ghosts (`maneuver-visual.ts`). Above the cars —
  * a charging car's outline would be pointless drawn underneath its own sprite — and below every HUD
  * and marker layer, since both are cosmetic reads of `PlayerState.maneuver` and neither should ever
@@ -276,13 +331,6 @@ const SHOT_DEPTH = -5;
 /** The floor everything else is drawn on. */
 const ARENA_DEPTH = -10;
 
-/** The bar lies across the car's tail, so these are in the car's frame, not the screen's. */
-const HP_BAR_GEOMETRY: HpBarGeometry = {
-  length: 55, // 44 -> 55 with the 2026-09-16 hull resize: the bar lies across the tail, which grew 32 -> 40.
-  thickness: 5,
-  // Clear of the car's own silhouette, which is `DRIVE_CONFIG.carWidth` long nose to tail.
-  offset: DRIVE_CONFIG.carWidth / 2 + 6,
-};
 const HP_BAR_BACK = 0x22252b;
 
 
@@ -330,6 +378,8 @@ const HUD_BOX_DEPTH = HUD_DEPTH;
 const HUD_ICON_DEPTH = HUD_DEPTH + 1;
 const HUD_SWEEP_DEPTH = HUD_DEPTH + 2;
 const HUD_TEXT_DEPTH = HUD_DEPTH + 3;
+/** The crosshair (TR32): screen space, one above the topmost HUD layer so nothing covers it. */
+const CROSSHAIR_DEPTH = HUD_TEXT_DEPTH + 1;
 /**
  * The slot's copper ring and the wash inside it.
  *
@@ -511,11 +561,10 @@ const MOVEMENT_HINT_Y = 660;
 const MOVEMENT_HINT_FONT_PX = 18;
 const MOVEMENT_HINT_GAP = 8;
 /**
- * The action row ("H J K L or LMB RMB SHIFT SPACE to fire") sits one pill-height under the
- * movement row,
- * still above the floor's bottom edge at `VIEW_HEIGHT` 720. It shares the movement row's lifetime
- * (countdown only), font, and pill styling, and it is the one place the letter bindings are
- * printed — the gutter pill shows only the mouse-hand glyph. See `SLOT_KEYS`.
+ * The action row ("LMB RMB Q E to fire") sits one pill-height under the movement row, still above
+ * the floor's bottom edge at `VIEW_HEIGHT` 720. It shares the movement row's lifetime (countdown
+ * only), font, and pill styling, and it is the only place the basic attack's binding is taught
+ * (BA19) — the gutter pill never carries it. See `SLOT_KEYS`.
  */
 const ACTION_HINT_Y = MOVEMENT_HINT_Y + 34;
 /**
@@ -612,6 +661,19 @@ interface ArenaPlayer {
   alive: boolean;
   diedAtTick: number;
   name: string;
+  /** Car-relative, render-only: drawn by `syncTurret`, never read by prediction. */
+  turretAngle: number;
+  /**
+   * One row per fire slot (index 0 = basic attack, 1..N the kit). Structurally typed on `map` alone,
+   * like `LobbySignatureState.players`' `forEach` — an `ArraySchema<WeaponSlotState>` and a plain
+   * array both satisfy it, so `carHasTurretWeapon` (TR53) and the loadout signature `visualKeyOf`
+   * folds in need no schema instance to test. A full array type (`readonly {weaponId}[]`) does NOT
+   * work here: `ArraySchema` also implements `concat`/`push` at its own wider element type, which
+   * makes it fail structural assignment to any narrower array type — `map` alone avoids that.
+   */
+  weapons: {
+    map<T>(callbackfn: (value: { weaponId: string }) => T): T[];
+  };
 }
 
 /**
@@ -658,12 +720,14 @@ function bodyOf(player: ArenaPlayer): SimBody {
 }
 
 /**
- * A car is redrawn from scratch only when its chassis, colour, or living state changes, not every
- * frame. `alive` is part of the key because a dead car is drawn differently, and without it a car that
- * died would keep its living silhouette until something else happened to change the key.
+ * A car is redrawn from scratch only when its chassis, colour, living state, or fireable loadout
+ * changes, not every frame. `alive` is part of the key because a dead car is drawn differently, and
+ * without it a car that died would keep its living silhouette until something else happened to
+ * change the key. The loadout signature (TR53) is what lets a playground loadout swap show or hide
+ * the turret mid-session: chassis and colour alone would miss a same-car, same-colour weapon change.
  */
 function visualKeyOf(player: ArenaPlayer): string {
-  return `${player.carId}:${player.colorId}:${player.alive}`;
+  return `${player.carId}:${player.colorId}:${player.alive}:${weaponLoadoutSignature(player.weapons)}`;
 }
 
 export class ArenaScene extends Phaser.Scene {
@@ -672,6 +736,12 @@ export class ArenaScene extends Phaser.Scene {
   private readonly interps = new Map<string, InterpolationBuffer>();
   private readonly cars = new Map<string, Phaser.GameObjects.Container>();
   private readonly visualKeys = new Map<string, string>();
+  /**
+   * Each car's DRAWN turret angle, car-relative, easing toward the networked `turretAngle` (TR42).
+   * Kept outside the container so a rebuild (a colour change, art finishing loading) does not snap
+   * a turning turret back to the patch value; dropped wherever the car itself is dropped.
+   */
+  private readonly turretShown = new Map<string, number>();
   private arenaGfx: Phaser.GameObjects.Graphics | undefined;
   /**
    * The generated asphalt, one `TileSprite` covering the whole arena at `FLOOR_DEPTH` (VFX36).
@@ -700,6 +770,12 @@ export class ArenaScene extends Phaser.Scene {
    * cannot drift apart on which rooms get overrides.
    */
   private resolveEnv: EnvResolver = () => ENVIRONMENT_FX;
+  /**
+   * How this scene reads the crosshair distance and the turret's drawn size (TR60). The shipped
+   * values everywhere but a playground room, where `create` swaps in the Turret panel's live map —
+   * the same gate, and the same ternary, as `resolveEnv` beside it.
+   */
+  private resolveTurretView: TurretViewResolver = shippedTurretView;
   /** The camera's colour-grade filter controller, held so `applyEnvironment` can re-tune it in place. */
   private gradeFilter?: Phaser.Filters.ColorMatrix;
   /** The camera's vignette filter controller, held so `applyEnvironment` can re-tune it in place. */
@@ -750,6 +826,10 @@ export class ArenaScene extends Phaser.Scene {
   private glowGfx: Phaser.GameObjects.Graphics | undefined;
   private hpGfx: Phaser.GameObjects.Graphics | undefined;
   private arrowGfx: Phaser.GameObjects.Graphics | undefined;
+  /** The driven car's aim HUD, drawn once in the car's frame and then MOVED — see `syncAimHud`. */
+  private aimHudGfx: Phaser.GameObjects.Graphics | undefined;
+  /** `aimHudSignature` of the picture currently in `aimHudGfx`; `""` while it holds nothing. */
+  private aimHudKey = "";
   /** The wild-charge outline and the thunderclap dash ghosts, cleared and redrawn every frame. */
   private maneuverGfx: Phaser.GameObjects.Graphics | undefined;
   /**
@@ -814,10 +894,26 @@ export class ArenaScene extends Phaser.Scene {
    */
   private lastPatchMs = 0;
   private mismatchOverlay: ScreenOverlay | undefined;
-  /** `P` inside a practice room only (spec PR22). Bound unconditionally in `create` like every other
-   *  key; every *read* of it is gated on `isPracticeRoom`, which is what actually keeps it inert in
-   *  a real match. */
+  /** `P`, the menu toggle (spec TR35): the practice pause, or the arena's own menu. Inert in the
+   *  playground, whose overlay owns P (`pumpPauseKey`). */
   private pauseKey: Phaser.Input.Keyboard.Key | undefined;
+  /** Pointer lock (spec TR31), reduced from the DOM events `bindPointerLock` listens for. */
+  private lock: LockState = initialLock();
+  /** The crosshair, as a WORLD offset from the driven car's centre (spec TR56): it rides with the car
+   *  and keeps its world direction as the car turns. Undefined until the first frame that has a car
+   *  to aim from, which seeds it straight ahead (`initialAimOffset`). */
+  private aimOffset: AimOffset | undefined;
+  /** Mouse movement, world units, not yet folded into `aimOffset`. DOM moves land between frames,
+   *  and folding one in needs the car's rendered heading (the arc clamp), which only a frame has. */
+  private pendingAimDelta: AimOffset = { x: 0, y: 0 };
+  /** Removes `bindPointerLock`'s DOM listeners; they are on `document`, so they outlive the scene. */
+  private unbindPointerLock: (() => void) | undefined;
+  /** Drawn at the virtual cursor, on the HUD camera (spec TR32). */
+  private crosshair: Phaser.GameObjects.Graphics | undefined;
+  /** The arena's client-only menu (TR38). Practice and the playground read `state.paused` instead
+   *  (`menuOpen`). */
+  private arenaMenuOpen = false;
+  private arenaMenu: ScreenOverlay | undefined;
   private pauseOverlay: ScreenOverlay | undefined;
   /** Mirrors whether `pauseOverlay` is currently mounted, so `syncPauseOverlay` renders on a change
    *  in `state.paused` and not on every patch while it holds steady. */
@@ -969,16 +1065,10 @@ export class ArenaScene extends Phaser.Scene {
     this.keys = this.bindKeys();
     this.slotKeys = this.bindSlotKeys();
     this.pauseKey = this.bindPauseKey();
-    // Ability 1 lives on the right mouse button, so the browser's context menu would otherwise open
-    // on every shot. This is a listener on the game canvas, not scene state — it outlives the arena —
-    // which is fine: no screen in this client offers anything on right-click.
+    // Ability 1 lives on the right mouse button (TR29), so the browser's context menu would
+    // otherwise open on every shot. This is a listener on the game canvas, not scene state — it
+    // outlives the arena — which is fine: no screen in this client offers anything on right-click.
     this.input.mouse?.disableContextMenu();
-    // The middle button is ability 4's binding (VS15/VS17). Left alone it starts the browser's
-    // autoscroll drag over the canvas, which is the same class of problem `disableContextMenu`
-    // solves for the right button and `addKey` solves for Space.
-    this.game.canvas.addEventListener("mousedown", (event: MouseEvent) => {
-      if (event.button === 1) event.preventDefault();
-    });
 
     // Guarded rather than resolved directly: `getArena` throws, and this line runs before the rest
     // of create() builds anything, so an unknown id would leave a half-constructed scene and a
@@ -1016,6 +1106,10 @@ export class ArenaScene extends Phaser.Scene {
     // earlier playground room's `create()` leak into a later non-playground one.
     this.resolveEnv =
       this.room && isPlaygroundRoom(this.room) ? liveEnvResolver() : () => ENVIRONMENT_FX;
+    // Same gate, same reason (TR60): an arena or practice room draws the shipped crosshair and turret
+    // whatever the Turret panel saved in this browser.
+    this.resolveTurretView =
+      this.room && isPlaygroundRoom(this.room) ? liveTurretViewResolver() : shippedTurretView;
 
     this.fx = new FxLayer(
       this,
@@ -1041,6 +1135,10 @@ export class ArenaScene extends Phaser.Scene {
       .setBlendMode(Phaser.BlendModes.ADD);
     this.hpGfx = this.add.graphics().setDepth(HP_BAR_DEPTH);
     this.arrowGfx = this.add.graphics().setDepth(ARROW_DEPTH);
+    // Starts hidden and stays hidden until there is a car of yours to sit under: the first frames of
+    // a room have no pose, and an empty ring at the world origin is worse than no ring.
+    this.aimHudGfx = this.add.graphics().setDepth(AIM_HUD_DEPTH).setVisible(false);
+    this.aimHudKey = "";
     this.maneuverGfx = this.add.graphics().setDepth(MANEUVER_DEPTH);
     // Made, not added: nothing draws `hudGfx` but `bakeHud`. Scaled and shifted so the gutter's
     // left edge lands on the bake texture's, at `HUD_BAKE_SCALE` texels per pixel.
@@ -1123,6 +1221,11 @@ export class ArenaScene extends Phaser.Scene {
 
     this.buildMovementHint();
 
+    // Before `splitCameras`, which hands the crosshair to the HUD camera: that camera is unzoomed and
+    // anchored at the canvas origin, so the cursor's screen pixels are its pixels too.
+    this.crosshair = this.add.graphics().setScrollFactor(0).setDepth(CROSSHAIR_DEPTH).setVisible(false);
+    this.bindPointerLock(this.room);
+
     this.splitCameras();
     this.bindRoom(this.room);
     this.syncMatchHud();
@@ -1177,10 +1280,10 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * `P`, for the practice pause menu (spec PR22). `SLOT_KEYS` claims J/K/L and Space, and none of
-   * the drive or spectate bindings reach it either, so it is free. Bound here unconditionally, same
-   * as every other key this scene binds — `pumpPauseKey` and `bindRoom`'s `onState` are what gate
-   * its effect on `isPracticeRoom`, not this method.
+   * `P`, the menu toggle (spec PR22, TR35). `SLOT_KEYS` claims Q, E and Space now (TR29), and
+   * none of the drive or spectate bindings reach it either, so it is free. Bound here
+   * unconditionally, same as every other key this scene binds — `pumpPauseKey` is what decides what
+   * it does in each room kind, not this method.
    */
   private bindPauseKey(): Phaser.Input.Keyboard.Key | undefined {
     return this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.P);
@@ -1445,6 +1548,7 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.idleWarningText ? [this.idleWarningText] : []),
       ...(this.movementHintGfx ? [this.movementHintGfx] : []),
       ...this.movementHintTexts,
+      ...(this.crosshair ? [this.crosshair] : []),
       ...this.hudKeyTexts,
       ...this.hudNameTexts,
       ...this.hudStockTexts,
@@ -1466,6 +1570,8 @@ export class ArenaScene extends Phaser.Scene {
       // World space at `ARROW_DEPTH`, drawn over the local car during the countdown, so the world
       // camera keeps it and the HUD camera must not draw it a second time over the gutter.
       ...(this.arrowGfx ? [this.arrowGfx] : []),
+      // World space at `AIM_HUD_DEPTH`, under the local car — same reason as `arrowGfx` above.
+      ...(this.aimHudGfx ? [this.aimHudGfx] : []),
       // World space at `MANEUVER_DEPTH`, drawn over the cars — the same reason `arrowGfx` is here.
       ...(this.maneuverGfx ? [this.maneuverGfx] : []),
       // Every FX object in one spread, because this list is the only thing standing between an
@@ -1546,6 +1652,7 @@ export class ArenaScene extends Phaser.Scene {
     for (const gfx of this.cars.values()) gfx.destroy();
     this.cars.clear();
     this.visualKeys.clear();
+    this.turretShown.clear();
     this.interps.clear();
     this.arenaGfx?.destroy();
     this.arenaGfx = undefined;
@@ -1579,6 +1686,9 @@ export class ArenaScene extends Phaser.Scene {
     this.hpGfx = undefined;
     this.arrowGfx?.destroy();
     this.arrowGfx = undefined;
+    this.aimHudGfx?.destroy();
+    this.aimHudGfx = undefined;
+    this.aimHudKey = "";
     this.maneuverGfx?.destroy();
     this.maneuverGfx = undefined;
     for (const sessionId of [...this.carShadows.keys()]) this.dropCarShadow(sessionId);
@@ -1642,6 +1752,20 @@ export class ArenaScene extends Phaser.Scene {
     this.pauseOverlay?.destroy();
     this.pauseOverlay = undefined;
     this.pauseMenuShown = false;
+    clearPauseRequest();
+    // The lock never outlives the arena (TR40): results, a leave and every exit come through here,
+    // and no other scene draws a crosshair to show where a locked, invisible cursor is.
+    this.unbindPointerLock?.();
+    this.unbindPointerLock = undefined;
+    if (document.pointerLockElement === this.game.canvas) document.exitPointerLock();
+    this.lock = initialLock();
+    this.aimOffset = undefined;
+    this.pendingAimDelta = { x: 0, y: 0 };
+    this.crosshair?.destroy();
+    this.crosshair = undefined;
+    this.arenaMenu?.destroy();
+    this.arenaMenu = undefined;
+    this.arenaMenuOpen = false;
     // Cleared on every entry, not just after a deliberate Exit: a stale target here would send some
     // LATER real match's kick or dropped connection to "practice-setup" instead of "join".
     this.exitTarget = undefined;
@@ -1670,6 +1794,7 @@ export class ArenaScene extends Phaser.Scene {
     // before the cut lands.
     this.syncRespawnCamera(room);
     this.renderCars(room, delta);
+    this.syncCrosshair(room);
     this.renderShots(room);
     this.renderFx(room, delta);
     // The panel's height is the slots' top inset, so the roster draws first and hands that one
@@ -1719,16 +1844,295 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * `P`, sent as the toggle `MSG_PRACTICE_PAUSE` message and nothing else (spec PR22/PR23). No local
-   * state changes here — `syncPauseOverlay` is what shows the menu, and only once the server's own
-   * `state.paused` comes back in a patch, so the player is never looking at a menu the sim has not
-   * actually stopped for yet.
+   * `P`, the menu toggle in every room kind (spec TR35).
+   *
+   * - **Practice**: the toggle `MSG_PRACTICE_PAUSE` message (spec PR22/PR23), plus giving up the lock
+   *   when it pauses. While that pause is still in flight, P does nothing (TR54): a second toggle
+   *   would un-pause before the first ever patched back. No menu is mounted here — `syncPauseOverlay` does that, and only once the
+   *   server's own `state.paused` comes back in a patch, so the player is never looking at a menu the
+   *   sim has not actually stopped for yet.
+   * - **Arena**: opens or closes the client-only menu. Closing does not relock: a keypress is not a
+   *   gesture the browser accepts for pointer lock, so the next canvas click does it.
+   * - **Playground**: nothing. Its overlay owns P (and `bindPointerLock` marks the release it causes).
    */
   private pumpPauseKey(room: Room<ArenaState>): void {
-    if (!this.pauseKey || !isPracticeRoom(room)) return;
-    if (Phaser.Input.Keyboard.JustDown(this.pauseKey)) {
+    if (!this.pauseKey || isPlaygroundRoom(room)) return;
+    if (!Phaser.Input.Keyboard.JustDown(this.pauseKey)) return;
+    if (isPracticeRoom(room)) {
+      if (!isSimPaused(room.state)) {
+        if (this.pauseInFlight(room)) return;
+        this.releaseLock();
+        markPauseRequested(performance.now());
+      }
       room.send(MSG_PRACTICE_PAUSE);
+    } else if (this.arenaMenuOpen) {
+      this.closeArenaMenu(false);
+    } else {
+      this.openMenu(room);
     }
+  }
+
+  /**
+   * Is a menu up (spec TR34, TR35)? Practice and the playground answer from the server's own pause;
+   * a real match has no pause, only this client's overlay.
+   */
+  private menuOpen(room: Room<ArenaState>): boolean {
+    return isPracticeRoom(room) || isPlaygroundRoom(room) ? isSimPaused(room.state) : this.arenaMenuOpen;
+  }
+
+  /**
+   * Open the menu, from P or from a lock the browser took away (Esc, alt-tab). Opening always
+   * releases the lock, so the OS cursor is back to click the menu with (TR35). Practice and the
+   * playground ask the server to pause and let their existing menus mount off `state.paused`; a
+   * real match cannot pause, so it gets a client-only overlay over a match that keeps running (TR38).
+   */
+  private openMenu(room: Room<ArenaState>): void {
+    this.releaseLock();
+    // A pause already in flight is not asked for twice (TR54): the second would be a toggle back.
+    if (isPracticeRoom(room)) {
+      if (!isSimPaused(room.state) && !this.pauseInFlight(room)) {
+        room.send(MSG_PRACTICE_PAUSE);
+        markPauseRequested(performance.now());
+      }
+      return;
+    }
+    if (isPlaygroundRoom(room)) {
+      if (!isSimPaused(room.state) && !this.pauseInFlight(room)) {
+        room.send(MSG_PLAYGROUND_PAUSE);
+        markPauseRequested(performance.now());
+      }
+      return;
+    }
+    this.arenaMenuOpen = true;
+    this.arenaMenu ??= new ScreenOverlay(this);
+    this.arenaMenu.render(
+      renderPause(
+        {
+          // The Resume click is the user gesture the relock needs.
+          onResume: () => this.closeArenaMenu(true),
+          // `exitTarget` stays unset, so `onLeave` routes to "join" — the existing disconnect path (D4).
+          onExit: () => void room.leave(),
+        },
+        "overlay",
+      ).root,
+    );
+  }
+
+  /**
+   * Is a practice/playground pause request still waiting on its patch (TR54)? Reads the page's ONE
+   * shared request (`input/pause-request.ts`), which every sender stamps — this scene's P and Esc
+   * path and the playground overlay's P alike — so a pause asked for anywhere makes P a no-op
+   * everywhere until `state.paused` patches true or `PAUSE_REQUEST_TIMEOUT_MS` passes. Also closes
+   * the relock race (final-fixes item 1): `menuOpen` reads `state.paused`, which stays false for a
+   * whole round trip after the request, and a canvas click in that window must not re-lock the
+   * cursor just before the menu mounts under it.
+   */
+  private pauseInFlight(room: Room<ArenaState>): boolean {
+    return isPauseInFlight(isSimPaused(room.state), performance.now());
+  }
+
+  private closeArenaMenu(relock: boolean): void {
+    this.arenaMenu?.destroy();
+    this.arenaMenu = undefined;
+    this.arenaMenuOpen = false;
+    if (relock) requestLock(this.game.canvas);
+  }
+
+  /** Give the lock up on purpose, marked first so its `pointerlockchange` does not read as an Esc. */
+  private releaseLock(): void {
+    if (!this.lock.locked) return;
+    this.dispatchLock({ type: "release" });
+    document.exitPointerLock();
+  }
+
+  /** Feed one event to the lock reducer; answers whether it asks for the menu. */
+  private dispatchLock(event: LockEvent): boolean {
+    const { state, openMenu } = reduceLock(this.lock, event);
+    this.lock = state;
+    return openMenu;
+  }
+
+  /**
+   * The DOM half of pointer lock (spec TR31, TR40). Everything here is on `document` or the game
+   * canvas, which outlive the scene, so `resetMatchState` removes it all through `unbindPointerLock`.
+   */
+  private bindPointerLock(room: Room<ArenaState>): void {
+    const canvas = this.game.canvas;
+    const cam = this.cameras.main;
+    this.lock = initialLock();
+
+    // TR31a: try for the lock the instant the scene stands up, before any listener below runs. This
+    // succeeds when the click that started the match (practice Start, lobby Ready, playground launch)
+    // is still inside the browser's transient-activation window; when it is not, the browser refuses
+    // and the refusal is expected, so it asks `requestLock` to stay quiet about it — the first
+    // driving key or canvas click (below) tries again with its own fresh gesture.
+    if (
+      shouldRequestLock(
+        this.lock.locked,
+        this.menuOpen(room),
+        this.pauseInFlight(room),
+        this.wantsPointerLock(room),
+      )
+    ) {
+      requestLock(canvas, true);
+    }
+
+    // A lock needs a user gesture, so it is only ever asked for from a click on the canvas.
+    // `shouldRequestLock` also guards the relock race (final-fixes item 1): `pauseInFlight` covers
+    // the round trip between asking practice/the playground to pause and `state.paused` patching
+    // true, during which `menuOpen` still reads false.
+    const onDown = (): void => {
+      if (
+        shouldRequestLock(
+          this.lock.locked,
+          this.menuOpen(room),
+          this.pauseInFlight(room),
+          this.wantsPointerLock(room),
+        )
+      ) {
+        requestLock(canvas);
+      }
+    };
+    const onChange = (): void => {
+      if (document.pointerLockElement === canvas) {
+        this.dispatchLock({ type: "acquired", buttons: this.input.mousePointer?.buttons ?? 0 });
+      } else if (this.dispatchLock({ type: "lost" })) {
+        this.openMenu(room);
+      }
+    };
+    // The crosshair moves only while the lock is held (TR56). movementX/Y are CSS pixels, converted
+    // to world units through the canvas's fitted size and the world camera's zoom, then banked until
+    // the next frame folds them in against the car's heading (`aimPointFor`).
+    const onMove = (event: MouseEvent): void => {
+      if (!this.lock.locked) return;
+      const delta = cssDeltaToWorld(
+        event.movementX,
+        event.movementY,
+        { width: this.scale.width, height: this.scale.height },
+        { width: canvas.clientWidth, height: canvas.clientHeight },
+        cam.zoom,
+      );
+      this.pendingAimDelta = { x: this.pendingAimDelta.x + delta.x, y: this.pendingAimDelta.y + delta.y };
+    };
+    const onUp = (event: MouseEvent): void => {
+      this.dispatchLock({ type: "buttons", buttons: event.buttons });
+    };
+    // The playground's P lives in its overlay, which releases the lock itself. This runs first — a
+    // `document` listener fires before that overlay's `window` one — so the release is marked before
+    // its `pointerlockchange` arrives. Unmarked, that change would read as an Esc and `openMenu` would
+    // send a second pause toggle straight after the overlay's, before the first had patched back.
+    //
+    // A P while a pause is already in flight is ignored here exactly as the overlay ignores it
+    // (TR54): the release is not marked, and the overlay, reading the same shared request, sends
+    // nothing. The request itself is stamped by the overlay, and only when it actually sends.
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.repeat) return;
+      if (event.key === "p" || event.key === "P") {
+        const pausing = isPlaygroundRoom(room) && !isSimPaused(room.state) && !this.pauseInFlight(room);
+        if (pausing && this.lock.locked) this.dispatchLock({ type: "release" });
+        return;
+      }
+      // TR31a: the first key after a menu closes with no gesture-capable relock (P has none) gets one
+      // for free — a keydown is a user gesture too, and this fires on the very press that drives the
+      // car, never consuming or blocking it (no preventDefault, no stopPropagation).
+      if (
+        shouldAutoLockOnKey(
+          this.lock.locked,
+          this.menuOpen(room),
+          this.pauseInFlight(room),
+          event.key,
+          this.wantsPointerLock(room),
+        )
+      ) {
+        requestLock(canvas);
+      }
+    };
+
+    canvas.addEventListener("mousedown", onDown);
+    document.addEventListener("pointerlockchange", onChange);
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    document.addEventListener("keydown", onKey);
+    this.unbindPointerLock = () => {
+      canvas.removeEventListener("mousedown", onDown);
+      document.removeEventListener("pointerlockchange", onChange);
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.removeEventListener("keydown", onKey);
+    };
+  }
+
+  /**
+   * The crosshair's world point this frame (spec TR56): the car's rendered centre plus `aimOffset`,
+   * after folding in any banked mouse movement and re-applying both limits against the car's
+   * rendered heading — every frame, since the car may have turned the offset out of the swing arc.
+   * The one place the offset changes, and the one both the drawing and `aimAngle` read.
+   */
+  private aimPointFor(pose: SimBody): { x: number; y: number } {
+    // Passed explicitly rather than left to `aim-offset.ts`'s default, so a playground's Turret
+    // panel reaches it (TR60); every other room resolves the shipped `CROSSHAIR_CONFIG` value.
+    const maxDistance = this.resolveTurretView().crosshairMaxDistance;
+    const offset = this.aimOffset ?? initialAimOffset(pose.angle, maxDistance);
+    this.aimOffset = moveAimOffset(
+      offset,
+      this.pendingAimDelta.x,
+      this.pendingAimDelta.y,
+      pose.angle,
+      maxDistance,
+    );
+    this.pendingAimDelta = { x: 0, y: 0 };
+    return { x: pose.x + this.aimOffset.x, y: pose.y + this.aimOffset.y };
+  }
+
+  /**
+   * The crosshair (spec TR32, TR56): at `aimPointFor`'s world point, projected to the screen, while
+   * the lock is held, the driven car is on the field and no menu is up. Otherwise hidden — while a
+   * menu is open the OS cursor is the pointer. The offset is re-clamped every frame the driven car
+   * exists, shown or not, so keyboard fire aims at a crosshair that is always inside its limits.
+   */
+  private syncCrosshair(room: Room<ArenaState>): void {
+    // Per-frame safety net for the relock race (final-fixes item 1), covering every room kind: if a
+    // menu is considered open while the cursor is still locked — however that happened — give the
+    // lock up immediately rather than let an invisible cursor sit under a mounted menu.
+    if (shouldReleaseLock(this.lock.locked, this.menuOpen(room), this.wantsPointerLock(room))) {
+      this.releaseLock();
+    }
+    // The request-side race window closes once the pause we asked for actually patches in, or times
+    // out (TR54) — settled every frame so a stale request never outlives its backstop unread.
+    this.pauseInFlight(room);
+    const gfx = this.crosshair;
+    if (!gfx) return;
+    const local = room.state.players.get(this.drivenSid(room));
+    const aim = local ? this.aimPointFor(this.localRenderPose(bodyOf(local))) : undefined;
+    const show =
+      aim !== undefined &&
+      this.lock.locked &&
+      local?.status === PlayerStatus.IN_MATCH &&
+      local.alive &&
+      !this.menuOpen(room);
+    // `this.lock.locked` already carries the turret gate — a turret-less car never acquires the lock
+    // and the release above gives one up the frame its last turret weapon goes — so the crosshair
+    // goes with the rest of its group without a second read of the loadout.
+    gfx.setVisible(show);
+    if (!show) return;
+    const cam = this.cameras.main;
+    const screen = projectToScreen(
+      {
+        x: cam.x,
+        y: cam.y,
+        width: cam.width,
+        height: cam.height,
+        originX: cam.originX,
+        originY: cam.originY,
+        zoomX: cam.zoomX,
+        zoomY: cam.zoomY,
+        // Bounds-clamped as the camera's own `preRender` will clamp it, since `centerOn` does not.
+        scrollX: cam.useBounds ? cam.clampX(cam.scrollX) : cam.scrollX,
+        scrollY: cam.useBounds ? cam.clampY(cam.scrollY) : cam.scrollY,
+      },
+      aim,
+    );
+    drawCrosshair(gfx, screen.x, screen.y);
   }
 
   /**
@@ -1746,7 +2150,11 @@ export class ArenaScene extends Phaser.Scene {
       this.pauseOverlay ??= new ScreenOverlay(this);
       this.pauseOverlay.render(
         renderPause({
-          onResume: () => room.send(MSG_PRACTICE_PAUSE),
+          // The Resume click is the user gesture the relock needs (TR35).
+          onResume: () => {
+            room.send(MSG_PRACTICE_PAUSE);
+            requestLock(this.game.canvas);
+          },
           onExit: () => this.exitPractice(room),
         }).root,
       );
@@ -1792,6 +2200,35 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
+   * Does the driven car have anything to aim? — the one predicate behind the whole turret half of
+   * mouse control (TR53).
+   *
+   * True when its current fire slots carry a weapon that fires from the turret, which is exactly
+   * what `drawCar` asks before it builds a turret at all. False and three things follow together,
+   * because they are one decision: the turret HUD is not drawn (the ring, the swing limits), the
+   * crosshair is not drawn, and the browser is never asked for pointer lock — a captured, invisible
+   * cursor buys a player nothing when there is no bearing to choose and nothing on screen tracking
+   * it.
+   *
+   * Firing does NOT follow. `fireButtons` takes this same answer and lets the mouse buttons through
+   * unlocked, which is how LMB and RMB worked before the turret existed: click anywhere at all, and
+   * the shot leaves the fixed muzzle it was always going to leave.
+   *
+   * Read per frame off `PlayerState.weapons` rather than cached at match start, because a loadout
+   * changes under a live car in the playground and the lock must not outlive the turret.
+   *
+   * Nothing in the shipped roster makes this false today: every active chassis carries a turret
+   * ability (`magmablast`, `predator`, `thumper`) on top of a basic attack that is one, so it takes
+   * a hand-built turret-less loadout to reach. It is the rule the code should hold anyway, and the
+   * day a chassis ships without one it is already right.
+   */
+  private wantsPointerLock(room: Room<ArenaState>): boolean {
+    const local = room.state.players.get(this.drivenSid(room));
+    if (!local) return false;
+    return carHasTurretWeapon(local.weapons.map((slot) => slot.weaponId));
+  }
+
+  /**
    * Hand prediction over to a newly-driven car. No-op on every frame but the one the wheel moves on.
    *
    * Both halves of the prediction state are per-car: the `PredictionBuffer` holds inputs that only
@@ -1832,26 +2269,19 @@ export class ArenaScene extends Phaser.Scene {
     if (!local) return;
 
     this.inputSeq += 1;
-    const input: InputMessage = {
-      seq: this.inputSeq,
-      steer: axisOf(
-        (this.cursors?.left.isDown ?? false) || (this.driveKeys?.left.isDown ?? false),
-        (this.cursors?.right.isDown ?? false) || (this.driveKeys?.right.isDown ?? false),
-      ),
-      throttle: axisOf(
-        (this.cursors?.down.isDown ?? false) || (this.driveKeys?.down.isDown ?? false),
-        (this.cursors?.up.isDown ?? false) || (this.driveKeys?.up.isDown ?? false),
-      ),
-      // Held, not tapped: the server's weapon cooldown decides the rate, so holding a slot key fires
-      // it as fast as that slot allows and no faster. Sampling `JustDown` here instead would drop
-      // shots whenever a frame straddled two input ticks. `mousePointer`, not `activePointer`: the
-      // slot bindings are mouse BUTTONS, and on a touch device the active pointer is a finger whose
-      // synthetic `buttons` bit would fire slot 1 on every drag.
-      fireSlots: slotMaskFrom(
-        this.slotKeys?.map((keys) => keys.some((key) => key.isDown)) ?? [],
-        this.input.mousePointer?.buttons ?? 0,
-      ),
-    };
+    // Aimed from the RENDERED pose, not the schema one: it is what the player aimed at on screen
+    // (TR33), at the crosshair's world point (TR56). Keyboard fire keys aim at the crosshair too, and
+    // before the first lock it sits straight ahead of the car. The fallback — the turret's current
+    // world bearing — only answers when the crosshair sits exactly on the pivot.
+    const pose = this.localRenderPose(bodyOf(local));
+    const pivot = turretPivotOf(pose, carIdOf(local));
+    const aimAngle = aimBearingOf(pivot, this.aimPointFor(pose), local.angle + local.turretAngle);
+    // A menu is up (TR34): neutral input for as long as it is, so an arena car coasts rather than
+    // driving on whatever keys were held when the menu opened. Practice and the playground never get
+    // here while paused — `pumpInput`'s gate stops them first.
+    const input: InputMessage = this.menuOpen(room)
+      ? { seq: this.inputSeq, steer: 0, throttle: 0, fireSlots: 0, aimAngle }
+      : this.readInput(aimAngle, this.wantsPointerLock(room));
     room.send(INPUT_MESSAGE, input);
 
     // Mirrors the server's own `isActiveInput` (PracticeRoom's presence stamp): a real steer,
@@ -1865,6 +2295,41 @@ export class ArenaScene extends Phaser.Scene {
     const from = this.predicted ?? bodyOf(local);
     this.predictedPrev = from;
     this.predicted = this.prediction.predict(from, { seq: input.seq, input }, this.stepContext(room));
+  }
+
+  /**
+   * This tick's keys and buttons, as an input carrying `aimAngle`.
+   *
+   * `usesLock` is `wantsPointerLock`: true for a car that aims a turret, so its mouse buttons count
+   * only while the cursor is captured (TR31); false for a turret-less car, whose buttons count
+   * always, since it never asks for the lock in the first place.
+   */
+  private readInput(aimAngle: number, usesLock: boolean): InputMessage {
+    return {
+      seq: this.inputSeq,
+      steer: axisOf(
+        (this.cursors?.left.isDown ?? false) || (this.driveKeys?.left.isDown ?? false),
+        (this.cursors?.right.isDown ?? false) || (this.driveKeys?.right.isDown ?? false),
+      ),
+      throttle: axisOf(
+        (this.cursors?.down.isDown ?? false) || (this.driveKeys?.down.isDown ?? false),
+        (this.cursors?.up.isDown ?? false) || (this.driveKeys?.up.isDown ?? false),
+      ),
+      // Raw held state, not a tap: the SERVER finds the press edge (`serverTick`'s `prevFireMasks`),
+      // so holding a slot key fires it exactly once and the player must release and press again.
+      // Sampling `JustDown` here instead would drop presses whenever a frame straddled two input
+      // ticks. `mousePointer`, not `activePointer`: the slot bindings include mouse BUTTONS, and on a
+      // touch device the active pointer is a finger whose synthetic `buttons` bit would fire the
+      // basic attack (LMB, fire slot 0) on every drag. Buttons count while the pointer is locked, and
+      // never the click that took the lock (TR31) — or always, for a car with no turret weapon, which
+      // never asks for the lock and would otherwise lose LMB and RMB entirely; the keyboard slots are
+      // unaffected either way.
+      fireSlots: slotMaskFrom(
+        this.slotKeys?.map((keys) => keys.some((key) => key.isDown)) ?? [],
+        fireButtons(this.lock, this.input.mousePointer?.buttons ?? 0, usesLock),
+      ),
+      aimAngle,
+    };
   }
 
   private stepContext(room: Room<ArenaState>): StepContext {
@@ -1961,6 +2426,7 @@ export class ArenaScene extends Phaser.Scene {
         this.cars.delete(sessionId);
         this.dropCarShadow(sessionId);
         this.visualKeys.delete(sessionId);
+        this.turretShown.delete(sessionId);
         return;
       }
 
@@ -1979,6 +2445,7 @@ export class ArenaScene extends Phaser.Scene {
       this.syncCar(sessionId, player, pose);
       this.cars.get(sessionId)?.setAlpha(alpha);
       this.drawCarLook(sessionId, player.carId, player.colorId, pose, alpha);
+      this.syncTurret(sessionId, player, pose, delta);
       poses.set(sessionId, pose);
       const mods = modifiersFromRows(player.statuses, room.state.tick);
       // **NOT `pose.vx`/`pose.vy`.** `RamCar`'s own doc requires the PRE-COLLISION velocity — the
@@ -2050,6 +2517,7 @@ export class ArenaScene extends Phaser.Scene {
     // The same render pose the spark pass above tested against — predicted and blended for the local
     // car — so the marker sits on the car that is on screen instead of trailing it by a tick.
     if (arrow && selfPose) this.drawSelfArrow(arrow, room, selfPose);
+    this.syncAimHud(room, selfPose);
 
     for (const [sessionId, gfx] of this.cars) {
       if (seen.has(sessionId)) continue;
@@ -2057,6 +2525,7 @@ export class ArenaScene extends Phaser.Scene {
       this.cars.delete(sessionId);
       this.dropCarShadow(sessionId);
       this.visualKeys.delete(sessionId);
+      this.turretShown.delete(sessionId);
       this.interps.delete(sessionId);
     }
   }
@@ -2106,11 +2575,17 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private syncCar(sessionId: string, player: ArenaPlayer, pose: SimBody): void {
-    const key = visualKeyOf(player);
+    const key = `${visualKeyOf(player)}:${this.turretKeyOf(player.carId)}`;
     let gfx = this.cars.get(sessionId);
     if (!gfx || this.visualKeys.get(sessionId) !== key) {
       gfx?.destroy();
-      gfx = this.drawCar(sessionId, player.carId, player.colorId, player.alive);
+      gfx = this.drawCar(
+        sessionId,
+        player.carId,
+        player.colorId,
+        player.alive,
+        player.weapons.map((w) => w.weaponId),
+      );
       // The one world object born after `splitCameras` ran, so it opts out of the HUD camera here or
       // it would be drawn a second time, unclipped, over the gutter. Ignoring the container covers
       // the sprite and hitbox inside it.
@@ -2335,12 +2810,18 @@ export class ArenaScene extends Phaser.Scene {
    * through to the silhouette the game has always drawn. The fallback is permanent, not legacy: it
    * is what lets art be added one file at a time and what keeps a missing or malformed entry from
    * costing the game its render.
+   *
+   * `weaponIds` is this car's CURRENT fireable loadout (index 0 = basic attack, 1..N the kit, exactly
+   * `PlayerState.weapons`' shape) — the turret is added only when `carHasTurretWeapon` (TR53) says at
+   * least one of them actually fires from it. A car that never gains one back keeps its stale
+   * `turretShown` entry cleaned up here rather than left to mislead a later re-add.
    */
   private drawCar(
     sessionId: string,
     carId: string,
     colorId: number,
     alive: boolean,
+    weaponIds: readonly string[],
   ): Phaser.GameObjects.Container {
     const { carWidth: w, carHeight: h } = DRIVE_CONFIG;
     const fill = carFillFor(sessionId, colorId);
@@ -2349,6 +2830,23 @@ export class ArenaScene extends Phaser.Scene {
     const body = this.spriteFor(carId, fill) ?? this.silhouette(carId, fill, w, h);
     body.setName(BODY_NAME);
     container.add(body);
+    // Above the body and below the hitbox, INSIDE the container rather than on a depth of its own:
+    // every car sits at `CAR_DEPTH` and Phaser breaks that tie by insertion order, so a turret on a
+    // separate layer would draw over another car's body wherever two overlap — the reason the
+    // shadows had to leave the container, run the other way. Parented, it also takes the container's
+    // alpha, visibility and destruction, so the death fade and the phased ghost reach it for free.
+    //
+    // Built only when this car can actually fire something from a turret (TR53): a car whose current
+    // loadout carries none does not draw one at all, rather than drawing a barrel that can never
+    // turn toward a shot. `carHasTurretWeapon` already knows the basic-attack toggle and this
+    // build's fire-slot cap, so this call needs no config read of its own.
+    if (carHasTurretWeapon(weaponIds)) {
+      container.add(this.drawTurret(carId, fill));
+    } else {
+      // Never left mid-ease from a loadout this car no longer carries: a later swap back onto a
+      // turret weapon should start from the car's networked angle, not an old eased value.
+      this.turretShown.delete(sessionId);
+    }
 
     // The lit edge: a COPY of the body's own artwork, tinted and nudged toward the light behind the
     // body, so a bright sliver shows along whatever edge the art actually has. `drawCarLook` moves
@@ -2405,6 +2903,82 @@ export class ArenaScene extends Phaser.Scene {
     return applyCarSprite(this.add.image(0, 0, resolved.key), resolved, fill, this.resolveEnv().carLook);
   }
 
+  /**
+   * The turret mount (TR42): a container at the chassis's turret pivot in the car's own frame, which
+   * `syncTurret` turns by the eased turret angle. The pivot is `turretPivotOf` at the car-local
+   * origin, so the parent's position and rotation compose to exactly `turretPivotOf(rendered pose)`
+   * without a second copy of the mount rotation.
+   *
+   * Holds the `turret.<carId>` / `turret.default` sprite when one resolves, otherwise the procedural
+   * turret — permanent, like the chassis silhouette, so a missing turret file never costs a car its
+   * gun. The procedural one is a flat fill (a `Graphics` has no corners to light), exactly as the
+   * silhouette is.
+   */
+  private drawTurret(carId: string, fill: number): Phaser.GameObjects.Container {
+    const pivot = turretPivotOf({ x: 0, y: 0, angle: 0 }, carId);
+    const mount = this.add.container(pivot.x, pivot.y);
+    mount.setName(TURRET_NAME);
+    const length = turretLengthOf(this.resolveTurretView(), carId);
+    const resolved = resolveTurretSprite(assetManifest(), phaserTextures(this.textures), carId, length);
+    if (resolved) {
+      const image = applyCarSprite(
+        this.add.image(0, 0, resolved.key),
+        resolved,
+        fill,
+        this.resolveEnv().carLook,
+      );
+      // Named for `syncTurret`'s per-frame re-light only when the row takes the player colour, the
+      // same `colorMode` rule `applyCarSprite` just applied — so the frame loop needs no manifest
+      // lookup to know whether to leave a `"none"` turret alone.
+      if (resolved.entry.colorMode === "tint") image.setName(TURRET_LIT_NAME);
+      mount.add(image);
+      return mount;
+    }
+    // Scaled by the same ratio a sprite's length moved by, so the playground's size knobs reach a car
+    // drawing the procedural turret too (TR60). Exactly 1 everywhere else.
+    mount.add(drawProceduralTurret(this.add.graphics(), fill).setScale(length / TURRET_VISUAL.lengthUnits));
+    return mount;
+  }
+
+  /**
+   * What a car's turret was BUILT from that can change while the car does not (TR60): its drawn length
+   * and its mount, both baked into the container by `drawTurret`. Folded into the rebuild key so a
+   * Turret-panel edit — a live size change, or a mount override arriving through the tuning store —
+   * rebuilds that car, which `visualKeyOf` alone would never notice. Constant outside a playground.
+   */
+  private turretKeyOf(carId: string): string {
+    const mount = turretMountOf(carId);
+    return `${turretLengthOf(this.resolveTurretView(), carId)}:${mount.x},${mount.y}`;
+  }
+
+  /**
+   * One car's turret for this frame (TR42): ease the drawn angle toward the networked one at the
+   * turret's own rate, turn the mount to it, and re-light the sprite for its WORLD heading — the
+   * light is world-fixed, so a turret swinging across the car must shade like one, not carry the
+   * body's corners round with it.
+   */
+  private syncTurret(sessionId: string, player: ArenaPlayer, pose: SimBody, deltaMs: number): void {
+    const mount = this.cars.get(sessionId)?.getByName(TURRET_NAME);
+    if (!(mount instanceof Phaser.GameObjects.Container)) return;
+    const shown = easeTurretAngle(
+      this.turretShown.get(sessionId) ?? player.turretAngle,
+      player.turretAngle,
+      deltaMs / 1000,
+    );
+    this.turretShown.set(sessionId, shown);
+    mount.setRotation(shown);
+    // Found only on a `"tint"` row's sprite — see `drawTurret` — so a pre-coloured turret and the
+    // procedural one are left exactly as built.
+    const image = mount.getByName(TURRET_LIT_NAME);
+    if (!(image instanceof Phaser.GameObjects.Image)) return;
+    tintCarSprite(
+      image,
+      carFillFor(sessionId, player.colorId),
+      this.resolveEnv().carLook,
+      pose.angle + shown,
+    );
+  }
+
   /** The procedural chassis. Unchanged from what the game drew before any art existed. */
   private silhouette(
     carId: string,
@@ -2456,6 +3030,61 @@ export class ArenaScene extends Phaser.Scene {
    * is nothing to cancel when either window closes — the next frame simply does not reach the fill
    * and the arrow is gone, with no fade (D4).
    */
+  /**
+   * The aim HUD under the driven car: the crosshair-reach ring, the turret's swing limits and the
+   * four muzzle arrows (`aim-hud.ts`). Yours only — no other client is told what your HUD shows.
+   *
+   * **Drawn once, then moved.** The whole HUD lives in the car's own frame, so the `Graphics` holds
+   * the picture at the origin and this sets its position and rotation to the render pose. Phaser
+   * re-tessellates a `Graphics` on any frame its commands are rebuilt, and the ring alone is two
+   * dozen arcs — so the fill runs only when `aimHudSignature` moves, which in a shipped room is
+   * once. That is `hud-bake.ts`'s rule reached by the cheaper route: nothing needs baking if
+   * nothing is redrawn.
+   *
+   * It follows the same render pose `drawSelfArrow` takes — predicted and blended for the local car
+   * — so the ring sits ON the car that is on screen rather than trailing it by a tick.
+   *
+   * Drawn in every room kind (arena, practice, playground alike): the resolver this reads its ring
+   * radius from is what already differs per room (EV34's rule), so no room-kind branch is needed or
+   * wanted here.
+   */
+  private syncAimHud(room: Room<ArenaState>, pose: SimBody | undefined): void {
+    const gfx = this.aimHudGfx;
+    if (!gfx) return;
+    const local = room.state.players.get(this.drivenSid(room));
+    // Off, spectating, dead, or between rooms: the HUD is simply not shown. Cleared by hiding rather
+    // than by an empty fill, so the picture survives for the frame the car comes back.
+    if (!AIM_HUD_CONFIG.enabled || !pose || !local || local.status !== PlayerStatus.IN_MATCH || !local.alive) {
+      gfx.setVisible(false);
+      return;
+    }
+    const spec: AimHudSpec = {
+      // The turret group answers to the loadout as well as to the switch: a car with no turret
+      // weapon draws no turret, so it gets no ring and no swing limits either (TR53). The crosshair,
+      // the third member of that group, is hidden by `syncCrosshair` through the same gate.
+      showTurret: AIM_HUD_CONFIG.turretHud && this.wantsPointerLock(room),
+      // The muzzle group answers to the switch alone. Every chassis has a heading.
+      showMuzzle: AIM_HUD_CONFIG.muzzleHud,
+      // The playground's own crosshair reach where one is set, the shipped value everywhere else —
+      // the ring means "this is as far as your crosshair goes", so it has to be the SAME number.
+      ringRadius: this.resolveTurretView().crosshairMaxDistance,
+      // Read live: `setTuning` writes `TURRET_CONFIG` in place, so a Turret-panel edit to the arc
+      // moves the lines on the next frame through the signature below.
+      maxSwingDeg: TURRET_CONFIG.maxSwingDeg,
+      pivot: turretMountOf(carIdOf(local)),
+    };
+    if (aimHudIsEmpty(spec)) {
+      gfx.setVisible(false);
+      return;
+    }
+    const key = aimHudSignature(spec);
+    if (key !== this.aimHudKey) {
+      drawAimHud(gfx, spec);
+      this.aimHudKey = key;
+    }
+    gfx.setPosition(pose.x, pose.y).setRotation(pose.angle).setVisible(true);
+  }
+
   private drawSelfArrow(
     gfx: Phaser.GameObjects.Graphics,
     room: Room<ArenaState>,
@@ -3752,6 +4381,9 @@ export class ArenaScene extends Phaser.Scene {
     this.movementHintGfx = gfx;
     this.movementHintTexts = [
       ...this.buildHintRow(gfx, MOVEMENT_KEYS, MOVEMENT_ARROWS, MOVEMENT_LABEL, MOVEMENT_HINT_Y),
+      // `actionAltsFor` always answers `[]` now (TR29): the one-layout controls pass left every
+      // fire slot with exactly one input, so `buildHintRow`'s `alts` cluster has nothing left to
+      // show.
       ...this.buildHintRow(
         gfx,
         actionKeysFor(this.localAbilityCount(), BASIC_ATTACK_CONFIG.enabled),
@@ -3763,8 +4395,13 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * One hint row: `keys` or `alts` label, e.g. "W A S D or ↑ ← ↓ → to move". Creates the texts,
-   * lays them out through `placeMovementHint`, and strokes the pill plates into `gfx`.
+   * One hint row: `keys` alone, or `keys` "or" `alts`, e.g. "W A S D or ↑ ← ↓ → to move". Creates
+   * the texts, lays them out through `placeMovementHint`, and strokes the pill plates into `gfx`.
+   *
+   * `alts` is empty for the action row now (TR29): the one-layout controls pass left every fire
+   * slot with exactly one input, so `actionAltsFor` always hands this an empty array. That branch
+   * is removed rather than left drawing a phantom "or" with nothing after it — the movement row
+   * (WASD/arrows) is the only caller that still exercises the two-cluster form.
    */
   private buildHintRow(
     gfx: Phaser.GameObjects.Graphics,
@@ -3773,11 +4410,12 @@ export class ArenaScene extends Phaser.Scene {
     label: string,
     y: number,
   ): Phaser.GameObjects.Text[] {
-    const glyphs = [...keys, MOVEMENT_JOINER, ...alts, label];
+    const hasAlts = alts.length > 0;
+    const glyphs = hasAlts ? [...keys, MOVEMENT_JOINER, ...alts, label] : [...keys, label];
     // Pills carry the white-on-copper of the slot keys; the joiner and the trailing label are plain
     // HUD text on the floor, so the row reads as a sentence with keys set into it.
     const isPill = (index: number): boolean =>
-      index < keys.length || (index > keys.length && index <= keys.length + alts.length);
+      index < keys.length || (hasAlts && index > keys.length && index <= keys.length + alts.length);
     const texts = glyphs.map((glyph, index) =>
       this.add
         .text(0, y, glyph, {
@@ -3791,12 +4429,17 @@ export class ArenaScene extends Phaser.Scene {
     );
 
     const width = (index: number): number => texts[index]!.width;
-    const items = movementHintItems(
-      keys.map((_, i) => width(i)),
-      width(keys.length),
-      alts.map((_, i) => width(keys.length + 1 + i)),
-      width(glyphs.length - 1),
-    );
+    const items: HintItem[] = hasAlts
+      ? movementHintItems(
+          keys.map((_, i) => width(i)),
+          width(keys.length),
+          alts.map((_, i) => width(keys.length + 1 + i)),
+          width(glyphs.length - 1),
+        )
+      : [
+          ...keys.map((_, i): HintItem => ({ kind: "pill", width: width(i) })),
+          { kind: "label", width: width(glyphs.length - 1) },
+        ];
     const { placements } = placeMovementHint(items, {
       padX: HUD_KEY_PILL_PAD_X,
       gap: MOVEMENT_HINT_GAP,

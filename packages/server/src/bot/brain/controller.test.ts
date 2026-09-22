@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  ARENA_01, boundsOf, driveOf, NEUTRAL_MODIFIERS, slotsOf, stepDrive, TICK_RATE_HZ, weaponDefOf,
-  type SimBody,
+  ARENA_01, boundsOf, driveOf, NEUTRAL_MODIFIERS, slotsOf, stepDrive, TICK_RATE_HZ, turretPivotOf,
+  weaponDefOf, wrapAngle, type SimBody,
 } from "@motor-combat-moba/shared";
 import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
@@ -690,6 +690,76 @@ describe("HumanController", () => {
       if (out.fireSlots !== 0) fired = true;
     }
     expect(fired).toBe(true);
+  });
+
+  describe("turret aim (TR25, TR26)", () => {
+    // Fire slot 0 is the basic attack, which ships switched off and so is never pressed; fire slot 1
+    // is a single ability. With `predator` there, every press the bot makes is a turret press.
+    const slot = (weaponId: "basic-attack-bullseye" | "predator" | "pepperbox") => ({
+      weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+      range: weaponDefOf(weaponId).range,
+    });
+    const predatorKit = [slot("basic-attack-bullseye"), slot("predator")];
+    // Stationary, 350 units off the bot's left flank: the nose never faces it inside the run.
+    const them = {
+      sessionId: "them", carId: "mirage" as const, team: 1 as const,
+      x: 400, y: 550, angle: Math.PI, vx: 0, vy: 0, hp: 70, maxHp: 70,
+      alive: true, phased: false, statuses: [], maneuver: 0,
+    };
+    const selfView = { ...view().self, slots: predatorKit, x: 400, y: 200, angle: 0 };
+    const quiet = {
+      ...BOT_PROFILES.hard,
+      blunderChance: 0, idleFidgetChance: 0, acquireTicks: 0, recomputeTicks: 1,
+      reactionDelayTicks: 0, burstGapTicks: 0, stateEstimationSigma: 0,
+    };
+    const pivot = turretPivotOf(selfView, selfView.carId);
+    const solved = Math.atan2(them.y - pivot.y, them.x - pivot.x);
+
+    function aimsOf(profile: typeof quiet): number[] {
+      const bot = new HumanController("hard", { profile });
+      const aims: number[] = [];
+      const rng = makeRng(3);
+      for (let tick = 0; tick < 30; tick++) {
+        const out = bot.decide(view({ tick, self: selfView, others: [them], rng }));
+        if (out.fireSlots !== 0) {
+          expect(out.fireSlots, `tick ${tick}`).toBe(1 << 1);
+          expect(out.aimAngle, `tick ${tick}`).toBeDefined();
+          aims.push(out.aimAngle!);
+        }
+      }
+      return aims;
+    }
+
+    it("emits the solved bearing, off the nose, under a zero-error profile", () => {
+      const aims = aimsOf({ ...quiet, aimErrorSigmaRad: 0 });
+      expect(aims.length).toBeGreaterThan(0);
+      for (const aim of aims) expect(Math.abs(wrapAngle(aim - solved))).toBeLessThan(1e-3);
+    });
+
+    it("carries the tier's aim error on the bearing, within its bound", () => {
+      const sigma = 0.05;
+      const aims = aimsOf({ ...quiet, aimErrorSigmaRad: sigma });
+      expect(aims.length).toBeGreaterThan(0);
+      for (const aim of aims) expect(Math.abs(wrapAngle(aim - solved))).toBeLessThan(5 * sigma);
+      // The error is really applied, not merely tolerated.
+      expect(aims.some((aim) => Math.abs(wrapAngle(aim - solved)) > 1e-4)).toBe(true);
+    });
+
+    it("sends no bearing for a fixed-muzzle press", () => {
+      const pepperboxKit = [slot("basic-attack-bullseye"), slot("pepperbox")];
+      const bot = new HumanController("hard", { profile: { ...quiet, aimErrorSigmaRad: 0 } });
+      const ahead = { ...them, x: 560, y: 200 };
+      let fired = 0;
+      const rng = makeRng(3);
+      for (let tick = 0; tick < 30; tick++) {
+        const out = bot.decide(view({
+          tick, self: { ...selfView, slots: pepperboxKit }, others: [ahead], rng,
+        }));
+        if (out.fireSlots !== 0) fired += 1;
+        expect(out.aimAngle).toBeUndefined();
+      }
+      expect(fired).toBeGreaterThan(0);
+    });
   });
 
   it("does NOT declare an evade excursion merely for standing in a loaded gun's line (P27)", () => {

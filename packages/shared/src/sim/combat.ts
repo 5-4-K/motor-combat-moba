@@ -22,6 +22,7 @@ import { ManeuverKind, NO_MANEUVER } from "./maneuver.js";
 import { applyStatus, hasStatus, statusPulses, type ActiveStatus } from "./status/statuses.js";
 import { modifiersOf, NEUTRAL_MODIFIERS, type Modifiers } from "./status/modifiers.js";
 import { beginFire, cancelPending, releaseShots, tickRecharge, type FireState } from "./weapons/fire.js";
+import { turnTurret } from "./weapons/turret.js";
 import { resolveInstanceHits, type PoseSnapshot } from "./weapons/hits.js";
 import {
   instanceExpired,
@@ -98,6 +99,11 @@ export interface CombatPlayer {
    * attribute to nobody.
    */
   lastDamagerSessionId: string;
+  /**
+   * The world bearing this tick's press was aimed along (spec TR24), or null/absent when the input
+   * carried none. Read only when a press commits a turret weapon.
+   */
+  aimBearing?: number | null;
 }
 
 /**
@@ -207,7 +213,7 @@ export interface CombatResult {
  * Per-tick phase order — pinned by `weapons/fire.ts`'s own module comment and its tests:
  *
  *     read modifiers -> status pulses -> status requests -> tickRecharge ->
- *     (step existing instances) -> beginFire -> releaseShots ->
+ *     (step existing instances) -> beginFire -> turnTurret -> releaseShots ->
  *     hit resolution (which applies each weapon's `applies` entries)
  *
  * Statuses bracket the rest of the tick. Every car's modifiers are derived ONCE, up front, from the
@@ -449,7 +455,14 @@ export function runCombat(input: CombatInput): CombatResult {
     const blocked = player.maneuver !== ManeuverKind.NONE ? maneuverSlotMask(player.fireState) : 0;
     if (!mods.disarmed) {
       const prevPending = player.fireState.pending;
-      player.fireState = beginFire(player.sessionId, player.fireState, player.fireMask & ~blocked, world.tick);
+      player.fireState = beginFire(
+        player.sessionId,
+        player.fireState,
+        player.fireMask & ~blocked,
+        world.tick,
+        player.aimBearing ?? null,
+        player.angle,
+      );
       // A hold weapon commits the car the moment the wind-up starts (O10): press -> HOLD for
       // wind-up + growth + linger, released early only by wreck or stun.
       const pending = player.fireState.pending;
@@ -471,6 +484,9 @@ export function runCombat(input: CombatInput): CombatResult {
         }
       }
     }
+    // TR11/TR15: the turret turns every tick a turret press is pending, disarmed or not — a turn in
+    // progress finishes like a wind-up does.
+    player.fireState = turnTurret(player.fireState, player.angle, world.tick);
     const released = releaseShots(player.fireState, world.tick, mods.weaponCooldown);
     player.fireState = released.state;
     for (const order of released.orders) {
@@ -482,8 +498,8 @@ export function runCombat(input: CombatInput): CombatResult {
         applySelfStatuses(player, order.weaponId, world.tick, order.finalVolley);
         continue;
       }
-      // `null` is "along the car's heading", which is now the only way anything exits a muzzle:
-      // every shot's exit angle is welded to the car's facing, fanned by `muzzles` and `spread`.
+      // Every shot's exit angle is welded to the car's facing for a fixed muzzle (fanned by
+      // `muzzles` and `spread`), or to the turret's frozen bearing for a turret row (spec TR18).
       // `homingTargetId` is likewise always `""` at spawn — the one shipped homing mode acquires
       // by proximity, in flight, from phase 2 above.
       const spawned = spawnInstances(
@@ -491,9 +507,10 @@ export function runCombat(input: CombatInput): CombatResult {
         player,
         world.tick,
         instanceSeq,
-        null,
         mods.damageDealt,
         "",
+        undefined,
+        { obstacles: world.obstacles, bounds: world.bounds },
       );
       instanceSeq = spawned.seq;
       stepped.push(...spawned.instances);

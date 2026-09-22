@@ -14,6 +14,7 @@
  *   notes    — context that shapes the flags or the report, carrying no judgement.
  *
  * Usage: node .claude/skills/process-car-asset/scripts/preflight.mjs <image> [carId]
+ *        node .claude/skills/process-car-asset/scripts/preflight.mjs <image> <carId|default> --turret
  * Exit codes: 0 = no blockers, 1 = blockers present, 2 = could not inspect at all.
  * JSON goes to stdout in every case, so the caller always has something to read.
  */
@@ -38,9 +39,14 @@ function emit(payload, code) {
   process.exit(code);
 }
 
-const [source, carId] = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+const cliFlags = new Set(process.argv.slice(2).filter((a) => a.startsWith("--")));
+const turret = cliFlags.has("--turret");
+const [source, id] = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 if (!source) {
-  emit({ ok: false, blockers: [{ code: "no-source", message: "usage: preflight.mjs <image> [carId]" }] }, 2);
+  emit(
+    { ok: false, blockers: [{ code: "no-source", message: "usage: preflight.mjs <image> [carId] [--turret]" }] },
+    2,
+  );
 }
 
 // Both of these come from the repo rather than the skill, and both have a specific remedy the
@@ -69,7 +75,7 @@ try {
 }
 
 const { CAR_TABLE, DRIVE_CONFIG, isCarId } = shared;
-const { outputSizeFor, describeFit, importWarnings, SUPERSAMPLE } = importer;
+const { outputSizeFor, describeFit, importWarnings, SUPERSAMPLE, TURRET_TARGET_PX } = importer;
 
 const hull = { width: DRIVE_CONFIG.carWidth, height: DRIVE_CONFIG.carHeight };
 const knownCarIds = Object.keys(CAR_TABLE);
@@ -77,11 +83,21 @@ const blockers = [];
 const warnings = [];
 const notes = [];
 
-if (carId !== undefined && !isCarId(carId)) {
-  blockers.push({
-    code: "unknown-car-id",
-    message: `unknown carId "${carId}". Known ids: ${knownCarIds.join(", ")}.`,
-  });
+// A turret id may be "default" (the shared fallback) or any carId; a car id must be a real carId.
+if (id !== undefined) {
+  if (turret) {
+    if (id !== "default" && !isCarId(id)) {
+      blockers.push({
+        code: "unknown-turret-id",
+        message: `unknown turret id "${id}". Use "default" or a carId: ${knownCarIds.join(", ")}.`,
+      });
+    }
+  } else if (!isCarId(id)) {
+    blockers.push({
+      code: "unknown-car-id",
+      message: `unknown carId "${id}". Known ids: ${knownCarIds.join(", ")}.`,
+    });
+  }
 }
 
 if (!fs.existsSync(source)) {
@@ -153,6 +169,10 @@ if (meta.hasAlpha && transparent === 0) {
   });
 }
 
+// A turret targets its own flat long edge (36u x 2px/u) rather than 2x the car hull's long edge —
+// it is not fit inside the hull the way a chassis sprite is — so it has no hull-fit warnings either.
+const longEdge = turret ? TURRET_TARGET_PX : SUPERSAMPLE * Math.max(hull.width, hull.height);
+
 // Trim on the raw buffer, exactly as the importer does, so `bbox` below is the art the game will
 // actually draw rather than the canvas it happened to be exported on.
 let bbox = null;
@@ -163,8 +183,8 @@ try {
     .trim()
     .toBuffer({ resolveWithObject: true });
   bbox = { width: trimmed.info.width, height: trimmed.info.height };
-  out = outputSizeFor(bbox, SUPERSAMPLE * Math.max(hull.width, hull.height));
-  fit = describeFit(out, hull);
+  out = outputSizeFor(bbox, longEdge);
+  if (!turret) fit = describeFit(out, hull);
 } catch (err) {
   blockers.push({
     code: "empty-after-trim",
@@ -177,15 +197,18 @@ if (bbox) {
   if (sourceLongEdge < WORKING_LONG_EDGE) {
     warnings.push({
       code: "small-source",
-      message: `art is only ${bbox.width}x${bbox.height} after trim; the importer renders at ${SUPERSAMPLE * Math.max(hull.width, hull.height)}px on the long edge, so this will be upscaled and soft.`,
+      message: `art is only ${bbox.width}x${bbox.height} after trim; the importer renders at ${longEdge}px on the long edge, so this will be upscaled and soft.`,
     });
   }
   // Delegate to the importer's own warning set rather than recomputing it: two implementations of
   // "does this fill the hull" drift by a percentage point and make the preflight look wrong when it
   // is merely rounding differently. `hasAlpha`/`keyed` are pinned true only to suppress its alpha
   // warning, which is a blocker here and already reported above; anything else it grows, we inherit.
-  for (const message of importWarnings({ hasAlpha: true, keyed: true, format: meta.format, source: bbox, hull })) {
-    warnings.push({ code: "under-fills-hull", message });
+  // Turret art skips this entirely — see `longEdge` above.
+  if (!turret) {
+    for (const message of importWarnings({ hasAlpha: true, keyed: true, format: meta.format, source: bbox, hull })) {
+      warnings.push({ code: "under-fills-hull", message });
+    }
   }
   if (transparentFraction > 0.9) {
     warnings.push({
@@ -199,18 +222,20 @@ if (bbox) {
 // Read rather than judged: an existing row is normal (re-importing is the supported way to swap
 // art) but the human should know their tuned fields are being preserved and their file replaced.
 let manifestEntry = null;
-if (carId && isCarId(carId)) {
+const idIsValid = id !== undefined && (turret ? id === "default" || isCarId(id) : isCarId(id));
+if (idIsValid) {
+  const manifestKey = turret ? `turret.${id}` : `car.${id}`;
   const manifest = fs.existsSync(manifestPath) ? JSON.parse(fs.readFileSync(manifestPath, "utf8")) : { sprites: {} };
-  manifestEntry = manifest.sprites?.[`car.${carId}`] ?? null;
+  manifestEntry = manifest.sprites?.[manifestKey] ?? null;
   if (manifestEntry) {
     notes.push({
       code: "existing-entry",
-      message: `car.${carId} already exists in the manifest (file: ${manifestEntry.file}). Its art will be replaced; hand-tuned fields are preserved.`,
+      message: `${manifestKey} already exists in the manifest (file: ${manifestEntry.file}). Its art will be replaced; hand-tuned fields are preserved.`,
     });
     if (manifestEntry.colorMode === "none") {
       notes.push({
         code: "pre-coloured",
-        message: `car.${carId} is marked colorMode "none", so the importer keeps colour without needing --keep-color.`,
+        message: `${manifestKey} is marked colorMode "none", so the importer keeps colour without needing --keep-color.`,
       });
     }
   }
@@ -234,7 +259,9 @@ emit({
     drawnHeight: Number(fit.drawnHeight.toFixed(1)),
     hullCoverage: `${((100 * fit.drawnWidth) / hull.width).toFixed(0)}% x ${((100 * fit.drawnHeight) / hull.height).toFixed(0)}%`,
   },
-  carId: carId ?? null,
+  turret,
+  carId: !turret ? (id ?? null) : null,
+  turretId: turret ? (id ?? null) : null,
   knownCarIds,
   manifestEntry,
   blockers,

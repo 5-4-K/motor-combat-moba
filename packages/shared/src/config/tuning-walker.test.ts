@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { CAR_TABLE } from "./car-config.js";
+import { DRIVE_CONFIG } from "./drive-config.js";
 import { setTuning } from "./tuning.js";
 import { sanitizeStoredTuning, tunableFields, validateTuning } from "./tuning-walker.js";
 
@@ -68,5 +70,29 @@ describe("tuning walker", () => {
     const emitted = tunableFields().filter((f) => f.group === "impulse");
     expect(emitted.map((f) => f.path).sort()).toEqual(["impulse.spinScale", "impulse.wallContactPad"]);
     expect(emitted.every((f) => f.kind === "number")).toBe(true);
+  });
+
+  it("emits the turret root and every chassis's mount under its own group, never the car group (TR58)", () => {
+    const turret = tunableFields().filter((f) => f.group === "turret");
+    const global = turret.filter((f) => f.ownerId === undefined).map((f) => f.path).sort();
+    expect(global).toEqual(["turret.maxSwingDeg", "turret.turnRateDegPerSec"]);
+    for (const carId of Object.keys(CAR_TABLE)) {
+      const mount = turret.filter((f) => f.ownerId === carId).map((f) => f.path).sort();
+      expect(mount, carId).toEqual([`car.${carId}.turretMount.x`, `car.${carId}.turretMount.y`]);
+    }
+    // The Physics panel's Cars tab reads `group === "car"`; a mount there would show up twice.
+    expect(tunableFields().some((f) => f.group === "car" && f.path.includes("turretMount"))).toBe(false);
+  });
+
+  it("holds the turret knobs to a sensible range: turn rate above zero, swing in (0, 360], mount on the hull (TR58)", () => {
+    expect(validateTuning({ "turret.turnRateDegPerSec": 0 }).ok).toBe(false);
+    expect(validateTuning({ "turret.maxSwingDeg": 0 }).ok).toBe(false);
+    expect(validateTuning({ "turret.maxSwingDeg": 361 }).ok).toBe(false);
+    expect(validateTuning({ "turret.maxSwingDeg": 360, "turret.turnRateDegPerSec": 720 }).ok).toBe(true);
+    const halfW = DRIVE_CONFIG.carWidth / 2;
+    const halfH = DRIVE_CONFIG.carHeight / 2;
+    expect(validateTuning({ "car.bastion.turretMount.x": -halfW, "car.bastion.turretMount.y": halfH }).ok).toBe(true);
+    expect(validateTuning({ "car.bastion.turretMount.x": halfW + 1 }).ok).toBe(false);
+    expect(validateTuning({ "car.bastion.turretMount.y": -halfH - 1 }).ok).toBe(false);
   });
 });

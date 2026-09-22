@@ -108,7 +108,7 @@ motor-combat-MOBA/
         ├── main.ts
         ├── config/client-mode.ts
         ├── config/display.ts     # FIT-to-window scaling rationale + fullscreen key
-        ├── config/slot-keys.ts   # SLOT_KEYS: H (basic attack, slot 0) then J/K/L/; + LMB/RMB/SPACE/MMB; pill + hint glyphs; slotMaskFrom
+        ├── config/slot-keys.ts   # SLOT_KEYS: LMB (basic attack, slot 0), RMB/Q/E/SPACE (abilities 1-4); pill + hint glyphs; slotMaskFrom
         ├── assets/
         │   ├── manifest-schema.ts # SpriteEntry, SPRITE_DEFAULTS, parseManifest (never throws)
         │   ├── load-manifest.ts   # MANIFEST_URL, fetch + parse, empty manifest on any failure

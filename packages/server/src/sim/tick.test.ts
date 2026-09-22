@@ -13,6 +13,7 @@ import {
   forwardOf,
   lateralOf,
   toWorld,
+  wrapAngle,
   type CarId,
   type InputMessage,
   type Modifiers,
@@ -731,6 +732,103 @@ describe("serverTick fire mask reporting", () => {
     const masks = tickWith(player, queue);
     expect(masks.size).toBe(0);
     expect(player.lastProcessedInputSeq).toBe(NET_CONFIG.maxInputsPerTick + 1);
+  });
+
+  it("reports the aimAngle of the last simulated input whose PRESS mask was non-zero", () => {
+    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const queue: InputMessage[] = [
+      { seq: 1, steer: 0, throttle: 0, fireSlots: 0, aimAngle: 0.1 },
+      { seq: 2, steer: 0, throttle: 0, fireSlots: 0b010, aimAngle: 0.2 },
+      { seq: 3, steer: 0, throttle: 0, fireSlots: 0b010, aimAngle: 0.3 },
+    ];
+    const { aims } = serverTick(
+      stateWith(player),
+      new Map([["p1", queue]]),
+      DT,
+      RoomPhase.MATCH,
+      NO_EFFECTS,
+      new Map(),
+      new Map(),
+    );
+    // Seq 2 is the last input whose PRESSED mask was non-zero (seq 3 only holds the same bit down).
+    expect(aims.get("p1")).toBe(0.2);
+  });
+
+  it("normalises an absurd finite aimAngle before storing it (final-fixes item 4)", () => {
+    // A malformed or hostile client could send anything finite; `wrapAngle` is the one place the
+    // sim/client turret code agrees an angle is normalised, so the captured aim must go through it
+    // too rather than reach `PlayerState.aimBearing` (and the turret/lead math built on it) raw.
+    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const { aims } = serverTick(
+      stateWith(player),
+      new Map([["p1", [{ seq: 1, steer: 0, throttle: 0, fireSlots: 0b010, aimAngle: 1e300 }]]]),
+      DT,
+      RoomPhase.MATCH,
+      NO_EFFECTS,
+      new Map(),
+      new Map(),
+    );
+    const aim = aims.get("p1");
+    expect(aim).toBeDefined();
+    expect(aim).toBeCloseTo(wrapAngle(1e300), 10);
+    expect(aim!).toBeGreaterThan(-Math.PI);
+    expect(aim!).toBeLessThanOrEqual(Math.PI);
+  });
+
+  it("reports no aim when the pressing input carried none", () => {
+    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const { aims } = serverTick(
+      stateWith(player),
+      new Map([["p1", [fires(1, 0b010)]]]),
+      DT,
+      RoomPhase.MATCH,
+      NO_EFFECTS,
+      new Map(),
+      new Map(),
+    );
+    expect(aims.has("p1")).toBe(false);
+  });
+
+  it("clears an earlier press's aim when a LATER pressing input in the same batch carries none (fix round 1)", () => {
+    // TR23: the aim is that of the LAST pressing input, and a pressing input with no aimAngle
+    // records nothing — it must not leave an earlier press's stale bearing in place.
+    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const { aims } = serverTick(
+      stateWith(player),
+      new Map([
+        [
+          "p1",
+          [
+            { seq: 1, steer: 0, throttle: 0, fireSlots: 0b010, aimAngle: 0.5 },
+            { seq: 2, steer: 0, throttle: 0, fireSlots: 0b110 },
+          ],
+        ],
+      ]),
+      DT,
+      RoomPhase.MATCH,
+      NO_EFFECTS,
+      new Map(),
+      new Map(),
+    );
+    expect(aims.has("p1")).toBe(false);
+  });
+
+  it("contributes no aim from an input past the per-tick simulate cap", () => {
+    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const queue: InputMessage[] = [
+      ...ups(...Array.from({ length: NET_CONFIG.maxInputsPerTick }, (_, i) => i + 1)),
+      { ...fires(NET_CONFIG.maxInputsPerTick + 1, 0b010), aimAngle: 0.9 },
+    ];
+    const { aims } = serverTick(
+      stateWith(player),
+      new Map([["p1", queue]]),
+      DT,
+      RoomPhase.MATCH,
+      NO_EFFECTS,
+      new Map(),
+      new Map(),
+    );
+    expect(aims.has("p1")).toBe(false);
   });
 
   it("names every player who fired, not just the first", () => {

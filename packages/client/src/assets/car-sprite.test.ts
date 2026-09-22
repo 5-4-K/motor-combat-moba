@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CAR_ID } from "@motor-combat-moba/shared";
-import { resolveCarSprite, type TextureLookup } from "./car-sprite.js";
+import { resolveCarSprite, resolveTurretSprite, type TextureLookup } from "./car-sprite.js";
 import type { AssetManifest, SpriteEntry } from "./manifest-schema.js";
 
 const HULL = { width: 48, height: 32 };
@@ -83,5 +83,63 @@ describe("resolveCarSprite", () => {
     expect(resolved?.fit.originX).toBe(0.25);
     // Fitted against the rotated bounds, so the up-facing 64x128 fills the hull.
     expect(resolved?.fit.scale).toBeCloseTo(0.375);
+  });
+});
+
+describe("resolveTurretSprite (TR42)", () => {
+  const TURRET = { width: 72, height: 42 };
+
+  it("prefers the chassis's own turret over the shared default", () => {
+    const resolved = resolveTurretSprite(
+      manifestOf({ "turret.bastion": entry(), "turret.default": entry() }),
+      loaded({ "turret.bastion": TURRET, "turret.default": TURRET }),
+      "bastion",
+    );
+    expect(resolved?.key).toBe("turret.bastion");
+  });
+
+  it("falls back to turret.default when the chassis has no row, or its texture never loaded", () => {
+    const noRow = resolveTurretSprite(
+      manifestOf({ "turret.default": entry() }),
+      loaded({ "turret.default": TURRET }),
+      "bastion",
+    );
+    expect(noRow?.key).toBe("turret.default");
+    const unloaded = resolveTurretSprite(
+      manifestOf({ "turret.bastion": entry(), "turret.default": entry() }),
+      loaded({ "turret.default": TURRET }),
+      "bastion",
+    );
+    expect(unloaded?.key).toBe("turret.default");
+  });
+
+  it("returns undefined when neither key resolves, so the caller draws the procedural turret", () => {
+    expect(resolveTurretSprite(manifestOf({}), loaded({}), "bastion")).toBeUndefined();
+  });
+
+  it("scales the texture's long edge to the turret's display length, not to the hull", () => {
+    const fit = resolveTurretSprite(
+      manifestOf({ "turret.default": entry({ origin: [0.31, 0.5] }) }),
+      loaded({ "turret.default": TURRET }),
+      "bastion",
+    )?.fit;
+    expect(fit?.scale).toBeCloseTo(36 / 72);
+    expect(fit?.originX).toBe(0.31);
+    const scaled = resolveTurretSprite(
+      manifestOf({ "turret.default": entry({ scale: 1.5 }) }),
+      loaded({ "turret.default": TURRET }),
+      "bastion",
+    )?.fit;
+    expect(scaled?.scale).toBeCloseTo(54 / 72);
+  });
+
+  it("sizes against a caller-given display length when the playground hands one in (TR60)", () => {
+    const fit = resolveTurretSprite(
+      manifestOf({ "turret.default": entry({ scale: 1.5 }) }),
+      loaded({ "turret.default": TURRET }),
+      "bastion",
+      48,
+    )?.fit;
+    expect(fit?.scale).toBeCloseTo((48 * 1.5) / 72);
   });
 });

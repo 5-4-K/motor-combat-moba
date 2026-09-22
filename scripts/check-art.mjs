@@ -16,6 +16,8 @@
 
 import { arenaIdFromArtKey } from "../packages/shared/dist/index.js";
 import { finding } from "./check-weapons.mjs";
+import { GREYSCALE_CHROMA_LIMIT } from "./check-cars.mjs";
+import { TURRET_KEY_PREFIX } from "./import-art.mjs";
 
 /** Extensions treated as art. Anything else in the tree (READMEs, the manifest) is not an asset. */
 export const ART_EXTENSIONS = [".png"];
@@ -69,16 +71,66 @@ export function checkManifestShape({ rows, files }) {
 }
 
 /**
- * Whether a key sits in a namespace the client resolves. Arena keys are included even though no
- * arena art exists yet: the convention is live in `build-release.mjs`'s pruning, so a key landing
- * there early is correct, not a mistake. See `packages/shared/src/arena/art-keys.ts`.
+ * Which class of art a manifest key belongs to, or `undefined` for a key in no namespace the client
+ * resolves. Turret art shares the `"cars"` scope with chassis sprites rather than getting its own —
+ * a car with no `turret.<id>` row still draws (its resolution order falls to `turret.default`, then
+ * a procedural turret, exactly as a car with no `car.<id>` row falls to a procedural silhouette), and
+ * both kinds of row carry the same player-tint rule a weapon icon's `colorMode: "none"` does not.
+ * Arena keys are included even though no arena art exists yet: the convention is live in
+ * `build-release.mjs`'s pruning, so a key landing there early is correct, not a mistake. See
+ * `packages/shared/src/arena/art-keys.ts`.
  */
+export function namespaceScopeOf(key) {
+  if (key.startsWith("car.") || key.startsWith(TURRET_KEY_PREFIX)) return "cars";
+  if (key.startsWith("weapon-icon.")) return "weapons";
+  if (arenaIdFromArtKey(key) !== undefined) return "arenas";
+  return undefined;
+}
+
+/** Whether a key sits in a namespace the client resolves at all. */
 export function isKnownNamespace(key) {
-  return (
-    key.startsWith("car.") ||
-    key.startsWith("weapon-icon.") ||
-    arenaIdFromArtKey(key) !== undefined
-  );
+  return namespaceScopeOf(key) !== undefined;
+}
+
+/**
+ * Every complaint about one turret sprite, from facts already gathered. Mirrors `checkCarSprite` in
+ * `scripts/check-cars.mjs` — a turret is player-tinted the same way a chassis sprite is, so it owes
+ * the same alpha and greyscale rules — but is manifest-driven rather than roster-driven: unlike a
+ * car, which is expected to eventually carry `car.<id>` art, a chassis owes no `turret.<id>` row at
+ * all (the shared `turret.default` is a complete answer on its own), so this is only ever called for
+ * a key that already exists in the manifest and never used to manufacture a "missing" warning for
+ * every car that simply has not customised its turret.
+ */
+export function checkTurretSprite({ turretId, row, image }) {
+  const out = [];
+  if (!image) {
+    out.push(finding("blocker", "missing-file", `manifest names ${row.file}, which is not on disk`));
+    return out;
+  }
+  if (!image.hasAlpha || image.channels < 4) {
+    out.push(
+      finding(
+        "blocker",
+        "no-alpha",
+        "no alpha channel — the turret draws as an opaque rectangle over the car. Re-save as a 32-bit PNG",
+      ),
+    );
+  }
+  if (image.palettized) {
+    out.push(
+      finding("warning", "palettized", "saved as a palette PNG, which bands the anti-aliased edges"),
+    );
+  }
+  if (row.colorMode !== "none" && image.maxChroma > GREYSCALE_CHROMA_LIMIT) {
+    out.push(
+      finding(
+        "warning",
+        "not-greyscale",
+        `carries colour (max chroma ${image.maxChroma}) but is player-tinted — the tint will muddy it. Re-import without --keep-color, or set colorMode "none"`,
+      ),
+    );
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,12 +140,46 @@ export function isKnownNamespace(key) {
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { checkCars, reportCars } from "./check-cars.mjs";
+import { checkCars, readSpriteFacts, reportCars } from "./check-cars.mjs";
 import { checkWeapons, reportWeapons } from "./check-weapons.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const artDir = path.join(rootDir, "packages", "client", "public", "art");
 const manifestPath = path.join(artDir, "manifest.json");
+
+/**
+ * Every turret row's findings, keyed by the id after `turret.`. Driven off the manifest rather than
+ * off `CAR_TABLE`, unlike `checkCars` — see `checkTurretSprite`'s doc comment for why a car with no
+ * turret row is not itself a finding.
+ */
+export async function checkTurrets(manifest) {
+  const results = [];
+  for (const [key, row] of Object.entries(manifest.sprites ?? {})) {
+    if (!key.startsWith(TURRET_KEY_PREFIX)) continue;
+    const turretId = key.slice(TURRET_KEY_PREFIX.length);
+    const image = await readSpriteFacts(path.join(artDir, row.file));
+    results.push({ id: turretId, findings: checkTurretSprite({ turretId, row, image }) });
+  }
+  return results;
+}
+
+/** Print one line per turret plus its findings, and return how many blockers were seen. */
+export function reportTurrets(results) {
+  let blockers = 0;
+  for (const { id, findings } of results) {
+    const verdict = findings.some((f) => f.level === "blocker")
+      ? "FAIL"
+      : findings.length > 0
+        ? "warn"
+        : "ok";
+    console.log(`${verdict.padEnd(5)} turret.${id}`);
+    for (const f of findings) {
+      console.log(`        ${f.level}: ${f.message}`);
+      if (f.level === "blocker") blockers++;
+    }
+  }
+  return blockers;
+}
 
 /** Every art file under the art directory, relative to it, with forward slashes. */
 export function artFilesOnDisk(dir = artDir) {
@@ -137,10 +223,13 @@ export async function main() {
   console.log("\nCHASSIS SPRITES");
   const carBlockers = reportCars(await checkCars(manifest));
 
+  console.log("\nTURRET SPRITES");
+  const turretBlockers = reportTurrets(await checkTurrets(manifest));
+
   console.log("\nWEAPON ICONS");
   const weaponBlockers = reportWeapons(await checkWeapons(manifest));
 
-  const blockers = countBlockers(shape) + carBlockers + weaponBlockers;
+  const blockers = countBlockers(shape) + carBlockers + turretBlockers + weaponBlockers;
   console.log(
     blockers === 0
       ? "\nall art checks pass"

@@ -16,6 +16,7 @@ const ARENA_DEPTH = -10;
 const SHOT_DEPTH = -5;
 const CAR_DEPTH = 0;
 const MANEUVER_DEPTH = 2;
+const AIM_HUD_DEPTH = -2;
 const ARROW_DEPTH = 52;
 const HP_BAR_DEPTH = 60;
 
@@ -32,6 +33,13 @@ describe("fx depth constants", () => {
   it("puts ground FX above decals and still below the shots", () => {
     expect(GROUND_FX_DEPTH).toBeGreaterThan(DECAL_DEPTH);
     expect(GROUND_FX_DEPTH).toBeLessThan(SHOT_DEPTH);
+  });
+
+  it("keeps the local player's aim HUD above the glow and still under every car", () => {
+    // The aim HUD is a ruler laid on the floor: the chassis has to sit ON it, and an additive shell
+    // halo crossing your own car must not wash the ring out.
+    expect(AIM_HUD_DEPTH).toBeGreaterThan(GLOW_DEPTH);
+    expect(AIM_HUD_DEPTH).toBeLessThan(CAR_DEPTH);
   });
 
   it("puts car shadows under every car, above the decals they darken", () => {

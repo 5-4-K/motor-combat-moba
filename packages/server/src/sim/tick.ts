@@ -14,6 +14,7 @@ import {
   ramDefenceOf,
   speedOf,
   stepSim,
+  wrapAngle,
   type ArenaDef,
   type ContextEntry,
   type InputMessage,
@@ -65,6 +66,14 @@ export interface TickResult {
    * the attacker or the victim.
    */
   approachVelocities: Map<string, { vx: number; vy: number }>;
+  /**
+   * Per session id, the `aimAngle` of the LAST simulated input this tick whose fire mask carried a
+   * new press (spec TR23) — not the last one that happened to carry an aim. A later press in the same
+   * batch overwrites an earlier one's entry, including clearing it: if THAT last pressing input
+   * carried no `aimAngle`, the session is absent here, and the press then fires where the turret
+   * already points (TR12).
+   */
+  aims: Map<string, number>;
 }
 
 /**
@@ -154,6 +163,7 @@ export function serverTick(
   // of the hulls built from it, so it is threaded through rather than recomputed.
   const entries = sortedEntries(state);
   const masks = new Map<string, number>();
+  const aims = new Map<string, number>();
   const approachVelocities = new Map<string, { vx: number; vy: number }>();
 
   for (const { sessionId, player } of entries) {
@@ -232,13 +242,23 @@ export function serverTick(
         const prev = prevFireMasks.get(sessionId) ?? 0;
         const pressed = clean & ~prev;
         prevFireMasks.set(sessionId, clean);
-        if (pressed !== 0) masks.set(sessionId, (masks.get(sessionId) ?? 0) | pressed);
+        if (pressed !== 0) {
+          masks.set(sessionId, (masks.get(sessionId) ?? 0) | pressed);
+          // The LAST pressing input in the batch decides the aim (TR23), not the last one that
+          // happened to carry one: a later press with no `aimAngle` must overwrite an earlier
+          // press's bearing with "none", not leave it in place.
+          // Normalised through `wrapAngle` before it is stored: a client is untrusted input (local
+          // invariant), and an absurd-but-finite value (say, 1e300) would otherwise ride all the way
+          // to `PlayerState.aimBearing` and the turret/lead math built on top of it unnormalised.
+          if (msg.aimAngle !== undefined) aims.set(sessionId, wrapAngle(msg.aimAngle));
+          else aims.delete(sessionId);
+        }
       }
       player.lastProcessedInputSeq = msg.seq;
     }
   }
 
-  return { masks, approachVelocities };
+  return { masks, aims, approachVelocities };
 }
 
 function bySeq(a: InputMessage, b: InputMessage): number {

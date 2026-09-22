@@ -4,6 +4,7 @@ import {
   carSpriteKey,
   loadsEveryArena,
   shouldLoadAssetKey,
+  turretSpriteKeys,
   weaponIconKey,
 } from "./asset-keys.js";
 
@@ -28,6 +29,16 @@ describe("weaponIconKey", () => {
   it("namespaces a weapon id", () => {
     expect(weaponIconKey("fireball")).toBe("weapon-icon.fireball");
     expect(weaponIconKey("needler")).toBe("weapon-icon.needler");
+  });
+});
+
+describe("turretSpriteKeys", () => {
+  it("tries a car's own turret first, then the shared default", () => {
+    expect(turretSpriteKeys("mirage")).toEqual(["turret.mirage", "turret.default"]);
+  });
+
+  it("keeps the resolution order for an unrecognised id, since turret.default still catches it", () => {
+    expect(turretSpriteKeys("bogus")).toEqual(["turret.bogus", "turret.default"]);
   });
 });
 

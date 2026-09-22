@@ -144,6 +144,56 @@ If the sprite does not appear at all, the client falls back to its procedural si
 manifest key is missing or its file is absent — check the row and the file on disk before
 suspecting the import.
 
+## Turret art
+
+A turret is a second, independently-rotating layer on top of the chassis sprite — the mouse-aim
+barrel every car now carries (spec TR41-TR46) — and goes through the same importer with one extra
+flag:
+
+```bash
+node scripts/import-art.mjs <image> <carId|default> --turret
+```
+
+`<carId|default>` is either a specific chassis (`turret.<carId>`, checked for its own art before
+anything else) or `default` (`turret.default`, the shared fallback every car without its own turret
+draws instead). Preflight the same way, adding the flag:
+
+```bash
+node .claude/skills/process-car-asset/scripts/preflight.mjs <image> <carId|default> --turret
+```
+
+Four things differ from a chassis import, and they are all consequences of a turret being a rotating
+overlay rather than a car:
+
+- **The art faces +x.** Same convention as a car sprite — the sim's forward is `+x`, pointing right —
+  so the barrel should point right in the source image, same as a chassis facing right.
+- **It is not fit inside the 60x40 hull.** A turret is resized to its own flat target,
+  `TURRET_TARGET_PX` (72px — 36 world units at 2px/u, the same supersample rate car sprites use), and
+  the preflight and importer both skip the hull-fit warnings for it — there is no hull to under-fill.
+- **The manifest `origin` is the rotation pivot, not a visual centring hint.** Put it on the mount
+  plate — where the turret bolts to the chassis — and tune it in `?dev=assets` the same way a car's
+  `origin` is tuned. The default turret's source art has its mount plate about 31% in from the left,
+  vertically centred, which the importer seeds as `origin: [0.31, 0.5]` on `turret.default`'s first
+  import; any other id's first import writes no `origin` at all, leaving the schema default
+  (`[0.5, 0.5]`) to apply until someone tunes it.
+- **A car with no turret row still draws.** `turretSpriteKeys(carId)` in
+  `packages/client/src/assets/asset-keys.ts` returns `["turret.<carId>", "turret.default"]` — the
+  resolution order a car's own turret is tried in before falling to the shared default, and then to a
+  procedural turret if neither manifest entry resolves. Authoring a `turret.<carId>` row is optional
+  customisation, not something every chassis owes the way `car.<carId>` eventually is.
+
+Check the fit in `?dev=assets`: the turret-spawn dot there should sit on the barrel tip. If it does
+not, four different knobs can be at fault, and they answer four different questions —
+
+| Symptom | Knob | What it changes |
+|---|---|---|
+| The dot sits on the wrong point of THIS turret's art | manifest `origin` | The rotation pivot, i.e. where the art sits on the mount plate |
+| Every turret's spawn point is off by the same amount, art aside | `TURRET_CONFIG.defaultOffset` (`packages/shared/src/config/turret-config.ts`) | World units from the pivot to the barrel tip, at the shipped drawn size — a sim number, since the server spawns the shot there |
+| The mount point itself is wrong on one chassis | `CarDef.turretMount` (`packages/shared/src/config/car-config.ts`) | Where the pivot sits on the CAR, in car-local units |
+| The turret reads too long or short for its offset | `TURRET_VISUAL.lengthUnits` (client) | The drawn size the offset above is measured against |
+
+— so a dot in the wrong place is usually one of these four, not a re-import.
+
 ## Generating a sprite from scratch
 
 When there is no source image yet, the prompt lives in

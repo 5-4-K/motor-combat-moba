@@ -40,6 +40,7 @@ import {
   DRIVE_CONFIG,
   STATUS_TABLE,
   TICK_RATE_HZ,
+  TURRET_CONFIG,
   WEAPON_SLOT_CONFIG,
   WEAPON_TABLE,
   WEAPON_TICKS,
@@ -337,6 +338,10 @@ export function balanceStamp() {
     // How many ability slots this build has. N changes how many weapons each chassis lists, which
     // is something the page SAYS, so it belongs in the fingerprint (VS30).
     abilitySlots: WEAPON_SLOT_CONFIG.maxAbilitySlots,
+    // The turret's turn rate, which every turret weapon's Aim point prints (TR47). Only the rate:
+    // `defaultOffset` places the shot but the page never states it, so hashing it would demand a
+    // rebuild that changes nothing but this tag.
+    turretTurnRateDegPerSec: TURRET_CONFIG.turnRateDegPerSec,
     // The RENDERED copy, not the raw templates: the stamp should fingerprint what the page says.
     copy: { MANUAL_META, CHASSIS_COPY, WEAPON_COPY, EFFECT_SOURCES },
   };
@@ -603,10 +608,10 @@ function effectChips(w) {
  * The stat rows for one weapon, in the order the page reads them, with every row that does not
  * apply LEFT OUT rather than printed as a dash.
  *
- * "Not applicable" is a real state here and there are six of them: a charge has no range (speed and
- * range are both 0 — it dashes nowhere), six of the nine rows have no wind-up, three have no
- * recovery, four have no lifetime clock at all, three inflict nothing, and a plain shot has no extra
- * properties. A table of dashes would be longer and say less.
+ * "Not applicable" is a real state here and there are seven of them: a charge has no range (speed and
+ * range are both 0 — it dashes nowhere), a fixed muzzle has no Aim point, six of the nine rows have
+ * no wind-up, three have no recovery, four have no lifetime clock at all, three inflict nothing, and
+ * a plain shot has no extra properties. A table of dashes would be longer and say less.
  */
 function statRows(w) {
   const d = w.def;
@@ -621,6 +626,11 @@ function statRows(w) {
     // weapon entirely.
     const what = w.maneuver ? "how far you lunge" : `${round((d.range / ARENA_WIDTH) * 100)}% of the arena`;
     rows.push(["Range", `${d.range} <span class="sub">${what}</span>`]);
+  }
+  // A turret weapon fires along the bearing the mouse chose, once the turret has turned to it
+  // (TR47). A fixed muzzle prints nothing here: a point that does not apply is left out.
+  if (d.turret) {
+    rows.push(["Aim", `turret <span class="sub">mouse; turns at ${TURRET_CONFIG.turnRateDegPerSec}°/s before firing</span>`]);
   }
   if (w.totalLifeMs > 0) {
     rows.push([

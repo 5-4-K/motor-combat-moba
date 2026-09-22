@@ -118,7 +118,8 @@ re-seed them deliberately, and say which you did.
 
 A chassis's effective slot count is `min(kit.length, N)`. Going from 3 to 4 while every shipped
 chassis authors three weapons changes nothing a player sees on those chassis — the HUD still draws
-three boxes, the hint still teaches three abilities, and the `;`/MMB key does nothing.
+three boxes, the hint still teaches three abilities, and the `SPACE` key does nothing (final-fixes
+item 10: the one-control-layout pass moved the fourth ability's binding off `;`/MMB).
 
 Giving a car a fourth weapon is a **`CAR_TABLE` edit**, and it needs a `WEAPON_TABLE` row nobody else
 carries: **weapon exclusivity (L1) is unconditional**, active chassis or not. `tremor` is the only
@@ -228,10 +229,10 @@ playtest rule:
 ## Verifying it actually took
 
 - The countdown action hint prints **`min(kit.length, N) + 1`** pills — the local car's abilities
-  plus `H` — not `N + 1`. `ArenaScene` calls `actionKeysFor(this.localAbilityCount(), …)`, so the
+  plus `LMB` — not `N + 1`. `ArenaScene` calls `actionKeysFor(this.localAbilityCount(), …)`, so the
   row follows the chassis, not the config. **At `N = 4` with today's three-weapon kits it still
-  prints 4 pills (`H J K L`), and that is the change working, not failing** — see section 5. Drop
-  the `H` pill from that count if `BASIC_ATTACK_CONFIG.enabled` is `false`.
+  prints 4 pills (`LMB RMB Q E`), and that is the change working, not failing** — see section 5. Drop
+  the `LMB` pill from that count if `BASIC_ATTACK_CONFIG.enabled` is `false`.
 - The gutter's slot stack draws `min(kit, N)` boxes, and its TOP does not move with the count —
   the stack is top-anchored (VS20), so a shorter kit shortens it downward only.
 - `?dev=playground` is the fastest check: set a seat to one weapon and to `N`, and confirm the box

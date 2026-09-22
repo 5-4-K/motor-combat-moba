@@ -9,6 +9,7 @@ import {
   isPlaygroundSetup,
 } from "@motor-combat-moba/shared";
 import { envKey } from "../../fx/env-tuning.js";
+import { carScaleKey } from "../../scenes/turret-view.js";
 import {
   PLAYGROUND_STORAGE_KEY,
   decodeStored,
@@ -139,6 +140,8 @@ describe("encodeStored / decodeStored", () => {
       vfx: {},
       env: {},
       carTint: {},
+
+      turret: {},
     };
     expect(decodeStored(encodeStored(stored))).toEqual(stored);
   });
@@ -151,6 +154,8 @@ describe("encodeStored / decodeStored", () => {
       vfx: {},
       env: {},
       carTint: {},
+
+      turret: {},
     };
     expect(decodeStored(encodeStored(stored))).toEqual(stored);
   });
@@ -166,6 +171,8 @@ describe("loadStored / saveStored with an injected storage", () => {
       vfx: {},
       env: {},
       carTint: {},
+
+      turret: {},
     };
     saveStored(stored, storage);
     expect(storage.getItem(PLAYGROUND_STORAGE_KEY)).toBe(encodeStored(stored));
@@ -181,6 +188,8 @@ describe("loadStored / saveStored with an injected storage", () => {
       vfx: {},
       env: {},
       carTint: {},
+
+      turret: {},
     });
   });
 
@@ -193,6 +202,8 @@ describe("loadStored / saveStored with an injected storage", () => {
         vfx: {},
         env: {},
         carTint: {},
+
+        turret: {},
       }),
     ).not.toThrow();
   });
@@ -205,6 +216,8 @@ describe("loadStored / saveStored with an injected storage", () => {
       vfx: {},
       env: {},
       carTint: {},
+
+      turret: {},
     });
   });
 });
@@ -494,6 +507,8 @@ describe("the stored vfx section (PG54)", () => {
       vfx: { "lance.muzzle.fire.count": 40, "predator.muzzle.smoke.soot": true },
       env: {},
       carTint: {},
+
+      turret: {},
     };
     expect(decodeStored(encodeStored(stored)).vfx).toEqual(stored.vfx);
   });
@@ -589,6 +604,8 @@ describe("the carTint section (per-car playground tint)", () => {
       vfx: {},
       env: {},
       carTint: { abc: { hex: 0xff2200, on: true } },
+
+      turret: {},
     };
     expect(decodeStored(encodeStored(stored))).toEqual(stored);
   });
@@ -613,6 +630,33 @@ describe("the carTint section (per-car playground tint)", () => {
       JSON.stringify({ setup: defaultPlaygroundSetup(), carTint: "nope" }),
     );
     expect(decoded.carTint).toEqual({});
+    expect(decoded.setup).toEqual(defaultPlaygroundSetup());
+  });
+});
+
+describe("the turret section (TR62)", () => {
+  it("round-trips the client-only turret knobs", () => {
+    const stored: StoredPlayground = {
+      setup: defaultPlaygroundSetup(),
+      overrides: { "turret.maxSwingDeg": 180 },
+      view: defaultStoredView(),
+      vfx: {},
+      env: {},
+      carTint: {},
+      turret: { crosshairMaxDistance: 120, lengthUnits: 40, [carScaleKey("bastion")]: 1.5 },
+    };
+    expect(decodeStored(encodeStored(stored))).toEqual(stored);
+  });
+
+  it("loads a blob saved before the section existed as empty", () => {
+    expect(decodeStored(JSON.stringify({ setup: defaultPlaygroundSetup() })).turret).toEqual({});
+  });
+
+  it("drops a junk entry without costing the good one beside it, or the setup", () => {
+    const decoded = decodeStored(
+      JSON.stringify({ setup: defaultPlaygroundSetup(), turret: { lengthUnits: -4, crosshairMaxDistance: 90 } }),
+    );
+    expect(decoded.turret).toEqual({ crosshairMaxDistance: 90 });
     expect(decoded.setup).toEqual(defaultPlaygroundSetup());
   });
 });

@@ -1,4 +1,5 @@
 import { DRIVE_CONFIG } from "../../config/drive-config.js";
+import { TURRET_CONFIG } from "../../config/turret-config.js";
 import { instanceDefOf, weaponDefOf } from "../../config/weapon-config.js";
 import { msToTicks, weaponTicksOf } from "../../config/weapon-ticks.js";
 import type { WeaponDef, WeaponId } from "../../config/weapon-types.js";
@@ -6,6 +7,7 @@ import { rectPlanes } from "../boundary.js";
 import { pointInAabb, pointOutsideBounds, type Aabb, type Bounds } from "../collide.js";
 import { carIdOf } from "../context.js";
 import { scaleDamage, weaponDamageOf } from "../damage.js";
+import { clampBearingToSwing, turretPivotOf } from "./turret.js";
 
 /**
  * One live hitbox in the world. Projectiles use `x/y/angle/distance`; beams use `x/y/angle` as the
@@ -115,6 +117,11 @@ export interface ShotOrder {
   finalVolley: boolean;
   /** The press this order belongs to (B8). Sim-only; carried onto every instance it spawns. */
   pressId: string;
+  /**
+   * The turret press's frozen world bearing (spec TR9), or absent/null for a fixed muzzle. The only
+   * carrier of the bearing from the fire state machine to `spawnInstances`.
+   */
+  bearing?: number | null;
 }
 
 export interface OwnerPose {
@@ -178,14 +185,10 @@ export function fanOffset(index: number, pellets: number, spreadRad: number): nu
  * Pellets are fanned evenly and symmetrically about the heading; a single-pellet volley gets no
  * offset at all.
  *
- * `aimAngle` is the car's lock direction, or `null` for "welded to the heading" -- which is what
- * every non-aim-assist weapon passes and what the whole table did before aim assist existed
- * (A11c). It replaces the heading as the axis the pellet fan is symmetric about, and it is re-read
- * by the caller at EACH shot's own tick, so a burst tracks a moving target the same way it already
- * tracks a turning driver.
- *
- * It never moves the muzzle (A11b): the shot always leaves the car's physical nose, derived from
- * `owner.angle`, and only its travel direction changes.
+ * A fixed-muzzle weapon exits along the car's HEADING, plus its own muzzle offset (`muzzles`); a
+ * turret row (`def.turret`) exits instead from the turret pivot along the order's frozen bearing
+ * (`ShotOrder.bearing`, spec TR18) — the direction the turret was pointed the moment its wind-up
+ * finished, not wherever the car has since turned to.
  *
  * `damageMult` is the owner's `damageDealt` status channel, and it is applied HERE, at spawn,
  * so it is frozen into `instance.damage` alongside `ownerTeam` for exactly the same reason those
@@ -199,10 +202,11 @@ export function spawnInstances(
   owner: { sessionId: string; team: 0 | 1; carId: string } & OwnerPose,
   tick: number,
   seq: number,
-  aimAngle: number | null = null,
   damageMult = 1,
   homingTargetId = "", // consumed in Task 6; "" = none
   def: WeaponDef = weaponDefOf(order.weaponId), // test seam — see plan "Testing seams"
+  world?: { obstacles: readonly Aabb[]; bounds: Bounds }, // turret only — TR19's wall clip
+  maxSwingDeg?: number, // turret only — TR55's arc; test seam, defaults to TURRET_CONFIG.maxSwingDeg
 ): { instances: WeaponInstance[]; seq: number } {
   // A maneuver moves the car instead of spawning an instance (Task 10's real branch); no table row
   // is one yet, so this narrows `def` back to the two kinds this function has ever had to handle.
@@ -236,19 +240,45 @@ export function spawnInstances(
       ? tick + msToTicks(def.lifetimeMs)
       : 0;
 
+  // One exit per fixed muzzle, or the turret's single exit along the frozen bearing (spec TR18).
+  const exits: { x: number; y: number; axis: number; dir: number }[] = [];
+  if (def.turret) {
+    // TR55: clamped again against the pose AT RELEASE, so a car that turned during the wind-up
+    // sends the shot out along the arc edge rather than through its own blind side.
+    const bearing = clampBearingToSwing(order.bearing ?? owner.angle, owner.angle, maxSwingDeg);
+    const pivot = turretPivotOf(owner, owner.carId);
+    let reach = TURRET_CONFIG.defaultOffset + def.turret.additionalOffset;
+    // TR19: never born through a wall. At the wall face it dies (or detonates) on its first step,
+    // exactly as a shot flying into that wall would.
+    if (world) {
+      reach = Math.min(
+        reach,
+        wallClipDistance(pivot.x, pivot.y, bearing, reach, world.obstacles, world.bounds),
+      );
+    }
+    exits.push({
+      x: pivot.x + Math.cos(bearing) * reach,
+      y: pivot.y + Math.sin(bearing) * reach,
+      axis: bearing,
+      dir: bearing - owner.angle,
+    });
+  } else {
+    for (const dir of muzzleDirs) {
+      const exitHeading = owner.angle + dir;
+      exits.push({
+        x: owner.x + Math.cos(exitHeading) * nose,
+        y: owner.y + Math.sin(exitHeading) * nose,
+        axis: owner.angle + dir,
+        dir,
+      });
+    }
+  }
+
   const instances: WeaponInstance[] = [];
   let next = seq;
-  for (const dir of muzzleDirs) {
-    // A11b: the muzzle is derived from the HEADING (plus this muzzle's own offset), never from the
-    // aim angle.
-    const exitHeading = owner.angle + dir;
-    const muzzleX = owner.x + Math.cos(exitHeading) * nose;
-    const muzzleY = owner.y + Math.sin(exitHeading) * nose;
-    // Multi-muzzle forces assist off (table guard), so `aimAngle` only ever steers the single
-    // forward muzzle — for every other direction the axis is the heading plus the muzzle offset.
-    const axis = (aimAngle ?? owner.angle) + dir;
+  for (const exit of exits) {
     for (let i = 0; i < pellets; i++) {
-      const angle = axis + fanOffset(i, pellets, spread);
+      const angle = exit.axis + fanOffset(i, pellets, spread);
       next += 1;
       instances.push({
         id: `${owner.sessionId}-${next}`,
@@ -258,8 +288,8 @@ export function spawnInstances(
         damage,
         weaponId: order.weaponId,
         kind: def.kind,
-        x: muzzleX,
-        y: muzzleY,
+        x: exit.x,
+        y: exit.y,
         angle,
         extent: 0,
         spawnTick: tick,
@@ -268,7 +298,7 @@ export function spawnInstances(
         attached: def.kind === "beam" ? def.attached : false,
         damageClock: new Map(),
         alive: true,
-        muzzleDir: dir,
+        muzzleDir: exit.dir,
         homingTargetId: homingTarget,
         homingUntilTick: homingUntil,
         expiresAtTick: expiresAt,

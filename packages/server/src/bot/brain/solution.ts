@@ -1,7 +1,9 @@
 import {
-  DRIVE_CONFIG, TICK_RATE_HZ, beamShapeAt, carHullOf, forwardMaxSpeedOf, instanceExpired,
-  projectileShapeAt, shapeHitsObb, slotsOf, smear, spawnInstances, stepInstance, weaponDamageOf,
-  weaponDefOf, weaponTicksOf, type CarId, type WeaponId, type WeaponInstance, type WorldShape,
+  DRIVE_CONFIG, TICK_RATE_HZ, TURRET_CONFIG, TURRET_TICKS, beamShapeAt, carHullOf, forwardMaxSpeedOf,
+  instanceExpired, projectileShapeAt, shapeHitsObb, slotsOf, smear, spawnInstances, stepInstance,
+  clampBearingToSwing, clampToSwing, turretPivotOf, turretTurnDelta, weaponDamageOf, weaponDefOf,
+  weaponTicksOf, wrapAngle, type CarId, type WeaponId,
+  type WeaponInstance, type WorldShape,
 } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSlotView } from "../types.js";
@@ -53,6 +55,12 @@ export interface SolverShooter {
   carId: CarId;
   team: 0 | 1;
   x: number; y: number; angle: number; vx: number; vy: number;
+  /**
+   * The turret's angle RELATIVE to the hull (`FireState.turretAngle`), which a turret press must turn
+   * away from before it releases (TR26). Absent reads as 0 — the turret along the nose — which is
+   * also all a bot can assume of an opponent's, since `BotCarView` does not carry it.
+   */
+  turretAngle?: number;
 }
 
 export interface FiringSolution {
@@ -64,6 +72,12 @@ export interface FiringSolution {
   value: number;
   /** The heading to point at for the best chance — the BEARING to the target, not `nominal` below. */
   aimHeadingRad: number;
+  /**
+   * The world bearing to aim a turret weapon along: the LEAD bearing from the turret pivot to where
+   * the target will be when the shot arrives, turret turn included (TR26). Absent for a fixed
+   * muzzle, and for a turret weapon with no solution (out of reach).
+   */
+  turretBearingRad?: number;
   /** 0 when the slot may be pressed now. */
   readyInTicks: number;
 }
@@ -78,6 +92,11 @@ export interface SolveArgs {
   aimSigmaRad: number;
   tick: number;
   arena: BotArenaView;
+  /**
+   * The turret's swing arc (TR55). A test seam: absent reads `TURRET_CONFIG.maxSwingDeg` at call
+   * time, exactly as the sim does, so production callers leave it out.
+   */
+  maxSwingDeg?: number;
 }
 
 const NO_SOLUTION: FiringSolution = Object.freeze({
@@ -113,6 +132,11 @@ export function readyInTicksOf(slot: BotSlotView, tick: number): number {
  * with `sigma` forced to 0 whenever an ambient lock would have pointed the shot; with targeting
  * removed there is no such override, and every weapon is priced through the same quadrature over
  * the shooter's real aim noise.
+ *
+ * A TURRET weapon (`WeaponDef.turret`, TR26) is the exception R2 was never about: its shot leaves
+ * the turret pivot along the press's own bearing, so `nominal` is the solved LEAD bearing
+ * (`turretLeadOf`), the target is read `turretTurnTicksOf` later, and the hull need not face the
+ * target at all. The lead is returned as `turretBearingRad` for the controller to put on the wire.
  */
 export function solve(args: SolveArgs): FiringSolution {
   const { shooter, slot, target, aimSigmaRad, tick } = args;
@@ -122,17 +146,29 @@ export function solve(args: SolveArgs): FiringSolution {
   if (distance > reach) return NO_SOLUTION;
 
   const bearing = Math.atan2(target.y - shooter.y, target.x - shooter.x);
-  // The shot leaves along the car's nose. Evaluating the bearing instead would answer "if I were
-  // aimed right" and gate nothing.
-  const nominal = shooter.angle;
   const sigma = aimSigmaRad;
   const cooldownSeconds = Math.max(def.cooldownMs, 1) / 1000;
+
+  // TR26: a turret weapon is aimed by BEARING, not by the hull. R2 above is a fact about a fixed
+  // muzzle; a turret shot leaves the pivot along whatever bearing its press carries, so the
+  // quadrature is centred on the solved lead instead of the nose, and the target is read as many
+  // ticks later as the turret needs to get there first.
+  const lead = def.turret ? turretLeadOf(shooter, slot.weaponId, args.targetAt, args.maxSwingDeg) : undefined;
+  const marchArgs: SolveArgs = lead
+    ? { ...args, targetAt: (ticksAhead) => args.targetAt(ticksAhead + lead.turnTicks) }
+    : args;
+  // The shot leaves along the car's nose (fixed muzzle) or the solved lead (turret). Evaluating the
+  // bearing to the target's CURRENT position instead would answer "if I were aimed right" and gate
+  // nothing.
+  const nominal = lead ? lead.bearing : shooter.angle;
 
   let hitChance = 0;
   let expectedDamage = 0;
   for (const node of AIM_QUADRATURE) {
-    const heading = nominal + node.z * sigma;
-    const landed = marchPress(args, heading);
+    const aim = nominal + node.z * sigma;
+    // A turret press moves the barrel, never the hull: the owner keeps its own heading and the
+    // bearing rides on the order, exactly as `releaseShots` hands it to `spawnInstances`.
+    const landed = lead ? marchPress(marchArgs, shooter.angle, aim) : marchPress(marchArgs, aim);
     if (landed.hits > 0) hitChance += node.weight;
     expectedDamage += node.weight * landed.damage;
   }
@@ -142,8 +178,72 @@ export function solve(args: SolveArgs): FiringSolution {
     expectedDamage,
     value: expectedDamage / cooldownSeconds,
     aimHeadingRad: bearing,
+    ...(lead ? { turretBearingRad: lead.bearing } : {}),
     readyInTicks: readyInTicksOf(slot, tick),
   };
+}
+
+/**
+ * Ticks the turret needs to swing from where it points now onto `bearing` (TR26): the arc
+ * `turnTurret` will actually take — the shortest one unrestricted, the one that stays inside the
+ * swing arc below 360 (TR55, `turretTurnDelta`) — over `TURRET_TICKS.turnPerTick`. Fractional on
+ * purpose — `turnTurret` snaps inside one step, so the gap between this fractional budget and the
+ * real delay on the tick grid is under one tick (final-fixes item 9; the earlier claim that every
+ * `PosePredictor` rounds its argument was false — `constantVelocityPredictor` does not).
+ */
+export function turretTurnTicksOf(
+  shooter: SolverShooter,
+  bearing: number,
+  maxSwingDeg: number = TURRET_CONFIG.maxSwingDeg,
+): number {
+  // Unrestricted: the pre-TR55 expression exactly, so the shipped 360 moves no solver float.
+  if (maxSwingDeg >= 360) {
+    const pointing = shooter.angle + (shooter.turretAngle ?? 0);
+    return Math.abs(wrapAngle(bearing - pointing)) / TURRET_TICKS.turnPerTick;
+  }
+  const target = clampToSwing(wrapAngle(bearing - shooter.angle), maxSwingDeg);
+  return Math.abs(turretTurnDelta(shooter.turretAngle ?? 0, target, maxSwingDeg)) / TURRET_TICKS.turnPerTick;
+}
+
+/**
+ * The lead bearing for a turret shot, and the turn it costs (TR26).
+ *
+ * Fixed-point, `BRAIN_CONSTANTS.interceptFixedPointRounds` rounds — the same bounded shape
+ * `interceptTicks` (`predict.ts`) uses, and for the same reason (H21: bounded work, no `rng()`). It
+ * cannot simply call that function: a turret shot's time to arrive has two halves, the turret's TURN
+ * (which depends on the very bearing being solved) and the FLIGHT, which starts at the barrel tip
+ * rather than the car centre. Each round aims from the pivot at where the target will be after both.
+ *
+ * The lead does not model the SHOOTER's own motion during the turn (final-fixes item 9): `pivot` is
+ * fixed at the shooter's pose when `solve` was called, even though the turn itself takes real ticks
+ * during which a moving shooter's pivot would have moved too.
+ *
+ * The bearing is clamped into the swing arc every round (TR55), exactly as `beginFire` will clamp
+ * it, so a target outside the arc yields the nearer arc edge — whose shot usually misses, and the
+ * march in `solve` is what says so. No new behaviour rides on it.
+ */
+function turretLeadOf(
+  shooter: SolverShooter,
+  weaponId: WeaponId,
+  targetAt: PosePredictor,
+  maxSwingDeg?: number,
+): { bearing: number; turnTicks: number } {
+  const def = weaponDefOf(weaponId);
+  const pivot = turretPivotOf(shooter, shooter.carId);
+  const barrel = TURRET_CONFIG.defaultOffset + (def.turret?.additionalOffset ?? 0);
+  let aimPoint = targetAt(0);
+  const bearingTo = (point: { x: number; y: number }): number =>
+    clampBearingToSwing(Math.atan2(point.y - pivot.y, point.x - pivot.x), shooter.angle, maxSwingDeg);
+  let bearing = bearingTo(aimPoint);
+  for (let round = 0; round < BRAIN_CONSTANTS.interceptFixedPointRounds; round++) {
+    const distance = Math.hypot(aimPoint.x - pivot.x, aimPoint.y - pivot.y);
+    const flightTicks = def.speed > 0
+      ? (Math.max(0, distance - barrel) / def.speed) * TICK_RATE_HZ
+      : 0;
+    aimPoint = targetAt(turretTurnTicksOf(shooter, bearing, maxSwingDeg) + flightTicks);
+    bearing = bearingTo(aimPoint);
+  }
+  return { bearing, turnTicks: turretTurnTicksOf(shooter, bearing, maxSwingDeg) };
 }
 
 /** `bestAchievableValueOf` keys its cache on carId and sigma together — a kit is fixed per match,
@@ -226,10 +326,14 @@ export function bestAchievableValueOf(carId: CarId, aimSigmaRad: number): number
   return best;
 }
 
-/** One press fired along `heading`: how many instances connect, and for how much. */
+/**
+ * One press fired along `heading`: how many instances connect, and for how much. `bearing` is a
+ * turret press's aim (TR18) — the owner still faces `heading`, and the shot leaves along `bearing`.
+ */
 function marchPress(
   args: SolveArgs,
   heading: number,
+  bearing?: number,
 ): { hits: number; damage: number } {
   // `target`, `targetAt` and `arena` are not destructured here on purpose (R5): this function only
   // spawns, and hands the whole `args` to `marchOne`, which is what actually walks the shot.
@@ -238,13 +342,21 @@ function marchPress(
   if (def.kind === "maneuver") return marchManeuver(args, heading, def);
 
   const spawned = spawnInstances(
-    { weaponId: slot.weaponId, slot: slotIndex, finalVolley: true, pressId: "solve" },
+    {
+      weaponId: slot.weaponId, slot: slotIndex, finalVolley: true, pressId: "solve",
+      ...(bearing === undefined ? {} : { bearing }),
+    },
     {
       sessionId: shooter.sessionId, team: shooter.team, carId: shooter.carId,
       x: shooter.x, y: shooter.y, angle: heading,
     },
     tick,
     0,
+    1,
+    "",
+    def,
+    undefined,
+    args.maxSwingDeg,
   );
 
   let hits = 0;

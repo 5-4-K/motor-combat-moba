@@ -742,3 +742,17 @@ it was not sized away, so record it here rather than let the next tuner rediscov
   frame, because a single OR let each bug shape alibi in the frame it does not touch. **The test is
   GREEN at 10 now**, but it asserts the fire/steer ordering property rather than this weight: read
   it as a non-contradiction, not as support.
+
+**7. Turret aim (TR26) only reaches the trigger, not the threat model.** `solution.ts`'s `solve()` —
+the exact gate `chooseSlot` fires on — is correct for a turret weapon: it leads from the turret
+pivot (`turretLeadOf`) and budgets the swing (`turretTurnTicksOf`) before charging the shot, so the
+hull need not face the target for the bot to press a turret slot accurately. `proxyValue` and its
+sibling `proxyDangerAgainst` were not updated alongside it and still score every weapon — turret
+included — by the angle off the shooter's own NOSE. Two readers inherit that: the planner's own
+`myEv` (so a candidate pose can look worse than it is for a turret-armed self) and
+`proxyDangerAgainst`'s read of an opponent's threat (so an opponent who is nose-off but
+turret-on-target reads as less dangerous than they are, and the planner can steer to face a target
+it does not need to face to hit or be hit). This is a known distortion, not a bug to silently patch
+here — see `packages/server/balance/README.md`'s known-distortions list for the balance-report side
+of the same gap, and treat fixing it as a `bot-tuner` follow-up rather than something to bend into
+this fix wave.

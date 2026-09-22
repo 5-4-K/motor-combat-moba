@@ -79,6 +79,10 @@
     },
     "car.caprico": {
       "file": "cars/caprico.png"
+    },
+    "turret.default": {
+      "origin": [0.31, 0.5],
+      "file": "turrets/default.png"
     }
   }
 }

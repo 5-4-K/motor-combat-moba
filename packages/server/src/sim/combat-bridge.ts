@@ -110,6 +110,7 @@ export function toCombatPlayers(
   roster: ReadonlySet<string>,
   masks: ReadonlyMap<string, number>,
   memory: CombatMemory,
+  aims: ReadonlyMap<string, number> = new Map(),
 ): CombatPlayer[] {
   const players: CombatPlayer[] = [];
   state.players.forEach((player, sessionId) => {
@@ -134,6 +135,7 @@ export function toCombatPlayers(
       alive: player.alive,
       inRoster: roster.has(sessionId),
       fireMask: masks.get(sessionId) ?? 0,
+      aimBearing: aims.get(sessionId) ?? null,
       fireState,
       // Read straight off the schema rather than carried in room memory, and expired entries are
       // already gone: `statusTick` swept the list at the top of this tick, before driving. There is
@@ -238,8 +240,14 @@ export function applyCombatResult(state: ArenaState, result: CombatResult, memor
     // The two halves of the car-wide lockout the HUD cannot derive from slot rows: a live wind-up or
     // volley, and which slot owns the recovery it is exempt from. `pending` itself stays server-only
     // (like `damageClock` and `pierceLeft`) — only the tick it next fires on crosses the wire.
-    player.pendingUntilTick = p.fireState.pending?.nextShotTick ?? 0;
+    //
+    // A turret still turning has no real release tick yet (+Infinity, which a uint32 cannot hold);
+    // `tick + 1` keeps "mid-press" true for the HUD until it aligns (spec TR17).
+    const pending = p.fireState.pending;
+    player.pendingUntilTick =
+      pending === null ? 0 : pending.aligned === false ? state.tick + 1 : pending.nextShotTick;
     player.lastFiredSlot = p.fireState.lastFiredSlot;
+    player.turretAngle = p.fireState.turretAngle;
     // Combat adds statuses (this tick's hits, shots and room requests) and never removes one except
     // through a cleanse, so this is a no-op for every car nothing landed on — `writeStatuses`
     // compares row by row rather than rebuilding.

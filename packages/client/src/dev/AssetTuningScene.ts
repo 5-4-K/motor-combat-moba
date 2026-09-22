@@ -2,7 +2,11 @@ import Phaser from "phaser";
 import {
   CAR_TABLE,
   type CarId,
+  carHasTurretWeapon,
   DRIVE_CONFIG,
+  fireSlotsOf,
+  TURRET_CONFIG,
+  turretPivotOf,
   WEAPON_TABLE,
   type WeaponId,
   weaponDefOf,
@@ -14,10 +18,12 @@ import {
   phaserTextures,
   type ResolvedSprite,
   resolveCarSprite,
+  resolveTurretSprite,
 } from "../assets/car-sprite.js";
 import { assetManifest } from "../scenes/BootScene.js";
 import { HUD_ICON_FIT_SCALE, resolveWeaponIcon, SLOT_RING_BOX_PX } from "../scenes/weapon-hud.js";
 import { shotPaletteOf } from "../scenes/combat-visual.js";
+import { drawProceduralTurret } from "../scenes/turret-visual.js";
 import {
   NO_TINT,
   orphanWeaponIds,
@@ -43,6 +49,14 @@ const CELL_W = 220;
 const CELL_H = 190;
 const COLUMNS = 3;
 const HULL_STROKE = 0xffffff;
+
+/**
+ * The turret-spawn dot (TR45): where a turret shot with `additionalOffset: 0` leaves, drawn in a
+ * colour no car tint or turret art uses so it reads on top of both. It should sit on the barrel tip.
+ */
+const SPAWN_DOT_FILL = 0xff2bd6;
+const SPAWN_DOT_STROKE = 0x000000;
+const SPAWN_DOT_RADIUS = 2.5;
 
 /** Divider between the car section and the weapon section. */
 const DIVIDER_Y = 252;
@@ -75,6 +89,8 @@ const TINT_LABEL_GAP_PX = 30;
 export class AssetTuningScene extends Phaser.Scene {
   /** Car art, kept so the tint picker can re-apply without rebuilding the scene. */
   private cars: Array<{ image: Phaser.GameObjects.Image; resolved: ResolvedSprite }> = [];
+  /** Turret art, re-tinted beside the car art. A procedural turret keeps its flat untinted fill. */
+  private turrets: Array<{ image: Phaser.GameObjects.Image; resolved: ResolvedSprite }> = [];
   private tints: TintOption[] = [];
   private tintHighlight?: Phaser.GameObjects.Graphics;
   private tintLabel?: Phaser.GameObjects.Text;
@@ -211,6 +227,8 @@ export class AssetTuningScene extends Phaser.Scene {
       this.add.text(x, y - 8, "no art", { fontSize: "13px", color: "#d94040" }).setOrigin(0.5);
     }
 
+    const turretKey = this.drawTurret(carId, x, y);
+
     // Drawn on top of the art, so a sprite that overflows its collision box is obvious rather than
     // hidden underneath it.
     const box = this.add.graphics();
@@ -229,11 +247,53 @@ export class AssetTuningScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
+    this.add
+      .text(x, y + 78, `turret: ${turretKey}`, { fontSize: "11px", color: "#9aa0a6" })
+      .setOrigin(0.5);
+
     if (!CAR_TABLE[carId as CarId].isActive) {
       this.add
-        .text(x, y + 80, "inactive", { fontSize: "11px", color: "#d99a40" })
+        .text(x, y + 94, "inactive", { fontSize: "11px", color: "#d99a40" })
         .setOrigin(0.5);
     }
+  }
+
+  /**
+   * The car's turret at its mount, facing forward, and the dot where a turret shot spawns (TR45) —
+   * both skipped for a car with no turret weapon in its SHIPPED fire slots (TR53): `carHasTurretWeapon`
+   * over `fireSlotsOf(carId)` is the same test the arena runs against a car's live loadout, applied
+   * here to what this chassis actually carries at rest. `defaultOffset`, `turretMount`, the row's
+   * `origin` and `TURRET_VISUAL.lengthUnits` are lined up by eye against the dot, which should sit
+   * on the barrel tip. Resolved through `resolveTurretSprite` — the arena's own chain — and returns
+   * the key it landed on, `"procedural"` when neither turret key resolved, or `"none"` when this car
+   * draws no turret at all.
+   */
+  private drawTurret(carId: string, x: number, y: number): string {
+    if (!carHasTurretWeapon(fireSlotsOf(carId as CarId))) return "none";
+
+    // `turretPivotOf` at the cell's centre facing +x: the one place the mount is rotated into place.
+    const pivot = turretPivotOf({ x, y, angle: 0 }, carId);
+    const resolved = resolveTurretSprite(assetManifest(), phaserTextures(this.textures), carId);
+    if (resolved) {
+      const image = applyCarSprite(this.add.image(pivot.x, pivot.y, resolved.key), resolved, NO_TINT);
+      this.turrets.push({ image, resolved });
+    } else {
+      drawProceduralTurret(this.add.graphics(), NO_TINT, pivot.x, pivot.y);
+    }
+
+    const spawnX = pivot.x + TURRET_CONFIG.defaultOffset;
+    const dot = this.add.graphics();
+    dot.fillStyle(SPAWN_DOT_FILL, 1);
+    dot.lineStyle(1, SPAWN_DOT_STROKE, 1);
+    dot.fillCircle(spawnX, pivot.y, SPAWN_DOT_RADIUS);
+    dot.strokeCircle(spawnX, pivot.y, SPAWN_DOT_RADIUS);
+    this.add
+      .text(spawnX, y - DRIVE_CONFIG.carHeight / 2 - 4, "turret spawn", {
+        fontSize: "10px",
+        color: "#ff2bd6",
+      })
+      .setOrigin(0.5, 1);
+    return resolved?.key ?? "procedural";
   }
 
   /**
@@ -314,6 +374,7 @@ export class AssetTuningScene extends Phaser.Scene {
     // order stays the arena's — and so a `colorMode: "none"` sprite keeps refusing the tint, which
     // is what stops this picker from claiming a pre-coloured sprite responds to player colour.
     for (const car of this.cars) applyCarSprite(car.image, car.resolved, option.fill);
+    for (const turret of this.turrets) applyCarSprite(turret.image, turret.resolved, option.fill);
 
     const r = swatchRect(index);
     this.tintHighlight?.clear();

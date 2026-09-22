@@ -24,6 +24,10 @@ import type { FxChannel } from "../../fx/table.js";
 import { buildVfxPanel as buildVfxPanelDom } from "./vfx-panel.js";
 import { buildEnvPanel as buildEnvPanelDom, LAVA_REGENERATE_FIELDS } from "./env-panel.js";
 import { buildCarPanel, type CarPanel } from "./car-panel.js";
+import { buildTurretPanel } from "./turret-panel.js";
+import { isTurretSimPath, turretExportText, withoutTurretSimPaths } from "./turret-model.js";
+import { setTurretViewOverrides, type TurretViewOverrides } from "../../scenes/turret-view.js";
+import type { AssetManifest } from "../../assets/manifest-schema.js";
 import {
   MSG_PLAYGROUND_BOT_DEBUG,
   MSG_PLAYGROUND_PAUSE,
@@ -40,6 +44,8 @@ import {
   sanitizeStoredTuning,
 } from "@motor-combat-moba/shared";
 import { button, h } from "../../ui/dom.js";
+import { clearPauseRequest, isPauseInFlight, markPauseRequested } from "../../input/pause-request.js";
+import { requestLock } from "../../input/pointer-lock.js";
 import { loadStored, saveStored } from "./storage.js";
 import { stepperPair } from "./steppers.js";
 import { setShowHitboxes, showHitboxes } from "../../config/view-options.js";
@@ -566,6 +572,10 @@ export function mountPlaygroundOverlay(
   onArenaChanged: () => void,
   previewFx: (specs: readonly EmitterSpec[]) => void,
   envHooks: PlaygroundEnvHooks,
+  /** The parsed art manifest, read at export time: a per-car turret size is exported as that car's
+   * manifest row's `scale` (TR61). A getter because the overlay must stay loadable in a node test,
+   * where `BootScene` (and Phaser with it) cannot be imported. */
+  turretManifest: () => AssetManifest,
 ): () => void {
   const style = document.createElement("style");
   style.textContent = CSS;
@@ -606,7 +616,7 @@ export function mountPlaygroundOverlay(
       `terms  ${termLine(payload.terms)}`;
   });
 
-  let subView: "menu" | "cars" | "physics" | "vfx" | "env" = "menu";
+  let subView: "menu" | "cars" | "physics" | "vfx" | "env" | "turret" = "menu";
   /** The live VFX override map, shared with the fx store so an edit reaches the next burst (PG46).
    * Loaded once per mount and mutated in place by the panel. */
   const vfxOverrides: FxOverrides = { ...loadStored().vfx };
@@ -627,6 +637,12 @@ export function mountPlaygroundOverlay(
    * Keyed by SEAT id since PG84, which is what lets a tint survive a reconnect. */
   const carTintMap: CarTintOverrides = { ...loadStored().carTint };
   setCarTintOverrides(carTintMap);
+
+  /** The Turret panel's client-only map (TR60, TR62) — crosshair distance, turret length, per-car
+   * size — held and installed exactly as the three maps above are. Its sim knobs are not here: they
+   * ride `lastOverrides` with the Physics panel's, since both reach the server as one blob. */
+  const turretViewMap: TurretViewOverrides = { ...loadStored().turret };
+  setTurretViewOverrides(turretViewMap);
 
   /** The setup last known good, so a save from a panel that does not own the setup controls still
    * writes a coherent blob rather than clobbering it with defaults.
@@ -656,6 +672,7 @@ export function mountPlaygroundOverlay(
       vfx: { ...vfxOverrides },
       env: { ...envOverridesMap },
       carTint: { ...carTintMap },
+      turret: { ...turretViewMap },
     });
   }
 
@@ -763,12 +780,19 @@ export function mountPlaygroundOverlay(
     else if (view === "physics") root.appendChild(buildSettings());
     else if (view === "vfx") root.appendChild(buildVfxPanel());
     else if (view === "env") root.appendChild(buildEnvPanel());
+    else if (view === "turret") root.appendChild(buildTurretSettings());
   }
 
   function buildMenu(): HTMLElement {
     return h("div", { class: "pg-panel" }, [
       h("h2", {}, ["Paused"]),
-      button({}, ["Resume"], () => room.send(MSG_PLAYGROUND_PAUSE)),
+      button({}, ["Resume"], () => {
+        room.send(MSG_PLAYGROUND_PAUSE);
+        // The Resume click is the user gesture a relock needs (TR37). Queried rather than handed in:
+        // the overlay outlives the ArenaScene it sits over, and the page has one canvas, Phaser's.
+        const canvas = document.querySelector<HTMLCanvasElement>("canvas");
+        if (canvas) requestLock(canvas);
+      }),
       button({}, ["Car select"], () => {
         subView = "cars";
         render();
@@ -783,6 +807,10 @@ export function mountPlaygroundOverlay(
       }),
       button({}, ["Environment settings"], () => {
         subView = "env";
+        render();
+      }),
+      button({}, ["Turret settings"], () => {
+        subView = "turret";
         render();
       }),
     ]);
@@ -899,6 +927,34 @@ export function mountPlaygroundOverlay(
         subView = "menu";
         render();
       },
+    });
+  }
+
+  /**
+   * The Turret settings panel (spec TR58). Its sim half edits the SAME tuning overrides map the
+   * Physics panel edits — seeded from the room exactly as `buildSettings` seeds it, and sent once on
+   * the way out through `leaveSettings`, so a Back click and the P key both send it exactly once —
+   * while its client half edits `turretViewMap`, which the running `ArenaScene` reads live.
+   */
+  function buildTurretSettings(): HTMLElement {
+    const overrides: Record<string, TuningValue> = { ...overridesFromState(room) };
+    // By reference, as `buildSettings` does, so `saveAll` sees every in-place edit.
+    lastOverrides = overrides;
+    leaveSettings = () => {
+      room.send(MSG_PLAYGROUND_TUNING, { ...overrides });
+      saveAll();
+      subView = "menu";
+      render();
+    };
+    return buildTurretPanel({
+      sim: overrides,
+      view: turretViewMap,
+      persist: saveAll,
+      onCopy: () => {
+        const text = turretExportText(overrides, turretViewMap, turretManifest());
+        copyText(text === "" ? "// no turret overrides to copy" : text, root.querySelector(".pg-stats") ?? undefined);
+      },
+      onBack: () => leaveSettings(),
     });
   }
 
@@ -1055,13 +1111,14 @@ export function mountPlaygroundOverlay(
     renderStats();
 
     const resetAllBtn = button({}, ["Reset all"], () => {
-      for (const path of Object.keys(overrides)) delete overrides[path];
+      // The Turret panel's paths share this map (TR58) and are its to reset, not this panel's.
+      for (const path of Object.keys(overrides)) if (!isTurretSimPath(path)) delete overrides[path];
       saveAll();
       renderStats();
     });
 
     const copyBtn = button({}, ["Copy overrides"], () => {
-      copyText(JSON.stringify(overrides, null, 2), statsContainer);
+      copyText(JSON.stringify(withoutTurretSimPaths(overrides), null, 2), statsContainer);
     });
 
     /** The single exit point for leaving the physics settings view (spec PG13/PG16): sends the current
@@ -1090,6 +1147,16 @@ export function mountPlaygroundOverlay(
     const tag = (e.target as HTMLElement | null)?.tagName ?? "";
     const action = pauseKeyAction(effectiveView(), tag);
     if (action === "toggle") {
+      if (!room.state.paused) {
+        // TR54: while the page's one pause request is in flight — sent from here, or from
+        // `ArenaScene`'s Esc path — P does nothing, or the second toggle would un-pause before the
+        // first ever patched back. Stamped only here, on the branch that really sends.
+        if (isPauseInFlight(room.state.paused, performance.now())) return;
+        markPauseRequested(performance.now());
+        // Pausing hands the OS cursor back for the menu (TR37). `ArenaScene` has already marked this
+        // release as asked-for, so it does not read as an Esc and send a second toggle.
+        document.exitPointerLock();
+      }
       room.send(MSG_PLAYGROUND_PAUSE);
     } else if (action === "back-to-menu") {
       if (effectiveView() === "cars") {
@@ -1115,6 +1182,7 @@ export function mountPlaygroundOverlay(
   window.addEventListener("keydown", onKeyDown);
 
   function onState(): void {
+    if (room.state.paused) clearPauseRequest(); // the request landed (TR54)
     if (room.state.paused === wasPaused) return;
     wasPaused = room.state.paused;
     // Always land back on the menu next time the sim pauses -- the settings sub-view is local and

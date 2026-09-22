@@ -40,10 +40,10 @@ authoritative list. `newFireState` does not call it — its
 explicit-loadout path builds the same list inline, since it also has to accept a caller-given
 weapon override `fireSlotsOf` has no parameter for. **The basic attack is always fire slot 0** as of
 the 2026-09-20 index flip — it sat LAST, at `kit.length`, until then, which was a constant only
-while every active kit was the same length. The flip moved no player-facing binding: the basic
-attack is still `H`, and only `H` — the abilities hold the whole mouse hand on `J`/`LMB`, `K`/`RMB`,
-`L`/`SPACE`, and the basic attack surrendered `LMB` when it was switched off — those abilities now
-sitting at fire slots 1..`N` (`;`/MMB is authored for a fourth ability and is inert while `N` is 3).
+while every active kit was the same length. The flip moved no player-facing binding at the time.
+**Since 2026-09-21 there is one control layout** (`SLOT_KEYS`, spec TR29): the basic attack is
+**`LMB`**, the abilities at fire slots 1..`N` are **`RMB` / `Q` / `E`**, and **`SPACE`** is authored
+for a fourth ability and is inert while `N` is 3. `H`, `J`/`K`/`L`, `;` and MMB are unbound.
 It rides the ordinary fire state machine with `recoveryMs: 0`, and it **loses** a same-tick tie
 against an ability, because `beginFire` now scans **descending** and takes the highest set bit — the
 basic attack, at index 0, is scanned last. The scan was reversed in the same pass that moved the
@@ -57,9 +57,9 @@ place the "a binding nobody printed breaks quietly" rule is knowingly bent. See
 
 **The basic attack can be switched off without deleting any of that**, via
 `BASIC_ATTACK_CONFIG.enabled` (`config/weapon-config.ts`) — a build-time flag, not a live-session
-setting: flip it, rebuild shared/server/client, and `npm run build:manual`. **It ships `false` as of
-2026-09-20**: cars fire their abilities and nothing else, and the page, the hint and the bot
-all already reflect that. Every test that covers the mechanic sets the flag itself rather than
+setting: flip it, rebuild shared/server/client, and `npm run build:manual`. It shipped `false` from
+2026-09-20; **it ships `true` as of 2026-09-21**, bound to `LMB`, and the page, the hint and the bot
+all reflect that. Every test that covers the mechanic sets the flag itself rather than
 leaning on the shipped position, so both halves stay covered whichever way it ships. Nothing about the nine
 `basic-attack-*` rows, `CarDef.basicAttack`, or its schema row at index 0 goes away when it is
 `false`; only four things read it. `beginFire` refuses a press on the basic-attack fire slot, so the
@@ -79,7 +79,7 @@ chassis for each of the nine basic-attack rows or those tools crash outright. Se
 `packages/shared/src/config/weapon-slots.ts` seeds `WEAPON_SLOT_CONFIG.maxAbilitySlots`; it is **3**
 today, legal from 1 to `ABILITY_SLOT_CEILING` (4) and held to that range by a config test.
 `maxFireSlots` (`N + 1`) and `basicAttackSlotIndex` (`0`) are derived, never typed, so they cannot
-drift from it. The ceiling is **structural** — it sizes `SLOT_KEYS` (which carries a fifth `;`/MMB
+drift from it. The ceiling is **structural** — it sizes `SLOT_KEYS` (which carries a fifth `SPACE`
 row for a fourth ability, inert at `N` 3), bounds the wire mask and bounds `N` — and is never a
 tuning act. An active chassis may now carry **1 to 4** weapons rather than exactly three; a kit
 longer than `N` is truncated **silently** (that is the designed case, not an error), while only a kit
@@ -92,6 +92,19 @@ and playtest report. See the
 [`ability-slot-count`](.claude/skills/ability-slot-count/SKILL.md) skill and
 [`docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md`](docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md)
 (VS1–VS34).
+
+**Since 2026-09-21 some weapons fire from a mouse-aimed turret, not a fixed muzzle.** A row carrying
+`WeaponBase.turret` — the nine basic attacks, `predator`, `magmablast` and `thumper` — fires along
+the world bearing the player clicked (`InputMessage.aimAngle`, from the turret pivot to the
+crosshair), frozen at the press; the turret (`FireState.turretAngle`, sim state, mirrored
+render-only to `PlayerState.turretAngle`) turns to it at `TURRET_CONFIG.turnRateDegPerSec` before
+the wind-up starts, and the shot spawns from `turretPivotOf` plus `defaultOffset`, clamped so it is
+never born through a wall. The arena scene holds **pointer lock** with a drawn crosshair, and every
+room kind has a **menu** on `P` (and on `Esc`, through lock loss): practice and the playground pause
+as before, while a multiplayer match gets a client-only, non-pausing overlay whose Exit leaves the
+room to the join screen. See [`docs/combat-model.md`](docs/combat-model.md#turret-muzzle) and
+[`docs/superpowers/specs/2026-09-21-mouse-aim-turret-design.md`](docs/superpowers/specs/2026-09-21-mouse-aim-turret-design.md)
+(TR1–TR52).
 
 An **aura** is a beam with a `disc` hitbox at `origin: "center"` — a field around a car rather than a
 line of fire. It shipped once, as `shockwave` on Mirage's slot 2, and the 2026-09-01 overhaul retired
@@ -453,6 +466,7 @@ something, discuss it — do not answer with a parameter sweep.
 | Weapon system decisions (D1–D22), online-play review, future work — plus the **retired** aim assist and target lock (A1–A14), removed 2026-09-17 and kept only as a record | [`docs/superpowers/specs/2026-08-27-weapon-system-design.md`](docs/superpowers/specs/2026-08-27-weapon-system-design.md), [`docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md), [`docs/superpowers/plans/2026-08-27-weapon-system.md`](docs/superpowers/plans/2026-08-27-weapon-system.md) |
 | How a shot LOOKS — the three style tables in `scenes/combat-visual.ts`, the inside-the-hitbox rule, what a look costs per frame and how to price one before shipping it | [`packages/client/CLAUDE.md`](packages/client/CLAUDE.md) and [`docs/asset-pipeline.md`](docs/asset-pipeline.md#how-much-detail-a-shot-can-afford) — and the [`weapon-look`](.claude/skills/weapon-look/SKILL.md) skill to author one |
 | How many ability slots a build has: the build-time count `N`, the structural `ABILITY_SLOT_CEILING`, the basic attack's move to fire slot 0, and the variable-length kit (VS1–VS34) | [`docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md`](docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md) — and the [`ability-slot-count`](.claude/skills/ability-slot-count/SKILL.md) skill to change it |
+| Mouse aim: the turret muzzle, the one control layout (LMB/RMB/Q/E/Space), pointer lock and the crosshair, the menu in every room, turret art, the basic attack switched on (TR1–TR52) | [`docs/superpowers/specs/2026-09-21-mouse-aim-turret-design.md`](docs/superpowers/specs/2026-09-21-mouse-aim-turret-design.md), [`docs/combat-model.md`](docs/combat-model.md#turret-muzzle), [`docs/asset-pipeline.md`](docs/asset-pipeline.md#turret-art) |
 | The ten-ability-weapon roster (nine shipped plus dormant `tremor`), per-chassis kits (L1–L7) — now alongside nine identical basic-attack rows (BA1–BA38, see above) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
 | The three chassis types and their triangle, the `accel`/`handling` ratings, the weapon redistribution (T1–T22) — **supersedes L1–L7's assignments** | [`docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md`](docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md) |
 | Ram CC and knockback decisions (R1–R20): severity, side bonus, authority/shove/spin, the `mass` rating | [`docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md`](docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md) |
@@ -870,7 +884,7 @@ sentence that measures something adds its fact back.
 
 **Re-run `npm run build:manual` and commit the page whenever you change:** a weapon row, an ACTIVE
 chassis row, an active car's loadout, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `STATUS_TABLE`,
-`TICK_RATE_HZ`, `ARENA_WIDTH`, `WEAPON_SLOT_CONFIG.maxAbilitySlots`, or the prose in
+`TICK_RATE_HZ`, `ARENA_WIDTH`, `WEAPON_SLOT_CONFIG.maxAbilitySlots`, `TURRET_CONFIG.turnRateDegPerSec`, or the prose in
 `cars-and-weapons-copy.mjs`. (`AIM_CONFIG.lockRange`
 was on this list until 2026-09-17, when the aim-lock feature and the whole config were deleted.)
 The page carries a fingerprint of all of that and `scripts/manual-page.test.mjs` recomputes it, so

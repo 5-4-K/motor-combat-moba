@@ -149,6 +149,25 @@ const ELLIPSE_SEGMENTS = 20;
  * Returns 1 for a living car, and 0 once the fade is spent. **0 means draw nothing**, not draw
  * something invisible: the caller is expected to skip the object entirely.
  */
+/**
+ * One car's fireable loadout as a single comparable string, one id per fire slot in order (spec
+ * TR53). Structurally typed on `map` alone — a plain array and the synced `PlayerState.weapons`
+ * (`ArraySchema<WeaponSlotState>`) both satisfy it, so this needs no schema instance to test. `map`
+ * rather than a full array type deliberately: `ArraySchema` also implements `concat`/`push` at its
+ * own wider element type, which fails structural assignment to any narrower ARRAY type even though
+ * a single method lifted out of it, like `map`, assigns just fine.
+ *
+ * This is what lets a car's visual key notice a playground loadout swap: `visualKeyOf` folds this in
+ * alongside `carId`/`colorId`/`alive`, so a slot's weapon id changing rebuilds the container — the
+ * one thing that decides whether the turret gets drawn (`carHasTurretWeapon`) — even though the
+ * chassis and colour stayed the same.
+ */
+export function weaponLoadoutSignature(weapons: {
+  map<T>(callbackfn: (value: { weaponId: string }) => T): T[];
+}): string {
+  return weapons.map((w) => w.weaponId).join(",");
+}
+
 export function deathFadeAlpha(alive: boolean, diedAtTick: number, tick: number): number {
   if (alive) return 1;
   const fadeTicks = Math.max(1, Math.ceil((DEATH_FADE_MS * TICK_RATE_HZ) / 1000));

@@ -35,6 +35,7 @@ const BASIC_ATTACK_BASE = {
   pierce: 0,
   volley: { volleys: 1, volleyIntervalMs: 0 },
   pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
+  turret: { additionalOffset: 0 },
 } as const;
 
 /**
@@ -43,20 +44,26 @@ const BASIC_ATTACK_BASE = {
  *
  * Deliberately NOT `as const` — every other `_CONFIG` object in this package is a frozen balance
  * table nothing should ever reassign, but this one field exists specifically to be edited, and a
- * literal `true` type would make `enabled = false` a compile error. `false` does not remove the nine
- * `basic-attack-*` rows, `CarDef.basicAttack`, or its `WeaponSlotState` at index 0 — the
- * structure stays exactly as BA1-BA38 left it. What actually reads this flag: `beginFire`
- * (`sim/weapons/fire.ts`) refuses a press on the basic-attack fire slot so the key does nothing;
- * `BotController`'s `chooseSlot` (`server/src/bot/brain/firing.ts`) never selects that slot either,
- * so a bot does not waste its one press a tick on a weapon that cannot fire; the client's
- * `hintSlotOrder` (`config/slot-keys.ts`) drops the slot from the countdown action hint entirely,
- * not merely from firing; and `scripts/build-cars-and-weapons.mjs` skips the "Basic attack" card on
- * every chassis and folds this flag into `balanceStamp` so a stale manual build fails loudly.
- * `fireSlotsOf`, the balance harness, `npm run ttk` and the playtest probes are deliberately left
- * unaware of it — they sweep every `WEAPON_TABLE` row structurally and gating them risks breaking
- * `carrierOf`'s lookup for the nine rows it must always be able to find a chassis for.
+ * literal `true` type would make `enabled = false` a compile error. Flipping it either way does not
+ * touch the nine `basic-attack-*` rows, `CarDef.basicAttack`, or its `WeaponSlotState` at index 0 —
+ * the structure stays exactly as BA1-BA38 left it. What actually reads this flag: `beginFire`
+ * (`sim/weapons/fire.ts`) refuses a press on the basic-attack fire slot when disabled, so the key
+ * does nothing; `BotController`'s `chooseSlot` (`server/src/bot/brain/firing.ts`) never selects that
+ * slot either while disabled, so a bot does not waste its one press a tick on a weapon that cannot
+ * fire; the client's `hintSlotOrder` (`config/slot-keys.ts`) drops the slot from the countdown
+ * action hint entirely, not merely from firing, whenever it is off; and
+ * `scripts/build-cars-and-weapons.mjs` skips the "Basic attack" card on every chassis while it is
+ * off and folds this flag into `balanceStamp` so a stale manual build fails loudly either way it
+ * moves. `fireSlotsOf`, the balance harness, `npm run ttk` and the playtest probes are deliberately
+ * left unaware of it — they sweep every `WEAPON_TABLE` row structurally and gating them risks
+ * breaking `carrierOf`'s lookup for the nine rows it must always be able to find a chassis for.
+ *
+ * **Ships `true` as of the mouse-aim-turret work (TR46)**: cars fire the basic attack alongside
+ * their ability kit, and the one-layout controls pass (TR29/TR30) gives it back the left mouse
+ * button rather than leaving it keyboard-only. The manual rebuild this flip owes is deferred to
+ * that plan's final task, which rebuilds once for the whole change rather than once per task.
  */
-export const BASIC_ATTACK_CONFIG: { enabled: boolean } = { enabled: false };
+export const BASIC_ATTACK_CONFIG: { enabled: boolean } = { enabled: true };
 
 /**
  * Every weapon in the game, mirroring `CAR_TABLE`. Balance lives here and nowhere else.
@@ -133,6 +140,7 @@ export const WEAPON_TABLE = {
     homing: { acquire: "proximity", acquireRadius: 200, turnRateDegPerSec: 300, durationMs: 2000 },
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
+    turret: { additionalOffset: 0 },
   },
   /**
    * Mirage's slot 2: the dash (O12/O13). `speed` is the dash speed and `range` the dash distance —
@@ -251,6 +259,7 @@ export const WEAPON_TABLE = {
     pierce: 0,
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
+    turret: { additionalOffset: 0 },
     explosion: {
       radius: 60,
       damage: 15,
@@ -414,6 +423,7 @@ export const WEAPON_TABLE = {
     lifetimeMs: 2900, // just under the 3000ms cooldown — a second bouncing instance can never coexist
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
+    turret: { additionalOffset: 0 },
     applies: [{ statusId: "spiked", target: "opponents", durationMs: 3000 }],
   },
   /**

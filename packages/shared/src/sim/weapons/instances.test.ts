@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MS_PER_TICK } from "../../constants.js";
 import { DRIVE_CONFIG } from "../../config/drive-config.js";
+import { TURRET_CONFIG } from "../../config/turret-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import { DEFAULT_CAR_ID } from "../../config/car-config.js";
 import { WEAPON_TABLE } from "../../config/weapon-config.js";
@@ -32,35 +33,39 @@ const ctx = (over: Partial<Parameters<typeof stepInstance>[1]> = {}) => ({
 
 const owner = { sessionId: "aaa", team: 0 as const, carId: "mirage", x: 500, y: 300, angle: 0 };
 
+// `roadblock` is a fixed-muzzle projectile (no `turret` row) — the generic stand-in for exercising
+// spawn seq, ids, pierce, damage scaling and expiry, none of which is about any one weapon's own
+// geometry. `magmablast` used to serve that role but is a turret row for real now (spec TR18), so it
+// spawns from the turret pivot rather than the nose these tests are about.
 describe("spawning", () => {
   it("births a shot at the car's nose, not its centre", () => {
-    const { instances } = spawnInstances({ weaponId: "magmablast", slot: 0, finalVolley: true }, owner, 100, 0);
+    const { instances } = spawnInstances({ weaponId: "roadblock", slot: 0, finalVolley: true }, owner, 100, 0);
     expect(instances).toHaveLength(1);
     expect(instances[0]!.x).toBeCloseTo(500 + DRIVE_CONFIG.carWidth / 2);
     expect(instances[0]!.y).toBeCloseTo(300);
   });
 
   it("gives every instance a unique id from the sequence and returns the advanced sequence", () => {
-    const first = spawnInstances({ weaponId: "magmablast", slot: 0, finalVolley: true }, owner, 100, 7);
-    const second = spawnInstances({ weaponId: "magmablast", slot: 0, finalVolley: true }, owner, 101, first.seq);
+    const first = spawnInstances({ weaponId: "roadblock", slot: 0, finalVolley: true }, owner, 100, 7);
+    const second = spawnInstances({ weaponId: "roadblock", slot: 0, finalVolley: true }, owner, 101, first.seq);
     expect(first.seq).toBe(8);
     expect(second.seq).toBe(9);
     expect(first.instances[0]!.id).not.toBe(second.instances[0]!.id);
   });
 
   it("carries the weapon's pierce budget onto the instance", () => {
-    const { instances } = spawnInstances({ weaponId: "magmablast", slot: 0, finalVolley: true }, owner, 100, 0);
-    expect(instances[0]!.pierceLeft).toBe(0);
+    const { instances } = spawnInstances({ weaponId: "roadblock", slot: 0, finalVolley: true }, owner, 100, 0);
+    expect(instances[0]!.pierceLeft).toBe(WEAPON_TABLE.roadblock.pierce);
   });
 
   it("puts a single-pellet volley exactly on the heading", () => {
-    const { instances } = spawnInstances({ weaponId: "magmablast", slot: 0, finalVolley: true }, owner, 100, 0);
+    const { instances } = spawnInstances({ weaponId: "roadblock", slot: 0, finalVolley: true }, owner, 100, 0);
     expect(instances[0]!.angle).toBe(owner.angle);
   });
 
   it("freezes the owner's chassis-scaled damage onto the instance", () => {
-    const { instances } = spawnInstances({ weaponId: "magmablast", slot: 0, finalVolley: true }, owner, 100, 0);
-    expect(instances[0]!.damage).toBe(weaponDamageOf("mirage", "magmablast"));
+    const { instances } = spawnInstances({ weaponId: "roadblock", slot: 0, finalVolley: true }, owner, 100, 0);
+    expect(instances[0]!.damage).toBe(weaponDamageOf("mirage", "roadblock"));
   });
 
   it("gives a harder-hitting chassis a harder-hitting shot from the same weapon", () => {
@@ -69,26 +74,26 @@ describe("spawning", () => {
     // bastion is the pair that still orders the way the test name says.
     const softHitter = { ...owner, carId: "bastion" };
     const hardHitter = { ...owner, carId: "bullseye" };
-    const soft = spawnInstances({ weaponId: "magmablast", slot: 0, finalVolley: true }, softHitter, 100, 0).instances[0]!;
-    const hard = spawnInstances({ weaponId: "magmablast", slot: 0, finalVolley: true }, hardHitter, 100, 0).instances[0]!;
-    expect(hard.damage).toBe(weaponDamageOf("bullseye", "magmablast"));
-    expect(soft.damage).toBe(weaponDamageOf("bastion", "magmablast"));
+    const soft = spawnInstances({ weaponId: "roadblock", slot: 0, finalVolley: true }, softHitter, 100, 0).instances[0]!;
+    const hard = spawnInstances({ weaponId: "roadblock", slot: 0, finalVolley: true }, hardHitter, 100, 0).instances[0]!;
+    expect(hard.damage).toBe(weaponDamageOf("bullseye", "roadblock"));
+    expect(soft.damage).toBe(weaponDamageOf("bastion", "roadblock"));
     expect(hard.damage).toBeGreaterThan(soft.damage);
   });
 
   it("falls back to the default chassis for an unrecognised carId rather than NaN-ing damage", () => {
     const unknown = { ...owner, carId: "not-a-car" };
-    const { instances } = spawnInstances({ weaponId: "magmablast", slot: 0, finalVolley: true }, unknown, 100, 0);
-    expect(instances[0]!.damage).toBe(weaponDamageOf(DEFAULT_CAR_ID, "magmablast"));
+    const { instances } = spawnInstances({ weaponId: "roadblock", slot: 0, finalVolley: true }, unknown, 100, 0);
+    expect(instances[0]!.damage).toBe(weaponDamageOf(DEFAULT_CAR_ID, "roadblock"));
   });
 
   it("freezes the wave's finality onto every instance it spawns", () => {
     const owner = { sessionId: "a", team: 0 as const, carId: "mirage", x: 0, y: 0, angle: 0 };
     const mid = spawnInstances(
-      { weaponId: "magmablast", slot: 0, finalVolley: false }, owner, 0, 0,
+      { weaponId: "roadblock", slot: 0, finalVolley: false }, owner, 0, 0,
     );
     const last = spawnInstances(
-      { weaponId: "magmablast", slot: 0, finalVolley: true }, owner, 0, 0,
+      { weaponId: "roadblock", slot: 0, finalVolley: true }, owner, 0, 0,
     );
     expect(mid.instances[0]!.finalWave).toBe(false);
     expect(last.instances[0]!.finalWave).toBe(true);
@@ -268,27 +273,47 @@ describe("wall clipping", () => {
   });
 });
 
-describe("spawnInstances aim angle", () => {
-  const owner = { sessionId: "p1", team: 0 as const, carId: "mirage", x: 100, y: 100, angle: 0 };
-  const order = { weaponId: "magmablast" as const, slot: 0, finalVolley: true };
+describe("turret spawn (TR18-TR19)", () => {
+  const owner = { sessionId: "a", team: 0 as const, carId: "mirage", x: 100, y: 100, angle: 0 };
+  const d = TURRET_CONFIG.defaultOffset;
 
-  it("uses the owner's heading when no aim angle is given", () => {
-    const { instances } = spawnInstances(order, owner, 0, 0);
-    expect(instances[0]!.angle).toBeCloseTo(0, 6);
+  it("spawns along the bearing from the pivot, not from the nose", () => {
+    const order = { weaponId: "magmablast" as const, slot: 1, finalVolley: true, pressId: "p", bearing: Math.PI / 2 };
+    const [shot] = spawnInstances(order, owner, 0, 0).instances;
+    expect(shot!.x).toBeCloseTo(100, 9);
+    expect(shot!.y).toBeCloseTo(100 + d, 9);
+    expect(shot!.angle).toBeCloseTo(Math.PI / 2, 12);
+    expect(shot!.muzzleDir).toBeCloseTo(Math.PI / 2, 12);
   });
 
-  it("fires along the aim angle when one is given", () => {
-    const { instances } = spawnInstances(order, owner, 0, 0, Math.PI / 4);
-    expect(instances[0]!.angle).toBeCloseTo(Math.PI / 4, 6);
+  it("clamps a bearing the car has turned away from to the arc edge at release (TR55)", () => {
+    // Pressed along +y; by release the car faces nearly -y, so +y is almost straight behind it. A
+    // 180 arc sends the shot out along the nearer arc edge instead of through the car's blind side.
+    const order = { weaponId: "magmablast" as const, slot: 1, finalVolley: true, pressId: "p", bearing: Math.PI / 2 };
+    const turned = { ...owner, angle: -Math.PI / 2 + 0.1 };
+    const [shot] = spawnInstances(order, turned, 0, 0, 1, "", undefined, undefined, 180).instances;
+    expect(shot!.angle).toBeCloseTo(0.1, 12);
+    expect(shot!.muzzleDir).toBeCloseTo(Math.PI / 2, 12);
+    // At 360 the same order leaves along its frozen bearing, through the car's back.
+    const [free] = spawnInstances(order, turned, 0, 0, 1, "", undefined, undefined, 360).instances;
+    expect(free!.angle).toBeCloseTo(Math.PI / 2, 12);
   });
 
-  it("keeps the muzzle on the car's nose whatever the aim angle", () => {
-    // A11b. The muzzle is a physical point on the hull. If the lock moved it, a wide-angle lock
-    // would spawn shots off the side of the car in open space.
-    const straight = spawnInstances(order, owner, 0, 0).instances[0]!;
-    const swung = spawnInstances(order, owner, 0, 0, Math.PI / 3).instances[0]!;
-    expect(swung.x).toBeCloseTo(straight.x, 6);
-    expect(swung.y).toBeCloseTo(straight.y, 6);
+  it("uses the heading when a turret order carries no bearing", () => {
+    const order = { weaponId: "magmablast" as const, slot: 1, finalVolley: true, pressId: "p" };
+    const [shot] = spawnInstances(order, owner, 0, 0).instances;
+    expect(shot!.x).toBeCloseTo(100 + d, 9);
+    expect(shot!.y).toBeCloseTo(100, 9);
+  });
+
+  it("never spawns a shot on the far side of a wall", () => {
+    // Gap of 8 units from the pivot (100,100) to the wall's near face at x=108 — an exact multiple
+    // of MUZZLE_STEP_UNITS(4), so the quantised raycast in `wallClipDistance` lands exactly on the
+    // face rather than overshooting into it by up to one step.
+    const wall = { x: 108, y: 0, w: 20, h: 200 };
+    const order = { weaponId: "magmablast" as const, slot: 1, finalVolley: true, pressId: "p", bearing: 0 };
+    const [shot] = spawnInstances(order, owner, 0, 0, 1, "", undefined, { obstacles: [wall], bounds: BOUNDS }).instances;
+    expect(shot!.x).toBeLessThanOrEqual(wall.x);
   });
 });
 
@@ -302,6 +327,9 @@ const quadMuzzle = {
   usesAimAssist: false,
   aimRangeUnits: undefined,
   muzzles: [0, 90, 180, 270],
+  // Spread from a real row that carries `turret` (spec TR18) — cleared here because this fixture is
+  // testing FIXED-muzzle fan geometry, which the turret branch bypasses entirely.
+  turret: undefined,
 } as const;
 
 describe("multi-muzzle", () => {
@@ -309,7 +337,7 @@ describe("multi-muzzle", () => {
   const owner = { sessionId: "a", team: 0 as const, carId: "bullseye", x: 100, y: 100, angle: 0 };
 
   it("emits one fan per muzzle, each centred on its own direction", () => {
-    const { instances } = spawnInstances(order, owner, 1, 0, null, 1, "", quadMuzzle);
+    const { instances } = spawnInstances(order, owner, 1, 0, 1, "", quadMuzzle);
     expect(instances).toHaveLength(4); // 4 muzzles x 1 pellet
     // Muzzle degrees convert to radians unnormalized: with owner.angle = 0 the four instance
     // angles are exactly [0, pi/2, pi, 3pi/2] -- no wraparound to [-pi, pi] happens anywhere in
@@ -327,7 +355,9 @@ describe("multi-muzzle", () => {
   });
 
   it("defaults to the single forward muzzle, byte-for-byte as before", () => {
-    const single = spawnInstances(order, owner, 1, 0, null, 1);
+    // `roadblock`: `magmablast` is a real turret row now (spec TR18), and this case is about the
+    // generic no-`muzzles`-authored default, not about magmablast's own geometry.
+    const single = spawnInstances({ ...order, weaponId: "roadblock" }, owner, 1, 0, 1);
     expect(single.instances).toHaveLength(1);
     expect(single.instances[0]!.x).toBeCloseTo(100 + muzzleOffset());
     expect(single.instances[0]!.muzzleDir).toBe(0);
@@ -335,7 +365,7 @@ describe("multi-muzzle", () => {
 
   it("re-anchors an attached beam through its own muzzle direction", () => {
     const rearFlame = { ...WEAPON_TABLE.afterburner, muzzles: [180] } as const;
-    const { instances } = spawnInstances(order, owner, 1, 0, null, 1, "", rearFlame);
+    const { instances } = spawnInstances(order, owner, 1, 0, 1, "", rearFlame);
     const stepped = stepInstance(
       instances[0]!,
       {
@@ -371,7 +401,7 @@ const homingOrder = { weaponId: "predator", slot: 0, finalVolley: true } as cons
 
 describe("homing", () => {
   it("bends toward a hand-set target, capped at the turn rate (steering only, not acquisition)", () => {
-    const { instances } = spawnInstances(homingOrder, homingOwner, 10, 0, 0, 1, "victim", rocket);
+    const { instances } = spawnInstances(homingOrder, homingOwner, 10, 0, 1, "victim", rocket);
     const shot = instances[0]!;
     expect(shot.homingTargetId).toBe("victim");
     const stepped = stepInstance(shot, homingCtx(11, { x: 500, y: 500 }), rocket); // 45 deg off
@@ -380,7 +410,7 @@ describe("homing", () => {
   });
 
   it("flies straight after the guidance window", () => {
-    const { instances } = spawnInstances(homingOrder, homingOwner, 10, 0, 0, 1, "victim", rocket);
+    const { instances } = spawnInstances(homingOrder, homingOwner, 10, 0, 1, "victim", rocket);
     const until = instances[0]!.homingUntilTick;
     expect(until).toBe(10 + 60); // msToTicks(2000) at 30 Hz
     const past = stepInstance({ ...instances[0]!, x: 100 }, homingCtx(until + 1, { x: 500, y: 500 }), rocket);
@@ -388,7 +418,7 @@ describe("homing", () => {
   });
 
   it("flies straight when fired without a lock", () => {
-    const { instances } = spawnInstances(homingOrder, homingOwner, 10, 0, null, 1, "", rocket);
+    const { instances } = spawnInstances(homingOrder, homingOwner, 10, 0, 1, "", rocket);
     expect(instances[0]!.homingTargetId).toBe("");
     // The guidance clock still arms at spawn — off `homing` alone, not off having a target (this is
     // the fix a proximity row needs: it also spawns with no target, but must still gain a window to
@@ -421,7 +451,7 @@ describe("bounce", () => {
   it("expires on its clock, not at range", () => {
     const owner = { sessionId: "a", team: 0 as const, carId: "bastion", x: 0, y: 0, angle: 0 };
     const order = { weaponId: "thumper", slot: 0, finalVolley: true } as const;
-    const { instances } = spawnInstances(order, owner, 100, 0, null, 1, "", bouncer);
+    const { instances } = spawnInstances(order, owner, 100, 0, 1, "", bouncer);
     const shot = instances[0]!;
     expect(shot.expiresAtTick).toBe(100 + 87); // msToTicks(2900) at 30 Hz
     expect(instanceExpired({ ...shot, distance: 99999 }, 150, bouncer)).toBe(false); // range ignored

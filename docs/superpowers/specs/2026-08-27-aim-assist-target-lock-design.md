@@ -11,7 +11,7 @@ describing — the decision was reconsidered, not lost.
 **This file is kept as a record of the decisions (A1–A14) and the alternatives they rejected, so a
 future attempt at assisted aiming starts from what was already learned rather than from nothing.
 Read it as history. It is not a description of the game, and nothing in it is a requirement.** The
-live behaviour is [`docs/combat-model.md`](../../combat-model.md#shot-direction-the-heading-always).
+live behaviour is [`docs/combat-model.md`](../../combat-model.md#shot-direction-the-heading-or-the-turret).
 
 **Plan:** [`docs/superpowers/plans/2026-08-27-aim-assist-target-lock.md`](../plans/2026-08-27-aim-assist-target-lock.md)
 

@@ -7,6 +7,7 @@ import {
   BASIC_ATTACK_CONFIG,
   CAR_TABLE,
   TICK_RATE_HZ,
+  TURRET_CONFIG,
   WEAPON_TABLE,
   activeCarIds,
   carHullOf,
@@ -307,5 +308,52 @@ describe("the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)", () => {
     const enabledStamp = balanceStamp();
     BASIC_ATTACK_CONFIG.enabled = false;
     assert.notEqual(balanceStamp(), enabledStamp);
+  });
+});
+
+/**
+ * TR47. A weapon that fires from the turret prints an "Aim" point; one with a fixed muzzle prints
+ * nothing new, because a point that does not apply is left out, never printed as a dash. Read off
+ * the rendered chassis sections rather than the builder's internals, so a card that loses the row
+ * (or a fixed-muzzle card that grows one) fails here by weapon name.
+ */
+describe("the turret Aim point (TR47)", () => {
+  const shipped = BASIC_ATTACK_CONFIG.enabled;
+  afterEach(() => {
+    BASIC_ATTACK_CONFIG.enabled = shipped;
+  });
+
+  it("prints Aim on every turret card and on no fixed-muzzle card", () => {
+    // Set on, so the basic-attack cards — nine of the turret rows — are on the page to be checked.
+    BASIC_ATTACK_CONFIG.enabled = true;
+    let turretCards = 0;
+    let fixedCards = 0;
+    for (const carId of activeCarIds()) {
+      // Resolved per chassis: the nine basic-attack rows share one display name.
+      const own = [CAR_TABLE[carId].basicAttack, ...CAR_TABLE[carId].weapons];
+      const byName = new Map(own.map((id) => [WEAPON_TABLE[id].name, id]));
+      const cards = carSection(carId).split('<article class="weapon"').slice(1);
+      for (const card of cards) {
+        const name = /<h4>([^<]+)<\/h4>/.exec(card)?.[1];
+        const id = byName.get(name);
+        assert.ok(id, `${carId}: a weapon card names "${name}", which no WEAPON_TABLE row is called`);
+        const printsAim = /<dt>Aim<\/dt>/.test(card);
+        if (WEAPON_TABLE[id].turret) {
+          turretCards++;
+          assert.ok(printsAim, `${id} fires from the turret but its card prints no Aim point`);
+          assert.match(card, new RegExp(`${TURRET_CONFIG.turnRateDegPerSec}°/s`));
+        } else {
+          fixedCards++;
+          assert.ok(!printsAim, `${id} has a fixed muzzle but its card prints an Aim point`);
+        }
+      }
+    }
+    assert.ok(turretCards > 0 && fixedCards > 0, "the check saw only one kind of card");
+  });
+
+  it("folds the printed turn rate into the stamp", () => {
+    // Structural, like VS30's check above: the key is the stamp's own input line, so a mention of
+    // the knob elsewhere in the builder (the Aim row itself) cannot satisfy it.
+    assert.match(read(BUILDER), /turretTurnRateDegPerSec: TURRET_CONFIG\.turnRateDegPerSec/);
   });
 });

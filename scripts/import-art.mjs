@@ -93,12 +93,18 @@ export function describeFit(size, hull) {
  * Set a sprite's `file` while preserving every field alongside it. Re-importing a car must not
  * discard a `rotationOffset` or `origin` that was tuned by eye in `?dev=assets` — that tuning is
  * the expensive part, and the image is the cheap part.
+ *
+ * `defaults` seeds fields on a row's *first* import only — an existing row's own fields always win,
+ * which is what lets a re-import keep a hand-tuned `origin` even though the caller passes the same
+ * `defaults` again every time. The default turret's mount-plate `origin` is the one caller today;
+ * every other import passes no defaults and leaves the field unset, so the schema default applies.
  */
-export function mergeManifestEntry(manifest, key, file) {
+export function mergeManifestEntry(manifest, key, file, defaults = {}) {
   const sprites = manifest?.sprites ?? {};
+  const existing = sprites[key];
   return {
     ...manifest,
-    sprites: { ...sprites, [key]: { ...sprites[key], file } },
+    sprites: { ...sprites, [key]: { ...(existing ? {} : defaults), ...existing, file } },
   };
 }
 
@@ -127,15 +133,19 @@ export function importWarnings({ hasAlpha, format, source, hull, keyed = false }
         `Re-export as PNG, or re-run with --key-background to flood-fill it out.`,
     );
   }
-  const fit = describeFit(source, hull);
-  const coverW = fit.drawnWidth / hull.width;
-  const coverH = fit.drawnHeight / hull.height;
-  if (coverW < MIN_HULL_COVERAGE || coverH < MIN_HULL_COVERAGE) {
-    warnings.push(
-      `art covers ${(coverW * 100).toFixed(0)}% x ${(coverH * 100).toFixed(0)}% of the ` +
-        `${hull.width}x${hull.height} hull — it will look smaller than its hitbox. ` +
-        `Regenerate closer to ${(hull.width / hull.height).toFixed(2)}:1.`,
-    );
+  // `hull` is omitted for a turret import: a turret is not fit inside the car hull the way a
+  // chassis sprite is (spec TR44), so there is no coverage fraction to warn about.
+  if (hull) {
+    const fit = describeFit(source, hull);
+    const coverW = fit.drawnWidth / hull.width;
+    const coverH = fit.drawnHeight / hull.height;
+    if (coverW < MIN_HULL_COVERAGE || coverH < MIN_HULL_COVERAGE) {
+      warnings.push(
+        `art covers ${(coverW * 100).toFixed(0)}% x ${(coverH * 100).toFixed(0)}% of the ` +
+          `${hull.width}x${hull.height} hull — it will look smaller than its hitbox. ` +
+          `Regenerate closer to ${(hull.width / hull.height).toFixed(2)}:1.`,
+      );
+    }
   }
   return warnings;
 }
@@ -163,6 +173,13 @@ const manifestPath = path.join(artDir, "manifest.json");
 export const CAR_KEY_PREFIX = "car.";
 
 /**
+ * The manifest key namespace for turret art. Mirrors `turretSpriteKeys` in
+ * `packages/client/src/assets/asset-keys.ts` — duplicated for the same reason `CAR_KEY_PREFIX` is:
+ * this script is plain `.mjs` and cannot import the client's TypeScript.
+ */
+export const TURRET_KEY_PREFIX = "turret.";
+
+/**
  * Write the texture at twice the hull's long edge. The GPU minifies with plain bilinear filtering
  * (Phaser only builds mipmaps for power-of-two textures, and none are requested), which samples a
  * 2x2 texel block per screen pixel — so anything drawn below ~1:2 skips texels and shimmers as the
@@ -172,12 +189,44 @@ export const CAR_KEY_PREFIX = "car.";
  */
 export const SUPERSAMPLE = 2;
 
+/**
+ * Turret art's output long edge: 36 world units at 2px/u (the same supersample rate car sprites use),
+ * i.e. `36 * SUPERSAMPLE`. A turret is not fit inside the 60x40 car hull the way a chassis sprite is
+ * — it is a separate rotating layer pivoted at `CarDef.turretMount` — so it gets its own flat target
+ * instead of `SUPERSAMPLE * Math.max(hull.width, hull.height)`.
+ */
+export const TURRET_TARGET_PX = 72;
+
+/**
+ * The default turret's mount-plate `origin`, measured on the source art (spec TR41): the plate sits
+ * about 31% in from the left edge, vertically centred. Seeded into the manifest on the turret's
+ * first import only — see `mergeManifestEntry`.
+ */
+export const TURRET_DEFAULT_ORIGIN = [0.31, 0.5];
+
+/**
+ * The manifest key, output file, and any first-import defaults for one import. Pure, so the turret
+ * naming and its one seeded default (`origin` for `default`, nothing for any other id) are
+ * unit-tested without touching sharp or the filesystem — the CLI below only turns this into paths.
+ */
+export function importTargetFor(id, { turret = false } = {}) {
+  if (turret) {
+    return {
+      key: `${TURRET_KEY_PREFIX}${id}`,
+      file: `turrets/${id}.png`,
+      defaults: id === "default" ? { origin: TURRET_DEFAULT_ORIGIN } : {},
+    };
+  }
+  return { key: `${CAR_KEY_PREFIX}${id}`, file: `cars/${id}.png`, defaults: {} };
+}
+
 function parseArgs(argv) {
   const flags = new Set(argv.filter((a) => a.startsWith("--")));
-  const [source, carId] = argv.filter((a) => !a.startsWith("--"));
+  const [source, id] = argv.filter((a) => !a.startsWith("--"));
   return {
     source,
-    carId,
+    id,
+    turret: flags.has("--turret"),
     keepColor: flags.has("--keep-color"),
     keyBackground: flags.has("--key-background"),
   };
@@ -189,15 +238,22 @@ function readManifest() {
 }
 
 export async function main(argv = process.argv.slice(2)) {
-  const { source, carId, keepColor, keyBackground } = parseArgs(argv);
-  if (!source || !carId) {
+  const { source, id, turret, keepColor, keyBackground } = parseArgs(argv);
+  if (!source || !id) {
     throw new Error(
-      "usage: node scripts/import-art.mjs <image> <carId> [--keep-color] [--key-background]",
+      "usage: node scripts/import-art.mjs <image> <carId> [--keep-color] [--key-background]\n" +
+        "       node scripts/import-art.mjs <image> <carId|default> --turret [--keep-color] [--key-background]",
     );
   }
   if (!fs.existsSync(source)) throw new Error(`no such image: ${source}`);
-  if (!isCarId(carId)) {
-    throw new Error(`unknown carId "${carId}". Known: ${Object.keys(CAR_TABLE).join(", ")}`);
+  if (turret) {
+    if (id !== "default" && !isCarId(id)) {
+      throw new Error(
+        `unknown turret id "${id}". Use "default" or a carId: ${Object.keys(CAR_TABLE).join(", ")}`,
+      );
+    }
+  } else if (!isCarId(id)) {
+    throw new Error(`unknown carId "${id}". Known: ${Object.keys(CAR_TABLE).join(", ")}`);
   }
 
   const hull = { width: DRIVE_CONFIG.carWidth, height: DRIVE_CONFIG.carHeight };
@@ -216,14 +272,14 @@ export async function main(argv = process.argv.slice(2)) {
   const raw = { raw: { width: info.width, height: info.height, channels: 4 } };
   const trimmed = await sharp(data, raw).trim().toBuffer({ resolveWithObject: true });
   const bbox = { width: trimmed.info.width, height: trimmed.info.height };
-  const out = outputSizeFor(bbox, SUPERSAMPLE * Math.max(hull.width, hull.height));
+  const longEdge = turret ? TURRET_TARGET_PX : SUPERSAMPLE * Math.max(hull.width, hull.height);
+  const out = outputSizeFor(bbox, longEdge);
 
   const manifest = readManifest();
-  const key = `${CAR_KEY_PREFIX}${carId}`;
+  const { key, file, defaults } = importTargetFor(id, { turret });
   const preColoured = manifest.sprites?.[key]?.colorMode === "none";
   const greyscale = !keepColor && !preColoured;
 
-  const file = `cars/${carId}.png`;
   const dest = path.join(artDir, file);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   let pipeline = sharp(trimmed.data, {
@@ -232,10 +288,14 @@ export async function main(argv = process.argv.slice(2)) {
   if (greyscale) pipeline = pipeline.greyscale();
   await pipeline.png().toFile(dest);
 
-  const fit = describeFit(out, hull);
   console.log(`source        ${meta.width} x ${meta.height}  (${meta.format}${meta.hasAlpha ? ", alpha" : ", no alpha"})`);
   console.log(`art           ${bbox.width} x ${bbox.height}   aspect ${(bbox.width / bbox.height).toFixed(2)}`);
-  console.log(`in-game       drawn ${fit.drawnWidth.toFixed(1)} x ${fit.drawnHeight.toFixed(1)} inside the ${hull.width}x${hull.height} hull  (${((100 * fit.drawnWidth) / hull.width).toFixed(0)}% x ${((100 * fit.drawnHeight) / hull.height).toFixed(0)}%)`);
+  if (turret) {
+    console.log(`output        ${out.width} x ${out.height}  (long edge ${TURRET_TARGET_PX}px = 36u x ${SUPERSAMPLE}px/u)`);
+  } else {
+    const fit = describeFit(out, hull);
+    console.log(`in-game       drawn ${fit.drawnWidth.toFixed(1)} x ${fit.drawnHeight.toFixed(1)} inside the ${hull.width}x${hull.height} hull  (${((100 * fit.drawnWidth) / hull.width).toFixed(0)}% x ${((100 * fit.drawnHeight) / hull.height).toFixed(0)}%)`);
+  }
   console.log(`greyscale     ${greyscale ? "yes" : `no (${keepColor ? "--keep-color" : 'colorMode "none"'})`}`);
 
   for (const warning of importWarnings({
@@ -243,12 +303,12 @@ export async function main(argv = process.argv.slice(2)) {
     format: meta.format,
     source: bbox,
     keyed: keyBackground,
-    hull,
+    hull: turret ? undefined : hull,
   })) {
     console.log(`\n! ${warning}`);
   }
 
-  const next = mergeManifestEntry(manifest, key, file);
+  const next = mergeManifestEntry(manifest, key, file, defaults);
   fs.writeFileSync(manifestPath, formatManifest(next));
   console.log(`\nwrote         ${path.relative(rootDir, dest)}  ${out.width}x${out.height}`);
   console.log(`manifest      ${key} -> ${file}`);

@@ -20,9 +20,9 @@ import { CAR_EVENT_IDS, type CarEventId } from "../../fx/table.js";
 /**
  * `"hidden"` while the sim is unpaused; the rest are the paused sub-screens. `"cars"` is the Car
  * select panel (PG74) — the six seats plus the mode, arena and hitbox controls that used to sit at
- * the top of `"physics"`.
+ * the top of `"physics"`. `"turret"` is the Turret settings panel (TR58).
  */
-export type OverlayView = "hidden" | "menu" | "cars" | "physics" | "vfx" | "env";
+export type OverlayView = "hidden" | "menu" | "cars" | "physics" | "vfx" | "env" | "turret";
 
 /** Tag names that mean "the user is typing/selecting", where P must not be treated as the pause key. */
 const FORM_CONTROL_TAGS: ReadonlySet<string> = new Set(["INPUT", "SELECT", "TEXTAREA"]);
@@ -43,7 +43,9 @@ export function pauseKeyAction(
 ): "toggle" | "back-to-menu" | "ignore" {
   if (FORM_CONTROL_TAGS.has(targetTag.toUpperCase())) return "ignore";
   // Any settings panel backs out to the menu without touching pause; the sim stays frozen.
-  if (view === "cars" || view === "physics" || view === "vfx" || view === "env") return "back-to-menu";
+  if (view === "cars" || view === "physics" || view === "vfx" || view === "env" || view === "turret") {
+    return "back-to-menu";
+  }
   return "toggle";
 }
 
