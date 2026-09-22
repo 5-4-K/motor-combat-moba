@@ -66,7 +66,7 @@ to the task named after it.
 |---|---|---|
 | 1. Accessor layer, one bundle | [`01-accessor-layer.md`](01-accessor-layer.md) | **DONE** (`fbe386a..f0f0112`) |
 | 2. Two mode folders | [`02-mode-folders.md`](02-mode-folders.md) | **DONE** (`1da2c85..74b8320`) |
-| 3. Scopes installed | [`03-room-scopes.md`](03-room-scopes.md) | **in flight** (Task 1) |
+| 3. Scopes installed | [`03-room-scopes.md`](03-room-scopes.md) | **DONE** (`eb8b9cc..b78ad38`) |
 | 4. Lobby and arena sets | [`04-lobby-and-arenas.md`](04-lobby-and-arenas.md) | not started |
 | 5. `setTuning` retired | [`05-retire-set-tuning.md`](05-retire-set-tuning.md) | not started |
 | 6. Tooling | [`06-tooling.md`](06-tooling.md) | not started |
