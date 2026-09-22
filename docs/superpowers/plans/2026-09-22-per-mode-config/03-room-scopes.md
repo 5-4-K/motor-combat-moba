@@ -242,6 +242,56 @@ git commit -am "feat(client): install the room's mode bundle, re-install on mode
 
 ---
 
+### Task 5b: Convert the 108 raw config reads outside `shared/src/sim`
+
+**Added after phase 1, per controller Ruling 13. Without this, phase 3 delivers a scope that
+nothing reads through — a no-op that looks like success.**
+
+**The problem in one sentence:** once a room ticks inside `withMode(deathmatchConfig, …)`, a raw
+`RAM_CONFIG.minRamSpeed` in `packages/server/src/sim/ram-bridge.ts` still returns the SHIPPED value,
+so Deathmatch would run half its own numbers and half Brawl's, with nothing failing.
+
+**Files:** 38 across two packages, 108 reads. The 36 that run inside the server tick are the
+blocking ones and go first:
+- `packages/server/src/sim/` — `ram-bridge.ts` (7), `tick.ts` (6), `spike-bridge.ts` (5)
+- `packages/server/src/bot/brain/` — `planner.ts` (5), `objectives.ts` (2), `movement.ts` (2),
+  `firing.ts` (2), `perception.ts` (1), `personality.ts` (1), `controller.ts` (1)
+- `packages/server/src/rooms/` — `tick-pipeline.ts` (2), `ArenaRoom.ts` (1), `PracticeRoom.ts` (1)
+
+The remaining 72 are client rendering, HUD and dev tooling — visual correctness rather than sim
+correctness, but they must match the mode the player is in:
+- `scenes/` — `ArenaScene.ts` (11), `combat-visual.ts` (8), `movement-hint.ts` (2),
+  `impact-feedback.ts` (2), `weapon-hud.ts` (1), `status-hud.ts` (1), `deathmatch-hud.ts` (1)
+- `ui/` — `car-select-view.ts` (5), `lobby-view.ts` (2), `screens/practice-setup.ts` (1)
+- `fx/` — `occlusion.ts` (2), `table.ts` (1), `environment.ts` (1), `decals.ts` (1), `contact.ts` (1)
+- `config/` — `slot-keys.ts` (4), `turret-visual.ts` (2), `aim-hud.ts` (1)
+- `input/aim-offset.ts` (3)
+- `dev/` — `FxPreviewScene.ts` (6), `AssetTuningScene.ts` (4), `playground/ui-model.ts` (5),
+  `playground/turret-model.ts` (3), `playground/car-panel.ts` (3), `playground/storage.ts` (1)
+
+- [ ] **Step 1: Convert the 36 server-tick reads first, and run the server suite.**
+
+Same substitution table as phase 1 Task 4: `RAM_CONFIG.x` → `ram().x`, and so on, importing the
+accessors from `@motor-combat-moba/shared`.
+
+- [ ] **Step 2: Judge the `dev/playground/` reads separately — they are NOT all defects.**
+
+Those panels BUILD the tuning UI: they read shipped defaults to populate sliders and to show what a
+knob's un-overridden value is. A read there may be correct as a raw read. Decide each on its merits
+and say which you kept and why. Converting one that should stay raw would make the panel display
+the override as though it were the default.
+
+- [ ] **Step 3: Extend the guard test to both packages.**
+
+Generalise `packages/shared/src/modes/no-raw-config-in-sim.test.ts` to walk `packages/client/src`
+and `packages/server/src` as well, with an explicit allow-list for the `dev/playground/` reads Step
+2 judged legitimate. The allow-list is the record of that judgement — each entry carries a one-line
+reason.
+
+- [ ] **Step 4: Full root suite green, commit.**
+
+---
+
 ### Task 6: Two modes in one process (G2)
 
 **Files:**
