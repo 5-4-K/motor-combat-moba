@@ -12,6 +12,10 @@ export {
 } from "./constants.js";
 export type { DeployMode } from "./constants.js";
 
+// SCAFFOLDING (phases 1-2): boots the legacy mode bundle so `cfg()` has something installed.
+// Removed in phase 3, when cfg() starts throwing. See modes/legacy.ts.
+import "./modes/legacy.js";
+
 export { INPUT_MESSAGE } from "./net/input.js";
 export type { InputMessage } from "./net/input.js";
 export {
