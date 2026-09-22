@@ -1,7 +1,5 @@
-import { RAM_CONFIG } from "../config/ram-config.js";
-import { IMPULSE_CONFIG } from "../config/impulse-config.js";
-import { SPIKE_CONFIG } from "../config/spike-config.js";
 import type { WeaponId } from "../config/weapon-types.js";
+import { impulse, ram, spike } from "../modes/active.js";
 import { rectPlanes } from "./boundary.js";
 import {
   aabbCorners,
@@ -155,7 +153,7 @@ function awayFrom(attacker: ContactCar, victim: ContactCar): Vec2 | null {
   const n = contactNormalBetween(
     carHullOf(attacker.x, attacker.y, attacker.angle),
     carHullOf(victim.x, victim.y, victim.angle),
-    RAM_CONFIG.contactPad,
+    ram().contactPad,
   );
   if (n === null) return null;
   // `n` points from victim toward attacker (see `contactNormalBetween`); `away` is the reverse.
@@ -217,7 +215,7 @@ export function resolveContacts(
       const key = pairKey(a.sessionId, b.sessionId);
 
       const touching =
-        contactNormalBetween(carHullOf(a.x, a.y, a.angle), carHullOf(b.x, b.y, b.angle), RAM_CONFIG.contactPad) !==
+        contactNormalBetween(carHullOf(a.x, a.y, a.angle), carHullOf(b.x, b.y, b.angle), ram().contactPad) !==
         null;
       if (!touching) continue;
       contacts.add(key);
@@ -230,7 +228,7 @@ export function resolveContacts(
   const wallBlockedDashers: string[] = [];
   for (const c of ordered) {
     if (!isDasher(c)) continue;
-    if (hullTouchesWorld(carHullOf(c.x, c.y, c.angle), obstacles, bounds, IMPULSE_CONFIG.wallContactPad)) {
+    if (hullTouchesWorld(carHullOf(c.x, c.y, c.angle), obstacles, bounds, impulse().wallContactPad)) {
       wallBlockedDashers.push(c.sessionId);
     }
   }
@@ -244,7 +242,7 @@ export function resolveContacts(
     const hull = carHullOf(c.x, c.y, c.angle);
     for (const box of obstacles) {
       if (box.kind !== "spike") continue;
-      const n = contactNormalBetween(hull, aabbToObb(box), SPIKE_CONFIG.contactPad);
+      const n = contactNormalBetween(hull, aabbToObb(box), spike().contactPad);
       if (n === null) continue;
       // `contactNormalBetween(a, b)` points from b toward a — out of the strip, into the arena.
       // Speed INTO the surface is therefore the NEGATIVE of the velocity's component along it:
@@ -318,6 +316,6 @@ function resolvePair(
   // impulse map there is no per-victim slot to win, because a resolution names every car it acts on.
   // A car rammed by two others in one tick therefore takes both, which `ram-bridge.ts` expresses by
   // summing every resolution that names it and writing the total once (`flushRamWrites`).
-  const ram = resolveRam(a, b, mode);
-  if (ram !== null) rams.push(ram);
+  const resolution = resolveRam(a, b, mode);
+  if (resolution !== null) rams.push(resolution);
 }

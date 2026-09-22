@@ -1,7 +1,6 @@
 import type { ChassisDrive } from "../config/car-config.js";
-import { DRIVE_CONFIG } from "../config/drive-config.js";
-import { RAM_CONFIG } from "../config/ram-config.js";
 import type { InputMessage } from "../net/input.js";
+import { drive, ram } from "../modes/active.js";
 import { ManeuverKind, NO_MANEUVER } from "./maneuver.js";
 import type { Modifiers } from "./status/modifiers.js";
 import type { SimBody } from "./step.js";
@@ -96,7 +95,7 @@ function engineCommandOf(
 ): number {
   if (throttle === 1) return chassis.engineAccel * mods.topSpeed * mods.accel;
   if (throttle === -1) {
-    return forward > DRIVE_CONFIG.reverseEpsilon
+    return forward > drive().reverseEpsilon
       ? -chassis.brakeDecel * mods.brakeDecel
       : -chassis.reverseAccel * mods.topSpeed * mods.accel;
   }
@@ -153,13 +152,14 @@ function gripFactorOf(chassis: ChassisDrive, mods: Readonly<Modifiers>): number 
 
 /** -1 once the car is genuinely travelling backwards and the flip is on. Unity's `YawRate` sense. */
 function steerSenseOf(forward: number): number {
-  return DRIVE_CONFIG.flipSteeringInReverse && forward < -DRIVE_CONFIG.reverseEpsilon ? -1 : 1;
+  const d = drive();
+  return d.flipSteeringInReverse && forward < -d.reverseEpsilon ? -1 : 1;
 }
 
 /**
  * Injected spin, decaying on its own while nothing holds the yaw.
  *
- * **A REAL DECAY since the Unity ram port's stage 3.** `RAM_CONFIG.reelingSpinDecayRate` is 2.0/s
+ * **A REAL DECAY since the Unity ram port's stage 3.** `ram().reelingSpinDecayRate` is 2.0/s
  * and `chassis.spinPerTick` (`resolveChassisDrive`, car-config.ts) resolves to `reelingSpinPerTick()`
  * — `exp(-2/30)` ≈ 0.9355 at 30 Hz — so a rammed car's spin winds down instead of running forever.
  * It was the identity through stages 1-2, while the knob was still a placeholder 1; that is history,
@@ -169,7 +169,7 @@ function steerSenseOf(forward: number): number {
  */
 function nextSpinOf(angVel: number, chassis: ChassisDrive): number {
   const next = angVel * chassis.spinPerTick;
-  return Math.abs(next) < RAM_CONFIG.spinEpsilon ? 0 : next;
+  return Math.abs(next) < ram().spinEpsilon ? 0 : next;
 }
 
 /**
@@ -177,7 +177,7 @@ function nextSpinOf(angVel: number, chassis: ChassisDrive): number {
  * rest. Only with the throttle neutral: a car held against a wall is not at rest, it is pushing.
  */
 function atRest(forward: number, lateral: number, throttle: InputMessage["throttle"]): boolean {
-  return throttle === 0 && Math.hypot(forward, lateral) < DRIVE_CONFIG.stopEpsilon;
+  return throttle === 0 && Math.hypot(forward, lateral) < drive().stopEpsilon;
 }
 
 /**
@@ -202,7 +202,7 @@ export function dashTranslation(body: SimBody, dt: number): { x: number; y: numb
 
 /**
  * How many collision checks this tick of dash needs: enough that no single translation exceeds
- * `DRIVE_CONFIG.dashSubstepMaxUnits`.
+ * `drive().dashSubstepMaxUnits`.
  *
  * DERIVED from distance rather than hardcoded (C3), so the value stays correct if
  * `thunderclap.speed`, `TICK_RATE_HZ` or the hull dimensions are ever retuned — including by a
@@ -210,7 +210,7 @@ export function dashTranslation(body: SimBody, dt: number): { x: number; y: numb
  */
 export function dashSubstepCount(body: SimBody, dt: number): number {
   const travel = Math.abs(body.maneuverSpeed) * dt;
-  return Math.max(1, Math.ceil(travel / DRIVE_CONFIG.dashSubstepMaxUnits));
+  return Math.max(1, Math.ceil(travel / drive().dashSubstepMaxUnits));
 }
 
 /**

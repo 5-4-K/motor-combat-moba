@@ -1,11 +1,11 @@
-import { inertiaRadiusSquared, RAM_CONFIG } from "../config/ram-config.js";
+import { inertiaRadiusSquared } from "../config/ram-config.js";
 import { ramAttackOf, ramDefenceOf } from "../config/car-config.js";
-import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import { contactNormalBetween, type Vec2 } from "./collide.js";
 import { carHullOf } from "./context.js";
 import { forwardOf } from "./velocity.js";
 import { canDamage } from "./weapons/targets.js";
+import { drive, ram } from "../modes/active.js";
 
 /**
  * Ram classification and knockback. Pure: no schema, no room, no wall clock.
@@ -16,7 +16,7 @@ import { canDamage } from "./weapons/targets.js";
  * meaning exactly what its name says. Ramming sets up the kill; weapons land it.
  *
  * **This is Unity's ram rule, not a contest** (spec §7, U23-U29). A ram is one car's punch: a
- * nose-first hit above `RAM_CONFIG.minRamSpeed`, where the attacker **stops dead** and is locked and
+ * nose-first hit above `ram().minRamSpeed`, where the attacker **stops dead** and is locked and
  * the victim is **flung, spun and left reeling**. The two-sided contest that stood here through
  * revision 2 of the car-physics rework — `pushOf`, `impactOn`, the three face bonuses,
  * `defencePushScale`, `minApproachSpeed` — is deleted rather than retuned: the attacker's outcome is
@@ -28,12 +28,12 @@ import { canDamage } from "./weapons/targets.js";
  * much, who is locked, who reels — and `packages/server/src/sim/ram-bridge.ts` writes it onto the
  * cars. Three things deliberately live there rather than here, and each would be a bug here:
  *
- * - **The spin clamp.** `RAM_CONFIG.spinMaxRate` is applied where the spin is written onto a car. A
+ * - **The spin clamp.** `ram().spinMaxRate` is applied where the spin is written onto a car. A
  *   clamp inside a pure classifier would make a resolution's meaning depend on the car it is later
  *   applied to.
  * - **Diminishing returns.** `resolveRam` returns full-strength values; the bridge scales the shove,
  *   the spin and the reel duration by the victim's own falloff stack (spec §7.3).
- * - **The statuses themselves.** `locked` and `reeled` name the cars; `RAM_CONFIG.attackerLockMs`
+ * - **The statuses themselves.** `locked` and `reeled` name the cars; `ram().attackerLockMs`
  *   and `ramUncontrolMs` are read, and `applyStatus` called, by the bridge.
  *
  * Runs AFTER driving has resolved for the tick, so every measurement reads the poses cars actually
@@ -94,7 +94,7 @@ export interface RamSide {
    * preserves whatever rotation the car already had rather than cancelling it; that is the intent
    * (§7.2's "spin unchanged"), not an omission.
    *
-   * **Not clamped here** — `RAM_CONFIG.spinMaxRate` is the bridge's, applied where the sum is written
+   * **Not clamped here** — `ram().spinMaxRate` is the bridge's, applied where the sum is written
    * onto a body (spec U26), because a clamp inside a pure classifier would make a resolution's
    * meaning depend on the car it is later applied to.
    */
@@ -145,8 +145,8 @@ function clamp(value: number, min: number, max: number): number {
  * The corner band is the narrow strip where a front or rear face meets a side.
  */
 export function regionOf(localX: number, localY: number, cornerBand: number): RamRegion {
-  const halfLength = DRIVE_CONFIG.carWidth / 2;
-  const halfWidth = DRIVE_CONFIG.carHeight / 2;
+  const halfLength = drive().carWidth / 2;
+  const halfWidth = drive().carHeight / 2;
   const toFront = halfLength - localX;
   const toRear = halfLength + localX;
   const toSide = halfWidth - Math.abs(localY);
@@ -194,9 +194,10 @@ export function ramTypeOf(
 
 /** The shove multiplier for a ram of this kind. Unity's `RamRules.ScaleFor`. */
 function scaleFor(type: RamType): number {
-  if (type === "headOn") return RAM_CONFIG.headOnScale;
-  if (type === "rear") return RAM_CONFIG.rearScale;
-  return RAM_CONFIG.flankScale;
+  const r = ram();
+  if (type === "headOn") return r.headOnScale;
+  if (type === "rear") return r.rearScale;
+  return r.flankScale;
 }
 
 /** One car resolved against a contact point: everything the classification needs, measured once. */
@@ -221,14 +222,14 @@ function participantOf(car: RamCar, contact: Vec2): Participant {
   const sin = Math.sin(-car.angle);
   const dx = contact.x - car.x;
   const dy = contact.y - car.y;
-  const region = regionOf(dx * cos - dy * sin, dx * sin + dy * cos, RAM_CONFIG.cornerBandUnits);
+  const region = regionOf(dx * cos - dy * sin, dx * sin + dy * cos, ram().cornerBandUnits);
 
   return {
     car,
     forward,
     forwardSpeed,
     region,
-    qualifies: !car.ramBlocked && isAttackRegion(region) && forwardSpeed >= RAM_CONFIG.minRamSpeed,
+    qualifies: !car.ramBlocked && isAttackRegion(region) && forwardSpeed >= ram().minRamSpeed,
   };
 }
 
@@ -246,7 +247,7 @@ function shoveOf(attacker: Participant, victim: Participant, type: RamType): Vec
   const magnitude =
     (attacker.forwardSpeed *
       scaleFor(type) *
-      RAM_CONFIG.globalScale *
+      ram().globalScale *
       ramAttackOf(attacker.car.carId)) /
     resistance;
   return { x: attacker.forward.x * magnitude, y: attacker.forward.y * magnitude };
@@ -264,7 +265,7 @@ function shoveOf(attacker: Participant, victim: Participant, type: RamType): Vec
 function spinOf(contact: Vec2, victim: RamCar, shove: Vec2): number {
   const rx = contact.x - victim.x;
   const ry = contact.y - victim.y;
-  return (RAM_CONFIG.spinScale * (rx * shove.y - ry * shove.x)) / inertiaRadiusSquared();
+  return (ram().spinScale * (rx * shove.y - ry * shove.x)) / inertiaRadiusSquared();
 }
 
 /** A flank or rear ram: the attacker stops and locks, the victim is flung, spun and left reeling. */
@@ -325,10 +326,12 @@ function headOnResolution(a: Participant, b: Participant): RamResolution {
  *
  * `null` covers five cases deliberately kept indistinguishable to the caller: the pair is not in
  * contact, they are teammates, neither car leads with its nose, neither is driving in at
- * `RAM_CONFIG.minRamSpeed`, and every car that would otherwise qualify is `ramBlocked`. Following
+ * `ram().minRamSpeed`, and every car that would otherwise qualify is `ramBlocked`. Following
  * `RammingModule.OnCollisionEnter` plus `RamRules.Resolve`.
  */
 export function resolveRam(a: RamCar, b: RamCar, mode: "ffa" | "team"): RamResolution | null {
+  const r = ram();
+
   // Friendly fire is off for contact exactly as it is for shots, decided by the same predicate, so
   // the two can never disagree about who is on your side. Teammates still collide and shove each
   // other through ordinary resolution; they simply cannot ram.
@@ -337,7 +340,7 @@ export function resolveRam(a: RamCar, b: RamCar, mode: "ffa" | "team"): RamResol
   const touching = contactNormalBetween(
     carHullOf(a.x, a.y, a.angle),
     carHullOf(b.x, b.y, b.angle),
-    RAM_CONFIG.contactPad,
+    r.contactPad,
   );
   if (touching === null) return null;
 
@@ -354,8 +357,8 @@ export function resolveRam(a: RamCar, b: RamCar, mode: "ffa" | "team"): RamResol
   if (!pa.qualifies && !pb.qualifies) return null;
 
   if (pa.qualifies && pb.qualifies) {
-    const aOnB = ramTypeOf(pb.region, pa.forward, pb.forward, RAM_CONFIG.headOnAngleDeg);
-    const bOnA = ramTypeOf(pa.region, pb.forward, pa.forward, RAM_CONFIG.headOnAngleDeg);
+    const aOnB = ramTypeOf(pb.region, pa.forward, pb.forward, r.headOnAngleDeg);
+    const bOnA = ramTypeOf(pa.region, pb.forward, pa.forward, r.headOnAngleDeg);
     // Either car reading it as a head-on makes it one for both — a mutual stop cannot be mutual for
     // one side only. An exact tie in drive-in is a head-on too (spec §7.1): with no faster car there
     // is nobody to name the attacker, and picking one by argument order would make the outcome
@@ -370,7 +373,7 @@ export function resolveRam(a: RamCar, b: RamCar, mode: "ffa" | "team"): RamResol
 
   const attacker = pa.qualifies ? pa : pb;
   const victim = pa.qualifies ? pb : pa;
-  const type = ramTypeOf(victim.region, attacker.forward, victim.forward, RAM_CONFIG.headOnAngleDeg);
+  const type = ramTypeOf(victim.region, attacker.forward, victim.forward, r.headOnAngleDeg);
   return resolutionFor(attacker, victim, type, contact);
 }
 
@@ -411,8 +414,8 @@ export function contactPointOn(victim: RamCar, attacker: RamCar): Vec2 {
   // Derived from `DRIVE_CONFIG` rather than typed, same as `inertiaRadiusSquared` — both must move
   // with `carHullOf` in lockstep, or the recovered lever arm would silently disagree about the hull
   // the ram actually collided against.
-  const hullHalfLength = DRIVE_CONFIG.carWidth / 2;
-  const hullHalfWidth = DRIVE_CONFIG.carHeight / 2;
+  const hullHalfLength = drive().carWidth / 2;
+  const hullHalfWidth = drive().carHeight / 2;
   const rx = clamp(dx * cos - dy * sin, -hullHalfLength, hullHalfLength);
   const ry = clamp(dx * sin + dy * cos, -hullHalfWidth, hullHalfWidth);
 
@@ -465,7 +468,7 @@ export function applyRams(
         contactNormalBetween(
           carHullOf(a.x, a.y, a.angle),
           carHullOf(b.x, b.y, b.angle),
-          RAM_CONFIG.contactPad,
+          ram().contactPad,
         ) !== null;
       if (!touching) continue;
       contacts.add(key);

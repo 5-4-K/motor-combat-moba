@@ -1,6 +1,6 @@
-import { inertiaRadiusSquared, RAM_CONFIG } from "../config/ram-config.js";
-import { IMPULSE_CONFIG } from "../config/impulse-config.js";
+import { inertiaRadiusSquared } from "../config/ram-config.js";
 import type { SimBody } from "./step.js";
+import { impulse, ram } from "../modes/active.js";
 
 /**
  * One push, fully resolved.
@@ -116,20 +116,21 @@ function nextSpin(body: SimBody, ramDefence: number, imp: Impulse, dv: number): 
   const torque = rx * fy - ry * fx;
   // The divisor is `ramDefence` (30-90) rather than the `mass` (300-900) it was until the 2026-09-06
   // car-physics rework's stage 3 — a ~10x smaller denominator, which briefly left an impulse
-  // saturating `RAM_CONFIG.spinMaxRate` outright. That was fixed in the CONFIG, not here: that
+  // saturating `ram().spinMaxRate` outright. That was fixed in the CONFIG, not here: that
   // rework's stage 3 re-pitched the scale 100 -> 12.5 by measurement (spec P25b). No compensating
   // factor belongs in this function — the equation is the physics and the constants are the balance,
   // and blending the two is what makes a "spin feels wrong" report unanswerable.
   //
   // Two of those constants moved under this line in the 2026-09-18 Unity ram port and neither moved
-  // its VALUE. `inertiaRadiusSquared()` is `RAM_CONFIG.inertiaCoefficient` derived from the hull
+  // its VALUE. `inertiaRadiusSquared()` is `ram().inertiaCoefficient` derived from the hull
   // rather than authored beside it (spec U29): the deleted constant was literally
-  // `(carWidth² + carHeight²) / 12`, so this is a rename. `IMPULSE_CONFIG.spinScale` is
-  // `RAM_CONFIG.spinScale`'s shipped 12.5, moved because the ram's knob was re-pitched to 0.3 for a
+  // `(carWidth² + carHeight²) / 12`, so this is a rename. `impulse().spinScale` is
+  // `ram().spinScale`'s shipped 12.5, moved because the ram's knob was re-pitched to 0.3 for a
   // DIFFERENT formula shape — the ram divides by the inertia term alone, this divides by
   // `ramDefence` times it — and leaving the slam on it would have cut `wildcharge`'s spin 41x
-  // without anyone authoring that. See `IMPULSE_CONFIG.spinScale`'s own comment.
+  // without anyone authoring that. See `impulse().spinScale`'s own comment.
   const inertia = Math.max(1, ramDefence * inertiaRadiusSquared());
-  const spin = (torque / inertia) * IMPULSE_CONFIG.spinScale * imp.spin;
-  return clamp(body.angVel + spin, -RAM_CONFIG.spinMaxRate, RAM_CONFIG.spinMaxRate);
+  const spinMaxRate = ram().spinMaxRate;
+  const spin = (torque / inertia) * impulse().spinScale * imp.spin;
+  return clamp(body.angVel + spin, -spinMaxRate, spinMaxRate);
 }
