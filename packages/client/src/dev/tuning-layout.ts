@@ -101,7 +101,7 @@ export const WEAPON_GRID_COLS = 3;
  * Where the `index`-th unassigned weapon's cell goes (PG37): straight below the last chassis row,
  * filling left to right and wrapping every `WEAPON_GRID_COLS`.
  *
- * Takes `chassisCount` rather than reading `CAR_TABLE`, for the same reason `orphanWeaponIds` takes
+ * Takes `chassisCount` rather than reading `cars()`, for the same reason `orphanWeaponIds` takes
  * its tables — the wrap and the offset are covered by fixtures instead of by whatever the roster
  * happens to be today.
  */
@@ -130,7 +130,7 @@ export const CONTENT_BOTTOM_MARGIN_PX = 24;
  * last drawn row — a chassis row, or the unassigned row past it once PG37 has orphans to show —
  * plus a margin.
  *
- * Takes the roster counts rather than reading `CAR_TABLE`/`WEAPON_TABLE`, for the same reason
+ * Takes the roster counts rather than reading `cars()`/`weapons()`, for the same reason
  * `orphanWeaponIds` and `unassignedCellPosition` do: a chassis or an orphan added later is covered
  * by a fixture instead of silently repeating PG38, where the last row was laid out below the fold
  * with nothing that knew to scroll it into view.

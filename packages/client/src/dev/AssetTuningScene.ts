@@ -1,13 +1,13 @@
 import Phaser from "phaser";
 import {
-  CAR_TABLE,
+  cars,
   type CarId,
   carHasTurretWeapon,
-  DRIVE_CONFIG,
+  drive,
   fireSlotsOf,
-  TURRET_CONFIG,
+  turret,
   turretPivotOf,
-  WEAPON_TABLE,
+  weapons,
   type WeaponId,
   weaponDefOf,
 } from "@motor-combat-moba/shared";
@@ -69,7 +69,7 @@ const WEAPON_SWATCH_PX = 34;
 const TINT_LABEL_GAP_PX = 30;
 
 /**
- * Every chassis in `CAR_TABLE` parked on its own hull, and every weapon's HUD icon in a real slot,
+ * Every chassis in `cars()` parked on its own hull, and every weapon's HUD icon in a real slot,
  * with no server connection.
  *
  * It exists because `rotationOffset`, `scale`, and `origin` have to be tuned by eye per sprite, and
@@ -119,7 +119,7 @@ export class AssetTuningScene extends Phaser.Scene {
       color: "#9aa0a6",
     });
 
-    Object.keys(CAR_TABLE).forEach((carId, index) => this.drawCell(carId, index));
+    Object.keys(cars()).forEach((carId, index) => this.drawCell(carId, index));
     this.drawTintPicker();
 
     const divider = this.add.graphics();
@@ -176,14 +176,14 @@ export class AssetTuningScene extends Phaser.Scene {
   }
 
   private summary(carCount: number, iconCount: number): string {
-    const chassis = Object.keys(CAR_TABLE).length;
-    const weapons = Object.keys(WEAPON_TABLE).length;
+    const chassis = Object.keys(cars()).length;
+    const weaponCount = Object.keys(weapons()).length;
     // The grid draws kits, so a weapon on no chassis gets no cell. That is the same case
     // `import-weapon-icon.mjs` warns about, and it has to be said rather than silently missing:
     // "9 weapon icons" over eight cells is exactly the lie the per-namespace counting avoids above.
     const orphans = orphanWeaponIds(
-      Object.keys(WEAPON_TABLE),
-      Object.values(CAR_TABLE).map((car) => car.weapons),
+      Object.keys(weapons()),
+      Object.values(cars()).map((car) => car.weapons),
     );
     // Past a few, the list is longer than the line: a count says the same thing without pushing the
     // rest of the summary off screen. "No kit SLOT", not "no kit" — a basic attack is carried by
@@ -196,7 +196,7 @@ export class AssetTuningScene extends Phaser.Scene {
           : ` (${orphans.length} on no kit slot)`;
     return (
       `${carCount} car entr${carCount === 1 ? "y" : "ies"} - ${chassis} chassis - ` +
-      `${iconCount}/${weapons} weapon icons${orphanNote} - white box is the OBB hitbox, ` +
+      `${iconCount}/${weaponCount} weapon icons${orphanNote} - white box is the OBB hitbox, ` +
       `circle is the ${SLOT_RING_BOX_PX}px HUD slot ring - reload after editing art`
     );
   }
@@ -205,7 +205,7 @@ export class AssetTuningScene extends Phaser.Scene {
   private drawCell(carId: string, index: number): void {
     const x = 130 + (index % COLUMNS) * CELL_W;
     const y = 140 + Math.floor(index / COLUMNS) * CELL_H;
-    const { carWidth: w, carHeight: h } = DRIVE_CONFIG;
+    const { carWidth: w, carHeight: h } = drive();
     const key = carSpriteKey(carId);
     const entry = assetManifest().sprites[key];
 
@@ -251,7 +251,7 @@ export class AssetTuningScene extends Phaser.Scene {
       .text(x, y + 78, `turret: ${turretKey}`, { fontSize: "11px", color: "#9aa0a6" })
       .setOrigin(0.5);
 
-    if (!CAR_TABLE[carId as CarId].isActive) {
+    if (!cars()[carId as CarId].isActive) {
       this.add
         .text(x, y + 94, "inactive", { fontSize: "11px", color: "#d99a40" })
         .setOrigin(0.5);
@@ -281,14 +281,14 @@ export class AssetTuningScene extends Phaser.Scene {
       drawProceduralTurret(this.add.graphics(), NO_TINT, pivot.x, pivot.y);
     }
 
-    const spawnX = pivot.x + TURRET_CONFIG.defaultOffset;
+    const spawnX = pivot.x + turret().defaultOffset;
     const dot = this.add.graphics();
     dot.fillStyle(SPAWN_DOT_FILL, 1);
     dot.lineStyle(1, SPAWN_DOT_STROKE, 1);
     dot.fillCircle(spawnX, pivot.y, SPAWN_DOT_RADIUS);
     dot.strokeCircle(spawnX, pivot.y, SPAWN_DOT_RADIUS);
     this.add
-      .text(spawnX, y - DRIVE_CONFIG.carHeight / 2 - 4, "turret spawn", {
+      .text(spawnX, y - drive().carHeight / 2 - 4, "turret spawn", {
         fontSize: "10px",
         color: "#ff2bd6",
       })
@@ -391,8 +391,8 @@ export class AssetTuningScene extends Phaser.Scene {
    * at all (PG37) — an orphan is usually a weapon being brought up, and it needs looking at more
    * than a shipped one does. */
   private drawWeaponGrid(): void {
-    const cars = Object.values(CAR_TABLE);
-    cars.forEach((car, row) => {
+    const roster = Object.values(cars());
+    roster.forEach((car, row) => {
       this.drawGridRowLabel(
         row,
         car.id,
@@ -403,16 +403,16 @@ export class AssetTuningScene extends Phaser.Scene {
     });
 
     const orphans = orphanWeaponIds(
-      Object.keys(WEAPON_TABLE),
-      cars.map((car) => car.weapons),
+      Object.keys(weapons()),
+      roster.map((car) => car.weapons),
     );
     orphans.forEach((weaponId, index) => {
-      const { row, col } = unassignedCellPosition(index, cars.length);
+      const { row, col } = unassignedCellPosition(index, roster.length);
       if (col === 0) this.drawGridRowLabel(row, "unassigned", "on no kit");
       this.drawWeaponCell(weaponId as WeaponId, row, col);
     });
 
-    this.contentBottom = weaponGridContentBottom(cars.length, orphans.length);
+    this.contentBottom = weaponGridContentBottom(roster.length, orphans.length);
   }
 
   /** The label pair to the left of one weapon-grid row, plus an optional amber tag beneath. */
@@ -464,7 +464,7 @@ export class AssetTuningScene extends Phaser.Scene {
 
     // Every colour the weapon's SHOTS draw in, stacked outermost-first. Nothing typed ties these to
     // the icon, so putting the two side by side is the only place the pair can be judged as one
-    // weapon -- and since weapons grew ramps and markings, a single swatch of `WEAPON_TABLE.color`
+    // weapon -- and since weapons grew ramps and markings, a single swatch of `weapons()`'s `color`
     // would be a third of the answer for six of the nine.
     const palette = shotPaletteOf(weaponId);
     const swatchX = cx + WEAPON_SWATCH_DX - WEAPON_SWATCH_PX / 2;

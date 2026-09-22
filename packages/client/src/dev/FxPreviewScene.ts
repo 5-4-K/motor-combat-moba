@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { ARENA_01, DRIVE_CONFIG } from "@motor-combat-moba/shared";
+import { ARENA_01, drive } from "@motor-combat-moba/shared";
 import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-sprite.js";
 import type { FxCarView, FxWorldView } from "../fx/events.js";
 import { FX_TEXTURE_KEYS, FxLayer, type FxToggle } from "../fx/layer.js";
@@ -168,9 +168,10 @@ export class FxPreviewScene extends Phaser.Scene {
   /** One car, drawn through the same resolution chain the arena uses so this is a true 1:1 view. */
   private buildCar(car: FxCarView): Phaser.GameObjects.Container {
     const container = this.add.container(car.x, car.y).setDepth(CAR_DEPTH);
+    const d = drive();
     const resolved = resolveCarSprite(assetManifest(), phaserTextures(this.textures), car.carId, {
-      width: DRIVE_CONFIG.carWidth,
-      height: DRIVE_CONFIG.carHeight,
+      width: d.carWidth,
+      height: d.carHeight,
     });
     if (resolved) {
       container.add(applyCarSprite(this.add.image(0, 0, resolved.key), resolved, 0xffffff));
@@ -180,10 +181,10 @@ export class FxPreviewScene extends Phaser.Scene {
       const gfx = this.add.graphics();
       gfx.fillStyle(0xb9b2a6, 1);
       gfx.fillRect(
-        -DRIVE_CONFIG.carWidth / 2,
-        -DRIVE_CONFIG.carHeight / 2,
-        DRIVE_CONFIG.carWidth,
-        DRIVE_CONFIG.carHeight,
+        -d.carWidth / 2,
+        -d.carHeight / 2,
+        d.carWidth,
+        d.carHeight,
       );
       container.add(gfx);
     }
