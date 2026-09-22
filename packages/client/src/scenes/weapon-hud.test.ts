@@ -6,8 +6,8 @@ import type { TextureLookup } from "../assets/car-sprite.js";
 import type { AssetManifest, SpriteEntry } from "../assets/manifest-schema.js";
 import { ARENA_VIEW_WIDTH, HUD_GUTTER_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from "../config/display.js";
 import {
-  ABILITY_SLOT_OFFSET,
   abilityCountOf,
+  abilitySlotOffset,
   cooldownFillFraction,
   HUD_DIM,
   isRechargeDisplayed,
@@ -244,14 +244,14 @@ describe("abilityCountOf (BA15)", () => {
     expect(abilityCountOf(0)).toBeGreaterThanOrEqual(0);
   });
 
-  it("ties the count to the offset: ability box i reads fire slot i + ABILITY_SLOT_OFFSET, never fire slot 0", () => {
+  it("ties the count to the offset: ability box i reads fire slot i + abilitySlotOffset(), never fire slot 0", () => {
     const fireSlots = ["basicAttack", "abilityA", "abilityB", "abilityC"];
     const count = abilityCountOf(fireSlots.length);
     for (let i = 0; i < count; i++) {
-      expect(fireSlots[i + ABILITY_SLOT_OFFSET]).not.toBe("basicAttack");
+      expect(fireSlots[i + abilitySlotOffset()]).not.toBe("basicAttack");
     }
     // And the offset itself never points at fire slot 0, the basic attack's own slot.
-    expect(ABILITY_SLOT_OFFSET).toBeGreaterThan(0);
+    expect(abilitySlotOffset()).toBeGreaterThan(0);
   });
 
   /**
@@ -292,18 +292,18 @@ describe("abilityCountOf (BA15)", () => {
    * The other half of the same stopgap, and the same caveat applies: source text, because
    * `ArenaScene.ts` cannot be exercised here.
    *
-   * `ABILITY_SLOT_OFFSET` is what keeps fire slot 0 out of the ability HUD. Delete the three `+
-   * ABILITY_SLOT_OFFSET` / `fireSlot` sites and every suite in this repo stays green while the HUD
+   * `abilitySlotOffset()` is what keeps fire slot 0 out of the ability HUD. Delete the three `+
+   * abilitySlotOffset()` / `fireSlot` sites and every suite in this repo stays green while the HUD
    * silently draws the BASIC ATTACK as ability 1 — with ability 1's key pill over it, and a
    * fired-slot highlight one slot out. Nothing else pins them.
    */
   it("pins ArenaScene's fire-slot offsets so ability 1 can never become the basic attack (BA15/VS23 source guard)", () => {
-    // The slot the ability bar READS: ability `i` is fire slot `i + ABILITY_SLOT_OFFSET`.
+    // The slot the ability bar READS: ability `i` is fire slot `i + abilitySlotOffset()`.
     expect(ARENA_SCENE_CODE).toMatch(
-      /player\.weapons\.at\(\s*i\s*\+\s*ABILITY_SLOT_OFFSET\s*\)/,
+      /player\.weapons\.at\(\s*i\s*\+\s*abilitySlotOffset\(\)\s*\)/,
     );
     // `drawHudSlot` derives the fire slot once, from the ability index...
-    expect(ARENA_SCENE_CODE).toMatch(/const fireSlot\s*=\s*index\s*\+\s*ABILITY_SLOT_OFFSET\s*;/);
+    expect(ARENA_SCENE_CODE).toMatch(/const fireSlot\s*=\s*index\s*\+\s*abilitySlotOffset\(\)\s*;/);
     // ...and both of its fire-slot-indexed readers go through that variable, never through `index`.
     expect(ARENA_SCENE_CODE).toMatch(/fireSlot\s*===\s*player\.lastFiredSlot/);
     expect(ARENA_SCENE_CODE).toMatch(/SLOT_KEYS\[fireSlot\]/);

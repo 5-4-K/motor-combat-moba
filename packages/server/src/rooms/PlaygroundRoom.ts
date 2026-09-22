@@ -58,7 +58,7 @@ import {
 import { scoped } from "./mode-scope.js";
 
 /**
- * The level every playground car is held at. Every `unlocksAt` in `WEAPON_TABLE` is at or below it,
+ * The level every playground car is held at. Every `unlocksAt` in `weapons()` is at or below it,
  * so no slot the sandbox lets you pick can be dead on arrival — `playground-room.test.ts` pins that
  * against the roster rather than trusting this comment.
  */

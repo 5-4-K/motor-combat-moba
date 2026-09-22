@@ -182,8 +182,8 @@ import {
   type SpectateCandidate,
 } from "./spectate.js";
 import {
-  ABILITY_SLOT_OFFSET,
   abilityCountOf,
+  abilitySlotOffset,
   HUD_DIM,
   cooldownFillFraction,
   HUD_ICON_FIT_SCALE,
@@ -3671,9 +3671,9 @@ export class ArenaScene extends Phaser.Scene {
 
     for (let i = 0; i < this.hudKeyTexts.length; i++) {
       const box = boxes[i];
-      // `+ ABILITY_SLOT_OFFSET`: ability `i` is fire slot `i + 1`, because fire slot 0 is the basic
+      // `+ abilitySlotOffset()`: ability `i` is fire slot `i + 1`, because fire slot 0 is the basic
       // attack (VS23).
-      const slot = player && box ? player.weapons.at(i + ABILITY_SLOT_OFFSET) : undefined;
+      const slot = player && box ? player.weapons.at(i + abilitySlotOffset()) : undefined;
       if (!player || !box || !slot) {
         this.hudKeyTexts[i]!.setVisible(false);
         this.hudNameTexts[i]!.setVisible(false);
@@ -3805,7 +3805,7 @@ export class ArenaScene extends Phaser.Scene {
     // `index` is the ABILITY index — it addresses the pooled Text/Image arrays and the box layout,
     // both of which are ability-sized. Two things here are indexed by FIRE slot instead:
     // `SLOT_KEYS` and `PlayerState.lastFiredSlot`. Ability `i` is fire slot `i + 1` (VS23).
-    const fireSlot = index + ABILITY_SLOT_OFFSET;
+    const fireSlot = index + abilitySlotOffset();
 
     // Two independent questions now, deliberately kept apart. `slotVisualState` answers what this
     // SLOT is (its own cooldown, whether the player owns it) and picks the alpha; `isSlotBlocked`

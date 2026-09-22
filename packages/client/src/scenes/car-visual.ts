@@ -2,7 +2,7 @@ import { DEATH_FADE_MS, TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { carTintOverrides } from "../fx/car-tint.js";
 import { COLOR_TABLE, DEFAULT_CAR_ID, isCarId, type CarId } from "@motor-combat-moba/shared";
 
-/** How a chassis is drawn. One per `CAR_TABLE` entry — the table is the source of truth, not this. */
+/** How a chassis is drawn. One per `cars()` entry — the table is the source of truth, not this. */
 export type CarShape = "rect" | "ellipse" | "hex";
 
 /**

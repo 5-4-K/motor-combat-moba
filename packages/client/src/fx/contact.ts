@@ -1,8 +1,8 @@
 import {
-  DRIVE_CONFIG,
   TICK_RATE_HZ,
   beamShapeAt,
   carHullOf,
+  drive,
   instanceDefOf,
   isWeaponId,
   nearestPointOnObb,
@@ -33,7 +33,7 @@ import type { FxCarView, FxInstanceView } from "./events.js";
  *
  * **Everything here is derived client-side from views the client already holds.** No new schema
  * field, no new wire traffic: `extent` and `isExplosion` are already networked, and the geometry
- * comes from `WEAPON_TABLE` through the same `beamShapeAt`/`shapeHitsObb` the sim itself runs. That
+ * comes from `weapons()` through the same `beamShapeAt`/`shapeHitsObb` the sim itself runs. That
  * keeps VFX9-12 and hard invariant 8 intact and, the reason that actually decides it, means netcode
  * phase 2 swapping the Colyseus schema for a binary snapshot cannot throw this away.
  *
@@ -48,8 +48,15 @@ import type { FxCarView, FxInstanceView } from "./events.js";
  * neither and measured 0.36 ms a frame against the 0.25 ms bound that file holds.
  */
 
-/** Half the hull's diagonal: no part of a car reaches further than this from its centre. */
-const HULL_RADIUS = Math.hypot(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight) / 2;
+/**
+ * Half the hull's diagonal: no part of a car reaches further than this from its centre. A function,
+ * not a module-level constant — a `const` computed at import time would freeze the hull at whichever
+ * mode happened to be installed first.
+ */
+function hullRadius(): number {
+  const d = drive();
+  return Math.hypot(d.carWidth, d.carHeight) / 2;
+}
 
 /** How far a projectile of this def covers in one sim tick. The whole span its smear may have hit in. */
 function travelPerTick(def: ProjectileWeaponDef): number {
@@ -130,6 +137,7 @@ export function shotGeometriesOf(instances: readonly FxInstanceView[]): ShotGeom
 function geometryOf(instance: FxInstanceView): ShotGeometry | null {
   const def = defOf(instance);
   if (!def) return null;
+  const hull = hullRadius();
   if (def.kind === "beam") {
     const reach = Math.max(0, instance.extent);
     // A disc is radially symmetric: its extent IS its radius and its axis means nothing, so the
@@ -140,7 +148,7 @@ function geometryOf(instance: FxInstanceView): ShotGeometry | null {
         def,
         axisX: instance.x,
         axisY: instance.y,
-        limit: reach + HULL_RADIUS,
+        limit: reach + hull,
       };
     }
     return {
@@ -148,7 +156,7 @@ function geometryOf(instance: FxInstanceView): ShotGeometry | null {
       def,
       axisX: instance.x + Math.cos(instance.angle) * reach,
       axisY: instance.y + Math.sin(instance.angle) * reach,
-      limit: beamHalfAcross(def, reach) + HULL_RADIUS,
+      limit: beamHalfAcross(def, reach) + hull,
     };
   }
   if (def.kind !== "projectile") return null;
@@ -159,7 +167,7 @@ function geometryOf(instance: FxInstanceView): ShotGeometry | null {
     def,
     axisX: instance.x,
     axisY: instance.y,
-    limit: acrossRadiusOf(def.hitbox) + travelPerTick(def) + HULL_RADIUS,
+    limit: acrossRadiusOf(def.hitbox) + travelPerTick(def) + hull,
   };
 }
 

@@ -1,4 +1,4 @@
-import { WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
+import { slots } from "@motor-combat-moba/shared";
 import { weaponIconKey } from "../assets/asset-keys.js";
 import type { TextureLookup } from "../assets/car-sprite.js";
 import type { AssetManifest, SpriteEntry } from "../assets/manifest-schema.js";
@@ -110,27 +110,33 @@ export const SLOT_STACK_TOP_GAP_PX = 167;
 
 /**
  * Where the ability kit starts in a car's fire-slot array (VS23). The array is
- * `[basicAttack, ...kit]`, so ability slot `i` is fire slot `i + ABILITY_SLOT_OFFSET`.
+ * `[basicAttack, ...kit]`, so ability slot `i` is fire slot `i + abilitySlotOffset()`.
  *
  * Derived from `basicAttackSlotIndex` rather than typed as 1, so it cannot disagree with shared
  * about which end of the array the basic attack sits on. This is the single copy: `ArenaScene`'s
  * `renderWeaponHud` (the fire-slot indexing) and `abilityCountOf` just below (the ability count)
- * both read this constant rather than each re-deriving it.
+ * both call this function rather than each re-deriving it.
+ *
+ * A FUNCTION, not a module-level constant: a `const` computed at import time would freeze
+ * `basicAttackSlotIndex` at whichever mode happened to be installed first and never see a later
+ * `withMode` scope or a `setTuning` retune.
  */
-export const ABILITY_SLOT_OFFSET = WEAPON_SLOT_CONFIG.basicAttackSlotIndex + 1;
+export function abilitySlotOffset(): number {
+  return slots().basicAttackSlotIndex + 1;
+}
 
 /**
  * How many ABILITY boxes a fire-slot array of this length earns: all of it but the basic attack
  * (BA15) — the rule `slotBarLayout`'s clamp used to carry by accident before VS22 removed it. Zero
- * for zero, not `-ABILITY_SLOT_OFFSET`: a player with no chassis has no slots at all, not a basic
+ * for zero, not `-abilitySlotOffset()`: a player with no chassis has no slots at all, not a basic
  * attack alone.
  *
- * This is the ONE place `weapons.length - ABILITY_SLOT_OFFSET` is computed. `ArenaScene`'s
+ * This is the ONE place `weapons.length - abilitySlotOffset()` is computed. `ArenaScene`'s
  * `localAbilityCount` calls it rather than recomputing it, so the HUD's box count and the countdown
  * hint's key row can never drift into two different answers for the same chassis.
  */
 export function abilityCountOf(fireSlotCount: number): number {
-  return Math.max(0, fireSlotCount - ABILITY_SLOT_OFFSET);
+  return Math.max(0, fireSlotCount - abilitySlotOffset());
 }
 
 /**

@@ -4,7 +4,7 @@
  *
  * Entirely a picture. Nothing here is a schema field, nothing crosses the wire, and the sim never
  * reads it: every number the HUD draws is one the local client already holds (`CROSSHAIR_CONFIG`,
- * `TURRET_CONFIG`, the hull). Drawing it for the driven car alone is a rendering decision, not a
+ * `turret()`, the hull). Drawing it for the driven car alone is a rendering decision, not a
  * networked one, so no other client is told what your HUD shows.
  */
 

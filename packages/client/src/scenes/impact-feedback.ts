@@ -1,7 +1,7 @@
 import {
-  RAM_CONFIG,
   carHullOf,
   obbsInContact,
+  ram,
   resolveRam,
   speedOf,
   type RamCar,
@@ -95,6 +95,8 @@ export function freshImpacts(
   const selfHull = carHullOf(self.x, self.y, self.angle);
   const touching = new Set<string>();
   const fresh: Impact[] = [];
+  // Read once, before entering the loop below.
+  const contactPad = ram().contactPad;
 
   for (const other of others) {
     if (other.sessionId === self.sessionId) continue;
@@ -105,21 +107,21 @@ export function freshImpacts(
     const inContact = obbsInContact(
       selfHull,
       carHullOf(other.x, other.y, other.angle),
-      RAM_CONFIG.contactPad,
+      contactPad,
     );
     if (!inContact) continue;
     touching.add(other.sessionId);
     if (tracker.contacts.has(other.sessionId)) continue;
 
     // The sim's own answer, not a second reading of it. `resolveRam` applies the friendly-fire
-    // check, the front/frontCorner attack region, `RAM_CONFIG.minRamSpeed` and the ram-blocked check
+    // check, the front/frontCorner attack region, `ram().minRamSpeed` and the ram-blocked check
     // itself — so a flank-first slide, a crawl and a car inside its own `ramLock` all come back
     // `null`, and the spark stays a cue for the one contact that actually costs somebody something.
-    const ram = resolveRam(self, other, mode);
-    if (ram === null) continue;
+    const resolved = resolveRam(self, other, mode);
+    if (resolved === null) continue;
     // Neither "the other car's side" (`s.sessionId !== self.sessionId`) is safe here — it can pick
     // the attacker's architecturally-zero side when self is the victim of a one-way ram — nor is
-    // "the non-attacker side" (`s.sessionId !== ram.attackerId`): that fixes the one-way case but
+    // "the non-attacker side" (`s.sessionId !== resolved.attackerId`): that fixes the one-way case but
     // still breaks on a head-on, where `attackerId` is `""` (U27) and `sides.find` matches whichever
     // side sits at index 0 regardless of who actually got hit. A stationary car head-on'd by a fast
     // one is a real example: `headOnResolution`'s two sides are cross-attributed from the OTHER
@@ -133,7 +135,7 @@ export function freshImpacts(
     // only an aggregate — it can report the OTHER car's shove rather than self's own velocity change
     // — which is an acceptable proxy for "how big was this hit" given this file's own header comment
     // ("do not read the spark as a precise hit indicator"), not a claim that it is self's exact Δv.
-    const closingSpeed = Math.max(...ram.sides.map((s) => speedOf(s.shoveX, s.shoveY)));
+    const closingSpeed = Math.max(...resolved.sides.map((s) => speedOf(s.shoveX, s.shoveY)));
     fresh.push({
       sessionId: other.sessionId,
       x: (self.x + other.x) / 2,

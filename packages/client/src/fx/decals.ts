@@ -1,4 +1,4 @@
-import { DRIVE_CONFIG } from "@motor-combat-moba/shared";
+import { drive } from "@motor-combat-moba/shared";
 import type { FxEvent } from "./events.js";
 import type { EnvironmentFx } from "./environment.js";
 import { ENVIRONMENT_FX } from "./environment.js";
@@ -30,7 +30,7 @@ export interface TyreMark {
  * value (EV8) — a chassis retune must still move the tracks.
  */
 export function tyreTrackHalfWidth(env: EnvironmentFx = ENVIRONMENT_FX): number {
-  return DRIVE_CONFIG.carHeight * env.decals.tyreTrackRatio;
+  return drive().carHeight * env.decals.tyreTrackRatio;
 }
 
 /** Where along one frame's travel a car's tracks land, and what distance carries into the next. */

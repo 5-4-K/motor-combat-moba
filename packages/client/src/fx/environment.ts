@@ -49,7 +49,7 @@ export interface EnvironmentFx {
   };
   readonly hitStop: { readonly ms: number; readonly scale: number };
   /**
-   * The persistent ground layer (VFX23). `tyreTrackRatio` is a FRACTION OF `DRIVE_CONFIG.carHeight`
+   * The persistent ground layer (VFX23). `tyreTrackRatio` is a FRACTION OF `drive().carHeight`
    * rather than a pixel number (EV8), so a chassis retune still moves the track width.
    */
   readonly decals: {

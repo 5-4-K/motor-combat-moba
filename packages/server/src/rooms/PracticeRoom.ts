@@ -296,7 +296,7 @@ export class PracticeRoom extends Room<PracticeState> {
       // spawn protection at all, so this is a third divergence from strict mirror beyond the two PR1
       // names. Left as-is because it is harmless, not because it was missed — both cars get it
       // symmetrically, and `assignSpawns` places them far enough apart that neither can reach the
-      // other before the 1.5-3s window (`STATUS_TABLE.phased`) lapses on its own.
+      // other before the 1.5-3s window (`statusTable().phased`) lapses on its own.
       for (const id of this.matchRoster) {
         const player = this.state.players.get(id);
         if (player) respawnPlayer(this.ctx(), player);

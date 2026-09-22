@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ABILITY_SLOT_CEILING, WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
-import { HINT_SLOT_ORDER, SLOT_KEYS, hintSlotOrder, slotMaskFrom } from "./slot-keys.js";
+import { SLOT_KEYS, hintSlotOrder, hintSlotOrderDefault, slotMaskFrom } from "./slot-keys.js";
 
 describe("slot keys", () => {
   it("binds every fire slot, the basic attack included", () => {
@@ -114,6 +114,6 @@ describe("hintSlotOrder (basic-attack-toggle)", () => {
   });
 
   it("teaches the basic attack first now it is on (TR30)", () => {
-    expect(HINT_SLOT_ORDER).toEqual([0, 1, 2, 3]);
+    expect(hintSlotOrderDefault()).toEqual([0, 1, 2, 3]);
   });
 });

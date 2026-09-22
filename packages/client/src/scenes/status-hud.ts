@@ -1,7 +1,7 @@
 import {
-  STATUS_CONFIG,
   TICK_RATE_HZ,
   isStatusId,
+  statusConfig,
   statusDefOf,
   type StatusId,
   type StatusKind,
@@ -51,7 +51,7 @@ export function statusFillOf(statusId: StatusId): number {
  * to end on the same tick.
  *
  * **The drain fraction is measured from the status's own `startTick`, not from anything in
- * `STATUS_TABLE`.** A status has no duration of its own — the weapon that applied it chose one — so
+ * `statusTable()`.** A status has no duration of its own — the weapon that applied it chose one — so
  * the total is only knowable from the pair of ticks on the wire. That is precisely why `startTick`
  * is a networked field.
  *
@@ -125,7 +125,7 @@ export function statusStripLayout(
   gutterWidth: number,
   slotBarTop: number,
 ): StatusBox[] {
-  const shown = Math.min(count, STATUS_CONFIG.maxActive);
+  const shown = Math.min(count, statusConfig().maxActive);
   if (shown <= 0) return [];
   const width = gutterWidth - STATUS_STRIP_GAP_PX * 2;
   const x = viewWidth - gutterWidth + STATUS_STRIP_GAP_PX;

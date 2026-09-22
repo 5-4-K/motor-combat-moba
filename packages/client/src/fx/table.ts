@@ -4,7 +4,7 @@ import type { WeaponId } from "@motor-combat-moba/shared";
  * How every weapon looks when it fires and when it lands.
  *
  * **Client-side on purpose (VFX30).** `balanceStamp` hashes the shared tables whole — including
- * purely visual fields, which is why changing `WEAPON_TABLE.color` fails the manual test — so a
+ * purely visual fields, which is why changing `weapons()`'s `color` field fails the manual test — so a
  * table like this one living in shared would make every effect tweak owe a `npm run build:manual`
  * and a stamp update. Here it owes nothing: no playtest probe is invalidated, no balance number
  * moves, no doc falls out of date.
@@ -166,7 +166,7 @@ export const CAR_EVENT_FX: Record<CarEventId, WeaponFxRow> = {
  * The row for a weapon OR a car event, or the modest default. Never throws on an unknown id.
  *
  * Car events are checked first because their ids can never collide with a `WeaponId` — they are not
- * in `WEAPON_TABLE` — so the order is about reading clearly, not about precedence.
+ * in `weapons()` — so the order is about reading clearly, not about precedence.
  */
 export function weaponFxOf(id: string): WeaponFxRow {
   if (isCarEventId(id)) return CAR_EVENT_FX[id];

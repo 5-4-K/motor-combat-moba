@@ -466,7 +466,7 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * `selfPredictor`, both built in `controller.ts`'s `plan()`). Not per-tier: this is how far a SHOT
    * flies, not how far a bot thinks — that is plan 4's `planHorizonTicks`.
    *
-   * VERIFIED against `WEAPON_TABLE` and `weaponTicksOf` (2026-09-06, task 4): the longest flight on
+   * VERIFIED against `weapons()` and `weaponTicksOf` (2026-09-06, task 4): the longest flight on
    * the roster is `thumper`'s — 1305 u of range at 450 u/s is 2.9 s, and `weaponTicksOf("thumper")`
    * reports `flight: 87` ticks at 30 Hz, the largest of any row (`predator` is next at 60, `magmablast`
    * 45). 90 covers it with a little margin, and no firing solution needs to see past its own shot

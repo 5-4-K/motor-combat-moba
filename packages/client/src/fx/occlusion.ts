@@ -1,4 +1,4 @@
-import { DRIVE_CONFIG } from "@motor-combat-moba/shared";
+import { drive } from "@motor-combat-moba/shared";
 import type { FxCarView } from "./events.js";
 import type { EnvironmentFx } from "./environment.js";
 import { ENVIRONMENT_FX } from "./environment.js";
@@ -52,12 +52,12 @@ export interface EraserStamp {
  * would drift apart — see EV30 for why a halo edit must also rebuild those textures.
  */
 export function eraserStampWidth(env: EnvironmentFx = ENVIRONMENT_FX): number {
-  return DRIVE_CONFIG.carWidth + env.occlusion.halo * 2;
+  return drive().carWidth + env.occlusion.halo * 2;
 }
 
 /** Same box, the other axis — see `eraserStampWidth`. */
 export function eraserStampHeight(env: EnvironmentFx = ENVIRONMENT_FX): number {
-  return DRIVE_CONFIG.carHeight + env.occlusion.halo * 2;
+  return drive().carHeight + env.occlusion.halo * 2;
 }
 
 /**

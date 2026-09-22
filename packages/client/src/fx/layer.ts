@@ -1,4 +1,4 @@
-import { CAR_TABLE, DEFAULT_CAR_ID, isCarId, MAX_PLAYERS, speedOf } from "@motor-combat-moba/shared";
+import { DEFAULT_CAR_ID, cars, isCarId, MAX_PLAYERS, speedOf } from "@motor-combat-moba/shared";
 import Phaser from "phaser";
 import { carSpriteKey } from "../assets/asset-keys.js";
 import {
@@ -330,7 +330,7 @@ export class FxLayer {
     const hullWidth = texWidth - inset * 2;
     const hullHeight = texHeight - inset * 2;
 
-    for (const carId of Object.keys(CAR_TABLE)) {
+    for (const carId of Object.keys(cars())) {
       const key = eraserKeyOf(carId);
       if (this.scene.textures.exists(key)) this.scene.textures.remove(key);
       const spriteKey = carSpriteKey(carId);

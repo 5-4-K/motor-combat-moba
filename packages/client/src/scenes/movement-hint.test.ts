@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { GameMode, PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
 import { isSpectating } from "./spectate.js";
 import { BASIC_ATTACK_CONFIG, WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
-import { HINT_SLOT_ORDER, SLOT_KEYS, hintSlotOrder } from "../config/slot-keys.js";
+import { SLOT_KEYS, hintSlotOrder, hintSlotOrderDefault } from "../config/slot-keys.js";
 import {
   MOVEMENT_ARROWS,
   MOVEMENT_KEYS,
@@ -110,14 +110,14 @@ describe("movementHintItems", () => {
   });
 
   it("teaches the basic attack first now it is on, LMB RMB Q E, with no alternates (TR30)", () => {
-    // Keyed off HINT_SLOT_ORDER rather than all of SLOT_KEYS, so the assertion survives the
+    // Keyed off hintSlotOrderDefault() rather than all of SLOT_KEYS, so the assertion survives the
     // basic-attack toggle in either position instead of pinning one build's slot count. The row a
     // full-kit chassis is taught in THIS build is exactly that order's glyphs, and with one layout
     // now `actionAltsFor` has nothing left to print.
     const full = WEAPON_SLOT_CONFIG.maxAbilitySlots;
     const enabled = BASIC_ATTACK_CONFIG.enabled;
     expect(actionKeysFor(full, enabled)).toEqual(["LMB", "RMB", "Q", "E"]);
-    expect(actionKeysFor(full, enabled)).toEqual(HINT_SLOT_ORDER.map((s) => SLOT_KEYS[s]!.glyph));
+    expect(actionKeysFor(full, enabled)).toEqual(hintSlotOrderDefault().map((s) => SLOT_KEYS[s]!.glyph));
     expect(actionAltsFor(full, enabled)).toEqual([]);
   });
 });

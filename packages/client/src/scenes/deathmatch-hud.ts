@@ -1,4 +1,4 @@
-import { DEATHMATCH_TICKS, TICK_RATE_HZ } from "@motor-combat-moba/shared";
+import { TICK_RATE_HZ, derived } from "@motor-combat-moba/shared";
 
 /** How long "[name] killed you" stays up. Render-only, so it lives here rather than in shared. */
 export const KILLED_BY_TICKS = 3 * TICK_RATE_HZ;
@@ -35,7 +35,7 @@ export function matchClockLabel(tick: number, matchEndsTick: number): string {
  */
 export function respawnSeconds(diedAtTick: number, tick: number): number {
   if (diedAtTick <= 0) return 0;
-  const remaining = diedAtTick + DEATHMATCH_TICKS.respawnDelay - tick;
+  const remaining = diedAtTick + derived().deathmatchTicks.respawnDelay - tick;
   if (remaining <= 0) return 0;
   return Math.ceil(remaining / TICK_RATE_HZ);
 }

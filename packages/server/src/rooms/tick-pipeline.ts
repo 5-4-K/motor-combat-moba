@@ -1,10 +1,10 @@
 import {
   RoomPhase,
   boundsOf,
+  derived,
   getArena,
   hpOf,
   sidesOf,
-  DEATHMATCH_TICKS,
   farthestSpawn,
   isDueToRespawn,
   phaseDecision,
@@ -241,12 +241,13 @@ export function respawnPlayer(ctx: PipelineCtx, player: PlayerState): void {
   // `respawnDelaySeconds` (5) happening to exceed `shoverCreditMs` (4) — a tuning fact, not a rule.
   clearShover(ctx.ram.spikes, player.sessionId);
 
-  ctx.phaseCaps.set(player.sessionId, ctx.state.tick + DEATHMATCH_TICKS.phaseMax);
+  const deathmatchTicks = derived().deathmatchTicks;
+  ctx.phaseCaps.set(player.sessionId, ctx.state.tick + deathmatchTicks.phaseMax);
   // Applied to an EMPTY list, not to the car's current one: every debuff goes with the wreck, so a
   // lingering slow cannot ride back onto the field with a car that was just rebuilt.
   writeStatuses(
     player,
-    applyStatus([], "phased", ctx.state.tick, DEATHMATCH_TICKS.phase, ""),
+    applyStatus([], "phased", ctx.state.tick, deathmatchTicks.phase, ""),
   );
 }
 

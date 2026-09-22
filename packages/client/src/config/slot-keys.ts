@@ -1,4 +1,4 @@
-import { BASIC_ATTACK_CONFIG, WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
+import { BASIC_ATTACK_CONFIG, slots } from "@motor-combat-moba/shared";
 
 /**
  * Which inputs fire which FIRE SLOT, indexed by slot: 0 is the basic attack, 1..N are the ability
@@ -52,20 +52,30 @@ export const SLOT_KEYS: readonly {
  * disabling the weapon must remove the pill, not just the effect of pressing it.
  *
  * Takes an explicit `enabled` rather than reading the config directly so it stays a pure function —
- * `HINT_SLOT_ORDER` below is what production code reads, resolved once from the live flag.
+ * `hintSlotOrderDefault()` below is what a caller with no chassis in hand reads, resolved fresh from
+ * the live bundle on every call.
  */
 export function hintSlotOrder(
   enabled: boolean,
   // `: number`, not the inferred literal `3`: `maxAbilitySlots` is `as const`, so without the
   // annotation no test could pass any other N through this parameter — the whole reason it exists.
-  abilities: number = WEAPON_SLOT_CONFIG.maxAbilitySlots,
+  abilities: number = slots().maxAbilitySlots,
 ): readonly number[] {
-  const slots = Array.from({ length: abilities }, (_, i) => i + 1);
-  return enabled ? [0, ...slots] : slots;
+  const slotList = Array.from({ length: abilities }, (_, i) => i + 1);
+  return enabled ? [0, ...slotList] : slotList;
 }
 
-/** The countdown hint's slot order, resolved from the toggle's current (build-time) value. */
-export const HINT_SLOT_ORDER = hintSlotOrder(BASIC_ATTACK_CONFIG.enabled);
+/**
+ * The countdown hint's slot order, resolved from the toggle's current (build-time) value and the
+ * ACTIVE mode bundle's ability count. A FUNCTION, not a module-level constant: a `const` computed at
+ * import time would freeze `maxAbilitySlots` at whichever mode happened to be installed first and
+ * never see a later `withMode` scope or a `setTuning` retune (the exact bug this task exists to
+ * remove) — see production callers such as `ArenaScene`, which pass the driven car's own ability
+ * count instead of relying on this default.
+ */
+export function hintSlotOrderDefault(): readonly number[] {
+  return hintSlotOrder(BASIC_ATTACK_CONFIG.enabled);
+}
 
 /**
  * Held slot inputs as the wire's bitmask. Bit 0 is fire slot 0 — the basic attack (VS15) — and
@@ -76,7 +86,7 @@ export const HINT_SLOT_ORDER = hintSlotOrder(BASIC_ATTACK_CONFIG.enabled);
  */
 export function slotMaskFrom(down: readonly boolean[], mouseButtons = 0): number {
   let mask = 0;
-  const limit = Math.min(SLOT_KEYS.length, WEAPON_SLOT_CONFIG.maxFireSlots);
+  const limit = Math.min(SLOT_KEYS.length, slots().maxFireSlots);
   for (let i = 0; i < limit; i++) {
     const held = (down[i] ?? false) || (mouseButtons & SLOT_KEYS[i]!.buttonsMask) !== 0;
     if (held) mask |= 1 << i;

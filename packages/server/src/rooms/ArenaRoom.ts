@@ -38,7 +38,7 @@ import {
   hpOf,
   isActiveCarId,
   isActiveGameMode,
-  DEATHMATCH_TICKS,
+  derived,
   deathmatchEnded,
   deathmatchOutcome,
   DEFAULT_GAME_MODE,
@@ -545,7 +545,7 @@ export class ArenaRoom extends Room<ArenaState> {
       // client's HUD a clock to count down that means nothing.
       this.state.matchEndsTick =
         winRuleOf(this.state.mode) === "deathmatch"
-          ? this.state.tick + DEATHMATCH_TICKS.match
+          ? this.state.tick + derived().deathmatchTicks.match
           : 0;
     }
     this.state.carSelectDeadlineTick = next.carSelectDeadlineTick;
