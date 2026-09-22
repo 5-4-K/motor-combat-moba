@@ -98,7 +98,7 @@ export function panFreeCam(
   return { x: focus.x + axisX * step, y: focus.y + axisY * step };
 }
 
-/** The frame time `CAMERA_CONFIG.camLerp` is expressed against, so 60 Hz behaviour is unchanged. */
+/** The frame time `camera().camLerp` is expressed against, so 60 Hz behaviour is unchanged. */
 const REFERENCE_FRAME_MS = 1000 / 60;
 
 /**

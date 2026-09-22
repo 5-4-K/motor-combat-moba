@@ -20,7 +20,7 @@ import {
 import { BOT_PROFILES } from "../config/bot-profiles.js";
 import { HumanController, ViewRing, type BotView } from "../bot/index.js";
 import { PracticeRoom, newPracticeState } from "./PracticeRoom.js";
-import { COUNTDOWN_TICKS } from "./countdown.js";
+import { countdownTicks } from "./countdown.js";
 import { isIdleWarningDue, isPracticeIdle } from "./practice-rules.js";
 
 const ROOM_SOURCE = readFileSync(
@@ -41,7 +41,7 @@ describe("newPracticeState (PR9)", () => {
   // The room ticks from creation, before anyone has joined. Opening on MATCH and starting a
   // countdown afterwards would run live ticks nobody was there to see.
   it("has a countdown already stamped, so there is no MATCH window before it", () => {
-    expect(newPracticeState().countdownEndsTick).toBe(COUNTDOWN_TICKS);
+    expect(newPracticeState().countdownEndsTick).toBe(countdownTicks());
   });
 
   it("runs deathmatch rules, so death respawns instead of eliminating", () => {

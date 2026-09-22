@@ -1,5 +1,5 @@
 import {
-  CAMERA_CONFIG, LOGICAL_CANVAS,
+  camera, LOGICAL_CANVAS,
   boundsOf, carIdOf, getArena, hasStatus, hpOf, weaponDefOf,
   type ArenaState, type FiredEvent, type PlayerState, type WeaponInstance,
 } from "@motor-combat-moba/shared";
@@ -107,15 +107,16 @@ export function buildBotView(args: {
 
 /**
  * The world-unit rectangle a human's screen actually shows (B17): the client's logical canvas
- * (`LOGICAL_CANVAS`) divided by how far the camera is zoomed in (`CAMERA_CONFIG.zoom`) — at zoom 1
+ * (`LOGICAL_CANVAS`) divided by how far the camera is zoomed in (`camera().zoom`) — at zoom 1
  * this is exactly `LOGICAL_CANVAS`, at zoom 2 it is half that in each dimension, same as the client's
  * own camera math. Pulled out as its own function so `buildBotView`'s fairness check reads as what
  * it is ("does the arena fit on a human's screen") rather than as an inlined division.
  */
 function viewportWorldSize(): { width: number; height: number } {
+  const zoom = camera().zoom;
   return {
-    width: LOGICAL_CANVAS.width / CAMERA_CONFIG.zoom,
-    height: LOGICAL_CANVAS.height / CAMERA_CONFIG.zoom,
+    width: LOGICAL_CANVAS.width / zoom,
+    height: LOGICAL_CANVAS.height / zoom,
   };
 }
 

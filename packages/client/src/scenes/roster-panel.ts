@@ -125,7 +125,7 @@ export const ROSTER_NAME_CHAR_PX = ROSTER_NAME_FONT_PX * 0.6;
  * It is charged against the label column, and it has to be: without it `nameMaxChars` spends the
  * whole gutter (13 characters is 93.6 px of a 94 px column at the shipped numbers), so a count
  * right-aligned on the panel's edge would draw underneath any name using its full budget —
- * reachable, not theoretical, since `FLOW_CONFIG.nameMax` is 16. 18 px affords a two-digit score
+ * reachable, not theoretical, since `flow().nameMax` is 16. 18 px affords a two-digit score
  * with 3.6 px of air and still clears a three-digit one; `rosterPanelLayout`'s test pins that the
  * longest legal name cannot reach either.
  */
@@ -243,7 +243,7 @@ export function rosterPanelLayout(
 
 /**
  * A name cut to the label column, with the last character spent on an ellipsis so the cut is visibly
- * a cut rather than a different name. `FLOW_CONFIG.nameMax` is 16 and the column affords fewer, so
+ * a cut rather than a different name. `flow().nameMax` is 16 and the column affords fewer, so
  * this is a case players will hit rather than a guard against the impossible.
  */
 export function truncateName(name: string, maxChars: number): string {

@@ -1,5 +1,5 @@
 import {
-  FLOW_CONFIG,
+  flow,
   RoomPhase,
   TICK_RATE_HZ,
   type ArenaState,
@@ -25,8 +25,15 @@ import {
  * send input during it.
  */
 
-/** The countdown's length in ticks — the same figure `ArenaRoom` hands its reducer. */
-export const COUNTDOWN_TICKS = FLOW_CONFIG.countdownSeconds * TICK_RATE_HZ;
+/**
+ * The countdown's length in ticks — the same figure `ArenaRoom` hands its reducer.
+ *
+ * A FUNCTION, not a module-level constant: a `const` computed at import time would freeze
+ * `flow().countdownSeconds` at whichever mode happened to be installed first.
+ */
+export function countdownTicks(): number {
+  return flow().countdownSeconds * TICK_RATE_HZ;
+}
 
 /**
  * Start (or restart) the countdown from the room's current tick.
@@ -38,7 +45,7 @@ export const COUNTDOWN_TICKS = FLOW_CONFIG.countdownSeconds * TICK_RATE_HZ;
  */
 export function beginCountdown(state: ArenaState): void {
   state.phase = RoomPhase.COUNTDOWN;
-  state.countdownEndsTick = state.tick + COUNTDOWN_TICKS;
+  state.countdownEndsTick = state.tick + countdownTicks();
 }
 
 /**

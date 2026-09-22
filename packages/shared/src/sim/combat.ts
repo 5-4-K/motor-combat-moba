@@ -863,7 +863,7 @@ function hitsWorld(instance: WeaponInstance, previous: WeaponInstance, world: Co
 /**
  * Put this weapon's `self` statuses on the car that fired it.
  *
- * Durations come from `WEAPON_TICKS.applyDurations`, positionally parallel to the weapon's own
+ * Durations come from `derived().weaponTicks.applyDurations`, positionally parallel to the weapon's own
  * `applies` array — converted from milliseconds exactly once, at module load, so the two halves of
  * the lockstep can never round differently.
  */

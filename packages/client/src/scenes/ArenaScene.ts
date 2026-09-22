@@ -13,7 +13,7 @@ import {
   modifiersFromRows,
   ARENA_IDS,
   BASIC_ATTACK_CONFIG,
-  CAMERA_CONFIG,
+  camera,
   drive,
   statusConfig,
   GameMode,
@@ -1333,7 +1333,7 @@ export class ArenaScene extends Phaser.Scene {
     cam.setViewport(0, 0, ARENA_VIEW_WIDTH, VIEW_HEIGHT);
     // Scene-scoped: the global game background stays dark for the lobby and results screens.
     cam.setBackgroundColor(colors.floor);
-    cam.setZoom(CAMERA_CONFIG.zoom);
+    cam.setZoom(camera().zoom);
     // Stops the soft follow from panning past the arena edge into empty space.
     cam.setBounds(0, 0, arena.width, arena.height);
 
@@ -1356,7 +1356,7 @@ export class ArenaScene extends Phaser.Scene {
     this.staticCamera = fitsViewport(
       arena,
       { width: ARENA_VIEW_WIDTH, height: VIEW_HEIGHT },
-      CAMERA_CONFIG.zoom,
+      camera().zoom,
     );
     if (this.staticCamera) cam.centerOn(arena.width / 2, arena.height / 2);
   }
@@ -4219,7 +4219,7 @@ export class ArenaScene extends Phaser.Scene {
     );
 
     const from = this.camFocus ?? { x: this.cameras.main.midPoint.x, y: this.cameras.main.midPoint.y };
-    this.camFocus = panFreeCam(from, axisX, axisY, delta, CAMERA_CONFIG.freeRoamSpeed);
+    this.camFocus = panFreeCam(from, axisX, axisY, delta, camera().freeRoamSpeed);
     this.cameras.main.centerOn(this.camFocus.x, this.camFocus.y);
   }
 
@@ -4236,7 +4236,7 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * Soft follow. `centerOn` each frame with the focus eased by `CAMERA_CONFIG.camLerp` keeps a
+   * Soft follow. `centerOn` each frame with the focus eased by `camera().camLerp` keeps a
    * reconciliation snap from throwing the whole view; the first frame seeds the focus outright so
    * the match does not open with the camera flying in from the arena origin.
    *
@@ -4249,7 +4249,7 @@ export class ArenaScene extends Phaser.Scene {
     if (!this.camFocus) {
       this.camFocus = { x: pose.x, y: pose.y };
     } else {
-      this.camFocus = smoothFollow(this.camFocus, pose, CAMERA_CONFIG.camLerp, delta);
+      this.camFocus = smoothFollow(this.camFocus, pose, camera().camLerp, delta);
     }
     this.cameras.main.centerOn(this.camFocus.x, this.camFocus.y);
   }

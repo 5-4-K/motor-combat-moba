@@ -7,7 +7,7 @@ import {
   ROOM_NAME,
   DEFAULT_PATCH_RATE_HZ,
   TICK_RATE_HZ,
-  FLOW_CONFIG,
+  flow,
   GameMode,
   PlayerStatus,
   RoomPhase,
@@ -234,7 +234,7 @@ export class ArenaRoom extends Room<ArenaState> {
             type: "start",
             readyIds,
             nowTick: this.state.tick,
-            carSelectTicks: getCarSelectSeconds(FLOW_CONFIG.carSelectSeconds) * TICK_RATE_HZ,
+            carSelectTicks: getCarSelectSeconds(flow().carSelectSeconds) * TICK_RATE_HZ,
           });
           this.pendingCarId.clear();
         }),
@@ -435,7 +435,7 @@ export class ArenaRoom extends Room<ArenaState> {
       this.reduce({
         type: "begin_countdown",
         nowTick: this.state.tick,
-        countdownTicks: FLOW_CONFIG.countdownSeconds * TICK_RATE_HZ,
+        countdownTicks: flow().countdownSeconds * TICK_RATE_HZ,
       });
     } else if (
       this.state.phase === RoomPhase.COUNTDOWN &&
@@ -592,7 +592,7 @@ export class ArenaRoom extends Room<ArenaState> {
     next = reduceFlow(next, {
       type: "begin_reveal",
       nowTick: this.state.tick,
-      revealTicks: getRevealSeconds(FLOW_CONFIG.revealSeconds) * TICK_RATE_HZ,
+      revealTicks: getRevealSeconds(flow().revealSeconds) * TICK_RATE_HZ,
     });
     this.applyFlow(next);
 

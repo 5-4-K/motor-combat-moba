@@ -57,7 +57,7 @@ export function actionAltsFor(_abilities: number, _enabled: boolean): readonly s
  * Closes the action row, the way `MOVEMENT_LABEL` closes the movement one.
  *
  * There is deliberately no `ACTION_KEYS`/`ACTION_ALTS` constant beside it. Those existed for "a
- * caller with no chassis in hand" and were bound to `WEAPON_SLOT_CONFIG.maxAbilitySlots`; once
+ * caller with no chassis in hand" and were bound to `slots().maxAbilitySlots`; once
  * `ArenaScene` started passing the driven car's own ability count (VS19) nothing in production read
  * them, and a `N`-bound row that no screen draws is a row that can rot into teaching keys the
  * player's chassis does not have. Call `actionKeysFor`/`actionAltsFor` with a real count.

@@ -5,7 +5,7 @@ import {
   TICK_RATE_HZ,
   PracticeState,
 } from "@motor-combat-moba/shared";
-import { COUNTDOWN_TICKS, beginCountdown, countdownSweep } from "./countdown.js";
+import { beginCountdown, countdownSweep, countdownTicks } from "./countdown.js";
 
 /** Any concrete `ArenaState` will do — this module only reads `tick` and writes the two phase fields. */
 function stateAtTick(tick: number): PracticeState {
@@ -14,9 +14,9 @@ function stateAtTick(tick: number): PracticeState {
   return state;
 }
 
-describe("COUNTDOWN_TICKS", () => {
+describe("countdownTicks", () => {
   it("is the same three seconds ArenaRoom hands its reducer", () => {
-    expect(COUNTDOWN_TICKS).toBe(FLOW_CONFIG.countdownSeconds * TICK_RATE_HZ);
+    expect(countdownTicks()).toBe(FLOW_CONFIG.countdownSeconds * TICK_RATE_HZ);
   });
 });
 
@@ -32,7 +32,7 @@ describe("beginCountdown", () => {
   it("ends a full countdown after the CURRENT tick, not after tick zero", () => {
     const state = stateAtTick(500);
     beginCountdown(state);
-    expect(state.countdownEndsTick).toBe(500 + COUNTDOWN_TICKS);
+    expect(state.countdownEndsTick).toBe(500 + countdownTicks());
   });
 
   it("restarts cleanly when called a second time", () => {
@@ -40,7 +40,7 @@ describe("beginCountdown", () => {
     beginCountdown(state);
     state.tick = 40;
     beginCountdown(state);
-    expect(state.countdownEndsTick).toBe(40 + COUNTDOWN_TICKS);
+    expect(state.countdownEndsTick).toBe(40 + countdownTicks());
   });
 });
 
@@ -48,7 +48,7 @@ describe("countdownSweep", () => {
   it("holds COUNTDOWN while the clock is still running", () => {
     const state = stateAtTick(0);
     beginCountdown(state);
-    state.tick = COUNTDOWN_TICKS - 1;
+    state.tick = countdownTicks() - 1;
     countdownSweep(state);
     expect(state.phase).toBe(RoomPhase.COUNTDOWN);
   });
@@ -56,7 +56,7 @@ describe("countdownSweep", () => {
   it("opens MATCH on the tick the clock runs out", () => {
     const state = stateAtTick(0);
     beginCountdown(state);
-    state.tick = COUNTDOWN_TICKS;
+    state.tick = countdownTicks();
     countdownSweep(state);
     expect(state.phase).toBe(RoomPhase.MATCH);
   });
@@ -64,9 +64,9 @@ describe("countdownSweep", () => {
   // The gate `serverTick` and `combatTick` both check is the phase alone, so a sweep that ran a
   // second time must not walk the room back out of the match it just started.
   it("is inert once the match is live", () => {
-    const state = stateAtTick(COUNTDOWN_TICKS + 100);
+    const state = stateAtTick(countdownTicks() + 100);
     state.phase = RoomPhase.MATCH;
-    state.countdownEndsTick = COUNTDOWN_TICKS;
+    state.countdownEndsTick = countdownTicks();
     countdownSweep(state);
     expect(state.phase).toBe(RoomPhase.MATCH);
   });
@@ -76,7 +76,7 @@ describe("countdownSweep", () => {
   it("never stamps matchEndsTick", () => {
     const state = stateAtTick(0);
     beginCountdown(state);
-    state.tick = COUNTDOWN_TICKS;
+    state.tick = countdownTicks();
     countdownSweep(state);
     expect(state.matchEndsTick).toBe(0);
   });

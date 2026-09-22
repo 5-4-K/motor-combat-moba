@@ -1,4 +1,4 @@
-import { FLOW_CONFIG } from "@motor-combat-moba/shared";
+import { flow } from "@motor-combat-moba/shared";
 import { button, h, svg } from "../dom.js";
 import { FULLSCREEN_KEY } from "../../config/display.js";
 import { FEEDBACK_LABEL, FEEDBACK_URL } from "../../config/feedback.js";
@@ -59,7 +59,7 @@ export function renderJoin(handlers: JoinHandlers): JoinScreen {
     class: "input",
     id: "pname",
     type: "text",
-    maxLength: FLOW_CONFIG.nameMax,
+    maxLength: flow().nameMax,
     placeholder: "Name",
     autocomplete: "off",
     spellcheck: false,
@@ -179,7 +179,7 @@ export function renderJoin(handlers: JoinHandlers): JoinScreen {
           practiceButton,
           error,
           h("div", { style: "font-size: 12px; color: var(--color-neutral-600); margin-top: 26px;" }, [
-            `Max ${FLOW_CONFIG.nameMax} characters. ${FULLSCREEN_KEY.toUpperCase()} — fullscreen.`,
+            `Max ${flow().nameMax} characters. ${FULLSCREEN_KEY.toUpperCase()} — fullscreen.`,
           ]),
         ],
       ),
