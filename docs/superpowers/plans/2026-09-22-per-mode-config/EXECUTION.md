@@ -65,14 +65,30 @@ to the task named after it.
 | Phase | Plan | State |
 |---|---|---|
 | 1. Accessor layer, one bundle | [`01-accessor-layer.md`](01-accessor-layer.md) | **DONE** (`fbe386a..f0f0112`) |
-| 2. Two mode folders | [`02-mode-folders.md`](02-mode-folders.md) | **in flight** (Task 1) |
+| 2. Two mode folders | [`02-mode-folders.md`](02-mode-folders.md) | **DONE** (`1da2c85..74b8320`) |
 | 3. Scopes installed | [`03-room-scopes.md`](03-room-scopes.md) | not started |
 | 4. Lobby and arena sets | [`04-lobby-and-arenas.md`](04-lobby-and-arenas.md) | not started |
 | 5. `setTuning` retired | [`05-retire-set-tuning.md`](05-retire-set-tuning.md) | not started |
 | 6. Tooling | [`06-tooling.md`](06-tooling.md) | not started |
 
-**In flight:** Phase 2, Task 1 — generating the `brawl/` and `deathmatch/` folders.
-**Next:** Phase 2, Task 2 (the registry).
+**Next:** Phase 3, Task 1.
+
+### Phase 2, as landed (commits `1da2c85..74b8320`)
+
+`brawl/` and `deathmatch/` are real mode folders of thirteen literal table copies each;
+`modes/registry.ts` assembles both into `MODE_TABLE`, keyed by `GameMode`, with `TEAM` pointed at
+`BRAWL_TABLES` until a team-mode folder exists. `modeConfigOf` (throws) and `modeConfigOrDefault`
+(wire-facing, falls back to `DEFAULT_GAME_MODE`) are the two ways to resolve a bundle from a
+`GameMode`. `modes/legacy.ts` — the phase-1 scaffolding wrapping the live config tables — is gone;
+the module-load bootstrap it carried (installing a bundle so `cfg()` has something to read before
+phase 3's scopes exist) moved to `registry.ts`, which now installs `MODE_TABLE[DEFAULT_GAME_MODE]`
+at load time. Both reach paths (`index.ts`'s side-effect import, `vitest.setup.ts`'s `setupFiles`
+entry) point at `modes/registry.js`. `config/tuning.ts`'s `setTuning` and every test that used to
+build ad-hoc bundles from `LEGACY_TABLES` (including the two `pinBasicAttackEnabled` helpers) now
+build them from `BRAWL_TABLES` instead — the same values, since Brawl is `DEFAULT_GAME_MODE`.
+
+`golden.test.ts` and `parity.test.ts` (the witness comparing both modes against a fixture captured
+before this whole migration) both stayed green throughout — no balance number moved.
 
 ### Phase 1, as landed (commits `fbe386a..ea0a122`, all pushed)
 
