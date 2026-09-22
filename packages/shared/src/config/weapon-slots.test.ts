@@ -1,10 +1,23 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CAR_TABLE, basicAttackIds, basicAttackOf } from "./car-config.js";
 import type { CarId } from "./types.js";
-import { WEAPON_TABLE } from "./weapon-config.js";
+import { BASIC_ATTACK_CONFIG, WEAPON_TABLE } from "./weapon-config.js";
 import { ABILITY_SLOT_CEILING, WEAPON_SLOT_CONFIG, slotsOf, slotsFrom, fireSlotsOf } from "./weapon-slots.js";
+import { slots } from "../modes/active.js";
 
 afterEach(() => vi.restoreAllMocks());
+
+describe("basicAttackEnabled (MC27)", () => {
+  it("mirrors BASIC_ATTACK_CONFIG.enabled for the installed mode, so the two cannot drift", () => {
+    // `sim/` reads the flag off the bundle (`slots().basicAttackEnabled`) rather than off
+    // `BASIC_ATTACK_CONFIG` directly (MC13); `BASIC_ATTACK_CONFIG` itself stays the source the flag
+    // is authored on, since readers outside `sim/` (the client HUD, the manual builder, the bot)
+    // still read it raw. This pins the two equal for the mode installed at boot, so a future edit to
+    // one without the other fails here instead of silently landing two different answers.
+    expect(WEAPON_SLOT_CONFIG.basicAttackEnabled).toBe(BASIC_ATTACK_CONFIG.enabled);
+    expect(slots().basicAttackEnabled).toBe(BASIC_ATTACK_CONFIG.enabled);
+  });
+});
 
 describe("loadouts", () => {
   it("gives every ACTIVE car between one and the ceiling's worth of weapons", () => {

@@ -1,12 +1,12 @@
-import { CAR_TABLE, DEFAULT_CAR_ID, hpOf } from "../config/car-config.js";
+import { DEFAULT_CAR_ID, hpOf } from "../config/car-config.js";
 import { isStatusId } from "../config/status-config.js";
-import { SPIKE_CONFIG } from "../config/spike-config.js";
 import type { StatusId } from "../config/status-types.js";
 import { instanceDefOf, isWeaponId, weaponDefOf } from "../config/weapon-config.js";
 import { msToTicks, weaponTicksOf } from "../config/weapon-ticks.js";
 import type { ManeuverWeaponDef, WeaponId } from "../config/weapon-types.js";
 import type { CarId } from "../config/types.js";
 import { TICK_RATE_HZ } from "../constants.js";
+import { cars, spike } from "../modes/active.js";
 import {
   aabbCorners,
   convexOverlap,
@@ -339,7 +339,7 @@ export function runCombat(input: CombatInput): CombatResult {
     if (hasStatus(target.statuses, "phased", world.tick)) continue;
     recordDamage(
       target,
-      SPIKE_CONFIG.damage,
+      spike().damage,
       modsOf(hit.targetSessionId),
       hit.sourceSessionId,
       { kind: "hazard", hazardId: "spike" },
@@ -709,7 +709,7 @@ function maneuverSlotMask(fireState: FireState): number {
  * `isTargetable` is a PARAMETER rather than something derived here, on purpose: it is the
  * `runCombat`-local closure reading that tick's single derived-once modifiers cache
  * (`modifiersFor`/`modsOf`), not a hand-rolled re-scan of `player.statuses`. A second derivation
- * would drift from the cache the moment a status's flag came from `STATUS_TABLE.flags` rather than
+ * would drift from the cache the moment a status's flag came from `statusTable().flags` rather than
  * matching its id, or the moment a mid-tick addition needed the same "lands this tick, bites next"
  * treatment `isPhasedOf`'s cache already gives it for free.
  *
@@ -798,7 +798,7 @@ function detonate(
       // `weaponDamageOf` reads the weapon ROW's damage — the shell's 50, not the burst's 15 — so
       // it is the wrong helper here. `damageFor` takes an explicit base, which is what a burst
       // needs. Do not widen `weaponDamageOf` to mean two things.
-      damage: scaleDamage(damageFor(CAR_TABLE[carId].attack, burstDef.damage), damageMult),
+      damage: scaleDamage(damageFor(cars()[carId].attack, burstDef.damage), damageMult),
       weaponId: shell.weaponId,
       kind: "beam",
       x,

@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { basicAttackOf } from "../../config/car-config.js";
+import { DEFAULT_GAME_MODE } from "../../config/mode-config.js";
 import { BASIC_ATTACK_CONFIG } from "../../config/weapon-config.js";
 import { WEAPON_SLOT_CONFIG } from "../../config/weapon-slots.js";
 import type { WeaponId } from "../../config/weapon-types.js";
+import { installMode } from "../../modes/active.js";
+import { assembleModeConfig } from "../../modes/build.js";
+import { LEGACY_TABLES } from "../../modes/legacy.js";
 import { beginFire, cancelPending, newFireState, releaseShots, tickRecharge, type FireState } from "./fire.js";
 import type { ShotOrder } from "./instances.js";
 import { turnTurret } from "./turret.js";
@@ -566,30 +570,40 @@ describe("the basic attack slot", () => {
   });
 });
 
-describe("the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)", () => {
-  // Captured, never hard-coded to `true`: this flag is edited per build, and a restore that typed
-  // one position would leak the wrong value into every later test the day the other one ships.
-  const shipped = BASIC_ATTACK_CONFIG.enabled;
+describe("the basic-attack toggle (slots().basicAttackEnabled)", () => {
+  // `beginFire` reads the flag off the installed mode bundle (`slots().basicAttackEnabled`), not off
+  // `BASIC_ATTACK_CONFIG.enabled` directly (MC13) — the bundle is assembled and frozen once, so
+  // mutating the raw global no longer reaches it. Exercising both positions here means installing a
+  // fresh bundle with the flag set the way each test wants, and restoring the ordinary
+  // `LEGACY_TABLES` bundle (what `vitest.setup.ts` installs for every test in this file) afterward.
+  function installBasicAttackEnabled(enabled: boolean): void {
+    installMode(
+      assembleModeConfig(DEFAULT_GAME_MODE, {
+        ...LEGACY_TABLES,
+        slots: { ...LEGACY_TABLES.slots, basicAttackEnabled: enabled },
+      }),
+    );
+  }
   afterEach(() => {
-    BASIC_ATTACK_CONFIG.enabled = shipped;
+    installMode(assembleModeConfig(DEFAULT_GAME_MODE, LEGACY_TABLES));
   });
 
   it("drops a basic-attack-only press when disabled — the key does nothing", () => {
-    BASIC_ATTACK_CONFIG.enabled = false;
+    installBasicAttackEnabled(false);
     const fired = beginFire("p1", newFireState("bastion", 1), 1 << 0, 0);
     expect(fired.pending).toBeNull();
   });
 
   it("still lets an ability fire on the same tick, since a skipped slot is not a stopped scan", () => {
-    BASIC_ATTACK_CONFIG.enabled = false;
+    installBasicAttackEnabled(false);
     const fired = beginFire("p1", newFireState("bastion", 1), (1 << 0) | (1 << 1), 0);
     expect(fired.pending?.weaponId).toBe("thumper");
   });
 
   it("fires again once the flag is re-enabled", () => {
-    BASIC_ATTACK_CONFIG.enabled = false;
+    installBasicAttackEnabled(false);
     expect(beginFire("p1", newFireState("bastion", 1), 1 << 0, 0).pending).toBeNull();
-    BASIC_ATTACK_CONFIG.enabled = true;
+    installBasicAttackEnabled(true);
     expect(beginFire("p1", newFireState("bastion", 1), 1 << 0, 0).pending?.weaponId).toBe(
       "basic-attack-bastion",
     );

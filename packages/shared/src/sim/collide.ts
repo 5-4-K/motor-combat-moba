@@ -1,4 +1,4 @@
-import { DRIVE_CONFIG } from "../config/drive-config.js";
+import { drive } from "../modes/active.js";
 import { planePenetration, rectPlanes, supportRadius, type BoundaryPlane } from "./boundary.js";
 import type { SimBody } from "./step.js";
 
@@ -254,7 +254,7 @@ function applyContact(body: SimBody, push: Vec2): SimBody {
   let vy = body.vy;
   const intoSurface = vx * n.x + vy * n.y;
   if (intoSurface < 0) {
-    const scale = (1 + DRIVE_CONFIG.restitution) * intoSurface;
+    const scale = (1 + drive().restitution) * intoSurface;
     vx -= scale * n.x;
     vy -= scale * n.y;
   }
@@ -342,7 +342,8 @@ function projectOnto(corners: readonly Vec2[], axis: Vec2): Span {
 }
 
 function carObbOf(body: SimBody): Obb {
-  return { x: body.x, y: body.y, angle: body.angle, w: DRIVE_CONFIG.carWidth, h: DRIVE_CONFIG.carHeight };
+  const d = drive();
+  return { x: body.x, y: body.y, angle: body.angle, w: d.carWidth, h: d.carHeight };
 }
 
 /** Top-left `Aabb` to centre-based `Obb`, so one SAT path covers obstacles and cars alike. */
@@ -354,7 +355,7 @@ export function aabbToObb(box: Aabb): Obb {
 function hullHalfExtents(body: SimBody): Vec2 {
   const c = Math.abs(Math.cos(body.angle));
   const s = Math.abs(Math.sin(body.angle));
-  const { carWidth, carHeight } = DRIVE_CONFIG;
+  const { carWidth, carHeight } = drive();
   return { x: (c * carWidth + s * carHeight) / 2, y: (s * carWidth + c * carHeight) / 2 };
 }
 
@@ -387,7 +388,7 @@ export function obbsOverlap(a: Obb, b: Obb): boolean {
  *
  * The slack is applied to the half-extents of both boxes, so the effective tolerance on the gap
  * between them is `2 * pad`. Keep it small — the config key that used to size it,
- * `COMBAT_CONFIG.ramContactPad`, was deleted with ram detection; a future caller supplies its own.
+ * `combat().ramContactPad`, was deleted with ram detection; a future caller supplies its own.
  */
 export function obbsInContact(a: Obb, b: Obb, pad: number): boolean {
   return obbsOverlap(inflate(a, pad), inflate(b, pad));

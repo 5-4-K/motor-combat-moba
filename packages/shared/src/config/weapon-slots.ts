@@ -1,6 +1,7 @@
 import { basicAttackOf } from "./car-config.js";
 import type { CarId } from "./types.js";
 import type { WeaponId } from "./weapon-types.js";
+import { BASIC_ATTACK_CONFIG } from "./weapon-config.js";
 import { cars } from "../modes/active.js";
 
 /**
@@ -28,11 +29,18 @@ const ABILITY_SLOTS = 3;
  *
  * `maxFireSlots` is how many weapons a car can actually fire: the kit plus its basic attack (BA11).
  * `basicAttackSlotIndex` is 0. Both are derived rather than typed, so they cannot disagree with `N`.
+ *
+ * `basicAttackEnabled` mirrors `BASIC_ATTACK_CONFIG.enabled` (`config/weapon-config.ts`) into the
+ * per-mode bundle so `sim/` never reaches for that global directly (MC13, MC27) — the flag itself
+ * is still authored on `BASIC_ATTACK_CONFIG`, since readers outside `sim/` (the client HUD, the
+ * manual builder, the bot) are not part of this migration yet; a test pins the two equal for the
+ * installed mode so they cannot drift while both exist.
  */
 export interface WeaponSlotConfig {
   readonly maxAbilitySlots: number;
   readonly maxFireSlots: number;
   readonly basicAttackSlotIndex: 0;
+  readonly basicAttackEnabled: boolean;
 }
 
 export const WEAPON_SLOT_CONFIG: WeaponSlotConfig = {
@@ -48,6 +56,7 @@ export const WEAPON_SLOT_CONFIG: WeaponSlotConfig = {
    * is `[basicAttack, ...kit]`, so nothing about `N` can move it.
    */
   basicAttackSlotIndex: 0,
+  basicAttackEnabled: BASIC_ATTACK_CONFIG.enabled,
 } as const;
 
 /** Cars already warned about, so an over-long loadout logs once rather than once per tick. */

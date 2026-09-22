@@ -1,8 +1,7 @@
-import { DRIVE_CONFIG } from "../../config/drive-config.js";
-import { TURRET_CONFIG } from "../../config/turret-config.js";
 import { instanceDefOf, weaponDefOf } from "../../config/weapon-config.js";
 import { msToTicks, weaponTicksOf } from "../../config/weapon-ticks.js";
 import type { WeaponDef, WeaponId } from "../../config/weapon-types.js";
+import { drive, turret } from "../../modes/active.js";
 import { rectPlanes } from "../boundary.js";
 import { pointInAabb, pointOutsideBounds, type Aabb, type Bounds } from "../collide.js";
 import { carIdOf } from "../context.js";
@@ -146,7 +145,7 @@ export interface StepInstanceContext {
 
 /** How far ahead of the car's centre an instance is born: the front face of its hull. */
 export function muzzleOffset(): number {
-  return DRIVE_CONFIG.carWidth / 2;
+  return drive().carWidth / 2;
 }
 
 /**
@@ -206,7 +205,7 @@ export function spawnInstances(
   homingTargetId = "", // consumed in Task 6; "" = none
   def: WeaponDef = weaponDefOf(order.weaponId), // test seam — see plan "Testing seams"
   world?: { obstacles: readonly Aabb[]; bounds: Bounds }, // turret only — TR19's wall clip
-  maxSwingDeg?: number, // turret only — TR55's arc; test seam, defaults to TURRET_CONFIG.maxSwingDeg
+  maxSwingDeg?: number, // turret only — TR55's arc; test seam, defaults to turret().maxSwingDeg
 ): { instances: WeaponInstance[]; seq: number } {
   // A maneuver moves the car instead of spawning an instance (Task 10's real branch); no table row
   // is one yet, so this narrows `def` back to the two kinds this function has ever had to handle.
@@ -247,7 +246,7 @@ export function spawnInstances(
     // sends the shot out along the arc edge rather than through its own blind side.
     const bearing = clampBearingToSwing(order.bearing ?? owner.angle, owner.angle, maxSwingDeg);
     const pivot = turretPivotOf(owner, owner.carId);
-    let reach = TURRET_CONFIG.defaultOffset + def.turret.additionalOffset;
+    let reach = turret().defaultOffset + def.turret.additionalOffset;
     // TR19: never born through a wall. At the wall face it dies (or detonates) on its first step,
     // exactly as a shot flying into that wall would.
     if (world) {

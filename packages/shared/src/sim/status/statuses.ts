@@ -1,6 +1,7 @@
-import { STATUS_CONFIG, isStatusId, statusDefOf } from "../../config/status-config.js";
+import { isStatusId, statusDefOf } from "../../config/status-config.js";
 import { statusPulseTicksOf } from "../../config/status-ticks.js";
 import type { StatusId } from "../../config/status-types.js";
+import { statusConfig } from "../../modes/active.js";
 import { modifiersOf, type Modifiers } from "./modifiers.js";
 
 /**
@@ -172,7 +173,7 @@ export function expireStatusesFromSource(
  *  - already running, `ignore` — nothing happens at all. Not even the clock moves.
  *  - already running, `refresh` — the clock is EXTENDED, never shortened. A weak, short re-application
  *    from a second source must not be able to cut a long one down, which a plain overwrite would do.
- *  - not running, and the car is at `STATUS_CONFIG.maxActive` — dropped. A new status never evicts a
+ *  - not running, and the car is at `statusConfig().maxActive` — dropped. A new status never evicts a
  *    running one, so a cheap status can never be used to strip a meaningful one off a target.
  *
  * A duration of zero or less is refused outright rather than clamped to a tick: it means the applier
@@ -215,7 +216,7 @@ export function applyStatus(
   // Expired rows of the same id are replaced outright rather than counted against the cap: they are
   // about to be swept by `expireStatuses` and must not block their own re-application.
   const live = base.filter((s) => s.statusId !== statusId && s.endsTick > tick);
-  if (live.length >= STATUS_CONFIG.maxActive) return [...base];
+  if (live.length >= statusConfig().maxActive) return [...base];
 
   return sorted([...live, { statusId, startTick: tick, endsTick, sourceSessionId }]);
 }

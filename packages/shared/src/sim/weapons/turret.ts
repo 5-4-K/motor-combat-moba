@@ -1,8 +1,7 @@
 import { turretMountOf } from "../../config/car-config.js";
-import { TURRET_CONFIG, TURRET_TICKS } from "../../config/turret-config.js";
-import { BASIC_ATTACK_CONFIG, isWeaponId, weaponDefOf } from "../../config/weapon-config.js";
+import { isWeaponId, weaponDefOf } from "../../config/weapon-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
-import { WEAPON_SLOT_CONFIG } from "../../config/weapon-slots.js";
+import { derived, slots, turret } from "../../modes/active.js";
 import type { FireState } from "./fire.js";
 
 const TAU = Math.PI * 2;
@@ -34,9 +33,9 @@ export function turretPivotOf(
  * Clamp a turret angle RELATIVE to the car's heading into the swing arc (spec TR55):
  * [-maxSwingDeg/2, +maxSwingDeg/2] radians. The identity at 360 or more — an unrestricted turret —
  * so the shipped value changes nothing. `relAngle` is expected already wrapped into (-pi, pi].
- * `maxSwingDeg` defaults to `TURRET_CONFIG.maxSwingDeg`, read on every call so a live retune lands.
+ * `maxSwingDeg` defaults to `turret().maxSwingDeg`, read on every call so a live retune lands.
  */
-export function clampToSwing(relAngle: number, maxSwingDeg: number = TURRET_CONFIG.maxSwingDeg): number {
+export function clampToSwing(relAngle: number, maxSwingDeg: number = turret().maxSwingDeg): number {
   if (maxSwingDeg >= 360) return relAngle;
   const half = (Math.max(0, maxSwingDeg) * Math.PI) / 360;
   return Math.min(half, Math.max(-half, relAngle));
@@ -51,7 +50,7 @@ export function clampToSwing(relAngle: number, maxSwingDeg: number = TURRET_CONF
 export function clampBearingToSwing(
   bearing: number,
   carAngle: number,
-  maxSwingDeg: number = TURRET_CONFIG.maxSwingDeg,
+  maxSwingDeg: number = turret().maxSwingDeg,
 ): number {
   if (maxSwingDeg >= 360) return bearing;
   return carAngle + clampToSwing(wrapAngle(bearing - carAngle), maxSwingDeg);
@@ -67,7 +66,7 @@ export function clampBearingToSwing(
 export function turretTurnDelta(
   fromRel: number,
   toRel: number,
-  maxSwingDeg: number = TURRET_CONFIG.maxSwingDeg,
+  maxSwingDeg: number = turret().maxSwingDeg,
 ): number {
   return maxSwingDeg >= 360 ? wrapAngle(toRel - fromRel) : toRel - fromRel;
 }
@@ -83,8 +82,8 @@ export function turnTurret(
   state: FireState,
   carAngle: number,
   tick: number,
-  step: number = TURRET_TICKS.turnPerTick,
-  maxSwingDeg: number = TURRET_CONFIG.maxSwingDeg,
+  step: number = derived().turretTicks.turnPerTick,
+  maxSwingDeg: number = turret().maxSwingDeg,
 ): FireState {
   const pending = state.pending;
   if (!pending || pending.bearing === null || pending.bearing === undefined) return state;
@@ -108,19 +107,20 @@ export function turnTurret(
  * for free without this function knowing anything about the playground.
  *
  * Two things a caller does NOT have to pre-trim, because this does it: the basic-attack slot counts
- * only while `basicAttackEnabled` (default `BASIC_ATTACK_CONFIG.enabled`, the shipped flag), and
- * nothing at or past `WEAPON_SLOT_CONFIG.maxFireSlots` counts — a longer array (an un-truncated kit,
+ * only while `basicAttackEnabled` (default `slots().basicAttackEnabled`, the shipped flag), and
+ * nothing at or past `slots().maxFireSlots` counts — a longer array (an un-truncated kit,
  * say) simply has its tail ignored, the same way an unfireable slot never reaches a player. An
  * unrecognised id (empty string, a stale row) is skipped rather than thrown on: a malformed slot
  * must never crash a render.
  */
 export function carHasTurretWeapon(
   fireSlotWeaponIds: readonly string[],
-  basicAttackEnabled: boolean = BASIC_ATTACK_CONFIG.enabled,
+  basicAttackEnabled: boolean = slots().basicAttackEnabled,
 ): boolean {
-  const fireSlots = Math.min(fireSlotWeaponIds.length, WEAPON_SLOT_CONFIG.maxFireSlots);
+  const s = slots();
+  const fireSlots = Math.min(fireSlotWeaponIds.length, s.maxFireSlots);
   for (let index = 0; index < fireSlots; index++) {
-    if (index === WEAPON_SLOT_CONFIG.basicAttackSlotIndex && !basicAttackEnabled) continue;
+    if (index === s.basicAttackSlotIndex && !basicAttackEnabled) continue;
     const id = fireSlotWeaponIds[index];
     if (isWeaponId(id) && weaponDefOf(id).turret) return true;
   }

@@ -1,4 +1,4 @@
-import { DRIVE_CONFIG } from "../config/drive-config.js";
+import { drive } from "../modes/active.js";
 import type { Vec2 } from "./collide.js";
 
 /**
@@ -69,7 +69,7 @@ export function planesOf(vertices: readonly Vec2[]): BoundaryPlane[] {
 export function supportRadius(angle: number, nx: number, ny: number): number {
   const c = Math.cos(angle);
   const s = Math.sin(angle);
-  const { carWidth, carHeight } = DRIVE_CONFIG;
+  const { carWidth, carHeight } = drive();
   // (c, s) is the car's forward axis (length carWidth); (-s, c) is its lateral axis (carHeight).
   return Math.abs(nx * c + ny * s) * (carWidth / 2) + Math.abs(-nx * s + ny * c) * (carHeight / 2);
 }

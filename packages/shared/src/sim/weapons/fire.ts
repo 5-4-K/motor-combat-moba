@@ -1,9 +1,10 @@
 import { basicAttackOf, isCarId } from "../../config/car-config.js";
 import type { CarId } from "../../config/types.js";
-import { BASIC_ATTACK_CONFIG, weaponDefOf } from "../../config/weapon-config.js";
-import { WEAPON_SLOT_CONFIG, slotsFrom, slotsOf } from "../../config/weapon-slots.js";
+import { weaponDefOf } from "../../config/weapon-config.js";
+import { slotsFrom, slotsOf } from "../../config/weapon-slots.js";
 import { scaleTicks, weaponTicksOf } from "../../config/weapon-ticks.js";
 import type { WeaponId } from "../../config/weapon-types.js";
+import { slots } from "../../modes/active.js";
 import type { ShotOrder } from "./instances.js";
 import { clampBearingToSwing } from "./turret.js";
 
@@ -268,7 +269,7 @@ export function releaseShots(
  * came in, else the direction the turret already points (`carAngle + state.turretAngle`), so a press
  * with no aim input still commits to somewhere rather than to nothing. Either way the bearing is
  * clamped into the turret's swing arc about `carAngle` (spec TR55): out-of-arc aim fires along the
- * nearer arc edge. `maxSwingDeg` is a test seam defaulting to `TURRET_CONFIG.maxSwingDeg`; at 360
+ * nearer arc edge. `maxSwingDeg` is a test seam defaulting to `turret().maxSwingDeg`; at 360
  * the bearing is kept exactly as it came in.
  */
 export function beginFire(
@@ -288,12 +289,13 @@ export function beginFire(
   // when it was the LAST slot and an ascending scan reached an ability first. The consequence among
   // abilities is deliberate and recorded as VS13: the highest ability wins, so mashing every key
   // fires the largest cooldown rather than the smallest.
-  const usable = Math.min(state.slots.length, WEAPON_SLOT_CONFIG.maxFireSlots);
+  const s = slots();
+  const usable = Math.min(state.slots.length, s.maxFireSlots);
   for (let index = usable - 1; index >= 0; index--) {
     if ((mask & (1 << index)) === 0) continue;
     // The toggle: disabled means the press is dropped exactly like a slot that never had a bit set,
-    // not a slot that exists but always fails a later gate (BASIC_ATTACK_CONFIG).
-    if (index === WEAPON_SLOT_CONFIG.basicAttackSlotIndex && !BASIC_ATTACK_CONFIG.enabled) continue;
+    // not a slot that exists but always fails a later gate (`slots().basicAttackEnabled`).
+    if (index === s.basicAttackSlotIndex && !s.basicAttackEnabled) continue;
 
     const slot = state.slots[index]!;
     const def = weaponDefOf(slot.weaponId);

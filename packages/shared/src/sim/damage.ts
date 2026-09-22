@@ -1,8 +1,7 @@
-import { CAR_TABLE } from "../config/car-config.js";
-import { COMBAT_CONFIG } from "../config/combat-config.js";
 import { weaponDefOf } from "../config/weapon-config.js";
 import type { CarId } from "../config/types.js";
 import type { WeaponId } from "../config/weapon-types.js";
+import { cars, combat } from "../modes/active.js";
 
 /**
  * The only place hp is ever reduced. Every damage source — projectiles, anything a later balance
@@ -31,7 +30,8 @@ export function applyDamage(hp: number, amount: number): number {
  * out-of-range rating cannot produce a negative amount.
  */
 export function damageFor(attack: number, weaponDamage: number): number {
-  const scale = 1 + (attack - COMBAT_CONFIG.attackBaseline) * COMBAT_CONFIG.damagePerAttack;
+  const c = combat();
+  const scale = 1 + (attack - c.attackBaseline) * c.damagePerAttack;
   // `damagePerAttack` (0.01) is not exactly representable in IEEE-754, so the accumulated error can
   // push the product just under a .5 boundary at some ratings, rounding down where exact
   // percentage arithmetic rounds up. Normalising through a fixed-precision string before rounding
@@ -41,7 +41,7 @@ export function damageFor(attack: number, weaponDamage: number): number {
 
 /** `damageFor` with both lookups done: what this chassis deals with this weapon. */
 export function weaponDamageOf(carId: CarId, weaponId: WeaponId): number {
-  return damageFor(CAR_TABLE[carId].attack, weaponDefOf(weaponId).damage);
+  return damageFor(cars()[carId].attack, weaponDefOf(weaponId).damage);
 }
 
 /**

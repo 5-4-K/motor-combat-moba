@@ -1,7 +1,7 @@
 import { DEFAULT_CAR_ID, isCarId, ramDefenceOf } from "../config/car-config.js";
-import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import { PlayerStatus } from "../constants.js";
+import { drive } from "../modes/active.js";
 import type { CarObstacle, Obb } from "./collide.js";
 import { isPhasedAt, type StatusRow } from "./status/statuses.js";
 
@@ -146,5 +146,6 @@ export function otherCarHulls(
  * hit a box that driving would not have collided with.
  */
 export function carHullOf(x: number, y: number, angle: number): Obb {
-  return { x, y, angle, w: DRIVE_CONFIG.carWidth, h: DRIVE_CONFIG.carHeight };
+  const d = drive();
+  return { x, y, angle, w: d.carWidth, h: d.carHeight };
 }
