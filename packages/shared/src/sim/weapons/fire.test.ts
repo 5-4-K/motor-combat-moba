@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { basicAttackOf } from "../../config/car-config.js";
-import { DEFAULT_GAME_MODE } from "../../config/mode-config.js";
+import { DEFAULT_GAME_MODE } from "../../modes/registry.js";
 import { WEAPON_SLOT_CONFIG } from "../../config/weapon-slots.js";
 import type { WeaponId } from "../../config/weapon-types.js";
 import { installMode } from "../../modes/active.js";

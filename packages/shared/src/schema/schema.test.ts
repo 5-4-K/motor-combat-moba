@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
-import { DEFAULT_GAME_MODE } from "../config/mode-config.js";
+import { DEFAULT_GAME_MODE } from "../modes/registry.js";
 import { WeaponKind } from "../constants.js";
 import { ArenaState } from "./ArenaState.js";
 import { StatusState } from "./StatusState.js";

@@ -6,7 +6,7 @@ import { RAM_CONFIG } from "./ram-config.js";
 import { isStatusId } from "./status-config.js";
 import { TURRET_CONFIG } from "./turret-config.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
-import { DEFAULT_GAME_MODE } from "./mode-config.js";
+import { DEFAULT_GAME_MODE } from "../modes/registry.js";
 import { installMode } from "../modes/active.js";
 import { assembleModeConfig } from "../modes/build.js";
 import { LEGACY_TABLES } from "../modes/legacy.js";

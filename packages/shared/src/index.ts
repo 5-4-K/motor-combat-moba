@@ -174,7 +174,7 @@ export { carHullOf, carIdOf, isOnField, isSolid, otherCarHulls } from "./sim/con
 export type { ContextEntry, ContextPlayer } from "./sim/context.js";
 export { forwardOf, lateralOf, speedOf, toWorld } from "./sim/velocity.js";
 
-export type { CarDef, CarId, ColorDef, ModeDef } from "./config/types.js";
+export type { CarDef, CarId, ColorDef } from "./config/types.js";
 export {
   CAR_TABLE,
   DEFAULT_CAR_ID,
@@ -198,10 +198,14 @@ export type { ChassisDrive } from "./config/car-config.js";
 export {
   DEFAULT_GAME_MODE,
   MODE_TABLE,
+  activeArenaIds,
   activeGameModes,
   isActiveGameMode,
   isGameMode,
-} from "./config/mode-config.js";
+  modeConfigOf,
+  modeConfigOrDefault,
+} from "./modes/registry.js";
+export type { ModeDef } from "./modes/registry.js";
 export { COLOR_TABLE, isColorId } from "./config/color-config.js";
 export {
   BASIC_ATTACK_CONFIG,

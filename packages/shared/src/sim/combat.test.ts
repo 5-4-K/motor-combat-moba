@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ARENA_01 } from "../arena/arena-01.js";
 import { CAR_TABLE, hpOf, ramDefenceOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
-import { DEFAULT_GAME_MODE } from "../config/mode-config.js";
+import { DEFAULT_GAME_MODE } from "../modes/registry.js";
 import type { CarId } from "../config/types.js";
 import { WEAPON_TABLE, weaponDefOf } from "../config/weapon-config.js";
 import { SPIKE_CONFIG } from "../config/spike-config.js";

@@ -8,7 +8,7 @@ import { DEATHMATCH_CONFIG } from "../config/deathmatch-config.js";
 import { CAMERA_CONFIG, DRIVE_CONFIG } from "../config/drive-config.js";
 import { FLOW_CONFIG } from "../config/flow-config.js";
 import { IMPULSE_CONFIG } from "../config/impulse-config.js";
-import { DEFAULT_GAME_MODE } from "../config/mode-config.js";
+import { DEFAULT_GAME_MODE } from "./registry.js";
 import { RAM_CONFIG } from "../config/ram-config.js";
 import { SPIKE_CONFIG } from "../config/spike-config.js";
 import { STATUS_CONFIG, STATUS_LIMITS, STATUS_TABLE } from "../config/status-config.js";

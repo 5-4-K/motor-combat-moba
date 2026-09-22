@@ -1,4 +1,3 @@
-import type { GameMode } from "../constants.js";
 import type { WeaponId } from "./weapon-types.js";
 
 /**
@@ -95,15 +94,6 @@ export interface CarDef {
   isActive: boolean;
 }
 
-export interface ModeDef {
-  id: GameMode;
-  name: string;
-  /**
-   * Selectable in a real lobby. Playground, practice, and the balance harness ignore this — that is
-   * how an unpublished mode is tested before it appears to players.
-   */
-  isActive: boolean;
-}
 export interface ColorDef {
   colorId: number;
   name: string;

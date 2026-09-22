@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GameMode } from "../constants.js";
 import {
   DEFAULT_GAME_MODE,
@@ -6,9 +6,28 @@ import {
   activeGameModes,
   isActiveGameMode,
   isGameMode,
-} from "./mode-config.js";
+  modeConfigOf,
+  modeConfigOrDefault,
+} from "./registry.js";
 
 describe("MODE_TABLE", () => {
+  it("carries a bundle for every mode", () => {
+    for (const def of Object.values(MODE_TABLE)) {
+      expect(def.config.id).toBe(def.id);
+    }
+  });
+
+  it("hides an inactive mode from the picker but keeps its bundle reachable", () => {
+    expect(activeGameModes()).not.toContain(GameMode.TEAM);
+    expect(modeConfigOf(GameMode.TEAM)).toBeDefined();
+  });
+
+  it("gives each mode its own bundle object", () => {
+    expect(modeConfigOf(GameMode.FFA_LAST_STANDING)).not.toBe(
+      modeConfigOf(GameMode.FFA_DEATHMATCH),
+    );
+  });
+
   it("has exactly the three GameMode wire values", () => {
     expect(Object.keys(MODE_TABLE).sort()).toEqual(["0", "1", "2"]);
     expect(MODE_TABLE[GameMode.FFA_LAST_STANDING].name).toBe("Brawl");
@@ -43,5 +62,25 @@ describe("isActive", () => {
     expect(isActiveGameMode(3)).toBe(false);
     expect(isActiveGameMode("0")).toBe(false);
     expect(isActiveGameMode(undefined)).toBe(false);
+  });
+});
+
+describe("modeConfigOf", () => {
+  it("throws on an unknown mode", () => {
+    expect(() => modeConfigOf(99 as GameMode)).toThrow();
+  });
+});
+
+describe("modeConfigOrDefault", () => {
+  it("returns DEFAULT_GAME_MODE's bundle for an out-of-range wire byte, without throwing", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(modeConfigOrDefault(99)).toBe(MODE_TABLE[DEFAULT_GAME_MODE].config);
+    warn.mockRestore();
+  });
+
+  it("returns the matching bundle for a known wire value", () => {
+    expect(modeConfigOrDefault(GameMode.FFA_DEATHMATCH)).toBe(
+      MODE_TABLE[GameMode.FFA_DEATHMATCH].config,
+    );
   });
 });

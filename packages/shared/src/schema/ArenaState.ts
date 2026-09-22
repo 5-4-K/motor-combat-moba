@@ -1,7 +1,7 @@
 import { Schema, MapSchema, ArraySchema, type } from "@colyseus/schema";
 import { RoomPhase, GameMode } from "../constants.js";
 import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
-import { DEFAULT_GAME_MODE } from "../config/mode-config.js";
+import { DEFAULT_GAME_MODE } from "../modes/registry.js";
 import { PlayerState } from "./PlayerState.js";
 import { WeaponInstanceState } from "./WeaponInstanceState.js";
 import { ChatMessageState } from "./ChatMessageState.js";
