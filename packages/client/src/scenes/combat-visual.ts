@@ -3,6 +3,7 @@ import {
   CAR_TABLE,
   DEFAULT_PATCH_RATE_HZ,
   DEFAULT_CAR_ID,
+  DRIVE_CONFIG,
   beamShapeAt,
   hpOf,
   instanceDefOf,
@@ -96,6 +97,22 @@ export interface HpBarGeometry {
   /** Centre of the car to the near edge of the bar, measured backwards along the facing direction. */
   offset: number;
 }
+
+/**
+ * The shipped hp bar's own geometry, in the car's frame rather than the screen's.
+ *
+ * Here rather than in `ArenaScene` — where it was declared until the aim HUD needed it — because a
+ * second drawing now has to stay OUT of the bar's way: `aim-hud.ts` puts its tail arrow past
+ * `offset + thickness`, and that clearance has to be derived from this object rather than typed as
+ * a number that stops being true the next time the bar moves. A `.ts` module with no Phaser import
+ * is also the only shape a Node test can read it from.
+ */
+export const HP_BAR_GEOMETRY: HpBarGeometry = {
+  length: 55, // 44 -> 55 with the 2026-09-16 hull resize: the bar lies across the tail, which grew 32 -> 40.
+  thickness: 5,
+  // Clear of the car's own silhouette, which is `DRIVE_CONFIG.carWidth` long nose to tail.
+  offset: DRIVE_CONFIG.carWidth / 2 + 6,
+};
 
 /**
  * The four world-space corners of one hp bar, or of the filled part of one.

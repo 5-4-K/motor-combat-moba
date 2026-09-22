@@ -33,6 +33,7 @@ import {
   muzzleOf,
   RoomPhase,
   TICK_RATE_HZ,
+  TURRET_CONFIG,
   turretMountOf,
   turretPivotOf,
   WEAPON_SLOT_CONFIG,
@@ -113,6 +114,8 @@ import { axisOf, drainTicks } from "./arena-input.js";
 import { releaseKeyboardCaptures } from "./keyboard-captures.js";
 import { drawCrosshair } from "./crosshair.js";
 import { controlledCarOf, isPlaygroundRoom, isPracticeRoom, isSimPaused } from "./controlled-car.js";
+import { AIM_HUD_CONFIG } from "../config/aim-hud.js";
+import { aimHudSignature, drawAimHud, type AimHudSpec } from "./aim-hud.js";
 import { arenaBorderRect, arenaColorsOf, arenaDecoration, drawableObstacles } from "./arena-visual.js";
 import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
@@ -166,8 +169,8 @@ import {
   isProjectileWeapon,
   projectileDrawLayers,
   weaponFillOf,
+  HP_BAR_GEOMETRY,
   type Allegiance,
-  type HpBarGeometry,
 } from "./combat-visual.js";
 import {
   cycleSpectate,
@@ -294,6 +297,16 @@ const ARROW_DEPTH = 52;
  */
 const CAR_DEPTH = 0;
 /**
+ * The local player's aim HUD: the crosshair-reach ring, the turret's swing limits and the four
+ * muzzle arrows (`aim-hud.ts`). BELOW the cars, which is what the feature asks for — the HUD is a
+ * ruler laid on the floor and the chassis sits on top of it, not inside a cage — and above
+ * `GLOW_DEPTH` (-4) so a shell halo crossing your own car cannot wash the ring out.
+ *
+ * One `Graphics` for one car, never a per-car layer: nobody but the driver ever sees theirs, so the
+ * tie-breaking problem `CAR_SHADOW_DEPTH` documents cannot arise here.
+ */
+const AIM_HUD_DEPTH = -2;
+/**
  * The wild-charge outline and the thunderclap dash ghosts (`maneuver-visual.ts`). Above the cars —
  * a charging car's outline would be pointless drawn underneath its own sprite — and below every HUD
  * and marker layer, since both are cosmetic reads of `PlayerState.maneuver` and neither should ever
@@ -318,13 +331,6 @@ const SHOT_DEPTH = -5;
 /** The floor everything else is drawn on. */
 const ARENA_DEPTH = -10;
 
-/** The bar lies across the car's tail, so these are in the car's frame, not the screen's. */
-const HP_BAR_GEOMETRY: HpBarGeometry = {
-  length: 55, // 44 -> 55 with the 2026-09-16 hull resize: the bar lies across the tail, which grew 32 -> 40.
-  thickness: 5,
-  // Clear of the car's own silhouette, which is `DRIVE_CONFIG.carWidth` long nose to tail.
-  offset: DRIVE_CONFIG.carWidth / 2 + 6,
-};
 const HP_BAR_BACK = 0x22252b;
 
 
@@ -820,6 +826,10 @@ export class ArenaScene extends Phaser.Scene {
   private glowGfx: Phaser.GameObjects.Graphics | undefined;
   private hpGfx: Phaser.GameObjects.Graphics | undefined;
   private arrowGfx: Phaser.GameObjects.Graphics | undefined;
+  /** The driven car's aim HUD, drawn once in the car's frame and then MOVED — see `syncAimHud`. */
+  private aimHudGfx: Phaser.GameObjects.Graphics | undefined;
+  /** `aimHudSignature` of the picture currently in `aimHudGfx`; `""` while it holds nothing. */
+  private aimHudKey = "";
   /** The wild-charge outline and the thunderclap dash ghosts, cleared and redrawn every frame. */
   private maneuverGfx: Phaser.GameObjects.Graphics | undefined;
   /**
@@ -1125,6 +1135,10 @@ export class ArenaScene extends Phaser.Scene {
       .setBlendMode(Phaser.BlendModes.ADD);
     this.hpGfx = this.add.graphics().setDepth(HP_BAR_DEPTH);
     this.arrowGfx = this.add.graphics().setDepth(ARROW_DEPTH);
+    // Starts hidden and stays hidden until there is a car of yours to sit under: the first frames of
+    // a room have no pose, and an empty ring at the world origin is worse than no ring.
+    this.aimHudGfx = this.add.graphics().setDepth(AIM_HUD_DEPTH).setVisible(false);
+    this.aimHudKey = "";
     this.maneuverGfx = this.add.graphics().setDepth(MANEUVER_DEPTH);
     // Made, not added: nothing draws `hudGfx` but `bakeHud`. Scaled and shifted so the gutter's
     // left edge lands on the bake texture's, at `HUD_BAKE_SCALE` texels per pixel.
@@ -1556,6 +1570,8 @@ export class ArenaScene extends Phaser.Scene {
       // World space at `ARROW_DEPTH`, drawn over the local car during the countdown, so the world
       // camera keeps it and the HUD camera must not draw it a second time over the gutter.
       ...(this.arrowGfx ? [this.arrowGfx] : []),
+      // World space at `AIM_HUD_DEPTH`, under the local car — same reason as `arrowGfx` above.
+      ...(this.aimHudGfx ? [this.aimHudGfx] : []),
       // World space at `MANEUVER_DEPTH`, drawn over the cars — the same reason `arrowGfx` is here.
       ...(this.maneuverGfx ? [this.maneuverGfx] : []),
       // Every FX object in one spread, because this list is the only thing standing between an
@@ -1670,6 +1686,9 @@ export class ArenaScene extends Phaser.Scene {
     this.hpGfx = undefined;
     this.arrowGfx?.destroy();
     this.arrowGfx = undefined;
+    this.aimHudGfx?.destroy();
+    this.aimHudGfx = undefined;
+    this.aimHudKey = "";
     this.maneuverGfx?.destroy();
     this.maneuverGfx = undefined;
     for (const sessionId of [...this.carShadows.keys()]) this.dropCarShadow(sessionId);
@@ -2432,6 +2451,7 @@ export class ArenaScene extends Phaser.Scene {
     // The same render pose the spark pass above tested against — predicted and blended for the local
     // car — so the marker sits on the car that is on screen instead of trailing it by a tick.
     if (arrow && selfPose) this.drawSelfArrow(arrow, room, selfPose);
+    this.syncAimHud(room, selfPose);
 
     for (const [sessionId, gfx] of this.cars) {
       if (seen.has(sessionId)) continue;
@@ -2944,6 +2964,51 @@ export class ArenaScene extends Phaser.Scene {
    * is nothing to cancel when either window closes — the next frame simply does not reach the fill
    * and the arrow is gone, with no fade (D4).
    */
+  /**
+   * The aim HUD under the driven car: the crosshair-reach ring, the turret's swing limits and the
+   * four muzzle arrows (`aim-hud.ts`). Yours only — no other client is told what your HUD shows.
+   *
+   * **Drawn once, then moved.** The whole HUD lives in the car's own frame, so the `Graphics` holds
+   * the picture at the origin and this sets its position and rotation to the render pose. Phaser
+   * re-tessellates a `Graphics` on any frame its commands are rebuilt, and the ring alone is two
+   * dozen arcs — so the fill runs only when `aimHudSignature` moves, which in a shipped room is
+   * once. That is `hud-bake.ts`'s rule reached by the cheaper route: nothing needs baking if
+   * nothing is redrawn.
+   *
+   * It follows the same render pose `drawSelfArrow` takes — predicted and blended for the local car
+   * — so the ring sits ON the car that is on screen rather than trailing it by a tick.
+   *
+   * Drawn in every room kind (arena, practice, playground alike): the resolver this reads its ring
+   * radius from is what already differs per room (EV34's rule), so no room-kind branch is needed or
+   * wanted here.
+   */
+  private syncAimHud(room: Room<ArenaState>, pose: SimBody | undefined): void {
+    const gfx = this.aimHudGfx;
+    if (!gfx) return;
+    const local = room.state.players.get(this.drivenSid(room));
+    // Off, spectating, dead, or between rooms: the HUD is simply not shown. Cleared by hiding rather
+    // than by an empty fill, so the picture survives for the frame the car comes back.
+    if (!AIM_HUD_CONFIG.enabled || !pose || !local || local.status !== PlayerStatus.IN_MATCH || !local.alive) {
+      gfx.setVisible(false);
+      return;
+    }
+    const spec: AimHudSpec = {
+      // The playground's own crosshair reach where one is set, the shipped value everywhere else —
+      // the ring means "this is as far as your crosshair goes", so it has to be the SAME number.
+      ringRadius: this.resolveTurretView().crosshairMaxDistance,
+      // Read live: `setTuning` writes `TURRET_CONFIG` in place, so a Turret-panel edit to the arc
+      // moves the lines on the next frame through the signature below.
+      maxSwingDeg: TURRET_CONFIG.maxSwingDeg,
+      pivot: turretMountOf(carIdOf(local)),
+    };
+    const key = aimHudSignature(spec);
+    if (key !== this.aimHudKey) {
+      drawAimHud(gfx, spec);
+      this.aimHudKey = key;
+    }
+    gfx.setPosition(pose.x, pose.y).setRotation(pose.angle).setVisible(true);
+  }
+
   private drawSelfArrow(
     gfx: Phaser.GameObjects.Graphics,
     room: Room<ArenaState>,
