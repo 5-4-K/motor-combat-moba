@@ -103,6 +103,9 @@ export class HumanController implements BotController {
   private willEvadeCar = false;
   private humanize: HumanizeState = newHumanizeState();
   private personality: BotPersonality | undefined;
+  /** The mode's bot bundle (MC29) — kept so `decide` can thread its `profiles` into `rollPersonality`
+   * without re-reading the `BOT_PROFILES` module global. */
+  private readonly botConfig: BotModeConfig;
 
   constructor(
     profileId: BotDifficulty,
@@ -119,8 +122,8 @@ export class HumanController implements BotController {
     } = {},
   ) {
     this.profileId = profileId;
-    const botConfig = options.botConfig ?? botConfigOf(DEFAULT_GAME_MODE);
-    this.profile = options.profile ?? botConfig.profiles[profileId];
+    this.botConfig = options.botConfig ?? botConfigOf(DEFAULT_GAME_MODE);
+    this.profile = options.profile ?? this.botConfig.profiles[profileId];
     this.effectiveProfile = this.profile;
     this.fixedTarget = options.targetSessionId;
   }
@@ -139,7 +142,7 @@ export class HumanController implements BotController {
 
   decide(view: BotView): BotIntent {
     if (!this.personality) {
-      const rolled = rollPersonality(view.rng, this.profileId, this.profile);
+      const rolled = rollPersonality(view.rng, this.profileId, this.profile, this.botConfig.profiles);
       this.personality = rolled.personality;
       this.effectiveProfile = rolled.profile;
       this.slotWeights = rolled.personality.slotWeights;

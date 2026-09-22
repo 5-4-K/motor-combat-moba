@@ -1,5 +1,6 @@
-import { slots, type BotDifficulty } from "@motor-combat-moba/shared";
-import { BOT_PROFILES, BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
+import { DEFAULT_GAME_MODE, slots, type BotDifficulty } from "@motor-combat-moba/shared";
+import { BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
+import { botConfigOf } from "../../config/mode-bot.js";
 import type { Rng } from "../rng.js";
 import type { BotPersonality, PersonalityId } from "../types.js";
 
@@ -115,13 +116,20 @@ const EASIER: Readonly<Record<BotDifficulty, BotDifficulty | undefined>> = Objec
  * controller constructed with a custom `options.profile` (a test override, or a future dev-tools
  * knob) passes its own profile here so a personality shift never clobbers a field the caller
  * deliberately set. The competence BAND a shifted field is clamped into is always the tier's own —
- * `clampToBand` reads `BOT_PROFILES[tier]`, never `startFrom` — so the override is preserved exactly
+ * `clampToBand` reads `profiles[tier]`, never `startFrom` — so the override is preserved exactly
  * on every field the archetype does not touch, and the tier's guarantees hold on every field it does.
+ *
+ * `profiles` is the mode's own profile table (MC29) — threaded from the caller's `BotModeConfig`
+ * rather than read off the `BOT_PROFILES` module global, the same seam `HumanController` and
+ * `botRingCapacity` were threaded through. Optional, defaulting to `botConfigOf(DEFAULT_GAME_MODE)`'s
+ * table for the callers (mainly tests) that have no mode of their own; every mode seeds an identical
+ * table today, so the default is not a behaviour choice.
  */
 export function rollPersonality(
   rng: Rng,
   tier: BotDifficulty,
-  startFrom: BotProfile = BOT_PROFILES[tier],
+  startFrom?: BotProfile,
+  profiles: Readonly<Record<BotDifficulty, BotProfile>> = botConfigOf(DEFAULT_GAME_MODE).profiles,
 ): { personality: BotPersonality; profile: BotProfile } {
   const pick = rng();
   const weights: number[] = [];
@@ -133,13 +141,13 @@ export function rollPersonality(
 
   const id = IDS[Math.min(Math.floor(pick * IDS.length), IDS.length - 1)]!;
   const shifts = ARCHETYPES[id];
-  const tierBase = BOT_PROFILES[tier];
+  const tierBase = profiles[tier];
   const easier = EASIER[tier];
 
-  const profile = { ...startFrom } as Record<keyof BotProfile, number>;
+  const profile = { ...(startFrom ?? tierBase) } as Record<keyof BotProfile, number>;
   for (const [key, factor] of Object.entries(shifts) as [keyof BotProfile, number][]) {
     profile[key] = clampToBand(
-      tierBase[key], tierBase[key] * factor, easier ? BOT_PROFILES[easier][key] : undefined,
+      tierBase[key], tierBase[key] * factor, easier ? profiles[easier][key] : undefined,
       UNIT_INTERVAL_FIELDS.has(key),
     );
   }
