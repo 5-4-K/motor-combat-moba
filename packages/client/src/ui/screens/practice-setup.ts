@@ -1,5 +1,5 @@
 import {
-  CAR_TABLE,
+  cars,
   activeCarIds,
   type BotDifficulty,
   type PracticeOpponent,
@@ -21,7 +21,7 @@ export interface SelectOption {
 
 /** Active chassis only (PR15) — a car hidden from car select must not appear here either. */
 export function carOptions(): SelectOption[] {
-  return activeCarIds().map((id) => ({ value: id, label: CAR_TABLE[id].name }));
+  return activeCarIds().map((id) => ({ value: id, label: cars()[id].name }));
 }
 
 /** The opponent list: "Random" first, then the same active chassis (PR21). The server resolves it. */

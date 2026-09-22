@@ -1,6 +1,6 @@
 import {
-  CAR_TABLE,
-  DRIVE_CONFIG,
+  cars,
+  drive,
   GameMode,
   activeCarIds,
   dragRateOf,
@@ -79,7 +79,7 @@ function trim(n: number): string {
 }
 
 export function fullStatsFor(id: CarId): StatRow[] {
-  const def = CAR_TABLE[id];
+  const def = cars()[id];
   return [
     { label: "Top speed", value: `${trim(forwardMaxSpeedOf(id))} u/s` },
     // CHANGED by the Unity drive-model port (car-physics-port stage 1 Task 3): there is no
@@ -101,7 +101,7 @@ export function fullStatsFor(id: CarId): StatRow[] {
     // straight across the three cards.
     { label: "Ram power", value: String(ramAttackOf(id)) },
     { label: "Ram resistance", value: String(ramDefenceOf(id)) },
-    { label: "Hull size", value: `${DRIVE_CONFIG.carWidth} x ${DRIVE_CONFIG.carHeight}` },
+    { label: "Hull size", value: `${drive().carWidth} x ${drive().carHeight}` },
     // One row per equipped weapon, derived through the same `weaponDamageOf` the sim fires with.
     // The chassis `attack` rating is invisible on its own — this is where it becomes a number the
     // player can compare between cards.
@@ -131,12 +131,12 @@ export function carSelectView(
     urgent: remaining <= URGENT_SECONDS,
     cars: activeCarIds().map((id) => ({
       id,
-      name: CAR_TABLE[id].name,
+      name: cars()[id].name,
       selected: id === selectedId,
       image: `url("art/cars/${id}.png")`,
-      bars: CAR_BARS.map((key) => ({ key, percent: CAR_TABLE[id][key] })),
+      bars: CAR_BARS.map((key) => ({ key, percent: cars()[id][key] })),
     })),
-    selectedName: CAR_TABLE[selectedId].name,
+    selectedName: cars()[selectedId].name,
     stats: fullStatsFor(selectedId),
     canLockIn: !locked,
     lockLabel: locked ? "Locked in" : "Lock in",

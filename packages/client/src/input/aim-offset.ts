@@ -1,11 +1,11 @@
-import { TURRET_CONFIG, clampToSwing, wrapAngle } from "@motor-combat-moba/shared";
+import { turret, clampToSwing, wrapAngle } from "@motor-combat-moba/shared";
 import { CROSSHAIR_CONFIG } from "../config/crosshair.js";
 
 /**
  * The crosshair as a WORLD-SPACE offset from the driven car's centre (spec TR56). It rides with the
  * car, keeps its world direction when the car turns, and is held to two limits: a length of at most
  * `CROSSHAIR_CONFIG.maxDistance`, and a direction inside the turret's swing arc about the car's
- * current heading (`TURRET_CONFIG.maxSwingDeg`, TR55 — no angular limit at 360). Both are read at
+ * current heading (`turret().maxSwingDeg`, TR55 — no angular limit at 360). Both are read at
  * call time, as defaults, so a live retune reaches the next frame.
  */
 export interface AimOffset {
@@ -27,7 +27,7 @@ export function clampAimOffset(
   offset: AimOffset,
   carAngle: number,
   maxDistance: number = CROSSHAIR_CONFIG.maxDistance,
-  maxSwingDeg: number = TURRET_CONFIG.maxSwingDeg,
+  maxSwingDeg: number = turret().maxSwingDeg,
 ): AimOffset {
   const length = Math.hypot(offset.x, offset.y);
   if (length === 0) return offset;
@@ -48,7 +48,7 @@ export function moveAimOffset(
   dy: number,
   carAngle: number,
   maxDistance: number = CROSSHAIR_CONFIG.maxDistance,
-  maxSwingDeg: number = TURRET_CONFIG.maxSwingDeg,
+  maxSwingDeg: number = turret().maxSwingDeg,
 ): AimOffset {
   return clampAimOffset({ x: offset.x + dx, y: offset.y + dy }, carAngle, maxDistance, maxSwingDeg);
 }

@@ -1,6 +1,6 @@
 import {
   COLOR_TABLE,
-  DEATHMATCH_CONFIG,
+  deathmatch,
   DEFAULT_GAME_MODE,
   GameMode,
   MAX_PLAYERS,
@@ -110,37 +110,44 @@ export function modeLabel(mode: GameMode): string {
 /**
  * The host's Game modes catalog. Copy stays here (it is render-only); the id list is `activeGameModes`
  * so flipping `MODE_TABLE.isActive` drops a card without a second edit.
+ *
+ * A FUNCTION, not a module-level constant: the deathmatch card's copy quotes
+ * `deathmatch().respawnDelaySeconds`/`.matchSeconds`, and a `const` built at import time would
+ * freeze those numbers at whichever mode happened to be installed first rather than reading the
+ * active mode's bundle on every render.
  */
-const MODE_CARDS = [
-  {
-    id: GameMode.FFA_LAST_STANDING,
-    kicker: "Free-for-all",
-    body: "Everyone fights everyone. Last car driving takes the round.",
-    metaA: "2-6 players",
-    metaB: "Last one standing",
-  },
-  {
-    id: GameMode.TEAM,
-    kicker: "Team",
-    body: "Two teams, shared victory. Last team with a car standing wins.",
-    metaA: "2v2 – 3v3",
-    metaB: "Last team standing",
-  },
-  {
-    id: GameMode.FFA_DEATHMATCH,
-    kicker: "Free-for-all",
-    // Kept close in length to the two cards beside it: all three sit in one grid row, so the longest
-    // body sets the height of the row and this one is the only card that can make it tall. The
-    // respawn delay is read rather than spelled out, so retuning `respawnDelaySeconds` cannot leave
-    // the host reading a number the room no longer plays by.
-    body: `Everyone fights everyone. Dying costs ${DEATHMATCH_CONFIG.respawnDelaySeconds} seconds, not the round. Most kills on the clock wins.`,
-    metaA: "2-6 players",
-    metaB: `${DEATHMATCH_CONFIG.matchSeconds / 60} minutes`,
-  },
-] as const;
+function modeCardsData() {
+  return [
+    {
+      id: GameMode.FFA_LAST_STANDING,
+      kicker: "Free-for-all",
+      body: "Everyone fights everyone. Last car driving takes the round.",
+      metaA: "2-6 players",
+      metaB: "Last one standing",
+    },
+    {
+      id: GameMode.TEAM,
+      kicker: "Team",
+      body: "Two teams, shared victory. Last team with a car standing wins.",
+      metaA: "2v2 – 3v3",
+      metaB: "Last team standing",
+    },
+    {
+      id: GameMode.FFA_DEATHMATCH,
+      kicker: "Free-for-all",
+      // Kept close in length to the two cards beside it: all three sit in one grid row, so the longest
+      // body sets the height of the row and this one is the only card that can make it tall. The
+      // respawn delay is read rather than spelled out, so retuning `respawnDelaySeconds` cannot leave
+      // the host reading a number the room no longer plays by.
+      body: `Everyone fights everyone. Dying costs ${deathmatch().respawnDelaySeconds} seconds, not the round. Most kills on the clock wins.`,
+      metaA: "2-6 players",
+      metaB: `${deathmatch().matchSeconds / 60} minutes`,
+    },
+  ] as const;
+}
 
-export function modeCards(): Array<(typeof MODE_CARDS)[number] & { name: string }> {
-  return MODE_CARDS.filter((card) => isActiveGameMode(card.id)).map((card) => ({
+export function modeCards(): Array<ReturnType<typeof modeCardsData>[number] & { name: string }> {
+  return modeCardsData().filter((card) => isActiveGameMode(card.id)).map((card) => ({
     ...card,
     name: MODE_TABLE[card.id].name,
   }));
