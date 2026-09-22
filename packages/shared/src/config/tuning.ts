@@ -9,7 +9,7 @@ import { WEAPON_TABLE } from "./weapon-config.js";
 import { DEFAULT_GAME_MODE } from "../modes/registry.js";
 import { installMode } from "../modes/active.js";
 import { assembleModeConfig } from "../modes/build.js";
-import { LEGACY_TABLES } from "../modes/legacy.js";
+import { BRAWL_TABLES } from "../modes/brawl/index.js";
 import type { ModeTables } from "../modes/types.js";
 
 export type TuningValue = number | boolean | string;
@@ -36,9 +36,10 @@ export type TuningOverrides = Readonly<Record<string, TuningValue>>;
  * afterward no longer reaches it, no matter how many rebuild functions run.
  *
  * The fix matches how the accessors actually read config now: `setTuning` builds a **fresh
- * `ModeConfig` bundle** from `LEGACY_TABLES` with the overrides written into a clone of it, and
- * `installMode`s that bundle — process-wide, exactly as before (this dev tool was never per-room).
- * `setTuning(null)` installs a bundle assembled straight from the untouched `LEGACY_TABLES`. Neither
+ * `ModeConfig` bundle** from `BRAWL_TABLES` (`DEFAULT_GAME_MODE`'s own tables) with the overrides
+ * written into a clone of it, and `installMode`s that bundle — process-wide, exactly as before
+ * (this dev tool was never per-room). `setTuning(null)` installs a bundle assembled straight from
+ * the untouched `BRAWL_TABLES`. Neither
  * path ever mutates `CAR_TABLE`/`DRIVE_CONFIG`/`WEAPON_TABLE`/`RAM_CONFIG`/`COMBAT_CONFIG`/
  * `IMPULSE_CONFIG`/`TURRET_CONFIG` — those seven stay the pristine shipped values forever, which is
  * also what keeps `DEFAULTS` below (validated against once, at module load) permanently accurate.
@@ -68,7 +69,7 @@ function deepFreeze<T>(value: T): T {
  * A validation-only snapshot of the seven balance-table shapes, taken once at module load. Nothing
  * ever mutates `ROOTS`'s own tables any more (see the note above), so this stays accurate forever —
  * it no longer needs to double as "the shipped values `setTuning(null)` restores", because
- * `setTuning(null)` now re-assembles a bundle from `LEGACY_TABLES` instead of restoring into a live
+ * `setTuning(null)` now re-assembles a bundle from `BRAWL_TABLES` instead of restoring into a live
  * object.
  */
 const DEFAULTS: Readonly<Record<string, unknown>> = Object.freeze(
@@ -137,15 +138,15 @@ export function setTuning(overrides: TuningOverrides | null): void {
   }
 
   if (!overrides) {
-    installMode(assembleModeConfig(DEFAULT_GAME_MODE, LEGACY_TABLES));
+    installMode(assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES));
     active = null;
     return;
   }
 
-  // A fresh clone every call — never `LEGACY_TABLES` itself, and never a bundle from a previous
+  // A fresh clone every call — never `BRAWL_TABLES` itself, and never a bundle from a previous
   // `setTuning` call — so overrides replace rather than accumulate, the same promise the old
   // restore-then-apply dance kept.
-  const tables = structuredClone(LEGACY_TABLES) as ModeTables;
+  const tables = structuredClone(BRAWL_TABLES) as ModeTables;
   const tuningRoots: Readonly<Record<string, unknown>> = {
     car: tables.cars,
     weapon: tables.weapons,

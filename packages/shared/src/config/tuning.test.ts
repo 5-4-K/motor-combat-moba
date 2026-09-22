@@ -21,7 +21,7 @@ afterEach(() => setTuning(null));
 
 describe("tuning store", () => {
   // `setTuning` was rewritten for fix round 1 on the accessor-layer migration (MC14): it no longer
-  // mutates the seven balance tables in place — it clones `LEGACY_TABLES`, writes the overrides into
+  // mutates the seven balance tables in place — it clones `BRAWL_TABLES`, writes the overrides into
   // the clone, assembles a fresh `ModeConfig` bundle from it, and installs that bundle. Two
   // consequences run through every test below:
   //

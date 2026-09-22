@@ -5,7 +5,7 @@ import { WEAPON_SLOT_CONFIG } from "../../config/weapon-slots.js";
 import type { WeaponId } from "../../config/weapon-types.js";
 import { installMode } from "../../modes/active.js";
 import { assembleModeConfig } from "../../modes/build.js";
-import { LEGACY_TABLES } from "../../modes/legacy.js";
+import { BRAWL_TABLES } from "../../modes/brawl/index.js";
 import { beginFire, cancelPending, newFireState, releaseShots, tickRecharge, type FireState } from "./fire.js";
 import type { ShotOrder } from "./instances.js";
 import { turnTurret } from "./turret.js";
@@ -27,7 +27,7 @@ const ABILITY_1 = 0b010;
 
 /**
  * Pins `slots().basicAttackEnabled` ON for the enclosing `describe`, restoring the ordinary
- * `LEGACY_TABLES` bundle afterwards — the same idiom `installBasicAttackEnabled` below uses for the
+ * `BRAWL_TABLES` bundle afterwards — the same idiom `installBasicAttackEnabled` below uses for the
  * toggle block itself, since `beginFire` reads the flag off the installed mode bundle (MC13), not
  * off `BASIC_ATTACK_CONFIG.enabled` directly: the bundle is assembled and frozen once, so mutating
  * that raw global no longer reaches it, and a `beforeEach` that only flipped the global would be
@@ -43,13 +43,13 @@ function pinBasicAttackEnabled(): void {
   beforeEach(() => {
     installMode(
       assembleModeConfig(DEFAULT_GAME_MODE, {
-        ...LEGACY_TABLES,
-        slots: { ...LEGACY_TABLES.slots, basicAttackEnabled: true },
+        ...BRAWL_TABLES,
+        slots: { ...BRAWL_TABLES.slots, basicAttackEnabled: true },
       }),
     );
   });
   afterEach(() => {
-    installMode(assembleModeConfig(DEFAULT_GAME_MODE, LEGACY_TABLES));
+    installMode(assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES));
   });
 }
 
@@ -582,17 +582,17 @@ describe("the basic-attack toggle (slots().basicAttackEnabled)", () => {
   // `BASIC_ATTACK_CONFIG.enabled` directly (MC13) — the bundle is assembled and frozen once, so
   // mutating the raw global no longer reaches it. Exercising both positions here means installing a
   // fresh bundle with the flag set the way each test wants, and restoring the ordinary
-  // `LEGACY_TABLES` bundle (what `vitest.setup.ts` installs for every test in this file) afterward.
+  // `BRAWL_TABLES` bundle (what `vitest.setup.ts` installs for every test in this file) afterward.
   function installBasicAttackEnabled(enabled: boolean): void {
     installMode(
       assembleModeConfig(DEFAULT_GAME_MODE, {
-        ...LEGACY_TABLES,
-        slots: { ...LEGACY_TABLES.slots, basicAttackEnabled: enabled },
+        ...BRAWL_TABLES,
+        slots: { ...BRAWL_TABLES.slots, basicAttackEnabled: enabled },
       }),
     );
   }
   afterEach(() => {
-    installMode(assembleModeConfig(DEFAULT_GAME_MODE, LEGACY_TABLES));
+    installMode(assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES));
   });
 
   it("drops a basic-attack-only press when disabled — the key does nothing", () => {

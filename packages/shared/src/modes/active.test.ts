@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { GameMode } from "../constants.js";
 import { assembleModeConfig } from "./build.js";
-import { LEGACY_TABLES } from "./legacy.js";
+import { BRAWL_TABLES } from "./brawl/index.js";
 import { cfg, drive, installMode, withMode } from "./active.js";
 
-const A = assembleModeConfig(GameMode.FFA_LAST_STANDING, LEGACY_TABLES);
+const A = assembleModeConfig(GameMode.FFA_LAST_STANDING, BRAWL_TABLES);
 const B = assembleModeConfig(GameMode.FFA_DEATHMATCH, {
-  ...LEGACY_TABLES,
-  drive: { ...LEGACY_TABLES.drive, baseMaxSpeed: 999 },
+  ...BRAWL_TABLES,
+  drive: { ...BRAWL_TABLES.drive, baseMaxSpeed: 999 },
 });
 
 afterEach(() => installMode(A));

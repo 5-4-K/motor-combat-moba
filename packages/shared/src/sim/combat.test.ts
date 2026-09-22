@@ -10,7 +10,7 @@ import { TURRET_CONFIG, TURRET_TICKS } from "../config/turret-config.js";
 import { MS_PER_TICK, TICK_RATE_HZ } from "../constants.js";
 import { installMode } from "../modes/active.js";
 import { assembleModeConfig } from "../modes/build.js";
-import { LEGACY_TABLES } from "../modes/legacy.js";
+import { BRAWL_TABLES } from "../modes/brawl/index.js";
 import {
   clearManeuver,
   dealDamageTo,
@@ -630,7 +630,7 @@ describe("dealDamageTo", () => {
 
 /**
  * Pins `slots().basicAttackEnabled` ON for the enclosing `describe`, restoring the ordinary
- * `LEGACY_TABLES` bundle afterwards — mirrors `weapons/fire.test.ts`'s helper of the same name and
+ * `BRAWL_TABLES` bundle afterwards — mirrors `weapons/fire.test.ts`'s helper of the same name and
  * the same reason: `beginFire` reads the flag off the installed mode bundle (MC13), not off
  * `BASIC_ATTACK_CONFIG.enabled` directly, so a `beforeEach` that only flipped the raw global would
  * be inert here whenever the shipped bundle's `basicAttackEnabled` disagreed with it.
@@ -646,13 +646,13 @@ function pinBasicAttackEnabled(): void {
   beforeEach(() => {
     installMode(
       assembleModeConfig(DEFAULT_GAME_MODE, {
-        ...LEGACY_TABLES,
-        slots: { ...LEGACY_TABLES.slots, basicAttackEnabled: true },
+        ...BRAWL_TABLES,
+        slots: { ...BRAWL_TABLES.slots, basicAttackEnabled: true },
       }),
     );
   });
   afterEach(() => {
-    installMode(assembleModeConfig(DEFAULT_GAME_MODE, LEGACY_TABLES));
+    installMode(assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES));
   });
 }
 

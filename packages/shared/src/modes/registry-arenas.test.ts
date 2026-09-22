@@ -36,11 +36,11 @@ vi.mock("./build.js", () => ({
 
 describe("activeArenaIds", () => {
   it("unions each ACTIVE mode's arenas", async () => {
-    // `vitest.setup.ts` side-effect-imports `./legacy.js`, which imports `./registry.js` (and so
-    // `./build.js`) before this file's hoisted `vi.mock` above takes effect, so `MODE_TABLE` would
-    // otherwise already be built from the REAL, un-mocked `assembleModeConfig` by the time this
-    // test runs. `vi.resetModules()` clears that cache so the dynamic `import` below re-executes
-    // `registry.js` fresh, against the mock that is now live.
+    // `vitest.setup.ts` side-effect-imports `./registry.js` directly (and so `./build.js`) before
+    // this file's hoisted `vi.mock` above takes effect, so `MODE_TABLE` would otherwise already be
+    // built from the REAL, un-mocked `assembleModeConfig` by the time this test runs.
+    // `vi.resetModules()` clears that cache so the dynamic `import` below re-executes `registry.js`
+    // fresh, against the mock that is now live.
     vi.resetModules();
     const { activeArenaIds } = await import("./registry.js");
     // Brawl (active): arena-01, arena-02. Deathmatch (active): arena-00, arena-01.

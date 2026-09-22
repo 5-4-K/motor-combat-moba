@@ -12,9 +12,9 @@ export {
 } from "./constants.js";
 export type { DeployMode } from "./constants.js";
 
-// SCAFFOLDING (phases 1-2): boots the legacy mode bundle so `cfg()` has something installed.
-// Removed in phase 3, when cfg() starts throwing. See modes/legacy.ts.
-import "./modes/legacy.js";
+// SCAFFOLDING (phases 1-2): boots the default mode bundle so `cfg()` has something installed.
+// Removed in phase 3, when cfg() starts throwing. See modes/registry.ts.
+import "./modes/registry.js";
 
 // The per-mode config scope (MC9-MC13). Server and client need `withMode`/`assembleModeConfig` to
 // scope a bundle of their own — a test bundle, or eventually a real non-default mode — rather than

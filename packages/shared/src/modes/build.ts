@@ -29,8 +29,8 @@ function deepFreeze<T>(value: T): T {
  * same tables object passed twice) never share a sub-object — mutating one bundle, were mutation
  * ever possible, could never reach another. Every resolver below reads the CLONE, never the
  * module-global tables its own file falls back to by default, which is what lets two different
- * `ModeTables` — today just `LEGACY_TABLES`, twice, at two different `GameMode` ids — produce two
- * independently-derived bundles.
+ * `ModeTables` — today `BRAWL_TABLES`, passed to two different `GameMode` ids (`FFA_LAST_STANDING`
+ * and the unpublished `TEAM`) — produce two independently-derived bundles.
  */
 export function assembleModeConfig(id: GameMode, tables: ModeTables): ModeConfig {
   const cloned = structuredClone(tables) as ModeTables;
