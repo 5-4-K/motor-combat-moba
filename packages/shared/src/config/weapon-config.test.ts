@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { CAR_TABLE, forwardMaxSpeedOf, ramAttackOf, ramDefenceOf } from "./car-config.js";
 import { COLOR_TABLE } from "./color-config.js";
 import type { CarId } from "./types.js";
@@ -10,6 +12,8 @@ import type { ImpulseDef, WeaponDef, WeaponId } from "./weapon-types.js";
 import { STATUS_CONFIG, isStatusId } from "./status-config.js";
 import { RAM_CONFIG } from "./ram-config.js";
 import { setTuning } from "./tuning.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 /**
  * The nine rows that are one weapon wearing nine ids: a plain bolt, authored once as

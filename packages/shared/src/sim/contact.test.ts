@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { SPIKE_CONFIG } from "../config/spike-config.js";
 import type { CarId } from "../config/types.js";
@@ -7,6 +9,8 @@ import { carHullOf } from "./context.js";
 import { pairKey } from "./ram.js";
 import { ManeuverKind } from "./maneuver.js";
 import { hullTouchesWorld, resolveContacts, type ContactCar } from "./contact.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 function car(over: Partial<ContactCar> = {}): ContactCar {
   return {

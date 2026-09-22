@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../../modes/registry.js";
 import { TURRET_TICKS } from "../../config/turret-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import { beginFire, newFireState, releaseShots, tickRecharge, type FireState } from "./fire.js";
@@ -10,6 +12,8 @@ import {
   turretPivotOf,
   wrapAngle,
 } from "./turret.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 describe("wrapAngle", () => {
   it("maps into (-pi, pi]", () => {

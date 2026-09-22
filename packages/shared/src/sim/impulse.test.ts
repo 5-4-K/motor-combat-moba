@@ -1,8 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { RAM_CONFIG } from "../config/ram-config.js";
 import { applyImpulse, type Impulse } from "./impulse.js";
 import type { SimBody } from "./step.js";
 import { forwardOf } from "./velocity.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 function body(over: Partial<SimBody> = {}): SimBody {
   return {

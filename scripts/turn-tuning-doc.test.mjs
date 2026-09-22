@@ -8,9 +8,17 @@ import {
   DRIVE_CONFIG,
   RAM_CONFIG,
   TICK_RATE_HZ,
+  DEFAULT_GAME_MODE,
   driveOf,
+  installMode,
+  modeConfigOf,
   modifiersOf,
 } from "@motor-combat-moba/shared";
+
+// This doc-honesty check calls shared's config accessors directly, so it needs a mode installed the
+// same way any other suite does since the shared package stopped bootstrapping the default mode at
+// module load (MC12).
+installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 /**
  * The `grip` multiplier a reeling car ACTUALLY drives with — the authored `STATUS_TABLE.reeling`

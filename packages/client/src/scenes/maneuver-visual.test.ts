@@ -1,12 +1,28 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { ManeuverKind, weaponDefOf } from "@motor-combat-moba/shared";
-import {
-  dashGhostAlphas,
-  dashGhostOffsets,
-  dashGhostPose,
-  hullOutlinePoints,
-  maneuverOutline,
-} from "./maneuver-visual.js";
+
+// `maneuver-visual.js` reads config (`weaponDefOf`) at MODULE LOAD, to derive Wild Charge's outline
+// colour once rather than on every call (see its own doc comment). A static `import` of it here
+// would be resolved and evaluated before ANY of this file's own top-level code runs — including the
+// `installMode` call below — which is exactly the unscoped read MC12 exists to catch. So this file
+// installs a mode FIRST, then dynamically imports the module under test, which is the one way to
+// control that ordering from a test without changing the module's own (correct, scoped-in-real-use)
+// load-time derivation.
+installMode(modeConfigOf(DEFAULT_GAME_MODE));
+
+let dashGhostAlphas: typeof import("./maneuver-visual.js")["dashGhostAlphas"];
+let dashGhostOffsets: typeof import("./maneuver-visual.js")["dashGhostOffsets"];
+let dashGhostPose: typeof import("./maneuver-visual.js")["dashGhostPose"];
+let hullOutlinePoints: typeof import("./maneuver-visual.js")["hullOutlinePoints"];
+let maneuverOutline: typeof import("./maneuver-visual.js")["maneuverOutline"];
+
+beforeAll(async () => {
+  ({ dashGhostAlphas, dashGhostOffsets, dashGhostPose, hullOutlinePoints, maneuverOutline } =
+    await import("./maneuver-visual.js"));
+});
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 describe("maneuverOutline", () => {
   it("is null for NONE, DASH and HOLD", () => {

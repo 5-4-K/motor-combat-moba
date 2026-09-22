@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   ArenaState,
   PlayerState,
@@ -12,6 +13,8 @@ import { writeStatuses } from "../sim/status-bridge.js";
 import { makeRng } from "./rng.js";
 import { buildBotView, snapshotWorld } from "./view.js";
 import { ViewRing } from "./view-ring.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 // Copied from `combat-bridge.test.ts` rather than invented: it is the same shape a real room
 // produces, and `buildBotView` must be tested against exactly that, not a hand-rolled stand-in.

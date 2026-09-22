@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { MS_PER_TICK } from "../constants.js";
 import { ramDefenceOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
@@ -9,6 +11,13 @@ import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import { stepSim, type SimBody, type StepContext } from "./step.js";
 import { forwardOf } from "./velocity.js";
 import type { InputMessage } from "../net/input.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+
+// Also installed directly, synchronously, at module scope: `describe`/`const` bodies below run
+// during test COLLECTION, which happens once, before any `beforeEach` hook ever fires. The fixture
+// constants that read config (`ramDefenceOf` below) need a mode installed at that point too.
+installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 const DT = MS_PER_TICK / 1000;
 const UP: InputMessage = { seq: 1, steer: 0, throttle: 1, fireSlots: 0 };

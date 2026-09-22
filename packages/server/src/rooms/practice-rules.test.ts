@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { activeCarIds, type InputMessage } from "@motor-combat-moba/shared";
 import {
   isActiveInput,
@@ -8,6 +9,8 @@ import {
   shouldRefusePractice,
   shouldRefusePracticeForPlayground,
 } from "./practice-rules.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 const neutral: InputMessage = { seq: 1, steer: 0, throttle: 0, fireSlots: 0 };
 

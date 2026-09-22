@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installMode } from "../../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../../modes/registry.js";
 import { readFileSync } from "node:fs";
 import { instanceDefOf, WEAPON_TABLE } from "../../config/weapon-config.js";
 import type { WeaponId } from "../../config/weapon-types.js";
@@ -6,6 +8,8 @@ import { carHullOf } from "../context.js";
 import { weaponDamageOf } from "../damage.js";
 import { spawnInstances, stepInstance, type WeaponInstance } from "./instances.js";
 import { resolveInstanceHits, type PoseSnapshot } from "./hits.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 const modeBox = vi.hoisted(() => ({ current: null as "onceEver" | "perEntry" | null }));
 

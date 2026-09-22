@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   ArenaState, PlayerState, SPIKE_CONFIG, SPIKE_TICKS, TICK_RATE_HZ, hpOf,
 } from "@motor-combat-moba/shared";
@@ -6,6 +7,8 @@ import { respawnPlayer } from "../rooms/tick-pipeline.js";
 import { newCombatMemory } from "./combat-bridge.js";
 import { newContactMemory } from "./ram-bridge.js";
 import { clearShover, newSpikeMemory, recordShove, resolveSpikeHits } from "./spike-bridge.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 const into = (id: string, speedIn: number) => ({ sessionId: id, nx: 1, ny: 0, speedIn });
 

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   BASIC_ATTACK_CONFIG,
   TICK_RATE_HZ,
@@ -12,6 +13,12 @@ import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import type { BotCarView, BotSlotView, BotView } from "../types.js";
 import { HumanController } from "./controller.js";
 import { bestSustainedDpsOf, pressCeilingOf, runDuel } from "./duel.fixture.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+// Also installed directly, synchronously, at module scope: fixture constants below (and
+// some describe bodies) read config during test COLLECTION, which happens once, before any
+// beforeEach hook ever fires.
+installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 /**
  * Pins `BASIC_ATTACK_CONFIG.enabled` ON for one test, restoring whatever the build ships afterwards.

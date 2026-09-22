@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   ACTIVE_ARENA_ID,
   BOT_SESSION_ID,
@@ -22,6 +23,12 @@ import {
   upgradeStoredSetup,
   type StoredPlayground,
 } from "./storage.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+// Also installed directly, synchronously, at module scope: fixture constants below (and
+// some describe bodies) read config during test COLLECTION, which happens once, before any
+// beforeEach hook ever fires.
+installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 /** A minimal in-memory `Storage` stand-in for the injectable `storage` param -- vitest runs these
  * tests in the node environment, so there is no real `window.localStorage` to reach for. */

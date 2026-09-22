@@ -1,8 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../../modes/registry.js";
 import { STATUS_LIMITS, STATUS_TABLE, statusDefOf } from "../../config/status-config.js";
 import type { StatusChannel, StatusId } from "../../config/status-types.js";
 import { applyStatus, newStatusState, type ActiveStatus } from "./statuses.js";
 import { modifiersOf, NEUTRAL_MODIFIERS } from "./modifiers.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 const CHANNELS = Object.keys(STATUS_LIMITS) as StatusChannel[];
 

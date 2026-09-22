@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../../modes/registry.js";
 import type { ChassisDrive } from "../../config/car-config.js";
 import { STATUS_LIMITS, STATUS_TABLE } from "../../config/status-config.js";
 import type { CarId } from "../../config/types.js";
@@ -13,6 +15,8 @@ import { newFireState, releaseShots, tickRecharge } from "../weapons/fire.js";
 import { spawnInstances } from "../weapons/instances.js";
 import { forwardOf, lateralOf } from "../velocity.js";
 import { modifiersOf, NEUTRAL_MODIFIERS, type Modifiers } from "./modifiers.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 /**
  * Every channel and flag, proved to reach the sim call site it names.

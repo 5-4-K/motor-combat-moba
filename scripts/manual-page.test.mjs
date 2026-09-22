@@ -9,22 +9,35 @@ import {
   TICK_RATE_HZ,
   TURRET_CONFIG,
   WEAPON_TABLE,
+  DEFAULT_GAME_MODE,
   activeCarIds,
   carHullOf,
+  installMode,
   instanceExpired,
+  modeConfigOf,
   resolveInstanceHits,
   spawnInstances,
   stepInstance,
 } from "@motor-combat-moba/shared";
 import { EFFECT_SOURCES } from "./cars-and-weapons-copy.mjs";
-import {
+
+// `build-cars-and-weapons.mjs` reads config (`activeCarIds()` and its derivations) at MODULE LOAD —
+// it is a flat CLI script, not a set of lazily-called functions, so the whole build runs as a side
+// effect of importing it. A static `import` of it here would resolve and run before ANY of this
+// file's own top-level code, including an `installMode` call — the same unscoped-read hazard MC12
+// exists to catch. So this file installs a mode FIRST, then imports the module under test
+// dynamically, which is the one way to control that ordering from a test without changing the
+// script's own (correct, real-CLI-entry-point) load-time build.
+installMode(modeConfigOf(DEFAULT_GAME_MODE));
+
+const {
   OUT_WEB_HTML,
   STAMP_META_NAME,
   balanceStamp,
   carSection,
   carrierOf,
   hitsPerTargetOf,
-} from "./build-cars-and-weapons.mjs";
+} = await import("./build-cars-and-weapons.mjs");
 
 /**
  * Guards on the generated cars-and-weapons guide page.

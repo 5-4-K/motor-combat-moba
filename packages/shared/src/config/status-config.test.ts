@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { TICK_RATE_HZ } from "../constants.js";
 import { activeCarIds, driveOf, forwardMaxSpeedOf } from "./car-config.js";
 import {
@@ -14,6 +16,8 @@ import type { StatusChannel, StatusId } from "./status-types.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
 import { WEAPON_TICKS, msToTicks } from "./weapon-ticks.js";
 import type { WeaponId } from "./weapon-types.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 const IDS = Object.keys(STATUS_TABLE) as StatusId[];
 const CHANNELS = Object.keys(STATUS_LIMITS) as StatusChannel[];

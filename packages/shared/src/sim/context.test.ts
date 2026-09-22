@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { CAR_TABLE, DEFAULT_CAR_ID, ramDefenceOf } from "../config/car-config.js";
 import type { CarId } from "../config/types.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
@@ -12,6 +14,8 @@ import {
   type ContextEntry,
   type ContextPlayer,
 } from "./context.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 function player(over: Partial<ContextPlayer> = {}): ContextPlayer {
   return {

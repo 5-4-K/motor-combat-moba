@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   ACTIVE_ARENA_ID,
   ARENA_IDS,
@@ -32,6 +33,8 @@ import {
 import { shouldRejectSecondArena } from "./singleton-arena.js";
 import type { CombatMemory } from "../sim/combat-bridge.js";
 import type { ContactMemory } from "../sim/ram-bridge.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 describe("shouldRefusePlayground", () => {
   it("opens when nothing else is running", () => {

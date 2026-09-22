@@ -38,6 +38,14 @@ import { weaponTicksOf } from "../config/weapon-ticks.js";
 
 const DT = MS_PER_TICK / 1000;
 
+beforeEach(() => installMode(assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES)));
+
+// Also installed directly, synchronously, at module scope: `describe` bodies below run during test
+// COLLECTION, which happens once, before any `beforeEach` hook ever fires. Some of those bodies
+// build fixture constants that read config (`ramDefenceOf` below), so a mode must already be
+// installed at that point too.
+installMode(assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES));
+
 /** Open floor in arena-01: no obstacle spans y < 350. */
 const OPEN_Y = 150;
 

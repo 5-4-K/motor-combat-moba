@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   CAR_TABLE,
   TICK_RATE_HZ,
@@ -16,6 +17,8 @@ import {
   type CarId,
 } from "@motor-combat-moba/shared";
 import { CAR_BARS, carSelectView, fullStatsFor } from "./car-select-view.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 const state = (over = {}) => ({
   mode: 1 as const,

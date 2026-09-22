@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   BOT_SESSION_ID,
   GameMode,
@@ -22,6 +23,8 @@ import { HumanController, ViewRing, type BotView } from "../bot/index.js";
 import { PracticeRoom, newPracticeState } from "./PracticeRoom.js";
 import { countdownTicks } from "./countdown.js";
 import { isIdleWarningDue, isPracticeIdle } from "./practice-rules.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 const ROOM_SOURCE = readFileSync(
   fileURLToPath(new URL("./PracticeRoom.ts", import.meta.url)),

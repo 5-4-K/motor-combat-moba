@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   DRIVE_CONFIG, ManeuverKind, NEUTRAL_MODIFIERS, TICK_RATE_HZ, driveOf, forwardOf, speedOf, stepDrive,
   turnRateOf, type SimBody,
@@ -12,6 +13,12 @@ import {
   rollForward, selfPredictor, steerFromObservedTurn,
 } from "./predict.js";
 import { constantVelocityPredictor } from "./solution.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+// Also installed directly, synchronously, at module scope: fixture constants below (and
+// some describe bodies) read config during test COLLECTION, which happens once, before any
+// beforeEach hook ever fires.
+installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 /**
  * `speed` is still accepted as an OVERRIDE and resolved here to `vx`/`vy` along the (possibly also

@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { CROSSHAIR_CONFIG } from "../config/crosshair.js";
 import { AIM_HUD_STYLE } from "../config/aim-hud.js";
 import { hpBarGeometry } from "./combat-visual.js";
@@ -18,6 +19,8 @@ import {
   swingLimitLines,
   type AimHudSpec,
 } from "./aim-hud.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 const SHIPPED: AimHudSpec = {
   showTurret: true,

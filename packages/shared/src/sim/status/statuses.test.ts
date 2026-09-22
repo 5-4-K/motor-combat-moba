@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../../modes/registry.js";
 import { STATUS_CONFIG, STATUS_IDS, statusDefOf } from "../../config/status-config.js";
 import { statusPulseTicksOf } from "../../config/status-ticks.js";
 import type { StatusId } from "../../config/status-types.js";
@@ -14,6 +16,8 @@ import {
   statusPulses,
   toActiveStatuses,
 } from "./statuses.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 const REFRESHING: StatusId = "corroded";
 const IGNORING: StatusId = "stunned";

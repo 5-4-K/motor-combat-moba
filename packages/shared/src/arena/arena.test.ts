@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { SPIKE_CONFIG } from "../config/spike-config.js";
@@ -8,6 +10,8 @@ import { planePenetration, rectPlanes, supportRadius } from "../sim/boundary.js"
 import { boundsOf } from "./bounds.js";
 import { ARENA_IDS, ARENAS, getArena, isArenaId } from "./registry.js";
 import type { ArenaDef, Spawn } from "./types.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 /**
  * A car must always have somewhere to be pushed.

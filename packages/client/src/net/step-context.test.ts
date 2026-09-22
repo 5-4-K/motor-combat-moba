@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   ACTIVE_ARENA_ID,
   DEFAULT_CAR_ID,
@@ -16,6 +17,8 @@ import {
   type ContextPlayer,
   type ContextState,
 } from "./step-context.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 function player(over: Partial<ContextPlayer> = {}): ContextPlayer {
   return {

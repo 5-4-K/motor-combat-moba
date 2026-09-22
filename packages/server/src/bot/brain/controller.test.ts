@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   ARENA_01, boundsOf, driveOf, NEUTRAL_MODIFIERS, slotsOf, stepDrive, TICK_RATE_HZ, turretPivotOf,
   weaponDefOf, wrapAngle, type SimBody,
@@ -8,6 +9,12 @@ import { makeRng } from "../rng.js";
 import type { BotView } from "../types.js";
 import { HumanController, inCorner } from "./controller.js";
 import { runDuel } from "./duel.fixture.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+// Also installed directly, synchronously, at module scope: fixture constants below (and
+// some describe bodies) read config during test COLLECTION, which happens once, before any
+// beforeEach hook ever fires.
+installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 function view(overrides: Partial<BotView> = {}): BotView {
   return {

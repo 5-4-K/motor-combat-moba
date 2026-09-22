@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { CROSSHAIR_CONFIG } from "../config/crosshair.js";
 import { TURRET_VISUAL } from "../config/turret-visual.js";
 import {
@@ -12,6 +13,8 @@ import {
   turretLengthOf,
   turretViewOverrides,
 } from "./turret-view.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 afterEach(() => setTurretViewOverrides(null));
 

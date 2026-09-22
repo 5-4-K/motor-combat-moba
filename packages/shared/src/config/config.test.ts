@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { TICK_RATE_HZ } from "../constants.js";
 import {
   CAR_TABLE,
@@ -23,6 +25,8 @@ import { FLOW_CONFIG } from "./flow-config.js";
 import { NET_CONFIG } from "./net-config.js";
 import { RAM_CONFIG } from "./ram-config.js";
 import { damageFor } from "../sim/damage.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 describe("CAR_TABLE", () => {
   it("has exactly the three shipped chassis plus the six unreleased prototypes", () => {

@@ -1,7 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { weaponDefOf, type WeaponId } from "@motor-combat-moba/shared";
 import type { BotSlotView } from "../types.js";
 import { rolesOf } from "./roles.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 function slot(weaponId: WeaponId): BotSlotView {
   return {

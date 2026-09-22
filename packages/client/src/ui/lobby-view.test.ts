@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { activeGameModes, GameMode, MAX_TEAM_SIZE, MODE_TABLE, PlayerStatus } from "@motor-combat-moba/shared";
 import { lobbyView, modeCards, modeLabel, TEAM_SLOTS } from "./lobby-view.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 const player = (over: Partial<LobbyTestPlayer> = {}): LobbyTestPlayer => ({
   sessionId: "p1",

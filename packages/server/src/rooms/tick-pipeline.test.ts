@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   ArenaState,
   PlayerState,
@@ -12,6 +13,8 @@ import {
 import { newCombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory } from "../sim/ram-bridge.js";
 import { runPipeline, type PipelineCtx } from "./tick-pipeline.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 /**
  * `runPipeline` end to end for a turret press (TR7, TR10-TR24): the wire's `aimAngle` reaches

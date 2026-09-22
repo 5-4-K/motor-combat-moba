@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { boundsOf, ARENA_01 } from "@motor-combat-moba/shared";
 import { spikesAhead, wallAhead } from "./movement.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 const arena = { width: 1280, height: 720, obstacles: [] };
 

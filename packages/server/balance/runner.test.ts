@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { CAR_TABLE, MAX_PLAYERS, activeCarIds, slotsOf, type CarId } from "@motor-combat-moba/shared";
 import { GameMode } from "@motor-combat-moba/shared";
 import { chassisRoster, runAll, seatsFor } from "./runner.js";
 import { aggregate } from "./stats.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 /**
  * A stable digest of any JSON-safe value: recursively sort object keys, then `JSON.stringify` —

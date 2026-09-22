@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { WEAPON_TABLE, weaponDefOf, type WeaponId } from "@motor-combat-moba/shared";
 import {
   WEAPON_PROJECTILE_STYLES,
@@ -7,6 +8,8 @@ import {
   projectileDrawLayers,
   type DrawableInstance,
 } from "./combat-visual.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 /**
  * The one rule every marking has to obey: it may never draw outside the hitbox.

@@ -48,4 +48,19 @@ describe("withMode", () => {
     expect(() => withMode(B, (() => Promise.resolve(1)) as never)).toThrow();
     expect(drive().baseMaxSpeed).toBe(before);
   });
+
+  it("refuses a non-native thenable, not only a real Promise", () => {
+    // A custom object with a callable `.then` reproduces the same early-restore hazard as a
+    // native Promise, and `instanceof Promise` alone would miss it.
+    const thenable = { then: () => undefined };
+    expect(() => withMode(B, (() => thenable) as never)).toThrow(/synchronous/);
+  });
+
+  it("still restores the previous bundle after refusing a non-native thenable", () => {
+    installMode(A);
+    const before = drive().baseMaxSpeed;
+    const thenable = { then: () => undefined };
+    expect(() => withMode(B, (() => thenable) as never)).toThrow();
+    expect(drive().baseMaxSpeed).toBe(before);
+  });
 });

@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { GameMode, type CarId, type WeaponId } from "@motor-combat-moba/shared";
 import { BOT_PROFILES } from "../src/config/bot-profiles.js";
 import { configFingerprint, botFingerprint } from "./fingerprint.js";
@@ -9,6 +10,8 @@ import type { MatchOutcome } from "./match.js";
 import { writeReport, type RunRecord } from "./report.js";
 import type { Shape } from "./runner.js";
 import { wilson } from "./stats.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 // ---- fixtures -----------------------------------------------------------------------------------
 // Kept in this file, not in report.ts: they ARE the readability of the assertions below, and

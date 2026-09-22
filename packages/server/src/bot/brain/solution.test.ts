@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   TICK_RATE_HZ, TURRET_TICKS, boundsOf, carHullOf, instanceExpired, resolveInstanceHits,
   spawnInstances, stepInstance, turretPivotOf, weaponDefOf, wrapAngle, type PoseSnapshot,
@@ -8,6 +9,12 @@ import {
   AIM_QUADRATURE, constantVelocityPredictor, dangerEvAgainst, proxyDangerAgainst, proxyValue, solve,
   turretTurnTicksOf, type PosePredictor, type SolverShooter,
 } from "./solution.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+// Also installed directly, synchronously, at module scope: fixture constants below (and
+// some describe bodies) read config during test COLLECTION, which happens once, before any
+// beforeEach hook ever fires.
+installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 const arena: BotArenaView = { width: 1280, height: 720, obstacles: [] };
 

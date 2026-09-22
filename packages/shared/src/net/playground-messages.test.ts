@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { MAX_PLAYERS } from "../constants.js";
 import { WEAPON_SLOT_CONFIG } from "../config/weapon-slots.js";
 import {
@@ -15,6 +17,8 @@ import {
   isPlaygroundSetup,
   type PlaygroundSetup,
 } from "./playground-messages.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 describe("playground message constants", () => {
   it("exports the room name and bot session id", () => {

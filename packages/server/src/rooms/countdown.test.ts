@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   FLOW_CONFIG,
   RoomPhase,
@@ -6,6 +7,8 @@ import {
   PracticeState,
 } from "@motor-combat-moba/shared";
 import { beginCountdown, countdownSweep, countdownTicks } from "./countdown.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 /** Any concrete `ArenaState` will do — this module only reads `tick` and writes the two phase fields. */
 function stateAtTick(tick: number): PracticeState {

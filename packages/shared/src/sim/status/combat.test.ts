@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../../modes/registry.js";
 import { ARENA_01 } from "../../arena/arena-01.js";
 import { hpOf } from "../../config/car-config.js";
 import { STATUS_TABLE, statusDefOf } from "../../config/status-config.js";
@@ -13,6 +15,8 @@ import {
 } from "../combat.js";
 import { newFireState } from "../weapons/fire.js";
 import { applyStatus, hasStatus, type ActiveStatus } from "./statuses.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 /**
  * Statuses as `runCombat` sees them: pulses, the two application seams, and the aura.

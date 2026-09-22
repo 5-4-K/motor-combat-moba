@@ -4,7 +4,6 @@ import { assembleModeConfig } from "./build.js";
 import type { ModeConfig } from "./types.js";
 import { BRAWL_TABLES } from "./brawl/index.js";
 import { DEATHMATCH_TABLES } from "./deathmatch/index.js";
-import { installMode } from "./active.js";
 
 /**
  * One row of the mode picker, plus the assembled bundle that row resolves to. Display names live
@@ -131,10 +130,3 @@ export function activeArenaIds(): readonly ArenaId[] {
   }
   return result;
 }
-
-// SCAFFOLDING (phases 1-2): boots `DEFAULT_GAME_MODE`'s bundle (Brawl's) so `cfg()` has something
-// installed. Moved here from the deleted `modes/legacy.ts` — this is the module that assembles
-// `MODE_TABLE`, so it is the natural place to install one of its own bundles at load time.
-// Removed in phase 3, when `cfg()` starts throwing outside an explicit `withMode` scope and every
-// entry point installs its own mode instead.
-installMode(MODE_TABLE[DEFAULT_GAME_MODE].config);

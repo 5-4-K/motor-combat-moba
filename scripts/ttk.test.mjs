@@ -5,8 +5,11 @@ import {
   CAR_TABLE,
   TICK_RATE_HZ,
   WEAPON_TABLE,
+  DEFAULT_GAME_MODE,
   damageFor,
   hpOf,
+  installMode,
+  modeConfigOf,
   slotsOf,
   weaponTicksOf,
 } from "../packages/shared/dist/index.js";
@@ -18,6 +21,12 @@ import {
   TTK_LIMIT_SECONDS,
   unreachableWeaponIds,
 } from "./ttk.mjs";
+
+// This test file (unlike `ttk.mjs` itself, a CLI script) calls into shared's config accessors, so
+// it needs a mode installed the same way any other suite does since the shared package stopped
+// bootstrapping the default mode at module load (MC12). `ttk.mjs`'s own CLI entry point still has
+// no install of its own — see the task report for why that is flagged rather than fixed here.
+installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 /**
  * The DEFENDER axis: every chassis in the table, unreleased prototypes included — they all have a

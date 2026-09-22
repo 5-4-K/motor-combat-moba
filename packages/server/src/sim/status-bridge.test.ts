@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   ArenaState,
   NEUTRAL_MODIFIERS,
@@ -15,6 +16,8 @@ import {
   statusTick,
   writeStatuses,
 } from "./status-bridge.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 function arena(): ArenaState {
   return new ArenaState();

@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { defaultPracticeSetup, isPracticeSetup } from "./practice-messages.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 const valid = { name: "Riku", carId: "mirage", opponentCarId: "random", difficulty: "medium" };
 

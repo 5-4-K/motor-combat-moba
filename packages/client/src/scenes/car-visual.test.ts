@@ -1,5 +1,6 @@
 import { DEATH_FADE_MS, TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { CAR_TABLE, COLOR_TABLE, DEFAULT_CAR_ID, DRIVE_CONFIG, activeCarIds } from "@motor-combat-moba/shared";
 import { setCarTintOverrides } from "../fx/car-tint.js";
 import {
@@ -12,6 +13,8 @@ import {
   hexagonPoints,
   weaponLoadoutSignature,
 } from "./car-visual.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 describe("carShapeOf", () => {
   it("gives every SHIPPED chassis its own silhouette", () => {

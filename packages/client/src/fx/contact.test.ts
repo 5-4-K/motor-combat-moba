@@ -1,7 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { DRIVE_CONFIG, TICK_RATE_HZ, WEAPON_TABLE } from "@motor-combat-moba/shared";
 import { damagePoint, shotEndPoint, shotGeometriesOf } from "./contact.js";
 import type { FxCarView, FxInstanceView } from "./events.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 // Car "a" sits at (100, 200) facing +x, so its hull spans x 76..124 and y 184..216. Every expected
 // number below is read off those four edges rather than typed as a bare literal.

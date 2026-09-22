@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { RAM_CONFIG } from "../config/ram-config.js";
 import { ramAttackOf, ramDefenceOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
@@ -12,6 +14,8 @@ import {
   type RamCar,
   type RamResolution,
 } from "./ram.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 function car(over: Partial<RamCar> = {}): RamCar {
   // `defenceMult: 1` is the neutral value of the `ramDefence` status channel: every expectation in

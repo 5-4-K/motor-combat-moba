@@ -1,7 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { GameMode, TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { HumanController, type BotIntent, type BotView } from "../src/bot/index.js";
 import { runMatch } from "./match.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 /**
  * A stable digest of any JSON-safe value: recursively sort object keys, then `JSON.stringify` —

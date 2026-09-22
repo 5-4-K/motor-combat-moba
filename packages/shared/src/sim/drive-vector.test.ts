@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import type { ChassisDrive } from "../config/car-config.js";
 import { DRIVE_CONFIG, perTickDecay } from "../config/drive-config.js";
 import { TICK_RATE_HZ } from "../constants.js";
@@ -7,6 +9,8 @@ import { stepDrive } from "./drive.js";
 import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import type { SimBody } from "./step.js";
 import { forwardOf, lateralOf, toWorld } from "./velocity.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 const DT = 1 / TICK_RATE_HZ;
 const DRAG_RATE = 1.0;

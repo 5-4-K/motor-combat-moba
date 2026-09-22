@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   ACTIVE_ARENA_ID,
   ManeuverKind,
@@ -13,6 +14,12 @@ import {
   type StepContext,
 } from "@motor-combat-moba/shared";
 import { PredictionBuffer } from "./prediction.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+// Also installed directly, synchronously, at module scope: fixture constants below (and
+// some describe bodies) read config during test COLLECTION, which happens once, before any
+// beforeEach hook ever fires.
+installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 const arena = getArena(ACTIVE_ARENA_ID);
 const ctx: StepContext = {

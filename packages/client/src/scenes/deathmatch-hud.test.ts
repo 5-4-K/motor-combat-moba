@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import {
   killedByText,
@@ -7,6 +8,8 @@ import {
   respawnSeconds,
   showKilledBy,
 } from "./deathmatch-hud.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 describe("matchClockLabel", () => {
   it("counts down in m:ss", () => {

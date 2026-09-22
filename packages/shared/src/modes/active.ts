@@ -4,10 +4,9 @@
 // over `cfg()` at the call site (see interfaces.md's "Naming rules").
 //
 // This file imports TYPES ONLY from outside `modes/`, and nothing from `registry.ts` or `build.ts`.
-// That is what keeps it out of any cycle: `registry.ts` runs a module-load side effect (it installs
-// the default mode's bundle) and imports the mode folders, so a value import from here back into
-// that graph would run the install against a partially-initialised module. Type-only imports are
-// erased at compile time and cannot.
+// That is what keeps it out of any cycle: `registry.ts` imports the mode folders to assemble
+// `MODE_TABLE`, so a value import from here back into that graph could run against a
+// partially-initialised module. Type-only imports are erased at compile time and cannot.
 import type { CombatConfig } from "../config/combat-config.js";
 import type { DeathmatchConfig } from "../config/deathmatch-config.js";
 import type { CameraConfig, DriveConfig } from "../config/drive-config.js";
@@ -42,9 +41,14 @@ export function withMode<T>(config: ModeConfig, fn: () => T): T {
   current = config;
   try {
     const result = fn();
-    if (result instanceof Promise) {
+    // Duck-typed rather than `result instanceof Promise`: a native Promise is only one shape a
+    // deferred value can take. A thenable — any object with a callable `.then` — reproduces the
+    // exact same early-restore hazard (a non-native promise implementation, a custom awaitable)
+    // and `instanceof` misses every one of those, since `instanceof Promise` is only true for the
+    // realm's actual Promise constructor.
+    if (typeof (result as { then?: unknown } | null)?.then === "function") {
       throw new Error(
-        "withMode: callback must be synchronous, but it returned a Promise. Returning early " +
+        "withMode: callback must be synchronous, but it returned a thenable. Returning early " +
           "would restore the previous mode's bundle before the awaited work runs, letting two " +
           "modes' config interleave mid-tick with nothing to catch it. Do the async work outside " +
           "withMode and pass only the synchronous part in.",
@@ -57,10 +61,11 @@ export function withMode<T>(config: ModeConfig, fn: () => T): T {
 }
 
 /**
- * Boot-time install, no restore. SCAFFOLDING (phases 1-2): phase 1 calls this once at module load
- * so the whole existing suite keeps passing while accessors move onto the bundle. Phase 3 deletes
- * that call, at which point `cfg()` genuinely throws outside a `withMode` scope (MC12) and every
- * test installs a mode in its own setup.
+ * Boot-time install, no restore. Nothing in shipped code calls this any more — every real entry
+ * point (each room type, the playground, the balance/playtest harnesses) scopes its config with
+ * `withMode` instead. It survives as a test convenience: a handful of tests install a bundle once
+ * in a `beforeEach`/`afterEach` rather than wrapping every assertion in `withMode`. `cfg()` has no
+ * fallback (MC12) — call this, or use `withDefaultMode`/`withMode`, before reading config in a test.
  */
 export function installMode(config: ModeConfig): void {
   current = config;

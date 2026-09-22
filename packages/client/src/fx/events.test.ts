@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { DRIVE_CONFIG } from "@motor-combat-moba/shared";
 import { deriveFxEvents, type FxWorldView } from "./events.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 const car = (sessionId: string, hp: number, alive = true) => ({
   sessionId,

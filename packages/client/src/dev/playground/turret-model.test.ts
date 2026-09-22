@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { CAR_TABLE, type TuningValue } from "@motor-combat-moba/shared";
 import type { AssetManifest, SpriteEntry } from "../../assets/manifest-schema.js";
 import { carScaleKey } from "../../scenes/turret-view.js";
@@ -9,6 +10,8 @@ import {
   turretSimSections,
   withoutTurretSimPaths,
 } from "./turret-model.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 function row(over: Partial<SpriteEntry> = {}): SpriteEntry {
   return { file: "turrets/default.png", rotationOffset: 0, scale: "fit", colorMode: "tint", origin: [0.31, 0.5], ...over };

@@ -1,10 +1,12 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CAR_TABLE, basicAttackIds, basicAttackOf } from "./car-config.js";
 import type { CarId } from "./types.js";
 import { BASIC_ATTACK_CONFIG, WEAPON_TABLE } from "./weapon-config.js";
 import { ABILITY_SLOT_CEILING, WEAPON_SLOT_CONFIG, slotsOf, slotsFrom, fireSlotsOf } from "./weapon-slots.js";
-import { slots } from "../modes/active.js";
+import { installMode, slots } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 afterEach(() => vi.restoreAllMocks());
 
 describe("basicAttackEnabled (MC27)", () => {
@@ -12,8 +14,9 @@ describe("basicAttackEnabled (MC27)", () => {
     // `sim/` reads the flag off the bundle (`slots().basicAttackEnabled`) rather than off
     // `BASIC_ATTACK_CONFIG` directly (MC13); `BASIC_ATTACK_CONFIG` itself stays the source the flag
     // is authored on, since readers outside `sim/` (the client HUD, the manual builder, the bot)
-    // still read it raw. This pins the two equal for the mode installed at boot, so a future edit to
-    // one without the other fails here instead of silently landing two different answers.
+    // still read it raw. This pins the two equal for the default mode installed by this suite's
+    // own `beforeEach`, so a future edit to one without the other fails here instead of silently
+    // landing two different answers.
     expect(WEAPON_SLOT_CONFIG.basicAttackEnabled).toBe(BASIC_ATTACK_CONFIG.enabled);
     expect(slots().basicAttackEnabled).toBe(BASIC_ATTACK_CONFIG.enabled);
   });

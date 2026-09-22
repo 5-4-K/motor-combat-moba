@@ -1,9 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import type { ChassisDrive } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { stepDrive } from "./drive.js";
 import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import { speedOf } from "./velocity.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 /**
  * Proof of U7: every per-tick factor lives on `ChassisDrive`, resolved once from a per-second rate

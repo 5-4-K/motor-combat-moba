@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   BASIC_ATTACK_CONFIG,
   WEAPON_SLOT_CONFIG,
@@ -17,6 +18,8 @@ import {
   type UltHoldEntry,
 } from "./firing.js";
 import type { FiringSolution } from "./solution.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 /**
  * Build a mocked solutions map for `chooseSlot`, keyed by slot index -> raw solver `value`. Every

@@ -1,8 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { TICK_RATE_HZ } from "../constants.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
 import type { WeaponId } from "./weapon-types.js";
 import { WEAPON_TICKS, msToTicks, weaponTicksOf } from "./weapon-ticks.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 describe("msToTicks", () => {
   it("rounds up, so a duration is never shorter than authored", () => {

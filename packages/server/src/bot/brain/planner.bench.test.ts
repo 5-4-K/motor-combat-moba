@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   ARENA_01, NEUTRAL_MODIFIERS, slotsOf, weaponDefOf, type BotDifficulty,
 } from "@motor-combat-moba/shared";
@@ -8,6 +9,12 @@ import { weightsFor } from "./objectives.js";
 import { plan, type PlanArgs } from "./planner.js";
 import { bodyFromSelf, rollForward, type DriveAction } from "./predict.js";
 import type { PosePredictor } from "./solution.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+// Also installed directly, synchronously, at module scope: fixture constants below (and
+// some describe bodies) read config during test COLLECTION, which happens once, before any
+// beforeEach hook ever fires.
+installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 /**
  * THE STATED BUDGET (P33), in milliseconds per `plan()` call. Derived, not chosen: six bots

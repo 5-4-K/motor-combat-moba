@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   RAM_CONFIG,
   STATUS_CONFIG,
@@ -13,6 +14,8 @@ import {
   statusFillOf,
   statusStripLayout,
 } from "./status-hud.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 function row(statusId: string, startTick: number, endsTick: number): StatusRow {
   return { statusId, startTick, endsTick };

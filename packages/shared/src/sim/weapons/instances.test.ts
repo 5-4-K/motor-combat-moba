@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../../modes/registry.js";
 import { MS_PER_TICK } from "../../constants.js";
 import { DRIVE_CONFIG } from "../../config/drive-config.js";
 import { TURRET_CONFIG } from "../../config/turret-config.js";
@@ -18,6 +20,8 @@ import {
   wallClipDistance,
   type WeaponInstance,
 } from "./instances.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 const DT = MS_PER_TICK / 1000;
 const BOUNDS = { width: 2000, height: 1200 };

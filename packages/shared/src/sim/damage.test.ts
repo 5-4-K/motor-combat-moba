@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { COMBAT_CONFIG } from "../config/combat-config.js";
 import { applyDamage, damageFor, weaponDamageOf } from "./damage.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 describe("applyDamage", () => {
   it("subtracts the amount from hp", () => {

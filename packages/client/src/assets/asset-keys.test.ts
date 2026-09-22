@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   arenaFloorKey,
   carSpriteKey,
@@ -7,6 +8,8 @@ import {
   turretSpriteKeys,
   weaponIconKey,
 } from "./asset-keys.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 describe("carSpriteKey", () => {
   it("namespaces a known car id", () => {

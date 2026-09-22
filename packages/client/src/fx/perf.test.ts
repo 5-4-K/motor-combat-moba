@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { deriveFxEvents, type FxWorldView } from "./events.js";
 import { emitterSpecsForAll } from "./emitters.js";
 import { eraserStampsFor } from "./occlusion.js";
@@ -14,6 +15,8 @@ import {
   SOOT_B,
   sparkTexture,
 } from "./textures.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 /**
  * Budgets for the FX system's *decision* work, following the precedent `packages/client/CLAUDE.md`

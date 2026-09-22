@@ -1,5 +1,6 @@
 import { DRIVE_CONFIG } from "@motor-combat-moba/shared";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   decalFadeAlpha,
   decalStampsFor,
@@ -8,6 +9,8 @@ import {
   tyreMarksFor,
 } from "./decals.js";
 import { ENVIRONMENT_FX } from "./environment.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 // These four now live on `ENVIRONMENT_FX.decals` (EV6) rather than as named exports of
 // `decals.ts` — pulled out here so every pre-existing assertion below reads exactly as it did.

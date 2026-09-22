@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { planePenetration, planesOf, rectPlanes, supportRadius } from "./boundary.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 describe("rectPlanes", () => {
   it("produces four inward unit normals for a rectangle", () => {

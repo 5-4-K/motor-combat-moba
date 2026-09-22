@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   ArenaState,
   PlayerState,
@@ -12,6 +13,8 @@ import {
 import { serverTick } from "./tick.js";
 import { contactTick, newContactMemory } from "./ram-bridge.js";
 import { readStatuses } from "./status-bridge.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 /**
  * The one thing NOTHING in the suite covered before this fix: `serverTick` and `contactTick` driven

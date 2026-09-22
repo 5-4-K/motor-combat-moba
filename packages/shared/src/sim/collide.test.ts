@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { Aabb, CarObstacle, Obb } from "./collide.js";
 import {
@@ -16,6 +18,8 @@ import {
 import { rectPlanes } from "./boundary.js";
 import type { SimBody } from "./step.js";
 import { forwardOf, lateralOf, speedOf, toWorld } from "./velocity.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 const CAR_W = DRIVE_CONFIG.carWidth;
 const CAR_H = DRIVE_CONFIG.carHeight;

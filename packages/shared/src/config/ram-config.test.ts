@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { TICK_RATE_HZ } from "../constants.js";
 import { CAR_TABLE, forwardMaxSpeedOf, ramAttackOf, ramDefenceOf } from "./car-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
@@ -11,6 +13,8 @@ import {
   reelingSpinPerTick,
 } from "./ram-config.js";
 import type { CarId } from "./types.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 describe("halfLifeToPerTick", () => {
   it("halves the value after exactly one half-life of ticks", () => {

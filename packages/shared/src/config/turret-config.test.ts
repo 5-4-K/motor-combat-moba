@@ -1,8 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { TICK_RATE_HZ } from "../constants.js";
 import { CAR_TABLE, basicAttackIds, turretMountOf } from "./car-config.js";
 import { TURRET_CONFIG, TURRET_TICKS } from "./turret-config.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 describe("turret config (TR1-TR5)", () => {
   it("turns at the configured rate, converted once to radians per tick", () => {

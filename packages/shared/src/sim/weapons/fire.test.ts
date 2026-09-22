@@ -53,6 +53,8 @@ function pinBasicAttackEnabled(): void {
   });
 }
 
+beforeEach(() => installMode(assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES)));
+
 /** Bullseye, as shipped since the 2026-09-02 loadout swap: slot 1 predator, slot 2 pepperbox, slot 3 lance. */
 const fresh = () => newFireState("bullseye", 1);
 
@@ -582,7 +584,8 @@ describe("the basic-attack toggle (slots().basicAttackEnabled)", () => {
   // `BASIC_ATTACK_CONFIG.enabled` directly (MC13) — the bundle is assembled and frozen once, so
   // mutating the raw global no longer reaches it. Exercising both positions here means installing a
   // fresh bundle with the flag set the way each test wants, and restoring the ordinary
-  // `BRAWL_TABLES` bundle (what `vitest.setup.ts` installs for every test in this file) afterward.
+  // `BRAWL_TABLES` bundle (what this file's own top-level `beforeEach` installs before every test)
+  // afterward.
   function installBasicAttackEnabled(enabled: boolean): void {
     installMode(
       assembleModeConfig(DEFAULT_GAME_MODE, {
