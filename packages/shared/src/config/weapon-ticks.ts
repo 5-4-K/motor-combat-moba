@@ -4,6 +4,7 @@ import type { StatusConfig } from "./status-config.js";
 import type { StatusId } from "./status-types.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
 import type { WeaponDef, WeaponId } from "./weapon-types.js";
+import { derived } from "../modes/active.js";
 
 /**
  * Milliseconds to whole ticks, rounded up so an authored duration is never *shorter* than written.
@@ -161,19 +162,24 @@ export function resolveTicks(
   );
 }
 
-/** `WEAPON_TICKS` itself until playground tuning overrides a weapon row, and again once it clears. */
-let ACTIVE_TICKS: Readonly<Record<WeaponId, WeaponTicks>> = WEAPON_TICKS;
-
+/**
+ * The active mode bundle's own `derived.weaponTicks` (MC14) — resolved once by `assembleModeConfig`
+ * when that bundle was built, not recomputed per call and not rebuildable by `setTuning` any more
+ * (see `rebuildWeaponTicks`).
+ */
 export function weaponTicksOf(id: WeaponId): WeaponTicks {
-  return ACTIVE_TICKS[id];
+  return derived().weaponTicks[id];
 }
 
 /**
- * Playground tuning only (spec PG12) — see `rebuildResolvedDrive` for why `hasOverrides` is passed
- * in rather than read back from the tuning store.
+ * Retired by the accessor-layer rewrite (MC14): `weaponTicksOf` now reads the active mode bundle's
+ * own frozen `derived.weaponTicks`, resolved once when that bundle was assembled — there is no
+ * mutable `ACTIVE_TICKS` left for a playground override to rebuild. `setTuning` still calls this on
+ * every write so it keeps compiling; the call is now a no-op. Per-mode runtime tuning is an overlay
+ * that rebuilds a whole `ModeConfig` (phase 5, `modes/overlay.ts`), not a rebuild of one cached table.
  */
-export function rebuildWeaponTicks(hasOverrides: boolean): void {
-  ACTIVE_TICKS = hasOverrides ? resolveTicks() : WEAPON_TICKS;
+export function rebuildWeaponTicks(_hasOverrides: boolean): void {
+  // phase 5 deletes this
 }
 
 /**

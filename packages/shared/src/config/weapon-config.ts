@@ -1,5 +1,6 @@
 import { TICK_RATE_HZ } from "../constants.js";
 import type { BeamWeaponDef, ExplosionDamageMode, WeaponDef, WeaponId } from "./weapon-types.js";
+import { derived, weapons } from "../modes/active.js";
 
 /**
  * Everything every basic attack has in common (BA3, BA4).
@@ -622,11 +623,11 @@ export const WEAPON_TABLE = {
  * Same rule as `isCarId`.
  */
 export function isWeaponId(value: unknown): value is WeaponId {
-  return typeof value === "string" && Object.prototype.hasOwnProperty.call(WEAPON_TABLE, value);
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(weapons(), value);
 }
 
 export function weaponDefOf(id: WeaponId): WeaponDef {
-  return WEAPON_TABLE[id];
+  return weapons()[id];
 }
 
 /**
@@ -642,8 +643,8 @@ export function weaponDefOf(id: WeaponId): WeaponDef {
  * `explosion` field for the recursion to read.
  */
 export function instanceDefOf(id: WeaponId, isExplosion: boolean): WeaponDef {
-  if (!isExplosion) return WEAPON_TABLE[id];
-  const burst = ACTIVE_BURST_DEFS[id];
+  if (!isExplosion) return weapons()[id];
+  const burst = derived().burstDefs[id];
   if (!burst) throw new Error(`instanceDefOf: ${id} authors no explosion`);
   return burst;
 }
@@ -683,20 +684,22 @@ export function explosionDamageModeOf(id: WeaponId): ExplosionDamageMode | undef
  * and a `.filter` callback's narrowing does not carry into a later `.map` over the same array. Going
  * through `weaponDefOf` first (declared to return `WeaponDef`) sidesteps that: ordinary discriminated
  * narrowing on `.kind` and `.explosion` then works exactly as it does everywhere else in this file.
+ *
+ * Kept as a standalone export — it used to back the rebuildable `ACTIVE_BURST_DEFS` below;
+ * `instanceDefOf` no longer reads it. The active mode bundle's own `derived.burstDefs` (MC14) is a
+ * separately-resolved, value-equal object.
  */
 const BURST_DEFS: Partial<Record<WeaponId, BeamWeaponDef>> = buildBurstDefs();
 
-/** `BURST_DEFS` itself until playground tuning overrides a weapon row, and again once it clears. */
-let ACTIVE_BURST_DEFS: Partial<Record<WeaponId, BeamWeaponDef>> = BURST_DEFS;
-
 /**
- * Playground tuning only (spec PG12) — see `rebuildResolvedDrive`/`rebuildWeaponTicks` for why
- * `hasOverrides` is passed in rather than read back from the tuning store. Without this,
- * `weapon.magmablast.explosion.radius`/`.damage` sliders would move `WEAPON_TABLE` and change
- * nothing: `BURST_DEFS` copies those numbers out at module load and is otherwise never revisited.
+ * Retired by the accessor-layer rewrite (MC14): `instanceDefOf` now reads the active mode bundle's
+ * own frozen `derived.burstDefs`, resolved once when that bundle was assembled — there is no mutable
+ * `ACTIVE_BURST_DEFS` left for a playground override to rebuild. `setTuning` still calls this on
+ * every write so it keeps compiling; the call is now a no-op. Per-mode runtime tuning is an overlay
+ * that rebuilds a whole `ModeConfig` (phase 5, `modes/overlay.ts`), not a rebuild of one cached table.
  */
-export function rebuildBurstDefs(hasOverrides: boolean): void {
-  ACTIVE_BURST_DEFS = hasOverrides ? buildBurstDefs() : BURST_DEFS;
+export function rebuildBurstDefs(_hasOverrides: boolean): void {
+  // phase 5 deletes this
 }
 
 /**

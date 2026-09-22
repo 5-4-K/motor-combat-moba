@@ -1,4 +1,5 @@
 import type { StatusChannel, StatusDef, StatusId } from "./status-types.js";
+import { statusTable } from "../modes/active.js";
 
 /**
  * Status system tuning. Every value here is read by the sim on both sides of the lockstep, so this
@@ -269,11 +270,11 @@ export const STATUS_TABLE = {
  * reading that list back — the client's own prediction included — validates through here first.
  */
 export function isStatusId(value: unknown): value is StatusId {
-  return typeof value === "string" && Object.prototype.hasOwnProperty.call(STATUS_TABLE, value);
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(statusTable(), value);
 }
 
 export function statusDefOf(id: StatusId): StatusDef {
-  return STATUS_TABLE[id];
+  return statusTable()[id];
 }
 
 export const STATUS_IDS: readonly StatusId[] = Object.freeze(

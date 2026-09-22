@@ -1,6 +1,7 @@
 import { TICK_RATE_HZ } from "../constants.js";
-import { DRIVE_CONFIG, perTickDecay } from "./drive-config.js";
+import { perTickDecay } from "./drive-config.js";
 import { msToTicks } from "./weapon-ticks.js";
+import { derived, drive, ram } from "../modes/active.js";
 
 /**
  * Ram control-and-knockback tuning, rewritten for the Unity ram rule (spec §7): nose-first above
@@ -196,16 +197,26 @@ export function halfLifeToPerTick(halfLifeSeconds: number): number {
  * The hull's squared radius of gyration, `(w² + l²) / 12` — the inertia a ram's spin divides by.
  * Unity's `PushMath.SpinDelta` computes the same quantity from the collider footprint.
  *
- * DERIVED from `DRIVE_CONFIG` rather than authored, so it cannot drift from the hull it describes.
- * `RAM_CONFIG.inertiaCoefficient` was the authored stand-in and is deleted (U29).
+ * DERIVED from the active mode's `drive()` rather than authored, so it cannot drift from the hull it
+ * describes. `RAM_CONFIG.inertiaCoefficient` was the authored stand-in and is deleted (U29). Reads
+ * the active bundle's `drive` (MC14, MC35) — the hull it carries is the one GLOBAL field every mode's
+ * bundle re-attaches from `DRIVE_CONFIG` (`assembleModeConfig`), so this is scoped by construction
+ * without needing a parameter of its own.
  */
 export function inertiaRadiusSquared(): number {
-  return (DRIVE_CONFIG.carWidth ** 2 + DRIVE_CONFIG.carHeight ** 2) / 12;
+  const d = drive();
+  return (d.carWidth ** 2 + d.carHeight ** 2) / 12;
 }
 
-/** Per-tick factor for a reeling car's free spin. Unity's `EffectsConfig.reelingSpinDecayRate`. */
-export function reelingSpinPerTick(): number {
-  return perTickDecay(RAM_CONFIG.reelingSpinDecayRate);
+/**
+ * Per-tick factor for a reeling car's free spin. Unity's `EffectsConfig.reelingSpinDecayRate`.
+ *
+ * Parameterised per CONTROLLER RULING 8: the default reads the active mode's `ram()`, for every
+ * ordinary zero-argument call site; `resolveChassisDrive` (`car-config.ts`) passes its own `ram`
+ * table through explicitly instead, since it runs before the mode it is building is installed.
+ */
+export function reelingSpinPerTick(ramConfig: RamConfig = ram()): number {
+  return perTickDecay(ramConfig.reelingSpinDecayRate);
 }
 
 /** The four ram durations, in the integer ticks the sim actually counts. */
@@ -232,25 +243,27 @@ export function resolveRamTicks(ram: RamConfig = RAM_CONFIG): Readonly<RamTicks>
 
 /**
  * Resolved once at module load and frozen, mirroring `WEAPON_TICKS`. Server and client both import
- * shared's built `dist`, so both compute identical tick counts or neither does.
+ * shared's built `dist`, so both compute identical tick counts or neither does. Kept as a standalone
+ * value — it used to back the rebuildable `ACTIVE_RAM_TICKS` below; `ramTicks()` no longer reads it.
  */
 const DEFAULT_RAM_TICKS: Readonly<RamTicks> = resolveRamTicks();
 
-/** `DEFAULT_RAM_TICKS` itself until playground tuning overrides a ram duration, and again once it clears. */
-let ACTIVE_RAM_TICKS: Readonly<RamTicks> = DEFAULT_RAM_TICKS;
-
-/** The ram durations in ticks. A FUNCTION, not a const: playground tuning may rebuild them. */
+/**
+ * The ram durations in ticks, from the active mode bundle's own `derived.ramTicks` (MC14) — resolved
+ * once by `assembleModeConfig` when that bundle was built, not recomputed per call and not
+ * rebuildable by `setTuning` any more (see `rebuildRamTicks`).
+ */
 export function ramTicks(): Readonly<RamTicks> {
-  return ACTIVE_RAM_TICKS;
+  return derived().ramTicks;
 }
 
 /**
- * Re-resolve the ram durations after a tuning change (spec U40). Without this, every ram duration
- * knob in the playground moved its config value and changed nothing the sim read — a real bug that
- * predates this stage, since `RAM_TICKS` used to be a plain frozen `const` that `setTuning` never
- * rebuilt. With no overrides it reassigns the module-load object BY REFERENCE, so an untuned build
- * cannot drift by a float, exactly as `rebuildResolvedDrive` does.
+ * Retired by the accessor-layer rewrite (MC14): `ramTicks()` now reads the active mode bundle's own
+ * frozen `derived.ramTicks`, resolved once when that bundle was assembled — there is no mutable
+ * `ACTIVE_RAM_TICKS` left for a playground override to rebuild. `setTuning` still calls this on
+ * every write so it keeps compiling; the call is now a no-op. Per-mode runtime tuning is an overlay
+ * that rebuilds a whole `ModeConfig` (phase 5, `modes/overlay.ts`), not a rebuild of one cached table.
  */
-export function rebuildRamTicks(hasOverrides: boolean): void {
-  ACTIVE_RAM_TICKS = hasOverrides ? resolveRamTicks() : DEFAULT_RAM_TICKS;
+export function rebuildRamTicks(_hasOverrides: boolean): void {
+  // phase 5 deletes this
 }

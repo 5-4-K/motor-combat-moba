@@ -5,11 +5,10 @@ import type { CarId } from "./types.js";
 import type { StatusId } from "./status-types.js";
 import { WEAPON_TABLE, explosionDamageModeOf, instanceDefOf, isWeaponId, weaponDefOf } from "./weapon-config.js";
 import { slotsOf } from "./weapon-slots.js";
-import { WEAPON_TICKS, msToTicks, weaponTicksOf } from "./weapon-ticks.js";
+import { WEAPON_TICKS, msToTicks, resolveTicks, weaponTicksOf } from "./weapon-ticks.js";
 import type { ImpulseDef, WeaponDef, WeaponId } from "./weapon-types.js";
 import { STATUS_CONFIG, isStatusId } from "./status-config.js";
 import { RAM_CONFIG } from "./ram-config.js";
-import { setTuning } from "./tuning.js";
 
 /**
  * The nine rows that are one weapon wearing nine ids: a plain bolt, authored once as
@@ -448,7 +447,10 @@ describe("WEAPON_TABLE", () => {
     });
 
     it("returns the plain def when the instance is not an explosion", () => {
-      expect(instanceDefOf("magmablast", false)).toBe(WEAPON_TABLE.magmablast);
+      // `toEqual`, not `toBe`: `instanceDefOf` now reads the installed mode bundle's own `weapons`
+      // (MC14) — a `structuredClone` of `WEAPON_TABLE` taken once when that bundle was assembled —
+      // so it is value-equal to `WEAPON_TABLE.magmablast` but no longer the identical object.
+      expect(instanceDefOf("magmablast", false)).toEqual(WEAPON_TABLE.magmablast);
     });
 
     it("synthesizes once, so the def is referentially stable", () => {
@@ -520,24 +522,36 @@ describe("ImpulseDef", () => {
 
   it("clamps an over-long impulse duration to the status ceiling, as every sibling list does", () => {
     // No shipped row authors an over-long duration — the guard above forbids it — so the clamp can
-    // only be proved through the one path that can author one at runtime. This is also exactly how
-    // its ABSENCE would have reached a player: the playground is where a tuner types a big number.
+    // only be proved by resolving a hypothetical table through `resolveTicks` directly.
+    //
+    // This used to prove it through a LIVE `setTuning` override read back via `weaponTicksOf`. As of
+    // the accessor-layer rewrite (MC14), `weaponTicksOf` reads the installed mode bundle's own
+    // `derived.weaponTicks` — resolved once when that bundle was assembled, not the mutable
+    // `WEAPON_TABLE` `setTuning` still writes to — so a live override no longer reaches it at all.
+    // Per-mode runtime tuning is an overlay that rebuilds a whole bundle (phase 5); until then this
+    // is the only way to exercise the clamp.
     const over = STATUS_CONFIG.maxDurationMs + 5000;
-    try {
-      setTuning({
-        "weapon.wildcharge.impulse.applies.0.durationMs": over,
-        "weapon.wildcharge.impulse.onWallImpact.applies.0.durationMs": over,
-      });
-      const ticks = weaponTicksOf("wildcharge");
-      expect(ticks.impulse!.applies[0]!.durationTicks).toBe(msToTicks(STATUS_CONFIG.maxDurationMs));
-      expect(ticks.impulse!.onWallImpact!.applies[0]!.durationTicks).toBe(
-        msToTicks(STATUS_CONFIG.maxDurationMs),
-      );
-      // The window is not a status duration and is deliberately left alone.
-      expect(ticks.impulse!.onWallImpact!.windowTicks).toBe(msToTicks(500));
-    } finally {
-      setTuning(null);
-    }
+    const wildcharge: WeaponDef = {
+      ...WEAPON_TABLE.wildcharge,
+      impulse: {
+        ...WEAPON_TABLE.wildcharge.impulse!,
+        applies: [{ ...WEAPON_TABLE.wildcharge.impulse!.applies[0]!, durationMs: over }],
+        onWallImpact: {
+          ...WEAPON_TABLE.wildcharge.impulse!.onWallImpact!,
+          applies: [
+            { ...WEAPON_TABLE.wildcharge.impulse!.onWallImpact!.applies[0]!, durationMs: over },
+          ],
+        },
+      },
+    };
+    const table = { ...WEAPON_TABLE, wildcharge };
+    const ticks = resolveTicks(table).wildcharge;
+    expect(ticks.impulse!.applies[0]!.durationTicks).toBe(msToTicks(STATUS_CONFIG.maxDurationMs));
+    expect(ticks.impulse!.onWallImpact!.applies[0]!.durationTicks).toBe(
+      msToTicks(STATUS_CONFIG.maxDurationMs),
+    );
+    // The window is not a status duration and is deliberately left alone.
+    expect(ticks.impulse!.onWallImpact!.windowTicks).toBe(msToTicks(500));
   });
 
   it("converts every impulse duration to ticks exactly once", () => {

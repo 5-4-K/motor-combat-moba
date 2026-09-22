@@ -1,10 +1,10 @@
-import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG, perTickDecay } from "./drive-config.js";
 import type { DriveConfig } from "./drive-config.js";
-import { RAM_CONFIG } from "./ram-config.js";
+import { RAM_CONFIG, reelingSpinPerTick } from "./ram-config.js";
 import type { RamConfig } from "./ram-config.js";
 import type { CarDef, CarId } from "./types.js";
 import type { WeaponId } from "./weapon-types.js";
+import { cars, combat, derived, drive } from "../modes/active.js";
 
 /**
  * The roster. Every rating is an integer 0-100 with 50 as average.
@@ -103,27 +103,27 @@ export const DEFAULT_CAR_ID: CarId = "mirage";
  * undefined stats, NaN-ing every derived number below.
  */
 export function isCarId(value: unknown): value is CarId {
-  return typeof value === "string" && Object.prototype.hasOwnProperty.call(CAR_TABLE, value);
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(cars(), value);
 }
 
 const NO_MOUNT = { x: 0, y: 0 } as const;
 
 /** The turret mount of a chassis; the centre for an unknown id (spec TR5). */
 export function turretMountOf(carId: string): { x: number; y: number } {
-  return isCarId(carId) ? CAR_TABLE[carId].turretMount : NO_MOUNT;
+  return isCarId(carId) ? cars()[carId].turretMount : NO_MOUNT;
 }
 
 /** True only for an id that both exists AND is active — real matches gate on this, not `isCarId`. */
 export function isActiveCarId(value: unknown): value is CarId {
-  return isCarId(value) && CAR_TABLE[value].isActive;
+  return isCarId(value) && cars()[value].isActive;
 }
 
 export function activeCarIds(): CarId[] {
-  return (Object.keys(CAR_TABLE) as CarId[]).filter((id) => CAR_TABLE[id].isActive);
+  return (Object.keys(cars()) as CarId[]).filter((id) => cars()[id].isActive);
 }
 
 export function hpOf(id: CarId): number {
-  return CAR_TABLE[id].hp * COMBAT_CONFIG.hpPerRating;
+  return cars()[id].hp * combat().hpPerRating;
 }
 
 /**
@@ -131,7 +131,7 @@ export function hpOf(id: CarId): number {
  * was this chassis designed around" and this answers "what else can it fire".
  */
 export function basicAttackOf(id: CarId): WeaponId {
-  return CAR_TABLE[id].basicAttack;
+  return cars()[id].basicAttack;
 }
 
 /**
@@ -147,15 +147,31 @@ export function basicAttackOf(id: CarId): WeaponId {
  * BOTH some chassis's kit and some chassis's basic-attack slot is in this set.
  */
 export function basicAttackIds(): ReadonlySet<WeaponId> {
-  return new Set(Object.values(CAR_TABLE).map((car) => car.basicAttack));
+  return new Set(Object.values(cars()).map((car) => car.basicAttack));
 }
 
-export function forwardMaxSpeedOf(id: CarId): number {
-  return DRIVE_CONFIG.baseMaxSpeed + CAR_TABLE[id].speed * DRIVE_CONFIG.speedPerRating;
+/**
+ * Reads its trailing parameters only, defaulting to the active mode's own tables (CONTROLLER RULING
+ * 8). `resolveChassisDrive` below passes ITS OWN cloned tables explicitly here rather than relying
+ * on these defaults — the mode it is assembling is not yet installed while it runs, so falling back
+ * to `cars()`/`drive()` there would silently compute one mode's chassis drive from whatever mode
+ * happened to be active at build time. Every ordinary call site keeps calling this with just an
+ * `id`, which is what the defaults are for.
+ */
+export function forwardMaxSpeedOf(
+  id: CarId,
+  carTable: Readonly<Record<CarId, CarDef>> = cars(),
+  driveConfig: DriveConfig = drive(),
+): number {
+  return driveConfig.baseMaxSpeed + carTable[id].speed * driveConfig.speedPerRating;
 }
 
-export function turnRateOf(id: CarId): number {
-  return DRIVE_CONFIG.baseTurnRate + CAR_TABLE[id].handling * DRIVE_CONFIG.turnRatePerRating;
+export function turnRateOf(
+  id: CarId,
+  carTable: Readonly<Record<CarId, CarDef>> = cars(),
+  driveConfig: DriveConfig = drive(),
+): number {
+  return driveConfig.baseTurnRate + carTable[id].handling * driveConfig.turnRatePerRating;
 }
 
 /**
@@ -164,22 +180,41 @@ export function turnRateOf(id: CarId): number {
  * Named for what it IS rather than for the rating that feeds it: the rating is still `accel`,
  * because a higher rating still means a car that gets going sooner, but the quantity is drag. It was
  * `accelOf` and returned an acceleration until the Unity port; the engine push is `engineAccelOf`.
+ *
+ * Parameterised per CONTROLLER RULING 8 — see `forwardMaxSpeedOf`.
  */
-export function dragRateOf(id: CarId): number {
-  return DRIVE_CONFIG.baseDrag + CAR_TABLE[id].accel * DRIVE_CONFIG.dragPerRating;
+export function dragRateOf(
+  id: CarId,
+  carTable: Readonly<Record<CarId, CarDef>> = cars(),
+  driveConfig: DriveConfig = drive(),
+): number {
+  return driveConfig.baseDrag + carTable[id].accel * driveConfig.dragPerRating;
 }
 
 /**
  * The engine's push, u/s². DERIVED so top speed is exactly `forwardMaxSpeedOf`: at equilibrium
  * `engineAccel === maxSpeed * dragRate`. Nothing clamps to the ceiling any more — it is where these
  * two balance, which is why it cannot be authored independently of them.
+ *
+ * Parameterised per CONTROLLER RULING 8 — see `forwardMaxSpeedOf`. Delegates to the parameterised
+ * `forwardMaxSpeedOf`/`dragRateOf`, passing its OWN parameters through rather than letting either
+ * fall back to its own default, so a caller's explicit tables are honoured end to end.
  */
-export function engineAccelOf(id: CarId): number {
-  return forwardMaxSpeedOf(id) * dragRateOf(id);
+export function engineAccelOf(
+  id: CarId,
+  carTable: Readonly<Record<CarId, CarDef>> = cars(),
+  driveConfig: DriveConfig = drive(),
+): number {
+  return forwardMaxSpeedOf(id, carTable, driveConfig) * dragRateOf(id, carTable, driveConfig);
 }
 
-export function reverseAccelOf(id: CarId): number {
-  return engineAccelOf(id) * DRIVE_CONFIG.reverseAccelFactor;
+/** Parameterised per CONTROLLER RULING 8 — see `forwardMaxSpeedOf`. */
+export function reverseAccelOf(
+  id: CarId,
+  carTable: Readonly<Record<CarId, CarDef>> = cars(),
+  driveConfig: DriveConfig = drive(),
+): number {
+  return engineAccelOf(id, carTable, driveConfig) * driveConfig.reverseAccelFactor;
 }
 
 export function brakeDecelOf(id: CarId): number {
@@ -187,11 +222,11 @@ export function brakeDecelOf(id: CarId): number {
 }
 
 export function ramAttackOf(id: CarId): number {
-  return CAR_TABLE[id].ramAttack;
+  return cars()[id].ramAttack;
 }
 
 export function ramDefenceOf(id: CarId): number {
-  return CAR_TABLE[id].ramDefence;
+  return cars()[id].ramDefence;
 }
 
 /*
@@ -233,38 +268,39 @@ export interface ChassisDrive {
 /**
  * Reads `cars`, `drive` and `ram` only, never `CAR_TABLE`/`DRIVE_CONFIG`/`RAM_CONFIG` directly.
  *
- * Deliberately does NOT delegate to `forwardMaxSpeedOf`/`turnRateOf`/`dragRateOf`/`engineAccelOf`/
- * `reverseAccelOf`/`brakeDecelOf`/`reelingSpinPerTick` above: every one of those reads a module
- * global by design (they are the accessors ordinary sim code still calls with just a `CarId`), so
- * routing this resolver through them would silently ignore whatever `cars`/`drive`/`ram` this call
- * was actually given — exactly the "two mode bundles share a derivation" bug this extraction exists
- * to rule out. The formulas are therefore inlined from the passed tables instead of shared with
- * those functions; retune either side by hand if the underlying equation ever changes.
+ * **Delegates to the parameterised `forwardMaxSpeedOf`/`turnRateOf`/`dragRateOf`/`engineAccelOf`/
+ * `reverseAccelOf`/`reelingSpinPerTick` above (CONTROLLER RULING 8) — passing its OWN `carTable`/
+ * `driveConfig`/`ramConfig` through explicitly on every call, never omitted.** Omitting one there
+ * would fall through to that helper's own default, which reads `cars()`/`drive()`/`ram()` — the
+ * CURRENTLY INSTALLED mode. This function runs inside `assembleModeConfig` while the mode it is
+ * building is not yet installed, so a fallen-through default would silently compute this mode's
+ * chassis drive from whatever mode happened to be active at build time instead of from the tables
+ * this call was actually given — exactly the "two mode bundles share a derivation" bug this
+ * extraction exists to rule out. Explicit arguments at every call site are what keep that impossible.
  */
 export function resolveChassisDrive(
-  cars: Readonly<Record<CarId, CarDef>> = CAR_TABLE,
-  drive: DriveConfig = DRIVE_CONFIG,
-  ram: RamConfig = RAM_CONFIG,
+  carTable: Readonly<Record<CarId, CarDef>> = CAR_TABLE,
+  driveConfig: DriveConfig = DRIVE_CONFIG,
+  ramConfig: RamConfig = RAM_CONFIG,
 ): Readonly<Record<CarId, ChassisDrive>> {
   return Object.freeze(
     Object.fromEntries(
-      (Object.keys(cars) as CarId[]).map((id) => {
-        const car = cars[id];
-        const maxSpeed = drive.baseMaxSpeed + car.speed * drive.speedPerRating;
-        const dragRate = drive.baseDrag + car.accel * drive.dragPerRating;
-        const engineAccel = maxSpeed * dragRate;
+      (Object.keys(carTable) as CarId[]).map((id) => {
+        const car = carTable[id];
+        const dragRate = dragRateOf(id, carTable, driveConfig);
+        const engineAccel = engineAccelOf(id, carTable, driveConfig);
         return [
           id,
           Object.freeze({
-            maxSpeed,
+            maxSpeed: forwardMaxSpeedOf(id, carTable, driveConfig),
             engineAccel,
-            reverseAccel: engineAccel * drive.reverseAccelFactor,
+            reverseAccel: reverseAccelOf(id, carTable, driveConfig),
             brakeDecel: car.brakeDecel,
-            turnRate: drive.baseTurnRate + car.handling * drive.turnRatePerRating,
+            turnRate: turnRateOf(id, carTable, driveConfig),
             dragRate,
             dragPerTick: perTickDecay(dragRate),
-            gripPerTick: perTickDecay(drive.lateralGripRate),
-            spinPerTick: perTickDecay(ram.reelingSpinDecayRate),
+            gripPerTick: perTickDecay(driveConfig.lateralGripRate),
+            spinPerTick: reelingSpinPerTick(ramConfig),
           }),
         ];
       }),
@@ -273,37 +309,31 @@ export function resolveChassisDrive(
 }
 
 /**
- * Resolved once at module load and frozen, mirroring `WEAPON_TICKS`. `stepSim` runs this lookup for
- * every player every tick on both halves of the lockstep, so it must not allocate.
+ * Resolved once at module load and frozen, mirroring `WEAPON_TICKS`. Kept as a standalone export —
+ * it used to be what `driveOf` handed the sim (by reference) before this rewrite (MC14); now it is
+ * only the shipped-roster reference value a few tests and scripts compare against directly.
+ * `driveOf` below no longer reads it: it reads the active mode bundle's own
+ * `derived.chassisDrive`, computed once by `assembleModeConfig` when THAT bundle was built — a
+ * separately-resolved, value-equal, but not reference-equal object.
  */
 export const CHASSIS_DRIVE: Readonly<Record<CarId, ChassisDrive>> = resolveChassisDrive();
 
 /**
- * What `driveOf` actually hands the sim. It IS `CHASSIS_DRIVE` — the same object, not a copy —
- * until playground tuning overrides a balance table, and again the moment tuning is cleared.
+ * Everything `stepDrive` needs to move one chassis for one tick, resolved from the active mode
+ * bundle's own `derived.chassisDrive` (MC14) — computed once by `assembleModeConfig`, not
+ * recomputed per call and not rebuildable by `setTuning` any more (see `rebuildResolvedDrive`).
  */
-let ACTIVE_DRIVE: Readonly<Record<CarId, ChassisDrive>> = CHASSIS_DRIVE;
-
 export function driveOf(id: CarId): ChassisDrive {
-  return ACTIVE_DRIVE[id];
+  return derived().chassisDrive[id];
 }
 
 /**
- * Playground tuning only (spec PG12) — called by `setTuning`, never from the sim. With no overrides
- * it reassigns the module-load defaults BY REFERENCE rather than recomputing them, so an untuned
- * build resolves the identical frozen objects it always has and cannot drift by a float.
- *
- * `hasOverrides` is a parameter rather than a read of `activeTuning()` because `tuning.ts` imports
- * this module: asking it back would be an import cycle.
- *
- * This used to rebuild two ram reference values alongside the drive table. They are gone with the
- * severity model that needed them (see the note above `ChassisDrive`), and the ram needs no rebuild
- * step of its own: `sim/ram.ts` reads `CAR_TABLE` and `RAM_CONFIG` live on every contact rather than
- * through a resolved-once snapshot, so a playground override of `ramAttack`, `ramDefence` or a
- * `RAM_CONFIG` knob is already in effect on the next tick with nothing to refresh. (`RAM_CONFIG`'s
- * DURATIONS are the exception and always were — `ramTicks()` resolves those once, and
- * `rebuildRamTicks` is their equivalent of this function.)
+ * Retired by the accessor-layer rewrite (MC14): `driveOf` now reads the active mode bundle's own
+ * frozen `derived.chassisDrive`, resolved once when that bundle was assembled — there is no mutable
+ * `ACTIVE_DRIVE` left for a playground override to rebuild. `setTuning` still calls this on every
+ * write so it keeps compiling; the call is now a no-op. Per-mode runtime tuning is an overlay that
+ * rebuilds a whole `ModeConfig` (phase 5, `modes/overlay.ts`), not a rebuild of one cached table.
  */
-export function rebuildResolvedDrive(hasOverrides: boolean): void {
-  ACTIVE_DRIVE = hasOverrides ? resolveChassisDrive() : CHASSIS_DRIVE;
+export function rebuildResolvedDrive(_hasOverrides: boolean): void {
+  // phase 5 deletes this
 }

@@ -1,6 +1,7 @@
 import { STATUS_TABLE } from "./status-config.js";
 import type { StatusDef, StatusId } from "./status-types.js";
 import { msToTicks } from "./weapon-ticks.js";
+import { derived } from "../modes/active.js";
 
 /**
  * Every status duration the sim counts in ticks, derived once at module load and frozen.
@@ -36,8 +37,17 @@ export function resolveStatusPulseTicks(
   );
 }
 
+/**
+ * Resolved once at module load and frozen, mirroring `WEAPON_TICKS`. Kept as a standalone export —
+ * it used to be what `statusPulseTicksOf` read directly before this rewrite (MC14); now it is only
+ * the shipped-roster reference value a few tests compare against.
+ */
 export const STATUS_PULSE_TICKS: Readonly<Record<StatusId, number>> = resolveStatusPulseTicks();
 
+/**
+ * A status's pulse interval, in ticks, from the active mode bundle's own `derived.statusPulseTicks`
+ * (MC14) — resolved once by `assembleModeConfig` when that bundle was built, not recomputed per call.
+ */
 export function statusPulseTicksOf(id: StatusId): number {
-  return STATUS_PULSE_TICKS[id];
+  return derived().statusPulseTicks[id];
 }

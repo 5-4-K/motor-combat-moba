@@ -1,6 +1,7 @@
-import { CAR_TABLE, basicAttackOf } from "./car-config.js";
+import { basicAttackOf } from "./car-config.js";
 import type { CarId } from "./types.js";
 import type { WeaponId } from "./weapon-types.js";
+import { cars } from "../modes/active.js";
 
 /**
  * The STRUCTURAL ceiling: how many ability slots the game is BUILT for, as opposed to how many this
@@ -87,7 +88,7 @@ export function slotsFrom(
  * happen to be authored with, not because this function enforces it.
  */
 export function slotsOf(carId: CarId): readonly WeaponId[] {
-  return slotsFrom(carId, CAR_TABLE[carId].weapons);
+  return slotsFrom(carId, cars()[carId].weapons);
 }
 
 /**
