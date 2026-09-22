@@ -3,6 +3,7 @@ import type { Room } from "colyseus.js";
 import type { PlaygroundState, TuningOverrides } from "@motor-combat-moba/shared";
 import { MSG_PLAYGROUND_SETUP, MSG_PLAYGROUND_TUNING, setTuning } from "@motor-combat-moba/shared";
 import { joinPlayground } from "../net/connection.js";
+import { watchRoomMode } from "../net/mode-scope.js";
 import { DEV_TOOL_MARKER } from "./registry.js";
 import { mountPlaygroundOverlay, type PlaygroundEnvHooks } from "./playground/overlay.js";
 import { loadStored } from "./playground/storage.js";
@@ -104,6 +105,13 @@ export class PlaygroundScene extends Phaser.Scene {
       void room.leave();
       return;
     }
+
+    // Installs this room's mode bundle before anything below reads config — `loadStored()`,
+    // `mountPlaygroundOverlay`'s panels (car select, weapon lists) and the `arena` scene it launches
+    // all read through the accessors now. `PlaygroundRoom` pins `state.mode` to `DEFAULT_GAME_MODE`
+    // for its whole life, so this never changes again, but `watchRoomMode` is used uniformly with
+    // the arena and practice join paths rather than a playground-only one-shot install.
+    watchRoomMode(room);
 
     // This scene never stops itself (it keeps listening on `room` for the whole session), and it
     // renders ABOVE `arena` (added later, at runtime, via BootScene's dev branch). Left alone, its

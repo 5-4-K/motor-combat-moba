@@ -1,9 +1,10 @@
 import Phaser from "phaser";
-import { ACTIVE_ARENA_ID } from "@motor-combat-moba/shared";
+import { ACTIVE_ARENA_ID, DEFAULT_GAME_MODE } from "@motor-combat-moba/shared";
 import { devToolId } from "../config/client-mode.js";
 import { loadManifest } from "../assets/load-manifest.js";
 import { loadsEveryArena, shouldLoadAssetKey } from "../assets/asset-keys.js";
 import { EMPTY_MANIFEST, type AssetManifest } from "../assets/manifest-schema.js";
+import { installRoomMode } from "../net/mode-scope.js";
 
 /**
  * The parsed manifest, and a promise that settles when every texture it names has finished loading.
@@ -49,6 +50,14 @@ export class BootScene extends Phaser.Scene {
             ready = this.loadArt();
             return;
           }
+          // A dev tool's `create()` can read config synchronously (car/weapon stat lists, turret
+          // numbers) with no room ever joined — `?dev=assets` and `?dev=fx` never connect to a
+          // server at all. Installed here, once, before ANY dev tool scene starts, so `cfg()` never
+          // throws on that first frame. `PlaygroundScene` is the one dev tool that DOES join a room
+          // (`PlaygroundRoom`, always pinned to `DEFAULT_GAME_MODE` — see its own CLAUDE.md note);
+          // its later `watchRoomMode(room)` call re-affirms the same bundle from the room's own
+          // `state.mode` rather than depending on this default staying correct forever.
+          installRoomMode(DEFAULT_GAME_MODE);
           // Tools read the manifest directly, so the art must be in the TextureManager before the
           // scene's create() runs — unlike normal play, there is no lobby to hide the wait behind.
           ready = this.loadArt(loadsEveryArena(id));

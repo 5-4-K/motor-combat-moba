@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { joinArena } from "../net/connection.js";
+import { watchRoomMode } from "../net/mode-scope.js";
 import { ScreenOverlay } from "../ui/overlay.js";
 import { renderJoin, type JoinScreen } from "../ui/screens/join.js";
 
@@ -43,6 +44,10 @@ export class JoinScene extends Phaser.Scene {
     this.screen?.setBusy(true);
     try {
       const room = await joinArena(name);
+      // Installs this room's mode bundle immediately (its current `state.mode`) and again on every
+      // later `MSG_SET_MODE` patch (MC16) — before LobbyScene's first render, which reads config
+      // through `lobbyView`'s mode cards.
+      watchRoomMode(room);
       this.registry.set("room", room);
       this.scene.start("lobby");
     } catch (err) {

@@ -1,12 +1,14 @@
 import Phaser from "phaser";
 import type { Room } from "colyseus.js";
 import {
+  GameMode,
   PRACTICE_INVALID_SETUP_ERROR,
   isArenaId,
   type PracticeSetup,
   type PracticeState,
 } from "@motor-combat-moba/shared";
 import { joinPractice } from "../net/connection.js";
+import { installRoomMode, watchRoomMode } from "../net/mode-scope.js";
 import { loadPracticeSetup, savePracticeSetup } from "../practice/storage.js";
 import { ScreenOverlay } from "../ui/overlay.js";
 import { renderPracticeSetup, type PracticeSetupScreen } from "../ui/screens/practice-setup.js";
@@ -89,6 +91,12 @@ export class PracticeSetupScene extends Phaser.Scene {
 
   create(): void {
     this.starting = false;
+    // `newPracticeState` pins the room's mode to FFA_DEATHMATCH for its whole life (PR9/MC22) —
+    // known before any room exists, so it is installed here rather than waited on. This screen's
+    // own car/opponent dropdowns (`carOptions`/`opponentOptions` in `ui/screens/practice-setup.ts`)
+    // read `cars()`/`activeCarIds()` synchronously in `renderPracticeSetup` below, before
+    // `joinPractice` is ever called.
+    installRoomMode(GameMode.FFA_DEATHMATCH);
     this.overlay = new ScreenOverlay(this);
     this.screen = renderPracticeSetup(
       {
@@ -129,6 +137,11 @@ export class PracticeSetupScene extends Phaser.Scene {
       // common case; only pays the wait (and can only fail) on the actual race. Held off the registry
       // until this resolves, so a room that never became ready never lingers there for a later read.
       await waitForArenaReady(room);
+      // Re-affirms the same FFA_DEATHMATCH bundle `create()` already installed, this time from the
+      // room's own `state.mode` rather than the constant this screen assumed — belt and suspenders,
+      // and what keeps this scene's install shape identical to `JoinScene`'s and `PlaygroundScene`'s
+      // rather than a fourth, ad hoc one.
+      watchRoomMode(room);
       this.registry.set("room", room);
       this.scene.start("arena");
     } catch (err) {
