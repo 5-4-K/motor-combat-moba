@@ -1,17 +1,17 @@
 import {
   ArenaState,
-  DRIVE_CONFIG,
   ManeuverKind,
   NET_CONFIG,
   PlayerState,
   RoomPhase,
-  WEAPON_SLOT_CONFIG,
   boundsOf,
   carIdOf,
+  drive,
   getArena,
   isOnField,
   otherCarHulls,
   ramDefenceOf,
+  slots,
   speedOf,
   stepSim,
   wrapAngle,
@@ -24,8 +24,14 @@ import {
 } from "@motor-combat-moba/shared";
 import { modifiersFor } from "./status-bridge.js";
 
-/** Every bit at or beyond `maxFireSlots` is stripped before a wire mask ever reaches the sim. */
-const SLOT_MASK = (1 << WEAPON_SLOT_CONFIG.maxFireSlots) - 1;
+/**
+ * Every bit at or beyond `maxFireSlots` is stripped before a wire mask ever reaches the sim.
+ * Computed per call, never hoisted to module scope: `maxFireSlots` is a mode-bundle value, and a
+ * module-level constant would freeze it at whichever mode happened to be installed at import time.
+ */
+function slotMaskOf(): number {
+  return (1 << slots().maxFireSlots) - 1;
+}
 
 /**
  * What one `serverTick` reports about the tick it just simulated.
@@ -42,7 +48,7 @@ export interface TickResult {
    * `ramTick` runs after `serverTick` — that ordering is a rule, because ram must measure the poses
    * cars actually ended up at — so the velocity left on `PlayerState` is the post-bounce one. Feeding
    * that to `resolveRam` made its approach term negative on every tick a hull actually overlapped,
-   * and a ram only fired on the rare tick where a pair landed inside `RAM_CONFIG.contactPad`
+   * and a ram only fired on the rare tick where a pair landed inside `ram().contactPad`
    * WITHOUT overlapping: a ~1.5 unit window against a per-tick step that was 10.5-18 units at the
    * time this bug was found, so 8-20% of contacts. (The 2026-09-06 heavy-car pass has since cut
    * that step to 6.3-8.9 units; the fix and the window it measures are unaffected either way.)
@@ -127,7 +133,7 @@ export interface TickResult {
  * key state, so an input past the per-tick cap cannot buy a shot the sim never ran, and a lobby
  * player spamming `fire` never spawns anything. The mask itself is attacker-controlled wire data:
  * non-integers and non-positive values collapse to 0, and whatever remains is masked to
- * `WEAPON_SLOT_CONFIG.maxFireSlots` bits before combat ever sees it, so a hand-rolled client
+ * `slots().maxFireSlots` bits before combat ever sees it, so a hand-rolled client
  * cannot fire a slot its car does not have. Masks from several inputs simulated in one tick are
  * OR-ed together. The weapon cooldown in `runCombat`, not this map, is what limits the rate —
  * several fire inputs in one tick still yield at most one shot.
@@ -159,6 +165,7 @@ export function serverTick(
 ): TickResult {
   const world = tickWorldOf(getArena(state.arenaId));
   const moving = phase === RoomPhase.MATCH;
+  const slotMask = slotMaskOf();
   // Sorted once per tick. This same array fixes both the order players are stepped in and the order
   // of the hulls built from it, so it is threaded through rather than recomputed.
   const entries = sortedEntries(state);
@@ -235,7 +242,7 @@ export function serverTick(
       if (ctx !== null && index < NET_CONFIG.maxInputsPerTick) {
         writeBody(player, stepSim(bodyOf(player), msg, dt, ctx));
         const raw = msg.fireSlots;
-        const clean = Number.isInteger(raw) && raw > 0 ? raw & SLOT_MASK : 0;
+        const clean = Number.isInteger(raw) && raw > 0 ? raw & slotMask : 0;
         // Only bits that were NOT down on this player's previous simulated input count as a press.
         // `prev` advances per input rather than per tick, so a release and re-press inside one batch
         // is two presses, not one held key.
@@ -296,8 +303,8 @@ function silenceGraceTicks(dt: number): number {
  * the 2026-09-06 car-physics rework this was `hasKnock`, which tried to answer "is this motion
  * externally imposed" from the body alone, and did it in two steps: before the vector-drive rework
  * by reading the dedicated `shoveX`/`shoveY`/`authority` fields, and after it by reading
- * `lateralOf(vx, vy, angle)` against `DRIVE_CONFIG.stopEpsilon` — on the argument that
- * `DRIVE_CONFIG.steeringGrip` was 1.0, "on rails", so a car never drove itself sideways and any
+ * `lateralOf(vx, vy, angle)` against `drive().stopEpsilon` — on the argument that
+ * `steeringGrip` was 1.0, "on rails", so a car never drove itself sideways and any
  * lateral component had to have come from outside. **Both premises are gone.** The Unity drive-model
  * port DELETED `steeringGrip`, moving the model to that knob's 0 end: lateral velocity is now the
  * DRIFT every cornering car carries, tens of u/s at full lock (Mirage settles around 26° of slip),
@@ -324,7 +331,7 @@ function silenceGraceTicks(dt: number): number {
  */
 function hasMotionToResolve(player: PlayerState): boolean {
   return (
-    speedOf(player.vx, player.vy) > DRIVE_CONFIG.stopEpsilon ||
+    speedOf(player.vx, player.vy) > drive().stopEpsilon ||
     player.angVel !== 0 ||
     player.maneuver !== ManeuverKind.NONE
   );

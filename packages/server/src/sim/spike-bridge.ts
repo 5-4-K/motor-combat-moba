@@ -1,6 +1,6 @@
 import {
-  SPIKE_CONFIG,
-  SPIKE_TICKS,
+  derived,
+  spike,
   type SpikeContact,
   type SpikeHit,
 } from "@motor-combat-moba/shared";
@@ -33,7 +33,7 @@ export function recordShove(memory: SpikeMemory, victimId: string, attackerId: s
  * Filter this tick's raw contacts down to the ones that actually hurt, and name who is credited.
  *
  * Two gates, in this order: the car must be moving INTO the surface faster than
- * `SPIKE_CONFIG.triggerSpeed` (so resting against a wall is free), and it must be out of its
+ * `spike().triggerSpeed` (so resting against a wall is free), and it must be out of its
  * retrigger lockout (so being pushed in does not bill thirty times a second).
  */
 export function resolveSpikeHits(
@@ -42,15 +42,17 @@ export function resolveSpikeHits(
   tick: number,
 ): SpikeHit[] {
   const hits: SpikeHit[] = [];
+  const triggerSpeed = spike().triggerSpeed;
+  const spikeTicks = derived().spikeTicks;
   for (const contact of contacts) {
-    if (contact.speedIn < SPIKE_CONFIG.triggerSpeed) continue;
+    if (contact.speedIn < triggerSpeed) continue;
     const immuneUntil = memory.immuneUntil.get(contact.sessionId) ?? 0;
     if (tick < immuneUntil) continue;
-    memory.immuneUntil.set(contact.sessionId, tick + SPIKE_TICKS.retrigger);
+    memory.immuneUntil.set(contact.sessionId, tick + spikeTicks.retrigger);
 
     const shove = memory.lastShover.get(contact.sessionId);
     const credited =
-      shove !== undefined && tick - shove.tick <= SPIKE_TICKS.shoverCredit
+      shove !== undefined && tick - shove.tick <= spikeTicks.shoverCredit
         ? shove.id
         : contact.sessionId;
     hits.push({ targetSessionId: contact.sessionId, sourceSessionId: credited });
@@ -69,7 +71,7 @@ export function forgetSpikeState(memory: SpikeMemory, sessionId: string): void {
  *
  * For a respawn, where `combat.lastDamagers` is cleared for the identical reason: or whoever last
  * pushed you before this death is credited with your next one. Only three unrelated numbers hide it
- * today — `DEATHMATCH_CONFIG.respawnDelaySeconds` (5) happens to exceed `shoverCreditMs` (4), and
+ * today — `deathmatch().respawnDelaySeconds` (5) happens to exceed `shoverCreditMs` (4), and
  * `isOnField` needs `alive` — so a shorter respawn delay, a longer credit window, or a respawn
  * granted early would make a stale shover collect a kill from the previous life.
  *

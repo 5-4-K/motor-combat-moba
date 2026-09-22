@@ -1,6 +1,6 @@
 import {
-  IMPULSE_CONFIG,
-  RAM_CONFIG,
+  impulse,
+  ram,
   ramTicks,
   applyImpulse,
   applyStatus,
@@ -122,6 +122,7 @@ export function newFalloffStack(): FalloffStack {
  * without also counting it.
  */
 export function nextFalloff(stack: FalloffStack, victimId: string, tick: number): FalloffScales {
+  const r = ram();
   const standing = stack.get(victimId);
   const live = standing !== undefined && tick < standing.expiresAtTick;
   const count = live ? standing.count : 0;
@@ -131,9 +132,9 @@ export function nextFalloff(stack: FalloffStack, victimId: string, tick: number)
   return {
     durationScale: Math.max(
       ramTicks().durationFloor / ramTicks().uncontrol,
-      RAM_CONFIG.durationDrScale ** count,
+      r.durationDrScale ** count,
     ),
-    impulseScale: Math.max(RAM_CONFIG.impulseDrFloor, RAM_CONFIG.impulseDrScale ** count),
+    impulseScale: Math.max(r.impulseDrFloor, r.impulseDrScale ** count),
   };
 }
 
@@ -226,7 +227,7 @@ function endDash(player: PlayerState, exitSpeed: number): void {
  * May this weapon's hard slam land on an already-stunned victim (O3)? `false` off any non-charge
  * id.
  *
- * Renamed from `slamsStunnedOf` — only the sim-seam name changed. `WEAPON_TABLE`'s own field is
+ * Renamed from `slamsStunnedOf` — only the sim-seam name changed. `weapons()`'s own field is
  * still `maneuver.slamsStunned`, the project owner's authored config surface, deliberately
  * preserved: this function is the translation from that row to `ContactCar.pushesStunned`, not the
  * authoring surface itself.
@@ -242,7 +243,7 @@ function pushesStunnedOf(weaponId: WeaponId | ""): boolean {
  * or `null` for a charge row that declares no `impulse` at all.
  *
  * The two halves are resolved together because absence has to be consistent across both: a row's
- * `WEAPON_TICKS` `impulse` block exists exactly when its `WeaponDef` declares one
+ * `derived().weaponTicks` `impulse` block exists exactly when its `WeaponDef` declares one
  * (`weapon-config.test.ts` pins that in both directions), so one without the other is a config bug
  * rather than a half-configured slam. Every consumer below goes through this one function — the cap
  * that decides which slams can push, the push itself, and the bookkeeping half further down — which
@@ -397,7 +398,7 @@ interface RamWrite {
  * Three rows, one loop:
  *
  * - **Attacker** (flank/rear): `replacesVelocity` with a zero shove, so it stops DEAD — not slowed,
- *   not bounced. `ramLock` for `RAM_CONFIG.attackerLockMs`. Its spin is untouched.
+ *   not bounced. `ramLock` for `ram().attackerLockMs`. Its spin is untouched.
  * - **Victim** (flank/rear): pre-collision velocity plus the shove, pre-collision spin plus the spin
  *   delta, `reeling` for a falloff-scaled `ramUncontrolMs`, and the shove credited for the spikes.
  * - **Head-on**: both cars replace their velocity with the shove the OTHER authored, both lock,
@@ -498,7 +499,7 @@ function applyRamResolution(
  * *Which* resolution is visited first cannot change how the pushes compose — a replace anywhere
  * zeroes the base, and addition commutes. It does change their MAGNITUDE, because `nextFalloff` is a
  * stateful counter: of two shoves landing on one car in one tick the first visited is scaled by 1
- * and the second by `RAM_CONFIG.impulseDrScale`, so swapping them swaps which push is discounted.
+ * and the second by `ram().impulseDrScale`, so swapping them swaps which push is discounted.
  * That is the mechanic, not a leak (see below), and it is DETERMINISTIC rather than arbitrary
  * because `resolveContacts` walks its pair loop over sorted session ids. What the naive sequential
  * write did was worse and is what this replaced: the alphabetical order decided which pushes existed
@@ -522,12 +523,13 @@ function applyRamResolution(
  * §7.2 and §7.3 do not have.
  */
 function flushRamWrites(state: ArenaState, writes: ReadonlyMap<string, RamWrite>): void {
+  const spinMaxRate = ram().spinMaxRate;
   for (const [sessionId, write] of writes) {
     const player = state.players.get(sessionId);
     if (!player) continue;
     player.vx = (write.replaced ? 0 : write.baseX) + write.shoveX;
     player.vy = (write.replaced ? 0 : write.baseY) + write.shoveY;
-    player.angVel = clamp(player.angVel + write.spin, -RAM_CONFIG.spinMaxRate, RAM_CONFIG.spinMaxRate);
+    player.angVel = clamp(player.angVel + write.spin, -spinMaxRate, spinMaxRate);
   }
 }
 
@@ -709,7 +711,7 @@ export function contactTick(
     // `applyStatus` refuses a non-positive duration outright, so a row authoring `durationMs: 0`
     // would write nothing — not reachable today, since `weapon-config.test.ts`'s
     // "bounds every impulse application's duration, on both lists" holds every entry above 0 and at
-    // or under `STATUS_CONFIG.maxDurationMs`, and `weapon-ticks.ts` clamps the upper end besides.
+    // or under `statusConfig().maxDurationMs`, and `weapon-ticks.ts` clamps the upper end besides.
     for (const applied of authored.ticks.applies) {
       writeStatuses(
         victim,
@@ -837,7 +839,7 @@ export function contactTick(
     // in the world (M13/M14), and spawn protection must not be broken by a stun from the old life.
     const player = state.players.get(victimId);
     if (!player || !isSolid(player, tick)) continue;
-    if (!hullTouchesWorld(carHullOf(player.x, player.y, player.angle), arena.obstacles, bounds, IMPULSE_CONFIG.wallContactPad)) {
+    if (!hullTouchesWorld(carHullOf(player.x, player.y, player.angle), arena.obstacles, bounds, impulse().wallContactPad)) {
       continue;
     }
     for (const applied of entry.wallApplies) {

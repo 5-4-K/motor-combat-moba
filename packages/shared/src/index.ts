@@ -23,8 +23,27 @@ export { withMode, cfg, installMode, hasMode } from "./modes/active.js";
 // The bundle accessors themselves (MC13/MC14): `sim/` has read exclusively through these since the
 // accessor-layer work, and server/client code that used to read a raw config global in place —
 // `setTuning` rebuilds the bundle rather than mutating those globals — needs the same accessors to
-// stay live under a tuning retune. Exported as they are needed outside `sim/`, not all at once.
-export { drive, turret, derived } from "./modes/active.js";
+// stay live under a tuning retune. Task 5b (see docs/superpowers/sdd) widened this from
+// `drive, turret, derived` to the full accessor set, since the 108 raw reads it converted outside
+// `shared/src/sim` needed every one of them.
+export {
+  drive,
+  turret,
+  derived,
+  ram,
+  impulse,
+  combat,
+  spike,
+  statusConfig,
+  statusTable,
+  statusLimits,
+  slots,
+  cars,
+  weapons,
+  flow,
+  deathmatch,
+  camera,
+} from "./modes/active.js";
 export { assembleModeConfig } from "./modes/build.js";
 export type { ModeConfig, ModeTables } from "./modes/types.js";
 
