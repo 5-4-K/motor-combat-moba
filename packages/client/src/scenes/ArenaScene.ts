@@ -14,8 +14,8 @@ import {
   ARENA_IDS,
   BASIC_ATTACK_CONFIG,
   CAMERA_CONFIG,
-  DRIVE_CONFIG,
-  STATUS_CONFIG,
+  drive,
+  statusConfig,
   GameMode,
   INPUT_MESSAGE,
   ManeuverKind,
@@ -36,7 +36,7 @@ import {
   turret,
   turretMountOf,
   turretPivotOf,
-  WEAPON_SLOT_CONFIG,
+  slots,
   getArena,
   isArenaId,
   isPhasedAt,
@@ -169,7 +169,7 @@ import {
   isProjectileWeapon,
   projectileDrawLayers,
   weaponFillOf,
-  HP_BAR_GEOMETRY,
+  hpBarGeometry,
   type Allegiance,
 } from "./combat-visual.js";
 import {
@@ -459,7 +459,7 @@ const HUD_GLYPH_CORE_OFFSET_SCALE = 0.1;
 /** Beam glyph is a bar, not a flame — this is its width as a fraction of the icon radius. */
 const HUD_BEAM_WIDTH_SCALE = 0.5;
 // --- buff / debuff badges ------------------------------------------------------------------
-/** The strip's own text colour, over each badge's `STATUS_TABLE.color` wash. */
+/** The strip's own text colour, over each badge's `statusTable()`'s `color` wash. */
 const HUD_STATUS_TEXT = "#ffffff";
 /** Alpha on the badge's colour for the body of the pill. The drain bar draws at full. */
 const HUD_STATUS_WASH_ALPHA = 0.45;
@@ -954,7 +954,7 @@ export class ArenaScene extends Phaser.Scene {
    * `drawWeaponGlyph`'s procedural shape instead, same fallback contract as a car's silhouette.
    */
   private hudIconImages: Phaser.GameObjects.Image[] = [];
-  /** One pooled label per badge the strip can ever show — `STATUS_CONFIG.maxActive` of them. */
+  /** One pooled label per badge the strip can ever show — `statusConfig().maxActive` of them. */
   private hudStatusTexts: Phaser.GameObjects.Text[] = [];
   /**
    * The roster panel: one pooled name per seat (`MAX_PLAYERS` of them), and its **own** Graphics for
@@ -2615,8 +2615,9 @@ export class ArenaScene extends Phaser.Scene {
    */
   private syncShadowTextures(): void {
     const look = this.resolveEnv().carLook;
-    const width = DRIVE_CONFIG.carWidth * look.footprint;
-    const height = DRIVE_CONFIG.carHeight * look.footprint;
+    const d = drive();
+    const width = d.carWidth * look.footprint;
+    const height = d.carHeight * look.footprint;
     const stamps: ReadonlyArray<readonly [string, ShadowStamp | undefined]> = [
       [CAR_SHADOW_DROP_KEY, shadowStampOf(shadowBandsFor(look), width, height)],
       [CAR_SHADOW_CONTACT_KEY, shadowStampOf(contactBandsFor(look), width, height)],
@@ -2823,7 +2824,7 @@ export class ArenaScene extends Phaser.Scene {
     alive: boolean,
     weaponIds: readonly string[],
   ): Phaser.GameObjects.Container {
-    const { carWidth: w, carHeight: h } = DRIVE_CONFIG;
+    const { carWidth: w, carHeight: h } = drive();
     const fill = carFillFor(sessionId, colorId);
     const container = this.add.container(0, 0);
 
@@ -2893,9 +2894,10 @@ export class ArenaScene extends Phaser.Scene {
    * shared with the `?dev=assets` tuning tool so the tool cannot drift from what the arena draws.
    */
   private spriteFor(carId: string, fill: number): Phaser.GameObjects.Image | undefined {
+    const d = drive();
     const resolved = resolveCarSprite(assetManifest(), phaserTextures(this.textures), carId, {
-      width: DRIVE_CONFIG.carWidth,
-      height: DRIVE_CONFIG.carHeight,
+      width: d.carWidth,
+      height: d.carHeight,
     });
     if (!resolved) return undefined;
     // Built lit rather than flat, and re-lit per frame by `drawCarLook`: a container is only rebuilt
@@ -3127,12 +3129,13 @@ export class ArenaScene extends Phaser.Scene {
     allegiance: Allegiance,
   ): void {
     const fraction = hpFraction(player.hp, player.carId);
+    const barGeometry = hpBarGeometry();
 
     gfx.fillStyle(HP_BAR_BACK, 0.85);
-    gfx.fillPoints(pts(hpBarPoints(pose, 1, HP_BAR_GEOMETRY)), true);
+    gfx.fillPoints(pts(hpBarPoints(pose, 1, barGeometry)), true);
     if (fraction <= 0) return;
     gfx.fillStyle(hpBarColor(allegiance), 1);
-    gfx.fillPoints(pts(hpBarPoints(pose, fraction, HP_BAR_GEOMETRY)), true);
+    gfx.fillPoints(pts(hpBarPoints(pose, fraction, barGeometry)), true);
   }
 
   /**
@@ -3158,7 +3161,7 @@ export class ArenaScene extends Phaser.Scene {
     player: ArenaPlayer,
     pose: SimBody,
   ): void {
-    const { carWidth: w, carHeight: h } = DRIVE_CONFIG;
+    const { carWidth: w, carHeight: h } = drive();
 
     const outline = maneuverOutline(player.maneuver);
     if (outline) {
@@ -3482,12 +3485,12 @@ export class ArenaScene extends Phaser.Scene {
       this.rosterKillTexts.push(this.makeHudText(ROSTER_NAME_FONT_PX).setOrigin(1, 0.5));
     }
     // Left-centre, matching the key labels: a badge's text hangs off its box's left inset.
-    for (let i = 0; i < STATUS_CONFIG.maxActive; i++) {
+    for (let i = 0; i < statusConfig().maxActive; i++) {
       this.hudStatusTexts.push(
         this.makeHudText(STATUS_LABEL_FONT_PX).setOrigin(0, 0.5).setColor(HUD_STATUS_TEXT),
       );
     }
-    for (let i = 0; i < WEAPON_SLOT_CONFIG.maxAbilitySlots; i++) {
+    for (let i = 0; i < slots().maxAbilitySlots; i++) {
       // Left-centre origin: the key sits `SLOT_KEY_GAP_PX` to the RIGHT of the slot and centred on
       // it, so `keyX` is the label's left edge and `cy` its middle. A centred origin would pull the
       // label back over the frame, and D18 wants the key outside it.
@@ -3560,7 +3563,7 @@ export class ArenaScene extends Phaser.Scene {
     // `drivenSid`, the same access path `hudTargetPlayer` takes for a player who is not spectating
     // — never `room.sessionId`, which names a connection rather than a car.
     const player = room ? room.state.players.get(this.drivenSid(room)) : undefined;
-    return player ? abilityCountOf(player.weapons.length) : WEAPON_SLOT_CONFIG.maxAbilitySlots;
+    return player ? abilityCountOf(player.weapons.length) : slots().maxAbilitySlots;
   }
 
   /**

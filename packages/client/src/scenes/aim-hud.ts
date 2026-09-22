@@ -1,7 +1,7 @@
 import type Phaser from "phaser";
 import { muzzleOffset } from "@motor-combat-moba/shared";
 import { AIM_HUD_STYLE as S } from "../config/aim-hud.js";
-import { HP_BAR_GEOMETRY } from "./combat-visual.js";
+import { hpBarGeometry } from "./combat-visual.js";
 import { pts } from "./graphics-points.js";
 
 /**
@@ -34,23 +34,33 @@ export const MUZZLE_DIRS_DEG: readonly number[] = [0, 90, 180, 270];
  * `muzzleOffset()` is `carWidth / 2` for every direction, so the side arrows stand 30 u out against
  * a hull that is only 20 u to each side — they float clear of the bodywork, and that is the honest
  * picture rather than a drawing error.
+ *
+ * A FUNCTION, not a module-level constant: `muzzleOffset()` itself reads the active mode's `drive()`
+ * bundle, and a `const` computed at import time would freeze its result at whichever mode happened
+ * to be installed first.
  */
-export const LATERAL_STANDOFF = muzzleOffset();
+export function lateralStandoff(): number {
+  return muzzleOffset();
+}
 
 /**
  * How far out the two AXIAL arrows (nose and tail) sit: past the hp bar, not at the muzzle.
  *
- * At `LATERAL_STANDOFF` the tail arrow would be drawn underneath the hp bar — the HUD is below the
+ * At `lateralStandoff()` the tail arrow would be drawn underneath the hp bar — the HUD is below the
  * car but the bar is far above it, so the bar would simply cover the arrow. Both axial arrows move
  * out together rather than only the tail one, because a nose arrow and a tail arrow at different
  * radii read as a mistake. Derived from the bar rather than typed, so moving the bar moves these
- * (`aim-hud.test.ts` holds the clearance).
+ * (`aim-hud.test.ts` holds the clearance). A function for the same reason as `lateralStandoff`:
+ * `hpBarGeometry()` reads the active mode's hull live.
  */
-export const AXIAL_STANDOFF = HP_BAR_GEOMETRY.offset + HP_BAR_GEOMETRY.thickness + S.hpBarClearance;
+export function axialStandoff(): number {
+  const bar = hpBarGeometry();
+  return bar.offset + bar.thickness + S.hpBarClearance;
+}
 
 /** Nose and tail stand past the hp bar; the sides stand at the muzzle. */
 export function standoffOf(dirDeg: number): number {
-  return dirDeg % 180 === 0 ? AXIAL_STANDOFF : LATERAL_STANDOFF;
+  return dirDeg % 180 === 0 ? axialStandoff() : lateralStandoff();
 }
 
 /**

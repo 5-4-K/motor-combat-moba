@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { CROSSHAIR_CONFIG } from "../config/crosshair.js";
 import { AIM_HUD_STYLE } from "../config/aim-hud.js";
-import { HP_BAR_GEOMETRY } from "./combat-visual.js";
+import { hpBarGeometry } from "./combat-visual.js";
 import {
-  AXIAL_STANDOFF,
-  LATERAL_STANDOFF,
+  axialStandoff,
+  lateralStandoff,
   MUZZLE_DIRS_DEG,
   aimHudIsEmpty,
   aimHudSignature,
@@ -165,9 +165,10 @@ describe("muzzle arrows", () => {
   });
 
   it("clears the hp bar with the tail arrow, which is the whole reason the axial pair moved out", () => {
-    const barFarEdge = HP_BAR_GEOMETRY.offset + HP_BAR_GEOMETRY.thickness;
-    expect(AXIAL_STANDOFF).toBe(barFarEdge + AIM_HUD_STYLE.hpBarClearance);
-    expect(AXIAL_STANDOFF).toBeGreaterThan(barFarEdge);
+    const bar = hpBarGeometry();
+    const barFarEdge = bar.offset + bar.thickness;
+    expect(axialStandoff()).toBe(barFarEdge + AIM_HUD_STYLE.hpBarClearance);
+    expect(axialStandoff()).toBeGreaterThan(barFarEdge);
     // The tail arrow's nearest point is its base, and the base is what has to clear the bar.
     const tail = muzzleArrowPoints(180);
     const nearest = Math.min(...tail.map((p) => Math.hypot(p.x, p.y)));
@@ -175,11 +176,11 @@ describe("muzzle arrows", () => {
   });
 
   it("leaves the lateral pair at the muzzle's own standoff", () => {
-    expect(standoffOf(90)).toBe(LATERAL_STANDOFF);
-    expect(standoffOf(270)).toBe(LATERAL_STANDOFF);
-    expect(standoffOf(0)).toBe(AXIAL_STANDOFF);
-    expect(standoffOf(180)).toBe(AXIAL_STANDOFF);
-    expect(AXIAL_STANDOFF).toBeGreaterThan(LATERAL_STANDOFF);
+    expect(standoffOf(90)).toBe(lateralStandoff());
+    expect(standoffOf(270)).toBe(lateralStandoff());
+    expect(standoffOf(0)).toBe(axialStandoff());
+    expect(standoffOf(180)).toBe(axialStandoff());
+    expect(axialStandoff()).toBeGreaterThan(lateralStandoff());
   });
 
   it("keeps every arrow inside the ring, so the HUD reads as one instrument", () => {

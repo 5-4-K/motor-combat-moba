@@ -80,7 +80,7 @@ export const AIM_HUD_STYLE = {
    *
    * The two AXIAL arrows (nose and tail) stand further out than the two lateral ones for exactly
    * this reason: at the muzzle's own standoff the tail arrow would be drawn underneath the hp bar.
-   * `aim-hud.ts` derives the axial standoff from `HP_BAR_GEOMETRY` plus this, so moving the bar
+   * `aim-hud.ts` derives the axial standoff from `hpBarGeometry()` plus this, so moving the bar
    * moves the arrows with it and a test holds the two apart.
    */
   hpBarClearance: 4,

@@ -1,9 +1,8 @@
 import {
-  basicAttackOf,
-  CAR_TABLE,
+  basicAttackIds,
   DEFAULT_PATCH_RATE_HZ,
   DEFAULT_CAR_ID,
-  DRIVE_CONFIG,
+  drive,
   beamShapeAt,
   hpOf,
   instanceDefOf,
@@ -25,7 +24,7 @@ import {
 /**
  * How full a car's hp bar is, in `[0, 1]`.
  *
- * The denominator comes from the car's own `CAR_TABLE` hp, not from a shared maximum: a bastion at
+ * The denominator comes from the car's own `cars()` hp, not from a shared maximum: a bastion at
  * half hp and a mirage at half hp must both read as half a bar, or the bar tells you about the
  * chassis instead of about the fight. An unrecognised `carId` falls back to the default chassis,
  * the same fallback the sim uses, rather than dividing by an undefined maximum and rendering NaN.
@@ -106,13 +105,19 @@ export interface HpBarGeometry {
  * `offset + thickness`, and that clearance has to be derived from this object rather than typed as
  * a number that stops being true the next time the bar moves. A `.ts` module with no Phaser import
  * is also the only shape a Node test can read it from.
+ *
+ * A FUNCTION, not a module-level constant: a `const` computed at import time would freeze
+ * `drive().carWidth` at whichever mode happened to be installed first and never see a later
+ * `withMode` scope or a `setTuning` retune.
  */
-export const HP_BAR_GEOMETRY: HpBarGeometry = {
-  length: 55, // 44 -> 55 with the 2026-09-16 hull resize: the bar lies across the tail, which grew 32 -> 40.
-  thickness: 5,
-  // Clear of the car's own silhouette, which is `DRIVE_CONFIG.carWidth` long nose to tail.
-  offset: DRIVE_CONFIG.carWidth / 2 + 6,
-};
+export function hpBarGeometry(): HpBarGeometry {
+  return {
+    length: 55, // 44 -> 55 with the 2026-09-16 hull resize: the bar lies across the tail, which grew 32 -> 40.
+    thickness: 5,
+    // Clear of the car's own silhouette, which is `drive().carWidth` long nose to tail.
+    offset: drive().carWidth / 2 + 6,
+  };
+}
 
 /**
  * The four world-space corners of one hp bar, or of the filled part of one.
@@ -199,7 +204,7 @@ function drawDefOf(instance: DrawableInstance): WeaponDef | null {
 }
 
 /**
- * The colour drawn for an instance whose `weaponId` is not in `WEAPON_TABLE` — a neutral grey, so
+ * The colour drawn for an instance whose `weaponId` is not in `weapons()` — a neutral grey, so
  * an unknown shot reads as "something is there" without borrowing a shipped weapon's identity.
  */
 const UNKNOWN_WEAPON_COLOR = 0x555555;
@@ -219,7 +224,7 @@ export function weaponFillOf(weaponId: string): number {
   return Number.isNaN(parsed) ? UNKNOWN_WEAPON_COLOR : parsed;
 }
 
-/** The hitbox radius drawn for an instance whose `weaponId` is not in `WEAPON_TABLE`. */
+/** The hitbox radius drawn for an instance whose `weaponId` is not in `weapons()`. */
 const UNKNOWN_WEAPON_RADIUS = 3;
 
 /**
@@ -347,7 +352,13 @@ const BASIC_ATTACK_GLOW: GlowStyle = {
   flickerHz: 0,
 };
 
-export const WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {
+/**
+ * The hand-authored half of the glow table — the one row that does not depend on the roster, so it
+ * is safe as an ordinary module constant. `weaponGlowStyleOf` and `weaponGlowStyles` below are what
+ * fold the basic-attack rows (which DO depend on the active mode's `cars()`) in on top of this at
+ * call time, rather than this table growing them once at import time.
+ */
+const STATIC_WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {
   magmablast: {
     bands: [
       { radiusScale: 1, color: "#C02000" },
@@ -368,12 +379,32 @@ export const WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {
     flickerDepth: 0,
     flickerHz: 0,
   },
-  // One authored look, nine ids. Spread rather than nine copies for `BASIC_ATTACK_BASE`'s reason:
-  // this table is a `Partial<Record<…>>` read by index, so nothing here depends on literal keys.
-  ...Object.fromEntries(
-    (Object.keys(CAR_TABLE) as CarId[]).map((carId) => [basicAttackOf(carId), BASIC_ATTACK_GLOW]),
-  ),
 };
+
+/**
+ * One weapon's glow style, or `undefined` for one with no authored look. The per-instance hot path
+ * (`instanceGlowBands`/`instanceHaloBands`, called for every live instance every frame) calls this
+ * rather than `weaponGlowStyles()`, so a lookup costs one map check and, for a basic attack, one
+ * `Set.has` — never a rebuild of the whole nine-entry spread.
+ */
+export function weaponGlowStyleOf(weaponId: WeaponId): GlowStyle | undefined {
+  return STATIC_WEAPON_GLOW_STYLES[weaponId] ?? (basicAttackIds().has(weaponId) ? BASIC_ATTACK_GLOW : undefined);
+}
+
+/**
+ * The full table, assembled fresh from the active mode's roster — for callers that need to
+ * enumerate every authored style (the manual, `?dev=assets`, this file's own tests) rather than look
+ * one up. A FUNCTION, not a module-level constant: a `const` built from `cars()` at import time
+ * would freeze the basic-attack rows at whichever mode happened to be installed first.
+ */
+export function weaponGlowStyles(): Partial<Record<WeaponId, GlowStyle>> {
+  return {
+    ...STATIC_WEAPON_GLOW_STYLES,
+    // One authored look, nine ids. Spread rather than nine copies for `BASIC_ATTACK_BASE`'s reason:
+    // this table is a `Partial<Record<…>>` read by index, so nothing here depends on literal keys.
+    ...Object.fromEntries([...basicAttackIds()].map((weaponId) => [weaponId, BASIC_ATTACK_GLOW])),
+  };
+}
 
 /** A band resolved to world units and a Phaser fill, ready to stroke. */
 export interface DrawBand {
@@ -863,7 +894,7 @@ const EMBER_VERTICES = 10;
  * first cut read as a striped triangle. Tongue counts differ per layer (7 / 5 / 3) so the lobes do
  * not line up and the edges stay busy.
  *
- * Its `WEAPON_TABLE.color` is the SECOND layer, not the outer one, because a weapon's table colour
+ * Its `weapons()`'s `color` is the SECOND layer, not the outer one, because a weapon's table colour
  * is its body and on a flame the body is one layer in. Note what changed on 2026-09-02: the outer
  * layer used to be a dark maroon `#7A2018`, chosen so the darkest ring sat outside and the cone read
  * as a hard-edged object. All three layers are now warm and within one hue family, so adjacent
@@ -905,7 +936,7 @@ const EMBER_VERTICES = 10;
  *
  * The three icon-sampled colours are still in the ramp in their original order, with `#A3120B` and
  * `#FFE9A8` added at the ends, so the flame's provenance survives it getting deeper.
- * `WEAPON_TABLE.color` sits in the middle rather than second, which is where a body colour belongs
+ * `weapons()`'s `color` sits in the middle rather than second, which is where a body colour belongs
  * on a five-stop ramp.
  *
  * `embers` are the tip burning off: jet flames shed at the tip as a whole event, and thickened fuel
@@ -1019,7 +1050,7 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
    * orb reads as the same thing gathering that is about to be fired — it grew from two bands to four
    * with the beam, and a test compares the two lists element for element.
    *
-   * Its `WEAPON_TABLE.color` is the yellow layer, not the outer edge, which is the one place the
+   * Its `weapons()`'s `color` is the yellow layer, not the outer edge, which is the one place the
    * table breaks its own habit for a beam: `thunderclap` holds `#3ED1FA` already and weapon colours
    * must be unique. That is also why the yellow stays `#F0FF00` rather than taking the icon's
    * measured `#ECFC06` — the two are indistinguishable on screen, and changing it would move
@@ -1060,7 +1091,7 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
       { extentScale: 1, crossScale: 0.55, tongues: 0, tongueDepth: 0, color: "#0AC6FD", alpha: 0.44, crackle: 0.11, wander: 0.03, crackleHz: 8 },
       { extentScale: 1, crossScale: 0.4, tongues: 0, tongueDepth: 0, color: "#63E3FF", alpha: 0.58, crackle: 0.07, crackleHz: 10 },
       { extentScale: 0.96, crossScale: 0.27, tongues: 0, tongueDepth: 0, color: "#B4F3FF", alpha: 0.74, crackle: 0.04, crackleHz: 13 },
-      // `WEAPON_TABLE.color`, kept — but as a thin HALF-TRANSPARENT ring rather than as the body of
+      // `weapons()`'s `color`, kept — but as a thin HALF-TRANSPARENT ring rather than as the body of
       // the beam. Over the pale cyan beneath it and under the white core it reads as overdrive at
       // the centre rather than as a yellow stripe down a blue beam, which is what it was. Keeping
       // the hex is not sentiment: the HUD slot paints this swatch, the charge orb's colour test
@@ -1589,7 +1620,7 @@ export const WEAPON_PROJECTILE_STYLES: Partial<Record<WeaponId, ProjectileStyle>
   //
   // Its own rust, continued outward rather than restated — the principle `magmablast`'s halo states.
   // Measured off its icon in rings: rust `#B14813` at the rim, browns inward, which is where
-  // `WEAPON_TABLE.color` `#C04818` comes from. Two bands, not `magmablast`'s three, and that is a
+  // `weapons()`'s `color` `#C04818` comes from. Two bands, not `magmablast`'s three, and that is a
   // cost decision: `muzzles` x `pelletsPerVolley` is 12 projectiles PER PRESS, so a six-Bullseye
   // room can carry ~72 live instances — more than any other weapon and above the ~60 the cost notes
   // assume. A third band would make the cheapest-looking weapon the most expensive one to draw.
@@ -1621,7 +1652,7 @@ export function instanceGlowBands(
   spawnTick: number,
   nowMs: number,
 ): DrawBand[] {
-  const style = isWeaponId(weaponId) ? WEAPON_GLOW_STYLES[weaponId] : undefined;
+  const style = isWeaponId(weaponId) ? weaponGlowStyleOf(weaponId) : undefined;
   if (!style) return [];
 
   // [0, 1] rather than [-1, 1], so the scale below only ever subtracts. See `flickerDepth`.
@@ -1704,7 +1735,7 @@ export function projectileHaloShapes(
  * unit tested without a browser.
  */
 export function instanceHaloBands(weaponId: string, radius: number): DrawBand[] {
-  const style = isWeaponId(weaponId) ? WEAPON_GLOW_STYLES[weaponId] : undefined;
+  const style = isWeaponId(weaponId) ? weaponGlowStyleOf(weaponId) : undefined;
   if (!style?.halo) return [];
   return style.halo.map((band) => ({
     radius: radius * band.radiusScale,
@@ -2873,7 +2904,7 @@ export const BEAM_FADE_OUT_MS = 100;
  * Plain numbers and strings rather than the schema row, so this is testable in Node without a
  * canvas or a room — the same reason every other decision in this module takes primitives.
  *
- * A projectile, or an instance whose `weaponId` is not in `WEAPON_TABLE`, always draws fully
+ * A projectile, or an instance whose `weaponId` is not in `weapons()`, always draws fully
  * opaque: neither has a linger to fade through, and a stale or forward-incompatible id must not
  * turn a shot invisible.
  *
@@ -2916,7 +2947,7 @@ export function beamFadeAlpha(
 /**
  * Every colour this weapon's shots actually draw in, outermost first, with duplicates removed.
  *
- * `WEAPON_TABLE.color` alone stopped being the answer once weapons grew ramps and markings: it is
+ * `weapons()`'s `color` alone stopped being the answer once weapons grew ramps and markings: it is
  * `afterburner`'s middle layer, one of `lance`'s three layers, and for `thumper` it is the hull
  * layer the cream band sits on. Anything showing a player or an author "the shot colour" — the
  * `?dev=assets` swatch today — has to ask for the whole set, or it shows a third of the truth.
@@ -2928,7 +2959,7 @@ export function shotPaletteOf(weaponId: string): string[] {
   if (!isWeaponId(weaponId)) return [];
   const def = weaponDefOf(weaponId);
   const authored =
-    WEAPON_GLOW_STYLES[def.id]?.bands.map((b) => b.color) ??
+    weaponGlowStyleOf(def.id)?.bands.map((b) => b.color) ??
     WEAPON_BEAM_STYLES[def.id]?.layers.map((l) => l.color) ??
     WEAPON_PROJECTILE_STYLES[def.id]?.layers.map((l) => l.color);
   return [...new Set((authored ?? [def.color]).map((c) => c.toUpperCase()))];

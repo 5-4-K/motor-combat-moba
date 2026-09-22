@@ -181,7 +181,7 @@ it — `npm run check:weapons` measures the RGB distance and warns past `COLOR_D
 warning and never fails the suite. Every weapon but `tremor` carries an icon today.
 
 Three tables own how a shot looks, split by what the weapon's hitbox is, and each returns `[]` for a
-weapon it does not own so the flat `weaponFillOf` fill stays the fallback: `WEAPON_GLOW_STYLES`
+weapon it does not own so the flat `weaponFillOf` fill stays the fallback: `weaponGlowStyleOf`/`weaponGlowStyles()`
 (circles, nested by radius) holds ten rows — `magmablast`'s explosion disc plus all nine
 basic-attack rows, each given a lit core so a flat near-black disc reads as a sphere
 rather than a hole on this game's light floors (BA8) — and every round projectile with no entry
@@ -250,7 +250,7 @@ the suite. That is fine and deliberate: nothing
 in the sim reads it, and `instanceGlowBands` already animates off the same clock. `beamDrawLayers`
 takes `nowMs` as a defaulted last parameter, so every other caller keeps drawing a frozen frame.
 
-How a shot is *shaped* is `WEAPON_GLOW_STYLES` in `scenes/combat-visual.ts`: per weapon, holding ten
+How a shot is *shaped* is `weaponGlowStyleOf`/`weaponGlowStyles()` in `scenes/combat-visual.ts`: per weapon, holding ten
 rows today (see above) — every weapon without one of those ten still draws the flat `weaponFillOf`
 disc or polygon. Bands are fractions of the hitbox radius and the flicker only shrinks, so a drawn shot can
 never exceed the hitbox — that is the invariant `instanceGlowBands` is tested against, and the reason

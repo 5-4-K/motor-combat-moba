@@ -35,7 +35,8 @@ import {
   instanceHaloBands,
   isAuraInstance,
   WEAPON_BEAM_STYLES,
-  WEAPON_GLOW_STYLES,
+  weaponGlowStyleOf,
+  weaponGlowStyles,
   weaponFillOf,
   type DrawableInstance,
 } from "./combat-visual.js";
@@ -287,7 +288,7 @@ describe("instanceGlowBands", () => {
   const RADIUS = WEAPON_TABLE.magmablast.hitbox.radius;
 
   it("returns nothing for a weapon with no authored look, so it keeps its flat disc", () => {
-    // `WEAPON_GLOW_STYLES` is empty as of the 2026-09-01 roster cutover (see the table's own
+    // `weaponGlowStyles()` is empty as of the 2026-09-01 roster cutover (see the table's own
     // comment), so every real weapon id proves this branch today. `predator` stands in for "any
     // weapon with no authored look."
     expect(instanceGlowBands("predator", 3, 0, 0)).toEqual([]);
@@ -298,14 +299,14 @@ describe("instanceGlowBands", () => {
   });
 
   // The five tests below pin `instanceGlowBands`' actual band math -- ordering, containment,
-  // flicker, phase, scaling -- and every one of them needs a REAL `WEAPON_GLOW_STYLES` entry to
+  // flicker, phase, scaling -- and every one of them needs a REAL `weaponGlowStyles()` entry to
   // exercise it against. The table is empty since the 2026-09-01 roster cutover retired `fireball`
   // (its one weapon with a flicker) and moved `pepperbox` out to an ellipse hitbox a round-glow
   // table cannot own, so nothing in the shipped roster carries a look. Skipped rather than deleted
   // or faked against data that describes no shipped weapon: the mechanism is still live code, ready
   // for whichever weapon next earns bands. `fireball`'s retired numbers are frozen here as literals
-  // (it is no longer a valid `WeaponId`, so `WEAPON_GLOW_STYLES` can no longer be indexed by it) —
-  // un-skip and point these at a real weapon's id and its real `WEAPON_GLOW_STYLES` entry once one
+  // (it is no longer a valid `WeaponId`, so `weaponGlowStyles()` can no longer be indexed by it) —
+  // un-skip and point these at a real weapon's id and its real `weaponGlowStyles()` entry once one
   // exists.
   const RETIRED_FIREBALL_BAND_COUNT = 4;
   const RETIRED_FIREBALL_FLICKER_DEPTH = 1 / 12;
@@ -1320,7 +1321,7 @@ describe("shell halos (LZ22, LZ23)", () => {
     // The D19 exception is bounded: additive only, never opaque, and the outermost SOLID band stays
     // pinned at the hitbox. An opaque halo band would be a second silhouette outside the thing that
     // can actually hit you.
-    for (const [id, style] of Object.entries(WEAPON_GLOW_STYLES)) {
+    for (const [id, style] of Object.entries(weaponGlowStyles())) {
       for (const band of style?.halo ?? []) {
         expect(band.alpha, `${id} halo`).toBeGreaterThan(0);
         expect(band.alpha, `${id} halo`).toBeLessThan(1);
@@ -1339,7 +1340,7 @@ describe("shell halos (LZ22, LZ23)", () => {
 
   it("gives every basic attack a lit core, so a flat near-black disc reads as a sphere rather than a hole on this game's light floors (BA8)", () => {
     for (const carId of Object.keys(CAR_TABLE) as CarId[]) {
-      const style = WEAPON_GLOW_STYLES[basicAttackOf(carId)];
+      const style = weaponGlowStyleOf(basicAttackOf(carId));
       expect(style, carId).toBeDefined();
       // The outermost solid band sits exactly ON the hitbox — the existing halo test asserts this
       // for every style, and a basic attack authors no halo at all.
