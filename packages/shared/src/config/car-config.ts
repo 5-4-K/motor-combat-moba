@@ -1,6 +1,8 @@
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG, perTickDecay } from "./drive-config.js";
-import { reelingSpinPerTick } from "./ram-config.js";
+import type { DriveConfig } from "./drive-config.js";
+import { RAM_CONFIG } from "./ram-config.js";
+import type { RamConfig } from "./ram-config.js";
 import type { CarDef, CarId } from "./types.js";
 import type { WeaponId } from "./weapon-types.js";
 
@@ -228,23 +230,44 @@ export interface ChassisDrive {
   spinPerTick: number; // reelingSpinPerTick() — perTickDecay(RAM_CONFIG.reelingSpinDecayRate)
 }
 
-function resolveChassisDrive(): Readonly<Record<CarId, ChassisDrive>> {
+/**
+ * Reads `cars`, `drive` and `ram` only, never `CAR_TABLE`/`DRIVE_CONFIG`/`RAM_CONFIG` directly.
+ *
+ * Deliberately does NOT delegate to `forwardMaxSpeedOf`/`turnRateOf`/`dragRateOf`/`engineAccelOf`/
+ * `reverseAccelOf`/`brakeDecelOf`/`reelingSpinPerTick` above: every one of those reads a module
+ * global by design (they are the accessors ordinary sim code still calls with just a `CarId`), so
+ * routing this resolver through them would silently ignore whatever `cars`/`drive`/`ram` this call
+ * was actually given — exactly the "two mode bundles share a derivation" bug this extraction exists
+ * to rule out. The formulas are therefore inlined from the passed tables instead of shared with
+ * those functions; retune either side by hand if the underlying equation ever changes.
+ */
+export function resolveChassisDrive(
+  cars: Readonly<Record<CarId, CarDef>> = CAR_TABLE,
+  drive: DriveConfig = DRIVE_CONFIG,
+  ram: RamConfig = RAM_CONFIG,
+): Readonly<Record<CarId, ChassisDrive>> {
   return Object.freeze(
     Object.fromEntries(
-      (Object.keys(CAR_TABLE) as CarId[]).map((id) => [
-        id,
-        Object.freeze({
-          maxSpeed: forwardMaxSpeedOf(id),
-          engineAccel: engineAccelOf(id),
-          reverseAccel: reverseAccelOf(id),
-          brakeDecel: brakeDecelOf(id),
-          turnRate: turnRateOf(id),
-          dragRate: dragRateOf(id),
-          dragPerTick: perTickDecay(dragRateOf(id)),
-          gripPerTick: perTickDecay(DRIVE_CONFIG.lateralGripRate),
-          spinPerTick: reelingSpinPerTick(),
-        }),
-      ]),
+      (Object.keys(cars) as CarId[]).map((id) => {
+        const car = cars[id];
+        const maxSpeed = drive.baseMaxSpeed + car.speed * drive.speedPerRating;
+        const dragRate = drive.baseDrag + car.accel * drive.dragPerRating;
+        const engineAccel = maxSpeed * dragRate;
+        return [
+          id,
+          Object.freeze({
+            maxSpeed,
+            engineAccel,
+            reverseAccel: engineAccel * drive.reverseAccelFactor,
+            brakeDecel: car.brakeDecel,
+            turnRate: drive.baseTurnRate + car.handling * drive.turnRatePerRating,
+            dragRate,
+            dragPerTick: perTickDecay(dragRate),
+            gripPerTick: perTickDecay(drive.lateralGripRate),
+            spinPerTick: perTickDecay(ram.reelingSpinDecayRate),
+          }),
+        ];
+      }),
     ) as Record<CarId, ChassisDrive>,
   );
 }

@@ -23,6 +23,8 @@ import { msToTicks } from "./weapon-ticks.js";
  * `grip` multiplier (spec §9.2) is the successor — a rammed car scrubs its shove through the
  * ordinary drag/grip pass every tick already runs, not a knock-specific decay.
  */
+export type RamConfig = typeof RAM_CONFIG;
+
 export const RAM_CONFIG = {
   /**
    * World units each hull is inflated by when testing for ram contact.
@@ -207,19 +209,24 @@ export function reelingSpinPerTick(): number {
 }
 
 /** The four ram durations, in the integer ticks the sim actually counts. */
-interface RamTicks {
+export interface RamTicks {
   uncontrol: number;
   drWindow: number;
   durationFloor: number;
   attackerLock: number;
 }
 
-function resolveRamTicks(): Readonly<RamTicks> {
+/**
+ * Reads `ram` only, never the module global — a resolver whose default parameter secretly stayed
+ * the only source would give two mode bundles the same ram durations regardless of what each
+ * bundle's own `RAM_CONFIG` said.
+ */
+export function resolveRamTicks(ram: RamConfig = RAM_CONFIG): Readonly<RamTicks> {
   return Object.freeze({
-    uncontrol: msToTicks(RAM_CONFIG.ramUncontrolMs),
-    drWindow: msToTicks(RAM_CONFIG.drWindowMs),
-    durationFloor: msToTicks(RAM_CONFIG.durationDrFloorMs),
-    attackerLock: msToTicks(RAM_CONFIG.attackerLockMs),
+    uncontrol: msToTicks(ram.ramUncontrolMs),
+    drWindow: msToTicks(ram.drWindowMs),
+    durationFloor: msToTicks(ram.durationDrFloorMs),
+    attackerLock: msToTicks(ram.attackerLockMs),
   });
 }
 

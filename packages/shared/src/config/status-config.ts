@@ -4,6 +4,8 @@ import type { StatusChannel, StatusDef, StatusId } from "./status-types.js";
  * Status system tuning. Every value here is read by the sim on both sides of the lockstep, so this
  * is networked balance rather than render preference — the same standing as `RAM_CONFIG`.
  */
+export type StatusConfig = typeof STATUS_CONFIG;
+
 export const STATUS_CONFIG = {
   /**
    * The most statuses one car may be in at once.
@@ -53,7 +55,9 @@ export const STATUS_CONFIG = {
  * `status-config.test.ts` asserts that against the live per-car drive numbers, worst case across
  * the roster.
  */
-export const STATUS_LIMITS: Readonly<Record<StatusChannel, { min: number; max: number }>> =
+export type StatusLimits = Readonly<Record<StatusChannel, { min: number; max: number }>>;
+
+export const STATUS_LIMITS: StatusLimits =
   Object.freeze({
     topSpeed: Object.freeze({ min: 0.5, max: 2 }),
     accel: Object.freeze({ min: 0.4, max: 2.5 }),

@@ -1,5 +1,5 @@
-import { STATUS_TABLE, statusDefOf } from "./status-config.js";
-import type { StatusId } from "./status-types.js";
+import { STATUS_TABLE } from "./status-config.js";
+import type { StatusDef, StatusId } from "./status-types.js";
 import { msToTicks } from "./weapon-ticks.js";
 
 /**
@@ -17,17 +17,26 @@ import { msToTicks } from "./weapon-ticks.js";
  *
  * `0` for a status with no pulse. Floored at 1 for one that has one, because a pulse interval of 0
  * ticks would fire on every tick of the status and turn an authored 8-damage bleed into 240 hp/s.
+ *
+ * Reads `table` only, never `STATUS_TABLE` directly, so two mode bundles derive two independent
+ * pulse-tick tables from two independent status tables. `table[id]` rather than `statusDefOf(id)`
+ * for the same reason: `statusDefOf` reads the module-global `STATUS_TABLE`, which would silently
+ * defeat the parameter.
  */
-export const STATUS_PULSE_TICKS: Readonly<Record<StatusId, number>> = Object.freeze(
-  Object.fromEntries(
-    (Object.keys(STATUS_TABLE) as StatusId[]).map((id) => {
-      // Through `statusDefOf` rather than indexing the table: `as const satisfies` narrows each
-      // row to its own literal type, so a row with no pulse has no `pulse` property to read.
-      const pulse = statusDefOf(id).pulse;
-      return [id, pulse ? Math.max(1, msToTicks(pulse.intervalMs)) : 0];
-    }),
-  ) as Record<StatusId, number>,
-);
+export function resolveStatusPulseTicks(
+  table: Readonly<Record<StatusId, StatusDef>> = STATUS_TABLE,
+): Readonly<Record<StatusId, number>> {
+  return Object.freeze(
+    Object.fromEntries(
+      (Object.keys(table) as StatusId[]).map((id) => {
+        const pulse = table[id].pulse;
+        return [id, pulse ? Math.max(1, msToTicks(pulse.intervalMs)) : 0];
+      }),
+    ) as Record<StatusId, number>,
+  );
+}
+
+export const STATUS_PULSE_TICKS: Readonly<Record<StatusId, number>> = resolveStatusPulseTicks();
 
 export function statusPulseTicksOf(id: StatusId): number {
   return STATUS_PULSE_TICKS[id];

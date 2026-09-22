@@ -1,3 +1,5 @@
+export type CombatConfig = typeof COMBAT_CONFIG;
+
 export const COMBAT_CONFIG = {
   /** Hull HP per point of the `hp` rating. Ratings are 0-100, so hull HP runs 0-1000. */
   hpPerRating: 10,

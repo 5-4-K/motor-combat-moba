@@ -9,6 +9,8 @@ import { TICK_RATE_HZ } from "../constants.js";
  * They sequence deliberately: 3 s of "[name] killed you", then 2 s of respawn countdown, then a
  * return to the field with 1.5 s of protection.
  */
+export type DeathmatchConfig = typeof DEATHMATCH_CONFIG;
+
 export const DEATHMATCH_CONFIG = Object.freeze({
   /** Match length. Three minutes keeps a match tight enough to stay urgent end to end. */
   matchSeconds: 180,
@@ -31,13 +33,28 @@ export const DEATHMATCH_CONFIG = Object.freeze({
   phaseMaxSeconds: 3,
 } as const);
 
+/** The four deathmatch durations, in the integer ticks the sim actually counts. */
+export interface DeathmatchTicks {
+  match: number;
+  respawnDelay: number;
+  phase: number;
+  phaseMax: number;
+}
+
 /**
- * The same durations in whole ticks, derived once and frozen — the pattern `WEAPON_TICKS` and
- * `STATUS_PULSE_TICKS` already set. Deriving per use would round the same number in two places.
+ * The same durations in whole ticks — the pattern `WEAPON_TICKS` and `STATUS_PULSE_TICKS` already
+ * set. Deriving per use would round the same number in two places.
  */
-export const DEATHMATCH_TICKS = Object.freeze({
-  match: Math.round(DEATHMATCH_CONFIG.matchSeconds * TICK_RATE_HZ),
-  respawnDelay: Math.round(DEATHMATCH_CONFIG.respawnDelaySeconds * TICK_RATE_HZ),
-  phase: Math.round(DEATHMATCH_CONFIG.phaseSeconds * TICK_RATE_HZ),
-  phaseMax: Math.round(DEATHMATCH_CONFIG.phaseMaxSeconds * TICK_RATE_HZ),
-});
+export function resolveDeathmatchTicks(
+  deathmatch: DeathmatchConfig = DEATHMATCH_CONFIG,
+): DeathmatchTicks {
+  return {
+    match: Math.round(deathmatch.matchSeconds * TICK_RATE_HZ),
+    respawnDelay: Math.round(deathmatch.respawnDelaySeconds * TICK_RATE_HZ),
+    phase: Math.round(deathmatch.phaseSeconds * TICK_RATE_HZ),
+    phaseMax: Math.round(deathmatch.phaseMaxSeconds * TICK_RATE_HZ),
+  };
+}
+
+/** Resolved once at module load, mirroring `WEAPON_TICKS`. */
+export const DEATHMATCH_TICKS: DeathmatchTicks = Object.freeze(resolveDeathmatchTicks());

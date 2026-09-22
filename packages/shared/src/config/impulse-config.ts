@@ -9,6 +9,8 @@
  *   the contact point handed to `applyImpulse` was the victim's own centre and the lever arm was
  *   therefore always exactly zero; Task 2 passes a real point and this became live.
  */
+export type ImpulseConfig = typeof IMPULSE_CONFIG;
+
 export const IMPULSE_CONFIG = {
   wallContactPad: 1,
 

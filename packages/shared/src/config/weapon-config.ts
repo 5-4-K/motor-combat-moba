@@ -699,10 +699,21 @@ export function rebuildBurstDefs(hasOverrides: boolean): void {
   ACTIVE_BURST_DEFS = hasOverrides ? buildBurstDefs() : BURST_DEFS;
 }
 
-function buildBurstDefs(): Partial<Record<WeaponId, BeamWeaponDef>> {
+/**
+ * Reads `table` only, never `WEAPON_TABLE` directly — a resolver whose default parameter stayed the
+ * only real source would give two mode bundles the same synthesized bursts regardless of what each
+ * bundle's own weapon table said. Indexes `table` directly rather than going through `weaponDefOf`
+ * (which the long comment above explains was needed to dodge `WEAPON_TABLE`'s `as const satisfies`
+ * literal-union narrowing): `table`'s own type is the plain `Record<WeaponId, WeaponDef>` this
+ * function's parameter declares, so a bare index already yields the ordinary `WeaponDef` union and
+ * narrows on `.kind`/`.explosion` exactly as `weaponDefOf`'s return type does.
+ */
+export function buildBurstDefs(
+  table: Readonly<Record<WeaponId, WeaponDef>> = WEAPON_TABLE,
+): Partial<Record<WeaponId, BeamWeaponDef>> {
   const bursts: Partial<Record<WeaponId, BeamWeaponDef>> = {};
-  for (const id of Object.keys(WEAPON_TABLE) as WeaponId[]) {
-    const parent = weaponDefOf(id);
+  for (const id of Object.keys(table) as WeaponId[]) {
+    const parent = table[id];
     if (parent.kind !== "projectile" || !parent.explosion) continue;
     const blast = parent.explosion;
     const burst: BeamWeaponDef = {

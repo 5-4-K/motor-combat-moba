@@ -6,6 +6,8 @@ import { TICK_RATE_HZ } from "../constants.js";
  * `depth` is geometry, not balance — it must match the strips `ARENA_01` authors, and
  * `arena-01.test.ts` fails if it drifts.
  */
+export type SpikeConfig = typeof SPIKE_CONFIG;
+
 export const SPIKE_CONFIG = {
   /** Flat, per trigger. Between a Thumper shell (60) and a Roadblock (100); nine kill a Bullseye. */
   damage: 80,
@@ -32,11 +34,25 @@ export const SPIKE_CONFIG = {
   contactPad: 2,
 } as const;
 
+/** The two spike durations, in the integer ticks the sim actually counts. */
+export interface SpikeTicks {
+  retrigger: number;
+  shoverCredit: number;
+}
+
 /**
- * The millisecond knobs above in ticks, converted ONCE. `Math.ceil` so a window is never short by a
- * rounding — an immunity that expires a tick early is a double hit.
+ * The millisecond knobs above in ticks. `Math.ceil` so a window is never short by a rounding — an
+ * immunity that expires a tick early is a double hit.
  */
-export const SPIKE_TICKS = {
-  retrigger: Math.ceil((SPIKE_CONFIG.retriggerMs / 1000) * TICK_RATE_HZ),
-  shoverCredit: Math.ceil((SPIKE_CONFIG.shoverCreditMs / 1000) * TICK_RATE_HZ),
-} as const;
+export function resolveSpikeTicks(spike: SpikeConfig = SPIKE_CONFIG): SpikeTicks {
+  return {
+    retrigger: Math.ceil((spike.retriggerMs / 1000) * TICK_RATE_HZ),
+    shoverCredit: Math.ceil((spike.shoverCreditMs / 1000) * TICK_RATE_HZ),
+  };
+}
+
+/**
+ * Resolved once at module load, mirroring `WEAPON_TICKS`. Server and client both import shared's
+ * built `dist`, so both compute identical tick counts or neither does.
+ */
+export const SPIKE_TICKS: SpikeTicks = resolveSpikeTicks();

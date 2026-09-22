@@ -40,16 +40,24 @@ function turnPerTickOf(turnRateDegPerSec: number): number {
   return (turnRateDegPerSec * Math.PI) / 180 / TICK_RATE_HZ;
 }
 
+/** `TURRET_CONFIG` resolved to the tick grid. */
+export interface TurretTicks {
+  turnPerTick: number;
+}
+
+/** Radians per tick, from the passed config. */
+export function resolveTurretTicks(turret: TurretConfig = TURRET_CONFIG): TurretTicks {
+  return { turnPerTick: turnPerTickOf(turret.turnRateDegPerSec) };
+}
+
 /**
- * `TURRET_CONFIG` resolved to the tick grid. Radians per tick. One object for the life of the
- * process, rewritten IN PLACE by `rebuildTurretTicks`, so every reader that reads the field at use
- * time — `turnTurret`'s default step, the bot's turn budget — sees a playground retune (TR57).
+ * One object for the life of the process, rewritten IN PLACE by `rebuildTurretTicks`, so every
+ * reader that reads the field at use time — `turnTurret`'s default step, the bot's turn budget —
+ * sees a playground retune (TR57).
  */
-export const TURRET_TICKS: { turnPerTick: number } = {
-  turnPerTick: turnPerTickOf(TURRET_CONFIG.turnRateDegPerSec),
-};
+export const TURRET_TICKS: TurretTicks = resolveTurretTicks();
 
 /** Playground tuning only (TR57) — called by `setTuning` after every write, never from the sim. */
 export function rebuildTurretTicks(): void {
-  TURRET_TICKS.turnPerTick = turnPerTickOf(TURRET_CONFIG.turnRateDegPerSec);
+  TURRET_TICKS.turnPerTick = resolveTurretTicks().turnPerTick;
 }

@@ -28,7 +28,13 @@ const ABILITY_SLOTS = 3;
  * `maxFireSlots` is how many weapons a car can actually fire: the kit plus its basic attack (BA11).
  * `basicAttackSlotIndex` is 0. Both are derived rather than typed, so they cannot disagree with `N`.
  */
-export const WEAPON_SLOT_CONFIG = {
+export interface WeaponSlotConfig {
+  readonly maxAbilitySlots: number;
+  readonly maxFireSlots: number;
+  readonly basicAttackSlotIndex: 0;
+}
+
+export const WEAPON_SLOT_CONFIG: WeaponSlotConfig = {
   maxAbilitySlots: ABILITY_SLOTS,
   maxFireSlots: ABILITY_SLOTS + 1,
   /**

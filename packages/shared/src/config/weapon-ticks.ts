@@ -1,5 +1,6 @@
 import { TICK_RATE_HZ } from "../constants.js";
 import { STATUS_CONFIG } from "./status-config.js";
+import type { StatusConfig } from "./status-config.js";
 import type { StatusId } from "./status-types.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
 import type { WeaponDef, WeaponId } from "./weapon-types.js";
@@ -70,7 +71,7 @@ export interface WeaponTicks {
   };
 }
 
-function ticksFor(def: WeaponDef): WeaponTicks {
+function ticksFor(def: WeaponDef, status: StatusConfig): WeaponTicks {
   return {
     startUp: msToTicks(def.startUpMs),
     cooldown: msToTicks(def.cooldownMs),
@@ -87,7 +88,7 @@ function ticksFor(def: WeaponDef): WeaponTicks {
     maneuverDuration:
       def.kind === "maneuver" && def.maneuver.type === "charge" ? msToTicks(def.maneuver.durationMs) : 0,
     applyDurations: Object.freeze(
-      (def.applies ?? []).map((a) => msToTicks(Math.min(a.durationMs, STATUS_CONFIG.maxDurationMs))),
+      (def.applies ?? []).map((a) => msToTicks(Math.min(a.durationMs, status.maxDurationMs))),
     ),
     explosion:
       def.kind === "projectile" && def.explosion
@@ -101,7 +102,7 @@ function ticksFor(def: WeaponDef): WeaponTicks {
             damageInterval: Number.POSITIVE_INFINITY,
             applyDurations: Object.freeze(
               (def.explosion.applies ?? []).map((a) =>
-                msToTicks(Math.min(a.durationMs, STATUS_CONFIG.maxDurationMs)),
+                msToTicks(Math.min(a.durationMs, status.maxDurationMs)),
               ),
             ),
           })
@@ -117,7 +118,7 @@ function ticksFor(def: WeaponDef): WeaponTicks {
             // their own `applies` list must not have quietly bought them an exemption.
             applies: def.impulse.applies.map((a) => ({
               statusId: a.statusId,
-              durationTicks: msToTicks(Math.min(a.durationMs, STATUS_CONFIG.maxDurationMs)),
+              durationTicks: msToTicks(Math.min(a.durationMs, status.maxDurationMs)),
             })),
             onWallImpact:
               def.impulse.onWallImpact === undefined
@@ -128,7 +129,7 @@ function ticksFor(def: WeaponDef): WeaponTicks {
                     windowTicks: msToTicks(def.impulse.onWallImpact.windowMs),
                     applies: def.impulse.onWallImpact.applies.map((a) => ({
                       statusId: a.statusId,
-                      durationTicks: msToTicks(Math.min(a.durationMs, STATUS_CONFIG.maxDurationMs)),
+                      durationTicks: msToTicks(Math.min(a.durationMs, status.maxDurationMs)),
                     })),
                   },
             retriggerImmunity: msToTicks(def.impulse.retriggerImmunityMs ?? 0),
@@ -143,10 +144,19 @@ function ticksFor(def: WeaponDef): WeaponTicks {
  */
 export const WEAPON_TICKS: Readonly<Record<WeaponId, WeaponTicks>> = resolveTicks();
 
-function resolveTicks(): Readonly<Record<WeaponId, WeaponTicks>> {
+/**
+ * Reads its parameters only, never a module global — two different mode bundles must derive two
+ * independent tick tables from two independent tables, and defaulting to `WEAPON_TABLE`/
+ * `STATUS_CONFIG` here is only what keeps the module-load call below (and every existing caller)
+ * working unchanged.
+ */
+export function resolveTicks(
+  table: Readonly<Record<WeaponId, WeaponDef>> = WEAPON_TABLE,
+  status: StatusConfig = STATUS_CONFIG,
+): Readonly<Record<WeaponId, WeaponTicks>> {
   return Object.freeze(
     Object.fromEntries(
-      (Object.keys(WEAPON_TABLE) as WeaponId[]).map((id) => [id, Object.freeze(ticksFor(WEAPON_TABLE[id]))]),
+      (Object.keys(table) as WeaponId[]).map((id) => [id, Object.freeze(ticksFor(table[id], status))]),
     ) as Record<WeaponId, WeaponTicks>,
   );
 }

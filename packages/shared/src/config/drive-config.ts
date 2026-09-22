@@ -50,6 +50,8 @@ export function perTickDecay(ratePerSecond: number): number {
   return Math.exp(-ratePerSecond / TICK_RATE_HZ);
 }
 
+export type DriveConfig = typeof DRIVE_CONFIG;
+
 export const DRIVE_CONFIG = {
   /**
    * Halved from 180 together with `speedPerRating` (4.5 -> 2.25) on 2026-09-01 — a roster-wide 50%
@@ -347,6 +349,8 @@ export const DRIVE_CONFIG = {
  * fastest car so a spectator can outrun the fight to see where it is going — see the coupling note
  * on `DRIVE_CONFIG`.
  */
+export type CameraConfig = typeof CAMERA_CONFIG;
+
 export const CAMERA_CONFIG = {
   camLerp: 0.18,
   zoom: 1,
