@@ -3,15 +3,18 @@ import {
   weaponDefOf,
   basicAttackOf,
   CAR_TABLE,
+  cfg,
   COLOR_TABLE,
   DEFAULT_PATCH_RATE_HZ,
   DRIVE_CONFIG,
   WEAPON_TABLE,
   WeaponKind,
+  withMode,
   hpOf,
   msToTicks,
   weaponTicksOf,
   type CarId,
+  type ModeConfig,
   type WeaponId,
 } from "@motor-combat-moba/shared";
 import {
@@ -281,6 +284,44 @@ describe("weaponFillOf", () => {
   it("falls back to grey for an unrecognised weapon id rather than an invisible NaN fill", () => {
     expect(weaponFillOf("not-a-weapon")).toBe(0x555555);
     expect(Number.isNaN(weaponFillOf("not-a-weapon"))).toBe(false);
+  });
+});
+
+describe("weaponGlowStyleOf (fix round 1: bundle-identity cache)", () => {
+  it("reflects a mode switch rather than a stale cached basic-attack Set", () => {
+    // A synthetic second bundle: identical to whatever is installed, except mirage's basic attack
+    // id is swapped for `tremor` — the one WEAPON_TABLE row no chassis carries. That makes the two
+    // bundles' basic-attack SETS genuinely differ, so a stale cache (still holding bundle A's Set)
+    // is distinguishable from a correctly-rebuilt one: under bundle B, "basic-attack-mirage" must
+    // stop reading as a basic attack and "tremor" must start.
+    const bundleA = cfg();
+    const bundleB: ModeConfig = {
+      ...bundleA,
+      cars: {
+        ...bundleA.cars,
+        mirage: { ...bundleA.cars.mirage, basicAttack: "tremor" },
+      },
+    };
+
+    withMode(bundleA, () => {
+      expect(weaponGlowStyleOf(bundleA.cars.mirage.basicAttack)).toBeDefined();
+      expect(weaponGlowStyleOf("tremor")).toBeUndefined();
+    });
+
+    // The read above populated the cache against bundle A's identity. This read is under bundle B
+    // — a cache keyed on anything other than bundle identity (a boolean, a tick count, nothing at
+    // all) would still answer from bundle A's Set here.
+    withMode(bundleB, () => {
+      expect(weaponGlowStyleOf(bundleA.cars.mirage.basicAttack)).toBeUndefined();
+      expect(weaponGlowStyleOf("tremor")).toBeDefined();
+    });
+
+    // And switching back to bundle A (a real mode switch does this — a room's bundle is the same
+    // object every time it ticks) must reflect A again, not get stuck on B.
+    withMode(bundleA, () => {
+      expect(weaponGlowStyleOf(bundleA.cars.mirage.basicAttack)).toBeDefined();
+      expect(weaponGlowStyleOf("tremor")).toBeUndefined();
+    });
   });
 });
 

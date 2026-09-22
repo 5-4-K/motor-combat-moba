@@ -1,5 +1,6 @@
 import {
   basicAttackIds,
+  cfg,
   DEFAULT_PATCH_RATE_HZ,
   DEFAULT_CAR_ID,
   drive,
@@ -15,11 +16,35 @@ import {
   weaponTicksOf,
   type BeamHitbox,
   type CarId,
+  type ModeConfig,
   type ProjectileHitbox,
   type WeaponDef,
   type WeaponId,
   type WorldShape,
 } from "@motor-combat-moba/shared";
+
+/**
+ * Caches `compute()`'s result against the `ModeConfig` OBJECT it was derived from, not a boolean or
+ * a tick count — mode bundles are frozen and identity-stable per mode, and `setTuning` installs a
+ * NEW bundle object rather than mutating one, so a reference check is both a correct and a free
+ * invalidation key. Rebuilds only when `cfg()` no longer `===` the bundle the cached value came
+ * from: a mode switch, a `setTuning` retune, or a test installing its own bundle all invalidate it
+ * for free, with one reference comparison on every other call.
+ *
+ * This is NOT the module-scope-hoist bug the rest of this task removed — the cache is built the
+ * first time the returned function is CALLED, never at import time, and it is re-derived the moment
+ * the installed bundle changes under it.
+ */
+function memoOnBundle<T>(compute: () => T): () => T {
+  let cached: { bundle: ModeConfig; value: T } | undefined;
+  return () => {
+    const bundle = cfg();
+    if (cached === undefined || cached.bundle !== bundle) {
+      cached = { bundle, value: compute() };
+    }
+    return cached.value;
+  };
+}
 
 /**
  * How full a car's hp bar is, in `[0, 1]`.
@@ -108,16 +133,17 @@ export interface HpBarGeometry {
  *
  * A FUNCTION, not a module-level constant: a `const` computed at import time would freeze
  * `drive().carWidth` at whichever mode happened to be installed first and never see a later
- * `withMode` scope or a `setTuning` retune.
+ * `withMode` scope or a `setTuning` retune. Memoised on bundle identity (`memoOnBundle`) rather than
+ * rebuilt on every call — this is read once per car per frame from `ArenaScene.drawHpBar` and from
+ * `aim-hud.ts`'s `axialStandoff()`, so a fresh three-field allocation each time is real per-frame
+ * cost for no reason: the object is identical for every car until the mode bundle itself changes.
  */
-export function hpBarGeometry(): HpBarGeometry {
-  return {
-    length: 55, // 44 -> 55 with the 2026-09-16 hull resize: the bar lies across the tail, which grew 32 -> 40.
-    thickness: 5,
-    // Clear of the car's own silhouette, which is `drive().carWidth` long nose to tail.
-    offset: drive().carWidth / 2 + 6,
-  };
-}
+export const hpBarGeometry: () => HpBarGeometry = memoOnBundle(() => ({
+  length: 55, // 44 -> 55 with the 2026-09-16 hull resize: the bar lies across the tail, which grew 32 -> 40.
+  thickness: 5,
+  // Clear of the car's own silhouette, which is `drive().carWidth` long nose to tail.
+  offset: drive().carWidth / 2 + 6,
+}));
 
 /**
  * The four world-space corners of one hp bar, or of the filled part of one.
@@ -382,13 +408,23 @@ const STATIC_WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {
 };
 
 /**
+ * `basicAttackIds()` allocates a fresh `Set` on every call — it is a plain derivation, not a cache
+ * — so calling it directly from the per-frame hot path below would rebuild that Set for every live
+ * instance every frame, once per lookup. Memoised on bundle identity instead: rebuilt only when the
+ * installed mode bundle actually changes, which is exactly what `weaponGlowStyleOf`'s own doc
+ * comment below promises.
+ */
+const cachedBasicAttackIds = memoOnBundle(() => basicAttackIds());
+
+/**
  * One weapon's glow style, or `undefined` for one with no authored look. The per-instance hot path
  * (`instanceGlowBands`/`instanceHaloBands`, called for every live instance every frame) calls this
  * rather than `weaponGlowStyles()`, so a lookup costs one map check and, for a basic attack, one
- * `Set.has` — never a rebuild of the whole nine-entry spread.
+ * `Set.has` against a cache kept live on the bundle — never a rebuild of the whole nine-entry
+ * spread, and never a fresh `Set` allocation either.
  */
 export function weaponGlowStyleOf(weaponId: WeaponId): GlowStyle | undefined {
-  return STATIC_WEAPON_GLOW_STYLES[weaponId] ?? (basicAttackIds().has(weaponId) ? BASIC_ATTACK_GLOW : undefined);
+  return STATIC_WEAPON_GLOW_STYLES[weaponId] ?? (cachedBasicAttackIds().has(weaponId) ? BASIC_ATTACK_GLOW : undefined);
 }
 
 /**
