@@ -1,6 +1,8 @@
 import type { GameMode } from "../constants.js";
 import { resolveChassisDrive } from "../config/car-config.js";
 import { resolveDeathmatchTicks } from "../config/deathmatch-config.js";
+import { DRIVE_CONFIG } from "../config/drive-config.js";
+import type { DriveConfig } from "../config/drive-config.js";
 import { resolveRamTicks } from "../config/ram-config.js";
 import { resolveSpikeTicks } from "../config/spike-config.js";
 import { resolveStatusPulseTicks } from "../config/status-ticks.js";
@@ -33,9 +35,21 @@ function deepFreeze<T>(value: T): T {
 export function assembleModeConfig(id: GameMode, tables: ModeTables): ModeConfig {
   const cloned = structuredClone(tables) as ModeTables;
 
+  /**
+   * The OBB hull is global (MC35): every mode's bundle carries the same `carWidth`/`carHeight`,
+   * re-attached here from `DRIVE_CONFIG` rather than left to whatever `cloned.drive` holds — which,
+   * per `ModeTables.drive`'s type, can never be anything but absent anyway. This is the one place
+   * the hull rejoins the rest of the drive config for the bundle's consumers.
+   */
+  const drive: DriveConfig = {
+    ...cloned.drive,
+    carWidth: DRIVE_CONFIG.carWidth,
+    carHeight: DRIVE_CONFIG.carHeight,
+  };
+
   const derived: ModeDerived = {
     weaponTicks: resolveTicks(cloned.weapons, cloned.statusConfig),
-    chassisDrive: resolveChassisDrive(cloned.cars, cloned.drive, cloned.ram),
+    chassisDrive: resolveChassisDrive(cloned.cars, drive, cloned.ram),
     burstDefs: buildBurstDefs(cloned.weapons),
     ramTicks: resolveRamTicks(cloned.ram),
     turretTicks: resolveTurretTicks(cloned.turret),
@@ -44,6 +58,6 @@ export function assembleModeConfig(id: GameMode, tables: ModeTables): ModeConfig
     statusPulseTicks: resolveStatusPulseTicks(cloned.statusTable),
   };
 
-  const config: ModeConfig = { ...cloned, id, derived };
+  const config: ModeConfig = { ...cloned, drive, id, derived };
   return deepFreeze(config);
 }

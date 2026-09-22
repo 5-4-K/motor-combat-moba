@@ -20,6 +20,10 @@ import type { ModeTables } from "./types.js";
 export const LEGACY_TABLES: ModeTables = {
   cars: CAR_TABLE,
   weapons: WEAPON_TABLE,
+  // The full DRIVE_CONFIG, hull included: `ModeTables.drive`'s narrower type (MC35) only stops a
+  // new mode's own inline literal from authoring carWidth/carHeight — it does not, and need not,
+  // stop this reference to the actual global object from carrying them too. assembleModeConfig
+  // re-attaches the hull from DRIVE_CONFIG regardless, so this is inert either way.
   drive: DRIVE_CONFIG,
   ram: RAM_CONFIG,
   impulse: IMPULSE_CONFIG,

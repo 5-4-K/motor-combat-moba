@@ -20,7 +20,18 @@ import type { BeamWeaponDef, WeaponDef, WeaponId } from "../config/weapon-types.
 export interface ModeTables {
   readonly cars: Readonly<Record<CarId, CarDef>>;
   readonly weapons: Readonly<Record<WeaponId, WeaponDef>>;
-  readonly drive: DriveConfig;
+  /**
+   * The drive model, minus the OBB hull (`carWidth`/`carHeight`). Spec MC35 keeps the hull GLOBAL —
+   * one hull for every mode, because it drags a derived chain behind it (car art pixel size, arena
+   * spawn clearance against spikes, `inertiaRadiusSquared()`, both `spinScale` constants, the
+   * countdown arrow and hp-bar scaling) — so a mode's own tables must not be ABLE to author a
+   * different one, not merely be expected not to. Omitting the two fields here makes that
+   * structural: an inline `drive: {...}` literal for a new mode that tried to include them would
+   * fail TypeScript's excess-property check. `assembleModeConfig` re-attaches both from the global
+   * `DRIVE_CONFIG` when it builds the bundle, so `ModeConfig.drive` below carries the full
+   * `DriveConfig` again, hull included.
+   */
+  readonly drive: Omit<DriveConfig, "carWidth" | "carHeight">;
   readonly ram: RamConfig;
   readonly impulse: ImpulseConfig;
   readonly combat: CombatConfig;
@@ -52,4 +63,6 @@ export interface ModeDerived {
 export interface ModeConfig extends ModeTables {
   readonly id: GameMode;
   readonly derived: ModeDerived;
+  /** The full `DriveConfig`, hull included — `assembleModeConfig` re-attaches it. See `ModeTables.drive`. */
+  readonly drive: DriveConfig;
 }
