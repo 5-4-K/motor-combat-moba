@@ -12,6 +12,11 @@ import { pts } from "./graphics-points.js";
  * `countdown-arrow.ts` and `combat-visual.ts` already use, so every rule about where a mark sits is
  * reachable from a Node test with no canvas.
  *
+ * Two GROUPS live here rather than three indicators: the TURRET group (the ring and the swing
+ * limits) and the MUZZLE group (the arrows), each switched by its own field on `AimHudSpec`. The
+ * crosshair belongs to the turret group too, but it is screen-space and `ArenaScene` draws it —
+ * `config/aim-hud.ts` carries the whole split.
+ *
  * **Why the car's frame and not the world's.** The whole HUD turns with the chassis — the swing
  * limits are relative to the nose and the muzzle directions are car-relative by definition — so the
  * scene draws it ONCE at the origin and then moves a `Graphics` to the car's pose each frame. That
@@ -48,8 +53,25 @@ export function standoffOf(dirDeg: number): number {
   return dirDeg % 180 === 0 ? AXIAL_STANDOFF : LATERAL_STANDOFF;
 }
 
-/** What one frame of the aim HUD is drawn from. Everything in it can move at runtime. */
+/**
+ * What one frame of the aim HUD is drawn from. Everything in it can move at runtime, including which
+ * of the two GROUPS are drawn at all — see `config/aim-hud.ts` for what the split means.
+ */
 export interface AimHudSpec {
+  /**
+   * Draw the TURRET group: the ring and the swing limits. False for a car with no turret weapon
+   * (`carHasTurretWeapon`, TR53) — a ring marking the reach of a crosshair that car does not have is
+   * a measurement of nothing — and false when `AIM_HUD_CONFIG.turretHud` is off.
+   *
+   * The crosshair itself is not drawn here (it is screen-space, and `ArenaScene` owns it), but it
+   * belongs to this group and is hidden by the same loadout gate.
+   */
+  showTurret: boolean;
+  /**
+   * Draw the MUZZLE group: the four arrows. Independent of the turret group, because the fixed
+   * muzzles are a fact about the car's heading and every chassis has one.
+   */
+  showMuzzle: boolean;
   /** The ring's radius: this room's crosshair reach, world units from the car's CENTRE. */
   ringRadius: number;
   /** The turret's swing arc in degrees, centred on the nose. 360 or more draws no limit lines. */
@@ -68,7 +90,8 @@ export interface AimHudSpec {
  * because nothing about them can move without a rebuild of the client.
  */
 export function aimHudSignature(spec: AimHudSpec): string {
-  return `${spec.ringRadius}|${spec.maxSwingDeg}|${spec.pivot.x}|${spec.pivot.y}`;
+  const groups = `${spec.showTurret ? "t" : ""}${spec.showMuzzle ? "m" : ""}`;
+  return `${groups}|${spec.ringRadius}|${spec.maxSwingDeg}|${spec.pivot.x}|${spec.pivot.y}`;
 }
 
 /** One dash on the ring, as the angle span Phaser's `arc` takes. */
@@ -180,6 +203,7 @@ export function ringCrossing(
  * is worse than no mark: the lines are simply not drawn, rather than drawn and then explained.
  */
 export function swingLimitLines(spec: AimHudSpec): DashSegment[] {
+  if (!spec.showTurret) return [];
   if (spec.maxSwingDeg >= 360) return [];
   const half = (Math.max(0, spec.maxSwingDeg) * Math.PI) / 360;
   const out: DashSegment[] = [];
@@ -234,13 +258,22 @@ export function muzzleArrows(): Array<Array<{ x: number; y: number }>> {
  */
 export function drawAimHud(gfx: Phaser.GameObjects.Graphics, spec: AimHudSpec): void {
   gfx.clear();
-  gfx.lineStyle(S.lineWidth, S.color, S.lineAlpha);
-  for (const span of dashedRingSpans(spec.ringRadius)) {
-    gfx.beginPath();
-    gfx.arc(0, 0, spec.ringRadius, span.start, span.end, false);
-    gfx.strokePath();
+  if (spec.showTurret) {
+    gfx.lineStyle(S.lineWidth, S.color, S.lineAlpha);
+    for (const span of dashedRingSpans(spec.ringRadius)) {
+      gfx.beginPath();
+      gfx.arc(0, 0, spec.ringRadius, span.start, span.end, false);
+      gfx.strokePath();
+    }
+    for (const seg of swingLimitLines(spec)) gfx.lineBetween(seg.x1, seg.y1, seg.x2, seg.y2);
   }
-  for (const seg of swingLimitLines(spec)) gfx.lineBetween(seg.x1, seg.y1, seg.x2, seg.y2);
-  gfx.fillStyle(S.color, S.arrowAlpha);
-  for (const points of muzzleArrows()) gfx.fillPoints(pts(points), true);
+  if (spec.showMuzzle) {
+    gfx.fillStyle(S.color, S.arrowAlpha);
+    for (const points of muzzleArrows()) gfx.fillPoints(pts(points), true);
+  }
+}
+
+/** Is there anything at all to draw? Both groups off means the scene hides the layer outright. */
+export function aimHudIsEmpty(spec: AimHudSpec): boolean {
+  return !spec.showTurret && !spec.showMuzzle;
 }

@@ -6,6 +6,7 @@ import {
   AXIAL_STANDOFF,
   LATERAL_STANDOFF,
   MUZZLE_DIRS_DEG,
+  aimHudIsEmpty,
   aimHudSignature,
   dashedLine,
   dashedRingSpans,
@@ -19,6 +20,8 @@ import {
 } from "./aim-hud.js";
 
 const SHIPPED: AimHudSpec = {
+  showTurret: true,
+  showMuzzle: true,
   ringRadius: CROSSHAIR_CONFIG.maxDistance,
   maxSwingDeg: 360,
   pivot: { x: 0, y: 0 },
@@ -204,6 +207,53 @@ describe("aimHudSignature", () => {
     expect(aimHudSignature({ ...SHIPPED, ringRadius: 90 })).not.toBe(base);
     expect(aimHudSignature({ ...SHIPPED, maxSwingDeg: 200 })).not.toBe(base);
     expect(aimHudSignature({ ...SHIPPED, pivot: { x: 6, y: 0 } })).not.toBe(base);
+  });
+
+  it("moves when either group is switched off, so the picture is rebuilt", () => {
+    const base = aimHudSignature(SHIPPED);
+    expect(aimHudSignature({ ...SHIPPED, showTurret: false })).not.toBe(base);
+    expect(aimHudSignature({ ...SHIPPED, showMuzzle: false })).not.toBe(base);
+    expect(aimHudSignature({ ...SHIPPED, showTurret: false })).not.toBe(
+      aimHudSignature({ ...SHIPPED, showMuzzle: false }),
+    );
+  });
+});
+
+describe("the two groups (turret HUD vs muzzle HUD)", () => {
+  it("drops the ring AND the swing limits with the turret group, keeping the arrows", () => {
+    const g = fakeGraphics();
+    drawAimHud(g as never, { ...SHIPPED, maxSwingDeg: 180, showTurret: false });
+    expect(g.calls.arcs).toEqual([]);
+    expect(g.calls.lines).toEqual([]);
+    expect(g.calls.polys).toHaveLength(4);
+  });
+
+  it("drops the arrows with the muzzle group, keeping the ring", () => {
+    const g = fakeGraphics();
+    drawAimHud(g as never, { ...SHIPPED, showMuzzle: false });
+    expect(g.calls.polys).toEqual([]);
+    expect(g.calls.arcs.length).toBeGreaterThan(0);
+  });
+
+  it("asks for no swing lines at all once the turret group is off, arc or no arc", () => {
+    expect(swingLimitLines({ ...SHIPPED, maxSwingDeg: 180, showTurret: false })).toEqual([]);
+    expect(swingLimitLines({ ...SHIPPED, maxSwingDeg: 180 }).length).toBeGreaterThan(0);
+  });
+
+  it("reads as empty only when BOTH groups are off", () => {
+    expect(aimHudIsEmpty(SHIPPED)).toBe(false);
+    expect(aimHudIsEmpty({ ...SHIPPED, showTurret: false })).toBe(false);
+    expect(aimHudIsEmpty({ ...SHIPPED, showMuzzle: false })).toBe(false);
+    expect(aimHudIsEmpty({ ...SHIPPED, showTurret: false, showMuzzle: false })).toBe(true);
+  });
+
+  it("clears the layer even when both groups are off, so nothing stale is left drawn", () => {
+    const g = fakeGraphics();
+    drawAimHud(g as never, { ...SHIPPED, showTurret: false, showMuzzle: false });
+    expect(g.calls.clears).toBe(1);
+    expect(g.calls.arcs).toEqual([]);
+    expect(g.calls.lines).toEqual([]);
+    expect(g.calls.polys).toEqual([]);
   });
 });
 

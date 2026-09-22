@@ -132,6 +132,41 @@ Combat is drawn, never predicted: live instances (projectiles and beams alike) c
 
 There is no lock bracket, and no targeting assist of any kind: the 2026-09-17 removal of the aim-lock feature deleted `PlayerState.lockTargetSessionId`, `SHOW_LOCK_BRACKET`, `lockBracketArms` and the `lockGfx` layer it was stroked into. Since the 2026-09-21 mouse-aim work there are two aiming HUDs, one per muzzle kind. A **fixed-muzzle** shot leaves along the car's heading, so the nose is its aiming HUD. A **turret** shot (a row carrying `WeaponDef.turret` — the basic attack, `predator`, `magmablast`, `thumper`) leaves from the turret along the bearing to the **crosshair** (`scenes/crosshair.ts`, styled by `config/crosshair.ts`'s `CROSSHAIR_STYLE`), drawn while the lock is held and the car is on the field. Since TR56 the crosshair is a **world offset from the driven car's centre** (`input/aim-offset.ts`), not a screen cursor: mouse movement moves it, it rides with the car, keeps its world direction as the car turns, and is held within `CROSSHAIR_CONFIG.maxDistance` (60 u) and inside the turret's swing arc (`TURRET_CONFIG.maxSwingDeg`), re-clamped every frame. The drawn turret (`scenes/turret-visual.ts`, sized by `config/turret-visual.ts`'s `TURRET_VISUAL.lengthUnits`) shows where it is pointing, and turns toward the bearing before the shot leaves. `aimAngle` is computed from `turretPivotOf` on the **rendered** pose, because that is what the player aimed at on screen. See [`docs/combat-model.md`](../../docs/combat-model.md#turret-muzzle).
 
+**The AIM HUD is three white marks drawn UNDER the driven car and nobody else's**, in the car's own
+frame (`scenes/aim-hud.ts`, switched by `config/aim-hud.ts`, at `AIM_HUD_DEPTH` -2 between
+`GLOW_DEPTH` and `CAR_DEPTH`): a dashed ring at `CROSSHAIR_CONFIG.maxDistance`, two dashed runs from
+the turret mount to that ring at the swing arc's edges, and four arrows at the fixed muzzle
+directions. It is drawn once at the origin and then MOVED — `setPosition`/`setRotation` to the render
+pose each frame — and re-filled only when `aimHudSignature` changes, because Phaser re-tessellates a
+`Graphics` on every rebuild and the ring alone is two dozen arcs. Client-only: no schema field,
+nothing on the wire, no sim reach.
+
+**It comes in two GROUPS, and the split is a capability, not a preference.** The TURRET group — the
+crosshair, the ring and the swing limits — is everything about a bearing the player chose, and it is
+gated on `ArenaScene.wantsPointerLock`, which is `carHasTurretWeapon` over the driven car's live fire
+slots (TR53), the same predicate `drawCar` asks before it builds a turret at all. A car with no
+turret weapon draws none of the three **and is never asked for pointer lock**, since a captured,
+invisible cursor buys nothing when nothing on screen tracks it; the gate is re-read every frame
+rather than cached, because a playground loadout swap can take the turret out from under a held lock.
+The MUZZLE group — the four arrows — is about the car's own heading, which every chassis has, so it
+is drawn whatever the loadout is. `AIM_HUD_CONFIG.turretHud` / `.muzzleHud` sit ABOVE that gate and
+hide a group a car is otherwise entitled to; `turretHud` deliberately does **not** hide the
+crosshair, which is shipped TR32 behaviour and not a new switch's to take away.
+
+**Dropping the lock must never drop firing, and `fireButtons` is where that is kept true.** It gated
+all mouse fire on `locked`, so a turret-less car would have lost LMB and RMB — its basic attack and
+its slot-1 ability — and kept only Q and E. It now takes `usesLock`: false lets the buttons through
+unlocked, which is exactly how mouse fire worked before the turret existed — click anywhere at all,
+and the shot leaves the fixed muzzle it was always going to leave. `swallow` is still masked on that
+path, and is always 0 there, since only `acquired` ever sets it.
+
+**Nothing in the shipped roster makes that gate false.** Every active chassis carries a turret ability
+(`magmablast`, `predator`, `thumper`) on top of a basic attack that is one, so `carHasTurretWeapon`
+is true for every real loadout — with the basic attack toggled off too. The turret-less path is
+reachable only from a hand-built playground kit or a chassis nobody has authored yet. It is the rule
+the code should hold regardless, and it was verified on screen by stubbing the predicate false rather
+than by reading the branch.
+
 **Player colour is for cars; weapon colour is for shots.**
 
 **Shot colour is an authoring choice, not a signal.** It says nothing about which chassis fired the

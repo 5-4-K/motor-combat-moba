@@ -94,3 +94,43 @@ describe("auto-lock on first keydown (TR31a)", () => {
     expect(shouldAutoLockOnKey(false, false, true, "w")).toBe(false);
   });
 });
+
+describe("a car with no turret weapon (TR53)", () => {
+  it("never asks for the lock, however open every other gate is", () => {
+    expect(shouldRequestLock(false, false, false, true)).toBe(true);
+    expect(shouldRequestLock(false, false, false, false)).toBe(false);
+  });
+
+  it("never auto-locks on a driving key either", () => {
+    expect(shouldAutoLockOnKey(false, false, false, "w", true)).toBe(true);
+    expect(shouldAutoLockOnKey(false, false, false, "w", false)).toBe(false);
+  });
+
+  it("gives up a lock it is already holding, menu or no menu", () => {
+    // The loadout can change under a live car in the playground, so this is checked every frame
+    // rather than only where the lock is asked for.
+    expect(shouldReleaseLock(true, false, true)).toBe(false);
+    expect(shouldReleaseLock(true, false, false)).toBe(true);
+  });
+
+  it("still fires from the mouse while unlocked, which is the whole point", () => {
+    const unlocked = initialLock();
+    // The turret car's rule, unchanged: no lock, no shot.
+    expect(fireButtons(unlocked, 0b11, true)).toBe(0);
+    // The turret-less car: click anywhere, the shot leaves its fixed muzzle.
+    expect(fireButtons(unlocked, 0b11, false)).toBe(0b11);
+  });
+
+  it("defaults to the turret car's rule when no answer is passed", () => {
+    expect(fireButtons(initialLock(), 0b1)).toBe(0);
+    expect(shouldRequestLock(false, false, false)).toBe(true);
+    expect(shouldReleaseLock(true, false)).toBe(false);
+  });
+
+  it("keeps honouring a swallowed button on the unlocked path", () => {
+    // `swallow` is only ever set by `acquired`, so a car that never locks always has 0 — this pins
+    // that the mask is still applied rather than bypassed, in case that ever stops being true.
+    const { state } = reduceLock(initialLock(), { type: "acquired", buttons: 0b01 });
+    expect(fireButtons({ ...state, locked: false }, 0b11, false)).toBe(0b10);
+  });
+});

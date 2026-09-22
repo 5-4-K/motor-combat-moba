@@ -9,20 +9,43 @@
  */
 
 /**
- * The in-code switch (the user's, not the player's): the whole aim HUD on or off.
+ * The aim HUD comes in TWO groups, because they answer different questions and one of them can stop
+ * applying to a car mid-match.
+ *
+ * - **Turret HUD** — the crosshair, the ring at its reach, and the turret's swing limits. Every one
+ *   of these is about a weapon that fires along a bearing the player chose. A car with no turret
+ *   weapon in its fire slots (`carHasTurretWeapon`, TR53) draws no turret at all, and the whole
+ *   group goes with it: `ArenaScene.wantsPointerLock` hides all three AND stops asking the browser
+ *   for pointer lock, since a crosshair nobody can see is not worth a captured cursor.
+ * - **Muzzle HUD** — the four arrows at the fixed muzzle directions. These are about the car's own
+ *   heading, which every chassis has, so they are drawn whatever the loadout is.
+ *
+ * The two switches below are the developer's, above that gate: they hide a group that a car is
+ * otherwise entitled to. The gate is a capability, the switch is a preference, and they are separate
+ * so that turning the HUD off never changes how the car is controlled.
+ */
+
+/**
+ * The in-code switch (the user's, not the player's): the aim HUD on or off, by group.
  *
  * Build-time, not a live setting and deliberately not exposed in any settings panel — a player
  * cannot turn these off, so everyone reads the same arena. A plain mutable object rather than
- * `as const` for the reason `CROSSHAIR_CONFIG` is one: read at use time, so flipping it here and
- * rebuilding the client is the whole procedure. `false` costs the scene one `setVisible(false)` per
- * frame and draws nothing; no other module branches on it.
+ * `as const` for the reason `CROSSHAIR_CONFIG` is one: read at use time, so flipping a field here
+ * and rebuilding the client is the whole procedure.
  *
- * It owes NO rebuild of anything generated. `scripts/build-cars-and-weapons.mjs` never reads it and
- * `balanceStamp` never hashes it — unlike `BASIC_ATTACK_CONFIG.enabled`, which hides a real weapon
- * and therefore owes the manual, the bot and the hint. This flag hides a drawing.
+ * `enabled` is the master; the two group flags sit under it. **`turretHud` covers the ring and the
+ * swing limits only — it does NOT hide the crosshair**, which is shipped turret behaviour (TR32)
+ * with its own spec and is not this switch's to take away. What hides the crosshair is the
+ * capability gate above, where hiding it is the point.
+ *
+ * None of it owes a rebuild of anything generated. `scripts/build-cars-and-weapons.mjs` never reads
+ * these and `balanceStamp` never hashes them — unlike `BASIC_ATTACK_CONFIG.enabled`, which hides a
+ * real weapon and therefore owes the manual, the bot and the hint. These hide a drawing.
  */
-export const AIM_HUD_CONFIG: { enabled: boolean } = {
+export const AIM_HUD_CONFIG: { enabled: boolean; turretHud: boolean; muzzleHud: boolean } = {
   enabled: true,
+  turretHud: true,
+  muzzleHud: true,
 };
 
 /**

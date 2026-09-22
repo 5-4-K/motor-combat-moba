@@ -40,9 +40,21 @@ export function reduceLock(s: LockState, e: LockEvent): { state: LockState; open
   }
 }
 
-/** Mouse buttons that may fire: none while unlocked, and never a swallowed one. */
-export function fireButtons(s: LockState, buttons: number): number {
-  return s.locked ? buttons & ~s.swallow : 0;
+/**
+ * Mouse buttons that may fire, and never a swallowed one.
+ *
+ * `usesLock` is the whole of the turret-less case. A car that aims a turret holds the lock to do it,
+ * so an unlocked pointer means the cursor is loose on the page and a click there is not a shot — the
+ * original rule. A car with NO turret weapon never asks for the lock at all (`wantsPointerLock`), so
+ * that rule would leave LMB and RMB dead for a car whose only aiming is its own heading. Pass
+ * `false` there and the buttons read straight through, which is exactly how mouse fire worked before
+ * the turret existed: click anywhere, the shot leaves the fixed muzzle it was always going to leave.
+ *
+ * `swallow` is still honoured either way, and is always 0 on the unlocked path — only `acquired`
+ * ever sets it, and a car that never locks never acquires.
+ */
+export function fireButtons(s: LockState, buttons: number, usesLock = true): number {
+  return s.locked || !usesLock ? buttons & ~s.swallow : 0;
 }
 
 /**
@@ -52,14 +64,26 @@ export function fireButtons(s: LockState, buttons: number): number {
  * cursor just before the menu mounts under it, invisible. `pauseRequested` closes that window: the
  * caller sets it the moment it asks the server to pause and clears it once the patch lands.
  */
-export function shouldRequestLock(locked: boolean, menuOpen: boolean, pauseRequested: boolean): boolean {
-  return !locked && !menuOpen && !pauseRequested;
+export function shouldRequestLock(
+  locked: boolean,
+  menuOpen: boolean,
+  pauseRequested: boolean,
+  wantsLock = true,
+): boolean {
+  return wantsLock && !locked && !menuOpen && !pauseRequested;
 }
 
-/** Should a held lock be given up right now? A per-frame safety net for any room kind: if a menu is
- * considered open while the cursor is still locked, the lock has no business being held. */
-export function shouldReleaseLock(locked: boolean, menuOpen: boolean): boolean {
-  return locked && menuOpen;
+/**
+ * Should a held lock be given up right now? A per-frame safety net for any room kind: if a menu is
+ * considered open while the cursor is still locked, the lock has no business being held.
+ *
+ * `wantsLock` false is the second way to have no business holding it: the driven car has no turret
+ * weapon, so there is nothing to aim. It is checked every frame rather than only at the request
+ * sites because a loadout can change under a held lock — the playground swaps one live — and a lock
+ * that was legitimate when it was taken must not outlive the turret that justified it.
+ */
+export function shouldReleaseLock(locked: boolean, menuOpen: boolean, wantsLock = true): boolean {
+  return locked && (menuOpen || !wantsLock);
 }
 
 /** Keys that must never trigger the first-keypress auto-lock (TR31a): Escape is what closes the
@@ -79,8 +103,11 @@ export function shouldAutoLockOnKey(
   menuOpen: boolean,
   pauseRequested: boolean,
   key: string,
+  wantsLock = true,
 ): boolean {
-  return shouldRequestLock(locked, menuOpen, pauseRequested) && !AUTO_LOCK_EXCLUDED_KEYS.has(key);
+  return (
+    shouldRequestLock(locked, menuOpen, pauseRequested, wantsLock) && !AUTO_LOCK_EXCLUDED_KEYS.has(key)
+  );
 }
 
 /**

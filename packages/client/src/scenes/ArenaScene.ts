@@ -115,7 +115,7 @@ import { releaseKeyboardCaptures } from "./keyboard-captures.js";
 import { drawCrosshair } from "./crosshair.js";
 import { controlledCarOf, isPlaygroundRoom, isPracticeRoom, isSimPaused } from "./controlled-car.js";
 import { AIM_HUD_CONFIG } from "../config/aim-hud.js";
-import { aimHudSignature, drawAimHud, type AimHudSpec } from "./aim-hud.js";
+import { aimHudIsEmpty, aimHudSignature, drawAimHud, type AimHudSpec } from "./aim-hud.js";
 import { arenaBorderRect, arenaColorsOf, arenaDecoration, drawableObstacles } from "./arena-visual.js";
 import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
@@ -1966,7 +1966,14 @@ export class ArenaScene extends Phaser.Scene {
     // is still inside the browser's transient-activation window; when it is not, the browser refuses
     // and the refusal is expected, so it asks `requestLock` to stay quiet about it — the first
     // driving key or canvas click (below) tries again with its own fresh gesture.
-    if (shouldRequestLock(this.lock.locked, this.menuOpen(room), this.pauseInFlight(room))) {
+    if (
+      shouldRequestLock(
+        this.lock.locked,
+        this.menuOpen(room),
+        this.pauseInFlight(room),
+        this.wantsPointerLock(room),
+      )
+    ) {
       requestLock(canvas, true);
     }
 
@@ -1975,7 +1982,16 @@ export class ArenaScene extends Phaser.Scene {
     // the round trip between asking practice/the playground to pause and `state.paused` patching
     // true, during which `menuOpen` still reads false.
     const onDown = (): void => {
-      if (shouldRequestLock(this.lock.locked, this.menuOpen(room), this.pauseInFlight(room))) requestLock(canvas);
+      if (
+        shouldRequestLock(
+          this.lock.locked,
+          this.menuOpen(room),
+          this.pauseInFlight(room),
+          this.wantsPointerLock(room),
+        )
+      ) {
+        requestLock(canvas);
+      }
     };
     const onChange = (): void => {
       if (document.pointerLockElement === canvas) {
@@ -2019,7 +2035,15 @@ export class ArenaScene extends Phaser.Scene {
       // TR31a: the first key after a menu closes with no gesture-capable relock (P has none) gets one
       // for free — a keydown is a user gesture too, and this fires on the very press that drives the
       // car, never consuming or blocking it (no preventDefault, no stopPropagation).
-      if (shouldAutoLockOnKey(this.lock.locked, this.menuOpen(room), this.pauseInFlight(room), event.key)) {
+      if (
+        shouldAutoLockOnKey(
+          this.lock.locked,
+          this.menuOpen(room),
+          this.pauseInFlight(room),
+          event.key,
+          this.wantsPointerLock(room),
+        )
+      ) {
         requestLock(canvas);
       }
     };
@@ -2070,7 +2094,9 @@ export class ArenaScene extends Phaser.Scene {
     // Per-frame safety net for the relock race (final-fixes item 1), covering every room kind: if a
     // menu is considered open while the cursor is still locked — however that happened — give the
     // lock up immediately rather than let an invisible cursor sit under a mounted menu.
-    if (shouldReleaseLock(this.lock.locked, this.menuOpen(room))) this.releaseLock();
+    if (shouldReleaseLock(this.lock.locked, this.menuOpen(room), this.wantsPointerLock(room))) {
+      this.releaseLock();
+    }
     // The request-side race window closes once the pause we asked for actually patches in, or times
     // out (TR54) — settled every frame so a stale request never outlives its backstop unread.
     this.pauseInFlight(room);
@@ -2084,6 +2110,9 @@ export class ArenaScene extends Phaser.Scene {
       local?.status === PlayerStatus.IN_MATCH &&
       local.alive &&
       !this.menuOpen(room);
+    // `this.lock.locked` already carries the turret gate — a turret-less car never acquires the lock
+    // and the release above gives one up the frame its last turret weapon goes — so the crosshair
+    // goes with the rest of its group without a second read of the loadout.
     gfx.setVisible(show);
     if (!show) return;
     const cam = this.cameras.main;
@@ -2171,6 +2200,35 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
+   * Does the driven car have anything to aim? — the one predicate behind the whole turret half of
+   * mouse control (TR53).
+   *
+   * True when its current fire slots carry a weapon that fires from the turret, which is exactly
+   * what `drawCar` asks before it builds a turret at all. False and three things follow together,
+   * because they are one decision: the turret HUD is not drawn (the ring, the swing limits), the
+   * crosshair is not drawn, and the browser is never asked for pointer lock — a captured, invisible
+   * cursor buys a player nothing when there is no bearing to choose and nothing on screen tracking
+   * it.
+   *
+   * Firing does NOT follow. `fireButtons` takes this same answer and lets the mouse buttons through
+   * unlocked, which is how LMB and RMB worked before the turret existed: click anywhere at all, and
+   * the shot leaves the fixed muzzle it was always going to leave.
+   *
+   * Read per frame off `PlayerState.weapons` rather than cached at match start, because a loadout
+   * changes under a live car in the playground and the lock must not outlive the turret.
+   *
+   * Nothing in the shipped roster makes this false today: every active chassis carries a turret
+   * ability (`magmablast`, `predator`, `thumper`) on top of a basic attack that is one, so it takes
+   * a hand-built turret-less loadout to reach. It is the rule the code should hold anyway, and the
+   * day a chassis ships without one it is already right.
+   */
+  private wantsPointerLock(room: Room<ArenaState>): boolean {
+    const local = room.state.players.get(this.drivenSid(room));
+    if (!local) return false;
+    return carHasTurretWeapon(local.weapons.map((slot) => slot.weaponId));
+  }
+
+  /**
    * Hand prediction over to a newly-driven car. No-op on every frame but the one the wheel moves on.
    *
    * Both halves of the prediction state are per-car: the `PredictionBuffer` holds inputs that only
@@ -2223,7 +2281,7 @@ export class ArenaScene extends Phaser.Scene {
     // here while paused — `pumpInput`'s gate stops them first.
     const input: InputMessage = this.menuOpen(room)
       ? { seq: this.inputSeq, steer: 0, throttle: 0, fireSlots: 0, aimAngle }
-      : this.readInput(aimAngle);
+      : this.readInput(aimAngle, this.wantsPointerLock(room));
     room.send(INPUT_MESSAGE, input);
 
     // Mirrors the server's own `isActiveInput` (PracticeRoom's presence stamp): a real steer,
@@ -2239,8 +2297,14 @@ export class ArenaScene extends Phaser.Scene {
     this.predicted = this.prediction.predict(from, { seq: input.seq, input }, this.stepContext(room));
   }
 
-  /** This tick's keys and buttons, as an input carrying `aimAngle`. */
-  private readInput(aimAngle: number): InputMessage {
+  /**
+   * This tick's keys and buttons, as an input carrying `aimAngle`.
+   *
+   * `usesLock` is `wantsPointerLock`: true for a car that aims a turret, so its mouse buttons count
+   * only while the cursor is captured (TR31); false for a turret-less car, whose buttons count
+   * always, since it never asks for the lock in the first place.
+   */
+  private readInput(aimAngle: number, usesLock: boolean): InputMessage {
     return {
       seq: this.inputSeq,
       steer: axisOf(
@@ -2256,11 +2320,13 @@ export class ArenaScene extends Phaser.Scene {
       // Sampling `JustDown` here instead would drop presses whenever a frame straddled two input
       // ticks. `mousePointer`, not `activePointer`: the slot bindings include mouse BUTTONS, and on a
       // touch device the active pointer is a finger whose synthetic `buttons` bit would fire the
-      // basic attack (LMB, fire slot 0) on every drag. Buttons only count while the pointer
-      // is locked, and never the click that took the lock (TR31); the keyboard slots are unaffected.
+      // basic attack (LMB, fire slot 0) on every drag. Buttons count while the pointer is locked, and
+      // never the click that took the lock (TR31) — or always, for a car with no turret weapon, which
+      // never asks for the lock and would otherwise lose LMB and RMB entirely; the keyboard slots are
+      // unaffected either way.
       fireSlots: slotMaskFrom(
         this.slotKeys?.map((keys) => keys.some((key) => key.isDown)) ?? [],
-        fireButtons(this.lock, this.input.mousePointer?.buttons ?? 0),
+        fireButtons(this.lock, this.input.mousePointer?.buttons ?? 0, usesLock),
       ),
       aimAngle,
     };
@@ -2993,6 +3059,12 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
     const spec: AimHudSpec = {
+      // The turret group answers to the loadout as well as to the switch: a car with no turret
+      // weapon draws no turret, so it gets no ring and no swing limits either (TR53). The crosshair,
+      // the third member of that group, is hidden by `syncCrosshair` through the same gate.
+      showTurret: AIM_HUD_CONFIG.turretHud && this.wantsPointerLock(room),
+      // The muzzle group answers to the switch alone. Every chassis has a heading.
+      showMuzzle: AIM_HUD_CONFIG.muzzleHud,
       // The playground's own crosshair reach where one is set, the shipped value everywhere else —
       // the ring means "this is as far as your crosshair goes", so it has to be the SAME number.
       ringRadius: this.resolveTurretView().crosshairMaxDistance,
@@ -3001,6 +3073,10 @@ export class ArenaScene extends Phaser.Scene {
       maxSwingDeg: TURRET_CONFIG.maxSwingDeg,
       pivot: turretMountOf(carIdOf(local)),
     };
+    if (aimHudIsEmpty(spec)) {
+      gfx.setVisible(false);
+      return;
+    }
     const key = aimHudSignature(spec);
     if (key !== this.aimHudKey) {
       drawAimHud(gfx, spec);
