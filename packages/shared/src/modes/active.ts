@@ -3,9 +3,11 @@
 // every accessor below is a one-line projection of it, and callers should prefer a named accessor
 // over `cfg()` at the call site (see interfaces.md's "Naming rules").
 //
-// This file imports TYPES ONLY from outside `modes/` — never `legacy.ts` — so it cannot take part
-// in the `active -> legacy -> car-config -> active` cycle. See the controller ruling in this
-// task's brief for why that matters.
+// This file imports TYPES ONLY from outside `modes/`, and nothing from `registry.ts` or `build.ts`.
+// That is what keeps it out of any cycle: `registry.ts` runs a module-load side effect (it installs
+// the default mode's bundle) and imports the mode folders, so a value import from here back into
+// that graph would run the install against a partially-initialised module. Type-only imports are
+// erased at compile time and cannot.
 import type { CombatConfig } from "../config/combat-config.js";
 import type { DeathmatchConfig } from "../config/deathmatch-config.js";
 import type { CameraConfig, DriveConfig } from "../config/drive-config.js";
