@@ -58,8 +58,10 @@ place the "a binding nobody printed breaks quietly" rule is knowingly bent. See
 **The basic attack can be switched off without deleting any of that**, via
 `BASIC_ATTACK_CONFIG.enabled` (`config/weapon-config.ts`) — a build-time flag, not a live-session
 setting: flip it, rebuild shared/server/client, and `npm run build:manual`. It shipped `false` from
-2026-09-20; **it ships `true` as of 2026-09-21**, bound to `LMB`, and the page, the hint and the bot
-all reflect that. Every test that covers the mechanic sets the flag itself rather than
+2026-09-20 and `true` from 2026-09-21 on `feature/mouse-aim`; **it ships `false` on
+`development/main`**, flipped when that branch merged, so `LMB` is bound to a weapon that refuses
+every press, the hint reads `RMB Q E to fire`, the bot never selects slot 0 and no chassis shows a
+"Basic attack" card. Every test that covers the mechanic sets the flag itself rather than
 leaning on the shipped position, so both halves stay covered whichever way it ships. Nothing about the nine
 `basic-attack-*` rows, `CarDef.basicAttack`, or its schema row at index 0 goes away when it is
 `false`; only four things read it. `beginFire` refuses a press on the basic-attack fire slot, so the
@@ -93,8 +95,16 @@ and playtest report. See the
 [`docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md`](docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md)
 (VS1–VS34).
 
-**Since 2026-09-21 some weapons fire from a mouse-aimed turret, not a fixed muzzle.** A row carrying
-`WeaponBase.turret` — the nine basic attacks, `predator`, `magmablast` and `thumper` — fires along
+**Since 2026-09-21 a weapon may fire from a mouse-aimed turret rather than a fixed muzzle — but on
+this build none does.** `development/main` carries `turret` on **the nine basic-attack rows and
+nothing else**: `predator`, `magmablast` and `thumper` carried one on `feature/mouse-aim` and gave it
+back when that branch merged, in the same pass that set `BASIC_ATTACK_CONFIG.enabled` to `false`.
+Those two edits together are why **no car on this build draws a turret, captures the pointer, or
+shows a crosshair or the turret half of the aim HUD** — `carHasTurretWeapon` (TR53) is false for
+every chassis, and a config test asserts exactly that over the live roster rather than trusting the
+two edits separately. None of the machinery below is deleted; it is dormant, and putting `turret`
+back on one ability row or flipping the flag brings all of it back. A row carrying
+`WeaponBase.turret` fires along
 the world bearing the player clicked (`InputMessage.aimAngle`, from the turret pivot to the
 crosshair), frozen at the press; the turret (`FireState.turretAngle`, sim state, mirrored
 render-only to `PlayerState.turretAngle`) turns to it at `TURRET_CONFIG.turnRateDegPerSec` before

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { TICK_RATE_HZ } from "../constants.js";
-import { CAR_TABLE, basicAttackIds, turretMountOf } from "./car-config.js";
+import { CAR_TABLE, activeCarIds, basicAttackIds, turretMountOf } from "./car-config.js";
+import { carHasTurretWeapon } from "../sim/weapons/turret.js";
+import { fireSlotsOf } from "./weapon-slots.js";
 import { TURRET_CONFIG, TURRET_TICKS } from "./turret-config.js";
-import { WEAPON_TABLE } from "./weapon-config.js";
+import { BASIC_ATTACK_CONFIG, WEAPON_TABLE } from "./weapon-config.js";
 
 describe("turret config (TR1-TR5)", () => {
   it("turns at the configured rate, converted once to radians per tick", () => {
@@ -21,13 +23,28 @@ describe("turret config (TR1-TR5)", () => {
     }
   });
 
-  it("ships the turret on exactly the basic attacks, predator, magmablast and thumper (TR4)", () => {
+  it("ships the turret on exactly the basic attacks and nothing else (TR4)", () => {
     const turretIds = Object.values(WEAPON_TABLE).filter((d) => d.turret).map((d) => d.id).sort();
     // The one honest way to ask "is this weapon a basic attack" is the slot, not the id (final-fixes
     // item 8) — `basicAttackIds()` reads `CAR_TABLE`, never a naming convention this table happens
     // to follow today.
     const basics = [...basicAttackIds()];
-    expect(turretIds).toEqual([...basics, "magmablast", "predator", "thumper"].sort());
+    // `predator`, `magmablast` and `thumper` carried a turret on `feature/mouse-aim` and gave it
+    // back on `development/main`, alongside `BASIC_ATTACK_CONFIG.enabled` going `false`. That pair
+    // of edits is the whole of this build's "no car has a turret" posture, and this row is where a
+    // third weapon quietly gaining one would be caught.
+    expect(turretIds).toEqual([...basics].sort());
+  });
+
+  it("leaves no chassis able to reach a turret at all, which is this build's posture (TR53)", () => {
+    // The by-product the two config edits were made FOR: nine turret rows none of which can be
+    // pressed, and no turret ability. Every car therefore draws no turret, captures no pointer, and
+    // shows no crosshair or turret HUD. Asserted over the real roster rather than trusted from the
+    // two edits separately, since it is their CONJUNCTION that produces it.
+    expect(BASIC_ATTACK_CONFIG.enabled).toBe(false);
+    for (const carId of activeCarIds()) {
+      expect(carHasTurretWeapon(fireSlotsOf(carId).map((s) => s.weaponId)), carId).toBe(false);
+    }
   });
 
   it("gives every chassis a mount, and an unknown id the centre (TR5)", () => {

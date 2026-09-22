@@ -254,9 +254,9 @@ describe("solve — nose, not bearing", () => {
     // so a shooter aimed off a target 300 units away must read as a likely miss, and the same
     // shooter pointed AT it must read as a likely hit. That pair is the regression guard.
     //
-    // A FIXED muzzle since TR26 (`roadblock`, 0.4 rad off — its 120-unit bar still clips a hull
-    // 0.25 rad off at this range): `predator` became a turret row, and a turret is the one case
-    // where the nose genuinely does not matter. Its half of the pair is the second case below.
+    // A FIXED muzzle (`roadblock`, 0.4 rad off — its 120-unit bar still clips a hull 0.25 rad off at
+    // this range). A turret is the one case where the nose genuinely does not matter, and its half
+    // of the pair is the second case below.
     const target = targetAt(300, 300);
     const common = {
       slot: slotFor("roadblock"), slotIndex: 0,
@@ -272,7 +272,12 @@ describe("solve — nose, not bearing", () => {
   it("does not care where the nose points for a turret weapon (TR26)", () => {
     const target = targetAt(300, 300);
     const common = {
-      slot: slotFor("predator"), slotIndex: 0,
+      // `basic-attack-bullseye`, not `predator`: `development/main` returned `predator`,
+      // `magmablast` and `thumper` to fixed muzzles when the basic attack went off, leaving the nine
+      // `basic-attack-*` rows as the table's only `turret` carriers. `solve` reads the ROW, never a
+      // fire slot, so `BASIC_ATTACK_CONFIG.enabled` does not reach it and this still measures the
+      // real bearing branch.
+      slot: slotFor("basic-attack-bullseye"), slotIndex: 1,
       target, targetAt: constantVelocityPredictor(target),
       aimSigmaRad: 0, tick: 0, arena,
     };
@@ -284,16 +289,20 @@ describe("solve — nose, not bearing", () => {
 });
 
 describe("solve — turret (TR26)", () => {
-  // `magmablast` on its own chassis: a turret row (`WeaponDef.turret`), so the shot leaves the pivot
-  // along a bearing rather than the nose. Mirage's mount is the hull centre today, but the assertions
-  // go through `turretPivotOf` so a moved mount cannot make them pass by coincidence.
+  // Mirage's own BASIC ATTACK, a turret row (`WeaponDef.turret`), so the shot leaves the pivot along
+  // a bearing rather than the nose. `magmablast` played this part until `development/main` returned
+  // it to a fixed muzzle; the nine `basic-attack-*` rows are the table's only turret carriers now,
+  // and `solve` reads the row rather than a fire slot, so the disabled basic-attack SLOT is
+  // irrelevant here. Mirage's mount is the hull centre today, but the assertions go through
+  // `turretPivotOf` so a moved mount cannot make them pass by coincidence.
+  const TURRET_ROW = "basic-attack-mirage" as const;
   const shooter: SolverShooter = { ...shooterAt(300, 100, 0), carId: "mirage" };
   const pivot = turretPivotOf(shooter, shooter.carId);
 
   it("aims a stationary target 90 degrees off the nose by bearing, from the pivot", () => {
     const target = targetAt(300, 500);
     const solution = solve({
-      shooter, slot: slotFor("magmablast"), slotIndex: 1,
+      shooter, slot: slotFor(TURRET_ROW), slotIndex: 1,
       target, targetAt: constantVelocityPredictor(target),
       aimSigmaRad: 0, tick: 0, arena,
     });
@@ -308,7 +317,7 @@ describe("solve — turret (TR26)", () => {
     const target = targetAt(250, 500, 0, 150);
     const predictor = constantVelocityPredictor(target);
     const solution = solve({
-      shooter, slot: slotFor("magmablast"), slotIndex: 1,
+      shooter, slot: slotFor(TURRET_ROW), slotIndex: 1,
       target, targetAt: predictor,
       aimSigmaRad: 0, tick: 0, arena,
     });
@@ -321,18 +330,18 @@ describe("solve — turret (TR26)", () => {
     // target will be by then.
     const turnTicks = Math.abs(wrapAngle(bearing - (shooter.angle + 0))) / TURRET_TICKS.turnPerTick;
     expect(turnTicks).toBeGreaterThan(1);
-    expect(firesAndConnects("magmablast", shooter, target, predictor, { bearing, delayTicks: turnTicks }))
+    expect(firesAndConnects(TURRET_ROW, shooter, target, predictor, { bearing, delayTicks: turnTicks }))
       .toBe(true);
     // And the turn is not decoration: the same bearing, read against a target that had NOT moved
     // on during the turn, is not the solution.
-    expect(firesAndConnects("magmablast", shooter, target, predictor, { bearing, delayTicks: turnTicks + 12 }))
+    expect(firesAndConnects(TURRET_ROW, shooter, target, predictor, { bearing, delayTicks: turnTicks + 12 }))
       .toBe(false);
   });
 
   it("charges no turn when the turret already points along the bearing", () => {
     const target = targetAt(250, 500, 0, 150);
     const common = {
-      slot: slotFor("magmablast"), slotIndex: 1,
+      slot: slotFor(TURRET_ROW), slotIndex: 1,
       target, targetAt: constantVelocityPredictor(target),
       aimSigmaRad: 0, tick: 0, arena,
     };
@@ -350,7 +359,7 @@ describe("solve — turret (TR26)", () => {
     // the shot that edge fires is judged by the ordinary march — it flies off sideways and misses.
     const target = targetAt(0, 100);
     const solution = solve({
-      shooter, slot: slotFor("magmablast"), slotIndex: 1,
+      shooter, slot: slotFor(TURRET_ROW), slotIndex: 1,
       target, targetAt: constantVelocityPredictor(target),
       aimSigmaRad: 0, tick: 0, arena, maxSwingDeg: 180,
     });

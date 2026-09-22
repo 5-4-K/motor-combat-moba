@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ABILITY_SLOT_CEILING, WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
+import { ABILITY_SLOT_CEILING, BASIC_ATTACK_CONFIG, WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
 import { HINT_SLOT_ORDER, SLOT_KEYS, hintSlotOrder, slotMaskFrom } from "./slot-keys.js";
 
 describe("slot keys", () => {
@@ -69,8 +69,10 @@ describe("slot key glyphs", () => {
   });
 
   it("gives the basic attack the left mouse button, in fire-slot 0 (TR29, TR46)", () => {
-    // The basic attack takes LMB back now that it is switched on: bit 0 is set by the left button
-    // alone, never a keyboard code.
+    // The BINDING, which the toggle does not touch: bit 0 is set by the left button alone, never a
+    // keyboard code, whether or not this build lets slot 0 fire. With the basic attack off
+    // (`development/main`) LMB is bound to a weapon that refuses every press, which is what a dead
+    // LMB looks like from here.
     expect(SLOT_KEYS[WEAPON_SLOT_CONFIG.basicAttackSlotIndex]!.buttonsMask).toBe(1);
     expect(SLOT_KEYS[WEAPON_SLOT_CONFIG.basicAttackSlotIndex]!.codes).toEqual([]);
     expect(slotMaskFrom([], 0b01) & 0b0001).toBe(0b0001);
@@ -113,7 +115,11 @@ describe("hintSlotOrder (basic-attack-toggle)", () => {
     expect(hintSlotOrder(false, 4)).toEqual([1, 2, 3, 4]);
   });
 
-  it("teaches the basic attack first now it is on (TR30)", () => {
-    expect(HINT_SLOT_ORDER).toEqual([0, 1, 2, 3]);
+  it("resolves HINT_SLOT_ORDER from whichever way this build ships the toggle (TR30)", () => {
+    // Against the flag, not against one build's answer: `feature/mouse-aim` ships it on and gets
+    // [0, 1, 2, 3]; `development/main` ships it off and gets [1, 2, 3]. Both rows are pinned
+    // explicitly by the two cases above — this one is about `HINT_SLOT_ORDER` being resolved from
+    // the flag at module load rather than hardcoded.
+    expect(HINT_SLOT_ORDER).toEqual(hintSlotOrder(BASIC_ATTACK_CONFIG.enabled));
   });
 });

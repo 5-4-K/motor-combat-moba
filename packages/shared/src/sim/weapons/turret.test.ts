@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TURRET_TICKS } from "../../config/turret-config.js";
+import { BASIC_ATTACK_CONFIG } from "../../config/weapon-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import { beginFire, newFireState, releaseShots, tickRecharge, type FireState } from "./fire.js";
 import {
@@ -34,8 +35,26 @@ describe("turretPivotOf (TR6)", () => {
 });
 
 const step = TURRET_TICKS.turnPerTick;
+
+/**
+ * Mirage's shipped kit with its slot-1 weapon swapped for mirage's own BASIC ATTACK, so fire slot 1
+ * carries a `turret` row on a build where no ability does.
+ *
+ * `development/main` returned `predator`, `magmablast` and `thumper` to fixed muzzles, which left the
+ * nine `basic-attack-*` rows as the table's only turret carriers — and `BASIC_ATTACK_CONFIG.enabled`
+ * is `false` here, so fire slot 0 refuses every press. Putting a basic attack in an ABILITY slot is
+ * what keeps these tests exercising the real mechanism against a real `WEAPON_TABLE` row: the
+ * basic-attack flag gates the slot INDEX, never the row, so slot 1 fires normally.
+ *
+ * Slots 2 and 3 stay `thunderclap` and `afterburner` so the fixed-muzzle cases below still press the
+ * weapons they were written against.
+ */
+const TURRET_SLOT_KIT = ["basic-attack-mirage", "thunderclap", "afterburner"] as const;
+/** The turret row fire slot 1 carries above — what the wind-up assertions read their ticks from. */
+const TURRET_WEAPON = "basic-attack-mirage";
+
 function mirage(): FireState {
-  return newFireState("mirage", 1);
+  return newFireState("mirage", 1, [...TURRET_SLOT_KIT]);
 }
 
 describe("beginFire captures a bearing for a turret weapon (TR12)", () => {
@@ -65,7 +84,7 @@ describe("turnTurret (TR13-TR14)", () => {
     let s = beginFire("a", mirage(), 1 << 1, 10, 0, 0);
     s = turnTurret(s, 0, 10);
     expect(s.pending?.aligned).toBe(true);
-    expect(s.pending?.nextShotTick).toBe(10 + weaponTicksOf("magmablast").startUp);
+    expect(s.pending?.nextShotTick).toBe(10 + weaponTicksOf(TURRET_WEAPON).startUp);
     expect(releaseShots(s, 10).orders).toHaveLength(1);
   });
 
@@ -81,7 +100,7 @@ describe("turnTurret (TR13-TR14)", () => {
     s = turnTurret(s, 0, 3);
     expect(s.turretAngle).toBeCloseTo(target, 12);
     expect(s.pending?.aligned).toBe(true);
-    expect(s.pending?.nextShotTick).toBe(3 + weaponTicksOf("magmablast").startUp);
+    expect(s.pending?.nextShotTick).toBe(3 + weaponTicksOf(TURRET_WEAPON).startUp);
   });
 
   it("takes the short way across +-pi", () => {
@@ -155,21 +174,29 @@ describe("carHasTurretWeapon (TR53)", () => {
 
   it("ignores a turret weapon sitting past this build's fire-slot count", () => {
     // Index 4 is past `maxFireSlots` (4, i.e. slots 0-3) at the shipped N=3 — bullseye's turret
-    // weapon (predator) parked one slot too far out never counts.
+    // weapon parked one slot too far out never counts. The turret row is a basic attack, since no
+    // ability carries one on this build — index 4 is what the test is about, not which row sits there.
     expect(
-      carHasTurretWeapon(["basic-attack-bullseye", "pepperbox", "lance", "wildcharge", "predator"], false),
+      carHasTurretWeapon(["roadblock", "pepperbox", "lance", "wildcharge", "basic-attack-bullseye"], true),
     ).toBe(false);
   });
 
-  it("is true for a turret ability within this build's slots", () => {
-    expect(carHasTurretWeapon(["basic-attack-bullseye", "predator", "pepperbox", "lance"], false)).toBe(
+  it("is true for a turret row in an ABILITY slot, even with the basic-attack slot disabled", () => {
+    // The basic-attack FLAG gates index 0 alone, so a turret row sitting at index 1 counts whatever
+    // the flag says — which is the only way a car on this build could have a turret at all.
+    expect(carHasTurretWeapon(["roadblock", "basic-attack-bullseye", "pepperbox", "lance"], false)).toBe(
       true,
     );
   });
 
   it("defaults the basic-attack flag to BASIC_ATTACK_CONFIG.enabled", () => {
-    // Shipped `true` today (TR46) — the basic attack's own turret carries every car.
-    expect(carHasTurretWeapon(["basic-attack-mirage", "thunderclap", "afterburner"])).toBe(true);
+    // Pinned against the flag rather than against a hardcoded answer, so this keeps testing the
+    // DEFAULTING either way the build ships it. `development/main` ships `false` with no turret
+    // ability, so mirage's real fire slots come back false; `feature/mouse-aim` ships `true` and
+    // the basic attack's own turret carries every car.
+    expect(carHasTurretWeapon(["basic-attack-mirage", "thunderclap", "afterburner"])).toBe(
+      BASIC_ATTACK_CONFIG.enabled,
+    );
   });
 
   it("ignores an unknown or empty weapon id rather than throwing", () => {

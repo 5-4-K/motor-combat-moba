@@ -532,8 +532,11 @@ degrees off the heading — `0` the nose, which is also what an absent `muzzles`
 grows from), and the **turret**. A row opts into the turret with `WeaponBase.turret`
 (`{ additionalOffset }`); presence is the flag. A config test holds it to single-muzzle
 `kind: "projectile"` rows, so a beam, a maneuver or a multi-muzzle row carrying it fails the suite by
-name. It ships on the nine basic-attack rows, `predator`, `magmablast` and `thumper`; every other
-row keeps its fixed muzzle.
+name. On `development/main` it ships on **the nine basic-attack rows and nothing else**, and those
+sit on a fire slot `BASIC_ATTACK_CONFIG.enabled` keeps shut — so no car can reach a turret at all and
+every row a player can actually fire uses a fixed muzzle. (`predator`, `magmablast` and `thumper`
+carried a turret on `feature/mouse-aim` and gave it back when that branch merged.) Everything below
+describes machinery that is present and correct, not machinery this build exercises.
 
 - **The bearing is frozen at the click.** A turret press records a **world** bearing in `beginFire`:
   the input's `aimAngle` (the mouse ray from the turret pivot to the crosshair — a world offset
@@ -719,7 +722,9 @@ the one place the "a binding nobody printed breaks quietly" controls rule is kno
 `BASIC_ATTACK_CONFIG.enabled` (`config/weapon-config.ts`) can turn the whole mechanic off without
 touching any of the above — the nine rows, `CarDef.basicAttack` and its schema row at index 0 all
 stay exactly as described. It is a build-time flag: flip it, rebuild, `npm run build:manual`.
-It shipped `false` from 2026-09-20 and **ships `true` as of 2026-09-21** (spec TR46), bound to LMB.
+It shipped `false` from 2026-09-20 and `true` from 2026-09-21 on `feature/mouse-aim` (spec TR46),
+bound to LMB; **`development/main` ships it `false`**, alongside returning the three turret abilities
+to fixed muzzles — the pair that leaves this build with no reachable turret at all.
 Four
 things read it when it is `false`: `beginFire` refuses a press on fire slot 0, so the key does
 nothing; the bot's `chooseSlot` never selects that slot either, so it does not waste a tick's press

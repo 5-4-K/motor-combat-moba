@@ -89,20 +89,38 @@ function playerAt(sessionId: string, x: number, y: number, angle: number): Comba
 }
 
 /**
- * A mirage already mid-way through a `magmablast` turret press (slot 1): the stock is already
+ * Mirage's kit with slot 1 swapped from `magmablast` to mirage's own BASIC ATTACK, so fire slot 1
+ * carries a `turret` row.
+ *
+ * `development/main` returned `predator`, `magmablast` and `thumper` to fixed muzzles when the basic
+ * attack went off, which leaves the nine `basic-attack-*` rows as the table's only `turret`
+ * carriers — and `BASIC_ATTACK_CONFIG.enabled` is `false`, so fire slot 0 refuses every press. The
+ * flag gates the slot INDEX and never the row, so a basic attack sitting in an ABILITY slot fires
+ * normally and these cases keep exercising the real turret branch of `runCombat`.
+ */
+const TURRET_KIT = ["basic-attack-mirage", "thunderclap", "afterburner"];
+const TURRET_ROW = "basic-attack-mirage";
+
+/** A mirage whose ability slot 1 is a turret row — what every turret case below presses. */
+function turretPlayer(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlayer {
+  return player(sessionId, { fireState: newFireState("mirage", 1, TURRET_KIT), ...over });
+}
+
+/**
+ * A mirage already mid-way through a turret press on slot 1: the stock is already
  * spent (`beginFire` spends it at press time, before this file's tests pick the story up), the
  * press is frozen on `bearing`, and `turretAngle` is wherever the turn has gotten to so far. Shared
  * by the TR15 lifecycle tests below (final-fixes item 3), which each drive one more `runCombat`
  * tick over a press that started earlier rather than replaying the whole turn from a fresh press.
  */
 function turretFireState(turretAngle: number, bearing: number): FireState {
-  const base = newFireState("mirage", 1);
+  const base = newFireState("mirage", 1, TURRET_KIT);
   return {
     ...base,
     slots: base.slots.map((s, i) => (i === 1 ? { ...s, stocks: 0 } : s)),
     turretAngle,
     pending: {
-      weaponId: "magmablast",
+      weaponId: TURRET_ROW,
       slot: 1,
       shotsLeft: 1,
       nextShotTick: Number.POSITIVE_INFINITY,
@@ -815,11 +833,11 @@ describe("shot direction through a real tick", () => {
 
   it("leaves the turret pivot, not the car centre", () => {
     // `muzzleOf` outlived the targeting system it was written for -- it is still where the client
-    // draws a charge orb -- but mirage's real slot 1 (magmablast) is a turret row now (spec TR18),
-    // so what actually leaves the barrel is pinned to the turret's own offset, not the hull's nose.
-    // A press with no aim input fires along the heading with the turret resting at 0 (TR24), so this
-    // still reads as "straight out the front" — just from the pivot's own reach, not the hull's.
-    const a = player("a", { x: 300, y: 300, angle: 0, fireMask: 0b010 });
+    // draws a charge orb -- but a TURRET row's shot is pinned to the turret's own offset, not the
+    // hull's nose (spec TR18). A press with no aim input fires along the heading with the turret
+    // resting at 0 (TR24), so this still reads as "straight out the front" — just from the pivot's
+    // own reach. Slot 1 is a basic attack here because no ABILITY carries a turret on this build.
+    const a = turretPlayer("a", { x: 300, y: 300, angle: 0, fireMask: 0b010 });
     const result = run({ players: [a, player("b", { x: 900, y: 300, angle: Math.PI })] });
     const shot = result.instances.find((i) => i.ownerSessionId === "a");
     expect(shot!.x).toBeCloseTo(300 + TURRET_CONFIG.defaultOffset, 6);
@@ -829,11 +847,11 @@ describe("shot direction through a real tick", () => {
 
 describe("turret press through a real tick (TR18-TR24)", () => {
   it("waits for the turret to turn onto the aimed bearing before firing", () => {
-    const shooter = player("a", { x: 300, y: 300, angle: 0, fireMask: 1 << 1, aimBearing: Math.PI / 2 });
+    const shooter = turretPlayer("a", { x: 300, y: 300, angle: 0, fireMask: 1 << 1, aimBearing: Math.PI / 2 });
     let state = run({ world: world({ tick: 0 }), players: [shooter] });
     // The press commits and the turret starts turning (TR11-TR13), but nothing has aligned yet, so
-    // `releaseShots` refuses to release: no magmablast instance exists on the press tick itself.
-    expect(state.instances.find((i) => i.weaponId === "magmablast")).toBeUndefined();
+    // `releaseShots` refuses to release: no instance of the row exists on the press tick itself.
+    expect(state.instances.find((i) => i.weaponId === TURRET_ROW)).toBeUndefined();
 
     // At 540 deg/s and 30 Hz the turn from 0 to 90 degrees is exactly 5 steps of 18 degrees; +1
     // absorbs float rounding at an exact multiple.
@@ -846,7 +864,7 @@ describe("turret press through a real tick (TR18-TR24)", () => {
         instances: state.instances,
         instanceSeq: state.instanceSeq,
       });
-      shot = state.instances.find((inst) => inst.weaponId === "magmablast");
+      shot = state.instances.find((inst) => inst.weaponId === TURRET_ROW);
     }
     expect(shot).toBeDefined();
     expect(shot!.angle).toBeCloseTo(Math.PI / 2, 5);
@@ -870,7 +888,7 @@ describe("TR15: a turret press's lifecycle at the runCombat level (final-fixes i
       statuses: applyStatus([], "stunned", 40, 20, "attacker"),
     });
     const result = run({ world: world({ tick: 50 }), players: [a] });
-    const shot = result.instances.find((i) => i.weaponId === "magmablast");
+    const shot = result.instances.find((i) => i.weaponId === TURRET_ROW);
     expect(shot).toBeDefined();
     expect(shot!.angle).toBeCloseTo(Math.PI / 2, 5);
     expect(find(result, "a").fireState.pending).toBeNull();

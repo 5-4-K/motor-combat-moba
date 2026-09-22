@@ -35,6 +35,11 @@ const BASIC_ATTACK_BASE = {
   pierce: 0,
   volley: { volleys: 1, volleyIntervalMs: 0 },
   pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
+  // Kept on this build even though `BASIC_ATTACK_CONFIG.enabled` is `false` and the three ability
+  // rows gave theirs back: the flag is what silences the weapon, and stripping the row as well
+  // would mean two edits to bring the basic attack back instead of one. It reaches nothing while
+  // the flag is off — `carHasTurretWeapon` skips fire slot 0 outright — so it costs a build nothing
+  // to leave authored.
   turret: { additionalOffset: 0 },
 } as const;
 
@@ -58,12 +63,20 @@ const BASIC_ATTACK_BASE = {
  * left unaware of it — they sweep every `WEAPON_TABLE` row structurally and gating them risks
  * breaking `carrierOf`'s lookup for the nine rows it must always be able to find a chassis for.
  *
- * **Ships `true` as of the mouse-aim-turret work (TR46)**: cars fire the basic attack alongside
- * their ability kit, and the one-layout controls pass (TR29/TR30) gives it back the left mouse
- * button rather than leaving it keyboard-only. The manual rebuild this flip owes is deferred to
- * that plan's final task, which rebuilds once for the whole change rather than once per task.
+ * It shipped `true` on `feature/mouse-aim` (TR46), where cars fired the basic attack alongside their
+ * ability kit on `LMB`. **It ships `false` on `development/main`**, flipped when that branch merged:
+ * this build's cars fire their three abilities and nothing else, so `LMB` is bound to a weapon that
+ * refuses every press, the countdown hint reads `RMB Q E to fire`, and no chassis shows a
+ * "Basic attack" card in the guide.
+ *
+ * That flip is half of one decision, and the other half is in `WEAPON_TABLE` below: `predator`,
+ * `magmablast` and `thumper` gave their `turret` rows back at the same time. Nine basic attacks that
+ * cannot be pressed plus zero turret abilities means `carHasTurretWeapon` (TR53) is false for every
+ * chassis on this build — so no car draws a turret, no room captures the pointer, and the crosshair
+ * and the turret half of the aim HUD never appear. None of that machinery is deleted; it is held
+ * dormant by these two edits and comes back the moment either is undone.
  */
-export const BASIC_ATTACK_CONFIG: { enabled: boolean } = { enabled: true };
+export const BASIC_ATTACK_CONFIG: { enabled: boolean } = { enabled: false };
 
 /**
  * Every weapon in the game, mirroring `CAR_TABLE`. Balance lives here and nowhere else.
@@ -140,7 +153,6 @@ export const WEAPON_TABLE = {
     homing: { acquire: "proximity", acquireRadius: 200, turnRateDegPerSec: 300, durationMs: 2000 },
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
-    turret: { additionalOffset: 0 },
   },
   /**
    * Mirage's slot 2: the dash (O12/O13). `speed` is the dash speed and `range` the dash distance —
@@ -259,7 +271,6 @@ export const WEAPON_TABLE = {
     pierce: 0,
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
-    turret: { additionalOffset: 0 },
     explosion: {
       radius: 60,
       damage: 15,
@@ -423,7 +434,6 @@ export const WEAPON_TABLE = {
     lifetimeMs: 2900, // just under the 3000ms cooldown — a second bouncing instance can never coexist
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
-    turret: { additionalOffset: 0 },
     applies: [{ statusId: "spiked", target: "opponents", durationMs: 3000 }],
   },
   /**
