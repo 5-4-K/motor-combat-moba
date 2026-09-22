@@ -149,13 +149,13 @@ import type { PlanWeights } from "./planner.js";
  *
  * That is F12's principle — the term must not FORBID correct play — in a situation F12 never
  * examined; its headroom argument names `fight` and `reset` only, and `fight` was the only row
- * ever swept. It mattered more here than anywhere else because `DRIVE_CONFIG.steeringGrip` was
+ * ever swept. It mattered more here than anywhere else because `drive().steeringGrip` was
  * 1.0, so in the planner's rollout `facingError` was effectively BINARY (0 or 1, never the 0.5
  * band — see `facingErrorOf` in `planner.ts`): the weight was a FLAT TOLL on every reversing
  * candidate, not a ceiling one rarely reaches.
  *
  * ⚠ **THAT PREMISE IS GONE, AND STAGE 5 TASK 8 STEP 1 HAS RE-RUN THE DERIVATION IT OWED
- * (2026-09-19).** `DRIVE_CONFIG.steeringGrip` does not exist any more: the 2026-09-18 Unity
+ * (2026-09-19).** `steeringGrip` does not exist any more: the 2026-09-18 Unity
  * drive-model port deleted it outright (U13), which is that knob taken all the way to its 0 end.
  * Lateral velocity is now always present — it IS the drift — so `facingError` is CONTINUOUS rather
  * than binary, and the terminal pose of an ordinary TURN scores in (0, 0.5] where it used to score

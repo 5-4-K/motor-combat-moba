@@ -1,6 +1,6 @@
 import {
-  DRIVE_CONFIG,
   TICK_RATE_HZ,
+  drive,
   weaponDefOf,
   weaponTicksOf,
   type WeaponId,
@@ -9,8 +9,15 @@ import type { BotProfile } from "../../config/bot-profiles.js";
 import type { BotCarView, BotView } from "../types.js";
 import { signedDelta } from "./aim.js";
 
-/** How wide a shot's path must miss by to be ignored: the car's own half-diagonal, plus slack. */
-const THREAT_LATERAL_UNITS = Math.hypot(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight) / 2 + 16;
+/**
+ * How wide a shot's path must miss by to be ignored: the car's own half-diagonal, plus slack.
+ * Computed per call, not hoisted to module scope — the hull is mode-invariant today, but the
+ * accessor must still be read live rather than captured once at import time.
+ */
+function threatLateralUnits(): number {
+  const d = drive();
+  return Math.hypot(d.carWidth, d.carHeight) / 2 + 16;
+}
 
 export interface KnownCar {
   car: BotCarView;
@@ -310,7 +317,7 @@ function threatHeading(
   const t = Math.min(Math.max((rx * vx + ry * vy) / vv, 0), horizonSeconds);
   const missX = rx - vx * t;
   const missY = ry - vy * t;
-  if (Math.hypot(missX, missY) > THREAT_LATERAL_UNITS) return undefined;
+  if (Math.hypot(missX, missY) > threatLateralUnits()) return undefined;
 
   const perp = Math.atan2(vy, vx) + Math.PI / 2;
   const cross = vx * ry - vy * rx;

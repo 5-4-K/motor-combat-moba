@@ -1,6 +1,6 @@
 import {
   DEFAULT_GAME_MODE,
-  hasStatus, rectPlanes, TICK_RATE_HZ, WEAPON_TABLE, weaponDefOf, wrapAngle,
+  hasStatus, rectPlanes, TICK_RATE_HZ, weaponDefOf, weapons, wrapAngle,
   type BotDifficulty, type WeaponId,
 } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
@@ -313,7 +313,7 @@ export class HumanController implements BotController {
           // `throttle: 1`, under `selfPredictor`'s `OBSERVATION_MODIFIERS`, is what HOLDS the
           // current speed: `throttle: 0` coasts, which still lands SHORT; `accel: 0` in those
           // modifiers stops the other error, a rollout that assumes we floor it to the chassis
-          // maximum. (This used to cite `DRIVE_CONFIG.drag` at 900 u/s^2 — a car to rest in 0.32 s,
+          // maximum. (This used to cite `drive().drag` at 900 u/s^2 — a car to rest in 0.32 s,
           // 80 units against 400. That global knob was deleted by the 2026-09-06 car-physics
           // rework for per-car proportional coast, and at Mirage's 36-tick half-life a coasting
           // rollout covers 219 units against the 267 a held speed does. Same direction, much
@@ -729,7 +729,7 @@ function enemyUltSpent(
   tick: number,
   withinTicks: number,
 ): boolean {
-  for (const id of Object.keys(WEAPON_TABLE) as WeaponId[]) {
+  for (const id of Object.keys(weapons()) as WeaponId[]) {
     if (weaponDefOf(id).cooldownMs < BRAIN_CONSTANTS.ultCooldownMs) continue;
     if (ultIsSpent(perception, sessionId, id, tick, withinTicks)) return true;
   }

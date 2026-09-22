@@ -263,7 +263,7 @@ const bestAchievableValueCache = new Map<string, number>();
  * floor, a short-range weapon's small fractions (e.g. 2% of `pepperbox`'s 600u range, 12 units) put
  * the target's hull CENTRE closer than the two cars' own half-lengths, so the synthetic geometry has
  * shooter and target overlapping and every one of `pepperbox`'s four muzzles (three pointed sideways
- * and backward, per `WEAPON_TABLE`) lands on a target that is, physically, inside the shooter. That
+ * and backward, per `weapons()`) lands on a target that is, physically, inside the shooter. That
  * measured a 235 ceiling for Bullseye — a number no real engagement can ever produce, since no two
  * cars stand inside each other — instead of the roughly-78 pepperbox actually achieves at a distance
  * where only its forward muzzle's fan can connect.

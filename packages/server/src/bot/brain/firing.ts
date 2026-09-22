@@ -1,4 +1,4 @@
-import { BASIC_ATTACK_CONFIG, WEAPON_SLOT_CONFIG, hasStatus, weaponDefOf } from "@motor-combat-moba/shared";
+import { BASIC_ATTACK_CONFIG, hasStatus, slots, weaponDefOf } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
 import type { Rng } from "../rng.js";
 import type { BotCarView, BotSelfView, BotSlotView, SituationId } from "../types.js";
@@ -37,7 +37,7 @@ export function isUlt(slot: BotSlotView): boolean {
  *
  * THE ANSWER IS THE FAR EDGE OF THE PLATEAU, and that is the load-bearing decision in this
  * function. `proxyValue` is monotonically NON-INCREASING in distance for every row in
- * `WEAPON_TABLE`: flat while `subtense / spread` is still saturated at a hit chance of 1, then
+ * `weapons()`: flat while `subtense / spread` is still saturated at a hit chance of 1, then
  * strictly falling as the target's angular width shrinks, and never rising. So the maximum is a
  * PLATEAU whose near edge is always `minEngageUnits`. Keeping the first sample that beat a running
  * best would therefore return 70 for every chassis at every tier — P31 would buy nothing, and
@@ -68,7 +68,7 @@ export function isUlt(slot: BotSlotView): boolean {
  * sweep to 0 of 9 and why it was reverted anyway.
  *
  * STILL ONE CELL AFTER THE HULL GREW (2026-09-16, 48x32 -> 60x40), BUT THE DISTANCES MOVED.
- * `proxyValue`'s subtense reads `DRIVE_CONFIG.carHeight`, so a taller target keeps hit chance
+ * `proxyValue`'s subtense reads `drive().carHeight`, so a taller target keeps hit chance
  * saturated further out and moves every plateau edge outward. The same sweep still returns more than
  * one standoff for Mirage at hard alone, at the same 220 / 386.7. What did move is every neutral
  * standoff: the 470 quoted in the paragraph above was measured at 48x32, and a neutral hard Bullseye
@@ -250,6 +250,7 @@ export function chooseSlot(args: {
 
   let best: number | undefined;
   let bestScore = -Infinity;
+  const basicAttackSlotIndex = slots().basicAttackSlotIndex;
 
   for (let i = 0; i < self.slots.length; i++) {
     // A press the sim would refuse is a press thrown away, same reasoning as the switch-lock check
@@ -259,7 +260,7 @@ export function chooseSlot(args: {
     // `basicAttackSlotIndex` is 0 as of 2026-09-20 (VS6), not the LAST slot it used to be, so this
     // guards the head of the scan rather than its tail. The line itself never changed — it reads
     // the constant — which is exactly why it is worth saying out loud here.
-    if (i === WEAPON_SLOT_CONFIG.basicAttackSlotIndex && !BASIC_ATTACK_CONFIG.enabled) continue;
+    if (i === basicAttackSlotIndex && !BASIC_ATTACK_CONFIG.enabled) continue;
     const slot = self.slots[i]!;
     if (!slotIsReady(slot, tick)) {
       // Not ready: fired, or still mid-recharge. The episode that memo belonged to is over — the

@@ -1,4 +1,4 @@
-import { WEAPON_SLOT_CONFIG, type BotDifficulty } from "@motor-combat-moba/shared";
+import { slots, type BotDifficulty } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
 import type { Rng } from "../rng.js";
 import type { BotPersonality, PersonalityId } from "../types.js";
@@ -125,7 +125,8 @@ export function rollPersonality(
 ): { personality: BotPersonality; profile: BotProfile } {
   const pick = rng();
   const weights: number[] = [];
-  for (let i = 0; i < WEAPON_SLOT_CONFIG.maxFireSlots; i++) {
+  const maxFireSlots = slots().maxFireSlots;
+  for (let i = 0; i < maxFireSlots; i++) {
     // 0.5x to 1.5x: a real preference, but never a weapon the bot refuses to touch.
     weights.push(0.5 + rng());
   }

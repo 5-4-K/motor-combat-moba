@@ -1,5 +1,5 @@
 import {
-  DRIVE_CONFIG, TICK_RATE_HZ, NEUTRAL_MODIFIERS, forwardOf, rectPlanes, speedOf, turnRateOf,
+  TICK_RATE_HZ, NEUTRAL_MODIFIERS, drive, forwardOf, rectPlanes, speedOf, turnRateOf,
   weaponDefOf,
   type BoundaryPlane, type SimBody, type WeaponDef, type WeaponId,
 } from "@motor-combat-moba/shared";
@@ -492,7 +492,7 @@ function medianOf(values: readonly number[]): number {
  * terminal pose is a place the car can really be left.
  *
  * THE STRENGTH OF THAT CLAIM WEAKENED at the 2026-09-06 car-physics rework and the wording follows
- * it. This used to read "genuinely BRAKES: `DRIVE_CONFIG.drag` is 900 u/s², about 0.32 s from top
+ * it. This used to read "genuinely BRAKES: `drive().drag` is 900 u/s², about 0.32 s from top
  * speed to rest" — a coasting car really did stop inside the horizon, so the terminus was a
  * standstill. That global knob went through two more identities after that and neither survives
  * today: the 2026-09-06 rework replaced it with a per-car half-life (`CarDef.coastHalfLifeSeconds`,
@@ -889,7 +889,7 @@ function threatAvoidOf(
  *
  * ⚠ **THE TRIP-WIRE THIS COMMENT USED TO CARRY FIRED, AND STAGE 5 TASK 8 STEP 1 HAS NOW RE-RUN THE
  * DERIVATION IT DEMANDED (2026-09-19).** It used to read "THIS TERM SILENTLY DEPENDS ON
- * `DRIVE_CONFIG.steeringGrip`, WHICH IS 1.0 TODAY … IF A FUTURE PHYSICS PASS LOWERS `steeringGrip`,
+ * `drive().steeringGrip`, WHICH IS 1.0 TODAY … IF A FUTURE PHYSICS PASS LOWERS `steeringGrip`,
  * RE-DERIVE EVERY WEIGHT IN THAT TABLE." The 2026-09-18 Unity drive-model port did not lower that
  * knob — it **deleted** it (U13), which is the same move taken all the way to its 0 end.
  *
@@ -899,7 +899,7 @@ function threatAvoidOf(
  * rollout, and the 0.5 sliding-sideways band the formula admits was unreachable. Under the port,
  * lateral velocity is **always present** — it is the drift, and a car holding full lock settles at a
  * real slip angle (Mirage ~36°, the roster's widest, as of stage 5 Task 5's turn-rate raise — see
- * `DRIVE_CONFIG.lateralGripRate`). So `forwardOf / speed` is now a genuinely CONTINUOUS quantity, and
+ * `drive().lateralGripRate`). So `forwardOf / speed` is now a genuinely CONTINUOUS quantity, and
  * the terminal pose of an ordinary TURN — not a reversal — scores somewhere in (0, 0.5] where it used
  * to score exactly 0.
  *
@@ -936,7 +936,7 @@ function threatAvoidOf(
  */
 export function facingErrorOf(body: SimBody): number {
   const speed = speedOf(body.vx, body.vy);
-  if (speed <= DRIVE_CONFIG.stopEpsilon) return 0;
+  if (speed <= drive().stopEpsilon) return 0;
   return (1 - forwardOf(body.vx, body.vy, body.angle) / speed) / 2;
 }
 
@@ -978,7 +978,8 @@ function boundsPenalty(
   arena: BotArenaView,
   planes: readonly BoundaryPlane[],
 ): number {
-  const margin = Math.max(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight);
+  const d = drive();
+  const margin = Math.max(d.carWidth, d.carHeight);
   const over = (v: number) => (v < margin ? (margin - v) / margin : 0);
   let total = 0;
   for (const plane of planes) {

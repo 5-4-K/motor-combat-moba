@@ -1,4 +1,4 @@
-import { DRIVE_CONFIG, rectPlanes } from "@motor-combat-moba/shared";
+import { drive, rectPlanes } from "@motor-combat-moba/shared";
 import type { BotArenaView } from "../types.js";
 
 /**
@@ -51,7 +51,8 @@ export function wallAhead(
 ): boolean {
   const aheadX = self.x + Math.cos(self.angle) * lookaheadUnits;
   const aheadY = self.y + Math.sin(self.angle) * lookaheadUnits;
-  const margin = Math.max(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight) / 2;
+  const d = drive();
+  const margin = Math.max(d.carWidth, d.carHeight) / 2;
 
   let pushX = 0;
   let pushY = 0;
@@ -98,7 +99,8 @@ export function spikesAhead(
 ): boolean {
   const aheadX = self.x + Math.cos(self.angle) * lookaheadUnits;
   const aheadY = self.y + Math.sin(self.angle) * lookaheadUnits;
-  const margin = Math.max(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight) / 2;
+  const d = drive();
+  const margin = Math.max(d.carWidth, d.carHeight) / 2;
   return arena.obstacles.some(
     (box) =>
       box.kind === "spike" &&
