@@ -1,4 +1,4 @@
-import { BOT_PROFILES } from "../config/bot-profiles.js";
+import type { BotModeConfig } from "../config/mode-bot.js";
 import type { BotCarView, BotInstanceView } from "./types.js";
 
 /**
@@ -55,10 +55,14 @@ export class ViewRing {
 }
 
 /**
- * How deep a host's ring must be (H48): the deepest `viewStalenessTicks` on the table, plus the
- * current tick. One function so three hosts cannot drift to three different answers, and so a tier
- * retune that deepens staleness cannot leave a ring too shallow to serve it.
+ * How deep a host's ring must be (H48): the deepest `viewStalenessTicks` on the mode's own bot
+ * bundle, plus the current tick. One function so three hosts cannot drift to three different
+ * answers, and so a tier retune that deepens staleness cannot leave a ring too shallow to serve it.
+ *
+ * Takes the room's `BotModeConfig` (MC29) rather than reading `BOT_PROFILES` off the module —
+ * every mode seeds the same profiles today, so this returns the same number regardless of which
+ * mode's config is passed, but a host now says which mode it is asking for rather than assuming one.
  */
-export function botRingCapacity(): number {
-  return Math.max(...Object.values(BOT_PROFILES).map((p) => p.viewStalenessTicks)) + 1;
+export function botRingCapacity(botConfig: BotModeConfig): number {
+  return Math.max(...Object.values(botConfig.profiles).map((p) => p.viewStalenessTicks)) + 1;
 }

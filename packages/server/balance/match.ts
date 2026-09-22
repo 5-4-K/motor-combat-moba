@@ -36,11 +36,11 @@ import {
 } from "@motor-combat-moba/shared";
 import {
   buildBotView,
+  botConfigOf,
   botRingCapacity,
   deriveSeed,
   makeRng,
   snapshotWorld,
-  BOT_PROFILES,
   HumanController,
   ViewRing,
   type Rng,
@@ -123,6 +123,7 @@ export interface MatchOutcome {
 export function runMatch(setup: MatchSetup): MatchOutcome {
   const spawnRng = makeRng(setup.seed);
   const deathmatch = winRuleOf(setup.mode) === "deathmatch";
+  const botConfig = botConfigOf(setup.mode);
 
   const state = new ArenaState();
   state.arenaId = setup.arenaId;
@@ -148,7 +149,7 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
   const events = newCombatEvents();
   // One ring for the whole match, pushed once per tick below and shared across every seat's bot
   // deciding that tick — "the world N ticks ago" does not depend on which seat is asking (B19).
-  const ring = new ViewRing(botRingCapacity());
+  const ring = new ViewRing(botRingCapacity(botConfig));
 
   // The same call `ArenaRoom.revealCars` makes to open a real match: one shuffle of the arena's own
   // spawn points, seeded rather than `Math.random`.
@@ -186,7 +187,7 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
     prevFireMasks.set(seat.sessionId, 0);
     seqs.set(seat.sessionId, 0);
 
-    bots.set(seat.sessionId, new HumanController(setup.difficulty));
+    bots.set(seat.sessionId, new HumanController(setup.difficulty, { botConfig }));
     // A distinct, seeded stream per seat rather than one shared stream: two seats sharing an RNG
     // would have each bot's draw depend on the other's turn order, which is not what "seat 0's bot"
     // is supposed to mean.
@@ -267,7 +268,7 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
         combat,
         rng,
         observedFires: previousTickFires,
-        stalenessTicks: BOT_PROFILES[setup.difficulty].viewStalenessTicks,
+        stalenessTicks: botConfig.profiles[setup.difficulty].viewStalenessTicks,
         ring,
       });
       if (!view) continue;

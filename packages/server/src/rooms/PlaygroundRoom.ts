@@ -36,14 +36,15 @@ import { forgetCombatPlayer, newCombatMemory, type CombatMemory } from "../sim/c
 import { forgetContactPlayer, newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
 import {
   buildBotView,
+  botConfigOf,
   botRingCapacity,
   deriveSeed,
   makeRng,
   snapshotWorld,
-  BOT_PROFILES,
   HumanController,
   ViewRing,
   type BotController,
+  type BotModeConfig,
   type Rng,
 } from "../bot/index.js";
 import { shouldRejectSecondArena } from "./singleton-arena.js";
@@ -153,9 +154,14 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
    * for the life of the room, and a playground session has no match end to reclaim it at.
    */
   private readonly botEvents: CombatEvents = newCombatEvents();
+  /**
+   * The mode's bot bundle (MC29), resolved from the same `DEFAULT_GAME_MODE` `modeConfig` below is
+   * — declared ahead of it so `botRing`'s field initializer, which runs first, can read it.
+   */
+  private readonly botConfig: BotModeConfig = botConfigOf(DEFAULT_GAME_MODE);
   /** One tick's world, N ticks deep (B19) — owned here because "the world N ticks ago" does not
    * depend on which bot is asking, and this room has exactly one. */
-  private readonly botRing = new ViewRing(botRingCapacity());
+  private readonly botRing = new ViewRing(botRingCapacity(this.botConfig));
   /** This tick's view of "what the bot just saw fired" — last tick's fires, sliced off the drained
    * bag before it was cleared. */
   private previousTickFires: readonly FiredEvent[] = [];
@@ -502,7 +508,7 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
         // No `targetSessionId` (PG70): each bot resolves its own target through `pickTarget` against
         // everything it can see, so a six-car brawl is a brawl rather than five cars queueing to
         // chase the human.
-        bot = new HumanController(difficulty);
+        bot = new HumanController(difficulty, { botConfig: this.botConfig });
         this.bots.set(id, bot);
       }
 
@@ -512,7 +518,7 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
         combat: this.combat,
         rng: this.botRngs.get(id)!,
         observedFires: this.previousTickFires,
-        stalenessTicks: BOT_PROFILES[difficulty].viewStalenessTicks,
+        stalenessTicks: this.botConfig.profiles[difficulty].viewStalenessTicks,
         ring: this.botRing,
       });
       // No car for this seat: push NOTHING. An input queued for a session that is not in

@@ -1,8 +1,10 @@
 import {
+  DEFAULT_GAME_MODE,
   hasStatus, rectPlanes, TICK_RATE_HZ, WEAPON_TABLE, weaponDefOf, wrapAngle,
   type BotDifficulty, type WeaponId,
 } from "@motor-combat-moba/shared";
-import { BOT_PROFILES, BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
+import { BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
+import { botConfigOf, type BotModeConfig } from "../../config/mode-bot.js";
 import type {
   BotCarView, BotController, BotDebug, BotIntent, BotPersonality, BotView, SituationId,
 } from "../types.js";
@@ -104,10 +106,21 @@ export class HumanController implements BotController {
 
   constructor(
     profileId: BotDifficulty,
-    options: { targetSessionId?: string; profile?: BotProfile } = {},
+    options: {
+      targetSessionId?: string;
+      profile?: BotProfile;
+      /**
+       * The mode's bot bundle (MC29). Callers that know their room's mode pass
+       * `botConfigOf(this.modeConfig.id)`; the default is only for call sites — tests, mainly —
+       * that have no mode of their own, and every mode seeds an identical bundle today, so the
+       * default is not a behaviour choice.
+       */
+      botConfig?: BotModeConfig;
+    } = {},
   ) {
     this.profileId = profileId;
-    this.profile = options.profile ?? BOT_PROFILES[profileId];
+    const botConfig = options.botConfig ?? botConfigOf(DEFAULT_GAME_MODE);
+    this.profile = options.profile ?? botConfig.profiles[profileId];
     this.effectiveProfile = this.profile;
     this.fixedTarget = options.targetSessionId;
   }

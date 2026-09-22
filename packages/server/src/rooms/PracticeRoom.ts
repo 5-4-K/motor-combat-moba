@@ -42,14 +42,15 @@ import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
 import {
   buildBotView,
+  botConfigOf,
   botRingCapacity,
   deriveSeed,
   makeRng,
   snapshotWorld,
-  BOT_PROFILES,
   HumanController,
   ViewRing,
   type BotController,
+  type BotModeConfig,
 } from "../bot/index.js";
 import { copySpawnNumbers } from "./match-helpers.js";
 import {
@@ -123,9 +124,14 @@ export class PracticeRoom extends Room<PracticeState> {
    * for the life of the room, and a practice session has no match end to reclaim it at.
    */
   private readonly botEvents: CombatEvents = newCombatEvents();
+  /**
+   * The mode's bot bundle (MC29), resolved from the same pinned constant `modeConfig` below is —
+   * declared ahead of it so `botRing`'s field initializer, which runs first, can read it.
+   */
+  private readonly botConfig: BotModeConfig = botConfigOf(GameMode.FFA_DEATHMATCH);
   /** One tick's world, N ticks deep (B19) — owned here because "the world N ticks ago" does not
    * depend on which bot is asking, and this room has exactly one. */
-  private readonly botRing = new ViewRing(botRingCapacity());
+  private readonly botRing = new ViewRing(botRingCapacity(this.botConfig));
   /** This tick's view of "what the bot just saw fired" — last tick's fires, sliced off the drained
    * bag before it was cleared. */
   private previousTickFires: readonly FiredEvent[] = [];
@@ -431,7 +437,10 @@ export class PracticeRoom extends Room<PracticeState> {
     this.botSeq += 1;
     const seq = this.botSeq;
 
-    this.bot ??= new HumanController(this.difficulty, { targetSessionId: this.humanSessionId });
+    this.bot ??= new HumanController(this.difficulty, {
+      targetSessionId: this.humanSessionId,
+      botConfig: this.botConfig,
+    });
 
     const view = buildBotView({
       state: this.state,
@@ -439,7 +448,7 @@ export class PracticeRoom extends Room<PracticeState> {
       combat: this.combat,
       rng: this.botRng,
       observedFires: this.previousTickFires,
-      stalenessTicks: BOT_PROFILES[this.difficulty].viewStalenessTicks,
+      stalenessTicks: this.botConfig.profiles[this.difficulty].viewStalenessTicks,
       ring: this.botRing,
     });
     if (!view) return;
