@@ -1,6 +1,18 @@
 import { TICK_RATE_HZ } from "../constants.js";
 
 /**
+ * `TURRET_CONFIG`'s shape. Written out rather than inferred from an `as const` literal, which pinned
+ * `maxSwingDeg` to the type `360` — a tuning root (`setTuning`'s `turret`, TR57) holds numbers that
+ * move, and a literal type would make every `maxSwingDeg < 360` branch look dead to the compiler.
+ * `readonly` because `setTuning` is the only writer, and it writes through its own untyped walk.
+ */
+export interface TurretConfig {
+  readonly turnRateDegPerSec: number;
+  readonly defaultOffset: number;
+  readonly maxSwingDeg: number;
+}
+
+/**
  * The turret muzzle (spec TR1). A weapon row opts in with `turret` (`WeaponBase.turret`); these are
  * the knobs every turret shares.
  *
@@ -14,14 +26,30 @@ import { TICK_RATE_HZ } from "../constants.js";
  * unrestricted — the turret turns the short way round, through the back if that is shorter. Read
  * at use time (`clampToSwing`'s default), never copied, so a live retune takes effect on the next
  * call.
+ *
+ * A playground tuning root (TR57): `setTuning` overrides it in place, and `rebuildTurretTicks`
+ * re-derives the one artifact computed from it.
  */
-export const TURRET_CONFIG = {
+export const TURRET_CONFIG: TurretConfig = {
   turnRateDegPerSec: 540,
   defaultOffset: 25,
   maxSwingDeg: 360,
-} as const;
+};
 
-/** `TURRET_CONFIG` resolved to the tick grid once. Radians per tick. */
-export const TURRET_TICKS = {
-  turnPerTick: (TURRET_CONFIG.turnRateDegPerSec * Math.PI) / 180 / TICK_RATE_HZ,
-} as const;
+function turnPerTickOf(turnRateDegPerSec: number): number {
+  return (turnRateDegPerSec * Math.PI) / 180 / TICK_RATE_HZ;
+}
+
+/**
+ * `TURRET_CONFIG` resolved to the tick grid. Radians per tick. One object for the life of the
+ * process, rewritten IN PLACE by `rebuildTurretTicks`, so every reader that reads the field at use
+ * time — `turnTurret`'s default step, the bot's turn budget — sees a playground retune (TR57).
+ */
+export const TURRET_TICKS: { turnPerTick: number } = {
+  turnPerTick: turnPerTickOf(TURRET_CONFIG.turnRateDegPerSec),
+};
+
+/** Playground tuning only (TR57) — called by `setTuning` after every write, never from the sim. */
+export function rebuildTurretTicks(): void {
+  TURRET_TICKS.turnPerTick = turnPerTickOf(TURRET_CONFIG.turnRateDegPerSec);
+}

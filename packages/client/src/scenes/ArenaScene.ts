@@ -33,6 +33,7 @@ import {
   muzzleOf,
   RoomPhase,
   TICK_RATE_HZ,
+  turretMountOf,
   turretPivotOf,
   WEAPON_SLOT_CONFIG,
   getArena,
@@ -66,6 +67,13 @@ import type { FxEvent } from "../fx/events.js";
 import { FX_TEXTURE_KEYS, FxLayer } from "../fx/layer.js";
 import { CAR_SHADOW_DEPTH, FLOOR_DEPTH, GLOW_DEPTH } from "../fx/depths.js";
 import { liveFxResolver } from "../fx/override-store.js";
+import { TURRET_VISUAL } from "../config/turret-visual.js";
+import {
+  liveTurretViewResolver,
+  shippedTurretView,
+  turretLengthOf,
+  type TurretViewResolver,
+} from "./turret-view.js";
 import type { EmitterSpec } from "../fx/emitters.js";
 import { isDebugEnabled } from "../config/client-mode.js";
 import { showHitboxes } from "../config/view-options.js";
@@ -756,6 +764,12 @@ export class ArenaScene extends Phaser.Scene {
    * cannot drift apart on which rooms get overrides.
    */
   private resolveEnv: EnvResolver = () => ENVIRONMENT_FX;
+  /**
+   * How this scene reads the crosshair distance and the turret's drawn size (TR60). The shipped
+   * values everywhere but a playground room, where `create` swaps in the Turret panel's live map —
+   * the same gate, and the same ternary, as `resolveEnv` beside it.
+   */
+  private resolveTurretView: TurretViewResolver = shippedTurretView;
   /** The camera's colour-grade filter controller, held so `applyEnvironment` can re-tune it in place. */
   private gradeFilter?: Phaser.Filters.ColorMatrix;
   /** The camera's vignette filter controller, held so `applyEnvironment` can re-tune it in place. */
@@ -1082,6 +1096,10 @@ export class ArenaScene extends Phaser.Scene {
     // earlier playground room's `create()` leak into a later non-playground one.
     this.resolveEnv =
       this.room && isPlaygroundRoom(this.room) ? liveEnvResolver() : () => ENVIRONMENT_FX;
+    // Same gate, same reason (TR60): an arena or practice room draws the shipped crosshair and turret
+    // whatever the Turret panel saved in this browser.
+    this.resolveTurretView =
+      this.room && isPlaygroundRoom(this.room) ? liveTurretViewResolver() : shippedTurretView;
 
     this.fx = new FxLayer(
       this,
@@ -2008,8 +2026,17 @@ export class ArenaScene extends Phaser.Scene {
    * The one place the offset changes, and the one both the drawing and `aimAngle` read.
    */
   private aimPointFor(pose: SimBody): { x: number; y: number } {
-    const offset = this.aimOffset ?? initialAimOffset(pose.angle);
-    this.aimOffset = moveAimOffset(offset, this.pendingAimDelta.x, this.pendingAimDelta.y, pose.angle);
+    // Passed explicitly rather than left to `aim-offset.ts`'s default, so a playground's Turret
+    // panel reaches it (TR60); every other room resolves the shipped `CROSSHAIR_CONFIG` value.
+    const maxDistance = this.resolveTurretView().crosshairMaxDistance;
+    const offset = this.aimOffset ?? initialAimOffset(pose.angle, maxDistance);
+    this.aimOffset = moveAimOffset(
+      offset,
+      this.pendingAimDelta.x,
+      this.pendingAimDelta.y,
+      pose.angle,
+      maxDistance,
+    );
     this.pendingAimDelta = { x: 0, y: 0 };
     return { x: pose.x + this.aimOffset.x, y: pose.y + this.aimOffset.y };
   }
@@ -2462,7 +2489,7 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private syncCar(sessionId: string, player: ArenaPlayer, pose: SimBody): void {
-    const key = visualKeyOf(player);
+    const key = `${visualKeyOf(player)}:${this.turretKeyOf(player.carId)}`;
     let gfx = this.cars.get(sessionId);
     if (!gfx || this.visualKeys.get(sessionId) !== key) {
       gfx?.destroy();
@@ -2805,7 +2832,8 @@ export class ArenaScene extends Phaser.Scene {
     const pivot = turretPivotOf({ x: 0, y: 0, angle: 0 }, carId);
     const mount = this.add.container(pivot.x, pivot.y);
     mount.setName(TURRET_NAME);
-    const resolved = resolveTurretSprite(assetManifest(), phaserTextures(this.textures), carId);
+    const length = turretLengthOf(this.resolveTurretView(), carId);
+    const resolved = resolveTurretSprite(assetManifest(), phaserTextures(this.textures), carId, length);
     if (resolved) {
       const image = applyCarSprite(
         this.add.image(0, 0, resolved.key),
@@ -2820,8 +2848,21 @@ export class ArenaScene extends Phaser.Scene {
       mount.add(image);
       return mount;
     }
-    mount.add(drawProceduralTurret(this.add.graphics(), fill));
+    // Scaled by the same ratio a sprite's length moved by, so the playground's size knobs reach a car
+    // drawing the procedural turret too (TR60). Exactly 1 everywhere else.
+    mount.add(drawProceduralTurret(this.add.graphics(), fill).setScale(length / TURRET_VISUAL.lengthUnits));
     return mount;
+  }
+
+  /**
+   * What a car's turret was BUILT from that can change while the car does not (TR60): its drawn length
+   * and its mount, both baked into the container by `drawTurret`. Folded into the rebuild key so a
+   * Turret-panel edit — a live size change, or a mount override arriving through the tuning store —
+   * rebuilds that car, which `visualKeyOf` alone would never notice. Constant outside a playground.
+   */
+  private turretKeyOf(carId: string): string {
+    const mount = turretMountOf(carId);
+    return `${turretLengthOf(this.resolveTurretView(), carId)}:${mount.x},${mount.y}`;
   }
 
   /**

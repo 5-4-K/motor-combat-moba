@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-21
 **Status:** implemented (2026-09-22, plan `docs/superpowers/plans/2026-09-21-mouse-aim-turret.md`)
-**Clauses:** TR1–TR56, plus TR31a
+**Clauses:** TR1–TR62, plus TR31a
 
 ## 1. What this is
 
@@ -395,3 +395,50 @@ Four changes that ship together because each needs the others to make sense:
 Client-side prediction of the turret turn (a later smoothing pass fits approach A). A turret beam.
 Per-car turn rates. Reconnect. Touch or gamepad aim. Retuning any weapon for free aim — that is the
 balance harness's question after this lands.
+
+## 11. The playground's Turret settings panel (2026-09-22 follow-up)
+
+A dev-only panel for tuning the turret by feel. Nothing here changes a shipped value: every knob
+defaults to the shipped number, and an arena or practice room never reads any of it.
+
+- **TR57** `TURRET_CONFIG` is a **tuning root** (`setTuning`'s `turret`), typed by a `TurretConfig`
+  interface of plain `number`s rather than an `as const` literal (which pinned `maxSwingDeg` to the
+  type `360`). `TURRET_TICKS` is one mutable object rewritten **in place** by `rebuildTurretTicks()`,
+  which `setTuning` calls after every write beside `rebuildWeaponTicks`/`rebuildRamTicks`. Every
+  reader reads at use time: `turnTurret`'s default `step`, the bot's turn budget (`solution.ts`),
+  and the client's `easeTurretAngle`, which reads `TURRET_CONFIG.turnRateDegPerSec` per call rather
+  than a module-load constant.
+- **TR58** The panel's **sim knobs** are `tunableFields()` rows in their own `"turret"` group:
+  `turret.turnRateDegPerSec` (30–1800 deg/s — above zero, or a press never aligns),
+  `turret.maxSwingDeg` (5–360, TR55's `(0, 360]`), and `car.<id>.turretMount.x/.y` for **all nine**
+  `CAR_TABLE` rows (inactive ones marked), bounded by the hull's half-extents. The mount rows keep
+  their `car.*` path but not the `"car"` group, so the Physics panel's Cars tab never shows them.
+  They share the Physics panel's one overrides map and reach `PlaygroundRoom` the same way — one
+  `MSG_PLAYGROUND_TUNING` send on leaving the panel, validated by `validateTuning`, then mirrored into
+  the client's shared config by `PlaygroundScene.syncTuning` from `tuningJson`. Each panel's Reset
+  clears only its own paths; the Physics panel's Copy leaves the turret paths out.
+- **TR59** A turn-rate retune reaches the server's turret (`TURRET_TICKS`), the bot's turn budget and
+  the drawn turret's easing; a swing retune reaches `clampToSwing` and every caller that defaults to
+  it, the crosshair's arc clamp included; a mount retune reaches `turretPivotOf`, and the arena
+  rebuilds a car whose mount changed.
+- **TR60** The panel's **client knobs** are `scenes/turret-view.ts`'s flat map — `crosshairMaxDistance`
+  (10–400, over `CROSSHAIR_CONFIG.maxDistance`), `lengthUnits` (8–108, over
+  `TURRET_VISUAL.lengthUnits`) and `carScale.<carId>` (0.25–3, default 1), a per-car multiplier on the
+  drawn length, on top of the manifest row's numeric `scale`. `ArenaScene` resolves them through a
+  `TurretViewResolver` it swaps to the live store **only in a playground room** (the `resolveEnv`
+  gate); everywhere else it is `shippedTurretView`. The resolved distance is passed **explicitly** to
+  `initialAimOffset`/`moveAimOffset`; the resolved length to `resolveTurretSprite` (and as a scale on
+  the procedural turret). A car's turret length and mount are part of its rebuild key, so a size or
+  mount edit rebuilds that car's turret live. Resizing the drawing does not move the sim's spawn
+  point (`defaultOffset`, TR45), which the panel deliberately does not offer.
+- **TR61** **Export** copies text naming where each changed value goes: `TURRET_CONFIG` fields
+  (`turret-config.ts`), `CAR_TABLE.<id>.turretMount = { x, y }` (`car-config.ts`, the whole mount),
+  `CROSSHAIR_CONFIG.maxDistance`, `TURRET_VISUAL.lengthUnits`, and for a per-car multiplier ≠ 1 the
+  `turret.<id>` manifest row's `scale` (the row's numeric `scale`, or 1 for `"fit"`, times the
+  multiplier). A car with no row of its own draws `turret.default`; the export says it needs per-car
+  art or a row pointing at the default image, and prints that row. **Reset all** returns every turret
+  knob to shipped.
+- **TR62** Persistence: the sim knobs persist in the stored blob's `overrides` beside the Physics
+  panel's; the client knobs in a new `turret` section, sanitized entry by entry (an unknown key, car
+  or out-of-range value costs only itself). `PlaygroundScene.onShutdown` clears the client map, as it
+  clears the VFX, environment and tint maps.

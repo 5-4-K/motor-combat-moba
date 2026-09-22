@@ -132,4 +132,14 @@ describe("resolveTurretSprite (TR42)", () => {
     )?.fit;
     expect(scaled?.scale).toBeCloseTo(54 / 72);
   });
+
+  it("sizes against a caller-given display length when the playground hands one in (TR60)", () => {
+    const fit = resolveTurretSprite(
+      manifestOf({ "turret.default": entry({ scale: 1.5 }) }),
+      loaded({ "turret.default": TURRET }),
+      "bastion",
+      48,
+    )?.fit;
+    expect(fit?.scale).toBeCloseTo((48 * 1.5) / 72);
+  });
 });

@@ -4,19 +4,20 @@ import { DRIVE_CONFIG } from "./drive-config.js";
 import { IMPULSE_CONFIG } from "./impulse-config.js";
 import { RAM_CONFIG } from "./ram-config.js";
 import type { TuningOverrides, TuningValue } from "./tuning.js";
+import { TURRET_CONFIG } from "./turret-config.js";
 import type { CarId } from "./types.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
 import type { WeaponId } from "./weapon-types.js";
 
 /**
  * Enumerable, validatable tuning surface for a dev playground (spec PG14) — built once from the
- * six source tables `setTuning` (Task 2) already knows how to write. `path` is a `setTuning`-ready
+ * seven source tables `setTuning` (Task 2) already knows how to write. `path` is a `setTuning`-ready
  * dot-path; a UI slaps `min`/`max`/`step`/`options` on it and never has to know a leaf's provenance.
  */
 export interface TunableField {
   path: string; // setTuning-compatible: "weapon.predator.damage"
-  group: "car" | "drive" | "ram" | "combat" | "impulse" | "weapon";
-  ownerId?: string; // carId or weaponId for car/weapon groups
+  group: "car" | "drive" | "ram" | "combat" | "impulse" | "weapon" | "turret";
+  ownerId?: string; // carId or weaponId for car/weapon groups; carId for a turret mount row
   label: string; // path minus group+owner, e.g. "hitbox.radius"
   kind: "number" | "boolean" | "enum";
   shipped: TuningValue;
@@ -237,14 +238,65 @@ function buildFields(): TunableField[] {
   }
 
   buildWeaponFields(fields);
+  buildTurretFields(fields);
 
   return fields;
 }
 
 /**
+ * The playground's Turret settings panel (TR58): the two `TURRET_CONFIG` knobs a tester reaches
+ * for, and every chassis's `turretMount` — all nine `CAR_TABLE` rows, inactive ones included, since a
+ * prototype is exactly where a mount gets placed before release.
+ *
+ * Their own `"turret"` group, mount rows included, even though a mount's PATH is `car.<id>.…`: the
+ * Physics panel's Cars tab selects `group === "car"`, and a mount belongs in the turret panel alone.
+ *
+ * Bounds are hand-set rather than `numberRange`'s 0-to-triple, because both global knobs have a
+ * floor that is not zero: a turn rate of 0 never aligns, so a press would never fire, and a swing of
+ * 0 is an arc with no inside (TR55's `(0, 360]`). The swing's ceiling IS 360 — anything above is the
+ * same unrestricted turret. A mount stays on the hull, `DRIVE_CONFIG`'s own half-extents.
+ * `defaultOffset` is deliberately not offered: it is the sim's barrel length, lined up against the
+ * art in `?dev=assets` (TR45), not a feel knob.
+ */
+export const TURRET_TUNING_BOUNDS = {
+  turnRateDegPerSec: { min: 30, max: 1800, step: 10 },
+  maxSwingDeg: { min: 5, max: 360, step: 5 },
+  mountStep: 1,
+} as const;
+
+function buildTurretFields(fields: TunableField[]): void {
+  for (const key of ["turnRateDegPerSec", "maxSwingDeg"] as const) {
+    fields.push({
+      path: `turret.${key}`,
+      group: "turret",
+      label: key,
+      kind: "number",
+      shipped: TURRET_CONFIG[key],
+      ...TURRET_TUNING_BOUNDS[key],
+    });
+  }
+  const halfExtent = { x: DRIVE_CONFIG.carWidth / 2, y: DRIVE_CONFIG.carHeight / 2 } as const;
+  for (const carId of Object.keys(CAR_TABLE) as CarId[]) {
+    for (const axis of ["x", "y"] as const) {
+      fields.push({
+        path: `car.${carId}.turretMount.${axis}`,
+        group: "turret",
+        ownerId: carId,
+        label: `turretMount.${axis}`,
+        kind: "number",
+        shipped: CAR_TABLE[carId].turretMount[axis],
+        min: -halfExtent[axis],
+        max: halfExtent[axis],
+        step: TURRET_TUNING_BOUNDS.mountStep,
+      });
+    }
+  }
+}
+
+/**
  * Computed once, at module load — before any playground call to `setTuning` can run, so `shipped`
  * always reflects the true built-in defaults rather than whatever override happened to be active the
- * first time a caller asked. `setTuning` mutates the five source tables IN PLACE (that is its whole
+ * first time a caller asked. `setTuning` mutates the seven source tables IN PLACE (that is its whole
  * trick — see `tuning.ts`), so reading them lazily on first use would risk caching a tuned value as
  * "shipped" if some earlier code path had already called `setTuning`. Frozen so nothing downstream
  * can mutate the shared field objects; `tunableFields()` still hands out a fresh array each call so a

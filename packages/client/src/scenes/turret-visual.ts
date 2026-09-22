@@ -2,22 +2,28 @@ import type Phaser from "phaser";
 import { TURRET_CONFIG, wrapAngle } from "@motor-combat-moba/shared";
 import { TURRET_FALLBACK, TURRET_VISUAL } from "../config/turret-visual.js";
 
-const RATE = (TURRET_CONFIG.turnRateDegPerSec * Math.PI) / 180;
-
-/** The turret's drawn long edge, world units: `TURRET_VISUAL.lengthUnits` times the row's numeric `scale` (TR42). */
-export function turretDisplayLength(scale: "fit" | number): number {
-  return scale === "fit" ? TURRET_VISUAL.lengthUnits : TURRET_VISUAL.lengthUnits * scale;
+/**
+ * The turret's drawn long edge, world units: `lengthUnits` times the row's numeric `scale` (TR42).
+ * `lengthUnits` defaults to the shipped `TURRET_VISUAL.lengthUnits`; a playground room hands in its
+ * resolved length instead — the global knob times that car's multiplier (TR60).
+ */
+export function turretDisplayLength(
+  scale: "fit" | number,
+  lengthUnits: number = TURRET_VISUAL.lengthUnits,
+): number {
+  return scale === "fit" ? lengthUnits : lengthUnits * scale;
 }
 
 /**
  * The drawn turret chases the networked one at the turret's own turn rate — what the sim does between
  * patches (spec TR42). A gap wider than a quarter turn is a respawn or a lost patch, not a turn, so it
- * snaps.
+ * snaps. The rate is read from `TURRET_CONFIG` on every call, never cached at module load, so a
+ * playground turn-rate retune reaches the drawn turret the frame the tuning store takes it (TR59).
  */
 export function easeTurretAngle(shown: number, target: number, dtSeconds: number): number {
   const delta = wrapAngle(target - shown);
   if (Math.abs(delta) > TURRET_VISUAL.snapAboveRad) return target;
-  const max = RATE * dtSeconds;
+  const max = ((TURRET_CONFIG.turnRateDegPerSec * Math.PI) / 180) * dtSeconds;
   return Math.abs(delta) <= max ? target : wrapAngle(shown + Math.sign(delta) * max);
 }
 

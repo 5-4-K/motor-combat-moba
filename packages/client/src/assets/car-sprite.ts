@@ -54,12 +54,15 @@ export function resolveCarSprite(
  *
  * Sized against the turret's own display length, not the hull: `fitSprite`'s `"fit"` contains art
  * in a 60x40 box, which would draw a 72x42 turret plate as big as the car. Here the texture's long
- * edge becomes `turretDisplayLength(entry.scale)` and the aspect is the texture's.
+ * edge becomes `turretDisplayLength(entry.scale, lengthUnits)` and the aspect is the texture's.
+ * `lengthUnits` is the shipped `TURRET_VISUAL.lengthUnits` unless a playground room hands in its
+ * own (TR60); the tool and every other room leave it to default.
  */
 export function resolveTurretSprite(
   manifest: AssetManifest,
   textures: TextureLookup,
   carId: string,
+  lengthUnits?: number,
 ): ResolvedSprite | undefined {
   for (const key of turretSpriteKeys(carId)) {
     const entry = manifest.sprites[key];
@@ -71,7 +74,7 @@ export function resolveTurretSprite(
       entry,
       fit: {
         // The same zero-size guard `fitSprite` takes, written the same NaN-catching way.
-        scale: long > 0 ? turretDisplayLength(entry.scale) / long : 1,
+        scale: long > 0 ? turretDisplayLength(entry.scale, lengthUnits) / long : 1,
         rotation: entry.rotationOffset,
         originX: entry.origin[0],
         originY: entry.origin[1],

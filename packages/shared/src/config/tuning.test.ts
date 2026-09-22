@@ -9,6 +9,8 @@ import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
 import { IMPULSE_CONFIG } from "./impulse-config.js";
 import { RAM_CONFIG, ramTicks } from "./ram-config.js";
+import { TICK_RATE_HZ } from "../constants.js";
+import { TURRET_CONFIG, TURRET_TICKS } from "./turret-config.js";
 import { instanceDefOf, WEAPON_TABLE } from "./weapon-config.js";
 import { WEAPON_TICKS, weaponTicksOf } from "./weapon-ticks.js";
 import { activeTuning, setTuning } from "./tuning.js";
@@ -203,5 +205,27 @@ describe("tuning store", () => {
     setTuning(null);
     expect(IMPULSE_CONFIG.spinScale).toBe(shippedSpin);
     expect(IMPULSE_CONFIG.wallContactPad).toBe(shippedPad);
+  });
+
+  it("the turret root is tunable, and a turn-rate override rebuilds TURRET_TICKS in place (TR57)", () => {
+    // `TURRET_TICKS.turnPerTick` is derived from `turnRateDegPerSec` once at module load, so it owes
+    // `setTuning`'s rebuild list an entry — without it the playground's turn-rate knob would move the
+    // config and leave the sim turning at the shipped rate. Asserted on the SAME object every reader
+    // holds (`turnTurret`'s default step, the bot's turn budget), not on a fresh read.
+    const ticks = TURRET_TICKS;
+    const shippedStep = TURRET_TICKS.turnPerTick;
+    const shippedSwing = TURRET_CONFIG.maxSwingDeg;
+
+    setTuning({ "turret.turnRateDegPerSec": 360, "turret.maxSwingDeg": 180, "car.mirage.turretMount.x": 6 });
+    expect(TURRET_CONFIG.turnRateDegPerSec).toBe(360);
+    expect(TURRET_CONFIG.maxSwingDeg).toBe(180);
+    expect(CAR_TABLE.mirage.turretMount.x).toBe(6);
+    expect(TURRET_TICKS).toBe(ticks);
+    expect(TURRET_TICKS.turnPerTick).toBeCloseTo((360 * Math.PI) / 180 / TICK_RATE_HZ, 12);
+
+    setTuning(null);
+    expect(TURRET_TICKS.turnPerTick).toBe(shippedStep);
+    expect(TURRET_CONFIG.maxSwingDeg).toBe(shippedSwing);
+    expect(CAR_TABLE.mirage.turretMount.x).toBe(0);
   });
 });

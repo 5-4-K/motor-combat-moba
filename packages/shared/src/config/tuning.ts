@@ -4,14 +4,16 @@ import { DRIVE_CONFIG } from "./drive-config.js";
 import { IMPULSE_CONFIG } from "./impulse-config.js";
 import { RAM_CONFIG, rebuildRamTicks } from "./ram-config.js";
 import { isStatusId } from "./status-config.js";
+import { rebuildTurretTicks, TURRET_CONFIG } from "./turret-config.js";
 import { rebuildBurstDefs, WEAPON_TABLE } from "./weapon-config.js";
 import { rebuildWeaponTicks } from "./weapon-ticks.js";
 
 export type TuningValue = number | boolean | string;
 
 /**
- * Flat dot-paths into the six balance tables: `"car.mirage.speed"`, `"drive.baseTurnRate"`,
+ * Flat dot-paths into the seven balance tables: `"car.mirage.speed"`, `"drive.baseTurnRate"`,
  * `"ram.attackerLockMs"`, `"combat.hpPerRating"`, `"impulse.spinScale"`, `"weapon.predator.damage"`,
+ * `"turret.turnRateDegPerSec"`, `"car.mirage.turretMount.x"`,
  * `"weapon.pepperbox.hitbox.radiusAlong"`. Numeric segments index arrays
  * (`"weapon.predator.applies.0.durationMs"`).
  */
@@ -20,12 +22,14 @@ export type TuningOverrides = Readonly<Record<string, TuningValue>>;
 /**
  * Dev-only runtime balance tuning (spec PG12).
  *
- * The six source tables below are `as const` but not frozen, so this module overrides them by
+ * The seven source tables below are not frozen (six `as const`, `TURRET_CONFIG` typed readonly), so
+ * this module overrides them by
  * mutating them IN PLACE. That is the whole trick: object identity is preserved, so every existing
  * importer — the sim, the render tables, the server — keeps reading the same object and needs no
  * call-site change. Only the artifacts derived once at module load — the resolved drive, the weapon
- * ticks, the ram durations (`ramTicks()`), and each exploding weapon's synthesized burst def
- * (`BURST_DEFS`) — have to be told to re-resolve. Anything else derived from one of these tables at
+ * ticks, the ram durations (`ramTicks()`), each exploding weapon's synthesized burst def
+ * (`BURST_DEFS`), and the turret's per-tick turn (`TURRET_TICKS`, TR57) — have to be told to
+ * re-resolve. Anything else derived from one of these tables at
  * module load owes this list an entry, or its source knob is dead to tuning.
  *
  * A deep clone of each table is snapshotted at module load and deep-frozen; every `setTuning` call
@@ -41,6 +45,7 @@ const ROOTS: Readonly<Record<string, object>> = Object.freeze({
   impulse: IMPULSE_CONFIG,
   combat: COMBAT_CONFIG,
   weapon: WEAPON_TABLE,
+  turret: TURRET_CONFIG,
 });
 
 function deepFreeze<T>(value: T): T {
@@ -152,6 +157,7 @@ export function setTuning(overrides: TuningOverrides | null): void {
   rebuildWeaponTicks(active !== null);
   rebuildRamTicks(active !== null);
   rebuildBurstDefs(active !== null);
+  rebuildTurretTicks();
 }
 
 export function activeTuning(): TuningOverrides | null {
