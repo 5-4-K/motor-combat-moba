@@ -1,12 +1,16 @@
-import { CAR_TABLE, rebuildResolvedDrive } from "./car-config.js";
+import { CAR_TABLE } from "./car-config.js";
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
 import { IMPULSE_CONFIG } from "./impulse-config.js";
-import { RAM_CONFIG, rebuildRamTicks } from "./ram-config.js";
+import { RAM_CONFIG } from "./ram-config.js";
 import { isStatusId } from "./status-config.js";
-import { rebuildTurretTicks, TURRET_CONFIG } from "./turret-config.js";
-import { rebuildBurstDefs, WEAPON_TABLE } from "./weapon-config.js";
-import { rebuildWeaponTicks } from "./weapon-ticks.js";
+import { TURRET_CONFIG } from "./turret-config.js";
+import { WEAPON_TABLE } from "./weapon-config.js";
+import { DEFAULT_GAME_MODE } from "./mode-config.js";
+import { installMode } from "../modes/active.js";
+import { assembleModeConfig } from "../modes/build.js";
+import { LEGACY_TABLES } from "../modes/legacy.js";
+import type { ModeTables } from "../modes/types.js";
 
 export type TuningValue = number | boolean | string;
 
@@ -22,19 +26,25 @@ export type TuningOverrides = Readonly<Record<string, TuningValue>>;
 /**
  * Dev-only runtime balance tuning (spec PG12).
  *
- * The seven source tables below are not frozen (six `as const`, `TURRET_CONFIG` typed readonly), so
- * this module overrides them by
- * mutating them IN PLACE. That is the whole trick: object identity is preserved, so every existing
- * importer — the sim, the render tables, the server — keeps reading the same object and needs no
- * call-site change. Only the artifacts derived once at module load — the resolved drive, the weapon
- * ticks, the ram durations (`ramTicks()`), each exploding weapon's synthesized burst def
- * (`BURST_DEFS`), and the turret's per-tick turn (`TURRET_TICKS`, TR57) — have to be told to
- * re-resolve. Anything else derived from one of these tables at
- * module load owes this list an entry, or its source knob is dead to tuning.
+ * **Rewritten for the accessor-layer migration (MC14, fix round 1).** This used to mutate the seven
+ * source tables below IN PLACE and then tell a handful of module-load-derived caches to re-resolve
+ * (`rebuildResolvedDrive`/`rebuildWeaponTicks`/`rebuildRamTicks`/`rebuildBurstDefs`/
+ * `rebuildTurretTicks`). That stopped working the moment the accessors those caches fed (`driveOf`,
+ * `weaponTicksOf`, `ramTicks()`, `instanceDefOf`, and every other accessor in `modes/active.ts`)
+ * started reading the INSTALLED mode bundle instead of a module global: a bundle is a
+ * `structuredClone` taken once when it is assembled, so mutating `CAR_TABLE`/`WEAPON_TABLE`/etc.
+ * afterward no longer reaches it, no matter how many rebuild functions run.
  *
- * A deep clone of each table is snapshotted at module load and deep-frozen; every `setTuning` call
- * restores from that snapshot before applying, so overrides replace rather than accumulate and
- * `setTuning(null)` is exactly the shipped build.
+ * The fix matches how the accessors actually read config now: `setTuning` builds a **fresh
+ * `ModeConfig` bundle** from `LEGACY_TABLES` with the overrides written into a clone of it, and
+ * `installMode`s that bundle — process-wide, exactly as before (this dev tool was never per-room).
+ * `setTuning(null)` installs a bundle assembled straight from the untouched `LEGACY_TABLES`. Neither
+ * path ever mutates `CAR_TABLE`/`DRIVE_CONFIG`/`WEAPON_TABLE`/`RAM_CONFIG`/`COMBAT_CONFIG`/
+ * `IMPULSE_CONFIG`/`TURRET_CONFIG` — those seven stay the pristine shipped values forever, which is
+ * also what keeps `DEFAULTS` below (validated against once, at module load) permanently accurate.
+ * There is nothing left to "rebuild": assembling a bundle already resolves every derived artifact
+ * (`derived.chassisDrive`, `derived.weaponTicks`, `derived.ramTicks`, `derived.burstDefs`, ...) as
+ * one step, so the five `rebuild*` functions this file used to call have no successor at all.
  */
 type Container = Record<string, unknown>;
 
@@ -54,6 +64,13 @@ function deepFreeze<T>(value: T): T {
   return Object.freeze(value);
 }
 
+/**
+ * A validation-only snapshot of the seven balance-table shapes, taken once at module load. Nothing
+ * ever mutates `ROOTS`'s own tables any more (see the note above), so this stays accurate forever —
+ * it no longer needs to double as "the shipped values `setTuning(null)` restores", because
+ * `setTuning(null)` now re-assembles a bundle from `LEGACY_TABLES` instead of restoring into a live
+ * object.
+ */
 const DEFAULTS: Readonly<Record<string, unknown>> = Object.freeze(
   Object.fromEntries(Object.entries(ROOTS).map(([key, table]) => [key, deepFreeze(structuredClone(table))])),
 );
@@ -66,34 +83,6 @@ function isContainer(value: unknown): value is Container {
 
 function hasOwn(container: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(container, key);
-}
-
-/**
- * Copies `source` back over `target` field by field. Nested objects and arrays are recursed into
- * rather than reassigned, so anything that captured a sub-object (a hitbox, an `applies` entry, a
- * kit array) still sees the restored values through its own reference.
- */
-function restoreInPlace(target: Container, source: unknown): void {
-  if (Array.isArray(source)) {
-    const targetArray = target as unknown as unknown[];
-    targetArray.length = source.length;
-    for (let i = 0; i < source.length; i += 1) restoreKey(target, String(i), source[i]);
-    return;
-  }
-  if (!isContainer(source)) return;
-  for (const key of Object.keys(source)) restoreKey(target, key, source[key]);
-}
-
-function restoreKey(target: Container, key: string, value: unknown): void {
-  if (!isContainer(value)) {
-    target[key] = value;
-    return;
-  }
-  const current = target[key];
-  if (!isContainer(current) || Array.isArray(current) !== Array.isArray(value)) {
-    target[key] = Array.isArray(value) ? [] : {};
-  }
-  restoreInPlace(target[key] as Container, value);
 }
 
 /**
@@ -141,23 +130,37 @@ function assertAssignable(path: string, value: TuningValue): void {
 
 export function setTuning(overrides: TuningOverrides | null): void {
   if (overrides) {
+    // Shape-validated against the frozen `DEFAULTS` snapshot, all-or-nothing, before a single byte
+    // of `tables` below is written — unchanged from before this rewrite. A rejected call installs
+    // nothing and leaves whatever bundle was already active running.
     for (const [path, value] of Object.entries(overrides)) assertAssignable(path, value);
   }
-  for (const [group, table] of Object.entries(ROOTS)) {
-    restoreInPlace(table as Container, DEFAULTS[group]);
+
+  if (!overrides) {
+    installMode(assembleModeConfig(DEFAULT_GAME_MODE, LEGACY_TABLES));
+    active = null;
+    return;
   }
-  if (overrides) {
-    for (const [path, value] of Object.entries(overrides)) {
-      const { container, key } = leafOf(ROOTS, path);
-      container[key] = value;
-    }
+
+  // A fresh clone every call — never `LEGACY_TABLES` itself, and never a bundle from a previous
+  // `setTuning` call — so overrides replace rather than accumulate, the same promise the old
+  // restore-then-apply dance kept.
+  const tables = structuredClone(LEGACY_TABLES) as ModeTables;
+  const tuningRoots: Readonly<Record<string, unknown>> = {
+    car: tables.cars,
+    weapon: tables.weapons,
+    drive: tables.drive,
+    ram: tables.ram,
+    impulse: tables.impulse,
+    combat: tables.combat,
+    turret: tables.turret,
+  };
+  for (const [path, value] of Object.entries(overrides)) {
+    const { container, key } = leafOf(tuningRoots, path);
+    container[key] = value;
   }
-  active = overrides ? Object.freeze({ ...overrides }) : null;
-  rebuildResolvedDrive(active !== null);
-  rebuildWeaponTicks(active !== null);
-  rebuildRamTicks(active !== null);
-  rebuildBurstDefs(active !== null);
-  rebuildTurretTicks();
+  installMode(assembleModeConfig(DEFAULT_GAME_MODE, tables));
+  active = Object.freeze({ ...overrides });
 }
 
 export function activeTuning(): TuningOverrides | null {

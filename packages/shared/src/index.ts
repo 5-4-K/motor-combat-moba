@@ -16,6 +16,13 @@ export type { DeployMode } from "./constants.js";
 // Removed in phase 3, when cfg() starts throwing. See modes/legacy.ts.
 import "./modes/legacy.js";
 
+// The per-mode config scope (MC9-MC13). Server and client need `withMode`/`assembleModeConfig` to
+// scope a bundle of their own — a test bundle, or eventually a real non-default mode — rather than
+// only ever reading whatever this process last installed.
+export { withMode, cfg, installMode, hasMode } from "./modes/active.js";
+export { assembleModeConfig } from "./modes/build.js";
+export type { ModeConfig, ModeTables } from "./modes/types.js";
+
 export { INPUT_MESSAGE } from "./net/input.js";
 export type { InputMessage } from "./net/input.js";
 export {

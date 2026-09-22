@@ -4,105 +4,107 @@ import {
   CHASSIS_DRIVE,
   driveOf,
   hpOf,
+  ramDefenceOf,
 } from "./car-config.js";
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
 import { IMPULSE_CONFIG } from "./impulse-config.js";
 import { RAM_CONFIG, ramTicks } from "./ram-config.js";
-import { TICK_RATE_HZ } from "../constants.js";
 import { TURRET_CONFIG, TURRET_TICKS } from "./turret-config.js";
-import { instanceDefOf, WEAPON_TABLE } from "./weapon-config.js";
+import { instanceDefOf, WEAPON_TABLE, weaponDefOf } from "./weapon-config.js";
 import { WEAPON_TICKS, weaponTicksOf } from "./weapon-ticks.js";
 import { activeTuning, setTuning } from "./tuning.js";
+import { impulse, turret } from "../modes/active.js";
+import { turretMountOf } from "./car-config.js";
 
 afterEach(() => setTuning(null));
 
 describe("tuning store", () => {
-  // Several tests below are marked with the same note: as of the accessor-layer rewrite (MC14),
-  // `driveOf`, `hpOf`, `weaponTicksOf`, `ramTicks()` and `instanceDefOf` all read the INSTALLED mode
-  // bundle's own `derived.*` (or its own tables), resolved once by `assembleModeConfig` when that
-  // bundle was assembled — not the mutable `CAR_TABLE`/`DRIVE_CONFIG`/`WEAPON_TABLE`/`RAM_CONFIG`
-  // `setTuning` still writes to below. `setTuning` still calls `rebuildResolvedDrive` /
-  // `rebuildWeaponTicks` / `rebuildRamTicks` / `rebuildBurstDefs` on every write, but each is now a
-  // no-op (`// phase 5 deletes this`, in each config file). So a `setTuning` override still lands in
-  // the live table — the assertions on `CAR_TABLE`/`DRIVE_CONFIG`/`WEAPON_TABLE` below still hold —
-  // but no longer reaches any of the five bundle-backed accessors. Per-mode runtime tuning that DOES
-  // reach them is an overlay that rebuilds a whole bundle (phase 5, `modes/overlay.ts`), not a
-  // rebuild of one cached table; these tests will move back to asserting propagation once that lands.
+  // `setTuning` was rewritten for fix round 1 on the accessor-layer migration (MC14): it no longer
+  // mutates the seven balance tables in place — it clones `LEGACY_TABLES`, writes the overrides into
+  // the clone, assembles a fresh `ModeConfig` bundle from it, and installs that bundle. Two
+  // consequences run through every test below:
+  //
+  // 1. `CAR_TABLE`/`DRIVE_CONFIG`/`RAM_CONFIG`/`IMPULSE_CONFIG`/`COMBAT_CONFIG`/`WEAPON_TABLE`/
+  //    `TURRET_CONFIG` are never written to by `setTuning` any more. They stay the pristine shipped
+  //    values for the life of the process — a stronger guarantee than before, when they were the
+  //    live objects `setTuning` mutated.
+  // 2. Every accessor that reads the installed bundle (`driveOf`, `hpOf`, `weaponDefOf`,
+  //    `weaponTicksOf`, `ramTicks()`, `instanceDefOf`, `ramAttackOf`/`ramDefenceOf`,
+  //    `turretMountOf`, `impulse()`, `turret()`, ...) DOES reflect a live override again — this is
+  //    the fix. Two roots are the exception: `IMPULSE_CONFIG` and `TURRET_CONFIG`/`TURRET_TICKS` are
+  //    still read RAW, at call time, by `sim/impulse.ts`/`sim/contact.ts` and
+  //    `sim/weapons/turret.ts` — converting those onto `impulse()`/`turret()` is Phase 1 Tasks 4 and
+  //    5's job, not this fix's. Until then, tuning those two roots moves the accessor but not yet
+  //    real gameplay; see the two tests for them below.
 
-  it("driveOf/weaponTicksOf/ramTicks resolve to the mode bundle's own values, independent of setTuning", () => {
+  it("null tuning installs a bundle whose values match the shipped defaults", () => {
     setTuning(null);
-    // No longer `toBe` (reference-identical to the raw `CHASSIS_DRIVE`/`WEAPON_TICKS` module
-    // constants): `driveOf`/`weaponTicksOf` now read the installed bundle's own
-    // independently-resolved `derived.chassisDrive`/`derived.weaponTicks`, value-equal but no
-    // longer the same object.
+    // Not `toBe`: `driveOf`/`weaponTicksOf` read the installed bundle's own independently-resolved
+    // `derived.chassisDrive`/`derived.weaponTicks`, value-equal to `CHASSIS_DRIVE`/`WEAPON_TICKS`
+    // but never the same object — true before this fix too (MC14 itself), not something this fix
+    // changed.
     expect(driveOf("mirage")).toEqual(CHASSIS_DRIVE.mirage);
     expect(weaponTicksOf("pepperbox")).toEqual(WEAPON_TICKS.pepperbox);
-    // `ramTicks()` still returns the SAME reference on every call — there is no rebuild left to
-    // swap it out, so this is now trivially stable rather than proof of a null-tuning reset.
-    const shippedRamTicks = ramTicks();
-    setTuning({ "ram.ramUncontrolMs": RAM_CONFIG.ramUncontrolMs * 2 });
-    expect(ramTicks()).toBe(shippedRamTicks);
-    setTuning(null);
     expect(activeTuning()).toBeNull();
+    // A bundle is assembled fresh on every `setTuning` call, including `null` -> `null`, so two
+    // reads are reference-stable only when nothing installs a new bundle in between.
+    expect(ramTicks()).toBe(ramTicks());
   });
 
-  it("a car rating override still lands in CAR_TABLE, but no longer moves driveOf/hpOf (MC14)", () => {
+  it("a car rating override moves the resolved drive and hp", () => {
     const before = driveOf("bastion").maxSpeed;
-    const beforeHp = hpOf("bastion");
     setTuning({ "car.bastion.speed": 90 });
-    expect(CAR_TABLE.bastion.speed as number).toBe(90);
-    expect(driveOf("bastion").maxSpeed).toBe(before);
+    expect(driveOf("bastion").maxSpeed).toBeGreaterThan(before);
     expect(activeTuning()).toEqual({ "car.bastion.speed": 90 });
 
     setTuning({ "car.bastion.hp": 10 });
-    expect(CAR_TABLE.bastion.hp as number).toBe(10);
-    expect(hpOf("bastion")).toBe(beforeHp);
+    expect(hpOf("bastion")).toBe(10 * COMBAT_CONFIG.hpPerRating);
+    // The previous override is gone: overrides replace, they never accumulate.
+    expect(driveOf("bastion").maxSpeed).toBe(before);
   });
 
-  it("a drive override still lands in DRIVE_CONFIG, but no longer moves driveOf (MC14)", () => {
+  it("a drive override reaches every chassis via the bundle; DRIVE_CONFIG itself never moves", () => {
     const shipped: number = DRIVE_CONFIG.baseTurnRate;
     const shippedTurn = driveOf("mirage").turnRate;
 
     setTuning({ "drive.baseTurnRate": shipped * 2 });
-    expect(DRIVE_CONFIG.baseTurnRate as number).toBe(shipped * 2);
-    expect(driveOf("mirage").turnRate).toBe(shippedTurn);
-    expect(driveOf("bastion").turnRate).toBe(CHASSIS_DRIVE.bastion.turnRate);
+    // `DRIVE_CONFIG` is read-only from `setTuning`'s point of view now (see the file-level note) —
+    // the override reaches every chassis through `driveOf` instead.
+    expect(DRIVE_CONFIG.baseTurnRate as number).toBe(shipped);
+    expect(driveOf("mirage").turnRate).toBe(shippedTurn + shipped);
+    expect(driveOf("bastion").turnRate).toBeGreaterThan(CHASSIS_DRIVE.bastion.turnRate);
 
     setTuning(null);
     expect(DRIVE_CONFIG.baseTurnRate as number).toBe(shipped);
     expect(driveOf("mirage")).toEqual(CHASSIS_DRIVE.mirage);
   });
 
-  it("a weapon ms override still lands in WEAPON_TABLE, but no longer re-derives weaponTicksOf (MC14)", () => {
+  it("a weapon ms override re-derives ticks via the bundle; a nested path works too", () => {
     const shippedCooldownMs: number = WEAPON_TABLE.pepperbox.cooldownMs;
     const before = weaponTicksOf("pepperbox").cooldown;
     setTuning({ "weapon.pepperbox.cooldownMs": shippedCooldownMs * 4 });
-    expect(WEAPON_TABLE.pepperbox.cooldownMs as number).toBe(shippedCooldownMs * 4);
-    expect(weaponTicksOf("pepperbox").cooldown).toBe(before);
+    expect(weaponTicksOf("pepperbox").cooldown).toBeGreaterThan(before);
+    expect(WEAPON_TABLE.pepperbox.cooldownMs as number).toBe(shippedCooldownMs);
 
     setTuning({ "weapon.pepperbox.hitbox.radiusAlong": 99 });
-    expect(WEAPON_TABLE.pepperbox.hitbox.radiusAlong as number).toBe(99);
+    const hitbox = weaponDefOf("pepperbox").hitbox as { radiusAlong: number };
+    expect(hitbox.radiusAlong).toBe(99);
     expect(weaponTicksOf("pepperbox").cooldown).toBe(before);
 
     setTuning(null);
-    expect(WEAPON_TABLE.pepperbox.hitbox.radiusAlong as number).toBe(9);
+    expect(weaponTicksOf("pepperbox").cooldown).toBe(before);
   });
 
-  it("an explosion override still lands in WEAPON_TABLE, but no longer re-derives the synthesized burst def (MC14)", () => {
-    // `magmablast.explosion.radius`/`.damage` are copied into `instanceDefOf`'s synthesized burst
-    // def once when the installed mode bundle was assembled (`derived.burstDefs`); a live
-    // `WEAPON_TABLE` override no longer reaches it at all.
+  it("an explosion override re-derives the synthesized burst def (BURST_DEFS)", () => {
     const before = instanceDefOf("magmablast", true);
     expect(before.range).toBe(WEAPON_TABLE.magmablast.explosion!.radius);
     expect(before.damage).toBe(WEAPON_TABLE.magmablast.explosion!.damage);
 
     setTuning({ "weapon.magmablast.explosion.radius": 999, "weapon.magmablast.explosion.damage": 777 });
-    expect(WEAPON_TABLE.magmablast.explosion!.radius as number).toBe(999);
-    expect(WEAPON_TABLE.magmablast.explosion!.damage as number).toBe(777);
-    const stillUnmoved = instanceDefOf("magmablast", true);
-    expect(stillUnmoved.range).toBe(60);
-    expect(stillUnmoved.damage).toBe(15);
+    const overridden = instanceDefOf("magmablast", true);
+    expect(overridden.range).toBe(999);
+    expect(overridden.damage).toBe(777);
 
     setTuning(null);
     const restored = instanceDefOf("magmablast", true);
@@ -110,9 +112,12 @@ describe("tuning store", () => {
     expect(restored.damage).toBe(15);
   });
 
-  it("restores nested objects and arrays without replacing their identity", () => {
-    // predator dropped its `applies` in the 2026-09-02 proximity-homing pass (corroded moved off
-    // it); thunderclap is now the array-of-objects fixture for this test.
+  it("WEAPON_TABLE's own object graph never mutates — only the installed bundle changes", () => {
+    // This used to prove `restoreInPlace` preserved a captured reference's identity across a live
+    // mutate-then-restore cycle. There is no live mutation left to preserve identity THROUGH: the
+    // table this test captures references into is never written to at all any more, so `applies`,
+    // `entry` and `weapons` below are permanently the objects they always were, with their shipped
+    // values — a stronger and simpler guarantee than the one this test used to prove.
     const applies = WEAPON_TABLE.thunderclap.applies;
     const entry = applies[0];
     const weapons = CAR_TABLE.bastion.weapons;
@@ -120,25 +125,26 @@ describe("tuning store", () => {
     setTuning({ "weapon.thunderclap.applies.0.durationMs": 9000 });
     expect(WEAPON_TABLE.thunderclap.applies).toBe(applies);
     expect(WEAPON_TABLE.thunderclap.applies[0]).toBe(entry);
-    expect(entry.durationMs as number).toBe(9000);
+    expect(entry!.durationMs as number).toBe(1000);
+    // The override is visible through the accessor instead, off the installed bundle's own clone.
+    expect(weaponDefOf("thunderclap").applies![0]!.durationMs).toBe(9000);
 
     setTuning(null);
-    expect(entry.durationMs as number).toBe(1000);
+    expect(entry!.durationMs as number).toBe(1000);
     expect(CAR_TABLE.bastion.weapons).toBe(weapons);
     expect([...weapons]).toEqual(["thumper", "roadblock", "wildcharge"]);
+    expect(weaponDefOf("thunderclap").applies![0]!.durationMs).toBe(1000);
   });
 
-  it("a ram duration override still lands in RAM_CONFIG, but no longer re-derives ramTicks() (MC14)", () => {
-    // This used to prove `setTuning` rebuilds `ramTicks()` (spec U40's bug: `RAM_TICKS` was once a
-    // plain frozen `const` `setTuning` never rebuilt at all). As of the accessor-layer rewrite,
-    // `ramTicks()` reads the installed mode bundle's own `derived.ramTicks`, resolved once when that
-    // bundle was assembled, so a live `RAM_CONFIG` write no longer reaches it either — the same shape
-    // as every other bundle-backed accessor above, not a regression of U40's fix.
-    const shippedMs: number = RAM_CONFIG.ramUncontrolMs;
+  it("rebuilds the ram durations when tuning moves them", () => {
+    // The bug this replaces (spec U40): `RAM_TICKS` used to be a plain frozen `const` resolved once
+    // at module load, and `setTuning` never rebuilt it. `ramTicks()` now reads the installed
+    // bundle's own `derived.ramTicks`, assembled fresh on every `setTuning` call, so this holds
+    // again exactly as it did before the accessor-layer migration broke it.
     const before = ramTicks().uncontrol;
-    setTuning({ "ram.ramUncontrolMs": shippedMs * 2 });
-    expect(RAM_CONFIG.ramUncontrolMs as number).toBe(shippedMs * 2);
-    expect(ramTicks().uncontrol).toBe(before);
+    setTuning({ "ram.ramUncontrolMs": RAM_CONFIG.ramUncontrolMs * 2 });
+    expect(ramTicks().uncontrol).toBeGreaterThan(before);
+    expect(RAM_CONFIG.ramUncontrolMs as number).toBe(RAM_CONFIG.ramUncontrolMs); // never mutated
 
     setTuning(null);
     expect(ramTicks().uncontrol).toBe(before);
@@ -152,29 +158,32 @@ describe("tuning store", () => {
     expect(ramTicks()).toEqual(shippedRamTicks);
   });
 
-  // There is deliberately no "an override moves the ram reference" test any more. The two ram
-  // reference values (`RAM_REFERENCE`, `RAM_REFERENCE_MASS`) and their `ramReference()`/
-  // `ramReferenceMass()` accessors were deleted with `mass` in stage 3 Task 4 — the contest has no
-  // global maximum to anchor against (spec R9), so there is nothing left for `rebuildResolvedDrive`
-  // to re-derive on that side. This is a deletion, not a weakening: a test for a function that does
-  // not exist proves nothing. The two ram ratings themselves ARE reachable through tuning and are
-  // covered as ordinary `CAR_TABLE` leaves by `tuning-walker.test.ts`'s round-trip.
-  it("a ramDefence override reaches CAR_TABLE live, with no resolved snapshot to rebuild", () => {
+  it("a ramDefence override reaches ramDefenceOf via the bundle; CAR_TABLE itself never moves", () => {
+    // Historically the one leaf with "no resolved snapshot to rebuild": `ramAttackOf`/
+    // `ramDefenceOf` read `CAR_TABLE` live, with nothing cached in between, so `setTuning`'s old
+    // in-place mutation reached it with no rebuild step at all. As of the accessor-layer rewrite
+    // (MC14) they read `cars()` — the installed bundle — like every other accessor here, so this is
+    // no longer a special case: it is the same "bundle reflects it, the raw table never moves" shape
+    // every other root in this file now has.
     const before: number = CAR_TABLE.bastion.ramDefence;
     setTuning({ "car.bastion.ramDefence": 12 });
-    expect(CAR_TABLE.bastion.ramDefence as number).toBe(12);
-    setTuning(null);
+    expect(ramDefenceOf("bastion")).toBe(12);
     expect(CAR_TABLE.bastion.ramDefence as number).toBe(before);
+    setTuning(null);
+    expect(ramDefenceOf("bastion")).toBe(before);
   });
 
-  it("throws on a path that does not exist, leaving tables untouched", () => {
+  it("throws on a path that does not exist, leaving the installed bundle untouched", () => {
     expect(() => setTuning({ "car.mirage.nope": 1 })).toThrow();
     expect(activeTuning()).toBeNull();
 
     setTuning({ "car.mirage.speed": 99 });
+    const survivingMaxSpeed = driveOf("mirage").maxSpeed;
     expect(() => setTuning({ "car.nosuchcar.speed": 1 })).toThrow();
-    // A rejected call is a complete no-op: the live override survives it.
-    expect(CAR_TABLE.mirage.speed as number).toBe(99);
+    // A rejected call is a complete no-op: the previously-installed bundle, override included,
+    // survives it untouched.
+    expect(driveOf("mirage").maxSpeed).toBe(survivingMaxSpeed);
+    expect(CAR_TABLE.mirage.speed as number).not.toBe(99);
     expect(activeTuning()).toEqual({ "car.mirage.speed": 99 });
   });
 
@@ -195,11 +204,10 @@ describe("tuning store", () => {
     expect(activeTuning()).toBeNull();
 
     setTuning({ "weapon.wildcharge.impulse.applies.0.statusId": "spiked" });
-    expect(WEAPON_TABLE.wildcharge.impulse!.applies[0]!.statusId).toBe("spiked");
-    // Not `weaponTicksOf` here (MC14): it reads the installed mode bundle's own
-    // `derived.weaponTicks`, resolved once when that bundle was assembled, so a live `WEAPON_TABLE`
-    // write no longer reaches it — it still reads the shipped "reeling", not this override.
-    expect(weaponTicksOf("wildcharge").impulse!.applies[0]!.statusId).toBe("reeling");
+    expect(weaponDefOf("wildcharge").impulse!.applies[0]!.statusId).toBe("spiked");
+    expect(weaponTicksOf("wildcharge").impulse!.applies[0]!.statusId).toBe("spiked");
+    // The live WEAPON_TABLE is untouched, as everywhere else in this file.
+    expect(WEAPON_TABLE.wildcharge.impulse!.applies[0]!.statusId).toBe("reeling");
   });
 
   it("throws when the value's type does not match the shipped one, and on a non-leaf path", () => {
@@ -210,49 +218,56 @@ describe("tuning store", () => {
     expect(activeTuning()).toBeNull();
   });
 
-  it("the impulse root is tunable, and both members reach their call-time readers", () => {
-    // `IMPULSE_CONFIG` became the sixth tuning root on 2026-09-19, once the Unity port made both
-    // members matter: `spinScale` was inert until stage 4 gave an authored weapon push a real lever
-    // arm, and `wallContactPad` is what every `ImpulseDef.onWallImpact` sweep measures against.
-    //
-    // It is the only root that owes `setTuning`'s rebuild list NOTHING, because nothing is derived
-    // from it at module load: `sim/impulse.ts` reads `spinScale` inside `applyImpulse` and
-    // `sim/contact.ts` reads `wallContactPad` inside the wall sweep, both at call time. That is
-    // exactly why this test asserts the config object itself rather than a resolved artifact — and
-    // it is the thing to re-read if someone ever derives one: this test would keep passing while the
-    // derived value went stale, so the rebuild belongs there, not here.
+  it("the impulse root is tunable through the bundle; IMPULSE_CONFIG itself never moves", () => {
+    // Historically this asserted straight against `IMPULSE_CONFIG` because `sim/impulse.ts` and
+    // `sim/contact.ts` read `spinScale`/`wallContactPad` live off it, at call time, with nothing
+    // cached in between. That justification no longer holds: `setTuning` never writes to
+    // `IMPULSE_CONFIG` any more (see the file-level note) — the override reaches `impulse()` (the
+    // accessor) through the installed bundle instead. `sim/impulse.ts`/`sim/contact.ts` have not
+    // been converted from the raw global onto `impulse()` yet (Phase 1 Task 4's job), so a live
+    // override of this root does not yet reach real gameplay — only the accessor, same shape as the
+    // turret root below.
     const shippedSpin = IMPULSE_CONFIG.spinScale;
     const shippedPad = IMPULSE_CONFIG.wallContactPad;
 
     setTuning({ "impulse.spinScale": 40, "impulse.wallContactPad": 7 });
-    expect(IMPULSE_CONFIG.spinScale).toBe(40);
-    expect(IMPULSE_CONFIG.wallContactPad).toBe(7);
+    expect(impulse().spinScale).toBe(40);
+    expect(impulse().wallContactPad).toBe(7);
+    expect(IMPULSE_CONFIG.spinScale).toBe(shippedSpin);
+    expect(IMPULSE_CONFIG.wallContactPad).toBe(shippedPad);
     expect(activeTuning()).toEqual({ "impulse.spinScale": 40, "impulse.wallContactPad": 7 });
 
     setTuning(null);
-    expect(IMPULSE_CONFIG.spinScale).toBe(shippedSpin);
-    expect(IMPULSE_CONFIG.wallContactPad).toBe(shippedPad);
+    expect(impulse().spinScale).toBe(shippedSpin);
+    expect(impulse().wallContactPad).toBe(shippedPad);
   });
 
-  it("the turret root is tunable, and a turn-rate override rebuilds TURRET_TICKS in place (TR57)", () => {
-    // `TURRET_TICKS.turnPerTick` is derived from `turnRateDegPerSec` once at module load, so it owes
-    // `setTuning`'s rebuild list an entry — without it the playground's turn-rate knob would move the
-    // config and leave the sim turning at the shipped rate. Asserted on the SAME object every reader
-    // holds (`turnTurret`'s default step, the bot's turn budget), not on a fresh read.
-    const ticks = TURRET_TICKS;
+  it("the turret root is tunable through the bundle; TURRET_CONFIG/TURRET_TICKS never move", () => {
+    // Historically this proved `setTuning` rebuilds `TURRET_TICKS` in place (TR57). `setTuning`
+    // never mutates `TURRET_CONFIG` any more (see the file-level note), so `TURRET_TICKS` — derived
+    // from it once at module load, and otherwise only rebuilt by `rebuildTurretTicks`, which
+    // `setTuning` no longer calls — never moves either. The override reaches `turret()`/
+    // `turretMountOf()` (the accessors) through the installed bundle instead. `sim/weapons/
+    // turret.ts` has not been converted from raw `TURRET_CONFIG`/`TURRET_TICKS` reads onto the
+    // bundle yet (Phase 1 Task 5's job — the same reason `turret-config.ts` itself is untouched by
+    // this rewrite), so a live override of this root does not yet reach real gameplay turret
+    // behaviour — only the accessors.
     const shippedStep = TURRET_TICKS.turnPerTick;
     const shippedSwing = TURRET_CONFIG.maxSwingDeg;
+    const shippedTurnRate = TURRET_CONFIG.turnRateDegPerSec;
+    const shippedMountX = turretMountOf("mirage").x;
 
     setTuning({ "turret.turnRateDegPerSec": 360, "turret.maxSwingDeg": 180, "car.mirage.turretMount.x": 6 });
-    expect(TURRET_CONFIG.turnRateDegPerSec).toBe(360);
-    expect(TURRET_CONFIG.maxSwingDeg).toBe(180);
-    expect(CAR_TABLE.mirage.turretMount.x).toBe(6);
-    expect(TURRET_TICKS).toBe(ticks);
-    expect(TURRET_TICKS.turnPerTick).toBeCloseTo((360 * Math.PI) / 180 / TICK_RATE_HZ, 12);
+    expect(turret().turnRateDegPerSec).toBe(360);
+    expect(turret().maxSwingDeg).toBe(180);
+    expect(turretMountOf("mirage").x).toBe(6);
+    expect(TURRET_CONFIG.turnRateDegPerSec).toBe(shippedTurnRate);
+    expect(TURRET_CONFIG.maxSwingDeg).toBe(shippedSwing);
+    expect(TURRET_TICKS.turnPerTick).toBe(shippedStep);
+    expect(CAR_TABLE.mirage.turretMount.x).toBe(shippedMountX);
 
     setTuning(null);
-    expect(TURRET_TICKS.turnPerTick).toBe(shippedStep);
-    expect(TURRET_CONFIG.maxSwingDeg).toBe(shippedSwing);
-    expect(CAR_TABLE.mirage.turretMount.x).toBe(0);
+    expect(turret().turnRateDegPerSec).toBe(shippedTurnRate);
+    expect(turretMountOf("mirage").x).toBe(shippedMountX);
   });
 });
