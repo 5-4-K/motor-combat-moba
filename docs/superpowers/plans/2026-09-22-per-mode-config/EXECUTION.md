@@ -64,14 +64,34 @@ to the task named after it.
 
 | Phase | Plan | State |
 |---|---|---|
-| 1. Accessor layer, one bundle | [`01-accessor-layer.md`](01-accessor-layer.md) | not started |
+| 1. Accessor layer, one bundle | [`01-accessor-layer.md`](01-accessor-layer.md) | **tasks 1-5 landed; batch review in flight** |
 | 2. Two mode folders | [`02-mode-folders.md`](02-mode-folders.md) | not started |
 | 3. Scopes installed | [`03-room-scopes.md`](03-room-scopes.md) | not started |
 | 4. Lobby and arena sets | [`04-lobby-and-arenas.md`](04-lobby-and-arenas.md) | not started |
 | 5. `setTuning` retired | [`05-retire-set-tuning.md`](05-retire-set-tuning.md) | not started |
 | 6. Tooling | [`06-tooling.md`](06-tooling.md) | not started |
 
-**In flight:** none. **Next:** Phase 1, Task 1.
+**In flight:** Phase 1 — task review of the batched Tasks 4+5 (`review-4140d69..ea0a122.diff`).
+**Next:** close Phase 1 Task 6, then Phase 2 Task 1.
+
+### Phase 1, as landed (commits `fbe386a..ea0a122`, all pushed)
+
+| Task | Commits | Outcome |
+|---|---|---|
+| 1. Bundle types + builder | `6a465ee`, `4116def` | complete, re-review clean |
+| 2. `withMode` scope + 16 accessors | `8db8cd9` | complete, approved first pass |
+| 3. Accessor bodies onto the bundle | `2b02145`, `2341010`, `4140d69` | complete after 2 fix rounds |
+| 4+5. 66 sim dereferences (batched) | `66823d1`, `c381978`, `ea0a122` | review in flight |
+
+**Three regressions were found and fixed at the cause, not at the test.** Two were initially
+reported as "pre-existing" and were not — each was re-run against the true base `fbe386a` to settle
+it. `golden.test.ts` stayed green and unchanged throughout, which is the phase's evidence that no
+balance number moved.
+
+**Known state on leaving phase 1:** 108 raw config reads remain across 38 files in client and
+server (36 inside the server tick). Production behaviour is unaffected — with no tuning active the
+raw globals and the bundle hold identical values — but live playground tuning does not reach the
+client HUD/FX or the bot until phase 3 Task 5b converts them. See Ruling 13 in the ledger.
 
 ## Standing rules for every phase
 
