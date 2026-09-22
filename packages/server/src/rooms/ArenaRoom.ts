@@ -41,12 +41,15 @@ import {
   DEATHMATCH_TICKS,
   deathmatchEnded,
   deathmatchOutcome,
+  DEFAULT_GAME_MODE,
+  modeConfigOrDefault,
   type CarId,
   type DeathmatchPlayer,
   type FlowEvent,
   type FlowPlayer,
   type FlowState,
   type InputMessage,
+  type ModeConfig,
   type StartRulePlayer,
 } from "@motor-combat-moba/shared";
 import {
@@ -87,6 +90,7 @@ import {
 import { selectNextHost } from "./select-next-host.js";
 import { ROOM_FULL_ERROR, shouldRejectSecondArena } from "./singleton-arena.js";
 import { canSendChat, formatClockTime, pushChatMessage } from "./chat.js";
+import { scoped } from "./mode-scope.js";
 
 export class ArenaRoom extends Room<ArenaState> {
   maxClients = MAX_PLAYERS;
@@ -122,6 +126,16 @@ export class ArenaRoom extends Room<ArenaState> {
    */
   private combat: CombatMemory = newCombatMemory();
   private ram: ContactMemory = newContactMemory();
+  /**
+   * The bundle this room's match runs inside. Resolved from `state.mode` through
+   * `modeConfigOrDefault` — never `modeConfigOf` — because `state.mode` is a wire `uint8` an old
+   * client or a deleted mode can set to anything, and the throwing form would kill the room mid-tick
+   * for everyone in it. Re-resolved on `MSG_SET_MODE` while the room is still in `RoomPhase.LOBBY`
+   * (car select must already reflect the chosen mode's roster and kits), then held for the match.
+   * Every entry point below runs wrapped in `scoped(this.modeConfig, ...)` so nothing reads whatever
+   * bundle another room last happened to install (MC11, MC15, MC21).
+   */
+  private modeConfig: ModeConfig = modeConfigOrDefault(DEFAULT_GAME_MODE);
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -130,230 +144,268 @@ export class ArenaRoom extends Room<ArenaState> {
     }
 
     this.setState(new ArenaState());
-    this.setPatchRate(1000 / DEFAULT_PATCH_RATE_HZ);
-    const hz = getTickRateHz(TICK_RATE_HZ);
-    this.setSimulationInterval(() => this.tick(), 1000 / hz);
+    // `ArenaState.mode` defaults to `DEFAULT_GAME_MODE`, so this matches the field initializer
+    // above today; kept explicit so a future default-mode change or persisted state cannot drift
+    // the two apart.
+    this.modeConfig = modeConfigOrDefault(this.state.mode);
 
-    const enqueue = withSimulatedLatency<{ sessionId: string; msg: InputMessage }>(
-      ({ sessionId, msg }) => {
-        const q = this.inputQueues.get(sessionId);
-        if (q) q.push(msg);
-      },
-      getSimulatedLatency(),
-    );
+    scoped(this.modeConfig, () => {
+      this.setPatchRate(1000 / DEFAULT_PATCH_RATE_HZ);
+      const hz = getTickRateHz(TICK_RATE_HZ);
+      this.setSimulationInterval(() => scoped(this.modeConfig, () => this.tick()), 1000 / hz);
 
-    this.onMessage(INPUT_MESSAGE, (client, msg: unknown) => {
-      if (!isInputMessage(msg)) return;
-      enqueue({ sessionId: client.sessionId, msg });
-    });
+      const enqueue = withSimulatedLatency<{ sessionId: string; msg: InputMessage }>(
+        ({ sessionId, msg }) => {
+          const q = this.inputQueues.get(sessionId);
+          if (q) q.push(msg);
+        },
+        getSimulatedLatency(),
+      );
 
-    this.onMessage(MSG_SWITCH_TEAM, (client) => {
-      const player = this.state.players.get(client.sessionId);
-      if (!player) return;
-      const teams: number[] = [];
-      this.state.players.forEach((p) => teams.push(p.team));
-      // Same predicate the lobby uses to grey the button out; the client cannot be trusted to have
-      // run it, so the cap is decided here.
-      if (!canSwitchTeam({ status: toFlowStatus(player.status), team: player.team }, teams)) return;
-      player.team = player.team === 0 ? 1 : 0;
-    });
+      this.onMessage(INPUT_MESSAGE, (client, msg: unknown) =>
+        scoped(this.modeConfig, () => {
+          if (!isInputMessage(msg)) return;
+          enqueue({ sessionId: client.sessionId, msg });
+        }),
+      );
 
-    this.onMessage(MSG_SET_MODE, (client, msg: unknown) => {
-      if (client.sessionId !== this.state.hostSessionId) return;
-      if (this.hasPlayerInMatch()) return;
-      if (!isSetModePayload(msg)) return;
-      this.state.mode = msg.mode;
-    });
+      this.onMessage(MSG_SWITCH_TEAM, (client) =>
+        scoped(this.modeConfig, () => {
+          const player = this.state.players.get(client.sessionId);
+          if (!player) return;
+          const teams: number[] = [];
+          this.state.players.forEach((p) => teams.push(p.team));
+          // Same predicate the lobby uses to grey the button out; the client cannot be trusted to
+          // have run it, so the cap is decided here.
+          if (!canSwitchTeam({ status: toFlowStatus(player.status), team: player.team }, teams)) {
+            return;
+          }
+          player.team = player.team === 0 ? 1 : 0;
+        }),
+      );
 
-    this.onMessage(MSG_KICK, (client, msg: unknown) => {
-      if (client.sessionId !== this.state.hostSessionId) return;
-      if (!isKickPayload(msg)) return;
-      if (msg.sessionId === client.sessionId) return;
-      const target = this.state.players.get(msg.sessionId);
-      if (!target) return;
-      if (target.status !== PlayerStatus.READY && target.status !== PlayerStatus.POST_MATCH) {
-        return;
-      }
-      const targetClient = this.clients.find((c) => c.sessionId === msg.sessionId);
-      if (targetClient) targetClient.leave(4002, "Kicked");
-    });
+      this.onMessage(MSG_SET_MODE, (client, msg: unknown) =>
+        scoped(this.modeConfig, () => {
+          if (client.sessionId !== this.state.hostSessionId) return;
+          if (this.hasPlayerInMatch()) return;
+          if (!isSetModePayload(msg)) return;
+          this.state.mode = msg.mode;
+          // Re-resolve immediately (MC21): car select must already show the chosen mode's roster
+          // and kits, so resolution cannot wait until the match starts. Guarded on LOBBY, not just
+          // `hasPlayerInMatch` above, because LOBBY is the exact window MC21 names — the room must
+          // never swap the bundle a live match is running inside.
+          if (this.state.phase === RoomPhase.LOBBY) {
+            this.modeConfig = modeConfigOrDefault(this.state.mode);
+          }
+        }),
+      );
 
-    this.onMessage(MSG_START_MATCH, (client) => {
-      if (client.sessionId !== this.state.hostSessionId) return;
-      if (this.state.phase !== RoomPhase.LOBBY) return;
-      const players: StartRulePlayer[] = [];
-      const readyIds: string[] = [];
-      this.state.players.forEach((player) => {
-        players.push({ status: toFlowStatus(player.status), team: player.team });
-        if (player.status === PlayerStatus.READY) readyIds.push(player.sessionId);
-      });
-      const result = canStart(this.state.mode, players);
-      if (!result.ok) {
-        client.send(MSG_START_ERROR, { error: result.error });
-        return;
-      }
-      this.reduce({
-        type: "start",
-        readyIds,
-        nowTick: this.state.tick,
-        carSelectTicks: getCarSelectSeconds(FLOW_CONFIG.carSelectSeconds) * TICK_RATE_HZ,
-      });
-      this.pendingCarId.clear();
-    });
+      this.onMessage(MSG_KICK, (client, msg: unknown) =>
+        scoped(this.modeConfig, () => {
+          if (client.sessionId !== this.state.hostSessionId) return;
+          if (!isKickPayload(msg)) return;
+          if (msg.sessionId === client.sessionId) return;
+          const target = this.state.players.get(msg.sessionId);
+          if (!target) return;
+          if (target.status !== PlayerStatus.READY && target.status !== PlayerStatus.POST_MATCH) {
+            return;
+          }
+          const targetClient = this.clients.find((c) => c.sessionId === msg.sessionId);
+          if (targetClient) targetClient.leave(4002, "Kicked");
+        }),
+      );
 
-    this.onMessage(MSG_SELECT_CAR, (client, msg: unknown) => {
-      if (this.state.phase !== RoomPhase.CAR_SELECT) return;
-      if (!isSelectCarPayload(msg)) return;
-      if (!this.matchRoster.has(client.sessionId)) return;
-      const player = this.state.players.get(client.sessionId);
-      if (!player || player.selectLocked) return;
-      this.pendingCarId.set(client.sessionId, msg.carId);
-      this.reduce({ type: "lock_car", sessionId: client.sessionId });
-      if (this.allRosterLocked()) this.revealCars();
-    });
+      this.onMessage(MSG_START_MATCH, (client) =>
+        scoped(this.modeConfig, () => {
+          if (client.sessionId !== this.state.hostSessionId) return;
+          if (this.state.phase !== RoomPhase.LOBBY) return;
+          const players: StartRulePlayer[] = [];
+          const readyIds: string[] = [];
+          this.state.players.forEach((player) => {
+            players.push({ status: toFlowStatus(player.status), team: player.team });
+            if (player.status === PlayerStatus.READY) readyIds.push(player.sessionId);
+          });
+          const result = canStart(this.state.mode, players);
+          if (!result.ok) {
+            client.send(MSG_START_ERROR, { error: result.error });
+            return;
+          }
+          this.reduce({
+            type: "start",
+            readyIds,
+            nowTick: this.state.tick,
+            carSelectTicks: getCarSelectSeconds(FLOW_CONFIG.carSelectSeconds) * TICK_RATE_HZ,
+          });
+          this.pendingCarId.clear();
+        }),
+      );
 
-    // A preview, not a commitment: it records what the player is sitting on so the deadline can hand
-    // them that exact car. Same guards as MSG_SELECT_CAR minus the lock, and it
-    // deliberately refuses once locked so a stray click cannot rewrite a committed pick.
-    this.onMessage(MSG_PREVIEW_CAR, (client, msg: unknown) => {
-      if (this.state.phase !== RoomPhase.CAR_SELECT) return;
-      if (!isSelectCarPayload(msg)) return;
-      if (!this.matchRoster.has(client.sessionId)) return;
-      const player = this.state.players.get(client.sessionId);
-      if (!player || player.selectLocked) return;
-      this.pendingCarId.set(client.sessionId, msg.carId);
-    });
+      this.onMessage(MSG_SELECT_CAR, (client, msg: unknown) =>
+        scoped(this.modeConfig, () => {
+          if (this.state.phase !== RoomPhase.CAR_SELECT) return;
+          if (!isSelectCarPayload(msg)) return;
+          if (!this.matchRoster.has(client.sessionId)) return;
+          const player = this.state.players.get(client.sessionId);
+          if (!player || player.selectLocked) return;
+          this.pendingCarId.set(client.sessionId, msg.carId);
+          this.reduce({ type: "lock_car", sessionId: client.sessionId });
+          if (this.allRosterLocked()) this.revealCars();
+        }),
+      );
 
-    this.onMessage(MSG_RETURN_TO_LOBBY, (client) => {
-      if (!this.postMatchIds.has(client.sessionId)) return;
-      this.reduce({ type: "return_to_lobby", sessionId: client.sessionId });
-    });
+      // A preview, not a commitment: it records what the player is sitting on so the deadline can
+      // hand them that exact car. Same guards as MSG_SELECT_CAR minus the lock, and it
+      // deliberately refuses once locked so a stray click cannot rewrite a committed pick.
+      this.onMessage(MSG_PREVIEW_CAR, (client, msg: unknown) =>
+        scoped(this.modeConfig, () => {
+          if (this.state.phase !== RoomPhase.CAR_SELECT) return;
+          if (!isSelectCarPayload(msg)) return;
+          if (!this.matchRoster.has(client.sessionId)) return;
+          const player = this.state.players.get(client.sessionId);
+          if (!player || player.selectLocked) return;
+          this.pendingCarId.set(client.sessionId, msg.carId);
+        }),
+      );
 
-    /**
-     * Lobby chat (LC16). Every guard drops silently, matching MSG_SWITCH_TEAM, MSG_KICK and
-     * MSG_SELECT_CAR above — MSG_START_ERROR is the file's one exception and earns it because a
-     * host needs to know why a start was refused. A refused chat message does not: the client ran
-     * `validateChatText` before sending, so anything rejected on that gate is a stale or hostile
-     * client. The cooldown is different — it bounds every *attempt*, not just successful sends (see
-     * below), so it also does not warrant a reply.
-     */
-    this.onMessage(MSG_CHAT, (client, msg: unknown) => {
-      if (!isChatPayload(msg)) return;
-      // A raw-payload ceiling ahead of normalization, not a second content limit: normalization
-      // only ever shrinks text (control/bidi runs collapse to single spaces), so anything that
-      // would still validate can never approach this. The ×4 is headroom for that shrinkage, not a
-      // tuned number of its own. Without it, a client could hand `normalizeChatText` an arbitrarily
-      // huge string and pay for two Unicode-property regex passes over it before validation ever
-      // gets a chance to reject on length.
-      if (msg.text.length > CHAT_CONFIG.maxLength * 4) return;
-      const player = this.state.players.get(client.sessionId);
-      if (!player) return;
-      const now = Date.now();
-      const gate = {
-        status: player.status,
-        lastSentAt: this.chatLastSentAt.get(client.sessionId),
-        now,
-      };
-      if (!canSendChat(gate)) return;
-      // Consumed by the attempt, not the success: recording this before `validateChatText` runs
-      // means a client spamming invalid text still pays the cooldown between attempts, instead of
-      // getting a free retry loop that runs the validator's regex passes as fast as the socket
-      // allows on this single-threaded room.
-      this.chatLastSentAt.set(client.sessionId, now);
-      const result = validateChatText(msg.text);
-      if (!result.ok) return;
-      pushChatMessage(this.state.chat, {
-        sender: { sessionId: player.sessionId, name: player.name, colorId: player.colorId },
-        text: result.text,
-        at: formatClockTime(new Date(now)),
-      });
+      this.onMessage(MSG_RETURN_TO_LOBBY, (client) =>
+        scoped(this.modeConfig, () => {
+          if (!this.postMatchIds.has(client.sessionId)) return;
+          this.reduce({ type: "return_to_lobby", sessionId: client.sessionId });
+        }),
+      );
+
+      /**
+       * Lobby chat (LC16). Every guard drops silently, matching MSG_SWITCH_TEAM, MSG_KICK and
+       * MSG_SELECT_CAR above — MSG_START_ERROR is the file's one exception and earns it because a
+       * host needs to know why a start was refused. A refused chat message does not: the client ran
+       * `validateChatText` before sending, so anything rejected on that gate is a stale or hostile
+       * client. The cooldown is different — it bounds every *attempt*, not just successful sends
+       * (see below), so it also does not warrant a reply.
+       */
+      this.onMessage(MSG_CHAT, (client, msg: unknown) =>
+        scoped(this.modeConfig, () => {
+          if (!isChatPayload(msg)) return;
+          // A raw-payload ceiling ahead of normalization, not a second content limit: normalization
+          // only ever shrinks text (control/bidi runs collapse to single spaces), so anything that
+          // would still validate can never approach this. The ×4 is headroom for that shrinkage,
+          // not a tuned number of its own. Without it, a client could hand `normalizeChatText` an
+          // arbitrarily huge string and pay for two Unicode-property regex passes over it before
+          // validation ever gets a chance to reject on length.
+          if (msg.text.length > CHAT_CONFIG.maxLength * 4) return;
+          const player = this.state.players.get(client.sessionId);
+          if (!player) return;
+          const now = Date.now();
+          const gate = {
+            status: player.status,
+            lastSentAt: this.chatLastSentAt.get(client.sessionId),
+            now,
+          };
+          if (!canSendChat(gate)) return;
+          // Consumed by the attempt, not the success: recording this before `validateChatText` runs
+          // means a client spamming invalid text still pays the cooldown between attempts, instead
+          // of getting a free retry loop that runs the validator's regex passes as fast as the
+          // socket allows on this single-threaded room.
+          this.chatLastSentAt.set(client.sessionId, now);
+          const result = validateChatText(msg.text);
+          if (!result.ok) return;
+          pushChatMessage(this.state.chat, {
+            sender: { sessionId: player.sessionId, name: player.name, colorId: player.colorId },
+            text: result.text,
+            at: formatClockTime(new Date(now)),
+          });
+        }),
+      );
     });
   }
 
   onJoin(client: Client, options?: { name?: unknown }): void {
-    const nameResult = validateName(String(options?.name ?? ""));
-    if (!nameResult.ok) {
-      throw new ServerError(4000, nameResult.error);
-    }
+    scoped(this.modeConfig, () => {
+      const nameResult = validateName(String(options?.name ?? ""));
+      if (!nameResult.ok) {
+        throw new ServerError(4000, nameResult.error);
+      }
 
-    const names: string[] = [];
-    const teams: number[] = [];
-    const colorIds: number[] = [];
-    this.state.players.forEach((player) => {
-      names.push(player.name);
-      teams.push(player.team);
-      colorIds.push(player.colorId);
+      const names: string[] = [];
+      const teams: number[] = [];
+      const colorIds: number[] = [];
+      this.state.players.forEach((player) => {
+        names.push(player.name);
+        teams.push(player.team);
+        colorIds.push(player.colorId);
+      });
+
+      if (isNameTaken(names, nameResult.name)) {
+        throw new ServerError(4001, "Name is taken");
+      }
+
+      const index = this.state.players.size;
+      const player = new PlayerState();
+      player.sessionId = client.sessionId;
+      player.name = nameResult.name;
+      player.colorId = pickColor(colorIds, Math.random);
+      player.team = pickTeam(teams, Math.random);
+      player.joinedAtTick = this.state.tick;
+      player.status = PlayerStatus.READY;
+      player.x = 400 + 80 * index;
+      player.y = 300;
+      this.state.players.set(client.sessionId, player);
+      this.inputQueues.set(client.sessionId, []);
+      this.prevFireMasks.set(client.sessionId, 0);
+      this.silentTicks.set(client.sessionId, 0);
+      if (!this.state.hostSessionId) {
+        this.state.hostSessionId = client.sessionId;
+      }
     });
-
-    if (isNameTaken(names, nameResult.name)) {
-      throw new ServerError(4001, "Name is taken");
-    }
-
-    const index = this.state.players.size;
-    const player = new PlayerState();
-    player.sessionId = client.sessionId;
-    player.name = nameResult.name;
-    player.colorId = pickColor(colorIds, Math.random);
-    player.team = pickTeam(teams, Math.random);
-    player.joinedAtTick = this.state.tick;
-    player.status = PlayerStatus.READY;
-    player.x = 400 + 80 * index;
-    player.y = 300;
-    this.state.players.set(client.sessionId, player);
-    this.inputQueues.set(client.sessionId, []);
-    this.prevFireMasks.set(client.sessionId, 0);
-    this.silentTicks.set(client.sessionId, 0);
-    if (!this.state.hostSessionId) {
-      this.state.hostSessionId = client.sessionId;
-    }
   }
 
   onLeave(client: Client): void {
-    const leaving = this.state.players.get(client.sessionId);
-    const wasInMatch = leaving?.status === PlayerStatus.IN_MATCH;
-    const wasInRoster = this.matchRoster.has(client.sessionId);
+    scoped(this.modeConfig, () => {
+      const leaving = this.state.players.get(client.sessionId);
+      const wasInMatch = leaving?.status === PlayerStatus.IN_MATCH;
+      const wasInRoster = this.matchRoster.has(client.sessionId);
 
-    this.state.players.delete(client.sessionId);
-    this.inputQueues.delete(client.sessionId);
-    this.prevFireMasks.delete(client.sessionId);
-    this.silentTicks.delete(client.sessionId);
-    this.pendingCarId.delete(client.sessionId);
-    this.postMatchIds.delete(client.sessionId);
-    this.matchRoster.delete(client.sessionId);
-    this.phaseCaps.delete(client.sessionId);
-    this.chatLastSentAt.delete(client.sessionId);
-    forgetSpikeState(this.ram.spikes, client.sessionId);
+      this.state.players.delete(client.sessionId);
+      this.inputQueues.delete(client.sessionId);
+      this.prevFireMasks.delete(client.sessionId);
+      this.silentTicks.delete(client.sessionId);
+      this.pendingCarId.delete(client.sessionId);
+      this.postMatchIds.delete(client.sessionId);
+      this.matchRoster.delete(client.sessionId);
+      this.phaseCaps.delete(client.sessionId);
+      this.chatLastSentAt.delete(client.sessionId);
+      forgetSpikeState(this.ram.spikes, client.sessionId);
 
-    if (this.state.hostSessionId === client.sessionId) {
-      const remaining: { sessionId: string; joinedAtTick: number }[] = [];
+      if (this.state.hostSessionId === client.sessionId) {
+        const remaining: { sessionId: string; joinedAtTick: number }[] = [];
+        this.state.players.forEach((player) => {
+          remaining.push({ sessionId: player.sessionId, joinedAtTick: player.joinedAtTick });
+        });
+        this.state.hostSessionId = selectNextHost(remaining);
+      }
+
+      if (!wasInMatch || !wasInRoster || this.state.phase === RoomPhase.LOBBY) return;
+
+      if (winRuleOf(this.state.mode) === "deathmatch") {
+        this.checkDeathmatchEnd();
+        return;
+      }
+
+      const remainingPlayers: { sessionId: string; team: 0 | 1; alive: boolean }[] = [];
       this.state.players.forEach((player) => {
-        remaining.push({ sessionId: player.sessionId, joinedAtTick: player.joinedAtTick });
+        remainingPlayers.push({
+          sessionId: player.sessionId,
+          team: player.team === 1 ? 1 : 0,
+          alive: player.alive,
+        });
       });
-      this.state.hostSessionId = selectNextHost(remaining);
-    }
-
-    if (!wasInMatch || !wasInRoster || this.state.phase === RoomPhase.LOBBY) return;
-
-    if (winRuleOf(this.state.mode) === "deathmatch") {
-      this.checkDeathmatchEnd();
-      return;
-    }
-
-    const remainingPlayers: { sessionId: string; team: 0 | 1; alive: boolean }[] = [];
-    this.state.players.forEach((player) => {
-      remainingPlayers.push({
-        sessionId: player.sessionId,
-        team: player.team === 1 ? 1 : 0,
-        alive: player.alive,
-      });
+      const result = livingSides(
+        sidesOf(this.state.mode),
+        livingAfterLeave(remainingPlayers, this.matchRoster),
+      );
+      if (result.sides <= 1) {
+        this.endMatch(result.winnerSessionId, result.winnerTeam);
+      }
     });
-    const result = livingSides(
-      sidesOf(this.state.mode),
-      livingAfterLeave(remainingPlayers, this.matchRoster),
-    );
-    if (result.sides <= 1) {
-      this.endMatch(result.winnerSessionId, result.winnerTeam);
-    }
   }
 
   private tick(): void {

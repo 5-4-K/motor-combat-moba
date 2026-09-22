@@ -34,4 +34,18 @@ describe("withMode", () => {
   it("returns the callback's value", () => {
     expect(withMode(B, () => 42)).toBe(42);
   });
+
+  it("refuses a promise-returning callback, loudly, rather than restoring early", () => {
+    // A callback that returns a Promise would have `withMode` restore the previous bundle the
+    // moment it returns — before the awaited work runs — letting two rooms' config interleave
+    // mid-tick with no error and no failing test. See MC11.
+    expect(() => withMode(B, (() => Promise.resolve(1)) as never)).toThrow(/synchronous/);
+  });
+
+  it("still restores the previous bundle after refusing a promise", () => {
+    installMode(A);
+    const before = drive().baseMaxSpeed;
+    expect(() => withMode(B, (() => Promise.resolve(1)) as never)).toThrow();
+    expect(drive().baseMaxSpeed).toBe(before);
+  });
 });

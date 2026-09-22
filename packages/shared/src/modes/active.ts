@@ -25,13 +25,32 @@ import type { ModeConfig, ModeDerived } from "./types.js";
 
 let current: ModeConfig | null = null;
 
-/** Installs `config` for the (synchronous) duration of `fn`, then restores whatever was installed
- * before — including when `fn` throws. This is the only sanctioned way to make a bundle active. */
+/**
+ * Installs `config` for the (synchronous) duration of `fn`, then restores whatever was installed
+ * before — including when `fn` throws. This is the only sanctioned way to make a bundle active.
+ *
+ * `fn` MUST be synchronous. Node cannot preempt synchronous work, so two `withMode` scopes can
+ * never interleave — that is the whole safety property. An async callback breaks it: `fn()` would
+ * return its Promise immediately, `finally` would restore the previous bundle before the awaited
+ * work ever ran, and any config read inside that awaited work would silently read the WRONG mode's
+ * bundle (or another room's, or none) with no error and no failing test (MC11). This is checked
+ * here rather than only at server call sites so every caller — server rooms, the client, headless
+ * harnesses — is covered by the same guard.
+ */
 export function withMode<T>(config: ModeConfig, fn: () => T): T {
   const prev = current;
   current = config;
   try {
-    return fn();
+    const result = fn();
+    if (result instanceof Promise) {
+      throw new Error(
+        "withMode: callback must be synchronous, but it returned a Promise. Returning early " +
+          "would restore the previous mode's bundle before the awaited work runs, letting two " +
+          "modes' config interleave mid-tick with nothing to catch it. Do the async work outside " +
+          "withMode and pass only the synchronous part in.",
+      );
+    }
+    return result;
   } finally {
     current = prev;
   }
