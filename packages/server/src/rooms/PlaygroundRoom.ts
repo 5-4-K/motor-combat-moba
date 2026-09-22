@@ -21,9 +21,12 @@ import {
   newCombatEvents,
   setTuning,
   validateTuning,
+  DEFAULT_GAME_MODE,
+  modeConfigOrDefault,
   type CombatEvents,
   type FiredEvent,
   type InputMessage,
+  type ModeConfig,
   type PlaygroundCarSetup,
   type PlaygroundSetup,
 } from "@motor-combat-moba/shared";
@@ -51,6 +54,7 @@ import {
   runPipeline,
   type PipelineCtx,
 } from "./tick-pipeline.js";
+import { scoped } from "./mode-scope.js";
 
 /**
  * The level every playground car is held at. Every `unlocksAt` in `WEAPON_TABLE` is at or below it,
@@ -177,6 +181,14 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
   private readonly botRngs = new Map<string, Rng>(
     PLAYGROUND_SEAT_IDS.map((id, seat) => [id, makeRng(deriveSeed(1, "playground-seat", seat))]),
   );
+  /**
+   * The bundle this room's session runs inside. Resolved from `DEFAULT_GAME_MODE` for now — the
+   * playground has no mode picker of its own (a later phase gives it an ad-hoc bundle built from
+   * `PlaygroundSetup`'s tuning overrides, once that plumbing exists). Every entry point below runs
+   * wrapped in `scoped(this.modeConfig, ...)` so nothing here reads whatever bundle another room last
+   * happened to install (MC15, MC21).
+   */
+  private readonly modeConfig: ModeConfig = modeConfigOrDefault(DEFAULT_GAME_MODE);
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -196,65 +208,86 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
       throw new ServerError(PLAYGROUND_BUSY_CODE, PLAYGROUND_BUSY_ERROR);
     }
 
-    this.setState(new PlaygroundState());
-    // Nothing in this room reduces a flow, so `countdown.ts` is the only thing that ever writes the
-    // gate `serverTick` and `runPipeline` both check (PG6). Opening on COUNTDOWN rather than MATCH
-    // is what keeps the room from running live ticks between creation and the player's arrival —
-    // `onJoin` re-stamps it once the cars are placed, and `countdownSweep` opens the match.
-    beginCountdown(this.state);
-    this.setPatchRate(1000 / DEFAULT_PATCH_RATE_HZ);
-    this.setSimulationInterval(() => this.tick(), 1000 / getTickRateHz(TICK_RATE_HZ));
+    // Everything below this point is synchronous — the room has awaited its last matchmaker query
+    // above — so it runs as one `scoped` stretch, the same shape `ArenaRoom.onCreate` uses (MC15).
+    scoped(this.modeConfig, () => {
+      this.setState(new PlaygroundState());
+      // Nothing in this room reduces a flow, so `countdown.ts` is the only thing that ever writes the
+      // gate `serverTick` and `runPipeline` both check (PG6). Opening on COUNTDOWN rather than MATCH
+      // is what keeps the room from running live ticks between creation and the player's arrival —
+      // `onJoin` re-stamps it once the cars are placed, and `countdownSweep` opens the match.
+      beginCountdown(this.state);
+      this.setPatchRate(1000 / DEFAULT_PATCH_RATE_HZ);
+      this.setSimulationInterval(
+        () => scoped(this.modeConfig, () => this.tick()),
+        1000 / getTickRateHz(TICK_RATE_HZ),
+      );
 
-    // Straight into the CONTROLLED car's queue (PG9), and with no latency injection: the playground
-    // is a local dev tool, and simulated lag would only make a feel test lie.
-    this.onMessage(INPUT_MESSAGE, (_client, msg: unknown) => {
-      if (!isInputMessage(msg)) return;
-      this.inputQueues.get(this.state.controlledSessionId)?.push(msg);
-    });
+      // Straight into the CONTROLLED car's queue (PG9), and with no latency injection: the playground
+      // is a local dev tool, and simulated lag would only make a feel test lie.
+      this.onMessage(INPUT_MESSAGE, (_client, msg: unknown) =>
+        scoped(this.modeConfig, () => {
+          if (!isInputMessage(msg)) return;
+          this.inputQueues.get(this.state.controlledSessionId)?.push(msg);
+        }),
+      );
 
-    this.onMessage(MSG_PLAYGROUND_PAUSE, () => {
-      this.state.paused = !this.state.paused;
-    });
+      this.onMessage(MSG_PLAYGROUND_PAUSE, () =>
+        scoped(this.modeConfig, () => {
+          this.state.paused = !this.state.paused;
+        }),
+      );
 
-    this.onMessage(MSG_PLAYGROUND_TUNING, (_client, msg: unknown) => {
-      const result = validateTuning(msg);
-      // Reject-whole (PG13): one bad path discards the blob rather than applying the good half, so
-      // the client's view of what is active can never disagree with the store field by field.
-      if (!result.ok) return;
-      // An empty object IS the reset: `setTuning(null)` restores every table, and `""` is what the
-      // client's watcher reads as "clear my store too" (an empty string is not malformed JSON).
-      const overrides = Object.keys(result.overrides).length > 0 ? result.overrides : null;
-      setTuning(overrides);
-      this.state.tuningJson = overrides ? JSON.stringify(overrides) : "";
-    });
+      this.onMessage(MSG_PLAYGROUND_TUNING, (_client, msg: unknown) =>
+        scoped(this.modeConfig, () => {
+          const result = validateTuning(msg);
+          // Reject-whole (PG13): one bad path discards the blob rather than applying the good half, so
+          // the client's view of what is active can never disagree with the store field by field.
+          if (!result.ok) return;
+          // An empty object IS the reset: `setTuning(null)` restores every table, and `""` is what the
+          // client's watcher reads as "clear my store too" (an empty string is not malformed JSON).
+          const overrides = Object.keys(result.overrides).length > 0 ? result.overrides : null;
+          setTuning(overrides);
+          this.state.tuningJson = overrides ? JSON.stringify(overrides) : "";
+        }),
+      );
 
-    this.onMessage(MSG_PLAYGROUND_SETUP, (_client, msg: unknown) => {
-      if (!isPlaygroundSetup(msg)) return;
-      this.applySetup(msg);
+      this.onMessage(MSG_PLAYGROUND_SETUP, (_client, msg: unknown) =>
+        scoped(this.modeConfig, () => {
+          if (!isPlaygroundSetup(msg)) return;
+          this.applySetup(msg);
+        }),
+      );
     });
   }
 
   onJoin(_client: Client, _options?: { name?: unknown }): void {
-    // No car is created here. `applySetup` is the one path that adds, removes and configures cars
-    // (PG66), and it runs below with whatever this browser last saved replayed over it moments later
-    // by `PlaygroundScene` (PG20). The human's session id names no car at all (PG57).
-    this.applySetup(defaultPlaygroundSetup());
-    // After the cars are spawned, so the 3-2-1 counts the player's own three seconds rather than
-    // ticks the room burned before they connected. Deliberately NOT re-stamped by `applySetup`
-    // itself: this is a MATCH-start countdown, and re-running it on every weapon swap would put a
-    // three-second freeze between the tester and every edit.
-    beginCountdown(this.state);
+    scoped(this.modeConfig, () => {
+      // No car is created here. `applySetup` is the one path that adds, removes and configures cars
+      // (PG66), and it runs below with whatever this browser last saved replayed over it moments later
+      // by `PlaygroundScene` (PG20). The human's session id names no car at all (PG57).
+      this.applySetup(defaultPlaygroundSetup());
+      // After the cars are spawned, so the 3-2-1 counts the player's own three seconds rather than
+      // ticks the room burned before they connected. Deliberately NOT re-stamped by `applySetup`
+      // itself: this is a MATCH-start countdown, and re-running it on every weapon swap would put a
+      // three-second freeze between the tester and every edit.
+      beginCountdown(this.state);
+    });
   }
 
   onLeave(): void {
-    // Unconditional (PG15). The store is process-wide, so a playground that closes holding overrides
-    // would leave the next arena match silently re-balanced.
-    setTuning(null);
-    this.disconnect();
+    scoped(this.modeConfig, () => {
+      // Unconditional (PG15). The store is process-wide, so a playground that closes holding overrides
+      // would leave the next arena match silently re-balanced.
+      setTuning(null);
+      this.disconnect();
+    });
   }
 
   onDispose(): void {
-    setTuning(null);
+    scoped(this.modeConfig, () => {
+      setTuning(null);
+    });
   }
 
   /**

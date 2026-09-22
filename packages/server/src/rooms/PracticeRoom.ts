@@ -26,11 +26,13 @@ import {
   isPracticeSetup,
   pickColor,
   newCombatEvents,
+  modeConfigOrDefault,
   type BotDifficulty,
   type CarId,
   type CombatEvents,
   type FiredEvent,
   type InputMessage,
+  type ModeConfig,
   type PracticeSetup,
 } from "@motor-combat-moba/shared";
 import { getMaxPracticeRooms, getSimulatedLatency, getTickRateHz } from "../mode.js";
@@ -65,6 +67,7 @@ import {
   runPipeline,
   type PipelineCtx,
 } from "./tick-pipeline.js";
+import { scoped } from "./mode-scope.js";
 
 /**
  * The room's opening state, exported so the two decisions in it are pinned by a test rather than by
@@ -149,6 +152,16 @@ export class PracticeRoom extends Room<PracticeState> {
   /** Latched so the warning is sent once per quiet stretch, not on every tick inside the window. */
   private warnedOfIdle = false;
   /**
+   * The bundle this room's match runs inside. Unlike `ArenaRoom`, never re-resolved: `newPracticeState`
+   * pins `mode` to `GameMode.FFA_DEATHMATCH` for the life of the room (PR9/MC22), so there is no
+   * `MSG_SET_MODE` equivalent here and no LOBBY window to resolve a different mode in. Resolved
+   * straight from that same constant rather than from `this.state.mode` — the two can never disagree,
+   * and this field exists before `setState` runs. Every entry point below runs wrapped in
+   * `scoped(this.modeConfig, ...)` so nothing here reads whatever bundle another room last happened to
+   * install (MC15, MC21).
+   */
+  private readonly modeConfig: ModeConfig = modeConfigOrDefault(GameMode.FFA_DEATHMATCH);
+  /**
    * Latched at the first close, because `disconnect()` is asynchronous and the simulation interval
    * can fire again before the room is gone — without this the idle sweep would keep kicking clients
    * that have already left.
@@ -185,113 +198,126 @@ export class PracticeRoom extends Room<PracticeState> {
     this.setup = options;
     this.difficulty = options.difficulty;
 
-    this.setState(newPracticeState());
-    this.setPatchRate(1000 / DEFAULT_PATCH_RATE_HZ);
-    this.setSimulationInterval(() => this.tick(), 1000 / getTickRateHz(TICK_RATE_HZ));
+    // Everything below this point is synchronous — the room has awaited its last matchmaker query
+    // above — so it runs as one `scoped` stretch, the same shape `ArenaRoom.onCreate` uses (MC15).
+    scoped(this.modeConfig, () => {
+      this.setState(newPracticeState());
+      this.setPatchRate(1000 / DEFAULT_PATCH_RATE_HZ);
+      this.setSimulationInterval(
+        () => scoped(this.modeConfig, () => this.tick()),
+        1000 / getTickRateHz(TICK_RATE_HZ),
+      );
 
-    // Mirrors `ArenaRoom`'s injector (PR11). The playground deliberately skips it — simulated lag
-    // makes a feel test lie — but practice takes the opposite decision for the reason it exists:
-    // strict mirror means practice must feel like the arena on the same deploy. The knobs are off in
-    // a release build, where `withSimulatedLatency` hands back the deliver function unwrapped.
-    const enqueue = withSimulatedLatency<{ sessionId: string; msg: InputMessage }>(
-      ({ sessionId, msg }) => {
-        const q = this.inputQueues.get(sessionId);
-        // Capped, not just eventually drained (review F3): `tick()` returns before `serverTick` ever
-        // runs while `state.paused` is true, so nothing reads this queue for as long as pause holds.
-        // The shipped client stops sending on pause, so a well-behaved session never gets close to
-        // this, but this codebase does not trust a client to shape its own inputs, and a client that
-        // keeps sending through a HELD pause would otherwise grow it without bound for as long as the
-        // pause lasts. Clearing once on the pause->true edge would not close that — the same client
-        // could just keep sending afterward — so the bound is on every push instead. Reuses
-        // `NET_CONFIG.pendingInputCap`, the same "an honest client has this many inputs outstanding"
-        // figure the client already holds itself to on its own prediction buffer.
-        if (q && q.length < NET_CONFIG.pendingInputCap) q.push(msg);
-      },
-      getSimulatedLatency(),
-    );
+      // Mirrors `ArenaRoom`'s injector (PR11). The playground deliberately skips it — simulated lag
+      // makes a feel test lie — but practice takes the opposite decision for the reason it exists:
+      // strict mirror means practice must feel like the arena on the same deploy. The knobs are off in
+      // a release build, where `withSimulatedLatency` hands back the deliver function unwrapped.
+      const enqueue = withSimulatedLatency<{ sessionId: string; msg: InputMessage }>(
+        ({ sessionId, msg }) => {
+          const q = this.inputQueues.get(sessionId);
+          // Capped, not just eventually drained (review F3): `tick()` returns before `serverTick` ever
+          // runs while `state.paused` is true, so nothing reads this queue for as long as pause holds.
+          // The shipped client stops sending on pause, so a well-behaved session never gets close to
+          // this, but this codebase does not trust a client to shape its own inputs, and a client that
+          // keeps sending through a HELD pause would otherwise grow it without bound for as long as the
+          // pause lasts. Clearing once on the pause->true edge would not close that — the same client
+          // could just keep sending afterward — so the bound is on every push instead. Reuses
+          // `NET_CONFIG.pendingInputCap`, the same "an honest client has this many inputs outstanding"
+          // figure the client already holds itself to on its own prediction buffer.
+          if (q && q.length < NET_CONFIG.pendingInputCap) q.push(msg);
+        },
+        getSimulatedLatency(),
+      );
 
-    this.onMessage(INPUT_MESSAGE, (client, msg: unknown) => {
-      if (!isInputMessage(msg)) return;
-      // Gated on `isActiveInput`, not on arrival: `ArenaScene.sendInputTick` sends one message a
-      // tick regardless of whether the player touched anything, so a neutral input is not evidence
-      // of presence and must not reset the idle clock — that is the whole bug I1 fixes. Stamped
-      // BEFORE the latency injector, so injected lag can never make a live player look idle.
-      if (isActiveInput(msg)) {
-        this.lastInputAtMs = Date.now();
-        this.warnedOfIdle = false;
-      }
-      // Enqueued unconditionally, active or not: the sim needs every tick's input to drive
-      // correctly, including "hold nothing". Only the idle stamp above is conditional.
-      enqueue({ sessionId: client.sessionId, msg });
-    });
+      this.onMessage(INPUT_MESSAGE, (client, msg: unknown) =>
+        scoped(this.modeConfig, () => {
+          if (!isInputMessage(msg)) return;
+          // Gated on `isActiveInput`, not on arrival: `ArenaScene.sendInputTick` sends one message a
+          // tick regardless of whether the player touched anything, so a neutral input is not evidence
+          // of presence and must not reset the idle clock — that is the whole bug I1 fixes. Stamped
+          // BEFORE the latency injector, so injected lag can never make a live player look idle.
+          if (isActiveInput(msg)) {
+            this.lastInputAtMs = Date.now();
+            this.warnedOfIdle = false;
+          }
+          // Enqueued unconditionally, active or not: the sim needs every tick's input to drive
+          // correctly, including "hold nothing". Only the idle stamp above is conditional.
+          enqueue({ sessionId: client.sessionId, msg });
+        }),
+      );
 
-    // A toggle rather than a set: the client holds no pause state of its own to disagree with.
-    this.onMessage(MSG_PRACTICE_PAUSE, () => {
-      this.state.paused = !this.state.paused;
-      // Counts as presence (PR27): `sweepIdle` runs at the TOP of `tick()`, ahead of the pause
-      // return, so a player who resumes right at the timeout would otherwise be reaped on the very
-      // next tick, before their first post-resume input has a chance to land and restamp it.
-      this.lastInputAtMs = Date.now();
-      this.warnedOfIdle = false;
+      // A toggle rather than a set: the client holds no pause state of its own to disagree with.
+      this.onMessage(MSG_PRACTICE_PAUSE, () =>
+        scoped(this.modeConfig, () => {
+          this.state.paused = !this.state.paused;
+          // Counts as presence (PR27): `sweepIdle` runs at the TOP of `tick()`, ahead of the pause
+          // return, so a player who resumes right at the timeout would otherwise be reaped on the very
+          // next tick, before their first post-resume input has a chance to land and restamp it.
+          this.lastInputAtMs = Date.now();
+          this.warnedOfIdle = false;
+        }),
+      );
     });
   }
 
   onJoin(client: Client, options?: unknown): void {
-    // `onCreate` has already rejected an invalid setup, so the room cannot exist without one; the
-    // client's own options are preferred only because they are the same object, freshly validated.
-    const setup = isPracticeSetup(options) ? options : this.setup;
-    if (!setup) return;
+    scoped(this.modeConfig, () => {
+      // `onCreate` has already rejected an invalid setup, so the room cannot exist without one; the
+      // client's own options are preferred only because they are the same object, freshly validated.
+      const setup = isPracticeSetup(options) ? options : this.setup;
+      if (!setup) return;
 
-    this.humanSessionId = client.sessionId;
-    this.lastInputAtMs = Date.now();
+      this.humanSessionId = client.sessionId;
+      this.lastInputAtMs = Date.now();
 
-    // Two colours drawn from the same table the lobby uses, so the pair reads as two distinct cars.
-    // Teams 0 and 1 are visual only: the mode is FFA, so `canDamage` never consults them.
-    const name = setup.name.trim() || "Player";
-    const human = this.addCar(client.sessionId, name, setup.carId, [], 0);
-    const opponentCarId = resolveOpponentCar(setup.opponentCarId, Math.random);
-    this.addCar(BOT_SESSION_ID, "Bot", opponentCarId, [human.colorId], 1);
+      // Two colours drawn from the same table the lobby uses, so the pair reads as two distinct cars.
+      // Teams 0 and 1 are visual only: the mode is FFA, so `canDamage` never consults them.
+      const name = setup.name.trim() || "Player";
+      const human = this.addCar(client.sessionId, name, setup.carId, [], 0);
+      const opponentCarId = resolveOpponentCar(setup.opponentCarId, Math.random);
+      this.addCar(BOT_SESSION_ID, "Bot", opponentCarId, [human.colorId], 1);
 
-    // `respawnPlayer` is the whole of "this car is new": chassis hp, a fire state built from the
-    // chassis's own kit, and the real `phased` protection (PR16). Its pose is `farthestSpawn` — the
-    // right rule for an actual RESPAWN, kept below for that — but it is the wrong rule for this
-    // opening placement: the bot's `PlayerState` is still sitting on its schema default of (0, 0)
-    // when the human's car is respawned first, so every session would deterministically drop the
-    // human on whichever `ffaSpawn` is farthest from the origin (review F4). Overwritten just below
-    // with `assignSpawns`, the same mechanism `ArenaRoom.revealCars` uses to open a real match — a
-    // real match never opens on a repeatable spot either.
-    //
-    // The `phased` grant rides along uninvited: a real match's opening (`revealCars`) hands out no
-    // spawn protection at all, so this is a third divergence from strict mirror beyond the two PR1
-    // names. Left as-is because it is harmless, not because it was missed — both cars get it
-    // symmetrically, and `assignSpawns` places them far enough apart that neither can reach the
-    // other before the 1.5-3s window (`STATUS_TABLE.phased`) lapses on its own.
-    for (const id of this.matchRoster) {
-      const player = this.state.players.get(id);
-      if (player) respawnPlayer(this.ctx(), player);
-    }
+      // `respawnPlayer` is the whole of "this car is new": chassis hp, a fire state built from the
+      // chassis's own kit, and the real `phased` protection (PR16). Its pose is `farthestSpawn` — the
+      // right rule for an actual RESPAWN, kept below for that — but it is the wrong rule for this
+      // opening placement: the bot's `PlayerState` is still sitting on its schema default of (0, 0)
+      // when the human's car is respawned first, so every session would deterministically drop the
+      // human on whichever `ffaSpawn` is farthest from the origin (review F4). Overwritten just below
+      // with `assignSpawns`, the same mechanism `ArenaRoom.revealCars` uses to open a real match — a
+      // real match never opens on a repeatable spot either.
+      //
+      // The `phased` grant rides along uninvited: a real match's opening (`revealCars`) hands out no
+      // spawn protection at all, so this is a third divergence from strict mirror beyond the two PR1
+      // names. Left as-is because it is harmless, not because it was missed — both cars get it
+      // symmetrically, and `assignSpawns` places them far enough apart that neither can reach the
+      // other before the 1.5-3s window (`STATUS_TABLE.phased`) lapses on its own.
+      for (const id of this.matchRoster) {
+        const player = this.state.players.get(id);
+        if (player) respawnPlayer(this.ctx(), player);
+      }
 
-    const roster: { sessionId: string; team: 0 | 1 }[] = [];
-    for (const id of this.matchRoster) {
-      const player = this.state.players.get(id);
-      if (player) roster.push({ sessionId: id, team: player.team === 1 ? 1 : 0 });
-    }
-    const spawns = assignSpawns(getArena(this.state.arenaId), this.state.mode, roster, Math.random);
-    for (const id of this.matchRoster) {
-      const player = this.state.players.get(id);
-      const spawn = spawns[id];
-      if (!player || !spawn) continue;
-      const pose = copySpawnNumbers(spawn);
-      player.x = pose.x;
-      player.y = pose.y;
-      player.angle = pose.angle;
-    }
+      const roster: { sessionId: string; team: 0 | 1 }[] = [];
+      for (const id of this.matchRoster) {
+        const player = this.state.players.get(id);
+        if (player) roster.push({ sessionId: id, team: player.team === 1 ? 1 : 0 });
+      }
+      const spawns = assignSpawns(getArena(this.state.arenaId), this.state.mode, roster, Math.random);
+      for (const id of this.matchRoster) {
+        const player = this.state.players.get(id);
+        const spawn = spawns[id];
+        if (!player || !spawn) continue;
+        const pose = copySpawnNumbers(spawn);
+        player.x = pose.x;
+        player.y = pose.y;
+        player.angle = pose.angle;
+      }
 
-    // LAST, after both cars exist and are standing on their spawns. The room has been ticking since
-    // `onCreate`, so re-anchoring here is what makes the player's 3 start when they arrive rather
-    // than counting down ticks they were not present for. `serverTick` holds both cars still for the
-    // duration and `combatTick` skips combat, so this is a real countdown and not a caption.
-    beginCountdown(this.state);
+      // LAST, after both cars exist and are standing on their spawns. The room has been ticking since
+      // `onCreate`, so re-anchoring here is what makes the player's 3 start when they arrive rather
+      // than counting down ticks they were not present for. `serverTick` holds both cars still for the
+      // duration and `combatTick` skips combat, so this is a real countdown and not a caption.
+      beginCountdown(this.state);
+    });
   }
 
   /**
@@ -299,8 +325,10 @@ export class PracticeRoom extends Room<PracticeState> {
    * immediately rather than holding a 30 Hz sim through a grace window nobody is watching.
    */
   onLeave(): void {
-    this.closing = true;
-    void this.disconnect();
+    scoped(this.modeConfig, () => {
+      this.closing = true;
+      void this.disconnect();
+    });
   }
 
   /**
