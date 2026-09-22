@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { basicAttackOf } from "../../config/car-config.js";
 import { DEFAULT_GAME_MODE } from "../../config/mode-config.js";
-import { BASIC_ATTACK_CONFIG } from "../../config/weapon-config.js";
 import { WEAPON_SLOT_CONFIG } from "../../config/weapon-slots.js";
 import type { WeaponId } from "../../config/weapon-types.js";
 import { installMode } from "../../modes/active.js";
@@ -27,22 +26,30 @@ const SLOT_2 = 0b010;
 const ABILITY_1 = 0b010;
 
 /**
- * Pins `BASIC_ATTACK_CONFIG.enabled` ON for the enclosing `describe`, restoring whatever the build
- * ships afterwards.
+ * Pins `slots().basicAttackEnabled` ON for the enclosing `describe`, restoring the ordinary
+ * `LEGACY_TABLES` bundle afterwards — the same idiom `installBasicAttackEnabled` below uses for the
+ * toggle block itself, since `beginFire` reads the flag off the installed mode bundle (MC13), not
+ * off `BASIC_ATTACK_CONFIG.enabled` directly: the bundle is assembled and frozen once, so mutating
+ * that raw global no longer reaches it, and a `beforeEach` that only flipped the global would be
+ * inert here whenever the shipped bundle's `basicAttackEnabled` disagreed with it.
  *
  * Needed because `beginFire` refuses fire slot 0 outright while the toggle is off (VS6: slot 0 IS
  * the basic-attack slot, whatever weapon a fixture happens to put there), so any block that presses
  * bit 0 — including the hand-built fixtures below, whose first entry is an ordinary ability —
- * measures nothing in a build shipping `enabled: false`. Blocks that test the TOGGLE set the flag
- * themselves and do not call this.
+ * measures nothing in a bundle shipping `basicAttackEnabled: false`. Blocks that test the TOGGLE
+ * install their own bundle and do not call this.
  */
 function pinBasicAttackEnabled(): void {
-  const shipped = BASIC_ATTACK_CONFIG.enabled;
   beforeEach(() => {
-    BASIC_ATTACK_CONFIG.enabled = true;
+    installMode(
+      assembleModeConfig(DEFAULT_GAME_MODE, {
+        ...LEGACY_TABLES,
+        slots: { ...LEGACY_TABLES.slots, basicAttackEnabled: true },
+      }),
+    );
   });
   afterEach(() => {
-    BASIC_ATTACK_CONFIG.enabled = shipped;
+    installMode(assembleModeConfig(DEFAULT_GAME_MODE, LEGACY_TABLES));
   });
 }
 

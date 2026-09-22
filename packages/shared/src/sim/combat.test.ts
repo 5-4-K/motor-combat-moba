@@ -2,11 +2,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ARENA_01 } from "../arena/arena-01.js";
 import { CAR_TABLE, hpOf, ramDefenceOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
+import { DEFAULT_GAME_MODE } from "../config/mode-config.js";
 import type { CarId } from "../config/types.js";
-import { BASIC_ATTACK_CONFIG, WEAPON_TABLE, weaponDefOf } from "../config/weapon-config.js";
+import { WEAPON_TABLE, weaponDefOf } from "../config/weapon-config.js";
 import { SPIKE_CONFIG } from "../config/spike-config.js";
 import { TURRET_CONFIG, TURRET_TICKS } from "../config/turret-config.js";
 import { MS_PER_TICK, TICK_RATE_HZ } from "../constants.js";
+import { installMode } from "../modes/active.js";
+import { assembleModeConfig } from "../modes/build.js";
+import { LEGACY_TABLES } from "../modes/legacy.js";
 import {
   clearManeuver,
   dealDamageTo,
@@ -625,22 +629,30 @@ describe("dealDamageTo", () => {
 });
 
 /**
- * Pins `BASIC_ATTACK_CONFIG.enabled` ON for the enclosing `describe`, restoring whatever the build
- * ships afterwards.
+ * Pins `slots().basicAttackEnabled` ON for the enclosing `describe`, restoring the ordinary
+ * `LEGACY_TABLES` bundle afterwards — mirrors `weapons/fire.test.ts`'s helper of the same name and
+ * the same reason: `beginFire` reads the flag off the installed mode bundle (MC13), not off
+ * `BASIC_ATTACK_CONFIG.enabled` directly, so a `beforeEach` that only flipped the raw global would
+ * be inert here whenever the shipped bundle's `basicAttackEnabled` disagreed with it.
  *
  * The hand-built one-slot fire states below put an ordinary ability at index 0 and press bit 0, but
  * index 0 IS the basic-attack fire slot (VS6) and `beginFire` refuses it outright while the toggle
- * is off — so in a build shipping `enabled: false` those fixtures fire nothing and measure nothing.
- * Pinning the flag keeps them measuring the thing they were written for (damage scaling, presence
- * effects) rather than the toggle, which has its own coverage in `weapons/fire.test.ts`.
+ * is off — so in a bundle shipping `basicAttackEnabled: false` those fixtures fire nothing and
+ * measure nothing. Pinning the flag keeps them measuring the thing they were written for (damage
+ * scaling, presence effects) rather than the toggle, which has its own coverage in
+ * `weapons/fire.test.ts`.
  */
 function pinBasicAttackEnabled(): void {
-  const shipped = BASIC_ATTACK_CONFIG.enabled;
   beforeEach(() => {
-    BASIC_ATTACK_CONFIG.enabled = true;
+    installMode(
+      assembleModeConfig(DEFAULT_GAME_MODE, {
+        ...LEGACY_TABLES,
+        slots: { ...LEGACY_TABLES.slots, basicAttackEnabled: true },
+      }),
+    );
   });
   afterEach(() => {
-    BASIC_ATTACK_CONFIG.enabled = shipped;
+    installMode(assembleModeConfig(DEFAULT_GAME_MODE, LEGACY_TABLES));
   });
 }
 

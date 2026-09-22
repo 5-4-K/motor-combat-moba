@@ -2,9 +2,11 @@ import { TICK_RATE_HZ } from "../constants.js";
 
 /**
  * `TURRET_CONFIG`'s shape. Written out rather than inferred from an `as const` literal, which pinned
- * `maxSwingDeg` to the type `360` — a tuning root (`setTuning`'s `turret`, TR57) holds numbers that
- * move, and a literal type would make every `maxSwingDeg < 360` branch look dead to the compiler.
- * `readonly` because `setTuning` is the only writer, and it writes through its own untyped walk.
+ * `maxSwingDeg` to the type `360` — the `turret` tuning root (TR57) holds numbers that move, and a
+ * literal type would make every `maxSwingDeg < 360` branch look dead to the compiler. `readonly`
+ * because nothing may write `TURRET_CONFIG` at all: `setTuning` (`config/tuning.ts`) moves the
+ * `turret` root by installing a freshly-assembled mode bundle rather than by writing this global in
+ * place — a live override reaches `turret()` (`modes/active.js`), never `TURRET_CONFIG` itself.
  */
 export interface TurretConfig {
   readonly turnRateDegPerSec: number;
@@ -27,8 +29,8 @@ export interface TurretConfig {
  * at use time (`clampToSwing`'s default), never copied, so a live retune takes effect on the next
  * call.
  *
- * A playground tuning root (TR57): `setTuning` overrides it in place, and `rebuildTurretTicks`
- * re-derives the one artifact computed from it.
+ * A playground tuning root (TR57): `setTuning` moves it via `turret()`'s bundle, not by writing this
+ * global. `TURRET_CONFIG` itself is never written and always reads the shipped defaults below.
  */
 export const TURRET_CONFIG: TurretConfig = {
   turnRateDegPerSec: 540,
@@ -51,8 +53,12 @@ export function resolveTurretTicks(turret: TurretConfig = TURRET_CONFIG): Turret
 }
 
 /**
- * One object for the life of the process, rewritten IN PLACE by `rebuildTurretTicks`, so every
- * reader that reads the field at use time — `turnTurret`'s default step, the bot's turn budget —
- * sees a playground retune (TR57).
+ * Resolved once at module load and frozen, mirroring `WEAPON_TICKS`/`DEFAULT_RAM_TICKS` — kept as a
+ * standalone value from `TURRET_CONFIG`'s shipped defaults; it never moves, and is no longer
+ * rewritten in place (there is no `rebuildTurretTicks` any more). A live retune of the `turret` root
+ * reaches `derived().turretTicks` (`modes/active.js`, resolved fresh into each assembled mode
+ * bundle), not this export. `turnTurret`'s default step and the bot's turn budget both read that
+ * accessor now, not `TURRET_TICKS` directly, so they do see a playground retune (TR57) — this global
+ * itself simply does not.
  */
 export const TURRET_TICKS: TurretTicks = resolveTurretTicks();
