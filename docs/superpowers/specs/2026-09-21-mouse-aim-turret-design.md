@@ -288,16 +288,20 @@ Four changes that ship together because each needs the others to make sense:
   relock — LMB and RMB dead — until the room reset. Now:
   - While a pause request is in flight, P does nothing in practice **and** the playground. In the
     playground both P listeners respect it: the overlay's own handler (`dev/playground/overlay.ts`)
-    sends nothing, and `ArenaScene`'s document keydown marks nothing. The Esc path (`openMenu`)
-    never re-sends a pause that is already in flight either.
+    sends nothing, and `ArenaScene`'s document keydown marks no lock release. The Esc path
+    (`openMenu`) never re-sends a pause that is already in flight either — and a pause it sent
+    makes the overlay's P a no-op too, since the request is shared (below).
   - **Backstop:** a request clears on its own if the paused patch has not arrived within
     `PAUSE_REQUEST_TIMEOUT_MS` (1000, client config `config/pause-request.ts`), so a refused or
     lost request cannot wedge the lock for good.
   - The decision is the pure `pauseInFlight`/`settlePauseRequest` pair in
-    `input/pause-request.ts`: the caller holds only the request's timestamp (or `null`), and the
-    pair answers in flight (asked, not yet paused, not timed out) and drops the request once it has
-    landed or expired. `ArenaScene` and the playground overlay each hold their own timestamp, off
-    the same key press.
+    `input/pause-request.ts`: in flight means asked, not yet paused, not timed out, and a request
+    is dropped once it has landed or expired. There is **one** request per page, a module-level
+    store beside that pair (`markPauseRequested`, `isPauseInFlight`, `clearPauseRequest`), which
+    every sender stamps — `ArenaScene`'s practice P, its Esc/lock-loss `openMenu`, and the
+    playground overlay's P — **only when a pause message is actually sent**. A pause asked for
+    anywhere therefore makes P a no-op everywhere until it settles; two private trackers, the first
+    build, let Esc-then-P in the playground send a second toggle.
 
 ## 6. Turret art and drawing
 

@@ -26,3 +26,30 @@ export function settlePauseRequest(
 ): number | null {
   return pauseInFlight(requestedAtMs, paused, nowMs, timeoutMs) ? requestedAtMs : null;
 }
+
+/**
+ * THE pause request — one per page, not one per caller (TR54). Practice and the playground can ask
+ * for a pause from more than one place (`ArenaScene`'s P and its Esc/lock-loss `openMenu`, the
+ * playground overlay's own P), and a request stamped by any of them must make P a no-op for all of
+ * them until it settles; two private trackers let Esc-then-P send a second toggle. Module state on
+ * purpose: the overlay outlives the scene and shares no object with it, and there is only ever one
+ * pausable room on the page. Every read settles it, so a landed or expired stamp is dropped the
+ * first time anyone asks.
+ */
+let sharedRequestAtMs: number | null = null;
+
+/** Record that a pause message was just SENT — only then, never for a P that sent nothing. */
+export function markPauseRequested(nowMs: number): void {
+  sharedRequestAtMs = nowMs;
+}
+
+/** Is the page's pause request still in flight? Settles the shared stamp as it answers. */
+export function isPauseInFlight(paused: boolean, nowMs: number): boolean {
+  sharedRequestAtMs = settlePauseRequest(sharedRequestAtMs, paused, nowMs);
+  return sharedRequestAtMs !== null;
+}
+
+/** Forget any request — the match state reset, or the room is gone. */
+export function clearPauseRequest(): void {
+  sharedRequestAtMs = null;
+}
