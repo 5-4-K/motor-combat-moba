@@ -2,7 +2,7 @@ import type { PlaygroundSetup, TuningOverrides } from "@motor-combat-moba/shared
 import {
   BOT_SESSION_ID,
   PLAYGROUND_SEAT_IDS,
-  WEAPON_SLOT_CONFIG,
+  slots,
   defaultPlaygroundSetup,
   isPlaygroundSetup,
   sanitizeStoredTuning,
@@ -101,7 +101,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
  * blob saved at a higher `N` carries more weapons per seat than `isPlaygroundCarSetup` accepts, and
  * without this the whole setup — six seats' chassis, colours, enabled flags, the driven seat and
  * the arena — is discarded for a trailing weapon, where a roster kit at the same length is simply
- * truncated by `slotsFrom`. The stored loadout gets the same treatment its `CAR_TABLE` counterpart
+ * truncated by `slotsFrom`. The stored loadout gets the same treatment its `cars()` counterpart
  * does, and raising `N` again brings back nothing: the trailing weapons are gone from storage once
  * the setup is saved. That is the same one-way trade `slotsFrom` makes, at the price of a blob the
  * developer can rebuild in two clicks rather than a whole sandbox they cannot.
@@ -113,7 +113,7 @@ export function upgradeStoredSetup(
   value: unknown,
   // `: number`, not the inferred literal: `maxAbilitySlots` is `as const`, so the inferred type
   // would pin this parameter to this build's `N` and no test could pass another.
-  maxAbilitySlots: number = WEAPON_SLOT_CONFIG.maxAbilitySlots,
+  maxAbilitySlots: number = slots().maxAbilitySlots,
 ): unknown {
   if (!isPlainRecord(value)) return value;
   const fallback = defaultPlaygroundSetup();
@@ -160,7 +160,7 @@ export function upgradeStoredSetup(
 
 /**
  * One seat's loadout cut to this build's `N`, in authored order — the same rule `slotsFrom` applies
- * to a `CAR_TABLE` kit, so a stored seat and a roster chassis are narrowed by one rule (VS34).
+ * to a `cars()` kit, so a stored seat and a roster chassis are narrowed by one rule (VS34).
  *
  * Anything that is not a record with an array of weapons is returned untouched: this upgrades, it
  * does not repair, and a malformed seat belongs to `isPlaygroundSetup` to reject. A loadout already

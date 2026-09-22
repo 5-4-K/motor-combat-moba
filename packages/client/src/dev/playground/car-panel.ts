@@ -1,9 +1,9 @@
 import type { CarId, PlaygroundSetup, WeaponId } from "@motor-combat-moba/shared";
 import {
-  CAR_TABLE,
+  cars,
   COLOR_TABLE,
   PLAYGROUND_SEAT_IDS,
-  WEAPON_SLOT_CONFIG,
+  slots,
 } from "@motor-combat-moba/shared";
 import { button, h } from "../../ui/dom.js";
 import { carFillOf } from "../../scenes/car-visual.js";
@@ -238,7 +238,7 @@ export function buildCarPanel(props: CarPanelProps): CarPanel {
     rows.forEach((row, seat) => {
       const on = row.enabled.checked;
       row.body.hidden = !open.has(seat);
-      row.title.textContent = `Car ${seat + 1} — ${CAR_TABLE[row.car.value as CarId].name}`;
+      row.title.textContent = `Car ${seat + 1} — ${cars()[row.car.value as CarId].name}`;
       row.title.parentElement?.classList.toggle("pg-seat-off", !on);
       // The last car on the field cannot be switched off (PG79): the wire rejects a setup with no
       // enabled seat, and a control whose only effect is a silently-dropped send is worse than one
@@ -328,8 +328,8 @@ export function buildCarPanel(props: CarPanelProps): CarPanel {
   // Both option lists are built once and reused across the six sections: `carOptions()` and
   // `weaponOptions()` walk their whole table on every call, and nothing in a section can change
   // what is in either.
-  const cars = carOptions();
-  const weapons = weaponOptions();
+  const carOptionList = carOptions();
+  const weaponOptionList = weaponOptions();
 
   const sections = PLAYGROUND_SEAT_IDS.map((seatId, seat) => {
     const car = props.initial.cars[seat]!;
@@ -345,7 +345,7 @@ export function buildCarPanel(props: CarPanelProps): CarPanel {
       checked: seat === props.initial.drivenSeat,
     }) as HTMLInputElement;
 
-    const carSelect = selectFor(cars, car.carId);
+    const carSelect = selectFor(carOptionList, car.carId);
     carSelect.classList.add("pg-car");
     const colorSel = colorSelect(car.colorId);
     const tint = tintPicker(seatId, colorSel);
@@ -363,7 +363,7 @@ export function buildCarPanel(props: CarPanelProps): CarPanel {
 
     const addBtn = button({ class: "pg-weapon-add" }, ["＋"], () => {
       const current = currentWeapons();
-      const next = withAddedWeaponSlot(current, weapons);
+      const next = withAddedWeaponSlot(current, weaponOptionList);
       if (next.length === current.length) return; // already at `maxAbilitySlots`
       setLoadout(next);
       evaluate(true);
@@ -377,7 +377,7 @@ export function buildCarPanel(props: CarPanelProps): CarPanel {
       const current = currentWeapons();
       addBtn.disabled = !canAddWeaponSlot(current);
       addBtn.title = addBtn.disabled
-        ? `This build allows at most ${WEAPON_SLOT_CONFIG.maxAbilitySlots} weapons`
+        ? `This build allows at most ${slots().maxAbilitySlots} weapons`
         : "Add a weapon";
       const removable = canRemoveWeaponSlot(current);
       loadoutRow.querySelectorAll<HTMLButtonElement>(".pg-weapon-remove").forEach((btn) => {
@@ -389,7 +389,7 @@ export function buildCarPanel(props: CarPanelProps): CarPanel {
      * the ordinary edit path below (`evaluate(true)` on change). Inserted before `addBtn`, which
      * always stays last. */
     function addWeaponRow(value: WeaponId): void {
-      const select = selectFor(weapons, value);
+      const select = selectFor(weaponOptionList, value);
       select.addEventListener("change", () => evaluate(true));
       const rowEl = h("div", { class: "pg-weapon-slot" }, [select]);
       const removeBtn = button({ class: "pg-weapon-remove" }, ["−"], () => {
@@ -435,7 +435,7 @@ export function buildCarPanel(props: CarPanelProps): CarPanel {
       const kit = shippedLoadoutOf(carId);
       restoreBtn.disabled = kit === undefined;
       restoreBtn.title = kit
-        ? `Restore ${CAR_TABLE[carId].name}'s shipped loadout`
+        ? `Restore ${cars()[carId].name}'s shipped loadout`
         : "This chassis has no legal kit";
     };
     syncRestore();

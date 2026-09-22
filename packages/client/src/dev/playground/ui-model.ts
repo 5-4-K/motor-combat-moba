@@ -1,9 +1,9 @@
 import type { CarId, PlaygroundSetup, TunableField, TuningValue, WeaponId } from "@motor-combat-moba/shared";
 import {
   ARENAS,
-  CAR_TABLE,
-  WEAPON_SLOT_CONFIG,
-  WEAPON_TABLE,
+  cars,
+  slots,
+  weapons,
   basicAttackIds,
   basicAttackOf,
   slotsOf,
@@ -97,7 +97,7 @@ export function nextDrivenSeat(setup: PlaygroundSetup, disabled: number): number
 
 /** All cars, active or not — the playground can drive a retired/unreleased chassis (PG18/PG20). */
 export function carOptions(): { id: CarId; name: string }[] {
-  return Object.values(CAR_TABLE).map((row) => ({ id: row.id, name: row.name }));
+  return Object.values(cars()).map((row) => ({ id: row.id, name: row.name }));
 }
 
 /**
@@ -106,12 +106,12 @@ export function carOptions(): { id: CarId; name: string }[] {
  * loadout, so it is never picked here — `newFireState` prepends the driven car's own (it appended
  * it until the 2026-09-20 index flip; either way the panel never offers it).
  *
- * The excluded set comes from `CAR_TABLE`, not from the shape of an id. Which weapons are basic
+ * The excluded set comes from `cars()`, not from the shape of an id. Which weapons are basic
  * attacks is a fact about the roster's slots, and the roster is the only thing that knows it.
  */
 export function weaponOptions(): { id: WeaponId; name: string }[] {
   const basics = basicAttackIds();
-  return Object.values(WEAPON_TABLE)
+  return Object.values(weapons())
     .filter((row) => !basics.has(row.id))
     .map((row) => ({ id: row.id, name: row.name }));
 }
@@ -127,7 +127,7 @@ const CAR_EVENT_NAMES: Record<CarEventId, string> = {
  * in this list (and stays recognised by `isCarEventId`) without a second edit. */
 export function fxSubjectOptions(): { id: string; name: string }[] {
   return [
-    ...Object.values(WEAPON_TABLE).map((row) => ({ id: row.id as string, name: row.name })),
+    ...Object.values(weapons()).map((row) => ({ id: row.id as string, name: row.name })),
     ...CAR_EVENT_IDS.map((id) => ({ id: id as string, name: CAR_EVENT_NAMES[id] })),
   ];
 }
@@ -139,30 +139,30 @@ export function arenaOptions(): string[] {
 
 /**
  * A seat's slot picks are legal iff there is at least one, no more than this build's `N`
- * (`WEAPON_SLOT_CONFIG.maxAbilitySlots`), and they are pairwise distinct (PG17, VS34 — the same
+ * (`slots().maxAbilitySlots`), and they are pairwise distinct (PG17, VS34 — the same
  * weapon on ANOTHER seat is fine; only a dupe within one seat is rejected). Mirrors
  * `isPlaygroundSetup`'s own per-seat check so the overlay catches an illegal pick locally, before
  * building a payload the server would silently reject.
  *
  * No longer a type predicate: a variable-length loadout has no tuple type to narrow to.
  */
-export function isLoadoutLegal(weapons: readonly WeaponId[]): boolean {
+export function isLoadoutLegal(weaponIds: readonly WeaponId[]): boolean {
   return (
-    weapons.length >= 1 &&
-    weapons.length <= WEAPON_SLOT_CONFIG.maxAbilitySlots &&
-    new Set(weapons).size === weapons.length
+    weaponIds.length >= 1 &&
+    weaponIds.length <= slots().maxAbilitySlots &&
+    new Set(weaponIds).size === weaponIds.length
   );
 }
 
 /** May the Car select panel's ＋ button add another row to this seat's loadout (VS34)? */
-export function canAddWeaponSlot(weapons: readonly WeaponId[]): boolean {
-  return weapons.length < WEAPON_SLOT_CONFIG.maxAbilitySlots;
+export function canAddWeaponSlot(weaponIds: readonly WeaponId[]): boolean {
+  return weaponIds.length < slots().maxAbilitySlots;
 }
 
 /** May the Car select panel's − button remove a row from this seat's loadout (VS34)? A seat may
  * never be left with zero weapons, so this is refused at exactly one entry. */
-export function canRemoveWeaponSlot(weapons: readonly WeaponId[]): boolean {
-  return weapons.length > 1;
+export function canRemoveWeaponSlot(weaponIds: readonly WeaponId[]): boolean {
+  return weaponIds.length > 1;
 }
 
 /**
@@ -182,22 +182,22 @@ export function addedWeaponPick(
 /** This seat's loadout with one more entry appended (VS34). A no-op at `maxAbilitySlots` — callers
  * should disable the ＋ control via `canAddWeaponSlot` rather than rely on this silently refusing. */
 export function withAddedWeaponSlot(
-  weapons: readonly WeaponId[],
+  weaponIds: readonly WeaponId[],
   options: readonly { id: WeaponId }[],
 ): readonly WeaponId[] {
-  if (!canAddWeaponSlot(weapons)) return weapons;
-  return [...weapons, addedWeaponPick(weapons, options)];
+  if (!canAddWeaponSlot(weaponIds)) return weaponIds;
+  return [...weaponIds, addedWeaponPick(weaponIds, options)];
 }
 
 /** This seat's loadout with the entry at `index` removed (VS34). A no-op at one entry left —
  * callers should disable the − control via `canRemoveWeaponSlot` rather than rely on this silently
  * refusing. */
 export function withRemovedWeaponSlot(
-  weapons: readonly WeaponId[],
+  weaponIds: readonly WeaponId[],
   index: number,
 ): readonly WeaponId[] {
-  if (!canRemoveWeaponSlot(weapons)) return weapons;
-  return weapons.filter((_, i) => i !== index);
+  if (!canRemoveWeaponSlot(weaponIds)) return weaponIds;
+  return weaponIds.filter((_, i) => i !== index);
 }
 
 export type StatsTabKey = "global" | "cars" | "weapons";
@@ -234,11 +234,11 @@ export function statsTabs(setup: PlaygroundSetup): StatsTab[] {
   const carGroups: StatsGroup[] = [];
   for (const carId of carIds) {
     const carFields = fields.filter((f) => f.group === "car" && f.ownerId === carId);
-    if (carFields.length > 0) carGroups.push({ title: CAR_TABLE[carId].name, fields: carFields });
+    if (carFields.length > 0) carGroups.push({ title: cars()[carId].name, fields: carFields });
   }
 
   // Each seat's three abilities AND its chassis's basic attack (BA38). The panel is built from the
-  // seats' own loadouts rather than from `WEAPON_TABLE`, so a weapon nobody seated has no group —
+  // seats' own loadouts rather than from `weapons()`, so a weapon nobody seated has no group —
   // and a basic attack would have no group at all unless it is added here, which would leave BA36's
   // expected retune with no knob to reach for.
   const weaponIds = [
@@ -249,9 +249,9 @@ export function statsTabs(setup: PlaygroundSetup): StatsTab[] {
     const weaponFields = fields.filter((f) => f.group === "weapon" && f.ownerId === weaponId);
     if (weaponFields.length > 0) {
       // Nine rows share the name "Basic Attack" (BA5), so a shared name falls back to the id — the
-      // smallest fix, and one that needs no second name field on `WEAPON_TABLE`.
-      const name = WEAPON_TABLE[weaponId].name;
-      const shared = Object.values(WEAPON_TABLE).filter((row) => row.name === name).length > 1;
+      // smallest fix, and one that needs no second name field on `weapons()`.
+      const name = weapons()[weaponId].name;
+      const shared = Object.values(weapons()).filter((row) => row.name === name).length > 1;
       weaponGroups.push({ title: shared ? weaponId : name, fields: weaponFields });
     }
   }

@@ -1,5 +1,5 @@
 import type { CarId, TunableField, TuningOverrides, TuningValue } from "@motor-combat-moba/shared";
-import { CAR_TABLE, tunableFields } from "@motor-combat-moba/shared";
+import { cars, tunableFields } from "@motor-combat-moba/shared";
 import type { AssetManifest } from "../../assets/manifest-schema.js";
 import { turretSpriteKeys } from "../../assets/asset-keys.js";
 import {
@@ -29,7 +29,7 @@ function turretFields(): TunableField[] {
 }
 
 /**
- * The global block first, then every `CAR_TABLE` row in table order — all nine, inactive ones
+ * The global block first, then every `cars()` row in table order — all nine, inactive ones
  * included: a prototype is exactly where a mount gets placed before release, and the playground can
  * already drive one (PG18).
  */
@@ -38,8 +38,8 @@ export function turretSimSections(): TurretSimSection[] {
   const sections: TurretSimSection[] = [
     { title: "Turret", inactive: false, fields: fields.filter((f) => f.ownerId === undefined) },
   ];
-  for (const carId of Object.keys(CAR_TABLE) as CarId[]) {
-    const car = CAR_TABLE[carId];
+  for (const carId of Object.keys(cars()) as CarId[]) {
+    const car = cars()[carId];
     sections.push({
       title: car.name,
       carId,
@@ -98,18 +98,24 @@ export function turretExportText(
 ): string {
   const blocks: string[] = [];
 
+  // `TURRET_CONFIG` and `CAR_TABLE.${carId}` below (and in the loop's push just after it) are
+  // PASTE-READY SOURCE TEXT, not a config read — this string is what a developer copies verbatim
+  // into packages/shared/src/config/turret-config.ts, naming the real file-level constant they are
+  // about to hand-edit. Converting it to an accessor call would paste the wrong thing.
   const config = (["turnRateDegPerSec", "maxSwingDeg"] as const)
     .filter((key) => sim[`turret.${key}`] !== undefined)
     .map((key) => `TURRET_CONFIG.${key} = ${String(sim[`turret.${key}`])}`);
   if (config.length > 0) blocks.push(["// packages/shared/src/config/turret-config.ts", ...config].join("\n"));
 
   const mounts: string[] = [];
-  for (const carId of Object.keys(CAR_TABLE) as CarId[]) {
+  for (const carId of Object.keys(cars()) as CarId[]) {
     const axis = (a: "x" | "y"): TuningValue => {
       const path = `car.${carId}.turretMount.${a}`;
       return sim[path] ?? SHIPPED.get(path)!;
     };
     const moved = sim[`car.${carId}.turretMount.x`] !== undefined || sim[`car.${carId}.turretMount.y`] !== undefined;
+    // Same paste-text rule as `config` above: `CAR_TABLE.${carId}.turretMount` names the real
+    // shared source location this value gets typed into, not a live read.
     if (moved) mounts.push(`CAR_TABLE.${carId}.turretMount = { x: ${String(axis("x"))}, y: ${String(axis("y"))} }`);
   }
   if (mounts.length > 0) blocks.push(["// packages/shared/src/config/car-config.ts", ...mounts].join("\n"));
@@ -124,7 +130,7 @@ export function turretExportText(
   }
 
   const rows: string[] = [];
-  for (const carId of Object.keys(CAR_TABLE) as CarId[]) {
+  for (const carId of Object.keys(cars()) as CarId[]) {
     const multiplier = view[carScaleKey(carId)];
     if (multiplier === undefined || multiplier === 1) continue;
     const [ownKey, defaultKey] = turretSpriteKeys(carId);
