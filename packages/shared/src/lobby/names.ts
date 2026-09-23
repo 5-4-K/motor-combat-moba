@@ -1,4 +1,4 @@
-import { FLOW_CONFIG } from "../config/flow-config.js";
+import { flow } from "../modes/active.js";
 
 export type ValidateNameResult =
   | { ok: true; name: string }
@@ -8,12 +8,20 @@ export function normalizeName(raw: string): string {
   return raw.trim();
 }
 
+/**
+ * Reads the ACTIVE MODE's `flow()` rather than the raw module-level flow-config global (2026-09-22 final
+ * review) — its one call site, `ArenaRoom.onJoin`, already runs inside `scoped(this.modeConfig,
+ * ...)`, and the client's join screen already treats this same bound as per-mode
+ * (`join.ts`'s `maxLength: flow().nameMax`). A raw read here would let a mode's own `nameMax` accept
+ * a name on the client that the server then rejects.
+ */
 export function validateName(raw: string): ValidateNameResult {
   const name = normalizeName(raw);
-  if (name.length < FLOW_CONFIG.nameMin || name.length > FLOW_CONFIG.nameMax) {
+  const { nameMin, nameMax } = flow();
+  if (name.length < nameMin || name.length > nameMax) {
     return {
       ok: false,
-      error: `Name must be ${FLOW_CONFIG.nameMin}–${FLOW_CONFIG.nameMax} characters`,
+      error: `Name must be ${nameMin}–${nameMax} characters`,
     };
   }
   return { ok: true, name };

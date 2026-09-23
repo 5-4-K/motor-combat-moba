@@ -1,5 +1,5 @@
 import type { Spawn } from "../arena/types.js";
-import { DEATHMATCH_TICKS } from "../config/deathmatch-config.js";
+import { derived } from "../modes/active.js";
 
 /**
  * Where a respawning car should appear: the spawn point whose NEAREST living enemy is furthest away.
@@ -43,10 +43,19 @@ export function farthestSpawn(
  *
  * `diedAtTick` is 0 for a living car — the schema's own "has not died" sentinel — and that must not
  * be read as "died on tick zero", which would respawn the whole roster on the match's first tick.
+ *
+ * Reads `derived().deathmatchTicks.respawnDelay` — the ACTIVE MODE's own resolved ticks — rather
+ * than the raw module-level deathmatch-ticks export (2026-09-22 final review). `respawnSweep`, this function's
+ * one caller (`rooms/tick-pipeline.ts`), runs on the server tick path inside every room's
+ * `scoped(...)` wrapper, and this file's sibling `respawnPlayer` already reads the same
+ * `derived().deathmatchTicks` for the spawn-protection window it grants right after this gate
+ * fires — a mode authoring its own `respawnDelaySeconds` used to respawn on the shipped global's
+ * timer while the protection it then grants used the mode's own numbers: half-applied per-mode
+ * config, in the two halves of the same respawn.
  */
 export function isDueToRespawn(diedAtTick: number, tick: number): boolean {
   if (diedAtTick <= 0) return false;
-  return tick >= diedAtTick + DEATHMATCH_TICKS.respawnDelay;
+  return tick >= diedAtTick + derived().deathmatchTicks.respawnDelay;
 }
 
 /** What the room should do with a car's spawn protection this tick. */

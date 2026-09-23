@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { normalizeName, validateName, isNameTaken } from "./names.js";
+
+// `validateName` reads the active mode's `flow()` (2026-09-22 final review).
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 describe("normalizeName", () => {
   it("trims whitespace", () => {

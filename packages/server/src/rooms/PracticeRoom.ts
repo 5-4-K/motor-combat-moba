@@ -177,7 +177,16 @@ export class PracticeRoom extends Room<PracticeState> {
   async onCreate(options?: unknown): Promise<void> {
     // The join options reach `onCreate` too (Colyseus merges the client's options into the create
     // call), so the setup is validated once, before the room exists, rather than on join.
-    if (!isPracticeSetup(options)) {
+    //
+    // Scoped (2026-09-22 final review): `isPracticeSetup` reads mode-scoped config transitively —
+    // `isActiveCarId` goes through `cars()` — and this is the FIRST thing this method does, on a
+    // process that may never have installed any bundle at all (nothing does at server startup).
+    // Unscoped, this threw "config read outside a mode scope" on the very first practice room a
+    // fresh process ever created — masked in tests only because every one of them installs a mode
+    // globally in its own `beforeEach` before touching the room. `this.modeConfig` is a class field,
+    // already initialised by the time `onCreate` runs, so it is available here before any of the
+    // `await`s below.
+    if (!scoped(this.modeConfig, () => isPracticeSetup(options))) {
       throw new ServerError(PRACTICE_INVALID_SETUP_CLOSE_CODE, PRACTICE_INVALID_SETUP_ERROR);
     }
 

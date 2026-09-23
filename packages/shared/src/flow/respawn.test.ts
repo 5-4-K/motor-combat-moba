@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { Spawn } from "../arena/types.js";
-import { DEATHMATCH_TICKS } from "../config/deathmatch-config.js";
+import { derived, installMode } from "../modes/active.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { farthestSpawn, isDueToRespawn, phaseDecision, type PhaseInput } from "./respawn.js";
+
+// `isDueToRespawn` reads the active mode's `derived().deathmatchTicks` (2026-09-22 final review),
+// so this file needs one installed before it can be called at all.
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 const spawns: Spawn[] = [
   { x: 0, y: 0, angle: 0 },
@@ -40,8 +45,9 @@ describe("farthestSpawn", () => {
 
 describe("isDueToRespawn", () => {
   it("waits out the full delay, then fires", () => {
-    expect(isDueToRespawn(100, 100 + DEATHMATCH_TICKS.respawnDelay - 1)).toBe(false);
-    expect(isDueToRespawn(100, 100 + DEATHMATCH_TICKS.respawnDelay)).toBe(true);
+    const delay = derived().deathmatchTicks.respawnDelay;
+    expect(isDueToRespawn(100, 100 + delay - 1)).toBe(false);
+    expect(isDueToRespawn(100, 100 + delay)).toBe(true);
   });
 
   it("never fires for a car that has not died", () => {

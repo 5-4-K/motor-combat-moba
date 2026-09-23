@@ -1,6 +1,6 @@
 import { activeCarIds, isActiveCarId } from "../config/car-config.js";
-import { FLOW_CONFIG } from "../config/flow-config.js";
 import type { CarId } from "../config/types.js";
+import { flow } from "../modes/active.js";
 import { isBotDifficulty, type BotDifficulty } from "./playground-messages.js";
 
 /** Room name, registered on EVERY process — practice ships (spec PR3). */
@@ -52,13 +52,20 @@ function isPracticeOpponent(value: unknown): value is PracticeOpponent {
  * an inactive chassis — practice may never show one the live roster hides (PR15). An EMPTY name is
  * accepted on purpose: the "Player" fallback is applied client-side before the join (PR20), and the
  * server has no uniqueness rule to enforce here.
+ *
+ * Reads the ACTIVE MODE's `flow()` for the length bound (2026-09-22 final review) — it already
+ * reads `isActiveCarId` (mode-scoped via `cars()`) two lines down, so this was never reachable
+ * unscoped anyway, and `flow()` matches the convention `lobby/names.ts`'s `validateName` and the
+ * client's own join screen (`join.ts`'s `flow().nameMax`) already follow. Every real call site runs
+ * scoped: `PracticeRoom.onCreate`'s own top-level check (2026-09-22 final review, see its own
+ * comment) and `onJoin`'s re-check both wrap in `scoped(this.modeConfig, ...)`.
  */
 export function isPracticeSetup(msg: unknown): msg is PracticeSetup {
   if (msg === null || typeof msg !== "object") return false;
   const rec = msg as Record<string, unknown>;
   return (
     typeof rec.name === "string" &&
-    rec.name.length <= FLOW_CONFIG.nameMax &&
+    rec.name.length <= flow().nameMax &&
     isActiveCarId(rec.carId) &&
     isPracticeOpponent(rec.opponentCarId) &&
     isBotDifficulty(rec.difficulty)

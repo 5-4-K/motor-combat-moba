@@ -4,9 +4,10 @@ import { DEFAULT_CAR_ID, isCarId } from "../config/car-config.js";
 import { isColorId } from "../config/color-config.js";
 import type { CarId } from "../config/types.js";
 import { isWeaponId } from "../config/weapon-config.js";
-import { WEAPON_SLOT_CONFIG, slotsOf } from "../config/weapon-slots.js";
+import { slotsOf } from "../config/weapon-slots.js";
 import type { WeaponId } from "../config/weapon-types.js";
 import { MAX_PLAYERS } from "../constants.js";
+import { slots } from "../modes/active.js";
 
 /** Dev-only room name (spec PG3). Never registered in a release build. */
 export const PLAYGROUND_ROOM_NAME = "playground";
@@ -140,7 +141,7 @@ export interface PlaygroundCarSetup {
   carId: CarId;
   /** Index into `COLOR_TABLE` (PG31). Purely visual: a colour change never respawns (PG32). */
   colorId: number;
-  /** One to `WEAPON_SLOT_CONFIG.maxAbilitySlots` distinct weapons (VS34) — no longer always three. */
+  /** One to the active mode's `slots().maxAbilitySlots` distinct weapons (VS34) — no longer always three. */
   weapons: readonly WeaponId[];
   /**
    * Is this seat on the field (PG60)?
@@ -167,9 +168,14 @@ export interface PlaygroundSetup {
  *
  * `carId` may be ANY valid `CarId`, not only an active one — spec PG20 lets the playground drive a
  * chassis the live roster has retired or not yet activated, which is most of the table as of
- * 2026-09-16. The weapons must be real, at least one and no more than
- * `WEAPON_SLOT_CONFIG.maxAbilitySlots`, and pairwise DISTINCT within this seat (VS34); the same
+ * 2026-09-16. The weapons must be real, at least one and no more than the ACTIVE MODE's
+ * `slots().maxAbilitySlots`, and pairwise DISTINCT within this seat (VS34); the same
  * weapon on another seat is legal (PG17), and so is the same `colorId` (PG31).
+ *
+ * Reads `slots()` rather than the raw module-level weapon-slot-config global (2026-09-22 final review), for
+ * consistency with the rest of the playground's own code (`dev/playground/storage.ts` and
+ * `ui-model.ts` both already read `slots().maxAbilitySlots`) — and it was never reachable unscoped
+ * anyway: `isCarId`/`isWeaponId` two lines either side already read mode-scoped config themselves.
  */
 function isPlaygroundCarSetup(value: unknown): value is PlaygroundCarSetup {
   if (value === null || typeof value !== "object") return false;
@@ -179,7 +185,7 @@ function isPlaygroundCarSetup(value: unknown): value is PlaygroundCarSetup {
   if (typeof rec.enabled !== "boolean") return false;
   const weapons = rec.weapons;
   if (!Array.isArray(weapons)) return false;
-  if (weapons.length < 1 || weapons.length > WEAPON_SLOT_CONFIG.maxAbilitySlots) return false;
+  if (weapons.length < 1 || weapons.length > slots().maxAbilitySlots) return false;
   if (!weapons.every((w) => isWeaponId(w))) return false;
   return new Set(weapons).size === weapons.length;
 }
