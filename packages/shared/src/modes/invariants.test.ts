@@ -14,9 +14,11 @@
 // and `maneuver` (`ManeuverKind`, `sim/maneuver.ts`) are GLOBAL, not per-mode (MC36/MC32), so they
 // are asserted once below rather than inside the per-mode loop.
 import { describe, expect, it } from "vitest";
+import { MAX_PLAYERS } from "../constants.js";
 import { ABILITY_SLOT_CEILING } from "../config/weapon-slots.js";
 import { COLOR_TABLE } from "../config/color-config.js";
 import { ManeuverKind } from "../sim/maneuver.js";
+import { PlayerState } from "../schema/PlayerState.js";
 import { MODE_TABLE } from "./registry.js";
 
 const UINT8_MAX = 255;
@@ -66,7 +68,7 @@ for (const def of Object.values(MODE_TABLE)) {
       expect(
         def.config.maxPlayers,
         `${def.name}: maxPlayers ${def.config.maxPlayers}`,
-      ).toBeLessThanOrEqual(6);
+      ).toBeLessThanOrEqual(MAX_PLAYERS);
     });
 
     it("puts an impulse only on a maneuver row", () => {
@@ -120,9 +122,18 @@ for (const def of Object.values(MODE_TABLE)) {
         highestSlotIndex,
         `${def.name}: highest fire-slot index ${highestSlotIndex} underflows int8`,
       ).toBeGreaterThanOrEqual(INT8_MIN);
-      // -1 is the "never fired" sentinel `lastFiredSlot` also carries; it is a fixed literal, not
-      // mode-derived, but it shares the same wire field so it is worth pinning here too.
-      expect(-1).toBeGreaterThanOrEqual(INT8_MIN);
+      // The "never fired" sentinel `lastFiredSlot` also carries — a fixed literal, not mode-derived,
+      // but it shares the same wire field so it is worth pinning here too. Corrected 2026-09-22
+      // (final review): this used to read `expect(-1).toBeGreaterThanOrEqual(INT8_MIN)` — two
+      // literals compared against each other, which cannot fail no matter what either constant is
+      // and so was not actually pinning anything. Reading the sentinel off a real `PlayerState`
+      // instance instead means a future edit to the schema's own default (`@type("int8")
+      // lastFiredSlot = -1`) is what this assertion actually watches.
+      const neverFiredSentinel = new PlayerState().lastFiredSlot;
+      expect(
+        neverFiredSentinel,
+        `PlayerState.lastFiredSlot's "never fired" sentinel ${neverFiredSentinel} underflows int8`,
+      ).toBeGreaterThanOrEqual(INT8_MIN);
     });
   });
 }

@@ -28,19 +28,34 @@ import {
  * to it a statement later. `runInRoomMode` still exists (the interfaces ledger names it, and the
  * task-5 brief's own acceptance test calls it directly) but it is deliberately thin: it asserts a
  * bundle is actually installed — with a client-specific error pointing at `installRoomMode` — and
- * then just calls `fn()`. It is for the handful of call sites where "this code assumes a room's
- * config is live" is worth stating explicitly (the prediction step, the per-frame render root),
- * not a device to route the other ~150 reads through.
+ * then just calls `fn()`.
+ *
+ * **Corrected note (2026-09-22 final review): `runInRoomMode` has no production call site today.**
+ * This comment used to name "the prediction step, the per-frame render root" as its users; neither
+ * calls it, and a repo-wide search turns up exactly one caller — `mode-scope.test.ts`, exercising
+ * the function directly. It survives as a documented, tested primitive for the handful of future
+ * call sites where "this code assumes a room's config is live" would be worth stating explicitly,
+ * not as a device the ~150 ordinary leaf reads are routed through today.
  *
  * **What happens on leaving a room and returning to the join screen: the bundle stays installed.**
- * Nothing clears it, and that is correct, not an oversight. `JoinScene`'s join screen and its
- * "Practice" button read no config at all, so a stale bundle sitting there between rooms is inert —
- * there is nobody home to read it. The moment the player joins again (an arena, a practice room, or
- * the dev playground), `watchRoomMode` below reinstalls fresh from that new room's own `state.mode`
- * before the next scene (`LobbyScene`, or `ArenaScene` directly for practice/playground) ever
- * renders, so the stale value is never actually observed. The alternative — clearing it on leave —
- * would only reintroduce the exact bug this file exists to fix: a window between "no room" and "a
- * bundle for the new room" during which a stray config read throws.
+ * Nothing clears it, and that is correct, not an oversight.
+ *
+ * **Corrected note (2026-09-22 final review, C2): the join screen is NOT config-free.** This
+ * comment used to claim `JoinScene`'s join screen and its "Practice" button read no config at all;
+ * that was false even when it was written — `join.ts`'s name field reads `flow().nameMax` directly
+ * — and it is exactly why a config read reaching the join screen unscoped (C2) blanked the whole
+ * page before `BootScene.create()` was fixed to install `DEFAULT_GAME_MODE` unconditionally, before
+ * launching ANY scene (see `BootScene.ts`'s own comment). What *is* still true: nothing on the join
+ * screen needs a bundle that differs from whatever was installed last, so leaving the bundle in
+ * place between rooms is inert there regardless — the join screen just isn't the reason it's safe.
+ * A stale bundle sitting there between rooms is inert for a real room's own reads too — there is
+ * nobody home to read it until a scene does. The moment the player joins again (an arena, a
+ * practice room, or the dev playground), `watchRoomMode` below reinstalls fresh from that new
+ * room's own `state.mode` before the next scene (`LobbyScene`, or `ArenaScene` directly for
+ * practice/playground) ever renders, so the stale value is never actually observed there either.
+ * The alternative — clearing it on leave — would only reintroduce the exact bug this file exists to
+ * fix: a window between "no room" and "a bundle for the new room" during which a stray config read
+ * throws.
  */
 
 /**

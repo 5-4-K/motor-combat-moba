@@ -36,11 +36,18 @@ vi.mock("./build.js", () => ({
 
 describe("activeArenaIds", () => {
   it("unions each ACTIVE mode's arenas", async () => {
-    // `vitest.setup.ts` side-effect-imports `./registry.js` directly (and so `./build.js`) before
-    // this file's hoisted `vi.mock` above takes effect, so `MODE_TABLE` would otherwise already be
-    // built from the REAL, un-mocked `assembleModeConfig` by the time this test runs.
-    // `vi.resetModules()` clears that cache so the dynamic `import` below re-executes `registry.js`
-    // fresh, against the mock that is now live.
+    // Corrected 2026-09-22 (final review): this used to explain `vi.resetModules()` by naming a
+    // `vitest.setup.ts` that side-effect-imported `./registry.js` before this file's hoisted
+    // `vi.mock` took effect. That file has since been deleted, and there is no `setupFiles` entry
+    // in `vitest.config.ts` any more — so that is no longer why this call is here.
+    // The real reason: `registry.js` builds `MODE_TABLE` (and so runs `assembleModeConfig`, the
+    // thing being mocked) once, AT MODULE LOAD. This file's four tests each do their own dynamic
+    // `import("./registry.js")` below, and a module-specifier cache would hand every test after the
+    // first the SAME already-evaluated module — so without a fresh reset first, only the first
+    // test's import would actually run against a just-hoisted mock; every later one would silently
+    // reuse whatever `MODE_TABLE` the first import built. `vi.resetModules()` forces each test's
+    // `import` to re-evaluate `registry.js` (and `build.js`) from scratch, which is what makes every
+    // test here independent of run order rather than only the first one being trustworthy.
     vi.resetModules();
     const { activeArenaIds } = await import("./registry.js");
     // Brawl (active): arena-01, arena-02. Deathmatch (active): arena-00, arena-01.
