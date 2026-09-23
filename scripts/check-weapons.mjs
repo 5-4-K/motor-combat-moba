@@ -142,8 +142,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import sharp from "sharp";
-import { WEAPON_TABLE } from "../packages/shared/dist/index.js";
 import { ICON_PX, weaponIconKeyOf } from "./import-weapon-icon.mjs";
+import { carriageLabel, weaponRoster } from "./mode-rosters.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const artDir = path.join(rootDir, "packages", "client", "public", "art");
@@ -182,16 +182,25 @@ export async function readIconFacts(file) {
   };
 }
 
-/** Every weapon's findings, in `WEAPON_TABLE` order. */
+/**
+ * Every weapon's findings, over the UNION of every mode's weapon table (MC5) — see
+ * `mode-rosters.mjs` for why the union, and why art stays one sweep rather than one per mode.
+ *
+ * `carriedIn` rides along so `reportWeapons` can name the modes when they DISAGREE about whether a
+ * chassis can fire the row. That disagreement is the whole reason this stopped reading the raw
+ * `WEAPON_TABLE`: a row slotted in one mode's kit and dropped from the other's would otherwise read
+ * exactly like a row nobody carries anywhere, and its icon would look optional when it is not.
+ */
 export async function checkWeapons(manifest) {
   const results = [];
-  for (const weaponId of Object.keys(WEAPON_TABLE)) {
+  for (const { id: weaponId, color, carriedIn } of weaponRoster()) {
     const row = manifest.sprites?.[weaponIconKeyOf(weaponId)];
     const image = row ? await readIconFacts(path.join(artDir, row.file)) : undefined;
-    const target = rgbFromHex(WEAPON_TABLE[weaponId].color);
+    const target = rgbFromHex(color);
     const colorDistance = image && target ? nearestColorDistance(image.clusters, target) : undefined;
     results.push({
       id: weaponId,
+      carriedIn,
       colorDistance,
       findings: checkWeaponIcon({ weaponId, row, image, colorDistance, iconPx: ICON_PX }),
     });
@@ -202,14 +211,19 @@ export async function checkWeapons(manifest) {
 /** Print one line per weapon plus its findings, and return how many blockers were seen. */
 export function reportWeapons(results) {
   let blockers = 0;
-  for (const { id, colorDistance, findings } of results) {
+  for (const { id, carriedIn, colorDistance, findings } of results) {
     const verdict = findings.some((f) => f.level === "blocker")
       ? "FAIL"
       : findings.length > 0
         ? "warn"
         : "ok";
     const drift = colorDistance === undefined ? "" : `  colour distance ${Math.round(colorDistance)}`;
-    console.log(`${verdict.padEnd(5)} ${id.padEnd(12)}${drift}`);
+    // Marked only when the modes disagree: a row every mode carries, and a row (`tremor`) no mode
+    // does, are both long-standing legal states this sweep has never labelled — see
+    // `carriageLabel`'s own comment for why the two sweeps pass different `noneLabel`s.
+    const suffix = carriageLabel(carriedIn ?? []);
+    const label = suffix ? `${id} ${suffix}` : id;
+    console.log(`${verdict.padEnd(5)} ${label.padEnd(12)}${drift}`);
     for (const f of findings) {
       console.log(`        ${f.level}: ${f.message}`);
       if (f.level === "blocker") blockers++;

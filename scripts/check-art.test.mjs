@@ -12,6 +12,7 @@ import {
   namespaceScopeOf,
 } from "./check-art.mjs";
 import { checkCars, checkCarSprite, GREYSCALE_CHROMA_LIMIT } from "./check-cars.mjs";
+import { carriageLabel, carRoster, everyMode, modeNameOf, weaponRoster } from "./mode-rosters.mjs";
 import {
   checkWeaponIcon,
   checkWeapons,
@@ -20,6 +21,7 @@ import {
   rgbDistance,
   rgbFromHex,
 } from "./check-weapons.mjs";
+import { MODE_TABLE, modeConfigOf } from "../packages/shared/dist/index.js";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const artDir = path.join(rootDir, "packages", "client", "public", "art");
@@ -328,5 +330,65 @@ describe("the art this repo actually ships", () => {
       r.findings.filter((f) => f.level === "blocker").map((f) => `${r.id}: ${f.message}`),
     );
     assert.deepEqual(blockers, []);
+  });
+});
+
+/**
+ * The union sweep (MC5). Both shipped modes are byte-identical today — `table-pinning.test.ts`
+ * holds them that way — so there is no divergence here to assert on, and a test claiming "mode 2's
+ * roster differs from mode 0's" could only ever pass by accident. What is asserted is the PLUMBING:
+ * that the sweep asked the mode bundles at all rather than one table, and that a partial carriage
+ * is what produces the `(mode: ...)` marker.
+ *
+ * Every expectation is built from `MODE_TABLE` rather than from `everyMode()`, which is the thing
+ * under test: asserting a sweep against its own idea of how many modes there are would still pass
+ * if it forgot all but one of them.
+ */
+describe("mode-rosters: the union of every mode's carried rows (MC5)", () => {
+  const ALL_MODES = Object.keys(MODE_TABLE)
+    .map((key) => Number(key))
+    .sort((a, b) => a - b);
+
+  it("knows about every mode in the registry", () => {
+    assert.deepEqual(everyMode(), ALL_MODES);
+  });
+
+  it("sweeps the union of every mode's car and weapon ids, not one table's", () => {
+    const carUnion = new Set(ALL_MODES.flatMap((m) => Object.keys(modeConfigOf(m).cars)));
+    const weaponUnion = new Set(ALL_MODES.flatMap((m) => Object.keys(modeConfigOf(m).weapons)));
+    assert.deepEqual(new Set(carRoster().map((r) => r.id)), carUnion);
+    assert.deepEqual(new Set(weaponRoster().map((r) => r.id)), weaponUnion);
+  });
+
+  it("records which modes publish a chassis and which carry a weapon", () => {
+    const cars = new Map(carRoster().map((r) => [r.id, r.publishedIn]));
+    assert.deepEqual(cars.get("mirage"), ALL_MODES); // shipped, so published everywhere
+    assert.deepEqual(cars.get("taurus"), []); // a prototype no mode publishes
+    const weapons = new Map(weaponRoster().map((r) => [r.id, r.carriedIn]));
+    assert.deepEqual(weapons.get("predator"), ALL_MODES);
+    assert.deepEqual(weapons.get("basic-attack-taurus"), ALL_MODES); // a basic attack counts
+    assert.deepEqual(weapons.get("tremor"), []); // authored, carried by nobody, still swept
+  });
+
+  it("marks only a row the modes disagree about", () => {
+    const all = ALL_MODES;
+    assert.equal(carriageLabel(all, "(inactive)"), "");
+    assert.equal(carriageLabel([], "(inactive)"), "(inactive)");
+    assert.equal(carriageLabel([]), "");
+    assert.equal(carriageLabel([all[0]]), `(mode: ${modeNameOf(all[0])})`);
+  });
+
+  it("carries the carriage through checkCars and checkWeapons to the report", async () => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(artDir, "manifest.json"), "utf8"));
+    const cars = await checkCars(manifest);
+    assert.deepEqual(
+      cars.map((r) => [r.id, r.publishedIn]),
+      carRoster().map((r) => [r.id, r.publishedIn]),
+    );
+    const weapons = await checkWeapons(manifest);
+    assert.deepEqual(
+      weapons.map((r) => [r.id, r.carriedIn]),
+      weaponRoster().map((r) => [r.id, r.carriedIn]),
+    );
   });
 });

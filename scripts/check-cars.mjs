@@ -86,8 +86,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import sharp from "sharp";
-import { CAR_TABLE, DRIVE_CONFIG } from "../packages/shared/dist/index.js";
+import { DRIVE_CONFIG } from "../packages/shared/dist/index.js";
 import { CAR_KEY_PREFIX, describeFit, SUPERSAMPLE } from "./import-art.mjs";
+import { carriageLabel, carRoster } from "./mode-rosters.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const artDir = path.join(rootDir, "packages", "client", "public", "art");
@@ -122,23 +123,28 @@ export async function readSpriteFacts(file) {
 }
 
 /**
- * Every chassis's findings, in `CAR_TABLE` order.
+ * Every chassis's findings, over the UNION of every mode's car table (MC5) — see
+ * `mode-rosters.mjs` for why the union, and why art stays one sweep rather than one per mode.
  *
  * The WHOLE table, inactive chassis included — deliberately, unlike the player-facing guide. A car
  * in development is exactly the one whose art you need reported on: "this sprite is missing / has
  * no alpha / is the wrong size" is information you want BEFORE `isActive` flips true, not after.
  * `reportCars` marks the row instead, so a prototype's missing-art warning is not mistaken for a
  * problem with something players can already drive.
+ *
+ * `publishedIn` rides along so that marker can say WHICH modes publish a chassis rather than
+ * averaging a disagreement into one flag: a chassis shipped in Brawl and shelved in Deathmatch is
+ * neither "active" nor "inactive", and reading it as either hides a real authoring difference.
  */
 export async function checkCars(manifest) {
   const hull = { width: DRIVE_CONFIG.carWidth, height: DRIVE_CONFIG.carHeight };
   const results = [];
-  for (const carId of Object.keys(CAR_TABLE)) {
+  for (const { id: carId, publishedIn } of carRoster()) {
     const row = manifest.sprites?.[`${CAR_KEY_PREFIX}${carId}`];
     const image = row ? await readSpriteFacts(path.join(artDir, row.file)) : undefined;
     results.push({
       id: carId,
-      isActive: CAR_TABLE[carId].isActive,
+      publishedIn,
       fit: image ? describeFit({ width: image.width, height: image.height }, hull) : undefined,
       findings: checkCarSprite({ carId, row, image, expectedWidth: expectedSpriteWidth() }),
     });
@@ -149,7 +155,7 @@ export async function checkCars(manifest) {
 /** Print one line per chassis plus its findings, and return how many blockers were seen. */
 export function reportCars(results) {
   let blockers = 0;
-  for (const { id, isActive, fit, findings } of results) {
+  for (const { id, publishedIn, fit, findings } of results) {
     const verdict = findings.some((f) => f.level === "blocker")
       ? "FAIL"
       : findings.length > 0
@@ -159,8 +165,10 @@ export function reportCars(results) {
       ? `  fills ${Math.round((fit.drawnWidth / DRIVE_CONFIG.carWidth) * 100)}% x ${Math.round((fit.drawnHeight / DRIVE_CONFIG.carHeight) * 100)}% of the hull`
       : "";
     // The label, not a filter: an unreleased chassis is still checked and still reported, it is
-    // just named as unreleased so nobody reads its findings as a live problem.
-    const label = isActive ? id : `${id} (inactive)`;
+    // just named as unreleased so nobody reads its findings as a live problem. `(mode: ...)` is the
+    // same idea one step finer — a chassis SOME mode publishes, named with the modes that do.
+    const suffix = carriageLabel(publishedIn, "(inactive)");
+    const label = suffix ? `${id} ${suffix}` : id;
     console.log(`${verdict.padEnd(5)} ${label.padEnd(23)}${drawn}`);
     for (const f of findings) {
       console.log(`        ${f.level}: ${f.message}`);

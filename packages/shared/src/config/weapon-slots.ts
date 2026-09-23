@@ -103,19 +103,38 @@ export function slotsOf(carId: CarId): readonly WeaponId[] {
 /**
  * Everything this chassis can fire, in fire-slot order: its basic attack, then its kit (VS6).
  *
- * **The readers, named so a new one is a deliberate act rather than a habit:**
+ * **The answer is PER MODE.** `slotsOf` and `basicAttackOf` both read `cars()` — the ACTIVE mode's
+ * roster — so this returns whatever the bundle installed at the moment of the call says, and two
+ * modes may legitimately give a chassis different kits. Every reader below therefore runs inside a
+ * `withMode`/`installMode` scope and its answer is only true for THAT mode; a reader that cached
+ * one mode's list at module scope would freeze whichever bundle happened to be installed first
+ * (MC12), which is the failure this whole layer exists to prevent. Outside a scope this throws
+ * rather than serving a default.
  *
- * 1. `packages/server/balance/stats.ts` — the per-weapon accumulator seeding. A weapon the bots
- *    press but nobody seeded is silently absent from the report.
- * 2. `scripts/ttk.mjs` — two call sites, the rotation and the one-press input table.
+ * **The readers, named so a new one is a deliberate act rather than a habit** — each verified
+ * (2026-09-23) to run inside a mode scope, and named with the entry point that installs it:
+ *
+ * 1. `packages/server/balance/stats.ts` — the per-weapon accumulator seeding, inside `aggregate`,
+ *    reached from `balance/run.ts`'s one `withMode(modeConfigOf(args.mode), ...)` at the CLI entry.
+ *    A weapon the bots press but nobody seeded is silently absent from the report.
+ * 2. `scripts/ttk.mjs` — two call sites, the rotation (`simulateTtk`) and the one-press input table
+ *    (`pressPlan`'s caller), both under that file's own `withMode(modeConfigOf(mode), ...)` entry
+ *    guard. `--mode` selects the bundle (MC41), so the matrix's kits are that mode's kits.
  * 3. `packages/server/src/bot/brain/duel.fixture.ts` — two call sites, `pressCeilingOf` and
- *    `bestSustainedDpsOf`. The latter is deliberate, not an oversight: a sustained-DPS ceiling
- *    should count every trigger a car can pull, and including the basic attack moved Bastion's
- *    figure from 18.3 (thumper alone) to 22.5.
- * 4. `packages/server/playtest/` — `carrierOf` and `slotBitFor` in `weapons.ts`, `weapons2.ts` and
- *    `geometry.ts`. Those probes sweep `WEAPON_TABLE` whole and press each row through the real
- *    slot pipeline, so "who can fire this, and on which slot" is exactly their question; asking
- *    `slotsOf` threw on the first basic-attack row and killed the run.
+ *    `bestSustainedDpsOf`; its callers (`tiers.test.ts`, `controller.test.ts`) `installMode` the
+ *    default bundle in a `beforeEach`. `bestSustainedDpsOf` counting the basic attack is
+ *    deliberate, not an oversight: a sustained-DPS ceiling should count every trigger a car can
+ *    pull, and including it moved Bastion's figure from 18.3 (thumper alone) to 22.5.
+ * 4. `packages/server/playtest/` — `carrierOf`, `hasCarrier`, `skipReasonFor` and `slotBitFor` in
+ *    `weapons.ts` and `weapons2.ts`, and `carrierOf`/`slotBitFor` in `geometry.ts`; every probe is
+ *    a one-shot process that calls `installPlaytestMode()` on its first line (MC41). Those probes
+ *    sweep the mode's weapon table whole and press each row through the real slot pipeline, so "who
+ *    can fire this, and on which slot" is exactly their question; asking `slotsOf` threw on the
+ *    first basic-attack row and killed the run.
+ * 5. `packages/client/src/dev/AssetTuningScene.ts` — `drawTurret`'s `carHasTurretWeapon` test
+ *    (TR53), so `?dev=assets` draws a turret for exactly the chassis the arena would. `BootScene`
+ *    calls `installRoomMode` unconditionally before launching any dev tool, so this reads the
+ *    client tab's installed bundle.
  *
  * `newFireState` (`sim/weapons/fire.ts`) does **not** call this — its explicit-loadout path builds
  * the same `[basicAttackOf(carId), ...kit]` list inline, because it also has to accept a caller-given
