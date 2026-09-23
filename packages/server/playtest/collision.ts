@@ -6,10 +6,11 @@
  * surprising.
  */
 import {
-  CAR_TABLE,
   DRIVE_CONFIG,
-  RAM_CONFIG,
   TICK_RATE_HZ,
+  cars,
+  drive,
+  ram,
   forwardMaxSpeedOf,
   forwardOf,
   ramAttackOf,
@@ -31,6 +32,11 @@ import { Reporter } from "./reporter.js";
 installPlaytestMode();
 
 const ARENA = getArena("arena-01");
+// The OBB hull, and the ONE raw read in this file that is correct (MC35): `carWidth`/`carHeight`
+// are GLOBAL — one hull for every mode, excluded from `ModeTables` by type — so reading them off
+// the raw global says where the value comes from, and is the only banned identifier a module-scope
+// `const` may hold. Every per-mode number below (`ram()`, `drive().restitution`, `cars()`) is read
+// inside the function that uses it, never captured here.
 const { carWidth: W, carHeight: H } = DRIVE_CONFIG;
 
 const reporter = new Reporter(
@@ -103,15 +109,16 @@ function tunneling(): void {
   // for Task 5's `wildcharge` guard — this probe now reads the identical derivation rather than a
   // second, independently-typed one that could drift from it.
   function hardestOrdinaryRamShove(): number {
-    const ids = Object.keys(CAR_TABLE) as CarId[];
-    const typeScale = Math.max(RAM_CONFIG.flankScale, RAM_CONFIG.rearScale, RAM_CONFIG.headOnScale);
+    const ids = Object.keys(cars()) as CarId[];
+    const r = ram();
+    const typeScale = Math.max(r.flankScale, r.rearScale, r.headOnScale);
     let hardest = 0;
     for (const attacker of ids) {
       for (const victim of ids) {
         const shove =
           forwardMaxSpeedOf(attacker) *
           typeScale *
-          RAM_CONFIG.globalScale *
+          r.globalScale *
           (ramAttackOf(attacker) / ramDefenceOf(victim));
         if (shove > hardest) hardest = shove;
       }
@@ -407,7 +414,7 @@ function energyGain(): void {
     }
   }
   report(
-    `7. Energy gain from a contact (restitution ${DRIVE_CONFIG.restitution} + whole-vector reflection)`,
+    `7. Energy gain from a contact (restitution ${drive().restitution} + whole-vector reflection)`,
     worstGain > 1 ? "FINDING" : "OK",
     worstGain > 1
       ? `velocity magnitude INCREASED across a contact: ${worstCase}`
@@ -441,7 +448,7 @@ function glancingSignFlip(): void {
   const rows: string[] = [];
   let maxJump = 0;
   let previous: number | null = null;
-  const predictedFlipDeg = (Math.atan(Math.sqrt(DRIVE_CONFIG.restitution)) * 180) / Math.PI;
+  const predictedFlipDeg = (Math.atan(Math.sqrt(drive().restitution)) * 180) / Math.PI;
   const from = 5;
   const to = 45;
   for (let deg = from; deg <= to; deg += 1) {
@@ -474,7 +481,7 @@ function glancingSignFlip(): void {
     "8. Reported speed sign flip on a glancing wall contact",
     maxJump > 100 ? "KNOWN-BY-DESIGN" : "OK",
     `${rows.join("\n") || `no sign flip in ${from}-${to} deg — none is reachable at this restitution, see below`}\n` +
-      `restitution is ${DRIVE_CONFIG.restitution}, so the predicted flip angle ` +
+      `restitution is ${drive().restitution}, so the predicted flip angle ` +
       `atan(sqrt(restitution)) = ${predictedFlipDeg.toFixed(1)} deg sits OUTSIDE this probe's ` +
       `${from}-${to} deg sweep — the sign flip this probe was written to catch cannot happen at ` +
       `restitution 0, and none was found.\n` +

@@ -10,10 +10,10 @@
  * positional bias in the rig itself, not a finding about the game (B26a).
  */
 import {
-  CAR_TABLE,
   MAX_PLAYERS,
   TICK_RATE_HZ,
   activeCarIds,
+  cars,
   slotsOf,
   type BotDifficulty,
   type CarId,
@@ -44,9 +44,14 @@ export interface RunConfig {
 }
 
 /**
- * The chassis roster for a run, read from `CAR_TABLE` rather than a hardcoded literal (per the task
- * brief) — a fourth chassis (or a retired one) changes this list, and both shapes below follow it
- * with no edit here.
+ * The chassis roster for a run, read from the ACTIVE MODE's car table rather than a hardcoded
+ * literal (per the task brief) — a fourth chassis (or a retired one) changes this list, and both
+ * shapes below follow it with no edit here.
+ *
+ * `cars()`, not the raw `CAR_TABLE` (MC41): `--include-inactive` used to enumerate the raw global,
+ * so a `--mode` whose car table diverged would seat the DEFAULT mode's roster under the other
+ * mode's header. The `activeCarIds()` branch beside it already read the bundle, so the flag alone
+ * decided whether the run honoured its own mode.
  *
  * Default: `activeCarIds()`, which respects `CarDef.isActive`. With `--include-inactive`, unreleased
  * chassis join them — otherwise the one harness that answers "is this car too strong" is the one
@@ -62,7 +67,7 @@ export interface RunConfig {
  * requires them to carry at least one weapon.
  */
 export function chassisRoster(includeInactive: boolean): CarId[] {
-  const ids = includeInactive ? (Object.keys(CAR_TABLE) as CarId[]) : activeCarIds();
+  const ids = includeInactive ? (Object.keys(cars()) as CarId[]) : activeCarIds();
   return ids.filter((id) => slotsOf(id).length > 0);
 }
 

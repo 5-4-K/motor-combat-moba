@@ -10,9 +10,9 @@
  * the scalar `speed` field it read became the `vx`/`vy` pair in stage 1 of the car-physics rework.)
  */
 import {
-  DRIVE_CONFIG,
-  RAM_CONFIG,
   TICK_RATE_HZ,
+  drive,
+  ram,
   forwardMaxSpeedOf,
   forwardOf,
   lateralOf,
@@ -200,14 +200,14 @@ function speedBeforeAndAfterResolve(): void {
     rows.push(
       `t${i + 1}: carried in ${carriedIn.toFixed(1)} -> ${afterTick.toFixed(1)} after the full tick; ` +
         `ram's approach term is the carried-in ${carriedIn.toFixed(1)} ` +
-        `${carriedIn >= RAM_CONFIG.minRamSpeed ? "(>= minRamSpeed)" : "(below minRamSpeed)"}; ` +
+        `${carriedIn >= ram().minRamSpeed ? "(>= minRamSpeed)" : "(below minRamSpeed)"}; ` +
         `victim shove ${shove.toFixed(1)}`,
     );
   }
   report(
     "R3. The fix: ram reads the carried-in speed, not the post-resolve rebound",
     firedOnContactTick ? "OK" : "FINDING",
-    `minRamSpeed is ${RAM_CONFIG.minRamSpeed}; restitution is ${DRIVE_CONFIG.restitution}, so a ` +
+    `minRamSpeed is ${ram().minRamSpeed}; restitution is ${drive().restitution}, so a ` +
       `square hit leaves the attacker at exactly 0 after resolveWorld — no rebound to distinguish ` +
       `from the Unity rule's own "you stop" outcome (both zero the attacker; see the doc comment ` +
       `above for why that collapses the old tell).\n` +

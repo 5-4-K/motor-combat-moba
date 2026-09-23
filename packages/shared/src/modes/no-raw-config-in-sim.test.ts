@@ -8,6 +8,10 @@
 // non-default mode's `withMode` scope, so this walks every non-test file under the three roots and
 // fails, naming the offenders, the moment one creeps back in.
 //
+// Widened a third time for MC41 (2026-09-23): the two headless harnesses,
+// `packages/server/playtest` and `packages/server/balance`, which this guard had NEVER walked —
+// see the block at the bottom of this file for what that cost and what the harness sweep allows.
+//
 // Widened after fix round 1 (see task-4-5-report.md): the original pattern required a literal `.`
 // right after the identifier, so it missed a destructured read (`const { x } = DRIVE_CONFIG`) and a
 // bracketed one (`CAR_TABLE[id]`) — both found by hand, not by this test. `BANNED` now matches the
@@ -188,6 +192,144 @@ describe("ALL of packages/shared/src reads config only through the bundle (MC13,
     try {
       const offenders = walk("src").filter(hasRawConfigReference).filter((file) => !isAllowedRawReference(file));
       expect(offenders).toContain(fixturePath);
+    } finally {
+      rmSync(fixturePath);
+    }
+  });
+});
+
+/**
+ * The two HEADLESS HARNESSES — `packages/server/playtest` and `packages/server/balance` — which
+ * this guard had never walked at all (MC41, 2026-09-23).
+ *
+ * That gap is exactly how `npm run playtest -- --mode=2` came to print "Mode: Deathmatch (mode 2)"
+ * over numbers that were mostly Brawl's: the `--mode` flag reached the report HEADER and the output
+ * folder name, while `collision.ts` read `RAM_CONFIG.globalScale`, `ram.ts` read
+ * `RAM_CONFIG.minRamSpeed`, `geometry.ts` read `SPIKE_CONFIG.depth` and `weapons.ts` read
+ * `WEAPON_TABLE[id].damage` straight off the raw globals underneath it. Invisible only because
+ * `table-pinning.test.ts` holds both shipped modes byte-identical — the flag minted a claim the
+ * measurements did not honour, which is worse than not having the flag.
+ *
+ * Neither harness ships, so neither is covered by the `packages/server/src` sweep above; both run
+ * the real sim inside a real mode scope (`installPlaytestMode()` per probe process, `withMode` at
+ * `balance/run.ts`'s entry), so every accessor resolves correctly and there was never a technical
+ * reason for the raw reads.
+ *
+ * TWO differences from the sweeps above, both narrowing what counts as an offence rather than what
+ * is walked:
+ *
+ * 1. **Comments and import statements are stripped first.** The probes narrate their own tuning
+ *    history in prose — "`RAM_CONFIG.globalScale`/`spinScale` (then-placeholders, since measured
+ *    and settled at 0.6/0.3)" — and that history is about the TABLE, which is still the right thing
+ *    to name. The dir-level exemptions above make the same judgement wholesale for `schema/` and
+ *    `arena/` ("every match here is a doc comment"); here it is made precisely, so a real read in
+ *    an otherwise comment-heavy file is still caught. Imports go with them because an import is not
+ *    a read — a banned name imported and never used is dead weight the compiler flags, not a mode
+ *    leak — and stripping them is what lets the hull carve-out below be about USES.
+ *
+ * 2. **The OBB hull is allowed, and nothing else is.** `DRIVE_CONFIG.carWidth`/`carHeight` are
+ *    GLOBAL by spec MC35 — one hull for every mode, excluded from `ModeTables` by type, because the
+ *    hull drags a derived chain behind it (car art pixel size, arena spawn clearance,
+ *    `inertiaRadiusSquared()`, both `spinScale` constants). `drive().carWidth` would compile and
+ *    return the same number, since `assembleModeConfig` re-attaches the hull to every bundle — so
+ *    converting it would break nothing and TEACH the reader something false about where the value
+ *    comes from. `world.ts`, `collision.ts`, `geometry.ts`, `weapons2.ts` and `prediction.ts` all
+ *    read it, several at module scope, which is safe for exactly the same reason: a global constant
+ *    cannot be frozen to the wrong mode.
+ *
+ * What this rule costs, deliberately: a harness may no longer name a raw table in REPORT PROSE
+ * either (`weapons.ts`'s W7 line now reads `statusConfig().maxActive`, not `STATUS_CONFIG.maxActive`).
+ * That is the right spelling anyway — the report header names a mode, so pointing its reader at a
+ * global the game no longer reads is a small lie of the same family as the one above.
+ *
+ * There are no per-file exemptions here, and adding one should be resisted: every read these roots
+ * had was convertible, and a harness whose whole job is to measure a mode has no business reading
+ * around it.
+ */
+const HARNESS_ROOTS: ReadonlyArray<{ label: string; dir: string }> = [
+  { label: "packages/server/playtest", dir: "../server/playtest" },
+  { label: "packages/server/balance", dir: "../server/balance" },
+];
+
+/** MC35's hull, the one banned spelling a harness file may still use — see the block above. */
+const HULL_FIELD_READ = /DRIVE_CONFIG\.car(?:Width|Height)\b/g;
+/** The same two fields, destructured: `const { carWidth: W, carHeight: H } = DRIVE_CONFIG;`. */
+const HULL_DESTRUCTURE = /\{\s*car(?:Width|Height)[^}]*\}\s*=\s*DRIVE_CONFIG\b/g;
+
+/**
+ * A harness file's source reduced to the code that actually READS something: comments gone
+ * (the `[^:]` guard on the line-comment pattern is the repo's own idiom, so a `://` inside a
+ * string is not mistaken for one), import statements gone, and MC35's hull reads gone.
+ */
+function harnessCode(file: string): string {
+  return readFileSync(file, "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1")
+    .replace(/\bimport\s[\s\S]*?from\s*["'][^"']*["'];?/g, "");
+}
+
+function mentionsBanned(code: string): boolean {
+  return code.split("\n").some((line) => !IMPORT_TYPE_LINE.test(line) && BANNED.test(line));
+}
+
+/** The real assertion: a banned identifier in code, once MC35's hull reads are taken out. */
+function harnessHasRawConfigRead(file: string): boolean {
+  return mentionsBanned(harnessCode(file).replace(HULL_FIELD_READ, "").replace(HULL_DESTRUCTURE, ""));
+}
+
+/** A file the hull carve-out is doing real work for: it reads a banned identifier in CODE, and the
+ * hull strip is the only reason it is not an offender. */
+function harnessReadsOnlyTheHull(file: string): boolean {
+  return mentionsBanned(harnessCode(file)) && !harnessHasRawConfigRead(file);
+}
+
+describe("the headless harnesses measure the mode they say they measure (MC41)", () => {
+  it("playtest and balance read config only through the bundle, apart from MC35's global hull", () => {
+    const offenders = HARNESS_ROOTS.flatMap(({ label, dir }) =>
+      walk(dir)
+        .filter(harnessHasRawConfigRead)
+        .map((file) => label + file.slice(dir.length)),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  // The hull carve-out is the one allowance this block grants, so it gets the same liveness check
+  // `ALLOWED_DIRS` gets: if nothing reads the hull any more, DELETE the carve-out rather than
+  // leaving a hole nobody needs. Each file named here WOULD be an offender without it.
+  it("the MC35 hull carve-out still covers real reads, and only the hull", () => {
+    const hullReaders = HARNESS_ROOTS.flatMap(({ dir }) => walk(dir)).filter(harnessReadsOnlyTheHull);
+    expect(hullReaders.length, "nothing in the harnesses needs the hull carve-out any more").toBeGreaterThan(0);
+    for (const file of hullReaders) {
+      expect(readFileSync(file, "utf8"), file).toMatch(/DRIVE_CONFIG\.car(?:Width|Height)|carWidth[^}]*\}\s*=\s*DRIVE_CONFIG/);
+    }
+  });
+
+  // The regression this block exists to catch, proven rather than asserted: a per-mode read put
+  // back into a probe must fail, naming that probe. A hull read in the same file must not.
+  it("fails when a per-mode read is reintroduced into a probe, and not for a hull read", () => {
+    const fixturePath = join("..", "server", "playtest", "__tripwire-fixture.ts");
+    writeFileSync(
+      fixturePath,
+      'import { DRIVE_CONFIG, RAM_CONFIG } from "@motor-combat-moba/shared";\n' +
+        "export const hull = DRIVE_CONFIG.carWidth;\n" +
+        "export const leak = RAM_CONFIG.globalScale;\n",
+    );
+    // Through the same walk the real assertion uses, not the predicate alone: that is what proves
+    // the ROOT is being walked, which is the half of this guard that was missing for a year.
+    const offenders = (): string[] =>
+      HARNESS_ROOTS.flatMap(({ label, dir }) =>
+        walk(dir)
+          .filter(harnessHasRawConfigRead)
+          .map((file) => label + file.slice(dir.length)),
+      );
+    try {
+      expect(offenders()).toContain("packages/server/playtest/__tripwire-fixture.ts");
+      writeFileSync(
+        fixturePath,
+        'import { DRIVE_CONFIG } from "@motor-combat-moba/shared";\n' +
+          "export const hull = DRIVE_CONFIG.carWidth;\n",
+      );
+      expect(offenders()).not.toContain("packages/server/playtest/__tripwire-fixture.ts");
     } finally {
       rmSync(fixturePath);
     }

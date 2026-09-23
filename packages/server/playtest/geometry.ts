@@ -9,12 +9,12 @@
  */
 import {
   DRIVE_CONFIG,
-  SPIKE_CONFIG,
   forwardMaxSpeedOf,
   getArena,
   muzzleOffset,
   activeCarIds,
   fireSlotsOf,
+  spike,
   type ArenaDef,
   type CarId,
   type WeaponId,
@@ -79,7 +79,7 @@ function boundaryRect(arena: ArenaDef): { left: number; right: number; top: numb
 
 function westSpike(arena: ArenaDef) {
   const { left } = boundaryRect(arena);
-  const strip = arena.obstacles.find((o) => o.x === left && o.w === SPIKE_CONFIG.depth);
+  const strip = arena.obstacles.find((o) => o.x === left && o.w === spike().depth);
   if (!strip) throw new Error(`${arena.id} has no west spike strip`);
   return strip;
 }
@@ -94,6 +94,8 @@ function outsidePlayable(arena: ArenaDef, x: number, y: number): boolean {
 function insideObstacle(arena: ArenaDef, x: number, y: number, angle: number): number {
   const c = Math.abs(Math.cos(angle));
   const s = Math.abs(Math.sin(angle));
+  // `DRIVE_CONFIG`, not `drive()`: the OBB hull is GLOBAL by spec MC35 — one hull for every mode,
+  // excluded from `ModeTables` by type — so the raw global is where this value really comes from.
   const hx = (c * DRIVE_CONFIG.carWidth + s * DRIVE_CONFIG.carHeight) / 2;
   const hy = (s * DRIVE_CONFIG.carWidth + c * DRIVE_CONFIG.carHeight) / 2;
   let worst = 0;
@@ -106,8 +108,18 @@ function insideObstacle(arena: ArenaDef, x: number, y: number, angle: number): n
 }
 
 const WALL = boundaryRect(ARENA);
-const WEST = westSpike(ARENA);
-const INNER_L = WEST.x + WEST.w;
+// `WALL` may be a module-scope const — it is arena geometry, and arenas are a registry of their own
+// rather than part of any mode bundle. The west strip is NOT: `westSpike` matches a strip by
+// `spike().depth`, a per-mode number, so resolving it here would read the bundle at module scope and
+// freeze it for the process. Lazy, and memoised only because the arena cannot change under a run.
+let westStrip: ReturnType<typeof westSpike> | undefined;
+function west(): ReturnType<typeof westSpike> {
+  return (westStrip ??= westSpike(ARENA));
+}
+/** x of the west strip's inner face — the left edge of the drivable floor. */
+function innerLeft(): number {
+  return west().x + west().w;
+}
 const CX = (WALL.left + WALL.right) / 2;
 const CY = (WALL.top + WALL.bottom) / 2;
 
@@ -162,7 +174,7 @@ function driveIntoGeometry(): void {
     "G1. Driving full-throttle into the spike-lined walls from 36 headings",
     stuckCases > 0 || ejectedCases > 0 ? "FINDING" : "OK",
     `deepest hull overlap with a spike strip: ${deepest.toFixed(2)}u (${worstCase || "none"}; ` +
-      `strips are ${SPIKE_CONFIG.depth}u deep, so overlap up to that is the wall, not a clip)\n` +
+      `strips are ${spike().depth}u deep, so overlap up to that is the wall, not a clip)\n` +
       `cars unable to reverse back out: ${stuckCases}/${total}\n` +
       `cars whose centre left the playable boundary: ${ejectedCases}/${total}`,
   );
@@ -175,7 +187,7 @@ function driveIntoGeometry(): void {
  * axis and either wedges or ejects a car — just no longer a concave notch.
  */
 function pitCorners(): void {
-  const depth = SPIKE_CONFIG.depth;
+  const depth = spike().depth;
   const corners = [
     { x: WALL.left + depth, y: WALL.top + depth, name: "NW inner" },
     { x: WALL.right - depth, y: WALL.top + depth, name: "NE inner" },
@@ -214,7 +226,7 @@ function pitCorners(): void {
         if (outsidePlayable(ARENA, p.x, p.y)) ejected = true;
       }
       // Overlap with the strips is the wall; past the strip depth, or off the floor, is the bug.
-      if (maxInside > SPIKE_CONFIG.depth + 4 || ejected) {
+      if (maxInside > spike().depth + 4 || ejected) {
         bad = true;
         rows.push(
           `${corner.name} @${deg} deg: spike overlap ${maxInside.toFixed(2)}u${ejected ? " EJECTED FROM ARENA" : ""}`,
@@ -227,7 +239,7 @@ function pitCorners(): void {
     bad ? "FINDING" : "OK",
     rows.length > 0
       ? rows.join("\n")
-      : `no overlap past the ${SPIKE_CONFIG.depth}u strip depth and nothing ejected from the playable floor`,
+      : `no overlap past the ${spike().depth}u strip depth and nothing ejected from the playable floor`,
   );
 }
 
@@ -239,7 +251,7 @@ function crushAgainstObstacle(): void {
   let deepestGeom = 0;
   let ejected = false;
   // Victim flush against the west strip's inner face; a bastion at top speed drives it into the wall.
-  const vicX = INNER_L + DRIVE_CONFIG.carWidth / 2 + 1;
+  const vicX = innerLeft() + DRIVE_CONFIG.carWidth / 2 + 1;
   const atkX = vicX + 60;
   for (let deg = 0; deg < 360; deg += 45) {
     const a = (deg * Math.PI) / 180;
@@ -302,11 +314,11 @@ function beamInWall(): void {
     const bit = slotBitFor(carrier, id);
     // Centre just inside the floor, firing west: the muzzle lands inside the west strip. Collision
     // pushes the hull east onto the inner face, which is still a blocked d=0 sample (inclusive).
-    const sx = INNER_L + muzzleOffset() - 8;
+    const sx = innerLeft() + muzzleOffset() - 8;
     const w = new PlaytestWorld(
       [
         { id: "s", carId: carrier, x: sx, y: CY, angle: Math.PI, team: 0 },
-        { id: "t", carId: "bastion", x: WEST.x - 40, y: CY, angle: 0, team: 0 },
+        { id: "t", carId: "bastion", x: west().x - 40, y: CY, angle: 0, team: 0 },
       ],
       "ffa",
       "arena-02",
@@ -325,11 +337,11 @@ function beamInWall(): void {
     const dealt = hp0 - w.get("t").hp;
     // The far-side target is in the wall band and will be clamped inward; damage after that clamp
     // is not a through-wall leak. Extent growing past the strip is.
-    if (maxExtent > SPIKE_CONFIG.depth + 4) leak = true;
+    if (maxExtent > spike().depth + 4) leak = true;
     rows.push(
       `${id.padEnd(11)} muzzle in the west strip, firing west: max wallward extent ${maxExtent.toFixed(0)}u, ` +
         `damage to the far-side car ${dealt}` +
-        (maxExtent > SPIKE_CONFIG.depth + 4 ? " <- BEAM GREW PAST THE STRIP" : ""),
+        (maxExtent > spike().depth + 4 ? " <- BEAM GREW PAST THE STRIP" : ""),
     );
   }
   report("G6. Beam fired with its muzzle buried in a spike strip", leak ? "FINDING" : "OK", rows.join("\n"));

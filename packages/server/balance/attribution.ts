@@ -5,12 +5,12 @@
  * is the game's only damaging pulse (8 damage every 400 ms) and `afterburner` is its only
  * applier — banking that burn under the status instead of the weapon would lose it from the
  * weapon that caused it. This module answers "which weapon caused this status" by scanning
- * `WEAPON_TABLE`, so the report can credit pulse damage to the weapon that earned it.
+ * the ACTIVE MODE's weapon table, so the report can credit pulse damage to the weapon that earned it.
  */
-import { WEAPON_TABLE, weaponDefOf, type DamageSource, type StatusId, type WeaponId } from "@motor-combat-moba/shared";
+import { weaponDefOf, weapons, type DamageSource, type StatusId, type WeaponId } from "@motor-combat-moba/shared";
 
 /**
- * Which weapons can apply each status, derived from `WEAPON_TABLE` rather than hand-written.
+ * Which weapons can apply each status, derived from the mode's weapon table rather than hand-written.
  *
  * Derived because a hardcoded status->weapon constant encodes what its author believed on the day
  * they wrote it — and this project's own spec got exactly that wrong (an earlier draft claimed
@@ -47,11 +47,16 @@ export function buildApplierMap(): ReadonlyMap<StatusId, readonly WeaponId[]> {
     }
   };
 
-  // `WEAPON_TABLE` itself is `as const satisfies Record<WeaponId, WeaponDef>`, so each row's
+  // The raw `WEAPON_TABLE` is `as const satisfies Record<WeaponId, WeaponDef>`, so each row's
   // inferred literal type only carries the fields that row's author actually wrote — a row with no
   // `applies` has no such property at all, not merely `undefined`. `weaponDefOf` returns the
   // widened `WeaponDef` union instead, where `applies` is a real optional field on every variant.
-  for (const id of Object.keys(WEAPON_TABLE) as WeaponId[]) {
+  //
+  // The id list comes from `weapons()` rather than the raw global (MC41). Every mode's table is a
+  // `Record<WeaponId, WeaponDef>`, so the KEY SET is structural and this particular swap cannot
+  // change what the loop visits — but the row it then reads is already the bundle's, and a scan
+  // that enumerated one table while reading another is a trap with no upside.
+  for (const id of Object.keys(weapons()) as WeaponId[]) {
     const def = weaponDefOf(id);
     for (const application of def.applies ?? []) {
       if (application.target === "opponents") add(application.statusId, id);

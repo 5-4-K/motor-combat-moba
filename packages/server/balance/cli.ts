@@ -13,9 +13,9 @@
  * command line claimed — worse than refusing to start.
  */
 import {
-  DEATHMATCH_CONFIG,
   GameMode,
   isArenaId,
+  modeConfigOf,
   modeOptions,
   parseModeArg,
   type BotDifficulty,
@@ -42,14 +42,21 @@ export const SKILL_TO_DIFFICULTY: Readonly<Record<PlayerSkill, BotDifficulty>> =
 const LAST_STANDING_SAFETY_CAP_SECONDS = 300;
 
 /**
- * `--match-seconds` doubles as `DEATHMATCH_CONFIG.matchSeconds` when nothing overrides it (Task 17
- * made `match.ts` set `state.matchEndsTick = setup.maxTicks`, so this harness's clock IS the
- * deathmatch clock, not a mock of it) — read from shared config rather than hardcoded, so a future
- * retune of the real match length keeps the harness in step with no edit needed here.
+ * `--match-seconds` doubles as the mode's own `deathmatch.matchSeconds` when nothing overrides it
+ * (Task 17 made `match.ts` set `state.matchEndsTick = setup.maxTicks`, so this harness's clock IS
+ * the deathmatch clock, not a mock of it) — read from shared config rather than hardcoded, so a
+ * future retune of the real match length keeps the harness in step with no edit needed here.
+ *
+ * Read off `modeConfigOf(mode)`, not the raw `DEATHMATCH_CONFIG` global (MC41). `matchSeconds` is
+ * a per-mode table, so the raw read would have given every mode the DEFAULT mode's clock while
+ * `--mode` claimed otherwise — the same defect this pass converted out of the playtest probes.
+ * `modeConfigOf` is a pure registry lookup and needs no ACTIVE scope, which is what lets this stay
+ * where it is: `parseArgs` runs before `run.ts` installs a bundle, deliberately, because which
+ * bundle to install is the answer it produces.
  */
 function defaultMatchSeconds(mode: GameMode): number {
   return mode === GameMode.FFA_DEATHMATCH
-    ? DEATHMATCH_CONFIG.matchSeconds
+    ? modeConfigOf(mode).deathmatch.matchSeconds
     : LAST_STANDING_SAFETY_CAP_SECONDS;
 }
 

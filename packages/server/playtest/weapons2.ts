@@ -10,13 +10,14 @@
  *    the victim's hull.
  */
 import {
-  WEAPON_TABLE,
-  CAR_TABLE,
   DRIVE_CONFIG,
-  RAM_CONFIG,
   forwardMaxSpeedOf,
   activeCarIds,
+  cars,
   fireSlotsOf,
+  ram,
+  weaponDefOf,
+  weapons,
   type CarId,
   type WeaponId,
 } from "@motor-combat-moba/shared";
@@ -59,7 +60,7 @@ function hasCarrier(weaponId: WeaponId): boolean {
  * id — a basic attack is one because a chassis slots it there, not because of how it is spelled.
  */
 function skipReasonFor(weaponId: WeaponId): string {
-  const onSomeChassis = (Object.keys(CAR_TABLE) as CarId[]).some((c) => fireSlotsOf(c).includes(weaponId));
+  const onSomeChassis = (Object.keys(cars()) as CarId[]).some((c) => fireSlotsOf(c).includes(weaponId));
   return onSomeChassis
     ? "SKIPPED — carried only by an INACTIVE chassis"
     : "SKIPPED — authored but on no chassis's loadout";
@@ -122,10 +123,12 @@ function pepperboxSpread(): void {
       `range ~${String(base).padStart(3)}u: mean damage ${(dmg / total).toFixed(0)}/135 max ` +
         `(${zeroDamagePhases}/${total} phases dealt 0${zeroDamagePhases > 0 ? " <- CENTRE PELLET MISSED" : ""}) — ` +
         `outer pellets are ${outerLateral.toFixed(0)}u off axis, target half-width is ` +
+        // `DRIVE_CONFIG`, not `drive()`: the OBB hull is GLOBAL by spec MC35, one hull for every
+        // mode, so the raw global is where this value really comes from.
         `${DRIVE_CONFIG.carHeight / 2}u + 6u pellet radius`,
     );
   }
-  const authoredRange = WEAPON_TABLE.pepperbox.range;
+  const authoredRange = weaponDefOf("pepperbox").range;
   report(
     "W3b. Pepperbox: pellet spread (not tunneling), and the reach it actually has",
     centrePelletEverMissed ? "FINDING" : "OK",
@@ -142,8 +145,8 @@ function pepperboxSpread(): void {
 function trueTunneling(): void {
   const rows: string[] = [];
   let bad = false;
-  for (const id of Object.keys(WEAPON_TABLE) as WeaponId[]) {
-    const def = WEAPON_TABLE[id];
+  for (const id of Object.keys(weapons()) as WeaponId[]) {
+    const def = weaponDefOf(id);
     if (def.kind !== "projectile") continue;
     if (def.pellets.pelletsPerVolley > 1) continue; // covered by W3b
     // A row no active chassis can press has no measurement here — named, not silently dropped.
@@ -236,7 +239,7 @@ function crossingTarget(): void {
 function angledPointBlank(): void {
   const rows: string[] = [];
   let misses = 0;
-  for (const id of Object.keys(WEAPON_TABLE) as WeaponId[]) {
+  for (const id of Object.keys(weapons()) as WeaponId[]) {
     // A row no active chassis can press — `tremor`, and the unreleased prototypes' basic attacks —
     // cannot reach the real slot pipeline, so it is skipped loudly rather than crashed on.
     if (!hasCarrier(id)) {
@@ -255,7 +258,7 @@ function angledPointBlank(): void {
     // 2026-09-02-dash-substepping-design.md`). That fix does not change this row's verdict — a car
     // that starts flush still has no contact edge to enter on, whatever its travel per check — so
     // the skip below stands on its own reasoning, not on the old number.
-    if (WEAPON_TABLE[id].kind === "maneuver") {
+    if (weaponDefOf(id).kind === "maneuver") {
       rows.push(`${id.padEnd(11)} KNOWN-BY-DESIGN — no muzzle: a maneuver damages through the contact pass, not a spawned shot`);
       continue;
     }
@@ -295,12 +298,12 @@ function spinningShooter(): void {
     { id: "s", carId: "bullseye", x: 300, y: 360, angle: 0 },
     { id: "t", carId: "bastion", x: 700, y: 360, angle: 0 },
   ]);
-  w.get("s").angVel = RAM_CONFIG.spinMaxRate; // the ram spin ceiling
+  w.get("s").angVel = ram().spinMaxRate; // the ram spin ceiling
   const bit = slotBitFor("bullseye", "predator");
   let anyNaN = false;
   let maxAngle = 0;
   for (let i = 0; i < 400; i++) {
-    w.get("s").angVel = RAM_CONFIG.spinMaxRate; // hold it spinning
+    w.get("s").angVel = ram().spinMaxRate; // hold it spinning
     w.input("s", { fireSlots: bit });
     w.tick();
     const s = w.get("s");

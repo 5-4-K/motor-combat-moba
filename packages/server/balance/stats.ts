@@ -18,7 +18,8 @@
  *    this harness from being a generator of confident, wrong tuning advice (B35).
  */
 import {
-  CAR_TABLE,
+  // Aliased: `aggregate` already has a local `cars` (the `CarStats[]` it returns).
+  cars as modeCars,
   TICK_RATE_HZ,
   fireSlotsOf,
   type CarId,
@@ -166,7 +167,7 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
   const appliers = buildApplierMap(); // built once, passed down — not per event, not per match.
 
   // ---- per-car accumulators -------------------------------------------------------------------
-  // The chassis that actually PLAYED, in `CAR_TABLE` order — not every row in the table.
+  // The chassis that actually PLAYED, in the active mode's car-table order — not every row in it.
   //
   // This used to read the table whole, which was invisible while every car was active and every
   // active car was seated. It stopped being invisible the moment `CarDef.isActive` could hide a
@@ -176,7 +177,7 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
   // seat. Deriving the list from the outcomes makes the report describe the run it came from,
   // whatever roster produced it, with nothing to keep in sync with `runner.ts`.
   const seated = new Set(outcomes.flatMap((o) => o.seats.map((seat) => seat.carId)));
-  const carIds = (Object.keys(CAR_TABLE) as CarId[]).filter((id) => seated.has(id));
+  const carIds = (Object.keys(modeCars()) as CarId[]).filter((id) => seated.has(id));
   // `carMatches` counts a MATCH the chassis appeared in — once per outcome, however many of its
   // seats that chassis filled. Win rate's denominator has to be this, not seat count: at the fixed
   // 2/2/2 composition (B27) a chassis holds two of six seats but can still only WIN a given match
@@ -211,7 +212,7 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
     carPhasedTicks.set(carId, 0);
   }
 
-  // ---- per-weapon accumulators, seeded from CAR_TABLE, not from the events (B31) ---------------
+  // ---- per-weapon accumulators, seeded from the roster, not from the events (B31) --------------
   // Every slot of every chassis gets a row up front so a weapon nobody ever pressed still shows up
   // in the output with `presses: 0` — the ONLY way an ignored weapon becomes visible, since no
   // damage figure will ever reveal it.

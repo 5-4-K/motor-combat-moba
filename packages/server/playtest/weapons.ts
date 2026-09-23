@@ -5,13 +5,13 @@
  * client would be told about.
  */
 import {
-  WEAPON_TABLE,
-  CAR_TABLE,
-  SPIKE_CONFIG,
-  STATUS_CONFIG,
-  STATUS_TABLE,
   getArena,
   activeCarIds,
+  cars,
+  spike,
+  statusConfig,
+  statusTable,
+  weapons,
   fireSlotsOf,
   hpOf,
   muzzleOffset,
@@ -81,7 +81,7 @@ function hasCarrier(weaponId: WeaponId): boolean {
  * it there, not because of how it is spelled.
  */
 function skipReasonFor(weaponId: WeaponId): string {
-  const onSomeChassis = (Object.keys(CAR_TABLE) as CarId[]).some((c) => fireSlotsOf(c).includes(weaponId));
+  const onSomeChassis = (Object.keys(cars()) as CarId[]).some((c) => fireSlotsOf(c).includes(weaponId));
   return onSomeChassis
     ? "SKIPPED — carried only by an INACTIVE chassis; no player can field the car that fires it"
     : "SKIPPED — authored but on no chassis's loadout; nothing can fire it through the real slot pipeline";
@@ -148,15 +148,24 @@ function shootAt(opts: {
 // row fall out — `tremor` (the 2026-09-01 overhaul's unassigned presence zone), on no loadout at
 // all, and the basic attacks of the unreleased prototypes. W1 names every skipped row and its
 // reason loudly rather than iterating it into a crash.
-const ALL_WEAPONS = (Object.keys(WEAPON_TABLE) as WeaponId[]).filter(hasCarrier);
-const UNCARRIED_WEAPONS = (Object.keys(WEAPON_TABLE) as WeaponId[]).filter((id) => !hasCarrier(id));
+//
+// Functions, not module-scope `const`s: `weapons()` and `hasCarrier` (through `activeCarIds`) both
+// read the active bundle, and a bundle read at module scope freezes whichever mode was installed
+// first for the life of the process — the same defect per-mode tooling exists to remove, one level
+// down. The lists are tiny and rebuilt per probe.
+function allWeapons(): WeaponId[] {
+  return (Object.keys(weapons()) as WeaponId[]).filter(hasCarrier);
+}
+function uncarriedWeapons(): WeaponId[] {
+  return (Object.keys(weapons()) as WeaponId[]).filter((id) => !hasCarrier(id));
+}
 
 /* ------------------------------------------------------- W1. baseline: every weapon connects */
 function baseline(): void {
   const rows: string[] = [];
   let broken = 0;
-  for (const id of ALL_WEAPONS) {
-    const def = WEAPON_TABLE[id];
+  for (const id of allWeapons()) {
+    const def = weaponDefOf(id);
     const carrier = carrierOf(id);
     // A charge maneuver (`wildcharge`) authors range 0 — "a charge dashes nowhere" — so "half its
     // range" is meaningless and its damage exists only on a driven hull contact inside the window.
@@ -178,7 +187,7 @@ function baseline(): void {
         `(one hit = ${expected})  statuses on target: ${r.statuses.join(",") || "-"}`,
     );
   }
-  for (const id of UNCARRIED_WEAPONS) {
+  for (const id of uncarriedWeapons()) {
     rows.push(`${id.padEnd(11)} ${skipReasonFor(id)}`);
   }
   report(
@@ -199,8 +208,8 @@ function pointBlank(): void {
   const HULLS_TOUCH_AT = 48;
   const rows: string[] = [];
   let misses = 0;
-  for (const id of ALL_WEAPONS) {
-    const def = WEAPON_TABLE[id];
+  for (const id of allWeapons()) {
+    const def = weaponDefOf(id);
     // Neither maneuver row spawns an instance from a muzzle, so the bug this probe exists to
     // catch — "the shot spawns past the hitbox" — cannot happen to either. What each is still
     // held to differs, and the split matches W1's.
@@ -243,8 +252,8 @@ function pointBlank(): void {
 function projectileTunneling(): void {
   const rows: string[] = [];
   let tunneled = 0;
-  for (const id of ALL_WEAPONS) {
-    const def = WEAPON_TABLE[id];
+  for (const id of allWeapons()) {
+    const def = weaponDefOf(id);
     if (def.kind !== "projectile") continue;
     const perTick = def.speed / 30;
     let misses = 0;
@@ -278,8 +287,8 @@ function projectileTunneling(): void {
 function friendlyFire(): void {
   const rows: string[] = [];
   let leaks = 0;
-  for (const id of ALL_WEAPONS) {
-    const def = WEAPON_TABLE[id];
+  for (const id of allWeapons()) {
+    const def = weaponDefOf(id);
     const distance = Math.min(def.range * 0.4, def.range - 20);
     const team = shootAt({ weaponId: id, distance, ticks: 120, mode: "team", targetTeam: 0 });
     const foe = shootAt({ weaponId: id, distance, ticks: 120, mode: "team", targetTeam: 1 });
@@ -366,14 +375,14 @@ function damageAfterDeath(): void {
 function fireRateExploit(): void {
   const rows: string[] = [];
   let exploitable = false;
-  for (const id of ALL_WEAPONS) {
+  for (const id of allWeapons()) {
     const carrier = carrierOf(id);
     const bit = slotBitFor(carrier, id);
     const counts: number[] = [];
     for (const perTick of [1, 8]) {
       const w = new PlaytestWorld([
         { id: "shooter", carId: carrier, x: 200, y: 360, angle: 0 },
-        { id: "target", carId: "bastion", x: 200 + Math.min(WEAPON_TABLE[id].range * 0.5, 300), y: 360, angle: 0 },
+        { id: "target", carId: "bastion", x: 200 + Math.min(weaponDefOf(id).range * 0.5, 300), y: 360, angle: 0 },
       ]);
       let spawned = 0;
       const seen = new Set<string>();
@@ -462,17 +471,18 @@ function statusChain(): void {
   );
 
   // The status cap: can a stack of cheap statuses block a meaningful one?
-  // Counted off STATUS_TABLE, never a hand-written list. The literal that used to sit here read
+  // Counted off the active mode's status table, never a hand-written list. The literal that used to sit here read
   // six rows and was three short by 2026-09-07 (`armored`, `phased` and `reeling` had all landed),
   // which flipped the conclusion: the table is now LARGER than the cap, so "cannot be reached" is
   // no longer a fact about the row count.
-  const statusRows = Object.keys(STATUS_TABLE).length;
+  const statusRows = Object.keys(statusTable()).length;
+  const maxActive = statusConfig().maxActive;
   const capNote =
-    `STATUS_CONFIG.maxActive is ${STATUS_CONFIG.maxActive} and the table has ${statusRows} rows` +
-    (statusRows <= STATUS_CONFIG.maxActive
+    `statusConfig().maxActive is ${maxActive} and the table has ${statusRows} rows` +
+    (statusRows <= maxActive
       ? `, so the cap cannot be reached by an attacker — no eviction exploit exists yet.`
       : `, so the cap is now REACHABLE on paper. Whether an attacker can actually stack ` +
-        `${STATUS_CONFIG.maxActive} at once is a question about which sources an opponent controls, ` +
+        `${maxActive} at once is a question about which sources an opponent controls, ` +
         `not about the row count, and this probe does not answer it — see the note in the report.`);
   rows.push(capNote);
 
@@ -500,7 +510,7 @@ function boundaryRect(arena: ArenaDef): { left: number; right: number; top: numb
 
 function westSpike(arena: ArenaDef) {
   const { left } = boundaryRect(arena);
-  const strip = arena.obstacles.find((o) => o.x === left && o.w === SPIKE_CONFIG.depth);
+  const strip = arena.obstacles.find((o) => o.x === left && o.w === spike().depth);
   if (!strip) throw new Error(`${arena.id} has no west spike strip`);
   return strip;
 }
@@ -525,7 +535,7 @@ function beamsThroughWalls(): void {
   const muzzleX = sx + Math.cos(angle) * muzzleOffset();
   const clipDist = muzzleX - inner;
   const rows: string[] = [];
-  for (const id of ALL_WEAPONS) {
+  for (const id of allWeapons()) {
     const carrier = carrierOf(id);
     const w = new PlaytestWorld(
       [{ id: "shooter", carId: carrier, x: sx, y, angle }],
@@ -593,7 +603,16 @@ function auraThroughWall(): void {
   const wall = boundaryRect(arena);
   const y = (wall.top + wall.bottom) / 2;
   const inner = west.x + west.w;
-  const radius = WEAPON_TABLE.magmablast.explosion!.radius;
+  // `weaponDefOf`, not `weapons().magmablast`: both read the active bundle, but only the accessor's
+  // declared `WeaponDef` return narrows on `.kind` to the projectile variant that owns `explosion`
+  // (the same typing note W8 below carries). The throw replaces a `!` — if magmablast ever stops
+  // authoring a detonation, this probe has nothing to measure and should say so, not print
+  // `undefined` into the report.
+  const magma = weaponDefOf("magmablast");
+  if (magma.kind !== "projectile" || !magma.explosion) {
+    throw new Error("magmablast no longer authors an explosion — W9 has nothing to measure");
+  }
+  const radius = magma.explosion.radius;
   // Mirage hugging the inner face, firing west into the strip; victim just past the far face,
   // matching combat.test.ts's P17 case (20u wall, far car inside the 60u radius).
   const w = new PlaytestWorld(
@@ -616,7 +635,7 @@ function auraThroughWall(): void {
   report(
     "W9. Magma Blast's burst reaching through a wall",
     dealt > 0 ? "KNOWN-BY-DESIGN" : "OK",
-    `Mirage on the inner face of arena-02's ${SPIKE_CONFIG.depth}u west strip, firing west; ` +
+    `Mirage on the inner face of arena-02's ${spike().depth}u west strip, firing west; ` +
       `victim starts just past the far face: dealt ${dealt} (splash alone is 15 base, up to ~17 at ` +
       `Mirage's 1.13x attack), victim statuses ` +
       `${statusesOf(w.get("victim")).map((s) => s.statusId).join(",") || "none"}.\n` +
@@ -665,7 +684,7 @@ function pierce(): void {
 function instanceLeak(): void {
   const rows: string[] = [];
   let leaked = false;
-  for (const id of ALL_WEAPONS) {
+  for (const id of allWeapons()) {
     const carrier = carrierOf(id);
     const bit = slotBitFor(carrier, id);
     // Fire into empty space, pointing at a wall, and let everything expire.
@@ -715,14 +734,14 @@ function beamOwnerDeath(): void {
 function damageNumbers(): void {
   const rows: string[] = [];
   let bad = 0;
-  for (const id of ALL_WEAPONS) {
+  for (const id of allWeapons()) {
     const carrier = carrierOf(id);
     const d = weaponDamageOf(carrier, id);
     const ticks = weaponTicksOf(id);
-    const perHit = WEAPON_TABLE[id].damage;
+    const perHit = weaponDefOf(id).damage;
     if (d <= 0) bad++;
     rows.push(
-      `${id.padEnd(11)} table ${String(perHit).padStart(3)} -> ${carrier} (attack ${CAR_TABLE[carrier].attack}) ` +
+      `${id.padEnd(11)} table ${String(perHit).padStart(3)} -> ${carrier} (attack ${cars()[carrier].attack}) ` +
         `deals ${String(d).padStart(3)}   cooldown ${ticks.cooldown}t  ` +
         `applies ${(weaponDefOf(id).applies ?? []).map((a) => `${a.statusId}/${a.target}`).join(",") || "-"}`,
     );

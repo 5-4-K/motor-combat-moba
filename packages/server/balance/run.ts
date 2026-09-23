@@ -172,8 +172,9 @@ function main(args: ParsedArgs): void {
 try {
   // `--help` and argument parsing happen OUTSIDE the mode scope, deliberately: which bundle to
   // install is the answer `parseArgs` produces, so it cannot already be installed while producing
-  // it. Neither reads a config accessor — `helpText` and `defaultMatchSeconds` read the raw
-  // `DEATHMATCH_CONFIG` global, which is mode-blind by construction — so neither can trip `cfg()`'s
+  // it. Neither reads a config ACCESSOR — `helpText` and `defaultMatchSeconds` reach the mode's
+  // match clock through `modeConfigOf(mode)`, a pure registry lookup that takes the mode as an
+  // argument rather than reading whichever one is installed — so neither can trip `cfg()`'s
   // "config read outside a mode scope" throw.
   const argv = process.argv.slice(2);
   if (wantsHelp(argv)) {
