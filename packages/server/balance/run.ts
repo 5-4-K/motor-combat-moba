@@ -15,7 +15,7 @@
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { GameMode } from "@motor-combat-moba/shared";
+import { DEFAULT_GAME_MODE, GameMode, modeConfigOf, withMode } from "@motor-combat-moba/shared";
 import { checkComparable, loadBaseline } from "./baseline.js";
 import { helpText, parseArgs, SKILL_TO_DIFFICULTY, wantsHelp, type PlayerSkill } from "./cli.js";
 import { botFingerprint, configFingerprint } from "./fingerprint.js";
@@ -171,7 +171,16 @@ function main(): void {
 }
 
 try {
-  main();
+  // Single wrapper at the CLI entry point (MC12), the same shape as `scripts/ttk.mjs`'s own entry
+  // guard — everything `main()` reaches (car/weapon config, `driveOf`, `hpOf`, the sim itself)
+  // reads through the active-mode accessors and throws "config read outside a mode scope" with no
+  // bundle installed. This reports for DEFAULT_GAME_MODE's bundle only: per-mode balance reporting
+  // (a `--mode` flag driving which bundle gets installed here) is outstanding follow-up work this
+  // wrapper does not take on — `args.mode` already selects which chassis/roster the RUN simulates
+  // (see `RunConfig.mode`), but not which config bundle backs it.
+  withMode(modeConfigOf(DEFAULT_GAME_MODE), () => {
+    main();
+  });
 } catch (err) {
   // The harness itself failed — a bad flag that slipped past parseArgs' own throws, an unreadable
   // baseline file, a bug in the sim. This is the ONLY unconditional non-zero exit path: nothing a

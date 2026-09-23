@@ -10,17 +10,26 @@
  * the scalar `speed` field it read became the `vx`/`vy` pair in stage 1 of the car-physics rework.)
  */
 import {
+  DEFAULT_GAME_MODE,
   DRIVE_CONFIG,
   RAM_CONFIG,
   TICK_RATE_HZ,
   forwardMaxSpeedOf,
   forwardOf,
+  installMode,
   lateralOf,
+  modeConfigOf,
   speedOf,
   type CarId,
 } from "@motor-combat-moba/shared";
 import { PlaytestWorld } from "./world.js";
 import { Reporter } from "./reporter.js";
+
+// Mode scope (MC12). `run-all.ts` spawns this file as its own one-shot process (one per probe), so
+// there is nothing to restore afterward — `installMode`, not `withMode`, same shape as
+// `scripts/build-cars-and-weapons.mjs`'s entry. This reports for DEFAULT_GAME_MODE's bundle only;
+// per-mode playtest reporting is outstanding follow-up work this line does not take on.
+installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 // REWRITTEN FOR THE UNITY PHYSICS PORT (this file's inbox, replacing the 2026-09-06-rework-era
 // banner that used to sit here). The 0.9 trigger-rate floors (R1 line ~109, R2 line ~143, R4

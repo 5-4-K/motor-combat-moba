@@ -60,13 +60,31 @@ function verdictRows(probe: string): string[] {
 
 const allRows = PROBES.flatMap(verdictRows);
 const findings = allRows.filter((r) => r.includes("| FINDING |"));
+const failedProbes = results.filter((r) => !r.ok).map((r) => r.probe);
+
+/**
+ * The one line a reader takes away without opening the file. It used to be
+ * `${findings.length} FINDING(s) across ${allRows.length} probes` unconditionally — a probe that
+ * crashed before writing a report contributes a "(no report written)" row that matches no verdict
+ * pattern, so a run where every probe crashed printed "0 FINDING(s) across 6 probes", reading as a
+ * clean sweep. A crashed probe measured NOTHING; it must never be reported alongside a real
+ * "0 findings" the same way a probe that actually ran and found nothing is. If anything failed,
+ * this line leads with that and never states a finding count as though the run were clean.
+ */
+const headline =
+  failedProbes.length > 0
+    ? `**${failedProbes.length} of ${PROBES.length} probe(s) CRASHED** (${failedProbes.join(", ")}) — ` +
+      `measured NOTHING for ${failedProbes.length === 1 ? "it" : "them"}. ` +
+      `${findings.length} finding(s) from the ${PROBES.length - failedProbes.length} probe(s) that ` +
+      `actually completed.`
+    : `**${findings.length} FINDING${findings.length === 1 ? "" : "s"}** across ${allRows.length} probes.`;
 
 const summary = [
   "# Playtest run",
   "",
   `${new Date().toISOString()} · ${PROBES.length} probes · ${totalSeconds.toFixed(1)}s`,
   "",
-  `**${findings.length} FINDING${findings.length === 1 ? "" : "s"}** across ${allRows.length} probes.`,
+  headline,
   "",
   "## Probes run",
   "",
@@ -88,9 +106,17 @@ console.log(`\n${"=".repeat(78)}`);
 for (const r of results) {
   console.log(`${r.ok ? "completed" : "FAILED  "}  ${r.probe.padEnd(12)} ${r.seconds.toFixed(1)}s`);
 }
-console.log(
-  `\n${findings.length} FINDING(s) across ${allRows.length} probes in ${totalSeconds.toFixed(1)}s.`,
-);
+if (failedProbes.length > 0) {
+  console.log(
+    `\n${failedProbes.length} of ${PROBES.length} probe(s) CRASHED (${failedProbes.join(", ")}) — ` +
+      `this is NOT a clean run. ${findings.length} finding(s) from the probes that did complete, ` +
+      `in ${totalSeconds.toFixed(1)}s.`,
+  );
+} else {
+  console.log(
+    `\n${findings.length} FINDING(s) across ${allRows.length} probes in ${totalSeconds.toFixed(1)}s.`,
+  );
+}
 console.log(`reports in ${path.relative(process.cwd(), runDir)}/ (summary.md first)`);
 
 // A probe that crashed is a broken harness and must not look like a clean run. A FINDING is not a

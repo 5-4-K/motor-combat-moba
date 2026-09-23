@@ -7,6 +7,7 @@
 import {
   WEAPON_TABLE,
   CAR_TABLE,
+  DEFAULT_GAME_MODE,
   SPIKE_CONFIG,
   STATUS_CONFIG,
   STATUS_TABLE,
@@ -14,6 +15,8 @@ import {
   activeCarIds,
   fireSlotsOf,
   hpOf,
+  installMode,
+  modeConfigOf,
   muzzleOffset,
   weaponDamageOf,
   weaponDefOf,
@@ -24,6 +27,12 @@ import {
 } from "@motor-combat-moba/shared";
 import { PlaytestWorld, statusesOf } from "./world.js";
 import { Reporter } from "./reporter.js";
+
+// Mode scope (MC12). `run-all.ts` spawns this file as its own one-shot process (one per probe), so
+// there is nothing to restore afterward — `installMode`, not `withMode`, same shape as
+// `scripts/build-cars-and-weapons.mjs`'s entry. This reports for DEFAULT_GAME_MODE's bundle only;
+// per-mode playtest reporting is outstanding follow-up work this line does not take on.
+installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 const reporter = new Reporter(
   "weapons",
