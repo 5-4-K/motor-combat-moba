@@ -142,18 +142,21 @@ control how long you wait. Progress prints as matches complete.
 
 ### 4. Read the report
 
-Each run writes to `packages/server/balance/reports/<yyyy-MM-dd-NN>/`:
+Each run writes to `packages/server/balance/reports/<yyyy-MM-dd-NN>-<mode>/`:
 
 ```
-reports/2026-09-03-01/
+reports/2026-09-03-01-deathmatch/
   summary.md      <- start here
   matches.csv     <- one row per car per match
   weapons.csv     <- one row per weapon per match
   run.json        <- the aggregated record; also what --baseline reads back
 ```
 
-`NN` counts up per day, from what is already on disk. **The folder is gitignored** — a report is a
-record of one run on one machine, never source, the same rule `playtest/reports/` follows.
+`NN` counts up per day, from what is already on disk, and the name ends with the MODE the run
+measured — two runs are otherwise indistinguishable a week later. The count is suffix-blind, so a
+brawl run and a deathmatch run on the same day are `-01` and `-02`. An explicit `--out` is used
+exactly as given. **The folder is gitignored** — a report is a record of one run on one machine,
+never source, the same rule `playtest/reports/` follows.
 
 `summary.md` opens with the run's config, its git commit, and two fingerprints (below), then a
 **Limitations** section stating this harness's own blind spots in prose — read it every time, not
@@ -217,7 +220,7 @@ are looking up.
 |---|---|---|---|
 | `--shape` | `ffa` \| `duel` | `ffa` | Which experiment shape (see above). |
 | `--matches` | positive integer | `50` | Matches per run (`ffa`) or per ordered pair (`duel`). |
-| `--mode` | `deathmatch` \| `last-standing` | `last-standing` for `duel`, `deathmatch` for everything else | Overrides the shape's default win condition. |
+| `--mode` | a wire id (`0`, `1`, `2`), a mode's display name (`brawl`, `deathmatch`, `team-brawl`, case and separators free), or the legacy aliases `deathmatch` \| `last-standing` | `last-standing` for `duel`, `deathmatch` for everything else | Which mode the run measures: BOTH the win condition the matches end by and the `ModeConfig` bundle they run on (MC41) — `run.ts` installs it with `withMode`. An unknown mode refuses the run naming the ones that exist, rather than falling back to the default. An inactive mode is measurable on purpose. The mode appears in the report header and in the report folder's name (`2026-09-23-01-deathmatch`). |
 | `--skill` | `pro` \| `casual` \| `amateur` | `pro` | Player-type vocabulary; maps to bot difficulty `hard` \| `medium` \| `easy` (`SKILL_TO_DIFFICULTY` in `cli.ts` is the one place that mapping lives). The report prints both forms, e.g. `pro (hard)`. |
 | `--seed` | integer | a fresh random seed, printed first | The whole run is a pure function of this seed — same seed, same matches, replayed exactly. |
 | `--arena` | a known arena id | `arena-01` | Which arena to run every match on. Only one arena runs per report; arena geometry is itself a balance input this harness does not vary. |
@@ -263,13 +266,16 @@ experiment, which is a weaker claim.
 
 - the **config fingerprint** differs (anything the sim or this harness's own match/respawn pipeline
   reads — `WEAPON_TABLE`, `CAR_TABLE`, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `STATUS_TABLE`, `RAM_CONFIG`,
-  `IMPULSE_CONFIG`, `WEAPON_SLOT_CONFIG`, `DEATHMATCH_CONFIG`, `TICK_RATE_HZ`, or any
-  registered arena — changed between the two runs, i.e. this genuinely is not the isolated
-  one-number edit it needs to be; `fingerprint.ts`'s header comment is the source of truth for the
-  exact list), or
+  the mode's whole `ModeConfig` bundle, `TICK_RATE_HZ`, `LOGICAL_CANVAS`, or any registered arena —
+  changed between the two runs, i.e. this genuinely is not the isolated one-number edit it needs to
+  be; `fingerprint.ts`'s header comment is the source of truth for the exact payload. Since MC41 it
+  hashes the MODE'S bundle rather than the raw `config/` globals, so a per-mode-only table edit
+  moves it and two modes never share a fingerprint), or
 - the **bot fingerprint** differs (`BOT_PROFILES` or `BOT_BRAIN_VERSION` changed — the delta could
   be a bot retune or a brain behaviour change, not a balance change), or
-- `--shape` or `--mode` differs (a duel win rate and an FFA win rate are not the same quantity), or
+- `--shape` or `--mode` differs (a duel win rate and an FFA win rate are not the same quantity — and
+  since MC41 two modes need not even be the same tables, so a cross-mode comparison trips the config
+  fingerprint as well as this clause), or
 - `--skill` differs (a different tier flew the matches). This is checked as its own field rather
   than through the bot fingerprint, which hashes `BOT_PROFILES` WHOLE and so gives every tier the
   same hash — without the separate check, a pro run and a casual run compared as `ok`, or

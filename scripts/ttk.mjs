@@ -8,8 +8,10 @@
  * fast the car holding it finishes someone.
  *
  * So this simulates presses on the tick grid and reports seconds-to-kill. Every number it uses comes
- * from built shared — `WEAPON_TABLE`, `CAR_TABLE`, `WEAPON_TICKS`, `damageFor`, `hpOf` — so it
- * cannot go stale against a balance edit. Re-run it after one and read what moved.
+ * from built shared, through the ACTIVE MODE's own accessors — `weapons()`, `cars()`,
+ * `weaponTicksOf`, `damageFor`, `hpOf` — so it cannot go stale against a balance edit. Re-run it
+ * after one and read what moved. `--mode=<id|name>` picks which mode it measures (MC41), defaulting
+ * to `DEFAULT_GAME_MODE`; the mode is printed at the top of every matrix it prints.
  *
  * ## What it deliberately does NOT model, and why the numbers are an upper bound
  *
@@ -55,19 +57,29 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  CAR_TABLE,
-  COMBAT_CONFIG,
   DEFAULT_GAME_MODE,
   TICK_RATE_HZ,
-  WEAPON_TABLE,
+  cars,
+  combat,
   damageFor,
   fireSlotsOf,
   hpOf,
   modeConfigOf,
+  modeLabelOf,
+  parseModeArg,
   slotsOf,
   weaponTicksOf,
+  weapons,
   withMode,
 } from "../packages/shared/dist/index.js";
+
+// `cars()`, `weapons()` and `combat()` are the ACTIVE MODE's tables, not the raw `CAR_TABLE` /
+// `WEAPON_TABLE` / `COMBAT_CONFIG` globals this file read until MC41. That swap is what makes
+// `--mode` reach the numbers rather than only the header: the globals are mode-blind, so a matrix
+// built from them would have carried whichever mode's label the flag asked for over the default
+// mode's figures. Every call below sits inside a function, never at module scope — a module-scope
+// `const T = cars()` would freeze the first mode installed for the life of the process, which is
+// precisely how this flag would appear to work and silently not.
 
 /** Give up on a matchup after this long rather than looping forever on a kit that cannot kill. */
 export const TTK_LIMIT_SECONDS = 60;
@@ -95,9 +107,9 @@ const SUSTAINED_ROTATION_EXCLUDED = new Set(["wildcharge"]);
  * impact, so a total scaled afterwards is a different number from the one a player takes.
  */
 export function pressPlan(attacker, weaponId) {
-  const def = WEAPON_TABLE[weaponId];
+  const def = weapons()[weaponId];
   const ticks = weaponTicksOf(weaponId);
-  const perHit = damageFor(CAR_TABLE[attacker].attack, def.damage);
+  const perHit = damageFor(cars()[attacker].attack, def.damage);
   const pellets = def.kind === "projectile" ? def.pellets.pelletsPerVolley : 1;
   const life = ticks.flight + ticks.lifetime;
   const interval = ticks.damageInterval;
@@ -220,10 +232,10 @@ export function simulateTtk(attacker, defender, options = {}) {
 /**
  * Every chassis in the table, shipped or not. This is the DEFENDER axis: an unreleased prototype
  * still has a hull, and "can anything actually kill this thing" is exactly the question you want
- * answered while tuning its hp — which is why this matrix covers `CAR_TABLE` whole where the
+ * answered while tuning its hp — which is why this matrix covers the mode's car table whole where the
  * player-facing guide covers `activeCarIds()`.
  */
-const carIds = () => Object.keys(CAR_TABLE);
+const carIds = () => Object.keys(cars());
 
 /**
  * Chassis that can actually fire. This is the ATTACKER axis, and the two are deliberately not the
@@ -247,12 +259,12 @@ export function carrierOf(weaponId) {
   return carIds().find((id) => fireSlotsOf(id).includes(weaponId));
 }
 
-/** Every `WEAPON_TABLE` row no chassis can fire in this build, for the matrix's footer. */
+/** Every weapon row no chassis can fire in this build, for the matrix's footer. */
 export function unreachableWeaponIds() {
-  return Object.keys(WEAPON_TABLE).filter((id) => carrierOf(id) === undefined);
+  return Object.keys(weapons()).filter((id) => carrierOf(id) === undefined);
 }
 
-const nameOf = (id) => CAR_TABLE[id].name;
+const nameOf = (id) => cars()[id].name;
 const cell = (result) => (result.killed ? `${result.seconds.toFixed(1)}s` : "never");
 
 function matrix(label, options) {
@@ -277,7 +289,7 @@ function matrix(label, options) {
   if (unreachable.length > 0) {
     lines.push(
       `  (unreachable this build, swept nowhere above: ${unreachable.join(", ")} — authored in ` +
-        `WEAPON_TABLE but on no chassis's fire slots, whether parked past N or carried by nobody)`,
+        `the weapon table but on no chassis's fire slots, whether parked past N or carried by nobody)`,
     );
   }
   return lines.join("\n");
@@ -286,9 +298,10 @@ function matrix(label, options) {
 function inputs() {
   const lines = ["\nWhat ONE press of each weapon puts on a single target"];
   for (const attacker of armedCarIds()) {
+    const combatCfg = combat();
     const scale =
-      1 + (CAR_TABLE[attacker].attack - COMBAT_CONFIG.attackBaseline) * COMBAT_CONFIG.damagePerAttack;
-    lines.push(`\n  ${nameOf(attacker)} — attack ${CAR_TABLE[attacker].attack} (x${scale.toFixed(2)})`);
+      1 + (cars()[attacker].attack - combatCfg.attackBaseline) * combatCfg.damagePerAttack;
+    lines.push(`\n  ${nameOf(attacker)} — attack ${cars()[attacker].attack} (x${scale.toFixed(2)})`);
     for (const weaponId of fireSlotsOf(attacker)) {
       const plan = pressPlan(attacker, weaponId);
       const spread = Math.max(...plan.events.map((pair) => pair[0])) / TICK_RATE_HZ;
@@ -313,10 +326,15 @@ function breakdown() {
   return lines.join("\n");
 }
 
-export function report() {
+/**
+ * `mode` is passed in rather than read back from the installed bundle: the caller resolved the flag
+ * and installed that mode, and a parameter cannot disagree with what it installed.
+ */
+export function report(mode = DEFAULT_GAME_MODE) {
   return [
     "Full-kit time-to-kill. Every shot connects and the target never leaves range,",
     "so these are damage ceilings rather than predictions — read this file's header.",
+    `Mode: ${modeLabelOf(mode)}.`,
     matrix("Seconds to kill (with corroded amplification and spiked bleed)", { debuffs: true }),
     matrix("Seconds to kill (weapons only, no status riders)", { debuffs: false }),
     inputs(),
@@ -325,13 +343,41 @@ export function report() {
   ].join("\n");
 }
 
+/**
+ * `npm run ttk -- --mode=<id|name>`. The only flag this script takes; anything else throws rather
+ * than being ignored, and so does an unknown mode — a typo that silently measured the default would
+ * print a matrix headed with the mode the reader asked for and filled with another one's numbers.
+ */
+export function parseTtkArgs(argv) {
+  let mode = DEFAULT_GAME_MODE;
+  for (const arg of argv) {
+    const match = /^--mode(?:=(.*))?$/.exec(arg);
+    if (!match) {
+      throw new Error(`ttk: unrecognised argument "${arg}" — the only flag is --mode=<id|name>`);
+    }
+    if (match[1] === undefined || match[1] === "") {
+      throw new Error("ttk: --mode requires a value (--mode=<id|name>)");
+    }
+    mode = parseModeArg(match[1]);
+  }
+  return mode;
+}
+
 const invoked = process.argv[1] && resolve(process.argv[1]);
 if (invoked && invoked === resolve(fileURLToPath(import.meta.url))) {
-  // Single wrapper at the CLI entry point (MC12) — the only mode-scoped boundary in this file,
-  // deliberately, rather than one scattered around each config read. This reports for
-  // DEFAULT_GAME_MODE's bundle only: per-mode ttk reporting (a --mode flag, or a matrix per mode)
-  // is outstanding follow-up work this wrapper does not take on.
-  withMode(modeConfigOf(DEFAULT_GAME_MODE), () => {
-    process.stdout.write(report());
-  });
+  // The flag is parsed OUTSIDE the scope — which bundle to install is the answer parsing produces,
+  // so it cannot already be installed while producing it — and the single wrapper at the CLI entry
+  // point (MC12) is still the only mode-scoped boundary in this file, rather than one scattered
+  // around each config read.
+  try {
+    const mode = parseTtkArgs(process.argv.slice(2));
+    withMode(modeConfigOf(mode), () => {
+      process.stdout.write(report(mode));
+    });
+  } catch (err) {
+    // A bad flag is a user error, not a crash to read a stack trace for — same shape as
+    // `balance/run.ts`'s entry guard.
+    process.stderr.write(`ttk failed: ${err.message}\n`);
+    process.exitCode = 1;
+  }
 }

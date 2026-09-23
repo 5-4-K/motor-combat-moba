@@ -13,6 +13,8 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { modeLabelOf, modeSlug } from "@motor-combat-moba/shared";
+import { PLAYTEST_MODE_ENV, resolvePlaytestModeOrExit } from "./mode.js";
 import { createRunDir } from "./reporter.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -20,8 +22,17 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** In run order. Cheapest first, so a broken harness fails fast. */
 const PROBES = ["collision", "ram", "geometry", "weapons", "weapons2", "prediction"] as const;
 
+/**
+ * `npm run playtest -- --mode=<id|name>` (MC41). Resolved ONCE here, before anything runs, and
+ * pushed down to every spawned probe through `PLAYTEST_MODE_ENV` — the same shape `PLAYTEST_RUN_DIR`
+ * uses — so all six measure the same bundle and the folder they share is named after it. An unknown
+ * mode stops the run before a single probe is spawned, rather than six probes each quietly
+ * measuring the default.
+ */
+const mode = resolvePlaytestModeOrExit();
 const runDir = createRunDir();
-console.log(`playtest run -> ${path.relative(process.cwd(), runDir)}\n`);
+console.log(`playtest run -> ${path.relative(process.cwd(), runDir)}`);
+console.log(`mode: ${modeLabelOf(mode)}\n`);
 
 const started = Date.now();
 const results: { probe: string; ok: boolean; seconds: number }[] = [];
@@ -32,7 +43,10 @@ for (const probe of PROBES) {
   const run = spawnSync(
     process.execPath,
     ["--import", "tsx", path.join(HERE, `${probe}.ts`)],
-    { stdio: "inherit", env: { ...process.env, PLAYTEST_RUN_DIR: runDir } },
+    {
+      stdio: "inherit",
+      env: { ...process.env, PLAYTEST_RUN_DIR: runDir, [PLAYTEST_MODE_ENV]: modeSlug(mode) },
+    },
   );
   const seconds = (Date.now() - at) / 1000;
   results.push({ probe, ok: run.status === 0, seconds });
@@ -82,7 +96,8 @@ const headline =
 const summary = [
   "# Playtest run",
   "",
-  `${new Date().toISOString()} · ${PROBES.length} probes · ${totalSeconds.toFixed(1)}s`,
+  `${new Date().toISOString()} · ${PROBES.length} probes · ${totalSeconds.toFixed(1)}s · ` +
+    `mode ${modeLabelOf(mode)}`,
   "",
   headline,
   "",

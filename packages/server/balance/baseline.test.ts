@@ -23,7 +23,7 @@ function record(): RunRecord {
       matchSeconds: 40,
       includeInactive: false,
     },
-    fingerprints: { config: configFingerprint(), bot: botFingerprint() },
+    fingerprints: { config: configFingerprint(GameMode.FFA_DEATHMATCH), bot: botFingerprint() },
     gitCommit: "abc1234",
     startedAt: "2026-09-03T00:00:00.000Z",
     durationSeconds: 3.2,
@@ -67,6 +67,32 @@ describe("checkComparable (B37)", () => {
     const result = checkComparable(record(), other);
     expect(result.ok).toBe(false);
     expect(result.reasons.join(" ")).toContain("mode");
+  });
+
+  it("names both modes by name, not by bare enum integer (MC41)", () => {
+    // `mode differs (this run: 2, baseline: 0)` told a reader nothing they could act on.
+    const other = { ...record(), config: { ...record().config, mode: GameMode.FFA_LAST_STANDING } };
+    const reasons = checkComparable(record(), other).reasons.join(" ");
+    expect(reasons).toContain("Deathmatch (mode 2)");
+    expect(reasons).toContain("Brawl (mode 0)");
+  });
+
+  it("refuses a cross-mode comparison on the FINGERPRINT too, not only on config.mode (MC41)", () => {
+    // The two guards are independent on purpose. This one survives a `run.json` whose `config.mode`
+    // a reader edited by hand, and it is the one that would catch two modes whose TABLES diverged.
+    // Built from real fingerprints of two real modes rather than a hand-typed hash.
+    const thisRun = record();
+    const baselineRun = {
+      ...record(),
+      config: { ...record().config, mode: GameMode.FFA_LAST_STANDING },
+      fingerprints: {
+        config: configFingerprint(GameMode.FFA_LAST_STANDING),
+        bot: botFingerprint(),
+      },
+    };
+    const result = checkComparable(thisRun, baselineRun);
+    expect(result.ok).toBe(false);
+    expect(result.reasons.join(" ")).toContain("config fingerprint differs");
   });
 
   it("refuses when --include-inactive differs, and says so", () => {

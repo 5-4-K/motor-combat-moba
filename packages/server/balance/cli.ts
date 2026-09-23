@@ -16,6 +16,8 @@ import {
   DEATHMATCH_CONFIG,
   GameMode,
   isArenaId,
+  modeOptions,
+  parseModeArg,
   type BotDifficulty,
 } from "@motor-combat-moba/shared";
 import type { RunConfig, Shape } from "./runner.js";
@@ -94,10 +96,30 @@ function parseSkill(raw: string): PlayerSkill {
   throw new Error(`parseArgs: --skill must be "pro", "casual" or "amateur", got "${raw}"`);
 }
 
+/**
+ * `--mode` names the mode this run measures — BOTH the win condition the matches play under and,
+ * since MC41, the config bundle backing them (`run.ts` installs it). One flag for both, because
+ * they were never two things: `GameMode.FFA_DEATHMATCH` IS the row whose tables Deathmatch plays on.
+ *
+ * `deathmatch` and `last-standing` are kept as aliases for the win-condition vocabulary this flag
+ * shipped with — `last-standing` in particular is not a mode NAME (that row is called "Brawl"), so
+ * dropping it would break every command line and README example written before this change.
+ * Everything else routes to the shared `parseModeArg`, which takes the wire id or the display name
+ * and throws naming every mode rather than falling back to a default.
+ */
 function parseMode(raw: string): GameMode {
   if (raw === "deathmatch") return GameMode.FFA_DEATHMATCH;
   if (raw === "last-standing") return GameMode.FFA_LAST_STANDING;
-  throw new Error(`parseArgs: --mode must be "deathmatch" or "last-standing", got "${raw}"`);
+  try {
+    return parseModeArg(raw);
+  } catch (err) {
+    // Re-thrown under this file's own `parseArgs:` prefix, the way every other flag's error reads,
+    // with the legacy aliases named alongside the modes themselves.
+    throw new Error(
+      `parseArgs: --mode "${raw}" is not a known mode — expected one of: ${modeOptions()}, ` +
+        `or the aliases "deathmatch" / "last-standing" (${(err as Error).message})`,
+    );
+  }
 }
 
 function parseArena(raw: string): string {
@@ -201,8 +223,11 @@ export function helpText(): string {
     "                              all nine ordered chassis pairs, --matches EACH. Past six chassis",
     "                              ffa rotates which six play each match; duel is unaffected.",
     `  --matches=<n>               (default ${DEFAULT_MATCHES}) matches per run (ffa) or per ordered pair (duel).`,
-    "  --mode=deathmatch|last-standing",
-    "                              (default last-standing for duel, deathmatch otherwise) win condition.",
+    "  --mode=<id|name>            (default last-standing for duel, deathmatch otherwise) the mode this",
+    `                              run measures — its win condition AND its config bundle. One of:`,
+    `                              ${modeOptions()}; the aliases "deathmatch" and "last-standing"`,
+    "                              still work. An inactive mode is measurable on purpose: an",
+    "                              unpublished mode is the one whose numbers nobody has seen.",
     `  --skill=pro|casual|amateur  (default ${DEFAULT_SKILL}) player type; maps to bot difficulty ` +
       `${SKILL_TO_DIFFICULTY.pro}|${SKILL_TO_DIFFICULTY.casual}|${SKILL_TO_DIFFICULTY.amateur}.`,
     "  --seed=<int>                (default: a fresh random seed, printed first) the run is a pure",

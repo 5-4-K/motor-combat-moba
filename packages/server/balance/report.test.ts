@@ -108,7 +108,7 @@ function record(opts: { shape?: Shape; mode?: GameMode } = {}): RunRecord {
       matchSeconds: 40,
       includeInactive: false,
     },
-    fingerprints: { config: configFingerprint(), bot: botFingerprint() },
+    fingerprints: { config: configFingerprint(mode), bot: botFingerprint() },
     gitCommit: "abc1234",
     startedAt: "2026-09-03T00:00:00.000Z",
     durationSeconds: 3.2,
@@ -378,7 +378,7 @@ describe("writeReport (B38, B39, B40)", () => {
     const dir = tempDir();
     writeReport(dir, record(), []);
     const parsed = JSON.parse(fs.readFileSync(path.join(dir, "run.json"), "utf8"));
-    expect(parsed.fingerprints.config).toBe(configFingerprint());
+    expect(parsed.fingerprints.config).toBe(configFingerprint(GameMode.FFA_DEATHMATCH));
   });
 });
 

@@ -26,4 +26,19 @@ describe("createRunDir", () => {
   it("creates the directory it names", () => {
     expect(fs.existsSync(createRunDir(tempRoot()))).toBe(true);
   });
+
+  it("appends the suffix, so a folder says what the run measured (MC41)", () => {
+    expect(path.basename(createRunDir(tempRoot(), "deathmatch"))).toMatch(
+      /^\d{4}-\d{2}-\d{2}-01-deathmatch$/,
+    );
+  });
+
+  it("counts a suffixed folder toward today's NN", () => {
+    // Suffix-blind scanning: without it, a brawl run and a deathmatch run on the same day would
+    // both mint -01 and the second would look like the first run of the day.
+    const root = tempRoot();
+    createRunDir(root, "brawl");
+    expect(path.basename(createRunDir(root, "deathmatch"))).toMatch(/-02-deathmatch$/);
+    expect(path.basename(createRunDir(root))).toMatch(/-03$/);
+  });
 });

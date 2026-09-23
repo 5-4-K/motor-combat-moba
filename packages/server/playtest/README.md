@@ -52,6 +52,21 @@ npm run playtest
 That builds shared, runs all six probe files into one report folder, and prints a summary. It takes
 about 7 seconds.
 
+Every run measures ONE game mode's config bundle. It is `DEFAULT_GAME_MODE` unless you say otherwise:
+
+```bash
+npm run playtest -- --mode=deathmatch    # or --mode=2, the wire id
+```
+
+`--mode` takes a wire id or a mode's display name (case and separators do not matter: `Deathmatch`,
+`deathmatch`, `team-brawl`). An unknown mode stops the run before a single probe is spawned, naming
+the modes that exist — it never falls back to the default, because a report labelled with one mode
+and filled with another's numbers is worse than no report. An INACTIVE mode is measurable on
+purpose: a mode no lobby publishes is exactly the one whose numbers nobody has seen.
+
+`run-all.ts` resolves the flag once and passes it to each spawned probe through `PLAYTEST_MODE`, so
+all six measure the same bundle. A probe run on its own takes the same `--mode` flag directly.
+
 Or from `packages/server`, one probe at a time while you are iterating:
 
 ```bash
@@ -63,6 +78,8 @@ npx tsx playtest/geometry.ts     # arena-02: wedging, corners, spike walls, beam
 npx tsx playtest/weapons.ts      # every fireable row (abilities + basic attacks): damage, friendly fire, death, cooldowns, statuses, leaks, pierce
 npx tsx playtest/weapons2.ts     # pellet spread, tunneling, crossing targets, point-blank angles, spin, wrecks
 npx tsx playtest/prediction.ts   # client prediction vs server across a collision, by latency
+
+npx tsx playtest/ram.ts --mode=2 # any probe takes --mode directly too
 ```
 
 ### 4. Read the report
@@ -70,7 +87,7 @@ npx tsx playtest/prediction.ts   # client prediction vs server across a collisio
 Each run writes to `packages/server/playtest/reports/<yyyy-MM-dd-NN>/`:
 
 ```
-reports/2026-08-29-01/
+reports/2026-08-29-01-brawl/
   summary.md      <- start here: every verdict from every probe, and which probes failed to run
   collision.md
   ram.md
@@ -80,7 +97,11 @@ reports/2026-08-29-01/
   prediction.md
 ```
 
-`NN` counts up per day, from what is already on disk — so `-01`, `-02`, `-03`. **The folder is
+`NN` counts up per day, from what is already on disk — so `-01`, `-02`, `-03` — and the folder name
+ends with the MODE the run measured (`2026-08-29-01-brawl`, `2026-08-29-02-deathmatch`), since two
+runs are otherwise indistinguishable a week later. The count is suffix-blind, so a brawl run and a
+deathmatch run on the same day are `-01` and `-02` rather than two folders both claiming `-01`.
+Every probe's report and `summary.md` name the mode in their subtitle too. **The folder is
 gitignored.** A report is a record of one run on one machine, never source.
 
 `npm run playtest` puts all six probes in **one** folder by creating it up front and passing it down

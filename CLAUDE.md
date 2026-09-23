@@ -53,10 +53,19 @@ type**, so a mode folder cannot author one even by accident.
   `packages/shared/src/modes/no-raw-config-in-sim.test.ts` walks shared, server and client and fails
   on a raw table read — but it cannot see a module-scope accessor CALL, so that one is on you.
 
-**Still outstanding** (per-mode tooling, phase 6 of the plan): `npm run balance`,
-`npm run ttk`, `npm run playtest` and `docs/turn-tuning.md` all report for the DEFAULT mode only and
-have no `--mode` flag. Until they do, a second mode's numbers are unmeasured. The players' guide is
-off that list as of MC41 — it publishes a tab per active mode and `balanceStamp` hashes every one of
+**The three measurement harnesses take `--mode=<id|name>` as of MC41.** `npm run ttk -- --mode=2`,
+`npm run balance -- --mode=deathmatch` and `npm run playtest -- --mode=2` each install that mode's
+bundle for the run, print the mode in the report header, and (for balance and playtest) end the
+report folder's name with it — `2026-09-23-01-deathmatch`. The flag takes a wire id or a display
+name; an unknown one refuses the run naming the modes that exist rather than falling back to the
+default, and an INACTIVE mode is measurable on purpose, since a mode no lobby publishes is exactly
+the one whose numbers nobody has seen. Balance's config fingerprint now hashes the MODE'S bundle
+rather than the raw `config/` globals, so a per-mode-only table edit moves it and `--baseline`
+refuses a cross-mode comparison the same way it refuses one across a `BOT_BRAIN_VERSION` change.
+
+**Still outstanding** (per-mode tooling, phase 6 of the plan): `docs/turn-tuning.md` and its doc
+test still read the raw globals and describe the DEFAULT mode only. The players' guide came off that
+list earlier in MC41 — it publishes a tab per active mode and `balanceStamp` hashes every one of
 them. See
 [`docs/superpowers/plans/2026-09-22-per-mode-config/EXECUTION.md`](docs/superpowers/plans/2026-09-22-per-mode-config/EXECUTION.md).
 
@@ -821,7 +830,9 @@ them after a tuning pass even when the suite is green.
 `packages/server/playtest/` holds headless probes that drive the real `ArenaRoom.tick` pipeline and
 measure what the game actually does — ram trigger rates, weapon reach, collision depth, prediction
 error. They are **not** part of the test suite and **not** part of the release build. Run them with
-`npm run playtest`; reports land in gitignored `packages/server/playtest/reports/<yyyy-MM-dd-NN>/`.
+`npm run playtest`; reports land in gitignored
+`packages/server/playtest/reports/<yyyy-MM-dd-NN>-<mode>/`, and `--mode=<id|name>` picks which mode's
+bundle the probes measure.
 See [`packages/server/playtest/README.md`](packages/server/playtest/README.md).
 
 **After changing anything the probes measure, say so — loudly, in your summary — and recommend a
@@ -898,10 +909,12 @@ npm run install-build  # build a release and install it into the folder named in
 npm run build:manual   # regenerates the cars & weapons guide page
 npm run check:art      # art integrity: alpha, manifest rows, sizes, tint rules (:cars, :weapons)
 npm run ttk            # full-kit time-to-kill matrix, every chassis vs every chassis
-npm run playtest       # headless sim probes -> packages/server/playtest/reports/<date-NN>/
+                       #   -- --mode=<id|name> measures that mode instead of the default
+npm run playtest       # headless sim probes -> packages/server/playtest/reports/<date-NN>-<mode>/
+                       #   -- --mode=<id|name> measures that mode instead of the default
 npm run playtest:lan   # two bot clients against a server you already started
-npm run balance        # headless win-rate/matchup harness -> packages/server/balance/reports/<date-NN>/
-                       #   -- e.g. npm run balance -- --shape=duel --matches=20 --seed=7
+npm run balance        # headless win-rate/matchup harness -> packages/server/balance/reports/<date-NN>-<mode>/
+                       #   -- e.g. npm run balance -- --shape=duel --matches=20 --seed=7 --mode=deathmatch
 ```
 
 ## The cars & weapons guide is generated, committed, and easy to leave stale

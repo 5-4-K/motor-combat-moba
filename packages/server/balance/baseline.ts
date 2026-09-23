@@ -9,8 +9,10 @@
  * `checkComparable` is the guard on that assumption. A differing CONFIG or BOT fingerprint is
  * fatal: the two runs measured different games, and a delta between them would attribute a bot
  * improvement to a weapon nerf (the exact mistake B37 exists to prevent) — or the reverse. Shape and
- * mode are fatal for the same underlying reason: a duel win rate and an FFA win rate are not the
- * same quantity, no matter how identical the rest of the config is. So is DIFFICULTY, and it has to
+ * MODE are fatal for the same underlying reason: a duel win rate and an FFA win rate are not the
+ * same quantity, no matter how identical the rest of the config is, and since MC41 a mode is not
+ * even the same tables — `--mode` picks the `ModeConfig` bundle the matches run on, and two modes
+ * are free to diverge table by table. So is DIFFICULTY, and it has to
  * be checked here rather than left to the bot fingerprint: `botFingerprint` hashes `BOT_PROFILES`
  * WHOLE, so every tier hashes to the same value and `--skill=casual` and `--skill=pro` are
  * indistinguishable to it. Which tier flew the matches is a property of the RUN, not of the table,
@@ -23,6 +25,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { modeLabelOf } from "@motor-combat-moba/shared";
 import type { RunRecord } from "./report.js";
 
 export interface ComparabilityResult {
@@ -70,9 +73,19 @@ export function checkComparable(current: RunRecord, baseline: RunRecord): Compar
         `duel win rate and an FFA win rate are not the same quantity`,
     );
   }
+  // Fatal since the mode was only a win condition, and doubly so since MC41 made it pick the
+  // CONFIG BUNDLE as well: the two runs now played different win conditions on potentially
+  // different tables. The config fingerprint above catches this too (the mode's wire id is part of
+  // what it hashes, so two modes never share a fingerprint even while their tables are identical) —
+  // this clause stays because that reason reads as "something in the tables moved", which is the
+  // wrong thing for a reader to go looking for when all that changed was the flag.
   if (current.config.mode !== baseline.config.mode) {
     fatal = true;
-    reasons.push(`mode differs (this run: ${current.config.mode}, baseline: ${baseline.config.mode})`);
+    reasons.push(
+      `mode differs (this run: ${modeLabelOf(current.config.mode)}, baseline: ` +
+        `${modeLabelOf(baseline.config.mode)}) — not comparable: since MC41 the mode picks the ` +
+        `config bundle the matches ran on as well as the win condition they ended by`,
+    );
   }
   // NOT covered by the bot fingerprint, which hashes `BOT_PROFILES` whole and so gives every tier
   // the same hash — see this module's header. Without this clause `--baseline` compared a `--skill=pro`
@@ -87,8 +100,8 @@ export function checkComparable(current: RunRecord, baseline: RunRecord): Compar
   }
 
   // NOT covered by the config fingerprint either, and for a subtler reason than `difficulty` above:
-  // the fingerprint hashes `CAR_TABLE` whole, so it DOES move when a chassis is added or its
-  // `isActive` flips — but it does not move when the same table is run twice under different
+  // the fingerprint hashes the mode's car table whole, so it DOES move when a chassis is added or
+  // its `isActive` flips — but it does not move when the same table is run twice under different
   // flags. `--include-inactive` changes which rows took a seat, not which rows exist, so two runs
   // over identical config can measure a three-car game and a seven-car game and hash identically.
   if (current.config.includeInactive !== baseline.config.includeInactive) {

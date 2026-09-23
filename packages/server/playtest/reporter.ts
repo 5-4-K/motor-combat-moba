@@ -1,9 +1,13 @@
 /**
- * Where a playtest run's findings go.
+ * Where a playtest run's findings go, and which mode they were measured in.
  *
  * Every probe writes a Markdown report into `playtest/reports/<yyyy-MM-dd-NN>/`, one file per
  * probe, plus a `summary.md` when the whole suite is run through `run-all.ts`. The folder is
  * gitignored: a report is a record of one run on one machine, not source.
+ *
+ * Every folder carries the mode slug (`2026-09-23-01-deathmatch`) and every report's subtitle names
+ * the mode (MC41) — two runs a week apart are otherwise indistinguishable, and a probe's numbers
+ * mean nothing without knowing which bundle produced them.
  *
  * The run folder is chosen ONCE per run. `run-all.ts` creates it and passes it down through
  * `PLAYTEST_RUN_DIR`, so all six probes land in the same folder; a probe run on its own creates its
@@ -13,22 +17,25 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { modeLabelOf, modeSlug } from "@motor-combat-moba/shared";
 import { createRunDir as createRunDirIn, resolveRunDir as resolveRunDirIn } from "../src/run-dir.js";
+import { resolvePlaytestMode } from "./mode.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPORTS_ROOT = path.join(HERE, "reports");
 
 /**
- * Create the next run folder for today: `reports/2026-08-29-01`, then `-02`, and so on.
+ * Create the next run folder for today: `reports/2026-08-29-01-brawl`, then `-02-<mode>`, and so on.
  *
  * The number is derived by scanning what is already on disk rather than held in a counter file,
  * so deleting old reports never makes a new run collide with a name that is still there.
  * (Implementation lives in `../src/run-dir.ts`, shared with `balance/`.)
  */
-export const createRunDir = (): string => createRunDirIn(REPORTS_ROOT);
+export const createRunDir = (): string => createRunDirIn(REPORTS_ROOT, modeSlug(resolvePlaytestMode()));
 
 /** The folder this probe should write into: the run's shared one, or a fresh one of its own. */
-export const resolveRunDir = (): string => resolveRunDirIn(REPORTS_ROOT, "PLAYTEST_RUN_DIR");
+export const resolveRunDir = (): string =>
+  resolveRunDirIn(REPORTS_ROOT, "PLAYTEST_RUN_DIR", modeSlug(resolvePlaytestMode()));
 
 export interface Finding {
   probe: string;
@@ -77,7 +84,11 @@ export class Reporter {
       "",
       this.description,
       "",
-      `Run at ${new Date().toISOString()} · ${this.findings.length} probes.`,
+      // The mode is resolved from argv/env here rather than passed in from each probe: it is a pure
+      // function of the same two inputs `installPlaytestMode` reads, so the line can never name a
+      // different mode from the one whose bundle produced the numbers under it (MC41).
+      `Run at ${new Date().toISOString()} · ${this.findings.length} probes · ` +
+        `mode ${modeLabelOf(resolvePlaytestMode())}.`,
       "",
       "| Verdict | Probe |",
       "|---|---|",

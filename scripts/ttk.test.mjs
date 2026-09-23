@@ -3,6 +3,7 @@ import { describe, it, test } from "node:test";
 
 import {
   CAR_TABLE,
+  GameMode,
   TICK_RATE_HZ,
   WEAPON_TABLE,
   DEFAULT_GAME_MODE,
@@ -12,20 +13,23 @@ import {
   modeConfigOf,
   slotsOf,
   weaponTicksOf,
+  withMode,
 } from "../packages/shared/dist/index.js";
 import {
   armedCarIds,
   carrierOf,
+  parseTtkArgs,
   pressPlan,
+  report,
   simulateTtk,
   TTK_LIMIT_SECONDS,
   unreachableWeaponIds,
 } from "./ttk.mjs";
 
-// This test file (unlike `ttk.mjs` itself, a CLI script) calls into shared's config accessors, so
-// it needs a mode installed the same way any other suite does since the shared package stopped
-// bootstrapping the default mode at module load (MC12). `ttk.mjs`'s own CLI entry point still has
-// no install of its own — see the task report for why that is flagged rather than fixed here.
+// This test file calls into shared's config accessors, so it needs a mode installed the same way
+// any other suite does since the shared package stopped bootstrapping the default mode at module
+// load (MC12). `ttk.mjs`'s own CLI entry point scopes itself with `withMode` around the mode
+// `--mode` selected (MC41); this file pins the default so every assertion below reads one bundle.
 installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 /**
@@ -209,5 +213,38 @@ describe("carrierOf / unreachableWeaponIds", () => {
         assert.ok(!skipped.has(weaponId), `${weaponId} should always have a carrier`);
       }
     }
+  });
+});
+
+describe("--mode (MC41)", () => {
+  it("defaults to DEFAULT_GAME_MODE with no flag", () => {
+    assert.equal(parseTtkArgs([]), DEFAULT_GAME_MODE);
+  });
+
+  it("takes the wire id or the display name", () => {
+    assert.equal(parseTtkArgs(["--mode=2"]), GameMode.FFA_DEATHMATCH);
+    assert.equal(parseTtkArgs(["--mode=deathmatch"]), GameMode.FFA_DEATHMATCH);
+    assert.equal(parseTtkArgs(["--mode=Brawl"]), GameMode.FFA_LAST_STANDING);
+  });
+
+  it("refuses an unknown mode and a typo'd flag instead of measuring the default", () => {
+    assert.throws(() => parseTtkArgs(["--mode=deathmach"]), /unknown mode/);
+    assert.throws(() => parseTtkArgs(["--mode=9"]), /not a known game mode/);
+    assert.throws(() => parseTtkArgs(["--mdoe=2"]), /unrecognised argument/);
+    assert.throws(() => parseTtkArgs(["--mode"]), /requires a value/);
+  });
+
+  it("prints the mode it measured at the top of the report", () => {
+    // The flag is worthless if the page it produces does not say which mode it is about. Scoped
+    // the way the CLI entry point scopes it, so the label and the numbers under it come from the
+    // same bundle rather than from whatever this file installed at the top.
+    const dm = withMode(modeConfigOf(GameMode.FFA_DEATHMATCH), () =>
+      report(GameMode.FFA_DEATHMATCH),
+    );
+    const brawl = withMode(modeConfigOf(GameMode.FFA_LAST_STANDING), () =>
+      report(GameMode.FFA_LAST_STANDING),
+    );
+    assert.match(dm, /Mode: Deathmatch \(mode 2\)\./);
+    assert.match(brawl, /Mode: Brawl \(mode 0\)\./);
   });
 });

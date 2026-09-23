@@ -225,6 +225,9 @@ export {
   modeConfigOrDefault,
 } from "./modes/registry.js";
 export type { ModeDef } from "./modes/registry.js";
+// `--mode=<id|name>` for the headless tooling (MC41): ttk, balance and playtest all parse the flag,
+// label their report and name their report folder through this one module.
+export { modeLabelOf, modeOptions, modeSlug, parseModeArg } from "./modes/mode-arg.js";
 export { COLOR_TABLE, isColorId } from "./config/color-config.js";
 export {
   BASIC_ATTACK_CONFIG,

@@ -56,6 +56,32 @@ describe("parseArgs (B41, B42)", () => {
     expect(c.difficulty).toBe("medium");
   });
 
+  it("takes --mode by wire id or display name, not only the legacy aliases (MC41)", () => {
+    expect(parseArgs(["--mode=2"]).mode).toBe(GameMode.FFA_DEATHMATCH);
+    expect(parseArgs(["--mode=0"]).mode).toBe(GameMode.FFA_LAST_STANDING);
+    expect(parseArgs(["--mode=Deathmatch"]).mode).toBe(GameMode.FFA_DEATHMATCH);
+    expect(parseArgs(["--mode=brawl"]).mode).toBe(GameMode.FFA_LAST_STANDING);
+    // An inactive mode is measurable on purpose — see mode-arg.ts.
+    expect(parseArgs(["--mode=team-brawl"]).mode).toBe(GameMode.TEAM);
+  });
+
+  it("keeps the win-condition aliases the flag shipped with", () => {
+    // `last-standing` is not a mode NAME (that row is called "Brawl"), so dropping it would break
+    // every command line and README example written before MC41.
+    expect(parseArgs(["--mode=last-standing"]).mode).toBe(GameMode.FFA_LAST_STANDING);
+    expect(parseArgs(["--mode=deathmatch"]).mode).toBe(GameMode.FFA_DEATHMATCH);
+  });
+
+  it("refuses an unknown mode naming the ones that exist, rather than defaulting", () => {
+    // A typo that silently measured the default mode is the exact failure per-mode tooling exists
+    // to remove: the report would be labelled with the mode asked for and filled with another's.
+    expect(() => parseArgs(["--mode=deathmach"])).toThrow(/is not a known mode/);
+    expect(() => parseArgs(["--mode=deathmach"])).toThrow(/0\/brawl/);
+    expect(() => parseArgs(["--mode=deathmach"])).toThrow(/2\/deathmatch/);
+    expect(() => parseArgs(["--mode=9"])).toThrow(/is not a known mode/);
+    expect(() => parseArgs(["--mode"])).toThrow(/is not a known mode/);
+  });
+
   it("rejects an unknown shape, skill, mode or arena", () => {
     expect(() => parseArgs(["--shape=melee"])).toThrow(/shape/);
     expect(() => parseArgs(["--skill=noob"])).toThrow(/skill/);

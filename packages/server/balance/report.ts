@@ -23,7 +23,7 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { GameMode, winRuleOf, type CarId, type WeaponId } from "@motor-combat-moba/shared";
+import { GameMode, modeLabelOf, winRuleOf, type CarId, type WeaponId } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, type BotProfile } from "../src/config/bot-profiles.js";
 import { deriveSeed } from "../src/bot/rng.js";
 import type { MatchOutcome } from "./match.js";
@@ -104,7 +104,9 @@ function formatBotProfile(profile: BotProfile): string {
 // ---- sections -----------------------------------------------------------------------------------
 
 function renderHeader(record: RunRecord): string {
-  const modeName = GameMode[record.config.mode] ?? `mode ${record.config.mode}`;
+  // `Deathmatch (mode 2)` — the display name a player would recognise plus the wire id `run.json`
+  // stores, and `inactive` when the run measured an unpublished mode (MC41).
+  const modeName = modeLabelOf(record.config.mode);
   const commitLine =
     record.gitCommit === "unknown"
       ? "**Git commit:** unknown (`git rev-parse` failed or was unavailable in this environment)"
@@ -114,7 +116,7 @@ function renderHeader(record: RunRecord): string {
   return [
     "# Balance report",
     "",
-    `**Seed:** ${record.config.seed} · **Shape:** ${record.config.shape} · **Mode:** ${modeName} (${record.config.mode}) · **Arena:** ${record.config.arenaId}`,
+    `**Seed:** ${record.config.seed} · **Shape:** ${record.config.shape} · **Mode:** ${modeName} · **Arena:** ${record.config.arenaId}`,
     // Printed only when set, so an ordinary report reads exactly as it always did — but printed in
     // the HEADER when it is, because "which chassis could take a seat" is the single fact that most
     // changes how every number below should be read, and a reader opening an old `summary.md` has

@@ -15,9 +15,16 @@
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_GAME_MODE, GameMode, modeConfigOf, withMode } from "@motor-combat-moba/shared";
+import { modeConfigOf, modeLabelOf, modeSlug, withMode } from "@motor-combat-moba/shared";
 import { checkComparable, loadBaseline } from "./baseline.js";
-import { helpText, parseArgs, SKILL_TO_DIFFICULTY, wantsHelp, type PlayerSkill } from "./cli.js";
+import {
+  helpText,
+  parseArgs,
+  SKILL_TO_DIFFICULTY,
+  wantsHelp,
+  type ParsedArgs,
+  type PlayerSkill,
+} from "./cli.js";
 import { botFingerprint, configFingerprint } from "./fingerprint.js";
 import { gitCommitShort, writeReport, type RunRecord } from "./report.js";
 import { runAll, type RunConfig } from "./runner.js";
@@ -33,24 +40,12 @@ function skillLabel(skill: PlayerSkill): string {
   return `${skill} (${SKILL_TO_DIFFICULTY[skill]})`;
 }
 
-function main(): void {
-  const argv = process.argv.slice(2);
-
-  // `--help` is answered BEFORE parsing, so it still prints when it sits beside the very typo the
-  // reader is trying to look up (`--matchs=10 --help`), and exits 0 — asking for the flag list is a
-  // successful use of the tool, not one of this file's two failure cases.
-  if (wantsHelp(argv)) {
-    console.log(helpText());
-    return;
-  }
-
-  const args = parseArgs(argv);
-
+function main(args: ParsedArgs): void {
   // ---- Seed first, per this file's own header — before the baseline check, before a single match
   // runs, before anything that could fail. ---------------------------------------------------------
   console.log(`seed: ${args.seed}`);
 
-  const modeName = GameMode[args.mode] ?? String(args.mode);
+  const modeName = modeLabelOf(args.mode);
   console.log(
     [
       `shape=${args.shape}`,
@@ -79,7 +74,9 @@ function main(): void {
     includeInactive: args.includeInactive,
   };
 
-  const fingerprints = { config: configFingerprint(), bot: botFingerprint() };
+  // The config fingerprint is per-MODE since MC41 — it hashes the installed bundle, not the raw
+  // globals — so `args.mode` has to reach it. See `fingerprint.ts`.
+  const fingerprints = { config: configFingerprint(args.mode), bot: botFingerprint() };
   const gitCommit = gitCommitShort();
 
   // ---- Baseline check, BEFORE running a single match (per the task: a refused comparison stops
@@ -163,7 +160,9 @@ function main(): void {
     unattributedPulseDamage,
   };
 
-  const outDir = args.out ?? createRunDir(REPORTS_ROOT);
+  // The folder says which mode it measured (`2026-09-23-01-deathmatch`) — an `--out` the caller
+  // named is left exactly as given, since they chose that name for a reason.
+  const outDir = args.out ?? createRunDir(REPORTS_ROOT, modeSlug(args.mode));
   const files = writeReport(outDir, record, outcomes, baselineRecord, forcedMismatchReasons);
 
   console.log(`\nwrote ${files.length} files to ${path.relative(process.cwd(), outDir)}/`);
@@ -171,16 +170,29 @@ function main(): void {
 }
 
 try {
-  // Single wrapper at the CLI entry point (MC12), the same shape as `scripts/ttk.mjs`'s own entry
-  // guard — everything `main()` reaches (car/weapon config, `driveOf`, `hpOf`, the sim itself)
-  // reads through the active-mode accessors and throws "config read outside a mode scope" with no
-  // bundle installed. This reports for DEFAULT_GAME_MODE's bundle only: per-mode balance reporting
-  // (a `--mode` flag driving which bundle gets installed here) is outstanding follow-up work this
-  // wrapper does not take on — `args.mode` already selects which chassis/roster the RUN simulates
-  // (see `RunConfig.mode`), but not which config bundle backs it.
-  withMode(modeConfigOf(DEFAULT_GAME_MODE), () => {
-    main();
-  });
+  // `--help` and argument parsing happen OUTSIDE the mode scope, deliberately: which bundle to
+  // install is the answer `parseArgs` produces, so it cannot already be installed while producing
+  // it. Neither reads a config accessor — `helpText` and `defaultMatchSeconds` read the raw
+  // `DEATHMATCH_CONFIG` global, which is mode-blind by construction — so neither can trip `cfg()`'s
+  // "config read outside a mode scope" throw.
+  const argv = process.argv.slice(2);
+  if (wantsHelp(argv)) {
+    // Answered before parsing, so it still prints when it sits beside the very typo the reader is
+    // trying to look up (`--matchs=10 --help`), and exits 0 — asking for the flag list is a
+    // successful use of the tool, not one of this file's two failure cases.
+    console.log(helpText());
+  } else {
+    const args = parseArgs(argv);
+    // Single wrapper at the CLI entry point (MC12), the same shape as `scripts/ttk.mjs`'s own entry
+    // guard — everything `main()` reaches (car/weapon config, `driveOf`, `hpOf`, the sim itself)
+    // reads through the active-mode accessors and throws "config read outside a mode scope" with no
+    // bundle installed. Since MC41 the bundle is the one `--mode` selected rather than
+    // DEFAULT_GAME_MODE's: `args.mode` now picks BOTH the win condition the matches play under
+    // (`RunConfig.mode`) and the config backing them, which were never two separate things.
+    withMode(modeConfigOf(args.mode), () => {
+      main(args);
+    });
+  }
 } catch (err) {
   // The harness itself failed — a bad flag that slipped past parseArgs' own throws, an unreadable
   // baseline file, a bug in the sim. This is the ONLY unconditional non-zero exit path: nothing a

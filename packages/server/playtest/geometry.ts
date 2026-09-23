@@ -8,13 +8,10 @@
  * are asked against is the spike ring.
  */
 import {
-  DEFAULT_GAME_MODE,
   DRIVE_CONFIG,
   SPIKE_CONFIG,
   forwardMaxSpeedOf,
   getArena,
-  installMode,
-  modeConfigOf,
   muzzleOffset,
   activeCarIds,
   fireSlotsOf,
@@ -22,14 +19,17 @@ import {
   type CarId,
   type WeaponId,
 } from "@motor-combat-moba/shared";
+import { installPlaytestMode } from "./mode.js";
 import { PlaytestWorld, overlapDepth } from "./world.js";
 import { Reporter } from "./reporter.js";
 
 // Mode scope (MC12). `run-all.ts` spawns this file as its own one-shot process (one per probe), so
 // there is nothing to restore afterward — `installMode`, not `withMode`, same shape as
-// `scripts/build-cars-and-weapons.mjs`'s entry. This reports for DEFAULT_GAME_MODE's bundle only;
-// per-mode playtest reporting is outstanding follow-up work this line does not take on.
-installMode(modeConfigOf(DEFAULT_GAME_MODE));
+// `scripts/build-cars-and-weapons.mjs`'s entry. WHICH bundle is `--mode=<id|name>`, or the
+// `PLAYTEST_MODE` a parent run passed down, defaulting to DEFAULT_GAME_MODE (MC41) — see
+// `./mode.ts`. The Reporter labels the report with the same resolution, so the page always names
+// the mode these numbers came from.
+installPlaytestMode();
 
 const reporter = new Reporter(
   "geometry",

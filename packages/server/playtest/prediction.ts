@@ -12,7 +12,6 @@
  * and reports the correction the local player actually eats.
  */
 import {
-  DEFAULT_GAME_MODE,
   DEFAULT_PATCH_RATE_HZ,
   DRIVE_CONFIG,
   MS_PER_TICK,
@@ -22,8 +21,6 @@ import {
   forwardMaxSpeedOf,
   getArena,
   carHullOf,
-  installMode,
-  modeConfigOf,
   ramDefenceOf,
   otherCarHulls,
   stepSim,
@@ -32,15 +29,18 @@ import {
   type SimBody,
   type StepContext,
 } from "@motor-combat-moba/shared";
+import { installPlaytestMode } from "./mode.js";
 import { PredictionBuffer } from "../../client/src/net/prediction.js";
 import { PlaytestWorld } from "./world.js";
 import { Reporter } from "./reporter.js";
 
 // Mode scope (MC12). `run-all.ts` spawns this file as its own one-shot process (one per probe), so
 // there is nothing to restore afterward — `installMode`, not `withMode`, same shape as
-// `scripts/build-cars-and-weapons.mjs`'s entry. This reports for DEFAULT_GAME_MODE's bundle only;
-// per-mode playtest reporting is outstanding follow-up work this line does not take on.
-installMode(modeConfigOf(DEFAULT_GAME_MODE));
+// `scripts/build-cars-and-weapons.mjs`'s entry. WHICH bundle is `--mode=<id|name>`, or the
+// `PLAYTEST_MODE` a parent run passed down, defaulting to DEFAULT_GAME_MODE (MC41) — see
+// `./mode.ts`. The Reporter labels the report with the same resolution, so the page always names
+// the mode these numbers came from.
+installPlaytestMode();
 
 const DT = MS_PER_TICK / 1000;
 const ARENA = getArena("arena-01");

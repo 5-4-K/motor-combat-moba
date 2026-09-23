@@ -2,32 +2,32 @@
  * Two short, stable fingerprints over the balance-relevant config, so a report printed today stays
  * interpretable months from now.
  *
- * `configFingerprint` covers every config `stepSim`, `runCombat`, the contact/ram pass, and the
- * deathmatch respawn/phase pipeline this harness itself drives (`runPipeline`, `respawnSweep`) read
- * that a tuning pass could touch: `WEAPON_TABLE`, `CAR_TABLE`, `COMBAT_CONFIG`, `DRIVE_CONFIG`,
- * `STATUS_TABLE`, `RAM_CONFIG`, `IMPULSE_CONFIG`, `WEAPON_SLOT_CONFIG`,
- * `DEATHMATCH_CONFIG`, `TICK_RATE_HZ`, and every registered arena (`ARENAS` — `assignSpawns` reads
- * an arena's spawn points directly, and its obstacles feed `stepSim`). Also `CAMERA_CONFIG` and
- * `LOGICAL_CANVAS` (B17, 2026-09-03): `buildBotView`'s viewport fairness limit is derived from both
- * (`LOGICAL_CANVAS` divided by `CAMERA_CONFIG.zoom`), and a bot session that can suddenly see less
- * — or more — of the arena is exactly the kind of change a baseline comparison must not silently
- * average over. `botFingerprint` covers `BOT_PROFILES` and `BOT_BRAIN_VERSION` separately, because a
- * bot retune and a balance retune are different edits with different implications for whether an old
+ * `configFingerprint` covers the ACTIVE MODE's whole `ModeConfig` bundle (MC41) — cars, weapons,
+ * drive, ram, impulse, combat, turret, the three status tables, spike, slots, flow, deathmatch,
+ * camera, the arena id list, and every artifact derived from them — plus the wire id of the mode
+ * itself and the three globals no mode owns that this harness's pipeline reads: `TICK_RATE_HZ`,
+ * the arena definitions (`ARENAS` — `assignSpawns` reads an arena's spawn points directly, and its
+ * obstacles feed `stepSim`) and `LOGICAL_CANVAS` (B17: `buildBotView`'s viewport fairness limit is
+ * `LOGICAL_CANVAS` divided by the bundle's own `camera.zoom`, and a bot that can suddenly see less
+ * — or more — of the arena is exactly the kind of change a baseline must not silently average
+ * over). `botFingerprint` covers `BOT_PROFILES` and `BOT_BRAIN_VERSION` separately, because a bot
+ * retune and a balance retune are different edits with different implications for whether an old
  * report is still comparable to a new one (Task 20's baseline guard refuses a comparison across
  * either). `BOT_BRAIN_VERSION` (H46) rides alongside `BOT_PROFILES` in that same fingerprint because
  * a hash of the table alone cannot see a behaviour change made entirely in code — the human-like
  * brain's layers reading the numbers differently, with no number itself moving.
  *
- * **This list is not derived from anything — it is hand-maintained, and it must be kept in sync by
- * hand.** A config added later (a new `*_CONFIG` table, a new arena, a new tick-derived constant)
- * that the sim or this harness's own pipeline reads is invisible to `configFingerprint` until it is
- * added to the object below. Miss one and `--baseline` silently stops doing its job for exactly that
- * knob: two runs that actually measured different games will report `ok`, the Deltas table will
- * render, and every number in it will be misattributed to whatever the reader thought they changed
- * (see finding 2 in the 2026-09-03 review — this is the failure mode that motivated writing this
- * paragraph out in full). Deliberately NOT covered: `NET_CONFIG` (patch rate, not read by the sim),
- * `FLOW_CONFIG` (lobby/countdown, never reached — a match starts already in `RoomPhase.MATCH`), and
- * `PRACTICE_CONFIG` (only `PracticeRoom`, which this harness never runs).
+ * **It used to hash a hand-maintained list of RAW `config/` globals, and that list is gone.** It
+ * named thirteen tables and was missing four the sim reads — `SPIKE_CONFIG`, `TURRET_CONFIG`,
+ * `STATUS_CONFIG`, `STATUS_LIMITS` — exactly the drift its own warning predicted; worse, since the
+ * per-mode work those globals are not what the game plays on at all, so a mode-only table edit
+ * moved nothing here. Hashing the bundle fixes both: a new table added to `ModeTables` is covered
+ * the day it is added, with no edit to this file. The one thing it over-covers is `FLOW_CONFIG`
+ * (lobby/countdown, never reached — a match starts already in `RoomPhase.MATCH`), which is now in
+ * the hash because it is in the bundle. That refuses a comparison that would in fact have been
+ * valid, which is the safe direction to be wrong in, and it costs a `--force` rather than a
+ * misattributed delta. `PRACTICE_CONFIG` and `NET_CONFIG` stay out: neither is in a bundle and
+ * neither is read here.
  *
  * Hashed WHOLE, following the precedent `balanceStamp` (`scripts/build-cars-and-weapons.mjs`) set
  * for the manual page — any field of any row counts, not just the ones this file's author thought
@@ -41,18 +41,10 @@
 import { BOT_BRAIN_VERSION, BOT_PROFILES } from "../src/config/bot-profiles.js";
 import {
   ARENAS,
-  CAMERA_CONFIG,
-  CAR_TABLE,
-  COMBAT_CONFIG,
-  DEATHMATCH_CONFIG,
-  DRIVE_CONFIG,
-  IMPULSE_CONFIG,
   LOGICAL_CANVAS,
-  RAM_CONFIG,
-  STATUS_TABLE,
   TICK_RATE_HZ,
-  WEAPON_SLOT_CONFIG,
-  WEAPON_TABLE,
+  modeConfigOf,
+  type GameMode,
 } from "@motor-combat-moba/shared";
 
 // FNV-1a 32-bit constants (the standard offset basis and prime for the 32-bit variant). Named
@@ -98,27 +90,39 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(sortKeysDeep(value));
 }
 
-/** Fingerprint over every table named in this module's header comment, whole. Changes whenever any
- * balance-relevant config field changes, however small. Keep the object below and the header
- * comment's list in sync — see that comment for what "in sync" costs if it drifts. */
-export function configFingerprint(): string {
-  return fnv1aHex(
-    stableStringify({
-      WEAPON_TABLE,
-      CAR_TABLE,
-      COMBAT_CONFIG,
-      DRIVE_CONFIG,
-      STATUS_TABLE,
-      RAM_CONFIG,
-      IMPULSE_CONFIG,
-      WEAPON_SLOT_CONFIG,
-      DEATHMATCH_CONFIG,
-      TICK_RATE_HZ,
-      ARENAS,
-      CAMERA_CONFIG,
-      LOGICAL_CANVAS,
-    }),
-  );
+/**
+ * Fingerprint over the MODE's whole bundle plus the globals this harness reads that no mode owns.
+ * Changes whenever any balance-relevant config field changes, however small — and, since MC41,
+ * whenever the run measures a different mode.
+ *
+ * Two modes never share a fingerprint, even though they ship byte-identical tables today
+ * (`table-pinning.test.ts` enforces that) — which matters, because a hash over the mode-BLIND raw
+ * globals gave a Brawl run and a Deathmatch run the same value and let `--baseline` compare two
+ * different games as if they were one. Two things carry the mode into the hash and either alone
+ * would do it: the top-level `mode` key here, and `ModeConfig.id`, which every assembled bundle
+ * carries as a field of its own. The redundancy is deliberate and cheap — the payload should say
+ * which mode it is about without a reader having to know that a bundle self-identifies.
+ *
+ * Takes the mode explicitly rather than reading `cfg()`: this is called once, at the top of a run,
+ * from code that already holds the flag's answer, and a parameter cannot silently report on
+ * whatever bundle happened to be installed.
+ *
+ * `configFingerprintInput` is the payload; `configFingerprint` below is its hash.
+ */
+export function configFingerprintInput(mode: GameMode): unknown {
+  return {
+    mode,
+    bundle: modeConfigOf(mode),
+    TICK_RATE_HZ,
+    ARENAS,
+    LOGICAL_CANVAS,
+  };
+}
+
+/** The hash of that payload. Exported separately from `configFingerprintInput` for the same reason
+ * `botFingerprintInput` is: a test can assert WHAT is hashed, not only that the hash is stable. */
+export function configFingerprint(mode: GameMode): string {
+  return fnv1aHex(stableStringify(configFingerprintInput(mode)));
 }
 
 /** What `botFingerprint` hashes: `BOT_PROFILES` plus `BOT_BRAIN_VERSION` (H46). A hash of the
