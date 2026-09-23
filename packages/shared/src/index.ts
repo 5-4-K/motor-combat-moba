@@ -16,6 +16,10 @@ export type { DeployMode } from "./constants.js";
 // scope a bundle of their own — a test bundle, or eventually a real non-default mode — rather than
 // only ever reading whatever this process last installed.
 export { withMode, cfg, installMode, hasMode } from "./modes/active.js";
+// `applyOverrides` (MC39/MC40): builds a tuned SIBLING of a base bundle without installing anything —
+// the per-bundle replacement for `config/tuning.ts`'s process-wide `setTuning`. See
+// `modes/overlay.ts` for the full reasoning.
+export { applyOverrides } from "./modes/overlay.js";
 // The bundle accessors themselves (MC13/MC14): `sim/` has read exclusively through these since the
 // accessor-layer work, and server/client code that used to read a raw config global in place —
 // `setTuning` rebuilds the bundle rather than mutating those globals — needs the same accessors to

@@ -19,7 +19,7 @@ import {
   isBotDifficulty,
   isPlaygroundSetup,
   newCombatEvents,
-  setTuning,
+  applyOverrides,
   validateTuning,
   DEFAULT_GAME_MODE,
   modeConfigOrDefault,
@@ -193,16 +193,20 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
    * `scoped(this.modeConfig, ...)` so nothing here reads whatever bundle another room last happened
    * to install (MC15, MC21).
    *
-   * **Mutable, not `readonly` (2026-09-22 final review, tuning-inert-server-side fix).** The
-   * `MSG_PLAYGROUND_TUNING` handler below re-assigns this field to `setTuning`'s return value — the
-   * freshly assembled bundle it just installed — rather than trusting the module-level `installMode`
-   * write inside `setTuning` to survive. It cannot survive on its own: this whole handler already
-   * runs inside `scoped(this.modeConfig, ...)`, i.e. `withMode(this.modeConfig, fn)`, whose `finally`
-   * restores the module-level "current" bundle to whatever `this.modeConfig` was BEFORE the handler
-   * ran the instant `fn` returns — discarding `setTuning`'s install. And even if it did not, every
-   * later tick re-enters through its OWN `scoped(this.modeConfig, () => this.tick())`, which would
-   * re-install this same stale field value regardless. Reassigning the field is what makes a tuned
-   * value actually reach a subsequent tick — see `PlaygroundRoom.test.ts` for the regression test.
+   * **Mutable, not `readonly` (2026-09-22 final review, tuning-inert-server-side fix; rewired onto
+   * `applyOverrides` for MC39/MC40).** The `MSG_PLAYGROUND_TUNING` handler below re-assigns this
+   * field to `applyOverrides`'s return value — a brand-new sibling bundle built from this room's own
+   * pristine base, with nothing installed process-wide. Reassigning the field is the ONLY way a
+   * tuned bundle reaches this room at all: `applyOverrides` has no side effect to lean on in the
+   * first place (unlike the old `setTuning`, there is no module-level `installMode` write it could
+   * even try to trust), so if the handler did not capture its return value here the tuned bundle
+   * would simply be built and immediately discarded. What the reassignment defeats is `scoped`'s own
+   * `finally`: this whole handler already runs inside `scoped(this.modeConfig, ...)`, i.e.
+   * `withMode(this.modeConfig, fn)`, which restores the module-level "current" bundle to whatever
+   * `this.modeConfig` was BEFORE the handler ran the instant `fn` returns — so a tuned bundle that
+   * only ever lived as the module-level "current" one would still be lost the moment the handler
+   * returned. Reassigning the field is what makes a tuned value actually reach a subsequent tick —
+   * see `PlaygroundRoom.test.ts` for the regression test.
    */
   private modeConfig: ModeConfig = modeConfigOrDefault(DEFAULT_GAME_MODE);
 
@@ -213,12 +217,15 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
       throw new ServerError(ARENA_BUSY_CODE, ARENA_BUSY_ERROR);
     }
 
-    // Second query, same reasoning (PG15): the tuning store this room writes through `setTuning` is
-    // module-level, one per process — not per room — so two playground rooms alive at once fight over
-    // it, and either one closing wipes the tables the other still thinks are active. `maxClients = 1`
-    // does not prevent this: it only rejects a second CLIENT, and `joinPlayground`'s `joinOrCreate`
-    // reacts to a full room by asking Colyseus to create another one. Reuses `shouldRejectSecondArena`
-    // unchanged — "any listed room besides myself" is exactly the rule here too.
+    // Second query (PG15, updated MC39/MC40). This used to be about tuning specifically: `setTuning`
+    // wrote a module-level, one-per-process store, so two playground rooms alive at once could fight
+    // over it, and either one closing would wipe the tables the other still thought were active. Now
+    // that tuning lives on each room's own `this.modeConfig` instead, that particular reason is gone
+    // — but the playground is still meant to be a singleton dev tool, one at a time, and nothing else
+    // has stepped in to justify running two concurrently. `maxClients = 1` does not enforce that on
+    // its own: it only rejects a second CLIENT, and `joinPlayground`'s `joinOrCreate` reacts to a full
+    // room by asking Colyseus to create another one. Reuses `shouldRejectSecondArena` unchanged — "any
+    // listed room besides myself" is exactly the rule here too.
     const playgroundListings = await matchMaker.query({ name: PLAYGROUND_ROOM_NAME });
     if (shouldRejectSecondArena(playgroundListings, this.roomId)) {
       throw new ServerError(PLAYGROUND_BUSY_CODE, PLAYGROUND_BUSY_ERROR);
@@ -283,17 +290,18 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
 
   onLeave(): void {
     scoped(this.modeConfig, () => {
-      // Unconditional (PG15). The store is process-wide, so a playground that closes holding overrides
-      // would leave the next arena match silently re-balanced.
-      setTuning(null);
       this.disconnect();
     });
   }
 
   onDispose(): void {
-    scoped(this.modeConfig, () => {
-      setTuning(null);
-    });
+    // Nothing to do here any more (MC39/MC40). `applyTuningMessage` used to call the process-wide
+    // `setTuning`, so a playground closing with overrides still active would leave the NEXT room —
+    // arena or another playground — silently re-balanced by them, which is why this hook and
+    // `onLeave` above used to unconditionally reset that global store on the way out (PG15). Tuning
+    // now lives entirely on this room's own `this.modeConfig` field: `applyOverrides` builds a
+    // sibling bundle and installs nothing process-wide, so the field dies with the room and there is
+    // no shared store left for a later room to inherit.
   }
 
   /**
@@ -310,11 +318,14 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     // An empty object IS the reset: `setTuning(null)` restores every table, and `""` is what the
     // client's watcher reads as "clear my store too" (an empty string is not malformed JSON).
     const overrides = Object.keys(result.overrides).length > 0 ? result.overrides : null;
-    // Capture the bundle `setTuning` just installed and make it THIS ROOM's bundle (see
-    // `modeConfig`'s own doc comment) — a subsequent tick's `scoped(this.modeConfig, ...)` is what
-    // actually adopts the tuned numbers; `setTuning`'s own `installMode` call alone does not survive
-    // this handler returning.
-    this.modeConfig = setTuning(overrides);
+    // Tuning REPLACES, never accumulates (PG13): every call starts fresh from the room's own
+    // pristine base — the same `modeConfigOrDefault(DEFAULT_GAME_MODE)` bundle the `modeConfig`
+    // field was seeded from, NOT `this.modeConfig`, which may already carry a previous blob's
+    // overrides. `applyOverrides` builds a new sibling bundle and installs nothing; assigning it to
+    // `this.modeConfig` (see that field's own doc comment) is what makes a subsequent tick's
+    // `scoped(this.modeConfig, ...)` actually adopt the tuned numbers.
+    const base = modeConfigOrDefault(DEFAULT_GAME_MODE);
+    this.modeConfig = overrides ? applyOverrides(base, overrides) : base;
     this.state.tuningJson = overrides ? JSON.stringify(overrides) : "";
   }
 
