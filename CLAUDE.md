@@ -63,8 +63,11 @@ the one whose numbers nobody has seen. Balance's config fingerprint now hashes t
 rather than the raw `config/` globals, so a per-mode-only table edit moves it and `--baseline`
 refuses a cross-mode comparison the same way it refuses one across a `BOT_BRAIN_VERSION` change.
 
-**Still outstanding** (per-mode tooling, phase 6 of the plan): `docs/turn-tuning.md` and its doc
-test still read the raw globals and describe the DEFAULT mode only. The players' guide came off that
+`docs/turn-tuning.md` came off that list too: it carries one set of its three tables per active
+mode, under that mode's own `##` heading, and `scripts/turn-tuning-doc.test.mjs` iterates
+`activeGameModes()` and names the mode alongside the row and the chassis in every failure. Its
+PROSE is deliberately not per-mode — it stays outside the mode sections and quotes the default
+mode's figures, since no test can see a number inside a sentence. The players' guide came off the
 list earlier in MC41 — it publishes a tab per active mode and `balanceStamp` hashes every one of
 them. See
 [`docs/superpowers/plans/2026-09-22-per-mode-config/EXECUTION.md`](docs/superpowers/plans/2026-09-22-per-mode-config/EXECUTION.md).
@@ -797,9 +800,14 @@ user names it explicitly.
 
 [`docs/turn-tuning.md`](docs/turn-tuning.md) is the index of which knob to reach for when turning or
 aiming feels wrong, and it carries three hand-written tables of the roster's turn numbers — the
-per-car ratings, the global knobs, and every value derived from them.
-**`scripts/turn-tuning-doc.test.mjs` parses them out of the markdown and recomputes every cell from
-built shared**, so a config edit that skips the page fails `npm test` naming the row and the chassis.
+per-car ratings, the global knobs, and every value derived from them — **once per ACTIVE mode, each
+set under that mode's own `## <Mode name>` heading**, since balance is per-mode and there is no
+single roster turn rate left to tabulate. Its prose is NOT per-mode: it sits outside the mode
+sections and quotes the default mode's figures only.
+**`scripts/turn-tuning-doc.test.mjs` parses them out of the markdown, iterates `activeGameModes()`
+and recomputes every cell from that mode's bundle**, so a config edit that skips the page fails
+`npm test` naming the mode, the row and the chassis. Publishing or un-publishing a mode fails it too,
+until the page's sections match `activeGameModes()`.
 It checks values, not a `balanceStamp`-style fingerprint: nothing generates this page, so a stamp
 would only prove someone typed a new stamp.
 

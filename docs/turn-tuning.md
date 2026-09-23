@@ -23,6 +23,10 @@ the roster toward uniform handling, because the flat part grows while the per-ra
 The 2026-08-31 1.5x raise scaled the pair, which is why the ordering and spacing came through it
 untouched.
 
+Both knobs, and the rating they multiply, are **per game mode**: `drive()` and `cars()` read the
+bundle the room installed, so "the roster's turn rate" is a question that only has an answer once you
+say which mode. See [Current values](#current-values).
+
 ## Sharper turning is two different outcomes
 
 Turn rate directly controls only one of them:
@@ -57,61 +61,54 @@ consequence, coast-off roll distance and reverse top speed) moved. See
 against shared. See [Keeping this page honest](#keeping-this-page-honest) below before you change a
 config value.**
 
+**Every table appears once per ACTIVE game mode, under that mode's own heading** — [Brawl](#brawl)
+and [Deathmatch](#deathmatch), named from `MODE_TABLE` and filled from `modeConfigOf(mode)`. Balance
+is per-mode: `cars()`, `drive()` and `ram()` serve whichever bundle the room installed, so there is
+no single roster turn rate left to tabulate. The doc test iterates `activeGameModes()` and **names
+the mode alongside the row and the chassis** when a cell is wrong, so a failure sends you to the
+`packages/shared/src/modes/<mode>/` folder that actually holds the number. Publishing a fourth mode
+owes this page a fourth section, and un-publishing one owes it a deletion; the test fails until the
+sections are exactly `activeGameModes()`.
+
+**The prose on this page is written once, stays outside the mode sections, and quotes the DEFAULT
+mode's figures** (`DEFAULT_GAME_MODE` — Brawl). Everything outside a `##` mode heading is mechanism
+or history: what a knob does, what a past pass changed, what a hypothetical raise would cost. No test
+can see a number inside a sentence (see [Keeping this page
+honest](#keeping-this-page-honest)), so duplicating the argument per mode would multiply the
+un-testable surface by the mode count and buy a reader nothing. **A figure in a sentence is therefore
+the default mode's; read any other mode's numbers off its own tables.**
+
 ### Authored in config
 
-Values a person typed into a file. **Two of them shape turning and are per-car: `handling` and
-`speed`.** `brakeDecel` joined `CAR_TABLE` with the 2026-09-06 vector-drive rework and still shapes
-how a chassis stops, not how it turns, so it gets its own table below rather than a row in the
-ratings one. `coastHalfLifeSeconds` used to sit beside it there — the 2026-09-18 Unity drive-model
-port deleted that field outright, and `accel`'s job is now `dragRate` (`dragRateOf`): one rate that
-sets top speed, wind-up AND roll together, so it joins that same table in `coastHalfLifeSeconds`'s
-old place. Unlike the pair it replaces, `dragRate` is not a dead end for this page — several rows in
-[Derived](#derived) below are computed straight from it. Every other authored value that shapes
-turning is global, and the turning/non-turning split is the first thing to check before an edit — it
-decides whether you are moving one chassis or all three.
+Values a person typed into a file — into a MODE's folder. `modes/brawl/cars.ts` and
+`modes/deathmatch/cars.ts` each hold a whole roster, `modes/*/drive.ts` a whole `DriveConfig`, and
+the game reads only those. (The raw `config/` globals still exist and tooling still reads them, but
+editing one moves nothing about how a car drives — see root `CLAUDE.md`.) **Two of the authored
+values shape turning and are per-car: `handling` and `speed`.** `brakeDecel` joined the roster with
+the 2026-09-06 vector-drive rework and still shapes how a chassis stops, not how it turns, so it gets
+its own table rather than a row in the ratings one. `coastHalfLifeSeconds` used to sit beside it
+there — the 2026-09-18 Unity drive-model port deleted that field outright, and `accel`'s job is now
+`dragRate` (`dragRateOf`): one rate that sets top speed, wind-up AND roll together, so it joins that
+same table in `coastHalfLifeSeconds`'s old place. Unlike the pair it replaces, `dragRate` is not a
+dead end for this page — several rows in each mode's derived table are computed straight from it.
+Every other authored value that shapes turning is global to the mode, and the turning/non-turning
+split is the first thing to check before an edit — it decides whether you are moving one chassis or
+all of them.
 
-**Per-car ratings** — `CAR_TABLE`, one value per chassis:
+**The last six columns of every per-car table are unreleased prototypes** (`isActive: false`, no kit
+yet), and every one of them is a placeholder STAT CLONE of a shipped chassis — Taurus, Anvil and
+Caprico of Bastion, Prowler and Cleaver of Mirage, Skorpios of Bullseye. They are on this page
+because `scripts/turn-tuning-doc.test.mjs` reads each mode's `cars` whole, and because the day one of
+them is actually tuned is the day its column stops being a duplicate. Read the three shipped columns
+for the roster's shape; the other six say nothing yet.
 
-| Rating | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
-|---|---|---|---|---|---|---|---|---|---|
-| `handling` (turn rate) | 65 | 85 | 50 | 50 | 50 | 85 | 85 | 65 | 50 |
-| `speed` (the other half of radius) | 65 | 85 | 50 | 50 | 50 | 85 | 85 | 65 | 50 |
-
-**The last six columns are unreleased prototypes** (`isActive: false`, no kit yet), and every one of
-them is a placeholder STAT CLONE of a shipped chassis — Taurus, Anvil and Caprico of Bastion, Prowler
-and Cleaver of Mirage, Skorpios of Bullseye. They are on this page because
-`scripts/turn-tuning-doc.test.mjs` reads `CAR_TABLE` whole, and because the day one of them is
-actually tuned is the day its column stops being a duplicate. Read the three shipped columns for the
-roster's shape; the other six say nothing yet.
-
-**Per-car direct values** — one value per chassis, but neither is a 0-100 rating. `brakeDecel` is
-still authored directly on `CAR_TABLE` and still feeds no turn-rate or radius cell below. `dragRate`
-is different: it's read out of `driveOf(id)` rather than typed, since it's derived from each car's
-`accel` rating (`dragRateOf`), and — unlike `brakeDecel` — several rows in [Derived](#derived) below
-are computed straight from it. Both are here because they shape the same chassis feel this page is
-about, and because changing either now obliges an edit to this page (see
-[Keeping this page honest](#keeping-this-page-honest)):
-
-| Value | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
-|---|---|---|---|---|---|---|---|---|---|
-| `dragRate` — drag (1/s) | 1.0416 | 1.2848 | 0.8896 | 0.8896 | 0.8896 | 1.2848 | 1.2848 | 1.0416 | 0.8896 |
-| `brakeDecel` — brake deceleration (u/s²) | 520 | 500 | 430 | 430 | 430 | 500 | 500 | 520 | 430 |
-
-**Global** — one value, applied to the whole roster:
-
-| Knob | Where | Value | What it does |
-|---|---|---|---|
-| `baseTurnRate` | `DRIVE_CONFIG` | 1.0005 | Flat part of every car's turn rate |
-| `turnRatePerRating` | `DRIVE_CONFIG` | 0.02535 | What one point of `handling` buys |
-| `spinMaxRate` | `RAM_CONFIG` | 6 rad/s | Cap on ram-imposed rotation |
-| `reelingSpinDecayRate` | `RAM_CONFIG` | 2.0 /s | How fast a ram's imposed spin winds down while the victim is reeling |
-| `baseMaxSpeed` | `DRIVE_CONFIG` | 90 | Flat part of every car's top speed — radius only, no effect on turn rate |
-| `speedPerRating` | `DRIVE_CONFIG` | 2.277 | Radius only — what one point of `speed` buys |
-| `baseDrag` | `DRIVE_CONFIG` | 0.768 | Drag rate at `accel` 0 — sets top speed, wind-up time and roll together |
-| `dragPerRating` | `DRIVE_CONFIG` | 0.00608 | What one point of `accel` buys — more drag, sooner to top speed, shorter roll |
-| `lateralGripRate` | `DRIVE_CONFIG` | 3.0 | The drift knob — how fast sideways velocity bleeds off |
-| `reverseAccelFactor` | `DRIVE_CONFIG` | 0.6 | Reverse push as a fraction of forward — sets reverse top speed too |
-| `reverseEpsilon` | `DRIVE_CONFIG` | 6.0 | Forward speed below which Down reverses instead of braking |
+**The per-car direct-values table holds one value per chassis, but neither is a 0-100 rating.**
+`brakeDecel` is authored directly on the mode's car table and feeds no turn-rate or radius cell.
+`dragRate` is different: it is read out of `driveOf(id)` rather than typed, since it is derived from
+each car's `accel` rating (`dragRateOf`), and — unlike `brakeDecel` — several derived rows are
+computed straight from it. Both are tabulated because they shape the same chassis feel this page is
+about, and because changing either obliges an edit to this page (see
+[Keeping this page honest](#keeping-this-page-honest)).
 
 **A global knob is not a blunt version of a per-car one.** `turnRatePerRating` multiplies the
 rating, so raising it hands the most to whoever already has the most: pushing it from today's
@@ -163,44 +160,27 @@ A global knob could not have made the 2026-08-31 fix, historically: Mirage was s
 
 **To change one car, change its rating. Reach for a global knob only when the whole roster is
 wrong** — as it was before the 2026-08-31 1.5x raise, and, on radius specifically, as it is again
-today.
+today. Either way, decide first whether the complaint is about ONE mode or about the game: a
+one-mode fix is an edit to that mode's folder alone, and the tripwire in
+`packages/shared/src/modes/table-pinning.test.ts` is what tells the two apart.
 
 ### Derived
 
-Nothing here is typed anywhere — all of it is computed from the ratings and global-knob tables above.
-The direct-values table splits down the middle now: `brakeDecel` still feeds nothing below — no
-turn-rate or radius formula reads it — but `dragRate` feeds four of the rows here ("Engine push",
-"Time to 90% of top speed", "Roll distance from top speed" and "Slip angle at full lock"), since it
-is the one rate the Unity drive-model port uses to set top speed, wind-up and roll together.
-
-| Stat | Formula | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
-|---|---|---|---|---|---|---|---|---|---|---|
-| **Turn rate** | `baseTurnRate + handling × turnRatePerRating` | 2.648 rad/s | **3.155 rad/s** | 2.268 rad/s | 2.268 rad/s | 2.268 rad/s | 3.155 rad/s | 3.155 rad/s | 2.648 rad/s | 2.268 rad/s |
-| — in degrees | × 180/π | 151.7°/s | 180.8°/s | 129.9°/s | 129.9°/s | 129.9°/s | 180.8°/s | 180.8°/s | 151.7°/s | 129.9°/s |
-| — per tick | ÷ `TICK_RATE_HZ` (30) | 0.0883 rad | 0.1052 rad | 0.0756 rad | 0.0756 rad | 0.0756 rad | 0.1052 rad | 0.1052 rad | 0.0883 rad | 0.0756 rad |
-| — degrees per tick | ″ | 5.06° | 6.03° | 4.33° | 4.33° | 4.33° | 6.03° | 6.03° | 5.06° | 4.33° |
-| **Engine push** | `topSpeed × dragRate` | 247.91 u/s² | **364.30 u/s²** | 181.34 u/s² | 181.34 u/s² | 181.34 u/s² | 364.30 u/s² | 364.30 u/s² | 247.91 u/s² | 181.34 u/s² |
-| Time to 90% of top speed | `ln(10) / dragRate` | 2.21 s | 1.79 s | 2.59 s | 2.59 s | 2.59 s | 1.79 s | 1.79 s | 2.21 s | 2.59 s |
-| Top speed | `baseMaxSpeed + speed × speedPerRating` | 238 u/s | **283.55 u/s** | 203.85 u/s | 203.85 u/s | 203.85 u/s | 283.55 u/s | 283.55 u/s | 238 u/s | 203.85 u/s |
-| Roll distance from top speed | `topSpeed / dragRate` | 228.5 u | 220.7 u | 229.1 u | 229.1 u | 229.1 u | 220.7 u | 220.7 u | 228.5 u | 229.1 u |
-| Reverse top speed | `topSpeed × reverseAccelFactor` | 142.8 u/s | 170.1 u/s | 122.3 u/s | 122.3 u/s | 122.3 u/s | 170.1 u/s | 170.1 u/s | 142.8 u/s | 122.3 u/s |
-| **Turn radius** | `topSpeed / turnRate` | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u |
-| Reverse turn radius | `reverseTopSpeed / turnRate` | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u |
-| Slip angle at full lock | `atan(turnRate / (dragRate + lateralGripRate))` | 33.2° | **36.4°** | 30.2° | 30.2° | 30.2° | 36.4° | 36.4° | 33.2° | 30.2° |
-| 180° while moving | `π / turnRate` | 1.19 s | 1.00 s | 1.39 s | 1.39 s | 1.39 s | 1.00 s | 1.00 s | 1.19 s | 1.39 s |
-| 360° while moving | `2π / turnRate` | 2.37 s | 1.99 s | 2.77 s | 2.77 s | 2.77 s | 1.99 s | 1.99 s | 2.37 s | 2.77 s |
-| Grip while reeling | `lateralGripRate × STATUS_TABLE.reeling.grip` | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s |
-| Spin kept per tick while reeling | `exp(−reelingSpinDecayRate / TICK_RATE_HZ)` | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 |
+Nothing in a mode's derived table is typed anywhere — all of it is computed from that mode's ratings
+and global-knob tables. The direct-values table splits down the middle: `brakeDecel` feeds nothing
+derived — no turn-rate or radius formula reads it — but `dragRate` feeds four derived rows ("Engine
+push", "Time to 90% of top speed", "Roll distance from top speed" and "Slip angle at full lock"),
+since it is the one rate the Unity drive-model port uses to set top speed, wind-up and roll together.
 
 **"Spin kept per tick while reeling" is `ChassisDrive.spinPerTick`**, the last member of that struct
-to get a row here. It is `RAM_CONFIG.reelingSpinDecayRate` (2.0/s) put through `perTickDecay` —
-`exp(−2/30)` at 30 Hz — and it is the same for every chassis because the rate is global, like `grip`
-above. It reaches a car only while a status grants `spinFree` (`reeling` is the one row that does) or
-the car is in a HOLD: under U16 ordinary steering SETS `angVel` every tick, so an ungated injected
-spin is overwritten rather than decayed. It is a drive-model number with no other page, and a
-spin-decay retune would move how a ram reads without failing anything until this row existed.
+to get a row here. It is `reelingSpinDecayRate` (2.0/s) put through `perTickDecay` — `exp(−2/30)` at
+30 Hz — and it is the same for every chassis because the rate is global to the mode, like `grip`. It
+reaches a car only while a status grants `spinFree` (`reeling` is the one row that does) or the car
+is in a HOLD: under U16 ordinary steering SETS `angVel` every tick, so an ungated injected spin is
+overwritten rather than decayed. It is a drive-model number with no other page, and a spin-decay
+retune would move how a ram reads without failing anything until this row existed.
 
-**Four rows above replace ones the Unity drive-model port made meaningless.** "Turn rate at rest"
+**Four derived rows replace ones the Unity drive-model port made meaningless.** "Turn rate at rest"
 (and its degrees row) and "180° from standstill" used to read `turnRateAtStop`, a field `ChassisDrive`
 no longer has: yaw is speed-independent under this model, so there is no separate at-rest rate any
 more — a car turns at the same `turnRate` parked or at top speed, full stop.
@@ -214,14 +194,14 @@ that port (restored; see [Keeping this page honest](#keeping-this-page-honest) f
 the row it scaled really is gone: `reeling` no longer carries a `turnRate` or `accel` multiplier at
 all — a reeling car loses its inputs entirely (`immobilised`, `steeringLocked`, `spinFree`,
 `ramBlocked`) rather than having its numbers merely worsened — and the one channel it still scales
-is `grip`. This row is that channel's replacement: `DRIVE_CONFIG.lateralGripRate` (3.0) ×
-`STATUS_TABLE.reeling`'s `grip` multiplier (0.6, through `modifiersOf`) = 1.8 /s, the same for every
-chassis since `grip` is a global rate rather than a per-car one. The guard this row exists to satisfy
-is unchanged: a `STATUS_TABLE` multiplier that reaches the drive model must be tabulated and tested,
-whichever channel it happens to be authored on today.
+is `grip`. This row is that channel's replacement: `lateralGripRate` (3.0) × `reeling`'s `grip`
+multiplier (0.6, through `modifiersOf`) = 1.8 /s, the same for every chassis since `grip` is a rate
+rather than a per-car rating. The guard this row exists to satisfy is unchanged: a status multiplier
+that reaches the drive model must be tabulated and tested, whichever channel it happens to be
+authored on today — and now, in whichever modes carry it.
 
 **Top speed is no longer a ceiling anyone hits.** It is the equilibrium where the engine's push
-("Engine push" above, `engineAccel`) exactly balances drag (`dragRate`) — `engineAccel === topSpeed ×
+("Engine push", `engineAccel`) exactly balances drag (`dragRate`) — `engineAccel === topSpeed ×
 dragRate` by construction (`engineAccelOf`) — and a car only ever decays toward it, never truly
 arrives. "Time to 90% of top speed" (`ln(10) / dragRate`) is the number worth reading instead of a
 made-up "seconds to top": it is when the car is within 10% of its ceiling, close enough that nobody
@@ -232,8 +212,8 @@ throttle: `topSpeed / dragRate` is how far a car coasts from a dead sprint befor
 
 **"Slip angle at full lock" is the drift a car settles into cornering flat-out, forever.** It is
 **not** `atan(turnRate / lateralGripRate)` — see [Grip and drift](#grip-and-drift) below for why
-`dragRate` belongs in that denominator too. The figures above are the continuous prediction; the real
-per-tick integration lands a few degrees higher because of ordinary discretization (measured for
+`dragRate` belongs in that denominator too. The tabulated figures are the continuous prediction; the
+real per-tick integration lands a few degrees higher because of ordinary discretization (measured for
 Mirage at the drive-model port's own anchors, before stage 5: 26.1° continuous against 28.2° at
 steady state after 10 real seconds of full lock — the 28.2° comes from stepping the real chassis tick
 by tick to that steady state, not from the formula, so the two are expected to disagree by a few
@@ -271,10 +251,124 @@ was 48 u long until the 2026-09-16 resize to 60 u). The same pass also cut `acce
 (`baseAccel`/`accelPerRating`, both since deleted outright by the 2026-09-18 port — see
 `baseDrag`/`dragPerRating` in [Authored in config](#authored-in-config) above), which lengthened
 time-to-top-speed roster-wide by roughly 3-4x at the time (Mirage 0.44 -> 1.49 s, Bullseye
-0.50 -> 1.81 s, Bastion 0.57 -> 2.16 s). "Time to 90% of top speed" in the table above is that same
-question's current answer — asymptotic now rather than a hard cap, and read straight off `dragRate`.
+0.50 -> 1.81 s, Bastion 0.57 -> 2.16 s). "Time to 90% of top speed" is that same question's current
+answer — asymptotic now rather than a hard cap, and read straight off `dragRate`.
+
+## Brawl
+
+The `FFA_LAST_STANDING` bundle, assembled from `packages/shared/src/modes/brawl/`.
+
+**Per-car ratings** — `cars()`, one value per chassis:
+
+| Rating | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
+|---|---|---|---|---|---|---|---|---|---|
+| `handling` (turn rate) | 65 | 85 | 50 | 50 | 50 | 85 | 85 | 65 | 50 |
+| `speed` (the other half of radius) | 65 | 85 | 50 | 50 | 50 | 85 | 85 | 65 | 50 |
+
+**Per-car direct values** — `brakeDecel` off `cars()`, `dragRate` off `driveOf(id)`:
+
+| Value | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
+|---|---|---|---|---|---|---|---|---|---|
+| `dragRate` — drag (1/s) | 1.0416 | 1.2848 | 0.8896 | 0.8896 | 0.8896 | 1.2848 | 1.2848 | 1.0416 | 0.8896 |
+| `brakeDecel` — brake deceleration (u/s²) | 520 | 500 | 430 | 430 | 430 | 500 | 500 | 520 | 430 |
+
+**Global** — one value, applied to this mode's whole roster:
+
+| Knob | Where | Value | What it does |
+|---|---|---|---|
+| `baseTurnRate` | `modes/brawl/drive.ts` | 1.0005 | Flat part of every car's turn rate |
+| `turnRatePerRating` | `modes/brawl/drive.ts` | 0.02535 | What one point of `handling` buys |
+| `spinMaxRate` | `modes/brawl/ram.ts` | 6 rad/s | Cap on ram-imposed rotation |
+| `reelingSpinDecayRate` | `modes/brawl/ram.ts` | 2.0 /s | How fast a ram's imposed spin winds down while the victim is reeling |
+| `baseMaxSpeed` | `modes/brawl/drive.ts` | 90 | Flat part of every car's top speed — radius only, no effect on turn rate |
+| `speedPerRating` | `modes/brawl/drive.ts` | 2.277 | Radius only — what one point of `speed` buys |
+| `baseDrag` | `modes/brawl/drive.ts` | 0.768 | Drag rate at `accel` 0 — sets top speed, wind-up time and roll together |
+| `dragPerRating` | `modes/brawl/drive.ts` | 0.00608 | What one point of `accel` buys — more drag, sooner to top speed, shorter roll |
+| `lateralGripRate` | `modes/brawl/drive.ts` | 3.0 | The drift knob — how fast sideways velocity bleeds off |
+| `reverseAccelFactor` | `modes/brawl/drive.ts` | 0.6 | Reverse push as a fraction of forward — sets reverse top speed too |
+| `reverseEpsilon` | `modes/brawl/drive.ts` | 6.0 | Forward speed below which Down reverses instead of braking |
+
+**Derived** — nothing below is typed anywhere; all of it is computed from the three tables above:
+
+| Stat | Formula | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Turn rate** | `baseTurnRate + handling × turnRatePerRating` | 2.648 rad/s | **3.155 rad/s** | 2.268 rad/s | 2.268 rad/s | 2.268 rad/s | 3.155 rad/s | 3.155 rad/s | 2.648 rad/s | 2.268 rad/s |
+| — in degrees | × 180/π | 151.7°/s | 180.8°/s | 129.9°/s | 129.9°/s | 129.9°/s | 180.8°/s | 180.8°/s | 151.7°/s | 129.9°/s |
+| — per tick | ÷ `TICK_RATE_HZ` (30) | 0.0883 rad | 0.1052 rad | 0.0756 rad | 0.0756 rad | 0.0756 rad | 0.1052 rad | 0.1052 rad | 0.0883 rad | 0.0756 rad |
+| — degrees per tick | ″ | 5.06° | 6.03° | 4.33° | 4.33° | 4.33° | 6.03° | 6.03° | 5.06° | 4.33° |
+| **Engine push** | `topSpeed × dragRate` | 247.91 u/s² | **364.30 u/s²** | 181.34 u/s² | 181.34 u/s² | 181.34 u/s² | 364.30 u/s² | 364.30 u/s² | 247.91 u/s² | 181.34 u/s² |
+| Time to 90% of top speed | `ln(10) / dragRate` | 2.21 s | 1.79 s | 2.59 s | 2.59 s | 2.59 s | 1.79 s | 1.79 s | 2.21 s | 2.59 s |
+| Top speed | `baseMaxSpeed + speed × speedPerRating` | 238 u/s | **283.55 u/s** | 203.85 u/s | 203.85 u/s | 203.85 u/s | 283.55 u/s | 283.55 u/s | 238 u/s | 203.85 u/s |
+| Roll distance from top speed | `topSpeed / dragRate` | 228.5 u | 220.7 u | 229.1 u | 229.1 u | 229.1 u | 220.7 u | 220.7 u | 228.5 u | 229.1 u |
+| Reverse top speed | `topSpeed × reverseAccelFactor` | 142.8 u/s | 170.1 u/s | 122.3 u/s | 122.3 u/s | 122.3 u/s | 170.1 u/s | 170.1 u/s | 142.8 u/s | 122.3 u/s |
+| **Turn radius** | `topSpeed / turnRate` | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u |
+| Reverse turn radius | `reverseTopSpeed / turnRate` | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u |
+| Slip angle at full lock | `atan(turnRate / (dragRate + lateralGripRate))` | 33.2° | **36.4°** | 30.2° | 30.2° | 30.2° | 36.4° | 36.4° | 33.2° | 30.2° |
+| 180° while moving | `π / turnRate` | 1.19 s | 1.00 s | 1.39 s | 1.39 s | 1.39 s | 1.00 s | 1.00 s | 1.19 s | 1.39 s |
+| 360° while moving | `2π / turnRate` | 2.37 s | 1.99 s | 2.77 s | 2.77 s | 2.77 s | 1.99 s | 1.99 s | 2.37 s | 2.77 s |
+| Grip while reeling | `lateralGripRate × STATUS_TABLE.reeling.grip` | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s |
+| Spin kept per tick while reeling | `exp(−reelingSpinDecayRate / TICK_RATE_HZ)` | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 |
+
+## Deathmatch
+
+The `FFA_DEATHMATCH` bundle, assembled from `packages/shared/src/modes/deathmatch/`.
+
+**Per-car ratings** — `cars()`, one value per chassis:
+
+| Rating | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
+|---|---|---|---|---|---|---|---|---|---|
+| `handling` (turn rate) | 65 | 85 | 50 | 50 | 50 | 85 | 85 | 65 | 50 |
+| `speed` (the other half of radius) | 65 | 85 | 50 | 50 | 50 | 85 | 85 | 65 | 50 |
+
+**Per-car direct values** — `brakeDecel` off `cars()`, `dragRate` off `driveOf(id)`:
+
+| Value | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
+|---|---|---|---|---|---|---|---|---|---|
+| `dragRate` — drag (1/s) | 1.0416 | 1.2848 | 0.8896 | 0.8896 | 0.8896 | 1.2848 | 1.2848 | 1.0416 | 0.8896 |
+| `brakeDecel` — brake deceleration (u/s²) | 520 | 500 | 430 | 430 | 430 | 500 | 500 | 520 | 430 |
+
+**Global** — one value, applied to this mode's whole roster:
+
+| Knob | Where | Value | What it does |
+|---|---|---|---|
+| `baseTurnRate` | `modes/deathmatch/drive.ts` | 1.0005 | Flat part of every car's turn rate |
+| `turnRatePerRating` | `modes/deathmatch/drive.ts` | 0.02535 | What one point of `handling` buys |
+| `spinMaxRate` | `modes/deathmatch/ram.ts` | 6 rad/s | Cap on ram-imposed rotation |
+| `reelingSpinDecayRate` | `modes/deathmatch/ram.ts` | 2.0 /s | How fast a ram's imposed spin winds down while the victim is reeling |
+| `baseMaxSpeed` | `modes/deathmatch/drive.ts` | 90 | Flat part of every car's top speed — radius only, no effect on turn rate |
+| `speedPerRating` | `modes/deathmatch/drive.ts` | 2.277 | Radius only — what one point of `speed` buys |
+| `baseDrag` | `modes/deathmatch/drive.ts` | 0.768 | Drag rate at `accel` 0 — sets top speed, wind-up time and roll together |
+| `dragPerRating` | `modes/deathmatch/drive.ts` | 0.00608 | What one point of `accel` buys — more drag, sooner to top speed, shorter roll |
+| `lateralGripRate` | `modes/deathmatch/drive.ts` | 3.0 | The drift knob — how fast sideways velocity bleeds off |
+| `reverseAccelFactor` | `modes/deathmatch/drive.ts` | 0.6 | Reverse push as a fraction of forward — sets reverse top speed too |
+| `reverseEpsilon` | `modes/deathmatch/drive.ts` | 6.0 | Forward speed below which Down reverses instead of braking |
+
+**Derived** — nothing below is typed anywhere; all of it is computed from the three tables above:
+
+| Stat | Formula | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Turn rate** | `baseTurnRate + handling × turnRatePerRating` | 2.648 rad/s | **3.155 rad/s** | 2.268 rad/s | 2.268 rad/s | 2.268 rad/s | 3.155 rad/s | 3.155 rad/s | 2.648 rad/s | 2.268 rad/s |
+| — in degrees | × 180/π | 151.7°/s | 180.8°/s | 129.9°/s | 129.9°/s | 129.9°/s | 180.8°/s | 180.8°/s | 151.7°/s | 129.9°/s |
+| — per tick | ÷ `TICK_RATE_HZ` (30) | 0.0883 rad | 0.1052 rad | 0.0756 rad | 0.0756 rad | 0.0756 rad | 0.1052 rad | 0.1052 rad | 0.0883 rad | 0.0756 rad |
+| — degrees per tick | ″ | 5.06° | 6.03° | 4.33° | 4.33° | 4.33° | 6.03° | 6.03° | 5.06° | 4.33° |
+| **Engine push** | `topSpeed × dragRate` | 247.91 u/s² | **364.30 u/s²** | 181.34 u/s² | 181.34 u/s² | 181.34 u/s² | 364.30 u/s² | 364.30 u/s² | 247.91 u/s² | 181.34 u/s² |
+| Time to 90% of top speed | `ln(10) / dragRate` | 2.21 s | 1.79 s | 2.59 s | 2.59 s | 2.59 s | 1.79 s | 1.79 s | 2.21 s | 2.59 s |
+| Top speed | `baseMaxSpeed + speed × speedPerRating` | 238 u/s | **283.55 u/s** | 203.85 u/s | 203.85 u/s | 203.85 u/s | 283.55 u/s | 283.55 u/s | 238 u/s | 203.85 u/s |
+| Roll distance from top speed | `topSpeed / dragRate` | 228.5 u | 220.7 u | 229.1 u | 229.1 u | 229.1 u | 220.7 u | 220.7 u | 228.5 u | 229.1 u |
+| Reverse top speed | `topSpeed × reverseAccelFactor` | 142.8 u/s | 170.1 u/s | 122.3 u/s | 122.3 u/s | 122.3 u/s | 170.1 u/s | 170.1 u/s | 142.8 u/s | 122.3 u/s |
+| **Turn radius** | `topSpeed / turnRate` | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u |
+| Reverse turn radius | `reverseTopSpeed / turnRate` | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u |
+| Slip angle at full lock | `atan(turnRate / (dragRate + lateralGripRate))` | 33.2° | **36.4°** | 30.2° | 30.2° | 30.2° | 36.4° | 36.4° | 33.2° | 30.2° |
+| 180° while moving | `π / turnRate` | 1.19 s | 1.00 s | 1.39 s | 1.39 s | 1.39 s | 1.00 s | 1.00 s | 1.19 s | 1.39 s |
+| 360° while moving | `2π / turnRate` | 2.37 s | 1.99 s | 2.77 s | 2.77 s | 2.77 s | 1.99 s | 1.99 s | 2.37 s | 2.77 s |
+| Grip while reeling | `lateralGripRate × STATUS_TABLE.reeling.grip` | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s |
+| Spin kept per tick while reeling | `exp(−reelingSpinDecayRate / TICK_RATE_HZ)` | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 |
 
 ## What to reach for, by outcome
+
+Every row below is an edit to a MODE's tables. Making it in one mode's folder is the whole point of
+the per-mode system; making it in both (and in the pinned `config/` global) is an ordinary
+roster-wide balance change. Root `CLAUDE.md` has the rule and `table-pinning.test.ts` is the tripwire.
 
 | You want… | Tune | Why |
 |---|---|---|
@@ -283,15 +377,16 @@ question's current answer — asymptotic now rather than a hard cap, and read st
 | `handling` to *matter more* between chassis | raise `turnRatePerRating`, lower `baseTurnRate` to hold the pivot | Widens the spread without moving the average car |
 | Tighter corners without faster aim | lower `speed` (rating, or `baseMaxSpeed`/`speedPerRating`) | Radius is `speed / rate`; this is the other half |
 | Snappier pivots once fully stopped | *(no longer a knob)* | Yaw is speed-independent under the 2026-09-18 Unity drive-model port — there is no separate at-rest rate any more, and no `stopTurnRatio` to reach for. A car turns at the same `turnRate` parked or at top speed; a sluggish pivot is a `handling` or scale complaint like any other |
-| Braking into a corner to feel rewarding | that car's `brakeDecel` against its `dragRate` | Slower entry is a smaller radius; the *situational* radius lever, and per-car. `dragRate` now also sets coast-off roll ("Roll distance from top speed" above) in place of the deleted per-car `coastHalfLifeSeconds` |
+| Braking into a corner to feel rewarding | that car's `brakeDecel` against its `dragRate` | Slower entry is a smaller radius; the *situational* radius lever, and per-car. `dragRate` now also sets coast-off roll ("Roll distance from top speed" in the derived tables) in place of the deleted per-car `coastHalfLifeSeconds` |
 | A car to drift more (or less) through a turn | `lateralGripRate`, or that car's `accel`/`dragRate` | The new grip/slip mechanic — see [Grip and drift](#grip-and-drift) below |
-| Getting rammed to feel less helpless | `STATUS_TABLE.reeling`'s flags (`immobilised`, `steeringLocked`, `spinFree`, `ramBlocked`) for WHETHER it is helpless at all; its `grip` multiplier (0.6) for how far the shove carries; `RAM_CONFIG.ramUncontrolMs` (1000) for how long | Since the 2026-09-18 Unity ram port (stage 3 Task 4), a ram applies the `reeling` status as a total loss of input — no throttle, no steering, free spin, no ramming back — rather than the old "handles badly" pair of multipliers. Severity is no longer a dial on how much control survives (none does); it is how far the victim slides while it cannot do anything about it, which is `grip`: lower scrubs the shove off slower, so the ride carries further. `grip` sits well inside `STATUS_LIMITS.grip` (0.25–2) rather than at a floor, so — unlike the old pair — it CAN be pushed lower for a harsher ram without `modifiersOf` silently clamping it back. Duration is still the separate knob it always was: `RAM_CONFIG.ramUncontrolMs` for the base window, and its falloff knobs (`drWindowMs`, `durationDrScale`, `impulseDrScale`, and their floors) for what stops a repeated ram reading as a lock |
+| Getting rammed to feel less helpless | `reeling`'s flags (`immobilised`, `steeringLocked`, `spinFree`, `ramBlocked`) for WHETHER it is helpless at all; its `grip` multiplier (0.6) for how far the shove carries; `ramUncontrolMs` (1000) for how long | Since the 2026-09-18 Unity ram port (stage 3 Task 4), a ram applies the `reeling` status as a total loss of input — no throttle, no steering, free spin, no ramming back — rather than the old "handles badly" pair of multipliers. Severity is no longer a dial on how much control survives (none does); it is how far the victim slides while it cannot do anything about it, which is `grip`: lower scrubs the shove off slower, so the ride carries further. `grip` sits well inside `statusLimits().grip` (0.25–2) rather than at a floor, so — unlike the old pair — it CAN be pushed lower for a harsher ram without `modifiersOf` silently clamping it back. Duration is still the separate knob it always was: `ramUncontrolMs` for the base window, and its falloff knobs (`drWindowMs`, `durationDrScale`, `impulseDrScale`, and their floors) for what stops a repeated ram reading as a lock |
 
 ## Grip and drift
 
-There is now a real slip mechanic, where the old model had none. `DRIVE_CONFIG.lateralGripRate`
-(3.0) is how fast the sideways component of velocity bleeds off each tick — lower drifts more, and 0
-is a hockey puck — and it is what "Slip angle at full lock" in the derived table above tabulates:
+There is now a real slip mechanic, where the old model had none. `lateralGripRate` (3.0 in both
+shipped modes) is how fast the sideways component of velocity bleeds off each tick — lower drifts
+more, and 0 is a hockey puck — and it is what "Slip angle at full lock" in each derived table
+tabulates:
 
 ```
 slipAngle = atan(turnRate / (dragRate + lateralGripRate))
@@ -314,87 +409,107 @@ how hard the car is turning.
 
 ## Reading a complaint
 
+**Ask which mode the complaint came from before you read the row.** A player who only ever plays
+Deathmatch is reporting on `modes/deathmatch/`, and the fix belongs there unless the same reading
+holds in every mode.
+
 | Symptom | Usually |
 |---|---|
 | "Aiming is heavy", "I can't track anyone" | Rate. There is no aim assist to reach for instead — every shot leaves along the heading, so turn rate IS the aiming knob |
 | "Fine slow, wide at speed" | Radius. Lower that car's `speed`; raising rate again over-serves the slow chassis |
 | "Sluggish in tight spaces" | Nothing, any more — as of the 2026-09-18 port, turn rate is the same parked or moving, and there is no `stopTurnRatio` or at-rest branch left to check. Read it as a radius complaint (that car's `speed`) or a drift complaint (`lateralGripRate`) instead |
-| "I lose control when hit" | The `reeling` status a ram applies — that IS the complaint, by design, since the 2026-09-18 Unity ram port: its flags take every input away, and `STATUS_TABLE.reeling`'s `grip` multiplier is how far the shove carries while they're gone, `RAM_CONFIG.ramUncontrolMs` for how long. If the complaint is really "and then it happened again", it is the falloff knobs, not these |
+| "I lose control when hit" | The `reeling` status a ram applies — that IS the complaint, by design, since the 2026-09-18 Unity ram port: its flags take every input away, and `reeling`'s `grip` multiplier is how far the shove carries while they're gone, `ramUncontrolMs` for how long. If the complaint is really "and then it happened again", it is the falloff knobs, not these |
 | "This one car feels wrong" | Its `handling` rating, never the scale |
 
 ## Keeping this page honest
 
 **The tables above are hand-written, and `scripts/turn-tuning-doc.test.mjs` reads them back out of
-this file and recomputes every cell from built shared.** Change any value in the list below without
-editing the tables and `npm test` fails, naming the row and the chassis:
+this file and recomputes every cell from built shared — once per active mode.** Change any value in
+the list below without editing that mode's tables and `npm test` fails, naming the mode, the row and
+the chassis:
 
 ```
-derived "Turn rate" / mirage: page says 2.10, config gives 2.58
+Deathmatch: derived "Turn rate" / mirage: page says 2.10, config gives 2.58
 ```
+
+**The mode's name is in that message on purpose.** A failure reading `mirage, turn rate` without it
+sends the reader to whichever `cars.ts` they happen to open first, and the two mode folders hold
+different files with the same shape — a per-mode guard that reported the wrong mode would be worse
+than the mode-blind one it replaced.
 
 It checks values rather than a fingerprint. The players' guide can hash its inputs because it is
 generated, so a matching `balanceStamp` proves the builder re-ran; nothing generates this page, so a
 stamp would only prove someone typed a new stamp. Reading the numbers back is also the stronger
-check — it catches a hand-edit that updated four cells and missed the fifth.
+check — it catches a hand-edit that updated four cells and missed the fifth, or four cells in one
+mode and none in the other.
 
 Precision comes from each cell, so the page stays free to print 6.84 in one row and 0.1704 in
-another. The chassis columns are matched against `CAR_TABLE` by name, so **a fourth chassis fails the
-suite until it has a column in all three per-car tables** — ratings, direct values, and derived —
-and the ordered row list means an inserted or reordered row fails rather than going silently
-unchecked.
+another. The chassis columns are matched against that mode's `cars` by name, so **a fourth chassis
+fails the suite until it has a column in all three per-car tables of every mode section** — ratings,
+direct values, and derived — and the ordered row list means an inserted or reordered row fails rather
+than going silently unchecked. The `##` section headings are matched against `activeGameModes()` and
+`MODE_TABLE`'s names, so publishing or un-publishing a mode fails the suite until the sections match.
 
-**Update the tables in [Current values](#current-values) whenever you change:**
+**Update the affected mode's tables whenever you change:**
 
 | Config | Fields |
 |---|---|
-| `CAR_TABLE` | any car's `handling`, `speed`, `accel` or `brakeDecel` |
-| `DRIVE_CONFIG` | `baseTurnRate`, `turnRatePerRating`, `baseMaxSpeed`, `speedPerRating`, `baseDrag`, `dragPerRating`, `lateralGripRate`, `reverseAccelFactor`, `reverseEpsilon` |
-| `RAM_CONFIG` | `spinMaxRate`, `reelingSpinDecayRate` |
-| `STATUS_TABLE` | any row's `turnRate` OR `grip` multiplier that reaches the drive model — `reeling`'s `grip` (0.6) is the one shipped today, and it has its own "Grip while reeling" row |
-| shared | `TICK_RATE_HZ` (the per-tick rows only) |
+| each mode's `cars.ts` (and the pinned `CAR_TABLE` global, for a roster-wide change) | any car's `handling`, `speed`, `accel` or `brakeDecel` |
+| each mode's `drive.ts` (and `DRIVE_CONFIG`) | `baseTurnRate`, `turnRatePerRating`, `baseMaxSpeed`, `speedPerRating`, `baseDrag`, `dragPerRating`, `lateralGripRate`, `reverseAccelFactor`, `reverseEpsilon` |
+| each mode's `ram.ts` (and `RAM_CONFIG`) | `spinMaxRate`, `reelingSpinDecayRate` |
+| each mode's `status.ts` (and `STATUS_TABLE`) | any row's `turnRate` OR `grip` multiplier that reaches the drive model — `reeling`'s `grip` (0.6) is the one shipped today, and it has its own "Grip while reeling" row |
+| shared (global, every mode) | `TICK_RATE_HZ` (the per-tick rows only) |
 
-Adding a fourth chassis means a new column in all three per-car tables (ratings, direct values, and
-derived) — all three are test-checked; see above.
+A change to one mode's folder owes that mode's section alone. A roster-wide change owes every
+section — and `packages/shared/src/modes/table-pinning.test.ts` is what decides which kind of change
+you just made.
 
-`STATUS_TABLE.reeling`'s multiplier owes this page a derived row for whichever channel it is
-authored on, and any future status carrying a `turnRate` or `grip` multiplier owes one the same way.
-This row's own history: under the Unity drive-model port it was "Rate while reeling", scaling
-`turnRate` at 0.4. **That row was briefly deleted during that port on a factually wrong premise** —
-the stated reason was that the row it scaled, `turnRateAtStop`, no longer exists, but the deleted
-line scaled `d.turnRate`, which did. Root `CLAUDE.md` named it as the guard a `STATUS_TABLE.turnRate`
-edit owes, so deleting it left that contract unenforced immediately before the stage that retunes
-`reeling`. It was restored, along with the doc test's `modifiersOf` read behind it.
+Adding a fourth chassis means a new column in all three per-car tables of every mode section
+(ratings, direct values, and derived) — all of them are test-checked; see above.
+
+`reeling`'s multiplier owes this page a derived row for whichever channel it is authored on, and any
+future status carrying a `turnRate` or `grip` multiplier owes one the same way. This row's own
+history: under the Unity drive-model port it was "Rate while reeling", scaling `turnRate` at 0.4.
+**That row was briefly deleted during that port on a factually wrong premise** — the stated reason
+was that the row it scaled, `turnRateAtStop`, no longer exists, but the deleted line scaled
+`d.turnRate`, which did. Root `CLAUDE.md` named it as the guard a `STATUS_TABLE.turnRate` edit owes,
+so deleting it left that contract unenforced immediately before the stage that retunes `reeling`. It
+was restored, along with the doc test's `modifiersOf` read behind it.
 
 **The 2026-09-18 Unity ram port's stage 3 Task 4 then retired `turnRate` from `reeling` for real** —
 the row no longer carries a `turnRate` or `accel` multiplier at all, only `grip` — so "Rate while
-reeling" is now replaced outright by "Grip while reeling", reading `STATUS_TABLE.reeling`'s `grip`
-multiplier the same way: through `modifiersOf`, not off the row, so a value authored past a
-`STATUS_LIMITS` floor or ceiling prints what the sim actually applies rather than what someone
+reeling" is now replaced outright by "Grip while reeling", reading `reeling`'s `grip` multiplier the
+same way: through `modifiersOf`, under that mode's own scope, so a value authored past a
+`statusLimits()` floor or ceiling prints what the sim actually applies rather than what someone
 typed.
 
-Do not retype the derived numbers by hand — build shared and print them:
+Do not retype the derived numbers by hand — build shared and print them, per mode:
 
 ```bash
 npm run build -w @motor-combat-moba/shared
 ```
 
 ```bash
-node -e "import('./packages/shared/dist/index.js').then(({CAR_TABLE,DRIVE_CONFIG,TICK_RATE_HZ,driveOf,modifiersOf})=>{const reelingGrip=modifiersOf([{statusId:'reeling',startTick:0,endsTick:1,sourceSessionId:''}],0).grip;for(const id of Object.keys(CAR_TABLE)){const d=driveOf(id),deg=(r)=>r*180/Math.PI,rev=d.maxSpeed*DRIVE_CONFIG.reverseAccelFactor;console.log(id,{rate:+d.turnRate.toFixed(3),deg:+deg(d.turnRate).toFixed(1),perTick:+(d.turnRate/TICK_RATE_HZ).toFixed(4),engineAccel:+d.engineAccel.toFixed(2),timeTo90:+(Math.log(10)/d.dragRate).toFixed(2),top:+d.maxSpeed.toFixed(2),roll:+(d.maxSpeed/d.dragRate).toFixed(1),rev:+rev.toFixed(1),radius:+(d.maxSpeed/d.turnRate).toFixed(1),revRadius:+(rev/d.turnRate).toFixed(1),slip:+deg(Math.atan(d.turnRate/(d.dragRate+DRIVE_CONFIG.lateralGripRate))).toFixed(1),s180:+(Math.PI/d.turnRate).toFixed(2),s360:+(2*Math.PI/d.turnRate).toFixed(2),reelingGrip:+(DRIVE_CONFIG.lateralGripRate*reelingGrip).toFixed(3),spinPerTick:+d.spinPerTick.toFixed(4)});}})"
+node -e "import('./packages/shared/dist/index.js').then(({MODE_TABLE,TICK_RATE_HZ,activeGameModes,modeConfigOf,withMode,modifiersOf})=>{for(const m of activeGameModes()){const c=modeConfigOf(m),D=c.drive,g=withMode(c,()=>modifiersOf([{statusId:'reeling',startTick:0,endsTick:1,sourceSessionId:''}],0).grip);console.log('##',MODE_TABLE[m].name);for(const id of Object.keys(c.cars)){const d=c.derived.chassisDrive[id],deg=(r)=>r*180/Math.PI,rev=d.maxSpeed*D.reverseAccelFactor;console.log(id,{dragRate:+d.dragRate.toFixed(4),rate:+d.turnRate.toFixed(3),deg:+deg(d.turnRate).toFixed(1),perTick:+(d.turnRate/TICK_RATE_HZ).toFixed(4),degPerTick:+(deg(d.turnRate)/TICK_RATE_HZ).toFixed(2),engineAccel:+d.engineAccel.toFixed(2),timeTo90:+(Math.log(10)/d.dragRate).toFixed(2),top:+d.maxSpeed.toFixed(2),roll:+(d.maxSpeed/d.dragRate).toFixed(1),rev:+rev.toFixed(1),radius:+(d.maxSpeed/d.turnRate).toFixed(1),revRadius:+(rev/d.turnRate).toFixed(1),slip:+deg(Math.atan(d.turnRate/(d.dragRate+D.lateralGripRate))).toFixed(1),s180:+(Math.PI/d.turnRate).toFixed(2),s360:+(2*Math.PI/d.turnRate).toFixed(2),reelingGrip:+(D.lateralGripRate*g).toFixed(3),spinPerTick:+d.spinPerTick.toFixed(4)});}}})"
 ```
 
 The same edits almost always owe a `npm run build:manual` too — that page is generated and
-fingerprinted, so the suite will tell you about it as well.
+fingerprinted per mode, so the suite will tell you about it as well.
 
 **What no test covers: numbers in prose.** This page argues from figures inside sentences — what
 raising `turnRatePerRating` to 0.0225 would do to Bastion, how far the roster's turn-radius history
-narrowed before the 2026-09-18 port erased it outright. A table parser will never see those. They
-stay a review-time responsibility, so re-read the prose after a tuning pass even when the suite is
-green.
+narrowed before the 2026-09-18 port erased it outright. A table parser will never see those. Two
+rules keep them honest, and both are review-time: **prose lives outside the mode sections**, so no
+sentence can be read as a claim about a mode it is not describing, and **every figure in it is the
+default mode's** (see [Current values](#current-values)). Re-read the prose after a tuning pass even
+when the suite is green — and re-read it especially after a change to the DEFAULT mode, since that is
+the one it quotes.
 
 ## Before you commit to a number
 
 Turn rate reaches `stepDrive`, so it moves what the playtest probes measure — steering sweeps,
-collision depth, ram trigger rates, prediction error. Run `npm run playtest` and read what moved; see
+collision depth, ram trigger rates, prediction error. Run `npm run playtest` (with `--mode` for the
+mode you changed) and read what moved; see
 [`packages/server/playtest/README.md`](../packages/server/playtest/README.md). `npm run ttk` will not
 show it — nothing moves in that model, so no turn edit can ever change a number on it.
 
