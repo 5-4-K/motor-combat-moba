@@ -39,7 +39,7 @@
 // banning it across client/server would flag five genuinely-correct raw reads
 // (`bot/brain/firing.ts`, `client/config/{aim-hud,slot-keys}.ts`, `client/scenes/movement-hint.ts`,
 // `client/scenes/ArenaScene.ts`) that have nothing to do with this guard's purpose.
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -106,6 +106,90 @@ describe("client and server read config only through the bundle (MC13, task 5b)"
       // packages/shared is this test's cwd, so "packages/client/..." resolves through "../client/...".
       const fromShared = relPath.replace(/^packages\/[^/]+/, (pkg) => `../${pkg.slice("packages/".length)}`);
       expect(hasRawConfigReference(fromShared), relPath).toBe(true);
+    }
+  });
+});
+
+/**
+ * `sim/` and (task 5b) `client/src`/`server/src` were the only roots this guard ever walked. The
+ * REST of `packages/shared/src` — `flow/`, `lobby/`, `net/`, the package root (`index.ts`) — was
+ * never checked at all, which is exactly how `flow/respawn.ts`'s `isDueToRespawn` survived reading
+ * the raw `deathmatch-ticks` export directly on the server tick path while its own sibling
+ * `respawnPlayer` correctly read `derived().deathmatchTicks` two calls away (2026-09-22 final
+ * review). Widened here to walk ALL of `packages/shared/src`, `sim/` included — re-covering `sim/`
+ * is harmless (it stays clean) and keeps this block a true "everything" sweep rather than one with
+ * its own silent gap; the older `sim`-only describe above stays too, since a `sim/` regression
+ * failing there gives a narrower, faster-to-read message than the whole-package one below — except
+ * the directories in `ALLOWED_DIRS`, each with the one reason its files may legitimately name a raw
+ * identifier: the config layer that OWNS these tables, the mode-assembly layer that reads them to
+ * BUILD a bundle in the first place, and doc-comment-only mentions in the schema and arena layers.
+ *
+ * **This guard will need updating, not just an allow-list entry, if the one-source-of-truth
+ * refactor mentioned throughout this codebase's docs ever lands** — at that point "the config
+ * layer may read its own raw tables" stops being the right rule, because there may be no second
+ * per-mode copy left to keep separate from it. Until then, this is the correct, permanent shape of
+ * the guard, not a stopgap.
+ */
+const ALLOWED_DIRS: Readonly<Record<string, string>> = {
+  "config": "The raw tables' own home. A table cannot avoid naming its own identifier to define, " +
+    "freeze and export itself, and `tuning.ts`/`tuning-walker.ts` here deliberately read the raw " +
+    "seven-table ROOTS to validate and snapshot against — see their own extensive doc comments.",
+  "modes": "The mode-ASSEMBLY layer. `build.ts` reads raw `DRIVE_CONFIG.carWidth`/`carHeight` " +
+    "because the OBB hull is explicitly out of tuning scope (never per-mode, never a slider) — see " +
+    "`tuning-walker.ts`'s own `DRIVE_SKIP_KEYS` comment. `registry.ts`, `brawl/`, `deathmatch/` and " +
+    "`active.ts` do not reference a raw identifier at all (checked); `types.ts` only names one in a " +
+    "doc comment.",
+  "schema": "Colyseus schema field declarations. Every match here is a doc comment naming which " +
+    "table a field is validated or drained against (e.g. `STATUS_CONFIG.maxActive`); no schema " +
+    "field type or default reads a live config value.",
+  "arena": "Arena layout definitions and their `Bounds`/sizing helpers. Arenas are a separate " +
+    "registry from the per-mode bundle (`getArena`/`ARENAS`, never `cfg()`), and every match here " +
+    "is a doc comment justifying a literal dimension (1280x720, a spike depth) against a raw " +
+    "config value used elsewhere, not a read of it.",
+};
+
+/** Files directly under `src/` (not a subdirectory) that legitimately name a raw identifier. */
+const ALLOWED_FILES: Readonly<Record<string, string>> = {
+  "index.ts": "The package's own public barrel. It deliberately RE-EXPORTS every raw table " +
+    "(`export { CAR_TABLE } from \"./config/car-config.js\"`, and so on) for legitimate raw " +
+    "consumers outside the mode system entirely — the balance/playtest harnesses' shipped-vs-tuned " +
+    "comparisons, `scripts/build-cars-and-weapons.mjs`, config tests, and this very file's table- " +
+    "pinning test all need the raw table alongside the accessor. Re-exporting a name is not reading " +
+    "it.",
+};
+
+/** True if `file` sits under one of `ALLOWED_DIRS`'s directories, or is an `ALLOWED_FILES` entry
+ * directly under `src/`, relative to `src/`. */
+function isAllowedRawReference(file: string): boolean {
+  const relative = file.startsWith("src/") ? file.slice("src/".length) : file;
+  if (relative in ALLOWED_FILES) return true;
+  return Object.keys(ALLOWED_DIRS).some((dir) => relative === dir || relative.startsWith(`${dir}/`));
+}
+
+describe("ALL of packages/shared/src reads config only through the bundle (MC13, 2026-09-22 final review)", () => {
+  it("has no raw config table reference outside the judged config/modes/schema/arena layers", () => {
+    const offenders = walk("src").filter(hasRawConfigReference).filter((file) => !isAllowedRawReference(file));
+    expect(offenders).toEqual([]);
+  });
+
+  it("every ALLOWED_DIRS entry still points at a real directory that still needs it", () => {
+    for (const dir of Object.keys(ALLOWED_DIRS)) {
+      const files = walk(`src/${dir}`);
+      expect(files.length, `src/${dir} does not exist or is empty`).toBeGreaterThan(0);
+      expect(files.some(hasRawConfigReference), `src/${dir} — nothing here needs the exemption any more`).toBe(true);
+    }
+  });
+
+  // The regression this whole block exists to catch: reintroducing exactly `respawn.ts`'s old bug
+  // — a raw read in a directory this guard does NOT exempt — must fail loudly.
+  it("fails when a raw read is reintroduced outside the exempt directories", () => {
+    const fixturePath = join("src", "flow", "__tripwire-fixture.ts");
+    writeFileSync(fixturePath, 'import { DEATHMATCH_TICKS } from "../config/deathmatch-config.js";\n');
+    try {
+      const offenders = walk("src").filter(hasRawConfigReference).filter((file) => !isAllowedRawReference(file));
+      expect(offenders).toContain(fixturePath);
+    } finally {
+      rmSync(fixturePath);
     }
   });
 });
