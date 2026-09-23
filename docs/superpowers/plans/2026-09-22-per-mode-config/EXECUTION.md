@@ -133,3 +133,92 @@ client HUD/FX or the bot until phase 3 Task 5b converts them. See Ruling 13 in t
 ## Deferred findings
 
 None yet. Record anything found-but-not-fixed here with the phase that should own it.
+
+---
+
+# Handover — work stopped at end of Phase 3 (2026-09-23)
+
+Branch `feature/game-wise-config`, `fbe386a..bcf8bcb`. Phases 1–3 done; **4, 5 and 6 unstarted.**
+
+## Outstanding risks, highest first
+
+These are live on the branch now. They are not Phase 4–6 features — they are things that will
+mislead someone before those phases run.
+
+1. **Every table exists in triplicate and the tooling reads the wrong copy.** The raw global in
+   `config/` plus a literal in each mode folder. `modes/table-pinning.test.ts` asserts all three
+   equal and is the only thing holding them together. Measured during review: changing raw
+   `WEAPON_TABLE.thunderclap.damage` 90→777 left the sim reading 90. A tuning session that edits
+   the global moves `balanceStamp`, the players' guide and `npm run ttk` while the game plays
+   identically. The root `CLAUDE.md` now signposts this (commit `bcf8bcb`); the real fix is one
+   source of truth, which is Phase 6's job.
+2. **`ABILITY_SLOTS` no longer reaches the sim.** `sim/` reads `slots().maxAbilitySlots` from the
+   mode folders' hand-typed literals. The `ability-slot-count` skill edits the dead global and
+   mentions no `modes/` folder. Same shape as (1) but with a skill actively pointing the wrong way.
+3. **`basicAttackEnabled` is pinned for the DEFAULT mode only.** `deathmatch/slots.ts` carries an
+   independent literal. Running the `basic-attack-toggle` skill to `false` leaves Deathmatch rooms
+   firing basic attacks with no HUD pill, suite green.
+4. **`BotModeConfig.brainConstants` / `.brainVersion` have no consumers.** Every brain module still
+   imports `BRAIN_CONSTANTS` raw and `botFingerprint` imports `BOT_BRAIN_VERSION` raw. MC29 is
+   per-mode for one third of its surface — someone giving a mode its own brain constants would edit
+   `MODE_BOT_CONFIG` and observe nothing.
+5. **`PracticeRoom.onCreate`'s unscoped-read fix has no regression test.** It called
+   `isPracticeSetup` unscoped as its first statement (would throw on a truly fresh process, masked
+   by every test's setup). Fixed in the final wave; a test needs `matchMaker` mocking, which no room
+   test in this repo does.
+6. **`npm run playtest` reports 3 findings across 41 probes.** Not compared against a historical
+   baseline. This work touched everything the probes measure — worth a read.
+
+## Rulings made on the user's behalf
+
+Any of these can be overturned. Ordered as made; the load-bearing ones are marked.
+
+1. Work in the main checkout, not a worktree — this repo's documented worktree trap silently inlines
+   the main checkout's shared `dist`.
+2. `BASIC_ATTACK_CONFIG` kept alongside the per-mode flag until its non-sim readers migrate.
+3. Parity fixture pinned to `fbe386a`, not a drifting `HEAD~N`.
+4. Batched same-shape mechanical tasks into single dispatches.
+5. **Not a defect** — `ModeConfig.maxPlayers` is per-mode by MC27; my reviewer brief conflated it
+   with the global `MAX_PLAYERS` ceiling. My error, not the implementer's.
+6. **LOAD-BEARING** — hull excluded from `ModeTables` by type (`Omit<DriveConfig, "carWidth" |
+   "carHeight">`), so a mode folder physically cannot author car dimensions. Rejected the
+   alternative (splitting the hull out of `DRIVE_CONFIG`): ~50 readers across 26 files.
+7. Async guard placed in shared's `withMode`, not only the server's `scoped()` — the client and
+   every harness call `withMode` directly.
+8. **LOAD-BEARING, corrects an earlier note of mine** — the six drive formulas in
+   `resolveChassisDrive` cannot be de-duplicated by delegating to the accessors: it runs inside
+   `assembleModeConfig`, while the mode being assembled is not installed. Parameterised instead.
+9. **LOAD-BEARING** — `setTuning` rebuilds and installs a bundle rather than mutating in place.
+   Phase 5's design pulled forward four phases because my plan's "leave it compiling" killed its
+   whole mechanism.
+10. `turret-config.ts` deferred to the task that had an accessor to redirect its callers onto.
+11. (see 4)
+12. **A client test failure reported as "pre-existing" was ours** — verified at the true base. Led to
+    the standing rule that every "pre-existing" claim is re-run against `fbe386a`.
+13. **THE BIG ONE — my plan's worst defect.** Phase 3 installed scopes but never listed the 108 raw
+    reads outside `shared/sim`. A mode would have run half its own numbers, silently. Phase 3 was
+    widened with Task 5b.
+14. **Not a defect** — `kills`/`deaths`/`team` have no per-mode ceiling to assert; my plan's snippet
+    named a `killTarget` field that does not exist.
+15. Squashed a non-compiling intermediate commit before pushing.
+16. **Reversed my own task order** — convert the raw reads *before* making `cfg()` throw. A raw read
+    never calls `cfg()`, so it would never trip the throw and verification would read falsely clean.
+17. Thenable hardening folded into the task that already owned the scope.
+18. **Partly wrong** — I folded `ttk` and `build:manual` into a fix round and missed `balance` and
+    `playtest`, which the final review caught still crashing. I took an agent's list of three as the
+    complete list instead of sweeping myself.
+19. **Fixed the branch rather than stopping on it** — the final review found the client did not boot.
+    "End of Phase 3" has to mean working software.
+
+## The pattern worth carrying forward
+
+Seven separate guards in this work looked protective and enforced nothing: compile-time invariants
+in test files that `tsconfig` excludes from type-checking; two `pinBasicAttackEnabled` helpers
+pinning a flag the code no longer read; an assertion comparing a value to itself; a fixture whose
+correct order was coincidentally alphabetical; `test:scripts` passing while both scripts crashed;
+`maneuver-visual.test.ts` documenting the module-load hazard and working around it while calling the
+arrangement "scoped in real use"; and the playtest reporter printing "0 FINDING(s)" while all six
+probes had crashed.
+
+Every one passed CI. The only thing that found them was asking, of each guard, *what edit would make
+this fail?* — and then making that edit. That question is worth applying to any new guard here.
