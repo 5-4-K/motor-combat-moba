@@ -47,6 +47,7 @@ import { button, h } from "../../ui/dom.js";
 import { clearPauseRequest, isPauseInFlight, markPauseRequested } from "../../input/pause-request.js";
 import { requestLock } from "../../input/pointer-lock.js";
 import { loadStored, saveStored } from "./storage.js";
+import { tuningBaseConfig } from "./tuning-base.js";
 import { stepperPair } from "./steppers.js";
 import { setShowHitboxes, showHitboxes } from "../../config/view-options.js";
 import {
@@ -504,7 +505,7 @@ function overridesFromState(room: Room<PlaygroundState>): TuningOverrides {
   const json = room.state.tuningJson;
   if (!json) return {};
   try {
-    return sanitizeStoredTuning(JSON.parse(json));
+    return sanitizeStoredTuning(tuningBaseConfig(), JSON.parse(json));
   } catch {
     return {};
   }
@@ -1082,7 +1083,7 @@ export function mountPlaygroundOverlay(
      * longer has a control over, so it is read once per render rather than watched. Never called
      * mid-drag of a range input: that would tear down the element the pointer has captured. */
     function renderStats(): void {
-      const tabs = statsTabs(lastSetup);
+      const tabs = statsTabs(lastSetup, tuningBaseConfig());
 
       tabBar.replaceChildren();
       for (const tab of tabs) {

@@ -1208,6 +1208,20 @@ skipping identity/shape fields — `id`, `name`, `kind`, `color`, the discrimina
 and `type`, and `drive.carWidth`/`carHeight` (the OBB hitbox model, out of tuning scope). Its output
 doubles as the server's validation whitelist, so a playground UI and the validator cannot drift apart.
 
+**Which tables, though — and the answer is a parameter now.** All three entry points take the
+`ModeConfig` they describe (`tunableFields(config)`, `validateTuning(config, raw)`,
+`sanitizeStoredTuning(config, raw)`) and the field list is cached against that bundle's identity, the
+same invalidation key `client/src/net/mode-memo.ts` uses. Until phase 6 the walker built one list at
+module load from the RAW `config/` globals, so every slider's range and every "at shipped" reading
+described the DEFAULT mode while the write went through `applyOverrides` against whichever bundle the
+room held. The two agreed only because `modes/table-pinning.test.ts` keeps both shipped modes
+byte-identical; the first deliberate divergence would have produced a slider whose range came from
+one mode and whose write the other rejects, with nothing red. The bundle the playground passes is
+`packages/client/src/dev/playground/tuning-base.ts`'s `tuningBaseConfig()` — the PRISTINE
+`DEFAULT_GAME_MODE` bundle, not the tuned one currently installed, because the panel has to describe
+what a write is applied *to*. That function and `PlaygroundRoom.applyTuningMessage`'s matching `base`
+line are the pair that move together if the playground ever grows a mode picker.
+
 `packages/server/src/rooms/playground-bot.ts` carries the same dev-only shape one level up:
 `BOT_PROFILES` is a frozen `Record<BotDifficulty, BotProfile>` with three rows — `easy`, `medium`,
 `hard` — read only by `PlaygroundRoom` and never by `stepSim` or any release path. Its `hard` row is

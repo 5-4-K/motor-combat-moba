@@ -18,6 +18,7 @@ import {
 import { ENV_FIELDS, envKey, isAcceptableEnvValue, type EnvOverrides } from "../../fx/env-tuning.js";
 import { sanitizeCarTints, type CarTintOverrides } from "../../fx/car-tint.js";
 import { sanitizeTurretView, type TurretViewOverrides } from "../../scenes/turret-view.js";
+import { tuningBaseConfig } from "./tuning-base.js";
 
 /**
  * localStorage persistence for the playground overlay (Task 11, spec PG19/PG20). Pure codec + a thin
@@ -286,7 +287,7 @@ export function decodeStored(raw: string | null): StoredPlayground {
       const upgraded = upgradeStoredSetup(rec.setup);
       return isPlaygroundSetup(upgraded) ? upgraded : defaultPlaygroundSetup();
     })(),
-    overrides: sanitizeStoredTuning(rec.overrides),
+    overrides: sanitizeStoredTuning(tuningBaseConfig(), rec.overrides),
     view: decodeView(rec.view),
     vfx: sanitizeStoredVfx(rec.vfx),
     env: sanitizeStoredEnv(rec.env),

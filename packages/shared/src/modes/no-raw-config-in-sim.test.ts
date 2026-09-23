@@ -136,8 +136,11 @@ describe("client and server read config only through the bundle (MC13, task 5b)"
  */
 const ALLOWED_DIRS: Readonly<Record<string, string>> = {
   "config": "The raw tables' own home. A table cannot avoid naming its own identifier to define, " +
-    "freeze and export itself, and `tuning.ts`/`tuning-walker.ts` here deliberately read the raw " +
-    "seven-table ROOTS to validate and snapshot against — see their own extensive doc comments.",
+    "freeze and export itself. `tuning-walker.ts` no longer belongs on that list: it took a " +
+    "`ModeConfig` parameter in phase 6 and walks THAT bundle's seven roots, so the only raw names " +
+    "left in it are doc-comment mentions of the tables a knob used to live in — which is exactly " +
+    "the kind of reference `IMPORT_TYPE_LINE` cannot distinguish and this directory exemption " +
+    "covers. `tuning.ts` beside it is types only.",
   "modes": "The mode-ASSEMBLY layer. `build.ts` reads raw `DRIVE_CONFIG.carWidth`/`carHeight` " +
     "because the OBB hull is explicitly out of tuning scope (never per-mode, never a slider) — see " +
     "`tuning-walker.ts`'s own `DRIVE_SKIP_KEYS` comment. `registry.ts`, `brawl/`, `deathmatch/` and " +

@@ -1,4 +1,4 @@
-import type { CarId, PlaygroundSetup, TunableField, TuningValue, WeaponId } from "@motor-combat-moba/shared";
+import type { CarId, ModeConfig, PlaygroundSetup, TunableField, TuningValue, WeaponId } from "@motor-combat-moba/shared";
 import {
   ARENAS,
   cars,
@@ -225,9 +225,15 @@ export interface StatsTab {
  * All three tabs are ALWAYS returned, in this order, even when a tab's group list is empty: the tab
  * bar's shape must not change under the pointer. Row order within a group, and group order within a
  * tab, follow `tunableFields()`'s own order, since this only filters and never re-sorts.
+ *
+ * `config` is the bundle the panel TUNES — `tuningBaseConfig()` at the one production call site,
+ * and the same bundle `PlaygroundRoom` hands `applyOverrides`. Passed in rather than read from the
+ * ambient mode scope on purpose: during a playground session the INSTALLED bundle is the tuned
+ * sibling, so a panel built from `cfg()` would pitch every slider's range and every "at shipped"
+ * comparison against values the user's own last drag had already moved.
  */
-export function statsTabs(setup: PlaygroundSetup): StatsTab[] {
-  const fields = tunableFields();
+export function statsTabs(setup: PlaygroundSetup, config: ModeConfig): StatsTab[] {
+  const fields = tunableFields(config);
 
   const seats = enabledSeats(setup).map((seat) => setup.cars[seat]!);
   const carIds = [...new Set(seats.map((car) => car.carId))];

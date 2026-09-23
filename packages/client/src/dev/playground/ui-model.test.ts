@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import { DEFAULT_GAME_MODE, applyOverrides, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   CAR_TABLE,
   WEAPON_TABLE,
@@ -9,7 +9,7 @@ import {
   basicAttackIds,
   defaultPlaygroundSetup,
 } from "@motor-combat-moba/shared";
-import type { CarId, PlaygroundSetup, TunableField, WeaponId } from "@motor-combat-moba/shared";
+import type { CarId, ModeConfig, PlaygroundSetup, TunableField, WeaponId } from "@motor-combat-moba/shared";
 import { CAR_EVENT_IDS } from "../../fx/table.js";
 import {
   addedWeaponPick,
@@ -207,6 +207,9 @@ describe("the Car select panel's add/remove weapon controls (VS34)", () => {
   });
 });
 
+/** The bundle the playground tunes — what `overlay.ts` passes at the one production call site. */
+const BASE = modeConfigOf(DEFAULT_GAME_MODE);
+
 describe("statsTabs (PG35)", () => {
   /** Both enabled seats on different chassis with their own shipped kits — the ordinary case. */
   function twoCarSetup(): PlaygroundSetup {
@@ -225,11 +228,32 @@ describe("statsTabs (PG35)", () => {
   }
 
   it("returns the three tabs, always in global/cars/weapons order", () => {
-    expect(statsTabs(twoCarSetup()).map((t) => t.key)).toEqual(["global", "cars", "weapons"]);
+    expect(statsTabs(twoCarSetup(), BASE).map((t) => t.key)).toEqual(["global", "cars", "weapons"]);
+  });
+
+  it("builds its rows from the bundle it is PASSED, and the shipped indicator follows", () => {
+    // The bug this replaced reached exactly here: the panel's fields came from the raw `config/`
+    // globals while the write went through `applyOverrides` against the room's own bundle, so a
+    // slider's range and its "at shipped" dot described whichever mode the globals happened to be.
+    // Both shipped modes are byte-identical today, so the divergence is staged with a tuned sibling
+    // — a different `ModeConfig` object with different numbers, the same shape a second mode is.
+    const tuned = applyOverrides(BASE, { "car.bastion.hp": 42 });
+    const hpField = (config: ModeConfig): TunableField =>
+      statsTabs(twoCarSetup(), config)
+        .find((t) => t.key === "cars")!
+        .groups.flatMap((g) => g.fields)
+        .find((f) => f.path === "car.bastion.hp")!;
+
+    expect(hpField(BASE).shipped).toBe(CAR_TABLE.bastion.hp);
+    expect(hpField(tuned).shipped).toBe(42);
+    // `isAtShipped` is the visible half: a row sitting at its own bundle's value must read as
+    // untouched, and the same number against the other bundle must not.
+    expect(isAtShipped(hpField(tuned), 42)).toBe(true);
+    expect(isAtShipped(hpField(BASE), 42)).toBe(false);
   });
 
   it("puts drive, ram and combat rows under global, in one group", () => {
-    const global = statsTabs(twoCarSetup())[0]!;
+    const global = statsTabs(twoCarSetup(), BASE)[0]!;
     expect(global.groups).toHaveLength(1);
     expect(global.groups[0]!.fields.length).toBeGreaterThan(0);
     for (const field of global.groups[0]!.fields) {
@@ -238,7 +262,7 @@ describe("statsTabs (PG35)", () => {
   });
 
   it("gives each SELECTED chassis its own group under cars, and no other chassis", () => {
-    const cars = statsTabs(twoCarSetup())[1]!;
+    const cars = statsTabs(twoCarSetup(), BASE)[1]!;
     expect(cars.groups.map((g) => g.title)).toEqual([CAR_TABLE.bastion.name, CAR_TABLE.mirage.name]);
     for (const group of cars.groups) {
       for (const field of group.fields) expect(field.group).toBe("car");
@@ -247,7 +271,7 @@ describe("statsTabs (PG35)", () => {
 
   it("gives each SELECTED weapon its own group under weapons, plus each seat's basic attack (BA38)", () => {
     // Nine rows share the name "Basic Attack", so a shared name is titled by id instead.
-    const weapons = statsTabs(twoCarSetup())[2]!;
+    const weapons = statsTabs(twoCarSetup(), BASE)[2]!;
     expect(weapons.groups.map((g) => g.title)).toEqual([
       WEAPON_TABLE.thumper.name,
       WEAPON_TABLE.roadblock.name,
@@ -262,7 +286,7 @@ describe("statsTabs (PG35)", () => {
 
   it("dedupes a chassis and a weapon both cars picked", () => {
     const same = defaultPlaygroundSetup(); // both cars are the default chassis with one kit
-    const tabs = statsTabs(same);
+    const tabs = statsTabs(same, BASE);
     expect(tabs[1]!.groups).toHaveLength(1);
     // Both seats are the same chassis, so they share one basic attack too: 3 abilities + 1.
     expect(tabs[2]!.groups).toHaveLength(4);
@@ -272,7 +296,7 @@ describe("statsTabs (PG35)", () => {
     // The tab bar's shape must not change under the pointer, so every key is always returned — not
     // a claim about any tab's `groups` being empty, which is not constructible through the public
     // API with today's roster (every chassis and every weapon on it has at least one field).
-    const tabs = statsTabs(twoCarSetup());
+    const tabs = statsTabs(twoCarSetup(), BASE);
     expect(tabs).toHaveLength(3);
     for (const tab of tabs) expect(Array.isArray(tab.groups)).toBe(true);
   });
@@ -517,7 +541,7 @@ describe("statsTabs over seats (PG82)", () => {
   };
 
   const titles = (setup: PlaygroundSetup, key: StatsTabKey): string[] =>
-    statsTabs(setup).find((t) => t.key === key)!.groups.map((g) => g.title);
+    statsTabs(setup, BASE).find((t) => t.key === key)!.groups.map((g) => g.title);
 
   it("lists one car group for a single enabled seat", () => {
     const setup = seated([{ seat: 0, carId: "mirage", weapons: ["magmablast", "thunderclap", "afterburner"] }]);
@@ -570,6 +594,6 @@ describe("statsTabs over seats (PG82)", () => {
 
   it("still returns all three tabs in order even when one is empty", () => {
     const setup = seated([{ seat: 0, carId: "taurus", weapons: ["magmablast", "thunderclap", "afterburner"] }]);
-    expect(statsTabs(setup).map((t) => t.key)).toEqual(["global", "cars", "weapons"]);
+    expect(statsTabs(setup, BASE).map((t) => t.key)).toEqual(["global", "cars", "weapons"]);
   });
 });

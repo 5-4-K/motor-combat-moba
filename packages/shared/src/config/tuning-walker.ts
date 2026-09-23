@@ -1,19 +1,22 @@
-import { CAR_TABLE } from "./car-config.js";
-import { COMBAT_CONFIG } from "./combat-config.js";
-import { DRIVE_CONFIG } from "./drive-config.js";
-import { IMPULSE_CONFIG } from "./impulse-config.js";
-import { RAM_CONFIG } from "./ram-config.js";
+import type { ModeConfig } from "../modes/types.js";
 import type { TuningOverrides, TuningValue } from "./tuning.js";
-import { TURRET_CONFIG } from "./turret-config.js";
 import type { CarId } from "./types.js";
-import { WEAPON_TABLE } from "./weapon-config.js";
 import type { WeaponId } from "./weapon-types.js";
 
 /**
- * Enumerable, validatable tuning surface for a dev playground (spec PG14) — built once from the
- * seven source tables `applyOverrides` (`modes/overlay.ts`) already knows how to write. `path` is an
- * `applyOverrides`-ready dot-path; a UI slaps `min`/`max`/`step`/`options` on it and never has to
- * know a leaf's provenance.
+ * Enumerable, validatable tuning surface for a dev playground (spec PG14) — built from the seven
+ * roots of ONE MODE'S BUNDLE, the same seven `applyOverrides` (`modes/overlay.ts`) knows how to
+ * write into that same bundle. `path` is an `applyOverrides`-ready dot-path; a UI slaps
+ * `min`/`max`/`step`/`options` on it and never has to know a leaf's provenance.
+ *
+ * **It used to walk the RAW `config/` globals, once, at module load** — so every range the
+ * playground's sliders offered, and every `shipped` its "at shipped" indicator compared against,
+ * described the DEFAULT mode no matter which bundle the room was actually writing into. The two
+ * agreed only because `modes/table-pinning.test.ts` keeps both shipped modes byte-identical; the
+ * first intentional divergence would have given a slider a range taken from one mode and a write
+ * `applyOverrides` rejects against another, with nothing red. Hence the `ModeConfig` parameter on
+ * all three entry points below: the caller names the bundle it is tuning, and the panel, the
+ * validator and the write can no longer disagree about which game they are describing.
  *
  * This file only ever READS: it describes the surface and never writes a leaf. That is why it
  * outlived `setTuning`, which is deleted — `config/tuning.ts` beside it is types only now.
@@ -140,12 +143,13 @@ function collectLeaves(value: unknown, prefix: string, into: Map<string, TuningV
   // exactly right: a field a row doesn't author is not a field that row can tune.
 }
 
-function buildWeaponFields(fields: TunableField[]): void {
-  const weaponIds = Object.keys(WEAPON_TABLE) as WeaponId[];
+function buildWeaponFields(config: ModeConfig, fields: TunableField[]): void {
+  const table = config.weapons;
+  const weaponIds = Object.keys(table) as WeaponId[];
   const leavesByWeapon = new Map<WeaponId, Map<string, TuningValue>>();
   for (const weaponId of weaponIds) {
     const leaves = new Map<string, TuningValue>();
-    collectLeaves(WEAPON_TABLE[weaponId], "", leaves);
+    collectLeaves(table[weaponId], "", leaves);
     leavesByWeapon.set(weaponId, leaves);
   }
 
@@ -161,7 +165,7 @@ function buildWeaponFields(fields: TunableField[]): void {
    */
   const optionsByKindPath = new Map<string, Set<string>>();
   for (const weaponId of weaponIds) {
-    const kind = WEAPON_TABLE[weaponId].kind;
+    const kind = table[weaponId].kind;
     for (const [path, value] of leavesByWeapon.get(weaponId)!) {
       if (typeof value !== "string") continue;
       const key = `${kind}::${path}`;
@@ -172,7 +176,7 @@ function buildWeaponFields(fields: TunableField[]): void {
   }
 
   for (const weaponId of weaponIds) {
-    const kind = WEAPON_TABLE[weaponId].kind;
+    const kind = table[weaponId].kind;
     for (const [label, value] of leavesByWeapon.get(weaponId)!) {
       const path = `weapon.${weaponId}.${label}`;
       if (typeof value === "number") {
@@ -199,11 +203,11 @@ function buildWeaponFields(fields: TunableField[]): void {
   }
 }
 
-function buildFields(): TunableField[] {
+function buildFields(config: ModeConfig): TunableField[] {
   const fields: TunableField[] = [];
 
-  for (const carId of Object.keys(CAR_TABLE) as CarId[]) {
-    const car = CAR_TABLE[carId];
+  for (const carId of Object.keys(config.cars) as CarId[]) {
+    const car = config.cars[carId];
     for (const rating of CAR_RATINGS) {
       fields.push({
         path: `car.${carId}.${rating}`,
@@ -219,16 +223,16 @@ function buildFields(): TunableField[] {
     }
   }
 
-  for (const [key, value] of Object.entries(DRIVE_CONFIG)) {
+  for (const [key, value] of Object.entries(config.drive)) {
     if (DRIVE_SKIP_KEYS.has(key)) continue;
     pushSimpleField(fields, "drive", key, value);
   }
 
-  for (const [key, value] of Object.entries(RAM_CONFIG)) {
+  for (const [key, value] of Object.entries(config.ram)) {
     pushSimpleField(fields, "ram", key, value);
   }
 
-  for (const [key, value] of Object.entries(COMBAT_CONFIG)) {
+  for (const [key, value] of Object.entries(config.combat)) {
     pushSimpleField(fields, "combat", key, value);
   }
 
@@ -237,12 +241,12 @@ function buildFields(): TunableField[] {
   // `wallContactPad` is what every `ImpulseDef.onWallImpact` sweep measures against. Neither is a
   // derived artifact — `contact.ts` and `ram-bridge.ts` read `wallContactPad` at call time and
   // `impulse.ts` reads `spinScale` at call time — so neither owes `tuning.ts`'s rebuild list an entry.
-  for (const [key, value] of Object.entries(IMPULSE_CONFIG)) {
+  for (const [key, value] of Object.entries(config.impulse)) {
     pushSimpleField(fields, "impulse", key, value);
   }
 
-  buildWeaponFields(fields);
-  buildTurretFields(fields);
+  buildWeaponFields(config, fields);
+  buildTurretFields(config, fields);
 
   return fields;
 }
@@ -268,19 +272,23 @@ export const TURRET_TUNING_BOUNDS = {
   mountStep: 1,
 } as const;
 
-function buildTurretFields(fields: TunableField[]): void {
+function buildTurretFields(config: ModeConfig, fields: TunableField[]): void {
   for (const key of ["turnRateDegPerSec", "maxSwingDeg"] as const) {
     fields.push({
       path: `turret.${key}`,
       group: "turret",
       label: key,
       kind: "number",
-      shipped: TURRET_CONFIG[key],
+      shipped: config.turret[key],
       ...TURRET_TUNING_BOUNDS[key],
     });
   }
-  const halfExtent = { x: DRIVE_CONFIG.carWidth / 2, y: DRIVE_CONFIG.carHeight / 2 } as const;
-  for (const carId of Object.keys(CAR_TABLE) as CarId[]) {
+  // The hull is GLOBAL (MC35) and `assembleModeConfig` re-attaches it to every bundle's `drive`, so
+  // reading it off `config` here is the same number for every mode by construction — and is still
+  // the right read, because it keeps this walker free of a raw table import it would otherwise need
+  // for this one line.
+  const halfExtent = { x: config.drive.carWidth / 2, y: config.drive.carHeight / 2 } as const;
+  for (const carId of Object.keys(config.cars) as CarId[]) {
     for (const axis of ["x", "y"] as const) {
       fields.push({
         path: `car.${carId}.turretMount.${axis}`,
@@ -288,7 +296,7 @@ function buildTurretFields(fields: TunableField[]): void {
         ownerId: carId,
         label: `turretMount.${axis}`,
         kind: "number",
-        shipped: CAR_TABLE[carId].turretMount[axis],
+        shipped: config.cars[carId].turretMount[axis],
         min: -halfExtent[axis],
         max: halfExtent[axis],
         step: TURRET_TUNING_BOUNDS.mountStep,
@@ -298,23 +306,44 @@ function buildTurretFields(fields: TunableField[]): void {
 }
 
 /**
- * Computed once, at module load, from the raw `config/` tables — which nothing writes any more, so
- * `shipped` reflects the true built-in defaults whenever it is read. (It was computed eagerly
- * because the old `setTuning` mutated those seven tables IN PLACE, and a lazy read could have
- * cached a tuned value as "shipped"; `applyOverrides` writes into a clone of a mode BUNDLE and
- * never touches these globals, so that hazard is gone and the eager build is now merely cheap.)
+ * One mode's field list and its path index, built on first ask and kept against the BUNDLE OBJECT
+ * it was derived from.
  *
- * Worth knowing when reading a slider's range: `shipped` is the DEFAULT mode's value, since these
- * globals are what it walks. A non-default mode whose own table differs would get a range pitched
- * off the wrong number — nothing does today, and per-mode tooling is phase 6's. Frozen so nothing downstream
- * can mutate the shared field objects; `tunableFields()` still hands out a fresh array each call so a
- * caller sorting or filtering its result can't corrupt the cache.
+ * A `WeakMap` keyed on bundle identity, the same invalidation key `client/src/net/mode-memo.ts`'s
+ * `memoOnBundle` uses and for the same reason: bundles are frozen and identity-stable per mode, and
+ * a retune produces a NEW bundle object rather than mutating one, so a reference check is both a
+ * correct and a free cache key. (`memoOnBundle` itself is the wrong tool here — it keys off `cfg()`,
+ * the bundle currently INSTALLED, which during a playground session is the TUNED one. The panel has
+ * to describe the pristine base a write is applied to, so the bundle must be passed in, not read
+ * from the ambient scope.) A `WeakMap` also means a discarded tuned sibling's field list is
+ * collectable with it rather than pinned for the life of the process.
+ *
+ * Built lazily rather than at module load, which the old raw-global version could afford and this
+ * cannot: a module-scope build would have to name a mode, and naming one at import time is exactly
+ * the freeze-the-first-bundle bug this whole layer exists to prevent. Each list is frozen, so
+ * nothing downstream can mutate the shared field objects; `tunableFields()` still hands out a fresh
+ * array each call so a caller sorting or filtering its result cannot corrupt the cache.
  */
-const FIELDS: readonly TunableField[] = Object.freeze(buildFields().map((field) => Object.freeze(field)));
-const FIELD_MAP: ReadonlyMap<string, TunableField> = new Map(FIELDS.map((field) => [field.path, field]));
+const CACHE = new WeakMap<
+  ModeConfig,
+  { fields: readonly TunableField[]; byPath: ReadonlyMap<string, TunableField> }
+>();
 
-export function tunableFields(): TunableField[] {
-  return FIELDS.slice();
+function cacheFor(config: ModeConfig): { fields: readonly TunableField[]; byPath: ReadonlyMap<string, TunableField> } {
+  const hit = CACHE.get(config);
+  if (hit) return hit;
+  const fields = Object.freeze(buildFields(config).map((field) => Object.freeze(field)));
+  const entry = { fields, byPath: new Map(fields.map((field) => [field.path, field])) };
+  CACHE.set(config, entry);
+  return entry;
+}
+
+/**
+ * Every tunable field of `config`, in walk order. `shipped` is THAT bundle's value, so a panel built
+ * from the bundle a write is applied to can never offer a range pitched off another mode's number.
+ */
+export function tunableFields(config: ModeConfig): TunableField[] {
+  return cacheFor(config).fields.slice();
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -344,11 +373,18 @@ function invalidReason(field: TunableField, value: unknown): string | null {
 /**
  * Reject-whole (spec PG13): a blob with one bad entry is entirely rejected rather than partially
  * applied, naming the first offending path so the playground UI can point at it.
+ *
+ * `config` must be the SAME bundle the accepted overrides will be written into (`applyOverrides`'s
+ * `base`), or this validates one game's paths and ranges against another's write.
  */
-export function validateTuning(raw: unknown): { ok: true; overrides: TuningOverrides } | { ok: false; error: string } {
+export function validateTuning(
+  config: ModeConfig,
+  raw: unknown,
+): { ok: true; overrides: TuningOverrides } | { ok: false; error: string } {
+  const { byPath } = cacheFor(config);
   if (!isPlainRecord(raw)) return { ok: false, error: "tuning overrides must be a plain object" };
   for (const [path, value] of Object.entries(raw)) {
-    const field = FIELD_MAP.get(path);
+    const field = byPath.get(path);
     if (!field) return { ok: false, error: `${path}: unknown tuning path` };
     const reason = invalidReason(field, value);
     if (reason) return { ok: false, error: `${path}: ${reason}` };
@@ -360,13 +396,14 @@ export function validateTuning(raw: unknown): { ok: true; overrides: TuningOverr
  * Lenient counterpart for loading a previously-saved blob (spec PG20): a stale path — a retuned
  * range, a retired weapon, a config field that no longer exists — is dropped silently instead of
  * failing the whole load. Runs the same per-entry check as `validateTuning`, filtering rather than
- * rejecting.
+ * rejecting — against the same `config`, so a path the panel offers is never a path this drops.
  */
-export function sanitizeStoredTuning(raw: unknown): TuningOverrides {
+export function sanitizeStoredTuning(config: ModeConfig, raw: unknown): TuningOverrides {
+  const { byPath } = cacheFor(config);
   if (!isPlainRecord(raw)) return Object.freeze({});
   const clean: Record<string, TuningValue> = {};
   for (const [path, value] of Object.entries(raw)) {
-    const field = FIELD_MAP.get(path);
+    const field = byPath.get(path);
     if (!field) continue;
     if (invalidReason(field, value)) continue;
     clean[path] = value as TuningValue;

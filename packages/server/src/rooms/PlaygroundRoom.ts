@@ -321,19 +321,28 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
    * client's view of what is active can never disagree with the store field by field.
    */
   private applyTuningMessage(msg: unknown): void {
-    const result = validateTuning(msg);
+    // Tuning REPLACES, never accumulates (PG13): every call starts fresh from the room's own
+    // pristine base — the same `modeConfigOrDefault(DEFAULT_GAME_MODE)` bundle the `modeConfig`
+    // field was seeded from, NOT `this.modeConfig`, which may already carry a previous blob's
+    // overrides.
+    //
+    // Resolved BEFORE validation, and handed to `validateTuning`, because the paths and ranges a
+    // blob is judged against have to be the ones of the bundle it is about to be written into. The
+    // validator used to walk the raw `config/` globals, which are nobody's mode; while both shipped
+    // modes stay byte-identical that agreed with this bundle by coincidence, not by construction.
+    // The client's own panel resolves the same bundle through `dev/playground/tuning-base.ts` —
+    // that function and this line are the pair that move together if the playground ever grows a
+    // mode picker.
+    const base = modeConfigOrDefault(DEFAULT_GAME_MODE);
+    const result = validateTuning(base, msg);
     if (!result.ok) return;
     // An empty object IS the reset: it drops the room back onto its pristine base bundle two lines
     // below, and `""` is what the client's watcher reads as "clear my store too" (an empty string is
     // not malformed JSON).
     const overrides = Object.keys(result.overrides).length > 0 ? result.overrides : null;
-    // Tuning REPLACES, never accumulates (PG13): every call starts fresh from the room's own
-    // pristine base — the same `modeConfigOrDefault(DEFAULT_GAME_MODE)` bundle the `modeConfig`
-    // field was seeded from, NOT `this.modeConfig`, which may already carry a previous blob's
-    // overrides. `applyOverrides` builds a new sibling bundle and installs nothing; assigning it to
+    // `applyOverrides` builds a new sibling bundle and installs nothing; assigning it to
     // `this.modeConfig` (see that field's own doc comment) is what makes a subsequent tick's
     // `scoped(this.modeConfig, ...)` actually adopt the tuned numbers.
-    const base = modeConfigOrDefault(DEFAULT_GAME_MODE);
     this.modeConfig = overrides ? applyOverrides(base, overrides) : base;
     this.state.tuningJson = overrides ? JSON.stringify(overrides) : "";
   }

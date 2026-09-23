@@ -1,5 +1,6 @@
 import type { CarId, TunableField, TuningOverrides, TuningValue } from "@motor-combat-moba/shared";
 import { cars, tunableFields } from "@motor-combat-moba/shared";
+import { tuningBaseConfig } from "./tuning-base.js";
 import type { AssetManifest } from "../../assets/manifest-schema.js";
 import { turretSpriteKeys } from "../../assets/asset-keys.js";
 import {
@@ -24,8 +25,18 @@ export interface TurretSimSection {
   readonly fields: readonly TunableField[];
 }
 
+/**
+ * The panel's own slice of the tuning surface, off the bundle the playground TUNES
+ * (`tuningBaseConfig()`), not off whatever is installed — see that function for why the two differ
+ * mid-session.
+ *
+ * A function called per use, never a module-level `const`. Two module-scope `tunableFields()` calls
+ * used to sit below this (`TURRET_PATHS` and `SHIPPED`); each ran at import time, against the raw
+ * `config/` globals, and would have frozen one mode's answer for the life of the tab. `tunableFields`
+ * caches on bundle identity, so calling it per use costs one `WeakMap` hit and a filter.
+ */
 function turretFields(): TunableField[] {
-  return tunableFields().filter((f) => f.group === "turret");
+  return tunableFields(tuningBaseConfig()).filter((f) => f.group === "turret");
 }
 
 /**
@@ -50,30 +61,38 @@ export function turretSimSections(): TurretSimSection[] {
   return sections;
 }
 
-const TURRET_PATHS: ReadonlySet<string> = new Set(turretFields().map((f) => f.path));
+/** Every path the Turret panel owns. Built per call for the same reason `turretFields` is. */
+function turretSimPaths(): ReadonlySet<string> {
+  return new Set(turretFields().map((f) => f.path));
+}
 
 /** Is this tuning path one the Turret panel owns (TR58)? Both panels share one overrides map. */
 export function isTurretSimPath(path: string): boolean {
-  return TURRET_PATHS.has(path);
+  return turretSimPaths().has(path);
 }
 
 /** The Turret panel's Reset, in place: drops its own paths and leaves every Physics override standing. */
 export function clearTurretSimPaths(overrides: Record<string, TuningValue>): void {
+  const owned = turretSimPaths();
   for (const path of Object.keys(overrides)) {
-    if (isTurretSimPath(path)) delete overrides[path];
+    if (owned.has(path)) delete overrides[path];
   }
 }
 
 /** The mirror of `clearTurretSimPaths`, as a copy: what the Physics panel's Copy overrides shows. */
 export function withoutTurretSimPaths(overrides: TuningOverrides): Record<string, TuningValue> {
+  const owned = turretSimPaths();
   const out: Record<string, TuningValue> = {};
   for (const [path, value] of Object.entries(overrides)) {
-    if (!isTurretSimPath(path)) out[path] = value;
+    if (!owned.has(path)) out[path] = value;
   }
   return out;
 }
 
-const SHIPPED: ReadonlyMap<string, TuningValue> = new Map(turretFields().map((f) => [f.path, f.shipped]));
+/** Each turret path's shipped value, off the same bundle `turretFields` reads. */
+function shippedTurretValues(): ReadonlyMap<string, TuningValue> {
+  return new Map(turretFields().map((f) => [f.path, f.shipped]));
+}
 
 /** Trims a binary-float tail off a product (`1.2 * 1.5`) before it is printed for pasting. */
 function tidy(value: number): number {
@@ -108,10 +127,11 @@ export function turretExportText(
   if (config.length > 0) blocks.push(["// packages/shared/src/config/turret-config.ts", ...config].join("\n"));
 
   const mounts: string[] = [];
+  const shipped = shippedTurretValues();
   for (const carId of Object.keys(cars()) as CarId[]) {
     const axis = (a: "x" | "y"): TuningValue => {
       const path = `car.${carId}.turretMount.${a}`;
-      return sim[path] ?? SHIPPED.get(path)!;
+      return sim[path] ?? shipped.get(path)!;
     };
     const moved = sim[`car.${carId}.turretMount.x`] !== undefined || sim[`car.${carId}.turretMount.y`] !== undefined;
     // Same paste-text rule as `config` above: `CAR_TABLE.${carId}.turretMount` names the real
