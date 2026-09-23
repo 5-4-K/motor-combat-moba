@@ -1,7 +1,14 @@
 import Phaser from "phaser";
 import type { Room } from "colyseus.js";
 import type { PlaygroundState, TuningOverrides } from "@motor-combat-moba/shared";
-import { MSG_PLAYGROUND_SETUP, MSG_PLAYGROUND_TUNING, setTuning } from "@motor-combat-moba/shared";
+import {
+  MSG_PLAYGROUND_SETUP,
+  MSG_PLAYGROUND_TUNING,
+  DEFAULT_GAME_MODE,
+  applyOverrides,
+  installMode,
+  modeConfigOrDefault,
+} from "@motor-combat-moba/shared";
 import { joinPlayground } from "../net/connection.js";
 import { watchRoomMode } from "../net/mode-scope.js";
 import { DEV_TOOL_MARKER } from "./registry.js";
@@ -67,12 +74,14 @@ export class PlaygroundScene extends Phaser.Scene {
     this.unmountOverlay?.();
     this.unmountOverlay = undefined;
     // Never leave a dev override active for whatever runs next in this process (the arena this scene
-    // itself just launched, or a retried join) — the same rule `PlaygroundRoom.onLeave` enforces
-    // server-side, mirrored here for the client-side tuning store, the view options and the VFX
-    // overrides. The view options are process-wide for the same reason and get the same treatment:
-    // an ordinary match must never inherit a dev overlay from a playground session earlier in the
-    // same tab.
-    setTuning(null);
+    // itself just launched, or a retried join) — the view options and the VFX overrides get the same
+    // treatment for the same reason: an ordinary match must never inherit a dev overlay from a
+    // playground session earlier in the same tab. Unlike the server (whose per-room `this.modeConfig`
+    // now dies with the room itself, MC39/MC40), a browser tab legitimately installs ONE bundle
+    // process-wide for its whole life (a tab runs one room at a time — see `net/mode-scope.ts`), so
+    // there is no per-room object to simply drop; the reset here has to actively reinstall the
+    // pristine `DEFAULT_GAME_MODE` bundle over whatever tuned one this session installed.
+    installMode(modeConfigOrDefault(DEFAULT_GAME_MODE));
     setShowHitboxes(false);
     setFxOverrides(null);
     setEnvOverrides(null);
@@ -129,9 +138,10 @@ export class PlaygroundScene extends Phaser.Scene {
     this.lastTuningJson = room.state.tuningJson;
     // Replay whatever this browser last saved (spec PG19/PG20): TUNING first, THEN setup. Order
     // matters here and is not interchangeable -- `PlaygroundRoom`'s `MSG_PLAYGROUND_SETUP` handler
-    // calls `applySetup`, which respawns every enabled seat and reads their hp through `hpOf`, itself reading
-    // the module-level tuning store (`setTuning`, driven by `MSG_PLAYGROUND_TUNING`). Sending SETUP
-    // first would respawn against the still-shipped tables, so a persisted `car.*.hp` override
+    // calls `applySetup`, which respawns every enabled seat and reads their hp through `hpOf`, itself
+    // reading the ROOM'S OWN bundle (`this.modeConfig`, moved onto it by `MSG_PLAYGROUND_TUNING`'s
+    // handler via `applyOverrides` -- MC39/MC40). Sending SETUP first would respawn against the still-
+    // shipped tables, so a persisted `car.*.hp` override
     // would silently miss that spawn and only take effect after some later respawn. A server-side
     // validation failure on either message just leaves the room's own `onJoin` defaults standing --
     // the same silent-reject behaviour `evaluate`/`leaveSettings` in the overlay already rely on for
@@ -208,10 +218,13 @@ export class PlaygroundScene extends Phaser.Scene {
   }
 
   /**
-   * SESSION RULING: `tuningJson === ""` means an explicit `setTuning(null)` (a reset-all write from
-   * the room), and a non-empty string is `JSON.parse`d in a try/catch that ignores only an
-   * unparseable value -- a value that parses is always handed to `setTuning`, because the server
-   * validated it (`validateTuning`) before ever broadcasting it.
+   * SESSION RULING: `tuningJson === ""` means an explicit reset (a reset-all write from the room),
+   * and a non-empty string is `JSON.parse`d in a try/catch that ignores only an unparseable value --
+   * a value that parses is always installed, because the server validated it (`validateTuning`)
+   * before ever broadcasting it. Mirrors the server's own tuning move (MC39/MC40): `applyOverrides`
+   * builds a tuned SIBLING of the pristine `DEFAULT_GAME_MODE` bundle rather than mutating a process-
+   * wide store in place, and `installMode` is what makes it this tab's live bundle -- there is no
+   * successor to `setTuning` here because there was nothing left for one to call.
    */
   private syncTuning(): void {
     const room = this.room;
@@ -221,7 +234,7 @@ export class PlaygroundScene extends Phaser.Scene {
     this.lastTuningJson = json;
 
     if (json === "") {
-      setTuning(null);
+      installMode(modeConfigOrDefault(DEFAULT_GAME_MODE));
       return;
     }
     let parsed: TuningOverrides;
@@ -230,7 +243,7 @@ export class PlaygroundScene extends Phaser.Scene {
     } catch {
       return;
     }
-    setTuning(parsed);
+    installMode(applyOverrides(modeConfigOrDefault(DEFAULT_GAME_MODE), parsed));
   }
 
   private renderError(message: string): void {
