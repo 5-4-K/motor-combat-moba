@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
@@ -42,6 +44,14 @@ import type { CombatMemory } from "../sim/combat-bridge.js";
 import type { ContactMemory } from "../sim/ram-bridge.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+
+const ROOM_SOURCE = readFileSync(
+  fileURLToPath(new URL("./PlaygroundRoom.ts", import.meta.url)),
+  "utf8",
+);
+
+/** The module minus its prose: these are assertions about CODE, not about how it is documented. */
+const ROOM_CODE = ROOM_SOURCE.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 
 describe("shouldRefusePlayground", () => {
   it("opens when nothing else is running", () => {
@@ -713,5 +723,28 @@ describe("PlaygroundRoom tuning: a tuned value survives into a SUBSEQUENT tick (
 
     expect(scoped(room.modeConfig, () => drive().baseMaxSpeed)).toBe(shippedBase);
     expect(room.state.tuningJson).toBe("");
+  });
+});
+
+// Mirror of `practice-room.test.ts`'s "the practice room never installs a bundle process-wide
+// (PR10)" — but on the room the rule actually protects. `PracticeRoom` never tunes at all, so a
+// source-text guard there catches nothing this room does; `PlaygroundRoom` is the ONE room that
+// builds tuned bundles (`applyTuningMessage` -> `applyOverrides`), which is exactly why it is the
+// one room `installMode` would be tempting to reach for — "so a tool can see the tuned numbers" —
+// and exactly why doing so would be the leak this whole phase (MC39/MC40) removed: `installMode`
+// writes the module-level "current bundle" one per PROCESS, not one per room, so a playground
+// holding overrides would hand its own numbers to every other room alive in the process, a live
+// arena match included. The room instead holds its own `this.modeConfig` and reads config through
+// `scoped(this.modeConfig, ...)`, which restores the previous bundle on the way out.
+//
+// There is no typed way to assert an absence, so this reads the source — against ROOM_CODE,
+// comments stripped, so naming `installMode` in a doc comment (as `PracticeRoom`'s own class header
+// does, deliberately) cannot fail this. A guard against the specific regression a copy-paste of
+// `installMode(this.modeConfig)` into this file would produce, not a proof — an aliased import or
+// `room["installMode"]`-style indirection would slip straight through, exactly as the practice-room
+// version admits for itself.
+describe("the playground room never installs a bundle process-wide (F1, mirrors PR10)", () => {
+  it("does not mention installMode anywhere in its module", () => {
+    expect(ROOM_CODE).not.toContain("installMode");
   });
 });

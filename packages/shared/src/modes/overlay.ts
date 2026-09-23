@@ -1,3 +1,4 @@
+import type { DriveConfig } from "../config/drive-config.js";
 import type { StatusDef, StatusId } from "../config/status-types.js";
 import type { TuningOverrides, TuningValue } from "../config/tuning.js";
 import { assembleModeConfig } from "./build.js";
@@ -103,6 +104,34 @@ function rootsOf(tables: ModeTables): Readonly<Record<string, unknown>> {
 }
 
 /**
+ * MC35: the OBB hull (`carWidth`/`carHeight`) is GLOBAL — one hull for every mode — and
+ * `ModeTables.drive`'s TYPE omits both fields so a mode folder cannot author one. That is a
+ * static-only guarantee: the `tables` this function receives is almost always a `ModeConfig`
+ * (structurally a `ModeTables`), whose `drive` is the FULL `DriveConfig` at runtime, hull included,
+ * re-attached by `assembleModeConfig`. Reading `tables.drive` straight through, as `rootsOf` does,
+ * would silently reintroduce both fields as valid tuning paths: `applyOverrides` would validate the
+ * override, write it into the clone, and `assembleModeConfig` would then re-attach the shipped
+ * global hull straight over that write — no error, no effect, the caller none the wiser.
+ *
+ * VALIDATION-ONLY roots, built as a plain destructured copy that drops the two hull keys: nothing
+ * ever writes through `assertAssignable`'s roots (it only reads, to check a path exists and a
+ * value's type-matches), so a copy disconnected from the real object is safe here — and it is what
+ * makes `drive.carWidth`/`drive.carHeight` read as `unknown tuning path` again, the same as before
+ * `ModeTables.drive`'s hull omission became runtime-invisible-but-type-only. This copy must NEVER be
+ * reused for the WRITE roots (`rootsOf` above, unchanged): a copy's primitive fields are disconnected
+ * from the real `tables.drive` object `assembleModeConfig` re-reads afterwards, so writing into the
+ * copy would silently do nothing for every OTHER drive override too, not merely the two hull ones —
+ * tried, and it broke `drive.baseTurnRate` the same way.
+ */
+function validationRootsOf(tables: ModeTables): Readonly<Record<string, unknown>> {
+  const { carWidth: _carWidth, carHeight: _carHeight, ...drive } = tables.drive as DriveConfig;
+  return { ...rootsOf(tables), drive };
+}
+
+/** MC35: `drive.carWidth`/`drive.carHeight` alone — the two hull fields `validationRootsOf` hides. */
+const HULL_PATHS = new Set(["drive.carWidth", "drive.carHeight"]);
+
+/**
  * Builds a tuned sibling of `base`: same `GameMode` id, same everything `overrides` does not touch,
  * with every dot-path in `overrides` written and every derived artifact re-resolved. Never installs
  * anything and never mutates `base` — `base` stays live and untouched for as long as the caller keeps
@@ -119,7 +148,7 @@ function rootsOf(tables: ModeTables): Readonly<Record<string, unknown>> {
  * re-attach, so nothing stale survives into the returned bundle.
  */
 export function applyOverrides(base: ModeConfig, overrides: TuningOverrides): ModeConfig {
-  const validationRoots = rootsOf(base);
+  const validationRoots = validationRootsOf(base);
   for (const [path, value] of Object.entries(overrides)) {
     assertAssignable(validationRoots, base.statusTable, path, value);
   }
@@ -133,6 +162,13 @@ export function applyOverrides(base: ModeConfig, overrides: TuningOverrides): Mo
   const tables = structuredClone(base) as ModeTables;
   const writeRoots = rootsOf(tables);
   for (const [path, value] of Object.entries(overrides)) {
+    // MC35, defense in depth: every path here already passed `validationRootsOf` above, which
+    // cannot resolve a hull path at all — so this can only ever fire if a future edit reorders
+    // validation and writing to interleave per-path instead of validating the whole batch first.
+    // Checked here, locally, rather than trusted to that ordering: a guard that only holds because
+    // of an invariant one function away is exactly the shape of guard that silently stopped
+    // guarding once already on this branch (F2).
+    if (HULL_PATHS.has(path)) throw new Error(`unknown tuning path: ${path}`);
     const { container, key } = leafOf(writeRoots, path);
     container[key] = value;
   }

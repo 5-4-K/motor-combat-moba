@@ -104,6 +104,28 @@ describe("applyOverrides", () => {
     expect(base.weapons.predator.damage).not.toBe(5);
   });
 
+  it("rejects drive.carWidth/carHeight even though the runtime bundle carries them (MC35)", () => {
+    // The OBB hull is GLOBAL (MC35): `ModeTables.drive`'s TYPE omits `carWidth`/`carHeight` so a
+    // mode folder cannot author one, but `base.drive` here is a `ModeConfig`'s FULL `DriveConfig`
+    // at runtime — the type omission is static only. Before this guard, `rootsOf` read
+    // `tables.drive` straight through, so this override validated, wrote 999 into the clone, and
+    // `assembleModeConfig` then silently re-attached the shipped global hull over that write — no
+    // error, no effect, the caller none the wiser. The alternative to this throw is exactly that
+    // silent no-op, not a loud one.
+    const base = modeConfigOf(GameMode.FFA_LAST_STANDING);
+    expect(() => applyOverrides(base, { "drive.carWidth": 999 })).toThrow(/unknown tuning path/);
+    expect(() => applyOverrides(base, { "drive.carHeight": 999 })).toThrow(/unknown tuning path/);
+    expect(base.drive.carWidth).not.toBe(999);
+  });
+
+  // NOTE: this is real coverage of a real future failure mode, not a placeholder — but today it is
+  // weaker than it looks. `table-pinning.test.ts` holds Brawl's and Deathmatch's tables byte-equal,
+  // so the ONLY assertion below that can currently fail is `expect(tuned.id)`; every `.toEqual`
+  // against `freshDeathmatch` would pass just as well against a fresh BRAWL bundle right now,
+  // because the two modes' numbers have not diverged yet. It becomes a real cross-mode assertion —
+  // catching `applyOverrides` accidentally reading or writing the wrong mode's tables — the day
+  // someone actually diverges the two folders, which is the entire point of per-mode config. Do not
+  // read a green run of this test as proof the tables differ; it is not, yet.
   it("tunes a mode OTHER than the default, and the result is that mode's numbers plus the override, not Brawl's", () => {
     const dmBase = modeConfigOf(GameMode.FFA_DEATHMATCH);
     const brawlBase = modeConfigOf(GameMode.FFA_LAST_STANDING);
