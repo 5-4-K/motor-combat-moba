@@ -191,7 +191,14 @@ export class PracticeRoom extends Room<PracticeState> {
     // globally in its own `beforeEach` before touching the room. `this.modeConfig` is a class field,
     // already initialised by the time `onCreate` runs, so it is available here before any of the
     // `await`s below.
-    if (!scoped(this.modeConfig, () => isPracticeSetup(options))) {
+    //
+    // The predicate's narrowing has to come back OUT of the callback (2026-09-23): wrapping
+    // `isPracticeSetup(options)` in `scoped` buries the type guard inside a closure, where it
+    // narrows nothing and leaves `options` as `unknown` for the assignments below. Returning the
+    // value itself — `options` when it passed, `undefined` when it did not — carries the narrowed
+    // type out through `scoped`'s return, so `setup` is a `PracticeSetup` with no assertion.
+    const setup = scoped(this.modeConfig, () => (isPracticeSetup(options) ? options : undefined));
+    if (setup === undefined) {
       throw new ServerError(PRACTICE_INVALID_SETUP_CLOSE_CODE, PRACTICE_INVALID_SETUP_ERROR);
     }
 
@@ -215,8 +222,8 @@ export class PracticeRoom extends Room<PracticeState> {
       throw new ServerError(PRACTICE_PLAYGROUND_BUSY_CLOSE_CODE, PRACTICE_PLAYGROUND_BUSY_ERROR);
     }
 
-    this.setup = options;
-    this.difficulty = options.difficulty;
+    this.setup = setup;
+    this.difficulty = setup.difficulty;
 
     // Everything below this point is synchronous — the room has awaited its last matchmaker query
     // above — so it runs as one `scoped` stretch, the same shape `ArenaRoom.onCreate` uses (MC15).
