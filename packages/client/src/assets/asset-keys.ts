@@ -30,27 +30,32 @@ export function weaponIconKey(weaponId: string): string {
 /**
  * Whether boot should load a manifest entry at all.
  *
- * The runtime half of "only the selected arena ships": another arena's art is skipped even if a
- * manifest row names it, which keeps a dev build from spending load time on arenas it will not draw
- * and keeps behaviour identical to the pruned release. `scripts/build-release.mjs` applies the same
- * rule to the files themselves.
+ * The runtime half of "the arena UNION ships": an arena outside every active mode's arena set is
+ * skipped even if a manifest row names it, which keeps a dev build from spending load time on
+ * arenas no active mode can select and keeps behaviour identical to the pruned release.
+ * `scripts/build-release.mjs` applies the same rule to the files themselves.
  *
  * `everyArena` lifts the arena filter entirely, for a boot that can switch arenas without reloading
- * (see `loadsEveryArena`). Without it, the arena this page did not boot on draws the procedural
- * asphalt fallback, since its floor texture was never asked for.
+ * (see `loadsEveryArena`). Without it, an arena this page did not boot with art for draws the
+ * procedural asphalt fallback, since its floor texture was never asked for.
  */
-export function shouldLoadAssetKey(key: string, activeArenaId: string, everyArena = false): boolean {
+export function shouldLoadAssetKey(
+  key: string,
+  arenaIds: readonly string[],
+  everyArena = false,
+): boolean {
   const arenaId = arenaIdFromArtKey(key);
   if (arenaId === undefined || everyArena) return true;
-  return arenaId === ARENA_ART_COMMON || arenaId === activeArenaId;
+  return arenaId === ARENA_ART_COMMON || arenaIds.includes(arenaId);
 }
 
 /**
- * Whether a boot under this `?dev=` tool should load every arena's art rather than only
- * `ACTIVE_ARENA_ID`'s. True for the playground alone: its settings panel changes `state.arenaId`
- * mid-session, and art is loaded once at boot (`assetsReady`), so an arena skipped here can never
- * draw its floor in that tab. Dev-only by construction — `BootScene` reaches a tool id only under
- * `import.meta.env.DEV`, so the release keeps its single-arena load, matching its pruned files.
+ * Whether a boot under this `?dev=` tool should load every arena's art rather than only the active
+ * modes' union. True for the playground alone: its settings panel changes `state.arenaId`
+ * mid-session, and can point at an arena no active mode carries at all — broader than the union.
+ * Art is loaded once at boot (`assetsReady`), so an arena skipped here can never draw its floor in
+ * that tab. Dev-only by construction — `BootScene` reaches a tool id only under
+ * `import.meta.env.DEV`, so the release keeps its union-only load, matching its pruned files.
  */
 export function loadsEveryArena(devToolId: string | undefined): boolean {
   return devToolId === "playground";
@@ -73,7 +78,7 @@ export function turretSpriteKeys(carId: string): readonly [string, string] {
 
 /**
  * The manifest key for an arena's floor art. Namespaced `arena.<id>.floor` so
- * `scripts/build-release.mjs` prunes every inactive arena's art out of the zip and
+ * `scripts/build-release.mjs` prunes every arena outside the active-mode union out of the zip and
  * `shouldLoadAssetKey` skips it at boot — both of which already understand this shape.
  *
  * Unlike `carSpriteKey` there is no fallback id: an arena with no art renders procedurally, which

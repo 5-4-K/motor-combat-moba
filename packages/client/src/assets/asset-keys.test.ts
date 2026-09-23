@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import {
+  activeArenaIds,
+  DEFAULT_GAME_MODE,
+  installMode,
+  modeConfigOf,
+} from "@motor-combat-moba/shared";
 import {
   arenaFloorKey,
   carSpriteKey,
@@ -47,28 +52,41 @@ describe("turretSpriteKeys", () => {
 
 describe("shouldLoadAssetKey", () => {
   it("loads everything outside the arena namespace", () => {
-    expect(shouldLoadAssetKey("car.mirage", "arena-01")).toBe(true);
-    expect(shouldLoadAssetKey("powerup.boost", "arena-01")).toBe(true);
+    expect(shouldLoadAssetKey("car.mirage", ["arena-01"])).toBe(true);
+    expect(shouldLoadAssetKey("powerup.boost", ["arena-01"])).toBe(true);
   });
 
-  it("loads the active arena's art", () => {
-    expect(shouldLoadAssetKey("arena.arena-01.floor", "arena-01")).toBe(true);
+  it("loads an arena in the given list", () => {
+    expect(shouldLoadAssetKey("arena.arena-01.floor", ["arena-01"])).toBe(true);
   });
 
-  it("skips another arena's art", () => {
-    expect(shouldLoadAssetKey("arena.arena-02.floor", "arena-01")).toBe(false);
+  it("skips an arena outside the given list", () => {
+    expect(shouldLoadAssetKey("arena.arena-02.floor", ["arena-01"])).toBe(false);
   });
 
   it("always loads shared arena art", () => {
-    expect(shouldLoadAssetKey("arena.common.wall", "arena-01")).toBe(true);
+    expect(shouldLoadAssetKey("arena.common.wall", ["arena-01"])).toBe(true);
   });
 
   it("loads a malformed arena key rather than silently dropping it", () => {
-    expect(shouldLoadAssetKey("arena.", "arena-01")).toBe(true);
+    expect(shouldLoadAssetKey("arena.", ["arena-01"])).toBe(true);
   });
 
   it("loads another arena's art when every arena is requested", () => {
-    expect(shouldLoadAssetKey("arena.arena-02.floor", "arena-01", true)).toBe(true);
+    expect(shouldLoadAssetKey("arena.arena-02.floor", ["arena-01"], true)).toBe(true);
+  });
+
+  it("loads art for every active mode's arenas, not just one (MC24)", () => {
+    for (const id of activeArenaIds()) {
+      expect(shouldLoadAssetKey(`arena.${id}.floor`, activeArenaIds(), false)).toBe(true);
+    }
+  });
+
+  it("still skips an arena outside the union, proving the list is a filter and not a pass-through", () => {
+    // arena-03 carries no `MODE_TABLE` entry today — it must never appear inside `activeArenaIds()`,
+    // and this assertion is what would catch a filter that quietly accepts everything.
+    expect(activeArenaIds()).not.toContain("arena-03");
+    expect(shouldLoadAssetKey("arena.arena-03.floor", activeArenaIds())).toBe(false);
   });
 });
 
@@ -88,8 +106,8 @@ describe("arenaFloorKey", () => {
     expect(arenaFloorKey("arena-01")).toBe("arena.arena-01.floor");
   });
 
-  it("produces a key the active arena loads and an inactive one does not", () => {
-    expect(shouldLoadAssetKey(arenaFloorKey("arena-01"), "arena-01")).toBe(true);
-    expect(shouldLoadAssetKey(arenaFloorKey("arena-02"), "arena-01")).toBe(false);
+  it("produces a key an arena in the list loads and one outside it does not", () => {
+    expect(shouldLoadAssetKey(arenaFloorKey("arena-01"), ["arena-01"])).toBe(true);
+    expect(shouldLoadAssetKey(arenaFloorKey("arena-02"), ["arena-01"])).toBe(false);
   });
 });

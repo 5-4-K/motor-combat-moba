@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { ACTIVE_ARENA_ID, DEFAULT_GAME_MODE } from "@motor-combat-moba/shared";
+import { activeArenaIds, DEFAULT_GAME_MODE } from "@motor-combat-moba/shared";
 import { devToolId } from "../config/client-mode.js";
 import { loadManifest } from "../assets/load-manifest.js";
 import { loadsEveryArena, shouldLoadAssetKey } from "../assets/asset-keys.js";
@@ -96,7 +96,7 @@ export class BootScene extends Phaser.Scene {
     // FILE_LOAD_ERROR handler, and the missing-texture sweep below all agree on. A key skipped here
     // is not "failed to load" — it was never asked for, and must not be warned about.
     const entries = Object.entries(parsed.sprites).filter(([key]) =>
-      shouldLoadAssetKey(key, ACTIVE_ARENA_ID, everyArena),
+      shouldLoadAssetKey(key, activeArenaIds(), everyArena),
     );
     if (entries.length === 0) return;
 
