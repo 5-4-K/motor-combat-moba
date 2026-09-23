@@ -8,7 +8,11 @@ Authority: Express + Colyseus, `ArenaRoom`, 30 Hz `serverTick` that drains input
 
 **No room may call `installMode`.** Every room holds its own `ModeConfig` (`this.modeConfig`) and
 enters it with `scoped(this.modeConfig, fn)` — `rooms/mode-scope.ts` — at every entry point: each
-message handler, the simulation interval, and the synchronous tail of `onCreate`. `scoped` restores
+message handler, the simulation interval, and the synchronous tail of `onCreate`. `ArenaRoom` is the
+only one whose bundle ever moves: it resolves from `state.mode` in `onCreate` and re-resolves when
+the host changes mode in the lobby (`MSG_SET_MODE`). `PracticeRoom` pins `FFA_DEATHMATCH` and
+`PlaygroundRoom` pins `DEFAULT_GAME_MODE`, each for the room's whole life. All three resolve through
+`modeConfigOrDefault`, never the throwing `modeConfigOf`, since `state.mode` is a wire `uint8`. `scoped` restores
 the previous bundle in a `finally`; `installMode` does not restore anything, because the "current
 bundle" it writes is one per PROCESS, not one per room. A room that installs hands its numbers to
 every other room alive in that process, a live match included. The dev playground is the one room

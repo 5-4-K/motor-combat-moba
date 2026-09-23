@@ -9,6 +9,10 @@
 | **Prediction** | Client applying `stepSim` locally ahead of patches, reconciled by replay against each patch. |
 | **Interpolation** | Smoothing remote poses between patches, sampled `interpolationDelayMs` behind now. |
 | **Lockstep** | Server and client use the same `stepSim` on the same inputs. |
+| **Game mode** | A `GameMode` wire value with a row in `MODE_TABLE` (`modes/registry.ts`): a display name, an `isActive` publish gate, and its own `ModeConfig`. What ends a match is `winRuleOf(mode)`; how many sides it has is `sidesOf(mode)`. |
+| **Mode bundle** (`ModeConfig`) | One mode's whole configuration, frozen: thirteen tables authored in `packages/shared/src/modes/<mode>/`, plus the eight artifacts `assembleModeConfig` derives from them (weapon/ram/turret/spike/deathmatch/status-pulse ticks, chassis drive, burst defs), plus that mode's `arenas` and `maxPlayers`. Two modes never share a sub-object. |
+| **Mode scope** | The stretch of work one bundle is installed for. `withMode(config, fn)` installs and restores (strictly synchronous — it refuses a thenable); `installMode` installs without restoring, and is the client's boot and the tests' form only. `cfg()` and every accessor **throw** outside a scope: there is no default-mode fallback, on purpose. |
+| **Raw global** | A table still exported from `packages/shared/src/config/` (`CAR_TABLE`, `WEAPON_TABLE`, `DRIVE_CONFIG`, …). The game reads **none** of them; they are the baseline `modes/table-pinning.test.ts` holds both mode folders' copies equal to, and no non-test file may name one. |
 | **LAN** | Default deploy: host serves client dist; others join via LAN IP. |
 | **hostSessionId** | Session of the room host (first joiner; reassigned on leave). |
 | **InputMessage** | `{ seq, steer, throttle, fire }` sent as `"input"`. |
@@ -16,7 +20,7 @@
 | **Spectate** | What a dead player does: a local camera following a living car, or free roam. Server has no notion of it. |
 | **Death fade** | A dead car is intangible and frozen from the tick its hp hits 0 — there is no wreck. The client fades it out over `DEATH_FADE_MS` from the networked `diedAtTick`, then stops drawing it. |
 | **Fire edge** | `fireSlots` carries key state; the server turns it into presses with `prevFireMasks`, so holding the trigger fires once. |
-| **Status** | A timed condition a car is in: a row in `STATUS_TABLE` plus a start and end tick. Scales numbers the sim already reads, and may pulse hp or cleanse on arrival. Never moves a car. Its duration belongs to whatever applied it, not to the row. |
+| **Status** | A timed condition a car is in: a row in the active mode's status table (`statusTable()`) plus a start and end tick. Scales numbers the sim already reads, and may pulse hp or cleanse on arrival. Never moves a car. Its duration belongs to whatever applied it, not to the row. |
 | **Channel** | One number a status may scale (`topSpeed`, `brakeDecel`, `damageDealt`, …). Always a multiplier, 1 = neutral. |
 | **Modifiers** | A car's whole status list collapsed into one set of multipliers and flags. The only thing the sim reads — driving, ramming and combat never look at a status list. |
 | **Pulse** | A status's periodic hp change (burn or repair), authored per pulse rather than per second and counted from the status's own `startTick`. |

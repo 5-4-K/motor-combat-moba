@@ -2,10 +2,29 @@
 
 Balance tables live in `@motor-combat-moba/shared`. Env knobs override process settings only.
 
-**`CAR_TABLE`, `WEAPON_TABLE`, `COMBAT_CONFIG` and `DRIVE_CONFIG` are also printed to players**, by the generated cars-and-weapons guide the join screen links. It is committed
-rather than built on demand, so editing any of them means `npm run build:manual` and committing
-`packages/client/public/manual.html` in the same change — see the root `CLAUDE.md`.
-`scripts/manual-page.test.mjs` fails when the committed page predates the tables.
+## Every section below is a SHAPE; the live values are a mode's own
+
+**Since the per-mode config work (MC1–MC42) nothing in the game reads the raw `CAR_TABLE`,
+`WEAPON_TABLE`, `DRIVE_CONFIG`, `STATUS_TABLE` or any other global in
+`packages/shared/src/config/`.** Each `GameMode` maps to a frozen `ModeConfig` bundle assembled from
+its own folder — `packages/shared/src/modes/brawl/` and `modes/deathmatch/`, thirteen table files
+each — and the sim, the rooms and the client read whichever bundle is installed, through the
+accessors in `modes/active.ts` (`cars()`, `weapons()`, `drive()`, …). So read a section below as
+**the shape of the table and the values both shipped modes carry today**, which are byte-identical
+by intent and pinned that way by `modes/table-pinning.test.ts`. The moment a mode is deliberately
+tuned away, its own folder is the only truthful source for that table and this page can only
+describe the shape. Where a knob is genuinely global — `TICK_RATE_HZ`, `NET_CONFIG`, `COLOR_TABLE`,
+`PRACTICE_CONFIG`, `CHAT_CONFIG`, `ABILITY_SLOT_CEILING`, `MAX_PLAYERS` and the OBB hull
+(`DRIVE_CONFIG.carWidth`/`carHeight`, excluded from `ModeTables` by type) — this page says so in
+that section. Adding a mode is the [`game-mode`](../.claude/skills/game-mode/SKILL.md) skill; the
+root `CLAUDE.md`'s per-mode section is the overview.
+
+**The car, weapon, combat and drive tables are also printed to players**, by the generated
+cars-and-weapons guide the join screen links — one tab per ACTIVE mode. It is committed rather than
+built on demand, so editing any of them, **in any active mode's folder**, means
+`npm run build:manual` and committing `packages/client/public/manual.html` in the same change — see
+the root `CLAUDE.md`. `scripts/manual-page.test.mjs` fails when the committed page predates the
+tables.
 
 ## Env knobs
 
@@ -247,8 +266,8 @@ switch for the whole mechanic — `false` disables firing, the countdown hint's 
 
 Every weapon in the game, keyed by id. `CAR_TABLE[car].weapons` (above) names which of these ids a
 chassis carries and in what slot order. Durations are authored in **milliseconds** and converted
-once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually reads — see
-"Authoring in milliseconds" below.
+once per mode, when that mode's bundle is assembled, into the frozen tick table the sim actually
+reads (`derived().weaponTicks`) — see "Authoring in milliseconds" below.
 
 | id | kind | damage | damageFrequencyMs | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys / intervalMs) | pellets (perVolley / spreadDeg) | attached | lifetimeMs | hitbox | unlocksAt | color |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -417,10 +436,11 @@ shortening the capsule would put the weapon back to reaching further than it dra
 
 **Authoring in milliseconds.** Every duration on a weapon — `startUpMs`, `cooldownMs`, `recoveryMs`,
 `stock.refireDelayMs`, a beam's `lifetimeMs` — is milliseconds, never ticks, so a balance number
-never hard-codes 30 Hz into itself (invariant 1). `WEAPON_TICKS` (`config/weapon-ticks.ts`), built
-and frozen once at module load, converts each with `ceil(ms × TICK_RATE_HZ / 1000)` and separately
-derives `flightTicks = ceil(range / speed × TICK_RATE_HZ)`. The sim reads only the derived ticks,
-never raw ms. The cost is rounding, not drift: at 30 Hz a tick is 33.3 ms, so `startUpMs: 250`
+never hard-codes 30 Hz into itself (invariant 1). `resolveTicks` (`config/weapon-ticks.ts`) runs
+once per mode inside `assembleModeConfig`, converts each with `ceil(ms × TICK_RATE_HZ / 1000)` and
+separately derives `flightTicks = ceil(range / speed × TICK_RATE_HZ)`; the result is frozen with the
+bundle and read as `derived().weaponTicks` (`weaponTicksOf(id)`). The sim reads only the derived
+ticks, never raw ms. The cost is rounding, not drift: at 30 Hz a tick is 33.3 ms, so `startUpMs: 250`
 becomes 8 ticks (266 ms) — server and client both compute it from the same built `dist`, so they
 always round the same way or neither does.
 
@@ -1069,27 +1089,39 @@ already wrong before the heavy-car pass touched it, not a figure any of these re
 
 ## MODE_TABLE
 
-`packages/shared/src/config/mode-config.ts`. One row per `GameMode` wire value. Display names live
-here so the lobby cards and the mode tag cannot drift; the longer card copy stays in the client.
+`packages/shared/src/modes/registry.ts` (it moved out of the deleted
+`config/mode-config.ts` when the mode folders landed). One row per `GameMode` wire value, each
+carrying the assembled `ModeConfig` bundle that row resolves to. Display names live here so the
+lobby cards and the mode tag cannot drift; the longer card copy stays in the client
+(`ui/lobby-view.ts`'s `modeCardsData`, which an active mode needs an entry in or `modeCards()`
+publishes nothing for it — `lobby-view.test.ts` fails until it does).
 
-| id | name | isActive |
-|---|---|---|
-| `FFA_LAST_STANDING` (`0`) | Brawl | `true` |
-| `TEAM` (`1`) | Team brawl | `false` |
-| `FFA_DEATHMATCH` (`2`) | Deathmatch | `true` |
+| id | name | isActive | config | arenas |
+|---|---|---|---|---|
+| `FFA_LAST_STANDING` (`0`) | Brawl | `true` | `modes/brawl/` | `arena-01`, `arena-02` |
+| `TEAM` (`1`) | Team brawl | `false` | `modes/brawl/` (no folder of its own yet) | `arena-01`, `arena-02` |
+| `FFA_DEATHMATCH` (`2`) | Deathmatch | `true` | `modes/deathmatch/` | `arena-01`, `arena-02` |
+
+`TEAM` points at `BRAWL_TABLES` because nobody has authored team-mode numbers; `assembleModeConfig`
+is still called separately for it, so its bundle is a distinct frozen object rather than a shared
+reference.
 
 `isActive` is the same publish gate as `CarDef.isActive`. Flip a row to `false` and it disappears
 from the host's Game modes picker (`modeCards()` / `activeGameModes()`), and `ArenaRoom`'s
 `MSG_SET_MODE` refuses it. If fewer than two modes are active, the Settings → Game modes entry is
 hidden too. New rooms open on `DEFAULT_GAME_MODE` (`FFA_LAST_STANDING` today);
-`mode-config.test.ts` requires that default to stay among the active rows.
+`modes/registry.test.ts` requires that default to stay among the active rows, and
+`modes/invariants.test.ts` re-runs every config invariant over each row, naming the mode.
 
 `TEAM` is unpublished today: the host's picker offers Brawl and Deathmatch only, and `set_mode`
 refuses `1`. The row, the team lobby columns, the team spawn tables and the team win rule all stay
 in the code — flipping `isActive` back to `true` is the whole of re-enabling it.
 
-Playground, practice, and `npm run balance` do **not** read this flag. They pin or pass a mode
-directly, which is how an unpublished mode is driven before it is shown to players.
+Playground, practice, and the headless harnesses do **not** read this flag. They pin or pass a mode
+directly, which is how an unpublished mode is driven before it is shown to players:
+`PlaygroundRoom` pins `DEFAULT_GAME_MODE`, `PracticeRoom` pins `FFA_DEATHMATCH`, and
+`npm run ttk`/`balance`/`playtest` each take `--mode=<id|name>` (shared's `parseModeArg`), which
+accepts an inactive mode on purpose and labels every report with it.
 
 ## DEATHMATCH_CONFIG
 
@@ -1109,9 +1141,9 @@ All four are first-pass numbers meant to be re-tuned from play. They sequence de
 "[name] killed you," then 2 s of respawn countdown, then a return to the field with 1.5 s of
 protection.
 
-`DEATHMATCH_TICKS` (`match` / `respawnDelay` / `phase` / `phaseMax`) converts each once at module
-load, the same `WEAPON_TICKS` / `STATUS_PULSE_TICKS` pattern — the sim reads only the derived ticks,
-never raw seconds.
+`derived().deathmatchTicks` (`match` / `respawnDelay` / `phase` / `phaseMax`) converts each once
+per mode when that bundle is assembled, the same pattern as the weapon and status-pulse tick tables
+— the sim reads only the derived ticks, never raw seconds.
 
 `phaseMaxSeconds` is belt-and-braces, not load-bearing: `phaseSeconds` is a **minimum**, not a fixed
 window — the phase actually ends on whichever comes first of the timer, a clear contact test (no

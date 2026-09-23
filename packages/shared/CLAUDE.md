@@ -6,16 +6,37 @@ Lockstep constants, Colyseus schema, input types, and `stepSim`. Server and clie
 
 P0: `TICK_RATE_HZ` / `MS_PER_TICK` / `DEFAULT_PATCH_RATE_HZ` / `MAX_PLAYERS` / `ROOM_NAME`, enums (`RoomPhase`, `GameMode`, `PlayerStatus`), `PlayerState` / `ArenaState`, `INPUT_MESSAGE` + `InputMessage`, identity `stepSim`.
 
+**`modes/` owns configuration; `config/` owns its TYPES.** Every table below still has a raw global
+in `config/` and **the sim reads none of them.** `modes/brawl/` and `modes/deathmatch/` each hold
+thirteen table files plus an `index.ts`; `modes/build.ts`'s `assembleModeConfig` clones them,
+resolves the eight derived artifacts and deep-freezes the result; `modes/registry.ts`'s `MODE_TABLE`
+binds each `GameMode` to its bundle; `modes/active.ts` holds the installed one behind sixteen
+accessors (`cars()`, `weapons()`, `drive()`, … `derived()`) and `cfg()`, which **throws outside a
+`withMode` scope** — there is deliberately no default-mode fallback. `withMode` is strictly
+synchronous and refuses a thenable; `installMode` is the no-restore, one-per-process form, used by
+the client's boot and by tests, never by a server room. Three guards ride on this:
+`modes/table-pinning.test.ts` (every raw global still equals both folders' copies — delete a row's
+assertion when a mode is DELIBERATELY tuned away), `modes/no-raw-config-in-sim.test.ts` (no
+non-test file under shared, server, client or either harness may name a raw table at all) and
+`modes/invariants.test.ts` (every config invariant re-run per `MODE_TABLE` row, naming the mode).
+Adding a mode is the [`game-mode`](../../.claude/skills/game-mode/SKILL.md) skill. Nothing in this
+package may read an accessor at MODULE scope — that freezes whichever bundle was installed first.
+See the root `CLAUDE.md`'s per-mode section and
+[`docs/superpowers/specs/2026-09-22-per-mode-config-design.md`](../../docs/superpowers/specs/2026-09-22-per-mode-config-design.md)
+(MC1–MC42).
+
 P5 combat: `sim/damage.ts` (the **only** place hp moves — `applyDamage` and `applyHeal` — plus `damageFor` and `scaleDamage`, the only places a hit's size is decided), `sim/combat.ts` (`runCombat`, one pure tick of combat over POJOs). `runCombat` runs *after* driving, never moves a car, and is server-only — the client draws its results and predicts none of them. Collision deals no damage.
 
-Weapon system: `sim/weapons/` — `shapes.ts` (shape → convex polygon, SAT wrappers, the swept smear hull), `fire.ts` (the per-car fire state machine: slots, the three clocks, stocks, volley scheduling), `instances.ts` (projectile travel; beam grow/linger/wall-clip; expiry), `hits.ts` (pose-snapshot hit resolution, per-target damage clocks, pierce), `targets.ts` (`canDamage`, the one friendly-fire predicate). Config lives in `config/weapon-types.ts` (the `WeaponDef` discriminated union), `config/weapon-config.ts` (`WEAPON_TABLE`), `config/weapon-slots.ts` (`WEAPON_SLOT_CONFIG`, `slotsOf`), and `config/weapon-ticks.ts` (`WEAPON_TICKS`, the frozen ms→ticks table). `runCombat` stays the orchestrator; it shrank rather than grew. See [`docs/combat-model.md`](../../docs/combat-model.md) and [`docs/config-reference.md`](../../docs/config-reference.md).
+Weapon system: `sim/weapons/` — `shapes.ts` (shape → convex polygon, SAT wrappers, the swept smear hull), `fire.ts` (the per-car fire state machine: slots, the three clocks, stocks, volley scheduling), `instances.ts` (projectile travel; beam grow/linger/wall-clip; expiry), `hits.ts` (pose-snapshot hit resolution, per-target damage clocks, pierce), `targets.ts` (`canDamage`, the one friendly-fire predicate). Config TYPES live in `config/weapon-types.ts` (the `WeaponDef` discriminated union), `config/weapon-slots.ts` (`WeaponSlotConfig`, `slotsOf`) and `config/weapon-ticks.ts` (`resolveTicks`, the ms→ticks resolver); the VALUES the sim reads are the active mode's — `weapons()`, `slots()`, `derived().weaponTicks` — authored in `modes/<mode>/weapons.ts` and `slots.ts`. The raw `WEAPON_TABLE`, `WEAPON_SLOT_CONFIG` and `WEAPON_TICKS` globals still exist as the pinned baseline and are unreadable from any non-test file (`no-raw-config-in-sim.test.ts`). `runCombat` stays the orchestrator; it shrank rather than grew. See [`docs/combat-model.md`](../../docs/combat-model.md) and [`docs/config-reference.md`](../../docs/config-reference.md).
 
 Statuses (buffs and debuffs): `sim/status/` — `statuses.ts` (the `ActiveStatus` list: apply, expire,
 the two re-apply rules, pulses, cleanse, wire validation) and `modifiers.ts` (`modifiersOf`, the one
-function that turns a status list into the multipliers the sim reads). Config lives in
+function that turns a status list into the multipliers the sim reads). Config TYPES live in
 `config/status-types.ts` (the `StatusDef` shape, `StatusChannel`, `StatusFlag`, `StatusPulse`),
-`config/status-config.ts` (`STATUS_TABLE`, `STATUS_CONFIG`, `STATUS_LIMITS`) and
-`config/status-ticks.ts` (`STATUS_PULSE_TICKS`, sharing `msToTicks` with `weapon-ticks.ts`).
+`config/status-config.ts` (`StatusConfig`, `StatusLimits`) and `config/status-ticks.ts`
+(`resolveStatusPulseTicks`, sharing `msToTicks` with `weapon-ticks.ts`); the VALUES are the active
+mode's — `statusTable()`, `statusConfig()`, `statusLimits()`, `derived().statusPulseTicks` —
+authored in `modes/<mode>/status.ts`.
 
 **Every channel is a multiplier with 1 as neutral, and `Modifiers` is the only type that reaches the
 sim.** Driving, ramming and combat never look at a status list — they read a `Modifiers`. That is what
@@ -125,7 +146,10 @@ identity placeholder, and put `spinFree` on `reeling`'s flags. Steering SETS `an
 overwrites it, which is the model rather than a bug. `docs/turn-tuning.md` tabulates both the knob
 and the per-tick factor, and its doc test recomputes them.
 
-The resolved fields come from `driveOf(carId)` (`config/car-config.ts`, frozen per car at module load in `CHASSIS_DRIVE`), and
+The resolved fields come from `driveOf(carId)` (`config/car-config.ts`), which reads the ACTIVE
+MODE's own `derived().chassisDrive` — resolved once per mode by `assembleModeConfig` and frozen with
+the bundle, not a module-load table. (`CHASSIS_DRIVE` still exports the shipped-roster values and is
+what a few tests compare against; `driveOf` no longer reads it.)
 `stepSim` resolves it at the single production call site. Every other caller of `stepDrive` here is
 a test, and that is the point: `golden.test.ts` and `drive.test.ts` pin the drive *equation* against
 a frozen fixture, so a per-car `accel` or `handling` retune can never look like a change to the

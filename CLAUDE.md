@@ -12,34 +12,48 @@ bundle assembled from its own folder — `packages/shared/src/modes/brawl/` and
 to bundle; `modes/active.ts` holds the active one and exposes it through sixteen accessors — `cars()`,
 `weapons()`, `drive()`, `ram()`, `impulse()`, `combat()`, `turret()`, `statusConfig()`,
 `statusTable()`, `statusLimits()`, `spike()`, `slots()`, `flow()`, `deathmatch()`, `camera()` and
-`derived()` (the last for the tick tables resolved per mode: weapon ticks, chassis drive, burst
-defs, ram ticks, turret ticks).
+`derived()` (the last for the eight artifacts `assembleModeConfig` resolves per mode: weapon ticks,
+chassis drive, burst defs, ram ticks, turret ticks, spike ticks, deathmatch ticks and status pulse
+ticks). Two more `ModeTables` fields have no accessor because nothing reads them per-tick —
+`arenas` (which arenas the mode plays; see [`docs/config-reference.md`](docs/config-reference.md#arena-selection))
+and `maxPlayers` (the mode's own seat count, bounded above by the global `MAX_PLAYERS`).
 
-**The trap this section exists to prevent:** the raw globals in `config/` still exist and are still
-read by tooling (`build-cars-and-weapons.mjs`, `check-cars`, `check-weapons`, the art importers).
-So editing `WEAPON_TABLE` the way this file used to tell you to will move `balanceStamp`, change the
-players' guide and change `npm run ttk` — **and change nothing about how the game plays.**
-`packages/shared/src/modes/table-pinning.test.ts` is the tripwire: it asserts every raw global still
-equals both mode folders' copies, and fails naming the table.
+**The trap this section exists to prevent:** the raw globals in `config/` still exist, so editing
+`WEAPON_TABLE` the way this file used to tell you to **changes nothing about how the game plays.**
+It no longer changes anything about the tooling either — since MC41 the guide, `balanceStamp`,
+`npm run ttk`, `npm run balance`, `npm run playtest`, `check:cars`/`check:weapons` and
+`docs/turn-tuning.md` all read a MODE's bundle, so a raw edit moves no report and no page. What it
+does do is fail `packages/shared/src/modes/table-pinning.test.ts`, the tripwire: it asserts every
+raw global still equals both mode folders' copies, and fails naming the table. (The art importers,
+`scripts/import-art.mjs` and `import-weapon-icon.mjs`, are the last live raw readers — `CAR_TABLE`
+for id validation and the global hull, neither a balance number.)
 
 ### Where to edit, depending on what you want
 
 - **An ordinary balance change, both modes** — edit the raw global in `config/` AND the matching
   file in `modes/brawl/` AND in `modes/deathmatch/`. All three, equal; `table-pinning.test.ts`
-  enforces it. Tedious, and deliberately so until the tooling learns to read a mode.
+  enforces it. Tedious, and deliberately so: the raw global is now nothing but the pinned baseline
+  the tripwire measures both modes against, and keeping it in step is what makes an accidental
+  one-mode edit legible as an accident.
 - **A change to ONE mode only, which is the whole point of this system** — edit that mode's folder
   alone, then delete that table's assertion from `table-pinning.test.ts` with a comment saying the
   modes have intentionally diverged. The tripwire exists to catch an accident, not to forbid the
   feature.
 - **A NEW mode** — copy a folder, add a `GameMode` enum value at the next unused integer (never
-  renumber — invariant 7), add a `MODE_TABLE` row. `isActive: false` hides it from the lobby.
+  renumber — invariant 7), add a `MODE_TABLE` row in `modes/registry.ts`. `isActive: false` hides it
+  from the lobby with no other code change. Use the
+  [`game-mode`](.claude/skills/game-mode/SKILL.md) skill, which walks the whole checklist — the
+  arena set, the lobby card, the win rule, the guide tab, the turn-tuning section and the
+  per-mode tests that start running over the new row the moment it exists.
 
 ### What is NOT per-mode, and why
 
 `TICK_RATE_HZ`, `NET_CONFIG`, `DEFAULT_PATCH_RATE_HZ`, the enum wire values, `ABILITY_SLOT_CEILING`,
 `MAX_PLAYERS`, `COLOR_TABLE`, `PRACTICE_CONFIG`, `CHAT_CONFIG`, `LOGICAL_CANVAS`, and the OBB hull
 (`DRIVE_CONFIG.carWidth` / `carHeight`) are global. The hull is excluded from `ModeTables` **by
-type**, so a mode folder cannot author one even by accident.
+type**, so a mode folder cannot author one even by accident. `MAX_PLAYERS` is on that list as the
+CEILING, not as the seat count: a mode authors its own `maxPlayers` in its `index.ts`, and
+`modes/invariants.test.ts` holds it to `[2, MAX_PLAYERS]`. Both shipped modes author 6.
 
 ### Two rules that will bite you
 
@@ -73,7 +87,8 @@ them. See
 [`docs/superpowers/plans/2026-09-22-per-mode-config/EXECUTION.md`](docs/superpowers/plans/2026-09-22-per-mode-config/EXECUTION.md).
 
 **Statuses** are the sim's duration layer (`sim/status/`) — timed conditions a car is in, listed in
-`STATUS_TABLE`. Every channel is a **multiplier** with 1 as neutral, and `Modifiers` is the only type
+the active mode's status table (`statusTable()`; the raw `STATUS_TABLE` global is the pinned
+baseline, not what the sim reads). Every channel is a **multiplier** with 1 as neutral, and `Modifiers` is the only type
 that reaches the sim: driving, ramming and combat never look at a status list. A status does not own
 its duration — the applier does (`WeaponDef.applies`, or `CombatInput.statusRequests` for future
 pickups) — and never stacks with itself. Hard CC no longer belongs to one chassis alone: since the
@@ -525,6 +540,7 @@ something, discuss it — do not answer with a parameter sweep.
 | Schema fields | [`docs/schema-reference.md`](docs/schema-reference.md) |
 | Env knobs / balance tables | [`docs/config-reference.md`](docs/config-reference.md) |
 | **Per-mode config: the mode folders, the scope, what stays global** | **the section at the top of this file**, then [`docs/superpowers/specs/2026-09-22-per-mode-config-design.md`](docs/superpowers/specs/2026-09-22-per-mode-config-design.md) (MC1–MC42) |
+| Adding, publishing or un-publishing a game mode — the whole checklist | the [`game-mode`](.claude/skills/game-mode/SKILL.md) skill |
 | Which knob to tune for a turning/aiming complaint, and every turn stat on the roster | [`docs/turn-tuning.md`](docs/turn-tuning.md) — **hand-maintained, see below** |
 | Which knob to tune when a bot feels wrong, and every bot parameter | [`docs/bot-behavior.md`](docs/bot-behavior.md) |
 | LAN zip / `start.bat` | [`docs/deployment.md`](docs/deployment.md) |
@@ -983,7 +999,9 @@ chassis row, an active car's loadout, the combat, drive, status, slots or turret
 **in ANY active mode's folder, not only the default one**: since MC41 the generator reads each
 mode's own bundle through `withMode` and `balanceStamp` hashes every active mode, so a
 Deathmatch-only edit owes a rebuild exactly as a roster-wide one does — or
-`TICK_RATE_HZ`, `ARENA_WIDTH`, or the prose in
+`TICK_RATE_HZ`, `ARENA_WIDTH`, `BASIC_ATTACK_CONFIG.enabled`, the set of ACTIVE modes
+(`stampOfModes` hashes each tab's id and name, so publishing or un-publishing one moves the stamp
+even though both shipped modes' tables are byte-identical), or the prose in
 `cars-and-weapons-copy.mjs`. (`ARENA_WIDTH` is still global, read from `ACTIVE_ARENA_ID`, even
 though a mode authors its own `arenas` list; both shipped modes play the same two arenas, so every
 tab reports reach against the same floor.) (`AIM_CONFIG.lockRange`
