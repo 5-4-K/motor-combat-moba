@@ -90,6 +90,11 @@ export function newPracticeState(): PracticeState {
   const state = new PracticeState();
   beginCountdown(state);
   state.mode = GameMode.FFA_DEATHMATCH;
+  // Deathmatch's own arena (MC23, MC26), resolved from the same pinned `GameMode.FFA_DEATHMATCH`
+  // constant `state.mode` was just set from — never `this.state.mode` and never `ACTIVE_ARENA_ID` —
+  // so the two can never disagree, the same reasoning `PracticeRoom.modeConfig`'s field comment
+  // gives for the bundle itself.
+  state.arenaId = modeConfigOrDefault(GameMode.FFA_DEATHMATCH).arenas[0];
   return state;
 }
 

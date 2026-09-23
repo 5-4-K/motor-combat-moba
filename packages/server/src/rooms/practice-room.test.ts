@@ -51,6 +51,17 @@ describe("newPracticeState (PR9)", () => {
     expect(newPracticeState().mode).toBe(GameMode.FFA_DEATHMATCH);
   });
 
+  // MC23/MC26: pins the INTENDED source — Deathmatch's own bundle, not `ACTIVE_ARENA_ID` — as
+  // literal documentation. It does NOT prove causation on its own: Deathmatch's shipped `arenas[0]`
+  // is "arena-01", the SAME string `ArenaState.arenaId`'s field initializer defaults to via
+  // `ACTIVE_ARENA_ID`, so this assertion still passes even with the room's own `state.arenaId` write
+  // deleted (verified by hand while writing this task). `practice-room-arena.test.ts` is the test
+  // that actually distinguishes the two, by mocking the bundle so the two values are forced to
+  // differ — see its header comment for why a second file was needed here.
+  it("takes its arena from the Deathmatch bundle's arena set, not ACTIVE_ARENA_ID", () => {
+    expect(newPracticeState().arenaId).toBe(modeConfigOf(GameMode.FFA_DEATHMATCH).arenas[0]);
+  });
+
   // The whole point of practice: no clock, so no win condition can arrive. `matchClockLabel` reads
   // a non-positive value as "no clock", which is what drops the HUD timer with no client change.
   it("leaves matchEndsTick at 0 — a deathmatch with no deadline", () => {

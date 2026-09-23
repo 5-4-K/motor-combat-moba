@@ -148,6 +148,10 @@ export class ArenaRoom extends Room<ArenaState> {
     // above today; kept explicit so a future default-mode change or persisted state cannot drift
     // the two apart.
     this.modeConfig = modeConfigOrDefault(this.state.mode);
+    // A match plays its own mode's arena, never `ACTIVE_ARENA_ID` (MC23, MC26): `arenas[0]`, full
+    // stop — no picker, no random choice, no round-robin. `ArenaState.arenaId`'s field initializer
+    // still reads `ACTIVE_ARENA_ID`; this overwrites it before anyone joins.
+    this.state.arenaId = this.modeConfig.arenas[0];
 
     scoped(this.modeConfig, () => {
       this.setPatchRate(1000 / DEFAULT_PATCH_RATE_HZ);
@@ -196,6 +200,10 @@ export class ArenaRoom extends Room<ArenaState> {
           // never swap the bundle a live match is running inside.
           if (this.state.phase === RoomPhase.LOBBY) {
             this.modeConfig = modeConfigOrDefault(this.state.mode);
+            // The host switching mode moves the arena with it (MC23): otherwise car select and the
+            // client's loaded art would keep showing the OLD mode's arena while the new bundle's
+            // roster and kits are already live.
+            this.state.arenaId = this.modeConfig.arenas[0];
           }
         }),
       );
