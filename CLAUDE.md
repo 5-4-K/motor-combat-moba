@@ -2,6 +2,62 @@
 
 LAN-hosted top-down 2D multiplayer car combat (last player/team standing, max 6). npm workspaces (`@motor-combat-moba/shared`, `@motor-combat-moba/server`, `@motor-combat-moba/client`), one Colyseus `arena` room (`ArenaRoom`), shared `stepSim` as the lockstep, Phaser 4 client. v1 is complete: lobby, car select, countdown, arcade driving with prediction, projectiles, ram knockback, elimination, spectate, last standing.
 
+
+## Configuration is PER-GAME-MODE — read this before tuning anything
+
+**The game does not read `CAR_TABLE`, `WEAPON_TABLE`, `DRIVE_CONFIG` or any other table in
+`config/` any more. It reads a per-mode copy.** Every `GameMode` maps to a frozen `ModeConfig`
+bundle assembled from its own folder — `packages/shared/src/modes/brawl/` and
+`packages/shared/src/modes/deathmatch/`, thirteen table files each. `modes/registry.ts` binds mode
+to bundle; `modes/active.ts` holds the active one and exposes it through sixteen accessors — `cars()`,
+`weapons()`, `drive()`, `ram()`, `impulse()`, `combat()`, `turret()`, `statusConfig()`,
+`statusTable()`, `statusLimits()`, `spike()`, `slots()`, `flow()`, `deathmatch()`, `camera()` and
+`derived()` (the last for the tick tables resolved per mode: weapon ticks, chassis drive, burst
+defs, ram ticks, turret ticks).
+
+**The trap this section exists to prevent:** the raw globals in `config/` still exist and are still
+read by tooling (`build-cars-and-weapons.mjs`, `check-cars`, `check-weapons`, the art importers).
+So editing `WEAPON_TABLE` the way this file used to tell you to will move `balanceStamp`, change the
+players' guide and change `npm run ttk` — **and change nothing about how the game plays.**
+`packages/shared/src/modes/table-pinning.test.ts` is the tripwire: it asserts every raw global still
+equals both mode folders' copies, and fails naming the table.
+
+### Where to edit, depending on what you want
+
+- **An ordinary balance change, both modes** — edit the raw global in `config/` AND the matching
+  file in `modes/brawl/` AND in `modes/deathmatch/`. All three, equal; `table-pinning.test.ts`
+  enforces it. Tedious, and deliberately so until the tooling learns to read a mode.
+- **A change to ONE mode only, which is the whole point of this system** — edit that mode's folder
+  alone, then delete that table's assertion from `table-pinning.test.ts` with a comment saying the
+  modes have intentionally diverged. The tripwire exists to catch an accident, not to forbid the
+  feature.
+- **A NEW mode** — copy a folder, add a `GameMode` enum value at the next unused integer (never
+  renumber — invariant 7), add a `MODE_TABLE` row. `isActive: false` hides it from the lobby.
+
+### What is NOT per-mode, and why
+
+`TICK_RATE_HZ`, `NET_CONFIG`, `DEFAULT_PATCH_RATE_HZ`, the enum wire values, `ABILITY_SLOT_CEILING`,
+`MAX_PLAYERS`, `COLOR_TABLE`, `PRACTICE_CONFIG`, `CHAT_CONFIG`, `LOGICAL_CANVAS`, and the OBB hull
+(`DRIVE_CONFIG.carWidth` / `carHeight`) are global. The hull is excluded from `ModeTables` **by
+type**, so a mode folder cannot author one even by accident.
+
+### Two rules that will bite you
+
+- **`cfg()` throws outside a mode scope.** Every entry point — each room's handlers and tick, the
+  client's boot, every harness and script — must install a bundle first (`withMode(config, fn)`, or
+  `installMode` for a one-shot process). A new entry point that reads config without one crashes on
+  its first read, loudly, by design. `withMode` is strictly synchronous and refuses a thenable.
+- **Never read a config accessor at module scope.** A `const X = drive().maxSpeed` at the top of a
+  file freezes whichever mode was installed first for the life of the process. Use `memoOnBundle`
+  (`packages/client/src/net/mode-memo.ts`) when a derived value needs caching.
+  `packages/shared/src/modes/no-raw-config-in-sim.test.ts` walks shared, server and client and fails
+  on a raw table read — but it cannot see a module-scope accessor CALL, so that one is on you.
+
+**Still outstanding** (per-mode tooling, phase 6 of the plan): the players' guide, `npm run balance`,
+`npm run ttk`, `npm run playtest` and `docs/turn-tuning.md` all report for the DEFAULT mode only and
+have no `--mode` flag. Until they do, a second mode's numbers are unpublished and unmeasured. See
+[`docs/superpowers/plans/2026-09-22-per-mode-config/EXECUTION.md`](docs/superpowers/plans/2026-09-22-per-mode-config/EXECUTION.md).
+
 **Statuses** are the sim's duration layer (`sim/status/`) — timed conditions a car is in, listed in
 `STATUS_TABLE`. Every channel is a **multiplier** with 1 as neutral, and `Modifiers` is the only type
 that reaches the sim: driving, ramming and combat never look at a status list. A status does not own
@@ -427,7 +483,8 @@ something, discuss it — do not answer with a parameter sweep.
 ## Hard invariants
 
 1. `TICK_RATE_HZ` lives once in `@motor-combat-moba/shared`.
-2. No magic numbers in logic — balance from shared/config (tables land in P1).
+2. No magic numbers in logic — balance comes from the ACTIVE MODE's bundle, read through the
+   accessors in `modes/active.ts`; never a raw `config/` table, never captured at module scope.
 3. Clients send inputs (and later lobby intents), never authoritative sim state.
 4. `stepSim` is the lockstep; server and client import the same function.
 5. Sim rate ≠ patch rate (`TICK_RATE_HZ` 30 vs `DEFAULT_PATCH_RATE_HZ` 20).
@@ -446,6 +503,7 @@ something, discuss it — do not answer with a parameter sweep.
 | Input / prediction seams | [`docs/networking.md`](docs/networking.md) |
 | Schema fields | [`docs/schema-reference.md`](docs/schema-reference.md) |
 | Env knobs / balance tables | [`docs/config-reference.md`](docs/config-reference.md) |
+| **Per-mode config: the mode folders, the scope, what stays global** | **the section at the top of this file**, then [`docs/superpowers/specs/2026-09-22-per-mode-config-design.md`](docs/superpowers/specs/2026-09-22-per-mode-config-design.md) (MC1–MC42) |
 | Which knob to tune for a turning/aiming complaint, and every turn stat on the roster | [`docs/turn-tuning.md`](docs/turn-tuning.md) — **hand-maintained, see below** |
 | Which knob to tune when a bot feels wrong, and every bot parameter | [`docs/bot-behavior.md`](docs/bot-behavior.md) |
 | LAN zip / `start.bat` | [`docs/deployment.md`](docs/deployment.md) |
@@ -727,10 +785,10 @@ built shared**, so a config edit that skips the page fails `npm test` naming the
 It checks values, not a `balanceStamp`-style fingerprint: nothing generates this page, so a stamp
 would only prove someone typed a new stamp.
 
-**Update it in the same commit whenever you change** a car's `handling`, `speed` or `brakeDecel` in
-`CAR_TABLE`; `baseTurnRate`, `turnRatePerRating`, `baseMaxSpeed`, `speedPerRating`, `reverseAccelFactor`,
+**Update it in the same commit whenever you change** a car's `handling`, `speed` or `brakeDecel`
+(in EVERY mode folder's `cars.ts`, and the `CAR_TABLE` global they are pinned to); `baseTurnRate`, `turnRatePerRating`, `baseMaxSpeed`, `speedPerRating`, `reverseAccelFactor`,
 `baseDrag`, `dragPerRating`, `lateralGripRate`, `reverseEpsilon` or `flipSteeringInReverse` in
-`DRIVE_CONFIG`; **any `STATUS_TABLE` row's `turnRate` OR `grip` multiplier that
+every mode folder's `drive.ts` (and the `DRIVE_CONFIG` global); **any `STATUS_TABLE` row's `turnRate` OR `grip` multiplier that
 reaches the drive model — `reeling`'s `grip` (0.6) is the one shipped today, and it has its own
 "Grip while reeling" row in the derived table** (it was `reeling`'s `turnRate` (0.4) and a "Rate
 while reeling" row until the 2026-09-18 Unity ram port dropped `turnRate` from that row outright);
@@ -883,7 +941,9 @@ fact the prose never quotes fails the suite, so the two can only ever be the sam
 sentence that measures something adds its fact back.
 
 **Re-run `npm run build:manual` and commit the page whenever you change:** a weapon row, an ACTIVE
-chassis row, an active car's loadout, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `STATUS_TABLE`,
+chassis row, an active car's loadout, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `STATUS_TABLE`
+(the generator reads the RAW globals plus the DEFAULT mode's bundle, so a per-mode-only edit moves
+nothing here and the page keeps publishing the default mode's numbers),
 `TICK_RATE_HZ`, `ARENA_WIDTH`, `WEAPON_SLOT_CONFIG.maxAbilitySlots`, `TURRET_CONFIG.turnRateDegPerSec`, or the prose in
 `cars-and-weapons-copy.mjs`. (`AIM_CONFIG.lockRange`
 was on this list until 2026-09-17, when the aim-lock feature and the whole config were deleted.)
