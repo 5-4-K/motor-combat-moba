@@ -10,7 +10,8 @@ import { resolveWeaponFx, type FxOverrides, type WeaponFxResolver } from "./tuni
  * Being global is not what decides its reach. Only a playground room ever builds a resolver over it
  * (`ArenaScene`), so a shipped arena or practice session never reads a byte of this even when a
  * developer has a tuning session saved in the same browser. `PlaygroundScene` loads it on start and
- * clears it on shutdown, the same lifecycle `setTuning` and `setShowHitboxes` already follow.
+ * clears it on shutdown, the same lifecycle the playground's tuned bundle and `setShowHitboxes`
+ * already follow.
  */
 let current: FxOverrides = {};
 

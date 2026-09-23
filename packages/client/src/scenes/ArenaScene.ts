@@ -3070,7 +3070,7 @@ export class ArenaScene extends Phaser.Scene {
       // The playground's own crosshair reach where one is set, the shipped value everywhere else —
       // the ring means "this is as far as your crosshair goes", so it has to be the SAME number.
       ringRadius: this.resolveTurretView().crosshairMaxDistance,
-      // Read live: `setTuning` rebuilds the mode bundle `turret()` reads, so a Turret-panel edit to
+      // Read live: a playground retune rebuilds the mode bundle `turret()` reads, so a Turret-panel edit to
       // the arc moves the lines on the next frame through the signature below.
       maxSwingDeg: turret().maxSwingDeg,
       pivot: turretMountOf(carIdOf(local)),

@@ -66,7 +66,7 @@ export const PLAYGROUND_LEVEL = 3;
 
 /** Same shape as `ROOM_FULL_ERROR`: the string the join screen shows, naming the fix. */
 export const ARENA_BUSY_ERROR =
-  "Close the arena first, and any practice session too: playground tuning is process-wide";
+  "Someone is in a match right now. Close the arena and any practice session, then try again";
 
 /**
  * The close code carried with `ARENA_BUSY_ERROR`. Sits alongside `ArenaRoom`'s 4003 (second arena)
@@ -86,12 +86,20 @@ const PLAYGROUND_BUSY_CODE = 4005;
 
 /**
  * May a playground room open right now? No, if anyone at all is sitting in the arena OR in a
- * practice room (spec PG15, widened by PR10): the tuning store is a module-level singleton shared by
- * every room in the process, so overrides typed into the playground would silently re-balance a live
- * match — or a player's practice session — next door.
+ * practice room (spec PG15, widened by PR10).
  *
- * Practice rooms are registered on EVERY process, the `npm run dev` one included, which is exactly
- * how a developer's sliders reach a friend's session.
+ * **The reason this guard was written is gone (MC39/MC40).** It was a tuning-leak guard: the tuning
+ * store was a module-level singleton shared by every room in the process, so overrides typed into
+ * the playground silently re-balanced a live match — or a player's practice session — next door.
+ * Tuning is per-room now (`applyOverrides` into this room's own `this.modeConfig`, installing
+ * nothing), so that particular leak cannot happen any more. What is left is the weaker, still-true
+ * claim that a playground is a dev tool nobody should be running beside a real match — a
+ * `DEV_TOOLS=1` process shares its CPU, its bots and its matchmaker with those rooms. Whether that
+ * still justifies refusing the room outright is the user's call, and deliberately not made here:
+ * removing a safety guard is not a comment edit.
+ *
+ * Practice rooms are registered on EVERY process, the `npm run dev` one included, which is why they
+ * count here at all.
  *
  * Pure, and takes only the field it reads, so the rule is testable without a matchmaker.
  */
@@ -315,8 +323,9 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
   private applyTuningMessage(msg: unknown): void {
     const result = validateTuning(msg);
     if (!result.ok) return;
-    // An empty object IS the reset: `setTuning(null)` restores every table, and `""` is what the
-    // client's watcher reads as "clear my store too" (an empty string is not malformed JSON).
+    // An empty object IS the reset: it drops the room back onto its pristine base bundle two lines
+    // below, and `""` is what the client's watcher reads as "clear my store too" (an empty string is
+    // not malformed JSON).
     const overrides = Object.keys(result.overrides).length > 0 ? result.overrides : null;
     // Tuning REPLACES, never accumulates (PG13): every call starts fresh from the room's own
     // pristine base — the same `modeConfigOrDefault(DEFAULT_GAME_MODE)` bundle the `modeConfig`

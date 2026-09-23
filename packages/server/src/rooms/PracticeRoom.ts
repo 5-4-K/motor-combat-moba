@@ -101,15 +101,20 @@ export function newPracticeState(): PracticeState {
 /**
  * Player-facing practice: the shipped game with one bot in it (spec PR1).
  *
- * Deliberately NOT a copy of `PlaygroundRoom`. There is no tuning store (PR10), no control routing
+ * Deliberately NOT a copy of `PlaygroundRoom`. There is no tuning (PR10), no control routing
  * (PR12), no mid-session setup message (PR7) and no singleton guard (PR4) — Colyseus minting one
  * room per player is the feature here, not a bug to suppress.
  *
- * `setTuning`, the store the playground writes through, is never imported or called from here, and
- * `practice-room.test.ts` reads this source (comments stripped, so naming it right here cannot fail
- * that test) to hold that. It is a module-level singleton, one per server process rather than one per
- * room, so a practice room that touched it would silently re-balance every other room in the process
- * — including a live match next door.
+ * **This room never installs a mode bundle process-wide.** It reads config the way every room does,
+ * through `scoped(this.modeConfig, ...)`, which puts its own bundle in place for the duration of a
+ * handler and restores the previous one on the way out. `installMode` does not restore anything —
+ * the module-level "current bundle" is one per server PROCESS, not one per room — so calling it here
+ * would hand this room's numbers to every other room in the process, a live match next door
+ * included. (Until MC39/MC40 the same leak had a different name: the playground's `setTuning`, which
+ * installed process-wide, and which this room was forbidden to call for exactly this reason.
+ * `setTuning` is gone; the rule is now about `installMode`, which is the only way left to cause it.)
+ * `practice-room.test.ts` reads this source with comments stripped, so naming `installMode` right
+ * here cannot fail that test.
  */
 export class PracticeRoom extends Room<PracticeState> {
   maxClients = 1;

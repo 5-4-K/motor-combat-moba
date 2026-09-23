@@ -687,8 +687,8 @@ export function explosionDamageModeOf(id: WeaponId): ExplosionDamageMode | undef
  *
  * Kept as a standalone export — it used to back the rebuildable `ACTIVE_BURST_DEFS`; `instanceDefOf`
  * no longer reads it. The active mode bundle's own `derived.burstDefs` (MC14) is a
- * separately-resolved, value-equal object, installed by `setTuning` (`config/tuning.ts`) as a whole
- * fresh bundle rather than rebuilt in place — there is no `ACTIVE_BURST_DEFS` left, and no
+ * separately-resolved, value-equal object, replaced by a playground retune (`applyOverrides`,
+ * `modes/overlay.ts`) as part of a whole fresh bundle rather than rebuilt in place — there is no `ACTIVE_BURST_DEFS` left, and no
  * `rebuildBurstDefs` either.
  */
 const BURST_DEFS: Partial<Record<WeaponId, BeamWeaponDef>> = buildBurstDefs();

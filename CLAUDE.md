@@ -350,10 +350,17 @@ balance edit — see [`docs/config-reference.md`](docs/config-reference.md#drive
 every server with no `DEV_TOOLS` gate — a player-facing 1v1 against a bot, reached from the join
 screen's Practice button. It runs `runPipeline` and the deathmatch respawn helpers verbatim, runs
 `mode = FFA_DEATHMATCH` with `matchEndsTick` at 0 (which is what hides the
-clock and keeps the kills panel), and **never calls `setTuning`** — the store is process-wide, so a
-practice room that touched it would re-balance every other room in the process. The mirror image of
-that rule is `shouldRefusePlayground`, which refuses to open a playground while an arena **or a
-practice room** has anyone in it. Settings ride as join options, not messages: practice has no
+clock and keeps the kills panel), and **never calls `installMode`** — it holds its own `ModeConfig`
+and reads through `scoped(this.modeConfig, ...)`, which restores the previous bundle on the way out.
+`installMode` writes the module-level current bundle, one per PROCESS rather than one per room, so a
+practice room that called it would hand its own numbers to every other room in the process. (That
+rule used to name `setTuning`, the playground's process-wide tuning store; `setTuning` was deleted in
+the per-mode-config work — the playground now builds a tuned sibling bundle with `applyOverrides` and
+keeps it on its own room — and `installMode` is the only way left to cause the same leak. A test in
+`practice-room.test.ts` reads the room's own source, comments stripped, to hold it.) The mirror image
+of that rule is `shouldRefusePlayground`, which refuses to open a playground while an arena **or a
+practice room** has anyone in it — a guard whose original tuning-leak justification is now gone,
+though the guard itself stands. Settings ride as join options, not messages: practice has no
 mid-session reconfiguration.
 
 **Lobby chat is lobby-screen only, and its gate cannot drift from the UI.** `MSG_CHAT` is refused

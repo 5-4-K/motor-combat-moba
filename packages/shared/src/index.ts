@@ -16,14 +16,14 @@ export type { DeployMode } from "./constants.js";
 // scope a bundle of their own — a test bundle, or eventually a real non-default mode — rather than
 // only ever reading whatever this process last installed.
 export { withMode, cfg, installMode, hasMode } from "./modes/active.js";
-// `applyOverrides` (MC39/MC40): builds a tuned SIBLING of a base bundle without installing anything —
-// the per-bundle replacement for `config/tuning.ts`'s process-wide `setTuning`. See
-// `modes/overlay.ts` for the full reasoning.
+// `applyOverrides` (MC39/MC40): builds a tuned SIBLING of a base bundle without installing anything.
+// It REPLACED `config/tuning.ts`'s process-wide `setTuning`, which is gone — that file is types only
+// now. See `modes/overlay.ts` for the full reasoning.
 export { applyOverrides } from "./modes/overlay.js";
 // The bundle accessors themselves (MC13/MC14): `sim/` has read exclusively through these since the
-// accessor-layer work, and server/client code that used to read a raw config global in place —
-// `setTuning` rebuilds the bundle rather than mutating those globals — needs the same accessors to
-// stay live under a tuning retune. Task 5b (see docs/superpowers/sdd) widened this from
+// accessor-layer work, and server/client code that used to read a raw config global in place — a
+// playground retune rebuilds the BUNDLE rather than mutating those globals — needs the same
+// accessors to stay live under it. Task 5b (see docs/superpowers/sdd) widened this from
 // `drive, turret, derived` to the full accessor set, since the 108 raw reads it converted outside
 // `shared/src/sim` needed every one of them.
 export {
@@ -259,7 +259,6 @@ export type { WeaponTicks } from "./config/weapon-ticks.js";
 export { ABILITY_SLOT_CEILING, WEAPON_SLOT_CONFIG, slotsFrom, slotsOf, fireSlotsOf } from "./config/weapon-slots.js";
 export { TURRET_CONFIG, TURRET_TICKS, type TurretConfig } from "./config/turret-config.js";
 export { COMBAT_CONFIG, DEATH_FADE_MS } from "./config/combat-config.js";
-export { activeTuning, setTuning } from "./config/tuning.js";
 export type { TuningOverrides, TuningValue } from "./config/tuning.js";
 export { sanitizeStoredTuning, tunableFields, validateTuning } from "./config/tuning-walker.js";
 export type { TunableField } from "./config/tuning-walker.js";

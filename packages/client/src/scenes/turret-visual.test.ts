@@ -1,11 +1,22 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { TURRET_CONFIG, setTuning } from "@motor-combat-moba/shared";
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  DEFAULT_GAME_MODE,
+  TURRET_CONFIG,
+  applyOverrides,
+  installMode,
+  modeConfigOf,
+} from "@motor-combat-moba/shared";
 import { TURRET_VISUAL } from "../config/turret-visual.js";
 import { easeTurretAngle, turretDisplayLength } from "./turret-visual.js";
 
 const rate = (TURRET_CONFIG.turnRateDegPerSec * Math.PI) / 180;
 
-afterEach(() => setTuning(null));
+// `easeTurretAngle` reads `turret()` at call time, which throws outside a mode scope, so every test
+// here needs a bundle installed — and a retuned one must not leak into the next test. This used to
+// ride on `afterEach(() => setTuning(null))` plus the incidental fact that the retune test ran
+// before the tests that depend on the shipped rate; installing the pristine bundle up front makes
+// that order irrelevant.
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 describe("turret visual (TR42)", () => {
   it("sizes the turret from the manifest scale", () => {
@@ -17,7 +28,7 @@ describe("turret visual (TR42)", () => {
     expect(turretDisplayLength(1.5, 40)).toBe(60);
   });
   it("eases at the turn rate live at CALL time, so a playground retune reaches the drawn turret (TR59)", () => {
-    setTuning({ "turret.turnRateDegPerSec": 360 });
+    installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.turnRateDegPerSec": 360 }));
     expect(easeTurretAngle(0, 1, 0.01)).toBeCloseTo(((360 * Math.PI) / 180) * 0.01, 9);
   });
   it("eases toward the networked angle at the turret's own rate", () => {

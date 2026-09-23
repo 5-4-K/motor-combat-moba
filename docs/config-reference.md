@@ -1170,26 +1170,38 @@ relationship to the sim, and a tick-based cooldown would silently halve when the
 takes `TICK_RATE_HZ` from 30 to 60 (see root `CLAUDE.md`). At 500 ms no real player notices it; a
 held Enter key or a scripted client cannot flush the visible history in a second.
 
-## Tuning store (dev-only)
+## Runtime tuning (dev-only)
 
-`packages/shared/src/config/tuning.ts` (`setTuning`, PG12) and `config/tuning-walker.ts`
-(`tunableFields` / `validateTuning` / `sanitizeStoredTuning`, PG14) are a dev-only runtime override
-seam over **six** of the tables above — `CAR_TABLE`, `DRIVE_CONFIG`, `RAM_CONFIG`, `IMPULSE_CONFIG`,
-`COMBAT_CONFIG`, `WEAPON_TABLE`. `IMPULSE_CONFIG` (renamed from `SLAM_CONFIG`) is the newest root,
-added because its `spinScale` became live once a slam's contact point stopped being read as the
-victim's own centre — before that it tuned nothing, so it had no slider. `setTuning(overrides)`
+`packages/shared/src/modes/overlay.ts` (`applyOverrides`, PG12/MC39/MC40) and
+`config/tuning-walker.ts` (`tunableFields` / `validateTuning` / `sanitizeStoredTuning`, PG14) are a
+dev-only runtime override seam over **seven** roots — `car`, `weapon`, `drive`, `ram`, `impulse`,
+`combat`, `turret`. `IMPULSE_CONFIG` (renamed from `SLAM_CONFIG`) became a root once its `spinScale`
+went live — a slam's contact point stopped being read as the victim's own centre — and before that
+it tuned nothing, so it had no slider.
+
+**There is no tuning STORE any more.** `applyOverrides(base, overrides)` is a pure function: it
 validates every dot-path (`"car.mirage.speed"`, `"drive.baseTurnRate"`, `"weapon.predator.damage"`,
-`"impulse.spinScale"`, …) against the shipped shape, restores the six source tables from a frozen
-snapshot, then writes the overrides back **in place** — object identity is preserved, so every
-existing importer (the sim, the render tables, the server) keeps reading the same objects with no
-call-site change. Only the artifacts derived once at module load — `CHASSIS_DRIVE`
-(`rebuildResolvedDrive`), `WEAPON_TICKS` (`rebuildWeaponTicks`), the ram durations (`rebuildRamTicks`,
-new with the Unity ram port's stage 3, spec U40 — without it, moving a ram duration knob in the
-playground changed config and nothing the sim read) and the weapon burst defs (`rebuildBurstDefs`) —
-are told to re-resolve. `RAM_REFERENCE`/`RAM_REFERENCE_MASS` and `RAM_DECAY` no longer exist to
-re-resolve — see [`RAM_CONFIG`](#ram_config) above.
-**`setTuning(null)` restores the frozen defaults by reference**: after a reset, the six tables are
-exactly the objects they were before any override was ever applied, not a copy of them.
+`"impulse.spinScale"`, …) against `base`'s OWN tables, then returns a brand-new `ModeConfig` bundle —
+a tuned sibling of `base`, with every derived artifact (`derived.chassisDrive`,
+`derived.weaponTicks`, `derived.ramTicks`, `derived.burstDefs`, `derived.turretTicks`) re-resolved as
+part of assembling it. It installs nothing, mutates nothing and caches nothing. Three properties
+follow, and each one used to need its own machinery:
+
+- **The raw `config/` tables are never written.** `CAR_TABLE`, `DRIVE_CONFIG`, `WEAPON_TABLE` and
+  the rest stay the shipped values for the life of the process, so there is no snapshot to restore
+  from and no `setTuning(null)` to restore it — resetting is just going back to the untuned bundle.
+- **Nothing is rebuilt in place.** `rebuildResolvedDrive`, `rebuildWeaponTicks`, `rebuildRamTicks`
+  and `rebuildBurstDefs` are all gone: assembling a bundle resolves every derived artifact in one
+  step, so there is nothing left for them to do.
+- **Overrides replace, never accumulate.** Each call starts from the caller's pristine base rather
+  than from a bundle a previous call produced.
+
+The caller decides what the tuned bundle IS: `PlaygroundRoom` assigns it to its own `modeConfig`
+field (so only that room's ticks see it), and `PlaygroundScene` installs it for the tab's life. This
+is what replaced `config/tuning.ts`'s `setTuning`, which assembled a bundle and `installMode`d it
+**process-wide** — one playground holding overrides re-balanced every other room in the server, which
+is why `PracticeRoom` carried a rule against calling it at all. `config/tuning.ts` still exists and
+holds the `TuningValue`/`TuningOverrides` types; it holds no code.
 
 The walker enumerates the tunable surface from the tables themselves rather than a hand-written list,
 skipping identity/shape fields — `id`, `name`, `kind`, `color`, the discriminated-union tags `shape`
@@ -1206,13 +1218,16 @@ relentless setting with three preserves today's behaviour by construction rather
 **Never called in production.** The only two call sites in the repo are
 `packages/server/src/rooms/PlaygroundRoom.ts` and `packages/client/src/dev/PlaygroundScene.ts` —
 both dev-only, gated behind `DEV_TOOLS=1` server-side and the `?dev=playground` dev tool client-side
-(see root `CLAUDE.md`). `ArenaRoom` and every release build never call `setTuning`, so `golden.test.ts`
-and every other suite run against the untouched defaults — their staying green is the proof the seam
-is inert in production. See
+(see root `CLAUDE.md`). `ArenaRoom` and every release build never call `applyOverrides`, so
+`golden.test.ts` and every other suite run against the untouched defaults — their staying green is
+the proof the seam is inert in production. And since the function installs nothing, a tuned bundle
+cannot reach a room that did not ask for one even by accident. See
 [`docs/superpowers/specs/2026-09-01-playtest-playground-design.md`](superpowers/specs/2026-09-01-playtest-playground-design.md)
-(PG12–PG17, PG20) and
+(PG12–PG17, PG20),
 [`docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md`](superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md)
-(PG27–PG29) for the full design.
+(PG27–PG29) and
+[`docs/superpowers/specs/2026-09-22-per-mode-config-design.md`](superpowers/specs/2026-09-22-per-mode-config-design.md)
+(MC39–MC40) for the full design.
 
 ## SPIKE_CONFIG
 

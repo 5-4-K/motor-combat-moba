@@ -8,7 +8,8 @@
  * a hitbox is outlined on someone's screen.
  *
  * A module-level singleton rather than a value threaded through the scene tree, for the same reason
- * `setTuning` is one: the thing that SETS it is a DOM overlay with no handle on the Phaser scene,
+ * the playground's own tuning bundle is: the thing that SETS it is a DOM overlay with no handle on
+ * the Phaser scene,
  * and the thing that READS it is a draw call several layers down. Process-wide is exactly the scope
  * — one browser tab draws one arena.
  *
@@ -37,7 +38,7 @@ export function showHitboxes(): boolean {
 /**
  * Turn the hitbox overlay on or off. Called by the playground's settings panel, and reset when the
  * playground shuts down — a dev toggle must never survive into whatever runs next in this process,
- * the same rule `PlaygroundScene` already follows for `setTuning`.
+ * the same rule `PlaygroundScene` already follows for its tuned bundle.
  */
 export function setShowHitboxes(on: boolean): void {
   hitboxes = on;

@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { CAR_TABLE } from "./car-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
-import { setTuning } from "./tuning.js";
+import { applyOverrides } from "../modes/overlay.js";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { sanitizeStoredTuning, tunableFields, validateTuning } from "./tuning-walker.js";
 
 describe("tuning walker", () => {
-  it("every emitted path round-trips through setTuning without throwing", () => {
+  it("every emitted path round-trips through applyOverrides without throwing", () => {
+    // The walker EMITS paths and `applyOverrides` RESOLVES them, and neither knows about the other:
+    // this is the only thing holding the two path grammars together. Nothing is installed — a
+    // rejected path throws out of `applyOverrides` itself, which is all this needs to see.
+    const base = modeConfigOf(DEFAULT_GAME_MODE);
     for (const f of tunableFields()) {
-      expect(() => setTuning({ [f.path]: f.shipped })).not.toThrow();
+      expect(() => applyOverrides(base, { [f.path]: f.shipped }), f.path).not.toThrow();
     }
-    setTuning(null);
   });
 
   it("walks the seven ratings per car and nothing else from CAR_TABLE", () => {

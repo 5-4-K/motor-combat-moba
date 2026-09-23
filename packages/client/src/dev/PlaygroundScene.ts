@@ -224,7 +224,8 @@ export class PlaygroundScene extends Phaser.Scene {
    * before ever broadcasting it. Mirrors the server's own tuning move (MC39/MC40): `applyOverrides`
    * builds a tuned SIBLING of the pristine `DEFAULT_GAME_MODE` bundle rather than mutating a process-
    * wide store in place, and `installMode` is what makes it this tab's live bundle -- there is no
-   * successor to `setTuning` here because there was nothing left for one to call.
+   * successor to `setTuning` here because there was nothing left for one to call. (`setTuning`
+   * itself is now deleted; `config/tuning.ts` holds the two override TYPES and nothing else.)
    */
   private syncTuning(): void {
     const room = this.room;

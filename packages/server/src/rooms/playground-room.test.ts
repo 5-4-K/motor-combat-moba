@@ -16,6 +16,7 @@ import {
   pairKey,
   slotsOf,
   speedOf,
+  weapons,
   type BotDifficulty,
   type CarId,
   type CombatEvents,
@@ -56,7 +57,9 @@ describe("shouldRefusePlayground", () => {
   });
 
   it("refuses while a practice room is open (PR10)", () => {
-    // The tuning store is process-wide: sliders here would re-balance that session next door.
+    // Historically a tuning-leak guard — the store was process-wide and sliders here re-balanced
+    // that session next door. Tuning is per-room now; the rule stands on "a dev sandbox does not
+    // run beside a live session" instead. See `shouldRefusePlayground`'s own doc comment.
     expect(shouldRefusePlayground([], [{ clients: 1 }])).toBe(true);
   });
 
@@ -67,8 +70,9 @@ describe("shouldRefusePlayground", () => {
 
 // `PlaygroundRoom.onCreate` reuses `shouldRejectSecondArena` unchanged to refuse a SECOND playground
 // room (PG15): `maxClients = 1` only rejects a second client, so a full room makes `joinOrCreate`
-// spin up another one, and the tuning store `setTuning` writes through is process-wide — two
-// playground rooms alive at once fight over it, and either closing wipes the survivor's tables.
+// spin up another one. The original reason was a shared tuning store two rooms would fight over;
+// that store is gone (MC39/MC40) and each room tunes its own bundle, so what is left is that a
+// playground is meant to be a singleton dev tool — see `PlaygroundRoom.onCreate`'s own comment.
 describe("shouldRejectSecondArena (reused for the second-playground guard)", () => {
   it("refuses when another playground room is already listed", () => {
     expect(shouldRejectSecondArena([{ roomId: "old" }], "new")).toBe(true);
@@ -112,8 +116,12 @@ describe("seatIndexOf (PG57)", () => {
 });
 
 describe("ARENA_BUSY_ERROR", () => {
-  it("names the fix, not the rule", () => {
-    expect(ARENA_BUSY_ERROR).toContain("Close the arena first");
+  it("tells the player what to do, in their words, with no mechanism in it", () => {
+    // It is shown on the join screen to whoever tried to open the playground. It used to end
+    // "playground tuning is process-wide", which was jargon while it was true and is now simply
+    // false (MC39/MC40).
+    expect(ARENA_BUSY_ERROR).toContain("Close the arena");
+    expect(ARENA_BUSY_ERROR).not.toMatch(/process-wide|tuning|store|bundle|setTuning/i);
   });
 });
 
@@ -662,5 +670,48 @@ describe("PlaygroundRoom tuning: a tuned value survives into a SUBSEQUENT tick (
     // `shippedTopSpeed`; the busted-tuning failure mode reads as this assertion failing with
     // `reachedSpeed` stuck near `shippedTopSpeed` instead of near `tunedTopSpeed`.
     expect(reachedSpeed).toBeGreaterThan((shippedTopSpeed + tunedTopSpeed) / 2);
+  });
+
+  it("a SECOND tuning message replaces the first, rather than accumulating on top of it", () => {
+    // The gap this closes (2026-09-23): no test drove `applyTuningMessage` twice, so the whole
+    // "each blob starts fresh from the room's pristine base" rule — PG13's reject-whole promise,
+    // and the reason the handler passes `modeConfigOrDefault(DEFAULT_GAME_MODE)` to
+    // `applyOverrides` rather than `this.modeConfig` — was unguarded. Substituting `this.modeConfig`
+    // for `base` at that one line makes overrides ACCUMULATE, and every other test in this file
+    // still passes: a single blob reads identically either way.
+    //
+    // Two different roots, so accumulation is visible as "the first blob's change survived the
+    // second", not merely as an arithmetic difference in one number.
+    const room = readyRoom();
+    const shippedTopSpeed = scoped(room.modeConfig, () => forwardMaxSpeedOf("mirage" as CarId));
+    const shippedBase = scoped(room.modeConfig, () => drive().baseMaxSpeed);
+    const shippedDamage = scoped(room.modeConfig, () => weapons().predator.damage);
+
+    scoped(room.modeConfig, () => room.applyTuningMessage({ "drive.baseMaxSpeed": shippedBase * 3 }));
+    expect(scoped(room.modeConfig, () => forwardMaxSpeedOf("mirage" as CarId))).toBeGreaterThan(
+      shippedTopSpeed * 1.4,
+    );
+
+    scoped(room.modeConfig, () => room.applyTuningMessage({ "weapon.predator.damage": shippedDamage + 7 }));
+
+    // The second blob's change is live...
+    expect(scoped(room.modeConfig, () => weapons().predator.damage)).toBe(shippedDamage + 7);
+    // ...and the first blob's is GONE — the bundle came from the pristine base, not from the bundle
+    // the previous message produced.
+    expect(scoped(room.modeConfig, () => drive().baseMaxSpeed)).toBe(shippedBase);
+    expect(scoped(room.modeConfig, () => forwardMaxSpeedOf("mirage" as CarId))).toBe(shippedTopSpeed);
+    // And the state the client mirrors agrees: it advertises the second blob alone.
+    expect(JSON.parse(room.state.tuningJson)).toEqual({ "weapon.predator.damage": shippedDamage + 7 });
+  });
+
+  it("an empty blob resets the room all the way back to its pristine base", () => {
+    const room = readyRoom();
+    const shippedBase = scoped(room.modeConfig, () => drive().baseMaxSpeed);
+
+    scoped(room.modeConfig, () => room.applyTuningMessage({ "drive.baseMaxSpeed": shippedBase * 3 }));
+    scoped(room.modeConfig, () => room.applyTuningMessage({}));
+
+    expect(scoped(room.modeConfig, () => drive().baseMaxSpeed)).toBe(shippedBase);
+    expect(room.state.tuningJson).toBe("");
   });
 });

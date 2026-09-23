@@ -93,16 +93,22 @@ describe("newPracticeState (PR9)", () => {
   });
 });
 
-// The tuning store is a MODULE-LEVEL singleton, one per server process rather than one per room, so
-// a practice room that wrote to it would silently re-balance every other room in the process —
-// including a live arena match. There is no typed way to assert an absence, so this reads the source
-// — against ROOM_CODE, comments stripped, so naming `setTuning` in a doc comment (as the class
-// header above `PracticeRoom` now does, deliberately) cannot fail this the way it once did. These are
-// guards against the specific regression a copy-paste from `PlaygroundRoom` would produce, not proofs
-// — an aliased import or `player["setTuning"]`-style indirection would slip straight through.
-describe("the practice room never touches the tuning store (PR10)", () => {
-  it("does not mention setTuning anywhere in its module", () => {
-    expect(ROOM_CODE).not.toContain("setTuning");
+// Repointed from `setTuning` to `installMode` (MC39/MC40): `setTuning` is deleted, so an assertion
+// naming it could no longer fail and no longer taught anything. The HAZARD outlived the function.
+// `installMode` writes the module-level "current bundle" — one per server process, not one per room
+// — so a practice room that called it would hand its own numbers to every other room in the process,
+// a live arena match included. That is the same leak `setTuning` used to cause, and `installMode` is
+// now the only way left to cause it. The room reads config through `scoped(this.modeConfig, ...)`
+// instead, which restores the previous bundle on the way out.
+//
+// There is no typed way to assert an absence, so this reads the source — against ROOM_CODE, comments
+// stripped, so naming `installMode` in a doc comment (as the class header above `PracticeRoom` does,
+// deliberately) cannot fail this. A guard against the specific regression a copy-paste from
+// `PlaygroundRoom` would produce, not a proof — an aliased import or `room["installMode"]`-style
+// indirection would slip straight through.
+describe("the practice room never installs a bundle process-wide (PR10)", () => {
+  it("does not mention installMode anywhere in its module", () => {
+    expect(ROOM_CODE).not.toContain("installMode");
   });
 });
 

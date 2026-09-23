@@ -1,23 +1,22 @@
-import { isStatusId } from "../config/status-config.js";
+import type { StatusDef, StatusId } from "../config/status-types.js";
 import type { TuningOverrides, TuningValue } from "../config/tuning.js";
 import { assembleModeConfig } from "./build.js";
 import type { ModeConfig, ModeTables } from "./types.js";
 
 /**
- * Builds a NEW `ModeConfig` from `base` plus `overrides`, without ever installing it. This is the
- * per-bundle replacement for `config/tuning.ts`'s `setTuning`: that function assembles a bundle from
- * `BRAWL_TABLES` alone and `installMode`s it process-wide, so it can only ever tune the default mode
- * for the whole server. `applyOverrides` takes whichever bundle the caller already has — Brawl's,
- * Deathmatch's, a future mode's — and returns a tuned sibling of it; what the caller does with the
- * result (install it, hold it as a room's own `this.modeConfig`, discard it) is entirely up to them.
+ * Builds a NEW `ModeConfig` from `base` plus `overrides`, without ever installing it. It replaced
+ * `config/tuning.ts`'s `setTuning`, now deleted: that function assembled a bundle from
+ * `BRAWL_TABLES` alone and `installMode`d it process-wide, so it could only ever tune the default
+ * mode, and it tuned it for every room in the server at once. `applyOverrides` takes whichever
+ * bundle the caller already has — Brawl's, Deathmatch's, a future mode's — and returns a tuned
+ * sibling of it; what the caller does with the result (install it, hold it as a room's own
+ * `this.modeConfig`, discard it) is entirely up to them.
  *
- * The path-walking machinery below (`leafOf`, `assertAssignable`) is a deliberate copy of
- * `tuning.ts`'s own, not an import of it: `leafOf` there is private, and a later task guts
- * `tuning.ts` down to calling this function — importing its internals would just have to be undone.
- * The doc comments on both are carried across unchanged, because the reasoning is unchanged: it is
- * still an own-property walk (never `in`, which would let `"car.mirage.toString"` resolve to a
- * function off the prototype chain), and `statusId` is still the one leaf validated by VALUE rather
- * than by shape.
+ * The path-walking machinery below (`leafOf`, `assertAssignable`) began as a deliberate copy of
+ * `tuning.ts`'s own, and is now the only copy: `setTuning` is gone and `tuning.ts` is types only.
+ * The reasoning is unchanged from that original: it is still an own-property walk (never `in`,
+ * which would let `"car.mirage.toString"` resolve to a function off the prototype chain), and
+ * `statusId` is still the one leaf validated by VALUE rather than by shape.
  */
 type Container = Record<string, unknown>;
 
@@ -59,7 +58,12 @@ function leafOf(roots: Readonly<Record<string, unknown>>, path: string): { conta
  * this repo is deliberately moving off the raw globals, so validating against them would be a new
  * dependency on tables the game no longer reads.
  */
-function assertAssignable(roots: Readonly<Record<string, unknown>>, path: string, value: TuningValue): void {
+function assertAssignable(
+  roots: Readonly<Record<string, unknown>>,
+  statuses: Readonly<Record<StatusId, StatusDef>>,
+  path: string,
+  value: TuningValue,
+): void {
   const { container, key } = leafOf(roots, path);
   const shipped = container[key];
   if (typeof shipped !== typeof value) {
@@ -72,7 +76,16 @@ function assertAssignable(roots: Readonly<Record<string, unknown>>, path: string
   // before the clone is written, which is also what keeps `applyOverrides`'s all-or-nothing promise.
   // Every such leaf is reachable: `weapon.<id>.applies.N.statusId`, `...explosion.applies.N.statusId`
   // and `...impulse.applies.N.statusId` / `...impulse.onWallImpact.applies.N.statusId`.
-  if (key === "statusId" && !isStatusId(value)) {
+  //
+  // Checked against `statuses` — the BASE BUNDLE's own status table — rather than through
+  // `isStatusId`, which reads whichever bundle the process last installed and throws outright when
+  // none is (2026-09-23). Two reasons, and the first is the same one the rest of this validator
+  // already follows: a status id is valid for the MODE being tuned. The second is that
+  // `applyOverrides` is pure and installs nothing, so requiring an ambient mode scope just to
+  // validate would make it the one impure-by-precondition step in the overlay — and until this
+  // changed, the check silently never ran: outside a scope it threw the scope error instead, which
+  // reads as a rejection to a caller and to a test expecting a throw.
+  if (key === "statusId" && !(typeof value === "string" && hasOwn(statuses, value))) {
     throw new Error(`tuning path ${path} is not a status id: ${String(value)}`);
   }
 }
@@ -108,9 +121,15 @@ function rootsOf(tables: ModeTables): Readonly<Record<string, unknown>> {
 export function applyOverrides(base: ModeConfig, overrides: TuningOverrides): ModeConfig {
   const validationRoots = rootsOf(base);
   for (const [path, value] of Object.entries(overrides)) {
-    assertAssignable(validationRoots, path, value);
+    assertAssignable(validationRoots, base.statusTable, path, value);
   }
 
+  // Two clones happen per call — this one, and `assembleModeConfig`'s own — and the pair is not
+  // redundant (checked 2026-09-23). `base` is deep-frozen, and the write loop below has to mutate
+  // something, so the overrides need a clone BEFORE they are written; `assembleModeConfig` clones
+  // AFTER, which is what guarantees the bundle it returns shares no sub-object with whatever tables
+  // it was handed. Dropping either one means either writing into the caller's frozen base or handing
+  // back a bundle wired to this function's scratch object.
   const tables = structuredClone(base) as ModeTables;
   const writeRoots = rootsOf(tables);
   for (const [path, value] of Object.entries(overrides)) {

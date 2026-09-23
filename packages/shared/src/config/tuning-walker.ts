@@ -11,11 +11,15 @@ import type { WeaponId } from "./weapon-types.js";
 
 /**
  * Enumerable, validatable tuning surface for a dev playground (spec PG14) — built once from the
- * seven source tables `setTuning` (Task 2) already knows how to write. `path` is a `setTuning`-ready
- * dot-path; a UI slaps `min`/`max`/`step`/`options` on it and never has to know a leaf's provenance.
+ * seven source tables `applyOverrides` (`modes/overlay.ts`) already knows how to write. `path` is an
+ * `applyOverrides`-ready dot-path; a UI slaps `min`/`max`/`step`/`options` on it and never has to
+ * know a leaf's provenance.
+ *
+ * This file only ever READS: it describes the surface and never writes a leaf. That is why it
+ * outlived `setTuning`, which is deleted — `config/tuning.ts` beside it is types only now.
  */
 export interface TunableField {
-  path: string; // setTuning-compatible: "weapon.predator.damage"
+  path: string; // applyOverrides-compatible: "weapon.predator.damage"
   group: "car" | "drive" | "ram" | "combat" | "impulse" | "weapon" | "turret";
   ownerId?: string; // carId or weaponId for car/weapon groups; carId for a turret mount row
   label: string; // path minus group+owner, e.g. "hitbox.radius"
@@ -53,7 +57,7 @@ const CAR_RATINGS = ["speed", "accel", "handling", "attack", "hp", "ramAttack", 
  * the same reason: each one gates which sibling keys the object is allowed to have (`ProjectileHitbox`'s
  * `shape` decides whether `radius` or `radiusAlong`/`radiusAcross` exist; `ManeuverSpec`'s `type`
  * decides whether `durationMs`/`slamsStunned` exist). Flipping only the tag through a validated
- * `setTuning` write leaves those siblings as whatever the ORIGINAL variant authored — a `capsule`'s
+ * override write leaves those siblings as whatever the ORIGINAL variant authored — a `capsule`'s
  * `radiusAlong`/`radiusAcross` surviving under a `circle` tag that wants `radius` — and
  * `capsuleShapeAt`/`circleShapeAt` (`sim/weapons/shapes.ts`) then read a field the new variant never
  * defined, computing `undefined - undefined` and NaN-poisoning every hit-test vertex downstream. A
@@ -112,7 +116,7 @@ function pushSimpleField(
 /**
  * Flattens one weapon row into `relativePath -> leaf value`, recursing into nested objects
  * (`hitbox`, `volley`, `maneuver`, ...) and arrays (`applies`, `muzzles`) alike, numeric array
- * indices becoming path segments the same way `setTuning`'s `leafOf` already accepts them
+ * indices becoming path segments the same way `applyOverrides`'s own `leafOf` already accepts them
  * (`"weapon.predator.applies.0.durationMs"`). `SKIP_KEYS` is checked at every level, not just the
  * top, so `applies.0.statusId`'s sibling `applies` items never smuggle an `id`/`name`/`kind`/`color`
  * key back in from some future nested shape.
@@ -294,11 +298,15 @@ function buildTurretFields(fields: TunableField[]): void {
 }
 
 /**
- * Computed once, at module load — before any playground call to `setTuning` can run, so `shipped`
- * always reflects the true built-in defaults rather than whatever override happened to be active the
- * first time a caller asked. `setTuning` mutates the seven source tables IN PLACE (that is its whole
- * trick — see `tuning.ts`), so reading them lazily on first use would risk caching a tuned value as
- * "shipped" if some earlier code path had already called `setTuning`. Frozen so nothing downstream
+ * Computed once, at module load, from the raw `config/` tables — which nothing writes any more, so
+ * `shipped` reflects the true built-in defaults whenever it is read. (It was computed eagerly
+ * because the old `setTuning` mutated those seven tables IN PLACE, and a lazy read could have
+ * cached a tuned value as "shipped"; `applyOverrides` writes into a clone of a mode BUNDLE and
+ * never touches these globals, so that hazard is gone and the eager build is now merely cheap.)
+ *
+ * Worth knowing when reading a slider's range: `shipped` is the DEFAULT mode's value, since these
+ * globals are what it walks. A non-default mode whose own table differs would get a range pitched
+ * off the wrong number — nothing does today, and per-mode tooling is phase 6's. Frozen so nothing downstream
  * can mutate the shared field objects; `tunableFields()` still hands out a fresh array each call so a
  * caller sorting or filtering its result can't corrupt the cache.
  */

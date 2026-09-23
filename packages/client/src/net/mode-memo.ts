@@ -2,10 +2,10 @@ import { cfg, type ModeConfig } from "@motor-combat-moba/shared";
 
 /**
  * Caches `compute()`'s result against the `ModeConfig` OBJECT it was derived from, not a boolean or
- * a tick count — mode bundles are frozen and identity-stable per mode, and `setTuning` installs a
+ * a tick count — mode bundles are frozen and identity-stable per mode, and a retune produces a
  * NEW bundle object rather than mutating one, so a reference check is both a correct and a free
  * invalidation key. Rebuilds only when `cfg()` no longer `===` the bundle the cached value came
- * from: a mode switch, a `setTuning` retune, or a test installing its own bundle all invalidate it
+ * from: a mode switch, a playground retune, or a test installing its own bundle all invalidate it
  * for free, with one reference comparison on every other call.
  *
  * The cache is built the first time the returned function is CALLED, never at import time, and it

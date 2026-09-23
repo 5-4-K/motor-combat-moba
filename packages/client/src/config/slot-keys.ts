@@ -69,7 +69,7 @@ export function hintSlotOrder(
  * The countdown hint's slot order, resolved from the toggle's current (build-time) value and the
  * ACTIVE mode bundle's ability count. A FUNCTION, not a module-level constant: a `const` computed at
  * import time would freeze `maxAbilitySlots` at whichever mode happened to be installed first and
- * never see a later `withMode` scope or a `setTuning` retune (the exact bug this task exists to
+ * never see a later `withMode` scope or a playground retune (the exact bug this task exists to
  * remove) — see production callers such as `ArenaScene`, which pass the driven car's own ability
  * count instead of relying on this default.
  */

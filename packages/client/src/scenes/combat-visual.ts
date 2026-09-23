@@ -109,7 +109,7 @@ export interface HpBarGeometry {
  *
  * A FUNCTION, not a module-level constant: a `const` computed at import time would freeze
  * `drive().carWidth` at whichever mode happened to be installed first and never see a later
- * `withMode` scope or a `setTuning` retune. Memoised on bundle identity (`memoOnBundle`) rather than
+ * `withMode` scope or a playground retune. Memoised on bundle identity (`memoOnBundle`) rather than
  * rebuilt on every call — this is read once per car per frame from `ArenaScene.drawHpBar` and from
  * `aim-hud.ts`'s `axialStandoff()`, so a fresh three-field allocation each time is real per-frame
  * cost for no reason: the object is identical for every car until the mode bundle itself changes.

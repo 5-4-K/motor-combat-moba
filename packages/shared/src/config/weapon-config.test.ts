@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { installMode } from "../modes/active.js";
+import { applyOverrides } from "../modes/overlay.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { CAR_TABLE, forwardMaxSpeedOf, ramAttackOf, ramDefenceOf } from "./car-config.js";
 import { COLOR_TABLE } from "./color-config.js";
@@ -11,7 +12,6 @@ import { WEAPON_TICKS, msToTicks, weaponTicksOf } from "./weapon-ticks.js";
 import type { ImpulseDef, WeaponDef, WeaponId } from "./weapon-types.js";
 import { STATUS_CONFIG, isStatusId } from "./status-config.js";
 import { RAM_CONFIG } from "./ram-config.js";
-import { setTuning } from "./tuning.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
@@ -530,26 +530,22 @@ describe("ImpulseDef", () => {
     // only be proved through the one path that can author one at runtime. This is also exactly how
     // its ABSENCE would have reached a player: the playground is where a tuner types a big number.
     //
-    // (This briefly had to be proved a different way, through `resolveTicks` directly rather than
-    // `setTuning`, while `setTuning` mutated the live `WEAPON_TABLE` in place but the accessors had
-    // already moved onto the mode bundle. Fix round 1 rewrote `setTuning` to install a fresh bundle
-    // instead, which is what makes the live-override form here correct again.)
+    // (The override path has changed shape twice under this test and its subject has not: it drove
+    // `setTuning`, which mutated the live `WEAPON_TABLE`, then a `setTuning` that installed a fresh
+    // bundle, and now `applyOverrides`, which builds one and installs nothing. The clamp being
+    // proved is `resolveTicks`'s, reached here through the same re-derivation a real retune runs.)
     const over = STATUS_CONFIG.maxDurationMs + 5000;
-    try {
-      setTuning({
-        "weapon.wildcharge.impulse.applies.0.durationMs": over,
-        "weapon.wildcharge.impulse.onWallImpact.applies.0.durationMs": over,
-      });
-      const ticks = weaponTicksOf("wildcharge");
-      expect(ticks.impulse!.applies[0]!.durationTicks).toBe(msToTicks(STATUS_CONFIG.maxDurationMs));
-      expect(ticks.impulse!.onWallImpact!.applies[0]!.durationTicks).toBe(
-        msToTicks(STATUS_CONFIG.maxDurationMs),
-      );
-      // The window is not a status duration and is deliberately left alone.
-      expect(ticks.impulse!.onWallImpact!.windowTicks).toBe(msToTicks(500));
-    } finally {
-      setTuning(null);
-    }
+    const tuned = applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), {
+      "weapon.wildcharge.impulse.applies.0.durationMs": over,
+      "weapon.wildcharge.impulse.onWallImpact.applies.0.durationMs": over,
+    });
+    const ticks = tuned.derived.weaponTicks.wildcharge;
+    expect(ticks.impulse!.applies[0]!.durationTicks).toBe(msToTicks(STATUS_CONFIG.maxDurationMs));
+    expect(ticks.impulse!.onWallImpact!.applies[0]!.durationTicks).toBe(
+      msToTicks(STATUS_CONFIG.maxDurationMs),
+    );
+    // The window is not a status duration and is deliberately left alone.
+    expect(ticks.impulse!.onWallImpact!.windowTicks).toBe(msToTicks(500));
   });
 
   it("converts every impulse duration to ticks exactly once", () => {

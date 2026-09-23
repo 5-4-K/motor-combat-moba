@@ -119,7 +119,7 @@ export const SLOT_STACK_TOP_GAP_PX = 167;
  *
  * A FUNCTION, not a module-level constant: a `const` computed at import time would freeze
  * `basicAttackSlotIndex` at whichever mode happened to be installed first and never see a later
- * `withMode` scope or a `setTuning` retune.
+ * `withMode` scope or a playground retune.
  */
 export function abilitySlotOffset(): number {
   return slots().basicAttackSlotIndex + 1;

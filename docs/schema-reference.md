@@ -59,7 +59,7 @@ state with the ordinary `ArenaState` reader, so nothing here may renumber or sha
 - No `controlledSessionId` (`PlaygroundState` has one). The player always drives their own car —
   there is no control-routing feature in practice — so `controlledCarOf` resolves through its
   absent-field path exactly as a real match does.
-- No `tuningJson`. Practice never calls `setTuning`; there is nothing to carry.
+- No `tuningJson`. Practice is never tuned — it runs its own untouched mode bundle — so there is nothing to carry.
 - No `botEnabled`. There is always exactly one bot — the room's second car — so the flag has no
   second state to encode.
 - No `botDifficulty`. The player's choice at the settings screen is resolved once, server-side, at

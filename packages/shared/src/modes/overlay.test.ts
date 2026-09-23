@@ -20,9 +20,17 @@ describe("applyOverrides", () => {
     expect(tuned.derived.weaponTicks.predator.cooldown).not.toBe(base.derived.weaponTicks.predator.cooldown);
   });
 
-  it("rejects an unknown status id before writing anything", () => {
+  it("rejects a path through an array the weapon does not have at all", () => {
+    // NOT the status-id guard, despite the shape of the path: `predator` authors no `applies` array,
+    // so this throws at the path walk ("unknown tuning path") and never reaches the status-id check
+    // at all. It is here as the array-hop case — a numeric segment into an absent array — and the
+    // test below is the one that proves the status-id guard. Re-titled 2026-09-23 after a reviewer
+    // read this one as the guard it is not.
     const base = modeConfigOf(GameMode.FFA_LAST_STANDING);
-    expect(() => applyOverrides(base, { "weapon.predator.applies.0.statusId": "nope" })).toThrow();
+    expect(base.weapons.predator.applies).toBeUndefined();
+    expect(() => applyOverrides(base, { "weapon.predator.applies.0.statusId": "nope" })).toThrow(
+      /unknown tuning path/,
+    );
   });
 
   it("rejects an unknown status id on a leaf that actually carries one, not merely a missing path", () => {
@@ -32,7 +40,19 @@ describe("applyOverrides", () => {
     // here first.
     const base = modeConfigOf(GameMode.FFA_LAST_STANDING);
     expect(base.weapons.thunderclap.applies?.[0]?.statusId).toBe("stunned");
-    expect(() => applyOverrides(base, { "weapon.thunderclap.applies.0.statusId": "nope" })).toThrow();
+    // Matched on the message, not merely on "it threw": this file installs no mode, and until
+    // 2026-09-23 the guard read the INSTALLED bundle's status table through `isStatusId` — so a
+    // bare `.toThrow()` here was satisfied by "config read outside a mode scope" and the guard
+    // itself never ran. It validates against `base.statusTable` now, which is both scope-free and
+    // the right table: a status id is valid for the mode being tuned.
+    expect(() => applyOverrides(base, { "weapon.thunderclap.applies.0.statusId": "nope" })).toThrow(
+      /not a status id/,
+    );
+    // and a real one is accepted, on that same leaf, with no mode installed anywhere.
+    expect(
+      applyOverrides(base, { "weapon.thunderclap.applies.0.statusId": "spiked" }).weapons.thunderclap
+        .applies?.[0]?.statusId,
+    ).toBe("spiked");
     // and it wrote nothing: the base's own row still carries the real status id
     expect(base.weapons.thunderclap.applies?.[0]?.statusId).toBe("stunned");
   });

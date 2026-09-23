@@ -321,8 +321,8 @@ export const CHASSIS_DRIVE: Readonly<Record<CarId, ChassisDrive>> = resolveChass
 /**
  * Everything `stepDrive` needs to move one chassis for one tick, resolved from the active mode
  * bundle's own `derived.chassisDrive` (MC14) — computed once by `assembleModeConfig`, not
- * recomputed per call. `setTuning` (`config/tuning.ts`) moves it by installing a freshly-assembled
- * bundle rather than by rebuilding a cached table in place — there is no `ACTIVE_DRIVE` left, and no
+ * recomputed per call. A playground retune (`applyOverrides`, `modes/overlay.ts`) moves it by
+ * building a whole fresh bundle rather than by rebuilding a cached table in place — there is no `ACTIVE_DRIVE` left, and no
  * `rebuildResolvedDrive` either.
  */
 export function driveOf(id: CarId): ChassisDrive {

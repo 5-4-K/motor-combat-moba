@@ -33,7 +33,7 @@ motor-combat-MOBA/
 │   │   ├── status-ticks.ts       # STATUS_PULSE_TICKS: ms -> ticks, derived and frozen once
 │   │   ├── arena-config.ts       # ACTIVE_ARENA_ID — a default read by a few call sites, not the played arena (see modes/<mode>/index.ts's arenas list)
 │   │   ├── deathmatch-config.ts  # DEATHMATCH_CONFIG, DEATHMATCH_TICKS: match/respawn/phase timing
-│   │   ├── tuning.ts             # setTuning: dev-only runtime override store over 5 balance tables (PG12)
+│   │   ├── tuning.ts             # TuningValue/TuningOverrides types only; applyOverrides (modes/overlay.ts) does the work (PG12, MC39)
 │   │   ├── tuning-walker.ts      # tunableFields/validateTuning/sanitizeStoredTuning (PG14)
 │   │   ├── practice-config.ts    # PRACTICE_CONFIG: idle timeout/warning, maxConcurrentRooms (PR26–PR29)
 │   │   └── chat-config.ts        # CHAT_CONFIG: lobby chat limits — maxLength, maxMessages, sendCooldownMs (LC10)
@@ -88,7 +88,7 @@ motor-combat-MOBA/
 │   │   ├── ArenaRoom.ts          # the room: messages, phase machine, tick
 │   │   ├── tick-pipeline.ts      # runPipeline: statusTick→serverTick→contactTick→combatTick, shared by ArenaRoom, PlaygroundRoom and PracticeRoom (PG4, PR16)
 │   │   ├── PlaygroundRoom.ts     # dev-only room ("playground"), DEV_TOOLS=1-gated; pause/tuning/setup (six seats, drivenSeat picked by a per-seat radio in the setup itself -- no separate switch message), bot-or-alone, endless respawns
-│   │   ├── PracticeRoom.ts       # shipped room ("practice"), no DEV_TOOLS gate, maxClients=1; runs runPipeline verbatim, never calls setTuning (PR1)
+│   │   ├── PracticeRoom.ts       # shipped room ("practice"), no DEV_TOOLS gate, maxClients=1; runs runPipeline verbatim, never calls installMode (PR1, PR10)
 │   │   ├── practice-rules.ts     # pure predicates: room-cap refusal, playground-busy refusal, opponent roll, idle timeout/warning (PR26–PR29)
 │   │   ├── chat.ts               # canSendChat/pushChatMessage/formatClockTime: lobby chat's send gate, retention cap, clock formatting (LC19)
 │   │   ├── bot.ts                # the synthetic client's InputMessage: chase-and-fire steering, pulsed fire mask (PG10; renamed from playground-bot.ts when PracticeRoom took it too)

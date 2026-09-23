@@ -4,7 +4,7 @@
 // `impulse()`, `combat()`, `spike()`, `turret()`, `statusConfig()`, `statusTable()`, `statusLimits()`,
 // `slots()`, `cars()`, `weapons()`, `flow()`, `deathmatch()`, `camera()`, `derived()`
 // (`../modes/active.js`) — never a RAW global (`WEAPON_TABLE`, `CAR_TABLE`, `DRIVE_CONFIG`, ...) in
-// any form. A raw read is invisible to `setTuning`'s rebuilt bundle and to a room ticking inside a
+// any form. A raw read is invisible to a playground retune's rebuilt bundle and to a room ticking inside a
 // non-default mode's `withMode` scope, so this walks every non-test file under the three roots and
 // fails, naming the offenders, the moment one creeps back in.
 //

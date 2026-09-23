@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import {
+  DEFAULT_GAME_MODE,
+  applyOverrides,
+  installMode,
+  modeConfigOf,
+  type TuningOverrides,
+} from "@motor-combat-moba/shared";
 import {
   ArenaState,
   ManeuverKind,
@@ -17,7 +23,6 @@ import {
   ramAttackOf,
   ramDefenceOf,
   ramTicks,
-  setTuning,
   type Modifiers,
   type WeaponId,
 } from "@motor-combat-moba/shared";
@@ -33,6 +38,17 @@ import {
 import { readStatuses, writeStatuses } from "./status-bridge.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+
+/**
+ * Installs a tuned bundle for one test, the way the playground now builds one: `applyOverrides`
+ * off the pristine default-mode bundle, then an install so the bridge's own accessor reads see it.
+ * Always from `modeConfigOf(DEFAULT_GAME_MODE)`, never from whatever is currently installed, so two
+ * calls in one test replace rather than stack — and `beforeEach` above reinstalls the pristine
+ * bundle anyway, so no test has to undo one.
+ */
+function tune(overrides: TuningOverrides): void {
+  installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), overrides));
+}
 
 /**
  * No buffs or debuffs in play. Every expectation in this file is the unbuffed sim, and a
@@ -539,11 +555,11 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
 
   it("would apply a different status if the row named one", () => {
     // The restructure's whole point: nothing in the bridge knows the word "reeling" — every
-    // application is read off `authored.ticks.applies` by id. `setTuning`'s leaf-only override can
-    // rewrite a single field of an authored row without touching the rest, which is exactly the
-    // surface this test needs: `wildcharge`'s own `applies[0].statusId`, and nothing else.
-    setTuning({ "weapon.wildcharge.impulse.applies.0.statusId": "spiked" });
-    try {
+    // application is read off `authored.ticks.applies` by id. A leaf-only override can rewrite a
+    // single field of an authored row without touching the rest, which is exactly the surface this
+    // test needs: `wildcharge`'s own `applies[0].statusId`, and nothing else.
+    tune({ "weapon.wildcharge.impulse.applies.0.statusId": "spiked" });
+    {
       const state = arena();
       const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
       const victim = addPlayer(state, "b", { x: 58.75, y: 400, angle: 0 });
@@ -556,8 +572,6 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
       const victimStatuses = readStatuses(victim);
       expect(hasStatus(victimStatuses, "spiked", 10)).toBe(true);
       expect(hasStatus(victimStatuses, "reeling", 10)).toBe(false);
-    } finally {
-      setTuning(null);
     }
   });
 
@@ -571,8 +585,8 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     // zero regardless of `spin` (see `ramScenario`'s own `offsetY` doc comment for the ordinary-ram
     // version of the same trick).
     const angVelFor = (spin: number): number => {
-      setTuning({ "weapon.wildcharge.impulse.spin": spin });
-      try {
+      tune({ "weapon.wildcharge.impulse.spin": spin });
+      {
         const state = arena();
         const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
         const victim = addPlayer(state, "b", { x: 58.75, y: 415, angle: 0 });
@@ -583,8 +597,6 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
           CHARGING_WILDCHARGE, 10,
         );
         return victim.angVel;
-      } finally {
-        setTuning(null);
       }
     };
     expect(Math.abs(angVelFor(0))).toBeCloseTo(0, 9);
