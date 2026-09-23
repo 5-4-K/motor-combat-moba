@@ -68,10 +68,55 @@ to the task named after it.
 | 2. Two mode folders | [`02-mode-folders.md`](02-mode-folders.md) | **DONE** (`1da2c85..74b8320`) |
 | 3. Scopes installed | [`03-room-scopes.md`](03-room-scopes.md) | **DONE** (`eb8b9cc..b78ad38`) |
 | 4. Lobby and arena sets | [`04-lobby-and-arenas.md`](04-lobby-and-arenas.md) | **DONE** (`b5c868a..9c169a9`) |
-| 5. `setTuning` retired | [`05-retire-set-tuning.md`](05-retire-set-tuning.md) | not started |
+| 5. `setTuning` retired | [`05-retire-set-tuning.md`](05-retire-set-tuning.md) | **DONE** (`b633120..4814dbf`) |
 | 6. Tooling | [`06-tooling.md`](06-tooling.md) | not started |
 
-**Next:** Phase 5, Task 1.
+**Next:** Phase 6, Task 1.
+
+### Phase 5, as landed (commits `b633120..4814dbf`)
+
+**Nothing in `packages/server/src/` installs a bundle process-wide any more.** `setTuning` —
+which assembled a bundle and `installMode`d it for the whole process, so a playground holding
+overrides re-balanced every other room in it — is deleted, along with `activeTuning`, `ROOTS`,
+`DEFAULTS` and the private path-walking helpers. `config/tuning.ts` is now a types-only module;
+`TuningValue`, `TuningOverrides` and the whole of `tuning-walker.ts` survive.
+
+Its successor is `applyOverrides(base: ModeConfig, overrides): ModeConfig` in
+[`modes/overlay.ts`](../../../../packages/shared/src/modes/overlay.ts): pure, validates the whole
+batch against the BASE BUNDLE before writing a byte, returns a new deep-frozen bundle, installs
+nothing. `PlaygroundRoom` holds its own tuned bundle and every entry point reads it through
+`scoped(this.modeConfig, ...)`; the `onLeave`/`onDispose` resets are gone because there is nothing
+process-wide left to reset. The client's `PlaygroundScene` installs process-wide and legitimately
+so — a browser tab runs exactly one room for its life.
+
+A final sweep classified every remaining `installMode` call: the client scene and client
+mode-scope, six one-shot playtest harness scripts, and the test suites. **Zero in the server's
+production tree.** MC39 and MC40 are met.
+
+**The plan did not mention the client at all.** It named only `PlaygroundRoom`, but
+`PlaygroundScene.ts` called `setTuning` three times to keep the prediction half of the lockstep on
+the server's tuned numbers. Following the plan literally would have deleted the symbol and broken
+the playground's client half with no server test noticing — the same shape as phase 3's Ruling 13.
+A third task was added for it.
+
+**Two things the plan claimed were already true.** The five `rebuild*` stubs and `restoreInPlace`
+were deleted in phase 1's fix round; only comments mentioned them.
+
+### Root `npm test` runs again, and the reason it did not is ours
+
+Root `npm test` is `build shared && typecheck --workspaces && test --workspaces && test:scripts`.
+It had been dying at step 2 — before ANY suite ran — since 2026-09-22, and the cause was this
+branch's own phase 3. `PracticeRoom.onCreate` read `if (!isPracticeSetup(options)) { throw }`, a
+TYPE PREDICATE that narrowed `options` from `unknown` for the rest of the method. Phase 3's fix for
+a real unscoped-read crash wrapped it as
+`if (!scoped(this.modeConfig, () => isPracticeSetup(options))) { throw }`, burying the predicate in
+a callback where it narrows nothing — two `tsc` errors, invisible to vitest, which does not
+typecheck. Every "suite green" claim in phases 3-5 came from per-package runs.
+
+Commit `52b6e24` restores the narrowing by returning the value out of the callback rather than a
+boolean. No cast, no `!`, scope wrapper intact. Root `npm test` now clears typecheck on all three
+workspaces, runs every suite, and exits 1 on exactly the two pre-existing
+`bot/brain/controller.test.ts` G12 failures (bisected to 2026-09-19, before this plan began).
 
 ### Phase 4, as landed (commits `b5c868a..9c169a9`)
 
@@ -315,3 +360,76 @@ once and is the single highest-value piece of test infrastructure this branch is
 - **FR-3** — the final review's two load-bearing claims were verified in the source by hand before
   being acted on. One of them found that spec clause MC24's own justification is false; the clause
   now carries an erratum.
+
+---
+
+# Handover addendum — phase 5 (2026-09-23)
+
+`b633120..4814dbf`, all pushed. **Phase 6 is the only one left**, and two of the items below are
+directly its business.
+
+## What phase 5 changed about the earlier risks
+
+- **Risk 5 (no room test mocks `matchMaker`) is unchanged** and still the highest-value missing test
+  infrastructure on this branch.
+- **A NEW guard replaced an old one.** `practice-room.test.ts` asserted by source text that
+  `PracticeRoom` never calls `setTuning`. That symbol no longer exists, so the assertion could not
+  fail. It now watches `installMode` — the hazard that outlives `setTuning` — and the mirror
+  assertion was added to `PlaygroundRoom`, which is the room that actually tunes and had none.
+  Both were proven by adding the forbidden call and watching the test fail. Known limit, inherited
+  from the original: a source-text scan cannot see a call made through a helper in another file.
+
+## New, from phase 5
+
+10. **The walker's cross-check quietly became a self-check, and phase 6 must repair it.**
+    `setTuning` validated tuning paths against a snapshot of the RAW `config/` globals while
+    writing into a clone of `BRAWL_TABLES` — so `tuning-walker.test.ts`'s round-trip transitively
+    proved every emitted path existed in BOTH table sets. `applyOverrides` resolves both halves
+    against the same bundle, while `tunableFields()`'s `shipped` values still come from the raw
+    globals. The only thing bridging them now is `table-pinning.test.ts` — whose documented
+    workflow is to DELETE a table's row the moment two modes intentionally diverge. The first time
+    someone does that, a field present in `WEAPON_TABLE` but dropped from a mode's `weapons.ts`
+    gives a slider whose range comes from the global and whose write `applyOverrides` rejects at
+    runtime, with nothing red.
+    **Phase 6 should make `tunableFields()` take a bundle.** That `shipped` read is the last
+    raw-global read in the file.
+11. **`applyOverrides` now refuses a hull override instead of silently eating it.** Its roots came
+    from `base.drive`, which — unlike `ModeTables.drive`, whose TYPE omits them — carries
+    `carWidth`/`carHeight` at runtime. So `{"drive.carWidth": 999}` validated, wrote, and was then
+    overwritten by `assembleModeConfig` re-attaching the global hull: no error, no effect. Fixed
+    (MC35). Worth knowing because the first attempt at the fix **silently broke every OTHER drive
+    override** — the writes landed on a disconnected copy rather than `tables.drive` — which an
+    existing test caught. The shipped shape keeps the real object for writes and a hull-free copy
+    for validation.
+12. **`shouldRefusePlayground` now rests on a weaker claim, and that is the user's call.** It
+    refuses to open a playground while an arena or practice room has anyone in it, and part of its
+    stated reason was the process-wide tuning store that no longer exists. Its comments and its
+    player-facing refusal copy were corrected; its behaviour and condition were not touched. The
+    final review's read, which I accept: `maxClients = 1`, the second-playground guard and this one
+    are three expressions of "the sandbox is a singleton", and removing one on a comment-edit's
+    authority leaves an incoherent set. The surviving reasons are real (shared CPU, shared
+    matchmaker, a tester's six bots beside a live match).
+13. **One deliberately unreachable check.** `overlay.ts`'s write loop re-checks the two hull paths,
+    which validation can never let through. Kept as defence in depth, with a comment naming its own
+    unreachability and the exact invariant it depends on (validate-whole-batch-then-write). Judged
+    worth its lines on the grounds that this branch's nine bad guards were SILENT ones with false
+    confidence, not documented redundancy. Reverse it freely if you disagree.
+
+## Rulings made during phase 5
+
+- **P1** — the path-walking machinery MOVED into `overlay.ts` rather than being imported from the
+  file the phase then guts.
+- **P2** — `applyOverrides` validates against the BASE BUNDLE, not a snapshot of the raw globals.
+  More correct per mode, and one fewer raw-global dependency. This is also what produced risk 10.
+- **P3** — a third task was added for the client half the plan never mentioned.
+- **P4** — the `setTuning` absence guard was REPOINTED at `installMode`, not deleted.
+- **P5** — `shouldRefusePlayground` stays; see 12.
+- **P6** — task order T1 -> (T2+T3 batched) -> T4.
+- **P7** — the phase-3 typecheck regression is fixed by restoring narrowing, never by a cast.
+- **P8** — "the suites are green" stops being sayable from per-package runs alone. Root `npm test`,
+  its exit code, and the step it reaches are the standard now.
+- **FR5-1** — risk 10 is phase 6's, not a late addition to this one.
+- **T1-A** — the plan's own misleading status-id test was re-titled rather than deleted. Which then
+  exposed that its sibling was ALSO passing for the wrong reason: `isStatusId` read the INSTALLED
+  bundle, so with nothing installed it threw a scope error, not a status-id error. Right message
+  class, wrong mechanism. Now validated against `base.statusTable`.
