@@ -407,6 +407,26 @@ export function carrierOf(weaponId) {
  * constant: hashing something the page does not print demands a rebuild that produces a
  * byte-identical page but for this tag, which is how a guard gets rubber-stamped.
  *
+ * **The inverse hole is real, and nothing closes it: the page prints things no input covers.**
+ * Every input here is DATA. The generator's own SELECTION RULES — which of that data reaches the
+ * page — are code, and code is not hashable. The worked example, found by review on 2026-09-23:
+ * removing the `winRuleOf(config.id) === "deathmatch"` gate on `EFFECT_SOURCES.phased` in `modelOf`
+ * — the fix that stopped Brawl's tab publishing a status Brawl cannot inflict — leaves the stamp at
+ * `0c7adc2746195fca`, unmoved, because the raw `EFFECT_SOURCES` object it hashes is unchanged and
+ * the gate never was an input. The same blindness covers every rule the generator OWNS rather than
+ * reads: which statuses `publishedEffectsOf` admits, `statRows`'s "leave a row out when it does not
+ * apply", the Basic attack card's branch shape, effect-anchor construction.
+ *
+ * What that costs, concretely, because it is a delayed fault rather than a silent one:
+ * `manual-page.test.mjs` guards the COMMITTED PAGE against this stamp, not the generator against
+ * the page. Change a selection rule without running `npm run build:manual` and `npm test` stays
+ * green — the committed page still has the old rule's output baked in, and the stamp still agrees
+ * with it. Weeks later an unrelated weapon retune moves the stamp, forces a rebuild, and the
+ * rebuild republishes `phased` to Brawl: a reddened test on a commit that never touched effects,
+ * pointing at the wrong change. **So a generator change owes a `npm run build:manual` that nothing
+ * will demand of you.** Run it whenever you edit what this file CHOOSES to print, not only when you
+ * edit what it prints FROM.
+ *
  * **Per mode as of MC41.** It used to hash the raw `config/` globals, which the game stopped reading
  * when every table became per-mode: a Deathmatch-only rebalance moved nothing here and failed
  * nothing, while the Deathmatch tab shipped last week's numbers. It hashes every ACTIVE mode's

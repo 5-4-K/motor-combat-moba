@@ -112,32 +112,43 @@ export function slotsOf(carId: CarId): readonly WeaponId[] {
  * rather than serving a default.
  *
  * **The readers, named so a new one is a deliberate act rather than a habit** — each verified
- * (2026-09-23) to run inside a mode scope, and named with the entry point that installs it:
+ * (2026-09-23) to run inside a mode scope, and named with the entry point that installs it.
+ *
+ * **This list is held to the tree.** `weapon-slots-readers.test.ts` beside this file walks every
+ * source root, strips comments and imports, and fails naming any file that calls `fireSlotsOf` and
+ * is not listed here — or is listed here and does not. It checks FILE PATHS, so every reader below
+ * must be named by its full project-relative path in backticks; the function names in the prose are
+ * for a human's benefit and are NOT guarded, and neither is any count, so grep before quoting a
+ * number. This list was hand-maintained until then and was wrong three times in one day: once
+ * missing a whole file, once claiming `scripts/ttk.mjs` had two call sites when it has three, and
+ * once omitting a reader added by the very commit that was correcting it.
  *
  * 1. `packages/server/balance/stats.ts` — the per-weapon accumulator seeding, inside `aggregate`,
  *    reached from `balance/run.ts`'s one `withMode(modeConfigOf(args.mode), ...)` at the CLI entry.
  *    A weapon the bots press but nobody seeded is silently absent from the report.
- * 2. `scripts/ttk.mjs` — THREE call sites, all under that file's own
- *    `withMode(modeConfigOf(mode), ...)` entry guard: the rotation (`simulateTtk`), `carrierOf`
- *    (which chassis can fire a given row), and the per-weapon breakdown loop. `--mode` selects the
- *    bundle (MC41), so the matrix's kits are that mode's kits. (This entry read "two call sites"
- *    through two rounds of review; it was wrong both times. Count them with a grep before editing
- *    this list, not from the previous version of it.)
- * 2b. `scripts/mode-rosters.mjs` — `weaponRoster`, the union `npm run check:art` sweeps, which asks
- *    every mode in turn inside its own `withMode(modeConfigOf(mode), ...)`. This is what stops a
- *    weapon carried only in one mode's kit reading as unreleased.
- * 3. `packages/server/src/bot/brain/duel.fixture.ts` — two call sites, `pressCeilingOf` and
- *    `bestSustainedDpsOf`; its callers (`tiers.test.ts`, `controller.test.ts`) `installMode` the
- *    default bundle in a `beforeEach`. `bestSustainedDpsOf` counting the basic attack is
- *    deliberate, not an oversight: a sustained-DPS ceiling should count every trigger a car can
- *    pull, and including it moved Bastion's figure from 18.3 (thumper alone) to 22.5.
- * 4. `packages/server/playtest/` — `carrierOf`, `hasCarrier`, `skipReasonFor` and `slotBitFor` in
- *    `weapons.ts` and `weapons2.ts`, and `carrierOf`/`slotBitFor` in `geometry.ts`; every probe is
- *    a one-shot process that calls `installPlaytestMode()` on its first line (MC41). Those probes
- *    sweep the mode's weapon table whole and press each row through the real slot pipeline, so "who
- *    can fire this, and on which slot" is exactly their question; asking `slotsOf` threw on the
- *    first basic-attack row and killed the run.
- * 5. `packages/client/src/dev/AssetTuningScene.ts` — `drawTurret`'s `carHasTurretWeapon` test
+ * 2. `scripts/ttk.mjs` — the rotation (`simulateTtk`), `carrierOf` (which chassis can fire a given
+ *    row), and the per-weapon breakdown loop, all under that file's own
+ *    `withMode(modeConfigOf(mode), ...)` entry guard. `--mode` selects the bundle (MC41), so the
+ *    matrix's kits are that mode's kits.
+ * 3. `scripts/mode-rosters.mjs` — two readers, each asking every mode in turn inside its own
+ *    `withMode(modeConfigOf(mode), ...)`. `weaponRoster` is the union `npm run check:art` sweeps,
+ *    which is what stops a weapon carried only in one mode's kit reading as unreleased;
+ *    `weaponCarriers` answers "which chassis carry this row, and in which modes" for
+ *    `import-weapon-icon.mjs` beside it, whose own read used to be the mode-blind ability kit
+ *    alone. (Named without its `scripts/` prefix on purpose: that file does not call this one, and
+ *    a full path in this comment is read as a claim that it does.)
+ * 4. `packages/server/src/bot/brain/duel.fixture.ts` — `pressCeilingOf` and `bestSustainedDpsOf`;
+ *    its callers (`tiers.test.ts`, `controller.test.ts`) `installMode` the default bundle in a
+ *    `beforeEach`. `bestSustainedDpsOf` counting the basic attack is deliberate, not an oversight:
+ *    a sustained-DPS ceiling should count every trigger a car can pull, and including it moved
+ *    Bastion's figure from 18.3 (thumper alone) to 22.5.
+ * 5. `packages/server/playtest/weapons.ts`, `packages/server/playtest/weapons2.ts` and
+ *    `packages/server/playtest/geometry.ts` — `carrierOf`, `hasCarrier`, `skipReasonFor` and
+ *    `slotBitFor`; every probe is a one-shot process that calls `installPlaytestMode()` on its
+ *    first line (MC41). Those probes sweep the mode's weapon table whole and press each row through
+ *    the real slot pipeline, so "who can fire this, and on which slot" is exactly their question;
+ *    asking `slotsOf` threw on the first basic-attack row and killed the run.
+ * 6. `packages/client/src/dev/AssetTuningScene.ts` — `drawTurret`'s `carHasTurretWeapon` test
  *    (TR53), so `?dev=assets` draws a turret for exactly the chassis the arena would. `BootScene`
  *    calls `installRoomMode` unconditionally before launching any dev tool, so this reads the
  *    client tab's installed bundle.
