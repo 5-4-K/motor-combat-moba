@@ -217,9 +217,13 @@ export function reverseAccelOf(
   return engineAccelOf(id, carTable, driveConfig) * driveConfig.reverseAccelFactor;
 }
 
-export function brakeDecelOf(id: CarId): number {
-  return CAR_TABLE[id].brakeDecel;
-}
+// `brakeDecelOf(id)` stood here and is DELETED (2026-09-23). It read the raw `CAR_TABLE` rather
+// than `cars()`, so it answered the DEFAULT mode's brake for every mode — and it had no caller
+// anywhere in the repo, which is the only reason that never showed up as a wrong number on screen.
+// Deleted rather than converted: `resolveChassisDrive` below already resolves `brakeDecel` off the
+// mode's own table into `ChassisDrive.brakeDecel`, which is the one spelling the sim, the drive
+// model and `docs/turn-tuning.md` all read. A second getter for the same field, unused and
+// mode-blind, is a trap set for whoever reaches for it first.
 
 export function ramAttackOf(id: CarId): number {
   return cars()[id].ramAttack;

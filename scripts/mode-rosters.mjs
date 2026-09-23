@@ -83,14 +83,44 @@ export function weaponRoster() {
 }
 
 /**
+ * Which chassis can FIRE one weapon, unioned across every mode, each with the modes it fires it in.
+ *
+ * The importer's "drive X and check the HUD slot bar" line is the one caller. It read raw
+ * `CAR_TABLE[carId].weapons` until 2026-09-23 — the last mode-blind carriage query in the tree —
+ * so a weapon carried only in a diverged mode's kit printed `no car carries "<id>"` at the very
+ * moment someone had just drawn its icon. Same union, same `fireSlotsOf` question, same scoping
+ * rule as `weaponRoster` above: a basic attack counts, and an inactive chassis counts, because a
+ * kit authored ahead of release still owes its icons.
+ *
+ * Union order is first-seen across `everyMode()`. Empty for a row nobody fires anywhere (`tremor`).
+ */
+export function weaponCarriers(weaponId) {
+  const byCar = new Map();
+  for (const mode of everyMode()) {
+    withMode(modeConfigOf(mode), () => {
+      for (const carId of Object.keys(cars())) {
+        if (!fireSlotsOf(carId).includes(weaponId)) continue;
+        const entry = byCar.get(carId) ?? { carId, modes: [] };
+        entry.modes.push(mode);
+        byCar.set(carId, entry);
+      }
+    });
+  }
+  return [...byCar.values()];
+}
+
+/**
  * The suffix a report line carries for a row the modes DISAGREE about: `(mode: Brawl)`, naming
  * every mode that carries it. Empty when every mode agrees it is carried — the common case, and one
  * that must stay unmarked or the marker would be noise on every line.
  *
  * `noneLabel` is what a row NO mode carries prints, and the two sweeps want different answers: a
  * chassis no mode publishes is the `(inactive)` prototype `reportCars` has always named, while a
- * weapon no chassis fires is a legal, documented state (`tremor`) that this tool has never labelled
- * and does not start labelling here.
+ * weapon no chassis fires is a legal, documented state (`tremor`) — but legal is not the same as
+ * invisible. Until 2026-09-23 the weapon sweep passed `""` here, so `tremor` and a row
+ * ACCIDENTALLY dropped from every kit printed identically, as an unmarked line among eighteen
+ * others. It passes `(uncarried)` now: the state stays legal and unfailed, and a row that fell out
+ * of a loadout says so on its own line instead of hiding among the ones that never had one.
  */
 export function carriageLabel(carriedIn, noneLabel = "") {
   if (carriedIn.length === 0) return noneLabel;

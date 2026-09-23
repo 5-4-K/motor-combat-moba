@@ -11,7 +11,14 @@ import { DEATHMATCH_TABLES } from "./deathmatch/index.js";
  * (kicker, body, player-count chips) stays in the client — it is not a sim input.
  *
  * `isActive` is the same gate as `CarDef.isActive`: flip it false and the mode disappears from the
- * lobby picker and `set_mode` refuses it. Playground, practice, and `npm run balance` pin or pass a
+ * lobby picker and `set_mode` refuses it — `resolveSetMode`
+ * (`packages/server/src/rooms/match-helpers.ts`) checks `isActiveGameMode` before it resolves
+ * anything, so an inactive mode is unreachable from a client message and not merely unpickable in
+ * the UI. (That second half of the sentence was FALSE until 2026-09-23: the handler checked phase
+ * and `hasPlayerInMatch` only, then resolved through `modeConfigOrDefault`, which happily seated
+ * an inactive mode off the wire. The check was added rather than the claim weakened — a mode
+ * nothing publishes should not be reachable from a client message.)
+ * Playground, practice, and `npm run balance` pin or pass a
  * mode directly and never read this flag, so an unpublished mode can still be driven there.
  */
 export interface ModeDef {
@@ -61,8 +68,18 @@ export const MODE_TABLE = {
  */
 export const DEFAULT_GAME_MODE: GameMode = GameMode.FFA_LAST_STANDING;
 
-/** Stable picker order: Brawl, Team brawl, Deathmatch — the lobby cards follow this, not enum order. */
-const MODE_ORDER: readonly GameMode[] = [
+/**
+ * Stable picker order: Brawl, Team brawl, Deathmatch — the lobby cards follow this, not enum order.
+ *
+ * **Exported only so `registry.test.ts` can hold it COMPLETE against `MODE_TABLE`** (2026-09-23).
+ * `MODE_TABLE` is held complete by `satisfies Record<GameMode, ModeDef>`; this list had no anchor
+ * at all, and everything downstream derives its expectation from `activeGameModes()` — which
+ * filters THIS array — so a mode present in the table and missing here got no lobby card, no guide
+ * tab, no turn-tuning section and no `balanceStamp` entry, with every guard agreeing that was
+ * correct. Flipping `isActive: true` on such a mode changed nothing and failed nothing either.
+ * Nothing but that test should import this; read `activeGameModes()` instead.
+ */
+export const MODE_ORDER: readonly GameMode[] = [
   GameMode.FFA_LAST_STANDING,
   GameMode.TEAM,
   GameMode.FFA_DEATHMATCH,

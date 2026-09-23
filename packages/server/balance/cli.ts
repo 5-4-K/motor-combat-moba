@@ -16,8 +16,10 @@ import {
   GameMode,
   isArenaId,
   modeConfigOf,
+  modeLabelOf,
   modeOptions,
   parseModeArg,
+  winRuleOf,
   type BotDifficulty,
 } from "@motor-combat-moba/shared";
 import type { RunConfig, Shape } from "./runner.js";
@@ -53,9 +55,17 @@ const LAST_STANDING_SAFETY_CAP_SECONDS = 300;
  * `modeConfigOf` is a pure registry lookup and needs no ACTIVE scope, which is what lets this stay
  * where it is: `parseArgs` runs before `run.ts` installs a bundle, deliberately, because which
  * bundle to install is the answer it produces.
+ *
+ * Keyed on `winRuleOf(mode)`, not on `mode === GameMode.FFA_DEATHMATCH` (2026-09-23). Every other
+ * consumer of the win condition already asks `winRuleOf` — `match.ts`, `report.ts`, `ArenaRoom`,
+ * the client's `spectate.ts` — so naming one enum value here made the clock the ONE place that
+ * disagreed: a second mode whose win rule is `"deathmatch"` would have had `match.ts` run it as a
+ * deathmatch while `maxTicks` came from the last-standing safety cap, and the sentence two
+ * paragraphs above ("this harness's clock IS the deathmatch clock, not a mock of it") would have
+ * quietly stopped being true.
  */
 function defaultMatchSeconds(mode: GameMode): number {
-  return mode === GameMode.FFA_DEATHMATCH
+  return winRuleOf(mode) === "deathmatch"
     ? modeConfigOf(mode).deathmatch.matchSeconds
     : LAST_STANDING_SAFETY_CAP_SECONDS;
 }
@@ -74,7 +84,6 @@ function defaultMode(shape: Shape): GameMode {
 const DEFAULT_SHAPE: Shape = "ffa";
 const DEFAULT_SKILL: PlayerSkill = "pro";
 const DEFAULT_MATCHES = 50;
-const DEFAULT_ARENA_ID = "arena-01";
 
 /**
  * A random seed generated here, once, before any match runs, is not a violation of B43's "no
@@ -129,9 +138,43 @@ function parseMode(raw: string): GameMode {
   }
 }
 
-function parseArena(raw: string): string {
+/**
+ * Which arena every match runs in — **validated against the MODE's own arena set**, not merely
+ * against the global arena registry (2026-09-23).
+ *
+ * `--mode=X` installs X's bundle and stamps X on the report. Until this check existed, `--arena`
+ * was held to `isArenaId` alone and the DEFAULT was the hardcoded `"arena-01"`, so a mode
+ * authoring `arenas: ["arena-03"]` produced a complete, confident report labelled with that mode
+ * and measured entirely in an arena that mode never plays — the exact "one mode's numbers reported
+ * as another's" failure the per-mode work exists to stop.
+ *
+ * **Refused, not marked.** A banner in the report was the alternative; this file's own header
+ * already rules on that question for every other flag ("an unknown flag, or a value that fails to
+ * parse, throws rather than being ignored ... silently dropping a typo'd `--matchs=10` would
+ * produce a run that looks complete but never did what its command line claimed"). An arena the
+ * mode does not play is that same class of mistake, and a marked report still leaves real numbers
+ * in a Deltas table for someone to read past the banner. The error names the mode's legal set, so
+ * the fix is in the message.
+ */
+function parseArena(raw: string, mode: GameMode): string {
   if (!isArenaId(raw)) throw new Error(`parseArgs: --arena "${raw}" is not a known arena id`);
+  const allowed = modeConfigOf(mode).arenas;
+  if (!allowed.includes(raw)) {
+    throw new Error(
+      `parseArgs: --arena "${raw}" is not an arena ${modeLabelOf(mode)} plays — that mode's ` +
+        `arenas are: ${allowed.join(", ")}`,
+    );
+  }
   return raw;
+}
+
+/**
+ * The mode's OWN first arena — `arenas[0]` is the one a mode actually plays, the rest of the list
+ * being what it may play — replacing a hardcoded `"arena-01"` that was mode-blind. See
+ * `parseArena` above for what that cost.
+ */
+function defaultArena(mode: GameMode): string {
+  return modeConfigOf(mode).arenas[0];
 }
 
 /** Every flag this CLI recognises. Anything else in `argv` is a typo and `parseArgs` throws naming
@@ -239,7 +282,9 @@ export function helpText(): string {
       `${SKILL_TO_DIFFICULTY.pro}|${SKILL_TO_DIFFICULTY.casual}|${SKILL_TO_DIFFICULTY.amateur}.`,
     "  --seed=<int>                (default: a fresh random seed, printed first) the run is a pure",
     "                              function of this — same seed, same matches, replayed exactly.",
-    `  --arena=<arena-id>          (default ${DEFAULT_ARENA_ID}) which arena every match runs on.`,
+    "  --arena=<arena-id>          (default: the mode's own arenas[0]) which arena every match runs",
+    "                              on. Refused if the mode does not play it — a report labelled with",
+    "                              one mode and measured in another's arena is worse than no report.",
     `  --match-seconds=<n>         (default ${deathmatchDefault} for deathmatch, ` +
       `${LAST_STANDING_SAFETY_CAP_SECONDS} for last-standing) per-match`,
     "                              clock. For deathmatch this IS the game's clock; for last-standing",
@@ -306,7 +351,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ? parseIntFlag("matches", flags.get("matches")!)
     : DEFAULT_MATCHES;
   const seed = flags.has("seed") ? parseIntFlag("seed", flags.get("seed")!) : randomSeed();
-  const arenaId = flags.has("arena") ? parseArena(flags.get("arena")!) : DEFAULT_ARENA_ID;
+  const arenaId = flags.has("arena") ? parseArena(flags.get("arena")!, mode) : defaultArena(mode);
   const matchSeconds = flags.has("match-seconds")
     ? parseIntFlag("match-seconds", flags.get("match-seconds")!)
     : defaultMatchSeconds(mode);

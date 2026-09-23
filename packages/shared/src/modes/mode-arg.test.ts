@@ -36,8 +36,30 @@ describe("parseModeArg (MC41)", () => {
     expect(() => parseModeArg("")).toThrow(/unknown mode/);
   });
 
+  // This case was titled for shadowing and asserted only `parseModeArg("2")`, which exercises none
+  // of it: no mode is NAMED "2", so the id branch and the name branch agree on that input and the
+  // ORDER of the two — the entire property — went untested. Deleting the id-first check in
+  // `parseModeArg` left it green.
+  //
+  // Made real by BUILDING the collision: a mode row whose display name normalises to a different
+  // mode's wire id. That needs the live `MODE_TABLE` edited, which this repo otherwise refuses
+  // (`build-cars-and-weapons.mjs`'s `stampOfModes` was split in two precisely to avoid it) — here
+  // there is no alternative, since `parseModeArg` reads the registry directly and takes no table
+  // parameter. The descriptor is restored in a `finally`, so nothing leaks into the next test.
   it("prefers the wire id over a name, so an id can never be shadowed", () => {
-    expect(parseModeArg("2")).toBe(GameMode.FFA_DEATHMATCH);
+    const key = String(GameMode.FFA_LAST_STANDING);
+    const table = MODE_TABLE as unknown as Record<string, { name: string }>;
+    const original = Object.getOwnPropertyDescriptor(table, key)!;
+    Object.defineProperty(table, key, { ...original, value: { ...original.value, name: "2" } });
+    try {
+      // `modeSlug(0)` is now literally "2", so a name-first implementation would answer mode 0
+      // for the input "2". Id-first answers the mode that actually owns the id.
+      expect(modeSlug(GameMode.FFA_LAST_STANDING)).toBe("2");
+      expect(parseModeArg("2")).toBe(GameMode.FFA_DEATHMATCH);
+    } finally {
+      Object.defineProperty(table, key, original);
+    }
+    expect(modeSlug(GameMode.FFA_LAST_STANDING)).toBe("brawl");
   });
 });
 

@@ -54,7 +54,12 @@ export function checkComparable(current: RunRecord, baseline: RunRecord): Compar
     reasons.push(
       `config fingerprint differs (this run: ${current.fingerprints.config}, baseline: ` +
         `${baseline.fingerprints.config}) — the two runs measured different games (see ` +
-        `fingerprint.ts's header comment for the full list of what this covers)`,
+        `fingerprint.ts's header comment for the full list of what this covers). NOTE: the config ` +
+        `fingerprint was REDEFINED by the per-mode config work (MC41) — it hashes the MODE's ` +
+        `bundle now, where it used to hash the raw global tables — so EVERY baseline written ` +
+        `before that change carries a hash computed a different way and can never match, whatever ` +
+        `its numbers were. A pre-MC41 baseline is not stale, it is incomparable: re-run it rather ` +
+        `than reaching for --force`,
     );
   }
   if (current.fingerprints.bot !== baseline.fingerprints.bot) {

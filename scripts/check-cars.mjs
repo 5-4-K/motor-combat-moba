@@ -152,9 +152,20 @@ export async function checkCars(manifest) {
   return results;
 }
 
+/** The id as the report prints it: bare, or suffixed when a mode holds this chassis back. */
+function labelFor(id, publishedIn) {
+  const suffix = carriageLabel(publishedIn, "(inactive)");
+  return suffix ? `${id} ${suffix}` : id;
+}
+
 /** Print one line per chassis plus its findings, and return how many blockers were seen. */
 export function reportCars(results) {
   let blockers = 0;
+  // The id column, wide enough for the widest LABEL this run prints (2026-09-23). It was a flat
+  // `padEnd(23)`, which `(inactive)` and `(mode: ...)` both overflow into a no-op — so the "fills
+  // N% of the hull" column jumped left and right on exactly the rows a reader is scanning for. A
+  // floor of 23 keeps the old alignment when nothing is marked.
+  const labelWidth = Math.max(23, ...results.map(({ id, publishedIn }) => labelFor(id, publishedIn).length));
   for (const { id, publishedIn, fit, findings } of results) {
     const verdict = findings.some((f) => f.level === "blocker")
       ? "FAIL"
@@ -167,9 +178,8 @@ export function reportCars(results) {
     // The label, not a filter: an unreleased chassis is still checked and still reported, it is
     // just named as unreleased so nobody reads its findings as a live problem. `(mode: ...)` is the
     // same idea one step finer — a chassis SOME mode publishes, named with the modes that do.
-    const suffix = carriageLabel(publishedIn, "(inactive)");
-    const label = suffix ? `${id} ${suffix}` : id;
-    console.log(`${verdict.padEnd(5)} ${label.padEnd(23)}${drawn}`);
+    const label = labelFor(id, publishedIn);
+    console.log(`${verdict.padEnd(5)} ${label.padEnd(labelWidth)}${drawn}`);
     for (const f of findings) {
       console.log(`        ${f.level}: ${f.message}`);
       if (f.level === "blocker") blockers++;

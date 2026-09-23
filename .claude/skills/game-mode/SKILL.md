@@ -32,7 +32,8 @@ plus a rebuild, never an env var or a join option.
 | `MODE_TABLE` row (`id`, `name`, `isActive`, `config`) | `packages/shared/src/modes/registry.ts` | The enum value exists and resolves to nothing |
 | `arenas` + `maxPlayers` | that mode's `index.ts` | `invariants.test.ts` fails: an empty `arenas` throws mid-match |
 | Lobby card copy | `packages/client/src/ui/lobby-view.ts`, `modeCardsData()` | An ACTIVE mode with no card is silently unpickable — `lobby-view.test.ts` catches it |
-| Win rule / sides, if not plain FFA last-standing | `packages/shared/src/flow/modes.ts` | Silently plays as last-standing FFA. **Nothing catches this.** |
+| Win rule / sides | `packages/shared/src/flow/modes.ts` | **Nothing compiles** — both functions are exhaustive `switch`es with a `never` check |
+| `MODE_ORDER` entry | `packages/shared/src/modes/registry.ts` | `registry.test.ts`'s "orders every mode in MODE_TABLE" fails. Without it the mode has no card, no guide tab, no turn-tuning section and no stamp entry, `isActive` or not |
 | A `## <Mode name>` section in `docs/turn-tuning.md` | that page | `scripts/turn-tuning-doc.test.mjs` fails naming the mode |
 | A rebuilt guide | `npm run build:manual` | `scripts/manual-page.test.mjs` fails: the stamp moved |
 
@@ -104,9 +105,16 @@ are different tables.
 ```
 
 Then add it to `MODE_ORDER` — the lobby's card order, deliberately not enum order.
-**Nothing catches an omission here while the mode is inactive**: `activeGameModes()` filters
-`MODE_ORDER`, so a row missing from it simply never appears, and you find out the day you flip
-`isActive`. Add it in the same edit as the row.
+**`registry.test.ts`'s "orders every mode in MODE_TABLE, with nothing extra" fails until you do**,
+naming nothing else, so this is one red test rather than a mystery.
+
+That guard was added on 2026-09-23 because nothing caught the omission before it — and the previous
+version of this page told you the opposite of the truth about when you would find out. You would
+NOT have found out on `isActive: true`: `activeGameModes()` filters `MODE_ORDER`, so a mode missing
+from the order got no lobby card, no guide tab, no turn-tuning section and no `balanceStamp` entry,
+and every one of those guards derives its own expectation from `activeGameModes()` too — so they
+all agreed the mode did not exist, before and after the flag flipped. Flipping it changed nothing
+anywhere and failed no test. Add it in the same edit as the row.
 
 `assembleModeConfig` `structuredClone`s the tables, resolves the eight derived artifacts
 (weapon ticks, chassis drive, burst defs, ram ticks, turret ticks, spike ticks, deathmatch ticks,
@@ -119,17 +127,34 @@ non-alphanumerics to hyphens; that slug is both the `--mode=` spelling and the r
 suffix. Two modes normalising to the same slug makes one of them unreachable by name, and
 `mode-arg.test.ts`'s round-trip case fails.
 
-## 4. The win rule is NOT part of the bundle, and nothing warns you
+## 4. The win rule is NOT part of the bundle, but it no longer defaults silently
 
-`packages/shared/src/flow/modes.ts` is two `if`s:
+`packages/shared/src/flow/modes.ts` holds the two mode-shaped facts that are not in any bundle, and
+since 2026-09-23 each is an **exhaustive `switch` with a `never` check**:
 
 ```ts
-export function sidesOf(mode)  { return mode === GameMode.TEAM ? "team" : "ffa"; }
-export function winRuleOf(mode){ return mode === GameMode.FFA_DEATHMATCH ? "deathmatch" : "last_standing"; }
+export function winRuleOf(mode: GameMode): "last_standing" | "deathmatch" {
+  switch (mode) {
+    case GameMode.FFA_DEATHMATCH: return "deathmatch";
+    case GameMode.FFA_LAST_STANDING: return "last_standing";
+    case GameMode.TEAM: return "last_standing";
+    default: { const _never: never = mode; void _never; return "last_standing"; }
+  }
+}
 ```
 
-A new mode therefore defaults to **FFA, last-standing**, silently. If that is what you want, there is
-nothing to do and say so out loud. If it is not, edit `winRuleOf` (and `sidesOf` for a team mode) —
+`GameMode` is a plain numeric TS enum, so that is real exhaustiveness: **step 1's enum value stops
+this file compiling**, in both functions, until you say which side structure and which win rule your
+mode plays under. You will meet it at `npm run build`, before any test runs. There is no longer a
+silent default to say out loud — write the two cases.
+
+(They were two `if`s until that date, and a new mode defaulted to FFA last-standing with nothing
+saying so. The `default` branch still RETURNS a value rather than returning `_never`, because
+`mode` is not always a value this build authored — the client reads `room.state.mode` as a uint8 off
+the wire and `balance/report.ts` reads one out of a baseline `run.json` — and handing a stray byte
+back as the answer is worse than serving the old fallback. The `never` line above it is what makes
+the authored case a compile error, which is all it is there for.)
+
 `winRuleOf` is deliberately consumed in exactly one place, the room's end-of-match check, so a grep
 for it answers "what does the win condition actually change?" completely. A genuinely new win
 condition is a design change, not a config edit: stop and agree it first.
@@ -167,6 +192,13 @@ Flipping `isActive: true` is one field, and these follow from it with no further
 `isActive: false` is the publish gate and nothing else: the bundle stays reachable, and the
 playground, practice and the three harnesses all pin or pass a mode directly rather than reading the
 flag. Measuring a mode before publishing it is the point of measuring it.
+
+It IS a real gate on the wire, though, as of 2026-09-23: `resolveSetMode`
+(`packages/server/src/rooms/match-helpers.ts`) refuses `MSG_SET_MODE` for a mode that is not
+`isActiveGameMode`, so an unpublished mode cannot be seated in a real lobby by a hand-built or stale
+client — not merely hidden from the picker. (It checked phase and `hasPlayerInMatch` only until
+then, which made the registry's own "`set_mode` refuses it" comment false for as long as it had
+existed.)
 
 ## 7. Author it hidden, publish it in a second commit
 
@@ -256,7 +288,8 @@ MODE's bundle, so two modes can never share one.
 1. Add the `GameMode` value at the next unused integer.
 2. `cp -r` a mode folder, rename its exports, edit its `index.ts` (`arenas`, `maxPlayers`).
 3. Add the `MODE_TABLE` row with `isActive: false`, and a `MODE_ORDER` entry.
-4. Decide the win rule — edit `flow/modes.ts` or say out loud that it plays as FFA last-standing.
+4. Decide the win rule — `flow/modes.ts` will not compile until you add a case to BOTH `sidesOf`
+   and `winRuleOf`, so this is a step the build makes you take rather than one to remember.
 5. Root `npm run build` (shared → server → client; **never** `npm run build --workspaces`).
 6. `npm test`. Expect the three `registry.test.ts` cases above to fail; extend each.
 7. Tune the folder. Delete a `table-pinning.test.ts` assertion per table you diverge, with a comment.

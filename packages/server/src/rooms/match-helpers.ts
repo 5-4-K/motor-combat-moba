@@ -1,6 +1,7 @@
 import {
   DEFAULT_CAR_ID,
   RoomPhase,
+  isActiveGameMode,
   modeConfigOrDefault,
   type ArenaId,
   type CarId,
@@ -61,6 +62,22 @@ export interface SetModeResolution {
  * `LobbyScene` is the only sender, and `viewFor` shows it in LOBBY alone — and it is the same guard
  * `MSG_START_MATCH` already applies. `hasPlayerInMatch` stays as a second, independent refusal: a
  * spectator-only LOBBY is reachable while another player is still `IN_MATCH`.
+ *
+ * **`isActiveGameMode` is the third refusal, added 2026-09-23.** `MODE_TABLE`'s own header has
+ * always said "flip `isActive` false and the mode disappears from the lobby picker and `set_mode`
+ * refuses it", and the second half of that was simply untrue: this function checked phase and
+ * `hasPlayerInMatch`, then resolved through `modeConfigOrDefault`, so a hand-built or stale client
+ * could seat an unpublished mode by sending its wire id. The comment was made true rather than
+ * weakened: `isActive` is documented as the publish gate in the registry, in the `game-mode` skill
+ * and in the root `CLAUDE.md`, and a mode nothing publishes has no business being reachable from a
+ * client message. The playground, practice and the headless harnesses all pin or pass a mode
+ * directly and never come through here, so driving an unpublished mode is as available as it ever
+ * was.
+ *
+ * This subsumes the old unknown-byte fallback: an unregistered value is not active either, so it is
+ * refused outright and the room keeps the mode it already had — which is what a fallback to
+ * `DEFAULT_GAME_MODE` was reaching for anyway, minus the surprise of a client's typo silently
+ * rewriting the host's pick.
  */
 export function resolveSetMode(
   phase: RoomPhase,
@@ -69,7 +86,10 @@ export function resolveSetMode(
 ): SetModeResolution | undefined {
   if (phase !== RoomPhase.LOBBY) return undefined;
   if (hasPlayerInMatch) return undefined;
-  // `modeConfigOrDefault`, never `modeConfigOf`: `mode` arrived off the wire.
+  if (!isActiveGameMode(mode)) return undefined;
+  // `modeConfigOrDefault`, never `modeConfigOf`: `mode` arrived off the wire. Unreachable as a
+  // FALLBACK now that the guard above refuses every unregistered byte, and kept deliberately — the
+  // wire-facing form is the correct spelling for a wire value whatever guards precede it.
   const config = modeConfigOrDefault(mode);
   return { mode, config, arenaId: config.arenas[0] };
 }

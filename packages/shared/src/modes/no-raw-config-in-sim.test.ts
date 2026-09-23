@@ -43,7 +43,8 @@
 // banning it across client/server would flag five genuinely-correct raw reads
 // (`bot/brain/firing.ts`, `client/config/{aim-hud,slot-keys}.ts`, `client/scenes/movement-hint.ts`,
 // `client/scenes/ArenaScene.ts`) that have nothing to do with this guard's purpose.
-import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -189,14 +190,21 @@ describe("ALL of packages/shared/src reads config only through the bundle (MC13,
 
   // The regression this whole block exists to catch: reintroducing exactly `respawn.ts`'s old bug
   // — a raw read in a directory this guard does NOT exempt — must fail loudly.
+  // Written into a TEMP DIRECTORY walked alongside `src`, never into `src/flow/` itself, for the
+  // same reason as the harness tripwire at the bottom of this file: a `finally` does not survive a
+  // hard kill, and what a kill left behind here was a stray `.ts` inside the compiled source tree —
+  // reported as a real offender by the next run, and picked up by `tsc` besides.
   it("fails when a raw read is reintroduced outside the exempt directories", () => {
-    const fixturePath = join("src", "flow", "__tripwire-fixture.ts");
-    writeFileSync(fixturePath, 'import { DEATHMATCH_TICKS } from "../config/deathmatch-config.js";\n');
+    const tempRoot = mkdtempSync(join(tmpdir(), "mc-tripwire-"));
+    const fixturePath = join(tempRoot, "__tripwire-fixture.ts");
     try {
-      const offenders = walk("src").filter(hasRawConfigReference).filter((file) => !isAllowedRawReference(file));
+      writeFileSync(fixturePath, 'import { DEATHMATCH_TICKS } from "../config/deathmatch-config.js";\n');
+      const offenders = [...walk("src"), ...walk(tempRoot)]
+        .filter(hasRawConfigReference)
+        .filter((file) => !isAllowedRawReference(file));
       expect(offenders).toContain(fixturePath);
     } finally {
-      rmSync(fixturePath);
+      rmSync(tempRoot, { recursive: true, force: true });
     }
   });
 });
@@ -309,32 +317,40 @@ describe("the headless harnesses measure the mode they say they measure (MC41)",
 
   // The regression this block exists to catch, proven rather than asserted: a per-mode read put
   // back into a probe must fail, naming that probe. A hull read in the same file must not.
+  // The fixture is written into a TEMP DIRECTORY added to the roots for the duration, never into
+  // `packages/server/playtest/` itself (2026-09-23). A `finally` cleans up an ordinary failure, but
+  // not a hard kill — Ctrl-C, an OOM, a killed CI runner — and what that left behind was a file
+  // inside a swept root that the very next run would then report as a real offender, in the one
+  // guard whose whole job is to be believed. A temp root leaves nothing to find.
   it("fails when a per-mode read is reintroduced into a probe, and not for a hull read", () => {
-    const fixturePath = join("..", "server", "playtest", "__tripwire-fixture.ts");
-    writeFileSync(
-      fixturePath,
-      'import { DRIVE_CONFIG, RAM_CONFIG } from "@motor-combat-moba/shared";\n' +
-        "export const hull = DRIVE_CONFIG.carWidth;\n" +
-        "export const leak = RAM_CONFIG.globalScale;\n",
-    );
-    // Through the same walk the real assertion uses, not the predicate alone: that is what proves
-    // the ROOT is being walked, which is the half of this guard that was missing for a year.
+    const tempRoot = mkdtempSync(join(tmpdir(), "mc-tripwire-"));
+    const fixturePath = join(tempRoot, "__tripwire-fixture.ts");
+    // The same walk the real assertion uses, not the predicate alone: that is what proves a ROOT is
+    // being walked, which is the half of this guard that was missing for a year. The temp root is
+    // appended to the real ones so the walk under test is byte-for-byte the shipped one.
+    const roots = [...HARNESS_ROOTS, { label: "tripwire", dir: tempRoot }];
     const offenders = (): string[] =>
-      HARNESS_ROOTS.flatMap(({ label, dir }) =>
+      roots.flatMap(({ label, dir }) =>
         walk(dir)
           .filter(harnessHasRawConfigRead)
           .map((file) => label + file.slice(dir.length)),
       );
     try {
-      expect(offenders()).toContain("packages/server/playtest/__tripwire-fixture.ts");
+      writeFileSync(
+        fixturePath,
+        'import { DRIVE_CONFIG, RAM_CONFIG } from "@motor-combat-moba/shared";\n' +
+          "export const hull = DRIVE_CONFIG.carWidth;\n" +
+          "export const leak = RAM_CONFIG.globalScale;\n",
+      );
+      expect(offenders()).toContain("tripwire/__tripwire-fixture.ts");
       writeFileSync(
         fixturePath,
         'import { DRIVE_CONFIG } from "@motor-combat-moba/shared";\n' +
           "export const hull = DRIVE_CONFIG.carWidth;\n",
       );
-      expect(offenders()).not.toContain("packages/server/playtest/__tripwire-fixture.ts");
+      expect(offenders()).not.toContain("tripwire/__tripwire-fixture.ts");
     } finally {
-      rmSync(fixturePath);
+      rmSync(tempRoot, { recursive: true, force: true });
     }
   });
 });

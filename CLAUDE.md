@@ -25,8 +25,14 @@ It no longer changes anything about the tooling either — since MC41 the guide,
 `docs/turn-tuning.md` all read a MODE's bundle, so a raw edit moves no report and no page. What it
 does do is fail `packages/shared/src/modes/table-pinning.test.ts`, the tripwire: it asserts every
 raw global still equals both mode folders' copies, and fails naming the table. (The art importers,
-`scripts/import-art.mjs` and `import-weapon-icon.mjs`, are the last live raw readers — `CAR_TABLE`
-for id validation and the global hull, neither a balance number.)
+`scripts/import-art.mjs` and `import-weapon-icon.mjs`, are the last live raw readers, and only for
+things no mode owns: `Object.keys(CAR_TABLE)` / `Object.keys(WEAPON_TABLE)` as the id list an
+unknown `--car`/`--weapon` is spelled against, plus the global hull `import-art.mjs` fits a sprite
+to. Neither is a balance number. `import-weapon-icon.mjs` also asked raw `CAR_TABLE[carId].weapons`
+"which car carries this" until 2026-09-23 — that WAS a per-mode question, and a wrong one twice
+over, since `.weapons` is the ability kit alone and every basic attack therefore printed "no car
+carries it"; it asks `weaponCarriers` in `scripts/mode-rosters.mjs` now, the same mode union
+`check:weapons` sweeps.)
 
 ### Where to edit, depending on what you want
 

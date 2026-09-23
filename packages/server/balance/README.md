@@ -133,7 +133,8 @@ npm run balance -- --shape=ffa --matches=100
 ```
 
 Everything after `--` is the CLI's own flags (see the flag table below). With no flags at all it runs
-50 six-car FFA matches, `pro` (hard) bots, arena-01, a random seed. The seed prints first, before
+50 six-car FFA matches, `pro` (hard) bots, the mode's own first arena (arena-01 for both shipped
+modes), a random seed. The seed prints first, before
 anything runs — write it down if the run turns out interesting; it is what lets you replay it
 exactly.
 
@@ -223,7 +224,7 @@ are looking up.
 | `--mode` | a wire id (`0`, `1`, `2`), a mode's display name (`brawl`, `deathmatch`, `team-brawl`, case and separators free), or the legacy aliases `deathmatch` \| `last-standing` | `last-standing` for `duel`, `deathmatch` for everything else | Which mode the run measures: BOTH the win condition the matches end by and the `ModeConfig` bundle they run on (MC41) — `run.ts` installs it with `withMode`. An unknown mode refuses the run naming the ones that exist, rather than falling back to the default. An inactive mode is measurable on purpose. The mode appears in the report header and in the report folder's name (`2026-09-23-01-deathmatch`). |
 | `--skill` | `pro` \| `casual` \| `amateur` | `pro` | Player-type vocabulary; maps to bot difficulty `hard` \| `medium` \| `easy` (`SKILL_TO_DIFFICULTY` in `cli.ts` is the one place that mapping lives). The report prints both forms, e.g. `pro (hard)`. |
 | `--seed` | integer | a fresh random seed, printed first | The whole run is a pure function of this seed — same seed, same matches, replayed exactly. |
-| `--arena` | a known arena id | `arena-01` | Which arena to run every match on. Only one arena runs per report; arena geometry is itself a balance input this harness does not vary. |
+| `--arena` | an arena THIS MODE plays | the mode's own `arenas[0]` | Which arena to run every match on. Only one arena runs per report; arena geometry is itself a balance input this harness does not vary. Validated against `modeConfigOf(mode).arenas`, not the global arena registry (2026-09-23): a report labelled with one mode and measured entirely in an arena that mode never plays is the "one mode's numbers reported as another's" failure per-mode tooling exists to stop, so it is refused rather than run with a banner. |
 | `--baseline` | a previous run's directory | none | Load that run's `run.json` and print a "Deltas vs baseline" section against it. Refuses to run (exits non-zero, before any match is simulated) if the config or bot fingerprint, the shape, the mode, the skill tier or `--include-inactive` differs — see the paired-run workflow below. |
 | `--force` | flag, no value | off | Overrides a refused `--baseline` comparison (B37) — the run proceeds instead of exiting non-zero. Meaningless without `--baseline`. The report's "Deltas vs baseline" section carries a prominent warning banner naming every mismatch, so a forced delta can never later be mistaken for a valid paired run. |
 | `--match-seconds` | positive integer | `DEATHMATCH_CONFIG.matchSeconds` (180s) for deathmatch, a 300s (5 min) stalemate safety cap for last-standing | Per-match clock. For deathmatch this doubles as the real `matchEndsTick`, so it is not a mock of the game's clock — it is the game's clock. For last-standing it is a cap, not a target; hitting it is itself a finding (a matchup or bot pairing that cannot resolve). |

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { GameMode } from "../constants.js";
 import {
   DEFAULT_GAME_MODE,
+  MODE_ORDER,
   MODE_TABLE,
   activeGameModes,
   isActiveGameMode,
@@ -25,6 +26,20 @@ describe("MODE_TABLE", () => {
   it("gives each mode its own bundle object", () => {
     expect(modeConfigOf(GameMode.FFA_LAST_STANDING)).not.toBe(
       modeConfigOf(GameMode.FFA_DEATHMATCH),
+    );
+  });
+
+  // `MODE_TABLE` is held complete by `satisfies Record<GameMode, ModeDef>`; `MODE_ORDER` had no
+  // anchor of any kind. Everything downstream — the lobby cards, the guide's tabs, the
+  // turn-tuning sections, `balanceStamp`'s entries — derives its expectation from
+  // `activeGameModes()`, which FILTERS `MODE_ORDER`, so a mode in the table and missing from the
+  // order simply did not exist as far as every guard was concerned. Flipping `isActive: true` on
+  // it changed nothing anywhere and failed no test either. This is the anchor.
+  it("orders every mode in MODE_TABLE, with nothing extra", () => {
+    expect([...MODE_ORDER].sort()).toEqual(
+      Object.keys(MODE_TABLE)
+        .map(Number)
+        .sort(),
     );
   });
 

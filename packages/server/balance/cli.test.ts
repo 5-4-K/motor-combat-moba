@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { DEATHMATCH_CONFIG, GameMode } from "@motor-combat-moba/shared";
+import {
+  assembleModeConfig,
+  DEATHMATCH_CONFIG,
+  GameMode,
+  MODE_TABLE,
+  modeConfigOf,
+  type ModeConfig,
+  type ModeTables,
+} from "@motor-combat-moba/shared";
 import { helpText, KNOWN_FLAGS, parseArgs, wantsHelp } from "./cli.js";
 
 describe("parseArgs (B41, B42)", () => {
@@ -38,6 +46,14 @@ describe("parseArgs (B41, B42)", () => {
   // `match.ts` set `state.matchEndsTick = setup.maxTicks`, so this harness's clock IS the
   // deathmatch clock, not a mock of it. The default must be a REAL match length for deathmatch and
   // a generous safety cap (not a target) for last-standing, which ends by elimination.
+  // **Asserted against the RAW global, and that is a knowing shortcut.** `defaultMatchSeconds`
+  // reads `modeConfigOf(mode).deathmatch.matchSeconds`; this passes only because
+  // `modes/table-pinning.test.ts` still holds every mode folder's `deathmatch.ts` equal to the raw
+  // `DEATHMATCH_CONFIG`. The DAY a mode diverges its clock — which is the whole point of the
+  // per-mode system, and the day that pinning assertion is deliberately deleted — this case starts
+  // asserting one mode's number against another's and must be re-pointed at
+  // `modeConfigOf(parseArgs([]).mode).deathmatch.matchSeconds`. Left as the raw read on purpose:
+  // it is the one place in this file that would notice the divergence, and it fails loudly.
   it("defaults --match-seconds to the real deathmatch clock for deathmatch", () => {
     expect(parseArgs([]).matchSeconds).toBe(DEATHMATCH_CONFIG.matchSeconds);
   });
@@ -133,8 +149,47 @@ describe("parseArgs (B41, B42)", () => {
     expect(parseArgs(["--include-inactive=true"]).includeInactive).toBe(true);
   });
 
-  it("defaults --arena to arena-01", () => {
-    expect(parseArgs([]).arenaId).toBe("arena-01");
+  // Was `toBe("arena-01")` against a hardcoded `DEFAULT_ARENA_ID`, which is mode-blind: `--mode=X`
+  // installed X's bundle and labelled the report X while every match ran in arena-01, whether or
+  // not X plays there. Asserted against the mode's own set, so a mode that moves arenas moves this.
+  it("defaults --arena to the MODE's own arenas[0], not a hardcoded id", () => {
+    for (const mode of [GameMode.FFA_LAST_STANDING, GameMode.TEAM, GameMode.FFA_DEATHMATCH]) {
+      expect(parseArgs([`--mode=${mode}`]).arenaId).toBe(modeConfigOf(mode).arenas[0]);
+    }
+  });
+
+  // Both shipped modes carry both shipped arenas, so this refusal cannot be exercised against the
+  // live registry at all — the vacuous version of this case would pass forever. The divergence is
+  // BUILT instead: `GameMode.TEAM`'s row is swapped for a bundle assembled from the same tables
+  // with a one-arena `arenas` list, which is precisely the shape a real second mode will have.
+  // `parseArgs` reads `modeConfigOf` directly and takes no bundle parameter, so the registry is
+  // edited by descriptor and restored in a `finally`.
+  it("refuses an --arena the chosen mode does not play, naming the set it does", () => {
+    const mode = GameMode.TEAM;
+    const table = MODE_TABLE as unknown as Record<string, { config: ModeConfig }>;
+    const key = String(mode);
+    const original = Object.getOwnPropertyDescriptor(table, key)!;
+    const narrowed = assembleModeConfig(mode, {
+      ...(modeConfigOf(mode) as unknown as ModeTables),
+      arenas: ["arena-02"],
+    });
+    Object.defineProperty(table, key, {
+      ...original,
+      value: { ...original.value, config: narrowed },
+    });
+    try {
+      expect(modeConfigOf(mode).arenas).toEqual(["arena-02"]);
+      // The default follows the narrowed set...
+      expect(parseArgs([`--mode=${mode}`]).arenaId).toBe("arena-02");
+      // ...and an explicit arena outside it is refused, naming the set that IS legal.
+      expect(() => parseArgs([`--mode=${mode}`, "--arena=arena-01"])).toThrow(/is not an arena/);
+      expect(() => parseArgs([`--mode=${mode}`, "--arena=arena-01"])).toThrow(/arena-02/);
+      // ...while the arena it does play is still accepted.
+      expect(parseArgs([`--mode=${mode}`, "--arena=arena-02"]).arenaId).toBe("arena-02");
+    } finally {
+      Object.defineProperty(table, key, original);
+    }
+    expect(modeConfigOf(mode).arenas).toEqual(["arena-01", "arena-02"]);
   });
 
   it("parses a negative or zero --matches as an error rather than an empty run", () => {
@@ -170,7 +225,11 @@ describe("--help", () => {
     const text = helpText();
     const d = parseArgs([]);
     expect(text).toContain(`(default ${d.matches})`);
-    expect(text).toContain(`(default ${d.arenaId})`);
+    // NOT `(default ${d.arenaId})`: the arena default is per mode now, so a literal on the page
+    // would be one mode's answer printed as everyone's. The page states the rule instead, and this
+    // holds the rule to what `parseArgs` does.
+    expect(text).toContain("(default: the mode's own arenas[0])");
+    expect(d.arenaId).toBe(modeConfigOf(d.mode).arenas[0]);
     expect(text).toContain(`(default ${d.skill})`);
     expect(text).toContain(`(default ${d.shape}`);
     expect(text).toContain(`${d.matchSeconds} for deathmatch`);

@@ -42,7 +42,6 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  ACTIVE_ARENA_ID,
   BASIC_ATTACK_CONFIG,
   DEFAULT_GAME_MODE,
   MODE_TABLE,
@@ -68,6 +67,7 @@ import {
   weaponDamageOf,
   weaponTicksOf,
   weapons,
+  winRuleOf,
   withMode,
 } from "@motor-combat-moba/shared";
 
@@ -108,13 +108,14 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const OUT_WEB_HTML = resolve(ROOT, "packages/client/public/manual.html");
 
 /**
- * The arena the build ships, for "how far is 900 units really" context.
+ * The arena ONE MODE plays, for "how far is 900 units really" context — every weapon's reach is
+ * reported as a PERCENTAGE of this.
  *
- * Read from `ACTIVE_ARENA_ID` rather than written out, because every weapon's reach is reported as a
- * PERCENTAGE of this. The two shipped arenas are both 1280 wide at the frame and ~1100 at the
- * playable floor, so pointing the build at the other one would barely move the figures — and,
- * hardcoded, would do it silently: `balanceStamp` hashes this value, so a literal would only ever
- * fingerprint itself.
+ * **Per mode as of 2026-09-23.** It read the global `ACTIVE_ARENA_ID`, which is nobody's mode: both
+ * tabs quoted reach against one arena neither mode necessarily picks first, and the wrong number
+ * was then frozen into `balanceStamp` — a literal that can only ever fingerprint itself. A mode's
+ * `arenas[0]` is the arena it actually plays (the rest of its list is what it MAY play), which is
+ * the same rule `resolveSetMode` and the balance harness's `--arena` default both follow.
  *
  * The PLAYABLE extent, not `arena.width`. Those were the same number until `arena-01` became an
  * octagon inset inside its own image frame, and this read the frame — understating every reach
@@ -123,7 +124,9 @@ export const OUT_WEB_HTML = resolve(ROOT, "packages/client/public/manual.html");
  * its own: the regenerated page came out byte-identical, because the fingerprint hashes this value
  * and the value was wrong.
  */
-const ARENA_WIDTH = playableExtentOf(getArena(ACTIVE_ARENA_ID)).width;
+function arenaWidthOf(config) {
+  return playableExtentOf(getArena(config.arenas[0])).width;
+}
 
 // ---------------------------------------------------------------------------- derived stats
 
@@ -322,6 +325,22 @@ function modelOf(config) {
       /** The tab's label, from `MODE_TABLE` — the same string the lobby card carries (MC41). */
       name: MODE_TABLE[config.id].name,
       carIds,
+      /** This mode's own `arenas[0]`, the denominator every Range row's percentage is taken over. */
+      arenaWidth: arenaWidthOf(config),
+      /**
+       * The authored `EFFECT_SOURCES` lines that apply IN THIS MODE (2026-09-23).
+       *
+       * `phased` is the one mode-shaped entry: `respawnSweep` is the only thing that applies it and
+       * it is gated `winRuleOf(mode) === "deathmatch"`, so Brawl cannot inflict it — yet Brawl's
+       * Effects tab published `fx-0-phased` reading "The moment after you respawn in Deathmatch",
+       * a status describing a game that tab's reader is not playing. `reeling` and `ramLock` come
+       * from the contact pass, which every mode runs, so they are unconditional.
+       */
+      effectSourceLines: Object.fromEntries(
+        Object.entries(EFFECT_SOURCES).filter(
+          ([statusId]) => statusId !== "phased" || winRuleOf(config.id) === "deathmatch",
+        ),
+      ),
       ownerOf: Object.fromEntries(
         carIds.flatMap((carId) =>
           [...slotsOf(carId), basicAttackOf(carId)].map((weaponId) => [weaponId, carId]),
@@ -401,36 +420,43 @@ export function stampOfModes(configs) {
     // touching any table the per-mode keys below already hash.
     basicAttackEnabled: BASIC_ATTACK_CONFIG.enabled,
     tickRateHz: TICK_RATE_HZ,
-    arenaWidth: ARENA_WIDTH,
     // The RENDERED copy, not the raw templates: the stamp should fingerprint what the page says.
     copy: { MANUAL_META, CHASSIS_COPY, WEAPON_COPY, EFFECT_SOURCES },
     // ---- One entry per tab.
-    modes: configs.map((config) =>
-      withMode(config, () => ({
-        // The section id (`mode-N`) and the tab's label, both printed. They are also what makes
-        // ADDING or REMOVING an active mode move the stamp: the two shipped modes carry
-        // byte-identical tables today (`modes/table-pinning.test.ts` enforces it), so without these
-        // two keys a set of one would hash the same as either mode alone.
-        id: config.id,
-        name: MODE_TABLE[config.id]?.name ?? "",
-        weapons: config.weapons,
-        // ACTIVE cars only, matching this mode's own `carIds` — the stamp fingerprints what the page
-        // SAYS, and the page says nothing about an inactive chassis. Hashing the car table whole
-        // would fail `npm test` on every ratings tweak to an unreleased car. Flipping `isActive` to
-        // true still moves the stamp, correctly: that edit really does owe players a rebuild.
-        cars: Object.fromEntries(activeCarIds().map((id) => [id, config.cars[id]])),
-        combat: config.combat,
-        statuses: config.statusTable,
-        drive: config.drive,
-        // How many ability slots this mode has. N changes how many weapons each chassis lists, which
-        // is something the page SAYS, so it belongs in the fingerprint (VS30).
-        abilitySlots: config.slots.maxAbilitySlots,
-        // The turret's turn rate, which every turret weapon's Aim point prints (TR47). Only the
-        // rate: `defaultOffset` places the shot but the page never states it, so hashing it would
-        // demand a rebuild that changes nothing but this tag.
-        turretTurnRateDegPerSec: config.turret.turnRateDegPerSec,
-      })),
-    ),
+    //
+    // **No `withMode` here (2026-09-23).** Every value below is read off the `ModeConfig` OBJECT,
+    // so none of it needs — or can be affected by — whichever bundle happens to be installed. The
+    // one exception was `activeCarIds()`, an accessor, and it is spelled as a filter over
+    // `config.cars` instead: a scope entered to serve a single accessor call is a scope whose
+    // absence nothing would notice, which is exactly the kind that rots into a lie about what this
+    // function reads.
+    modes: configs.map((config) => ({
+      // The section id (`mode-N`) and the tab's label, both printed. They are also what makes
+      // ADDING or REMOVING an active mode move the stamp: the two shipped modes carry
+      // byte-identical tables today (`modes/table-pinning.test.ts` enforces it), so without these
+      // two keys a set of one would hash the same as either mode alone.
+      id: config.id,
+      name: MODE_TABLE[config.id]?.name ?? "",
+      weapons: config.weapons,
+      // ACTIVE cars only, matching this mode's own `carIds` — the stamp fingerprints what the page
+      // SAYS, and the page says nothing about an inactive chassis. Hashing the car table whole
+      // would fail `npm test` on every ratings tweak to an unreleased car. Flipping `isActive` to
+      // true still moves the stamp, correctly: that edit really does owe players a rebuild.
+      cars: Object.fromEntries(Object.entries(config.cars).filter(([, def]) => def.isActive)),
+      combat: config.combat,
+      statuses: config.statusTable,
+      drive: config.drive,
+      // The arena THIS mode plays, whose playable width every Range row's percentage is taken over
+      // (2026-09-23). Per mode, because `arenas` is: a global value here fingerprinted itself.
+      arenaWidth: arenaWidthOf(config),
+      // How many ability slots this mode has. N changes how many weapons each chassis lists, which
+      // is something the page SAYS, so it belongs in the fingerprint (VS30).
+      abilitySlots: config.slots.maxAbilitySlots,
+      // The turret's turn rate, which every turret weapon's Aim point prints (TR47). Only the
+      // rate: `defaultOffset` places the shot but the page never states it, so hashing it would
+      // demand a rebuild that changes nothing but this tag.
+      turretTurnRateDegPerSec: config.turret.turnRateDegPerSec,
+    })),
   };
   return createHash("sha256").update(JSON.stringify(inputs)).digest("hex").slice(0, 16);
 }
@@ -569,7 +595,9 @@ function effectSources(model) {
  *
  * A row appears only if something can actually apply it: a weapon an active chassis carries, or an
  * authored `EFFECT_SOURCES` line for the three that reach a player outside the weapon tables
- * (`reeling` and `ramLock` from the contact pass, `phased` from the deathmatch respawn). `armored`
+ * (`reeling` and `ramLock` from the contact pass, `phased` from the deathmatch respawn) AND that
+ * applies in THIS mode — `model.effectSourceLines`, which drops `phased` from a mode whose win rule
+ * is not `"deathmatch"`, since nothing in such a mode can put a player in it. `armored`
  * and `overhauled` have neither today and so do not appear — publishing a status no shipped code
  * can inflict would be describing a game the player is not playing. Giving one a source is what
  * publishes it.
@@ -579,7 +607,7 @@ function effectSources(model) {
  */
 function publishedEffectsOf(model) {
   return Object.keys(statusTable()).filter(
-    (id) => model.effectSourceMap.has(id) || id in EFFECT_SOURCES,
+    (id) => model.effectSourceMap.has(id) || id in model.effectSourceLines,
   );
 }
 
@@ -730,7 +758,9 @@ function statRows(model, w) {
     // A dash's `range` is how far the CAR travels, not how far a shot does — the same field
     // meaning a different thing, and a reader who takes it for a shot's reach has misread the
     // weapon entirely.
-    const what = w.maneuver ? "how far you lunge" : `${round((d.range / ARENA_WIDTH) * 100)}% of the arena`;
+    const what = w.maneuver
+      ? "how far you lunge"
+      : `${round((d.range / model.arenaWidth) * 100)}% of the arena`;
     rows.push(["Range", `${d.range} <span class="sub">${what}</span>`]);
   }
   // A turret weapon fires along the bearing the mouse chose, once the turret has turned to it
@@ -837,7 +867,7 @@ function effectsSection(model) {
       (s) =>
         `${esc(weapons()[s.weaponId].name)} ${secs(s.durationMs)}${s.note ? ` (${esc(s.note)})` : ""}`,
     );
-    if (EFFECT_SOURCES[statusId]) applied.push(esc(EFFECT_SOURCES[statusId]));
+    if (model.effectSourceLines[statusId]) applied.push(esc(model.effectSourceLines[statusId]));
     return `<article class="effect" id="${effectAnchor(model, statusId)}" style="--acc:${lift(def.color)}">
       <h4>${esc(def.name)} <span class="kind">${esc(def.kind)}</span></h4>
       <p class="does">${esc(statusBlurb(def))}</p>

@@ -143,12 +143,41 @@ describe("the field list describes the bundle it was built from", () => {
     expect(sanitizeStoredTuning(BASE, { "drive.baseTurnRate": 5 })).toEqual({});
   });
 
-  it("the panel and the validator never disagree for one bundle", () => {
-    // Every row a panel built from TUNED would show, offered back at its own shipped value, must be
-    // accepted by the validator keyed off that same bundle — the property the shared field set is
-    // supposed to guarantee and the one a second field source would silently break.
-    for (const f of tunableFields(TUNED)) {
-      expect(validateTuning(TUNED, { [f.path]: f.shipped }).ok, f.path).toBe(true);
+  /**
+   * **This case was a tautology and is now a pair.**
+   *
+   * The sweep below — every row a panel built from one bundle shows, offered back at its own
+   * `shipped` value, accepted by the validator keyed off that same bundle — cannot fail by
+   * construction. `numberRange` derives a field's range FROM its shipped value (`0..shipped*3`),
+   * and an enum's options always include the row's own current value, so the answer is baked in
+   * whatever the walker does with the bundle it is handed. Gutting `tunableFields` to read a
+   * hardcoded config left it green.
+   *
+   * What it was reaching for is a CROSS-bundle property, and that needs a divergence the two
+   * shipped modes cannot supply while `table-pinning.test.ts` holds them byte-identical. A tuned
+   * sibling from `applyOverrides` supplies it: `FAR` moves one field far outside BASE's own
+   * `shipped * 3` ceiling, which is the shape a genuinely diverged second mode will one day have.
+   * The panel's own value must then be accepted by its own bundle's validator and REFUSED by the
+   * other's — that pair is what proves the two read the bundle they were given rather than a
+   * shared global, and it is the half that fails when they stop doing so.
+   */
+  it("the panel and the validator agree on one bundle and disagree across two", () => {
+    const FAR = applyOverrides(BASE, { "drive.baseTurnRate": BASE.drive.baseTurnRate * 100 });
+    const far = find(tunableFields(FAR), "drive.baseTurnRate");
+
+    // The half that can fail: FAR's own shipped value sits far outside BASE's 0..shipped*3.
+    expect(far.shipped).toBe(BASE.drive.baseTurnRate * 100);
+    expect(far.shipped).toBeGreaterThan(BASE.drive.baseTurnRate * 3);
+    expect(validateTuning(FAR, { "drive.baseTurnRate": far.shipped }).ok).toBe(true);
+    expect(validateTuning(BASE, { "drive.baseTurnRate": far.shipped }).ok).toBe(false);
+    // ...and symmetrically, BASE's own ceiling is no longer a legal value for FAR's slider grid.
+    expect(find(tunableFields(BASE), "drive.baseTurnRate").max).toBeLessThan(far.max);
+
+    // The tautological sweep, kept as the OTHER half of the pair rather than deleted: it is worth
+    // nothing alone, and it is what says the cross-bundle refusal above is a real disagreement
+    // rather than a validator that rejects everything.
+    for (const f of tunableFields(FAR)) {
+      expect(validateTuning(FAR, { [f.path]: f.shipped }).ok, f.path).toBe(true);
     }
   });
 

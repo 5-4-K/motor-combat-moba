@@ -329,8 +329,13 @@ function breakdown() {
 /**
  * `mode` is passed in rather than read back from the installed bundle: the caller resolved the flag
  * and installed that mode, and a parameter cannot disagree with what it installed.
+ *
+ * **Required, with no default (2026-09-23).** A `= DEFAULT_GAME_MODE` fallback decoupled the header
+ * this prints from the bundle the numbers below it were measured under: call it inside a
+ * `withMode(modeConfigOf(2), ...)` and forget the argument, and you got Deathmatch's matrix under
+ * a line reading "Mode: Brawl". Both callers — the CLI and `ttk.test.mjs` — already pass it.
  */
-export function report(mode = DEFAULT_GAME_MODE) {
+export function report(mode) {
   return [
     "Full-kit time-to-kill. Every shot connects and the target never leaves range,",
     "so these are damage ceilings rather than predictions — read this file's header.",

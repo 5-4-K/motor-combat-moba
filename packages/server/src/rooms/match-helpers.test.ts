@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_CAR_ID,
   GameMode,
+  MODE_TABLE,
   RoomPhase,
   modeConfigOf,
 } from "@motor-combat-moba/shared";
@@ -80,12 +81,19 @@ describe("resolveSetMode", () => {
     expect(resolveSetMode(RoomPhase.LOBBY, true, OTHER)).toBeUndefined();
   });
 
-  it("falls back to the default bundle for an unknown wire value rather than throwing", () => {
-    const next = resolveSetMode(RoomPhase.LOBBY, false, 99 as GameMode);
-    expect(next).toBeDefined();
-    // The arena still comes from a real bundle, so a stale client cannot strand the room on an
-    // unregistered arena id — which is the one thing that DOES reach the mismatch screen.
-    expect(next?.arenaId).toBe(next?.config.arenas[0]);
+  // `MODE_TABLE`'s header has always claimed `set_mode` refuses an inactive mode; until
+  // 2026-09-23 nothing here checked, so a hand-built or stale client could seat an unpublished
+  // mode by sending its wire id. `GameMode.TEAM` is the shipped inactive row.
+  it("refuses a mode no lobby publishes, however well-formed the message", () => {
+    expect(MODE_TABLE[GameMode.TEAM].isActive).toBe(false);
+    expect(resolveSetMode(RoomPhase.LOBBY, false, GameMode.TEAM)).toBeUndefined();
+  });
+
+  it("refuses an unknown wire value rather than falling back or throwing", () => {
+    // Was a fallback to `DEFAULT_GAME_MODE`'s bundle; the `isActive` guard subsumes it, since an
+    // unregistered byte is not active either. Refusing leaves the room on the mode the host
+    // actually picked, which is what the fallback was reaching for without the surprise.
+    expect(resolveSetMode(RoomPhase.LOBBY, false, 99 as GameMode)).toBeUndefined();
   });
 
   it("is pure: two calls give equal results and share the frozen bundle", () => {

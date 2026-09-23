@@ -117,9 +117,15 @@ export function slotsOf(carId: CarId): readonly WeaponId[] {
  * 1. `packages/server/balance/stats.ts` — the per-weapon accumulator seeding, inside `aggregate`,
  *    reached from `balance/run.ts`'s one `withMode(modeConfigOf(args.mode), ...)` at the CLI entry.
  *    A weapon the bots press but nobody seeded is silently absent from the report.
- * 2. `scripts/ttk.mjs` — two call sites, the rotation (`simulateTtk`) and the one-press input table
- *    (`pressPlan`'s caller), both under that file's own `withMode(modeConfigOf(mode), ...)` entry
- *    guard. `--mode` selects the bundle (MC41), so the matrix's kits are that mode's kits.
+ * 2. `scripts/ttk.mjs` — THREE call sites, all under that file's own
+ *    `withMode(modeConfigOf(mode), ...)` entry guard: the rotation (`simulateTtk`), `carrierOf`
+ *    (which chassis can fire a given row), and the per-weapon breakdown loop. `--mode` selects the
+ *    bundle (MC41), so the matrix's kits are that mode's kits. (This entry read "two call sites"
+ *    through two rounds of review; it was wrong both times. Count them with a grep before editing
+ *    this list, not from the previous version of it.)
+ * 2b. `scripts/mode-rosters.mjs` — `weaponRoster`, the union `npm run check:art` sweeps, which asks
+ *    every mode in turn inside its own `withMode(modeConfigOf(mode), ...)`. This is what stops a
+ *    weapon carried only in one mode's kit reading as unreleased.
  * 3. `packages/server/src/bot/brain/duel.fixture.ts` — two call sites, `pressCeilingOf` and
  *    `bestSustainedDpsOf`; its callers (`tiers.test.ts`, `controller.test.ts`) `installMode` the
  *    default bundle in a `beforeEach`. `bestSustainedDpsOf` counting the basic attack is

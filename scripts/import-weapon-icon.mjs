@@ -54,8 +54,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import sharp from "sharp";
-import { CAR_TABLE, isWeaponId, WEAPON_TABLE } from "../packages/shared/dist/index.js";
+import { isWeaponId, WEAPON_TABLE } from "../packages/shared/dist/index.js";
 import { formatManifest } from "./import-art.mjs";
+import { carriageLabel, weaponCarriers } from "./mode-rosters.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const artDir = path.join(rootDir, "packages", "client", "public", "art");
@@ -116,16 +117,27 @@ export async function main(argv = process.argv.slice(2)) {
   console.log(`manifest      ${key} -> ${file}`);
   // `?dev=assets` previews weapon icons as well as car sprites, and fits them through the HUD's own
   // resolver at the HUD's own box, so it is the fast way to judge one: no rejoin, and every weapon
-  // on screen at once. It draws the grid from `CAR_TABLE` kits, though, so a weapon no car carries
-  // still has no cell there — the page names it in its header rather than dropping it silently.
-  // Every shipped weapon has a carrier today -- the nine-weapon roster is exclusive but complete,
-  // with no orphan id -- so that branch only fires for a weapon still being authored, before it is
-  // wired into a `CAR_TABLE` loadout.
-  const carriers = Object.keys(CAR_TABLE).filter((carId) => CAR_TABLE[carId].weapons.includes(weapon));
+  // on screen at once. It draws the grid from the installed mode's kits, though, so a weapon no car
+  // carries still has no cell there — the page names it in its header rather than dropping it
+  // silently. Every shipped ability row has a carrier today (the roster is exclusive but complete,
+  // with no orphan id but the deliberately uncarried `tremor`), so that branch only fires for a
+  // weapon still being authored, before it is wired into a loadout.
+  //
+  // **Asked of the MODE UNION, not raw `CAR_TABLE`** (2026-09-23): this was the last mode-blind
+  // carriage query in the tree, and it read `CAR_TABLE[carId].weapons`, which is wrong twice over —
+  // the game reads no raw table any more, and `.weapons` is the ability kit alone, so every basic
+  // attack already printed "no car carries" while nine chassis were firing one. `weaponCarriers`
+  // asks `fireSlotsOf` in every mode's own scope; the `(mode: ...)` suffix appears only when the
+  // modes disagree about a chassis, exactly as `check:weapons` marks its own rows.
+  const carriers = weaponCarriers(weapon);
+  const named = carriers.map((c) => {
+    const suffix = carriageLabel(c.modes);
+    return suffix ? `${c.carId} ${suffix}` : c.carId;
+  });
   console.log(
-    carriers.length > 0
-      ? `next          npm run dev, then http://localhost:5173/?dev=assets — or drive ${carriers.join(" / ")} and check the HUD slot bar`
-      : `next          no car carries "${weapon}", so neither a HUD slot nor ?dev=assets shows it — add it to a CAR_TABLE loadout to judge the fit`,
+    named.length > 0
+      ? `next          npm run dev, then http://localhost:5173/?dev=assets — or drive ${named.join(" / ")} and check the HUD slot bar`
+      : `next          no car in any mode carries "${weapon}", so neither a HUD slot nor ?dev=assets shows it — add it to a mode's car loadout to judge the fit`,
   );
 }
 

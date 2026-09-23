@@ -208,9 +208,21 @@ export async function checkWeapons(manifest) {
   return results;
 }
 
+/** The id as the report prints it: bare, or suffixed when the modes disagree or nobody carries it. */
+function labelFor(id, carriedIn) {
+  const suffix = carriageLabel(carriedIn ?? [], "(uncarried)");
+  return suffix ? `${id} ${suffix}` : id;
+}
+
 /** Print one line per weapon plus its findings, and return how many blockers were seen. */
 export function reportWeapons(results) {
   let blockers = 0;
+  // The id column, wide enough for the widest LABEL this run prints (2026-09-23). It was a flat
+  // `padEnd(12)`, which every basic-attack id already overflowed and which a `(mode: ...)` or
+  // `(uncarried)` suffix turns into a guaranteed no-op — so the colour-distance column jumped left
+  // and right on exactly the rows a reader is scanning for. A floor of 12 keeps the old alignment
+  // when nothing is marked.
+  const labelWidth = Math.max(12, ...results.map(({ id, carriedIn }) => labelFor(id, carriedIn).length));
   for (const { id, carriedIn, colorDistance, findings } of results) {
     const verdict = findings.some((f) => f.level === "blocker")
       ? "FAIL"
@@ -218,12 +230,12 @@ export function reportWeapons(results) {
         ? "warn"
         : "ok";
     const drift = colorDistance === undefined ? "" : `  colour distance ${Math.round(colorDistance)}`;
-    // Marked only when the modes disagree: a row every mode carries, and a row (`tremor`) no mode
-    // does, are both long-standing legal states this sweep has never labelled — see
-    // `carriageLabel`'s own comment for why the two sweeps pass different `noneLabel`s.
-    const suffix = carriageLabel(carriedIn ?? []);
-    const label = suffix ? `${id} ${suffix}` : id;
-    console.log(`${verdict.padEnd(5)} ${label.padEnd(12)}${drift}`);
+    // Marked when the modes disagree, and — since 2026-09-23 — when NO mode carries the row at
+    // all. `tremor` is a legal uncarried row and stays unfailed, but an unmarked line made it
+    // indistinguishable from a weapon accidentally dropped out of every kit; `(uncarried)` is the
+    // difference between "documented" and "invisible". See `carriageLabel`'s own comment.
+    const label = labelFor(id, carriedIn);
+    console.log(`${verdict.padEnd(5)} ${label.padEnd(labelWidth)}${drift}`);
     for (const f of findings) {
       console.log(`        ${f.level}: ${f.message}`);
       if (f.level === "blocker") blockers++;
