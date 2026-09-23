@@ -69,9 +69,51 @@ to the task named after it.
 | 3. Scopes installed | [`03-room-scopes.md`](03-room-scopes.md) | **DONE** (`eb8b9cc..b78ad38`) |
 | 4. Lobby and arena sets | [`04-lobby-and-arenas.md`](04-lobby-and-arenas.md) | **DONE** (`b5c868a..9c169a9`) |
 | 5. `setTuning` retired | [`05-retire-set-tuning.md`](05-retire-set-tuning.md) | **DONE** (`b633120..4814dbf`) |
-| 6. Tooling | [`06-tooling.md`](06-tooling.md) | not started |
+| 6. Tooling | [`06-tooling.md`](06-tooling.md) | **DONE** (`022b2fa..56279a8`) |
 
-**Next:** Phase 6, Task 1.
+**Next:** none — all six phases complete. Two exit criteria are the USER's and are NOT done: the
+hands-on two-browser-tab check of two rooms on different modes in one process, and re-running
+`npm run playtest` and `npm run balance` per mode. See the phase-6 addendum.
+
+### Phase 6, as landed (commits `022b2fa..56279a8`)
+
+**Every tool that prints a balance number now names the mode it speaks for.** `balanceStamp` hashes
+every active mode's bundle instead of the raw tables; the players' guide publishes a tab per active
+mode with mode-prefixed effect anchors (and still works with JavaScript off); `npm run ttk`,
+`npm run balance` and `npm run playtest` take `--mode=<id|name>`, label the report header AND the
+output directory, and refuse a cross-mode `--baseline`; `docs/turn-tuning.md` carries a table set
+per mode and its doc test names the mode in every failure; `check:art` sweeps the union of every
+mode's carried rows; and the playground's tuning panel builds its fields from the bundle it tunes.
+
+**Deathmatch was measured for the first time** during this phase — all three harnesses ran against
+mode 2 and produced labelled reports.
+
+Three things this phase found that the plan did not anticipate:
+
+- **`--mode` labelled the playtest report without changing what it measured.** All six probes read
+  the RAW globals. The flag MINTED a claim the numbers did not honour, which is worse than the
+  feature being absent. Fixed, and — the durable half — `no-raw-config-in-sim.test.ts` now walks
+  `server/playtest` and `server/balance`, which it never had.
+- **Three mode-shaped facts still lived OUTSIDE the bundle** with no compile-time or test-time
+  anchor: the win rule (`winRuleOf`/`sidesOf` were two `if`s, so a new mode silently played as FFA
+  last-standing), the publish list (`MODE_ORDER` could omit a mode and every guard agreed, because
+  they all derive their expectation from it), and the arena (balance measured `arena-01` whatever
+  the mode plays). All three are anchored now — the win rule by an exhaustive `switch` whose `never`
+  makes a new mode a COMPILE error.
+- **`fireSlotsOf`'s hand-maintained "authoritative" reader list was wrong four times in one day**,
+  including once in the commit correcting it and once in the direction nobody had checked. It is
+  now held to the tree by a test rather than by care.
+
+### What `balanceStamp` cannot see, and why it is written down
+
+A review proved the stamp's own rule inverted: every input is DATA, while the generator's
+SELECTION RULES are code and unhashable. Removing the `winRuleOf` gate that stops Brawl's tab
+publishing `phased` leaves the stamp at `0c7adc2746195fca`. `manual-page.test.mjs` guards the
+COMMITTED PAGE, not the generator, so a selection-rule change owes a `build:manual` nothing will
+demand. The limitation is recorded in `stampOfModes`'s doc comment beside the rule it inverts.
+**The option not taken, left for the user:** hash `modelOf`'s OUTPUT per mode, which would make
+that gate an input by construction. It was declined because it moves the shipped stamp once and a
+later model-shape refactor would move it again without changing a printed byte.
 
 ### Phase 5, as landed (commits `b633120..4814dbf`)
 
@@ -433,3 +475,57 @@ directly its business.
   exposed that its sibling was ALSO passing for the wrong reason: `isStatusId` read the INSTALLED
   bundle, so with nothing installed it threw a scope error, not a status-id error. Right message
   class, wrong mechanism. Now validated against `base.statusTable`.
+
+---
+
+# Handover addendum — phase 6, and the plan's close (2026-09-23)
+
+`022b2fa..56279a8`, all pushed. **All six phases are complete.** The branch is
+`feature/game-wise-config`, 70+ commits from `fbe386a`, never merged and with no pull request.
+
+## TWO EXIT CRITERIA ARE NOT MET, and both are the user's to do
+
+1. **The hands-on concurrency check.** The plan's exit criterion 2 asks that an arena room on one
+   mode and a practice room on another be confirmed by hand, with two browser tabs. The SIM half is
+   proven by `mode-concurrency.test.ts`; the hands-on half has never been run.
+2. **Re-run the harnesses, per mode.** `sim/`, the tables and the tick pipeline all moved across
+   this plan. `npm run playtest -- --mode=0` and `--mode=2`, and the same for `npm run balance`.
+   **Every baseline on disk is now non-comparable** — the config fingerprint was redefined, and
+   `--baseline` refuses the comparison rather than quietly misleading. Note `--shape=duel --mode=2`
+   takes ~29 minutes: a deathmatch duel never ends before its 180 s clock.
+
+## Still true, and not caused by this plan
+
+The two `bot/brain/controller.test.ts` G12 failures, bisected to 2026-09-19. Root `npm test` exits
+1 solely because of them, which is also why `test:scripts` must be run separately. They need a
+`BOT_PROFILES` retune, which is a `bot-tuner` question.
+
+## The condition the whole plan exists to stop relying on
+
+The final review put it best: the goal — *no tool can silently report one mode's numbers as
+another's* — is now **structurally** true rather than circumstantially true, but only because the
+three mode-shaped facts outside the bundle were anchored in the last commits. Before that, it held
+because both shipped modes are byte-identical, which is exactly the condition this work exists to
+end. **`table-pinning.test.ts` is what keeps them identical, and the documented workflow is to
+delete a table's row from it the day you intentionally diverge.** The first person to do that is
+the first real test of all six phases.
+
+## What is still hand-maintained and will rot
+
+- `docs/config-reference.md` is written in raw-table names throughout. The new preamble makes that
+  legible rather than false, but it needs a per-section pass the first time a mode genuinely
+  diverges, and nothing tests it.
+- `docs/turn-tuning.md` is 517 lines and grows ~55 per mode. At three modes, consider generating
+  the tables — accepting that the test then degrades to a stamp check.
+- Nothing stops a sentence being written under a `## <Mode>` heading in that page; the guard counts
+  tables, not paragraphs.
+- `weaponRoster`'s `color` can describe only one mode, which is unfixable inside a global art
+  namespace and is documented where it bites.
+
+## Count of guards that guarded nothing, across the whole branch: TWELVE
+
+Seven found in phases 1-3, one in phase 4, two in phase 5, two in phase 6 — plus two more caught
+before they shipped. The only thing that ever found one was asking, of each guard, *what edit would
+make this fail?* and then making that edit. Two were in the PLAN rather than the code. One was
+found by an implementer reporting that its own new test survived the mutation it was written to
+catch. The final one was found by running a test from a different directory.
