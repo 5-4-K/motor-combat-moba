@@ -1239,15 +1239,30 @@ ram falloff stack beside it).
 
 ## Arena selection
 
-`ACTIVE_ARENA_ID` in `packages/shared/src/config/arena-config.ts` names the one arena a build plays
-and ships. Changing arenas is that single edit:
+Which arena a match plays is now a per-mode question, not one shared constant. Each `GameMode`'s
+`ModeTables.arenas` — an ordered `ArenaId[]` in that mode's own folder,
+`packages/shared/src/modes/<mode>/index.ts` (`BRAWL_TABLES.arenas` in `modes/brawl/index.ts`,
+`DEATHMATCH_TABLES.arenas` in `modes/deathmatch/index.ts`) — is the arena set that mode can play, and
+`arenas[0]` is the one it does: `ArenaRoom` writes it into `state.arenaId` in `onCreate` and again
+whenever the host switches mode in the lobby, and `newPracticeState()` writes it from Deathmatch's
+bundle the same way. Changing which arena a mode plays is an edit to that list:
 
-1. Set `ACTIVE_ARENA_ID` to a key of `ARENAS` in `packages/shared/src/arena/registry.ts`.
+1. Reorder or replace the entries in `arenas` inside the mode's own `index.ts`. Both shipped modes
+   list `["arena-01", "arena-02"]` today, so moving `"arena-02"` to the front is what makes a Brawl
+   match open on it; the two modes' lists are independent, so this never touches Deathmatch's.
 2. Rebuild shared — `npm run build -w @motor-combat-moba/shared`, or just restart `npm run dev`.
 
-A value that is not a registered id fails `arena.test.ts`, so a typo breaks the build rather than a
-live room. `ArenaState.arenaId` defaults to this constant, which is how the server tells clients
-which arena to draw.
+A value that is not a registered id, or an empty list, fails `packages/shared/src/modes/invariants.test.ts`
+(an empty `arenas` leaves `arenas[0]` `undefined` and `getArena` throws mid-match), so a typo or an
+emptied list breaks the build rather than a live room.
+
+`ACTIVE_ARENA_ID` (`packages/shared/src/config/arena-config.ts`) still exists and is still read, but
+it no longer decides what a match plays or what the release ships (spec clause MC26): it is
+`ArenaState.arenaId`'s field initializer — immediately overwritten by `ArenaRoom` before anyone joins
+— the playground's default arena in `playground-messages.ts`, and the asset pipeline's default arena
+in `scripts/build-cars-and-weapons.mjs` (for the manual's weapon-reach figures, which need some one
+arena's width). Editing it moves none of those three read sites' *callers*' behaviour in a real
+match; it is not the switch this section used to say it was.
 
 To add an arena: write `packages/shared/src/arena/arena-0N.ts`, add one row to `ARENAS`, and export
 it from `packages/shared/src/index.ts`. `arena.test.ts` validates every registered arena against the

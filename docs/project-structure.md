@@ -31,7 +31,7 @@ motor-combat-MOBA/
 │   │   ├── status-types.ts      # StatusDef, StatusChannel, StatusFlag, StatusPulse, StatusOnApply
 │   │   ├── status-config.ts      # STATUS_TABLE, STATUS_CONFIG, STATUS_LIMITS, isStatusId
 │   │   ├── status-ticks.ts       # STATUS_PULSE_TICKS: ms -> ticks, derived and frozen once
-│   │   ├── arena-config.ts       # the one ACTIVE_ARENA_ID constant
+│   │   ├── arena-config.ts       # ACTIVE_ARENA_ID — a default read by a few call sites, not the played arena (see modes/<mode>/index.ts's arenas list)
 │   │   ├── deathmatch-config.ts  # DEATHMATCH_CONFIG, DEATHMATCH_TICKS: match/respawn/phase timing
 │   │   ├── tuning.ts             # setTuning: dev-only runtime override store over 5 balance tables (PG12)
 │   │   ├── tuning-walker.ts      # tunableFields/validateTuning/sanitizeStoredTuning (PG14)

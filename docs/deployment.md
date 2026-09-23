@@ -8,10 +8,12 @@ npm run build:release
 
 Writes `dist-release/motor-combat-moba/` and `dist-release/motor-combat-moba-release.zip`. `start.bat` / `start.sh` `npm install` if `node_modules` is missing, then `node packages/server/dist/index.js`.
 
-The release build prints the arena it shipped (`Arena: arena-01`), the port it configured
-(`Port: 2567 (default; pass --port <n> to change)`) and, when it removed any, the
-arenas whose art it pruned and how much that saved. `assertOnlyActiveArenaShipped` then re-walks the
-copied client dist and fails the build if any non-active arena's directory or manifest key survived.
+The release build prints the arenas it shipped — the union of every active mode's arena set,
+`activeArenaIds()` — the port it configured (`Port: 2567 (default; pass --port <n> to change)`) and,
+when it removed any, the arenas whose art it pruned and how much that saved. Both shipped modes play
+`["arena-01", "arena-02"]` today, so the zip ships both; a mode played on a narrower set would prune
+the rest. `assertOnlyActiveArenaShipped` then re-walks the copied client dist and fails the build if
+any arena outside that union's directory or manifest key survived.
 
 Pruning operates on the copy inside `dist-release/`, so `packages/client/dist` keeps every arena and
 running a release twice does not compound.

@@ -421,18 +421,25 @@ render-only.
 
 ## Arena art
 
-Arena-owned art is namespaced by arena id, so the release can carry only the active arena's files.
+Arena-owned art is namespaced by arena id, so the release can carry only the arenas some ACTIVE mode
+actually plays — `activeArenaIds()` in `packages/shared/src/modes/registry.ts`, the de-duplicated
+union of every active `GameMode`'s own `ModeTables.arenas` list, not one arena picked for the whole
+game. Brawl and Deathmatch both list `["arena-01", "arena-02"]` today, so the union happens to be
+both arenas; a mode authored against a narrower or disjoint set would ship only what it and its
+siblings actually play.
 
 | Manifest key | On disk | In the release? |
 |---|---|---|
-| `arena.<arenaId>.<slot>` | `public/art/arenas/<arenaId>/<slot>.png` | Only when `<arenaId>` is `ACTIVE_ARENA_ID` |
+| `arena.<arenaId>.<slot>` | `public/art/arenas/<arenaId>/<slot>.png` | Only when `<arenaId>` is in `activeArenaIds()` |
 | `arena.common.<slot>` | `public/art/arenas/common/<slot>.png` | Always |
 | `car.*`, and anything else | as before | Always |
 
 Two places apply the same rule, both through `arenaIdFromArtKey` in
-`packages/shared/src/arena/art-keys.ts`: `shouldLoadAssetKey` filters manifest entries at boot so a
-dev build only loads the active arena's art, and `pruneArenaAssets` in `scripts/build-release.mjs`
-deletes the other arenas' files from the release.
+`packages/shared/src/arena/art-keys.ts`: `shouldLoadAssetKey(key, arenaIds, everyArena)` filters
+manifest entries at boot against the LIST `activeArenaIds()` returns, so `BootScene` loads every
+active mode's arena art together rather than a single arena's, and `pruneArenaAssets(dir, arenaIds)`
+in `scripts/build-release.mjs` keeps that same union in the release, deleting only the arenas no
+active mode ever plays.
 
 The consequence worth knowing: an arena you are experimenting with costs the shipped zip nothing, so
 there is no reason to delete an arena to keep the download small.
