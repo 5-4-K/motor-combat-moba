@@ -53,9 +53,11 @@ type**, so a mode folder cannot author one even by accident.
   `packages/shared/src/modes/no-raw-config-in-sim.test.ts` walks shared, server and client and fails
   on a raw table read — but it cannot see a module-scope accessor CALL, so that one is on you.
 
-**Still outstanding** (per-mode tooling, phase 6 of the plan): the players' guide, `npm run balance`,
+**Still outstanding** (per-mode tooling, phase 6 of the plan): `npm run balance`,
 `npm run ttk`, `npm run playtest` and `docs/turn-tuning.md` all report for the DEFAULT mode only and
-have no `--mode` flag. Until they do, a second mode's numbers are unpublished and unmeasured. See
+have no `--mode` flag. Until they do, a second mode's numbers are unmeasured. The players' guide is
+off that list as of MC41 — it publishes a tab per active mode and `balanceStamp` hashes every one of
+them. See
 [`docs/superpowers/plans/2026-09-22-per-mode-config/EXECUTION.md`](docs/superpowers/plans/2026-09-22-per-mode-config/EXECUTION.md).
 
 **Statuses** are the sim's duration layer (`sim/status/`) — timed conditions a car is in, listed in
@@ -910,7 +912,8 @@ attack plus its ability kit — that the join screen's "Cars & weapons guide" bu
 (`WEAPON_TABLE`, `CAR_TABLE`, `WEAPON_TICKS`, `weaponDamageOf`, `hpOf`); the prose lives beside it in
 `scripts/cars-and-weapons-copy.mjs`.
 
-**It is a stat sheet, and as of 2026-09-17 it has exactly two sections.** The thirteen A4-style
+**It is a stat sheet, and as of 2026-09-17 it has two sections — published once per ACTIVE MODE
+behind a tab strip, since MC41.** The thirteen A4-style
 sheets (cover, legend, a page per chassis, a page per weapon, a compare table, a ceilings table) are
 gone, replaced by one continuous scrolling page: **Cars** — each active chassis's seven ratings, then
 its weapons as a stat list, a "Basic attack" card first and its `min(kit, N)` ability kit after
@@ -920,7 +923,14 @@ does, and what applies it. Two rules run the weapon lists. A point that does not
 out**, never printed as a dash (most rows have no wind-up at all, and a charge has no range), and
 a weapon's **effects are links** into the Effects section, so a chip and its row can never drift
 apart — `manual-page.test.mjs` resolves every `#fx-…` against the ids the page defines, in both
-directions. A status is published only when something can apply it: a weapon an active chassis
+directions, scoped to one tab: every id the page publishes carries its mode (`mode-N`,
+`car-N-<carId>`, `fx-N-<statusId>`), so a Brawl weapon's chip cannot resolve into Deathmatch's
+Effects list and publish that mode's duration under Brawl's name. The tab labels are `MODE_TABLE`'s
+own `name`, never copy written in the generator, and the tab strip is plain CSS plus one inline
+script — a printout and a page with scripting off both fall back to every mode stacked. The two
+shipped modes carry byte-identical tables today (`modes/table-pinning.test.ts` enforces it), so both
+tabs render the same content; the structure is what makes a future divergence visible instead of
+silent. A status is published only when something can apply it: a weapon an active chassis
 carries, or an authored `EFFECT_SOURCES` line for the three that reach a player outside the weapon
 tables (`reeling` and `ramLock` from the contact pass, `phased` from the deathmatch respawn).
 `ramLock` is the odd one out in that list — the first status a player is put in by succeeding, since
@@ -948,11 +958,14 @@ fact the prose never quotes fails the suite, so the two can only ever be the sam
 sentence that measures something adds its fact back.
 
 **Re-run `npm run build:manual` and commit the page whenever you change:** a weapon row, an ACTIVE
-chassis row, an active car's loadout, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `STATUS_TABLE`
-(the generator reads the RAW globals plus the DEFAULT mode's bundle, so a per-mode-only edit moves
-nothing here and the page keeps publishing the default mode's numbers),
-`TICK_RATE_HZ`, `ARENA_WIDTH`, `WEAPON_SLOT_CONFIG.maxAbilitySlots`, `TURRET_CONFIG.turnRateDegPerSec`, or the prose in
-`cars-and-weapons-copy.mjs`. (`AIM_CONFIG.lockRange`
+chassis row, an active car's loadout, the combat, drive, status, slots or turret tables —
+**in ANY active mode's folder, not only the default one**: since MC41 the generator reads each
+mode's own bundle through `withMode` and `balanceStamp` hashes every active mode, so a
+Deathmatch-only edit owes a rebuild exactly as a roster-wide one does — or
+`TICK_RATE_HZ`, `ARENA_WIDTH`, or the prose in
+`cars-and-weapons-copy.mjs`. (`ARENA_WIDTH` is still global, read from `ACTIVE_ARENA_ID`, even
+though a mode authors its own `arenas` list; both shipped modes play the same two arenas, so every
+tab reports reach against the same floor.) (`AIM_CONFIG.lockRange`
 was on this list until 2026-09-17, when the aim-lock feature and the whole config were deleted.)
 The page carries a fingerprint of all of that and `scripts/manual-page.test.mjs` recomputes it, so
 forgetting fails the suite with the command to run rather than quietly shipping last week's numbers

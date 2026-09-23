@@ -7,6 +7,7 @@ import {
   BASIC_ATTACK_CONFIG,
   CAR_TABLE,
   GameMode,
+  MODE_TABLE,
   TICK_RATE_HZ,
   TURRET_CONFIG,
   WEAPON_TABLE,
@@ -116,6 +117,27 @@ function simHitsPerTarget(weaponId) {
     best = Math.max(best, hits);
   }
   return best;
+}
+
+/**
+ * The page sliced into one chunk per mode tab, keyed by `GameMode` value.
+ *
+ * Sliced on the `<section class="modesec" id="mode-N">` openers rather than parsed: the sections
+ * nest further `<section>` elements, so a regex for the matching close tag would find the wrong one.
+ * Each chunk therefore runs from its own opener to the next mode's (the last one to end of file),
+ * which is exactly the span whose ids and links must agree with each other and with nothing else.
+ */
+function modeSections(html) {
+  const opens = [...html.matchAll(/<section class="[^"]*modesec[^"]*" id="mode-(\d+)"/g)].map((m) => ({
+    mode: Number(m[1]),
+    at: m.index,
+  }));
+  return new Map(
+    opens.map((open, i) => [
+      open.mode,
+      html.slice(open.at, i + 1 < opens.length ? opens[i + 1].at : html.length),
+    ]),
+  );
 }
 
 /** `MANUAL_PATH`'s value, read as source text — the config is TypeScript, so it cannot be imported. */
@@ -269,28 +291,77 @@ describe("the generated manual page", () => {
   });
 
   /**
-   * The other half of the same pairing: an effect the page describes but never links to is a
-   * section nobody can reach from the weapon that inflicts it. Both directions matter, and only
-   * one of them is a broken link.
+   * The other half of the same pairing, and the reason both halves are now scoped to ONE TAB.
+   *
+   * An effect the page describes but never links to is a section nobody can reach from the weapon
+   * that inflicts it. Both directions matter, and only one of them is a broken link.
+   *
+   * Since MC41 the page publishes an Effects list per mode, so the global check above cannot see the
+   * failure that matters: a chip in Brawl's weapon list resolving into DEATHMATCH's Effects section
+   * would publish that mode's duration and description under Brawl's name, with every link alive and
+   * nothing failing. Anchors are mode-prefixed to make that impossible, and this is what holds the
+   * prefixing in place — each tab's ids and each tab's links must close over each other.
    */
-  it("links to every effect it publishes", () => {
+  it("resolves every effect link within its own mode's section", () => {
+    const sections = modeSections(read(path.join(PUBLIC_DIR, manualPath())));
+    assert.equal(sections.size, activeGameModes().length, "a mode tab is missing from the page");
+    for (const mode of activeGameModes()) {
+      const section = sections.get(mode);
+      assert.ok(section, `no section for mode ${mode}`);
+      const published = [...section.matchAll(/\sid="(fx-[^"]+)"/g)].map((m) => m[1]);
+      const linked = [...section.matchAll(/href="#(fx-[^"]+)"/g)].map((m) => m[1]);
+      assert.ok(published.length > 0, `mode ${mode} publishes no effects`);
+      assert.ok(linked.length > 0, `mode ${mode} links to no effects`);
+      // Every id this tab defines carries this tab's mode, and every effect link inside it points
+      // at one of them — no chip reaches across into another tab's list.
+      for (const id of [...published, ...linked]) {
+        assert.match(id, new RegExp(`^fx-${mode}-`), `${id} is published in mode ${mode}'s section`);
+      }
+      const dead = [...new Set(linked)].filter((id) => !published.includes(id));
+      assert.deepEqual(dead, [], `mode ${mode} links to effects its own section does not define`);
+      // `ramLock` and `phased` come from the contact pass and from the deathmatch respawn, not from
+      // a weapon row, so nothing in the Cars section links to them by construction. `reeling` is
+      // named here too even though Wild Charge's own impulse chip links to it now (its slam's
+      // immediate push, not the wall-impact one) — the exemption still covers the contact pass's
+      // ordinary-ram source, which no weapon card names. All three are named in EFFECT_SOURCES,
+      // which is exactly what publishes them.
+      const fromCopy = new Set(Object.keys(EFFECT_SOURCES).map((id) => `fx-${mode}-${id}`));
+      const orphans = published.filter((id) => !linked.includes(id) && !fromCopy.has(id));
+      assert.deepEqual(
+        orphans,
+        [],
+        `mode ${mode} describes effects no weapon links to: ${orphans.join(", ")}`,
+      );
+    }
+  });
+
+  /**
+   * MC41. Every balance table belongs to a mode, so a page with one Cars list and one Effects list
+   * could only ever publish one mode's numbers and call them the game's — a Deathmatch-only
+   * rebalance changed nothing here and failed nothing. One tab per active mode is the fix, and this
+   * is what fails if a mode is added to the registry and the page is not rebuilt around it.
+   */
+  it("publishes a Cars and an Effects section for every active mode", () => {
     const html = read(path.join(PUBLIC_DIR, manualPath()));
-    const published = [...html.matchAll(/\sid="(fx-[^"]+)"/g)].map((m) => m[1]);
-    const linked = new Set([...html.matchAll(/href="#(fx-[^"]+)"/g)].map((m) => m[1]));
-    assert.ok(published.length > 0, "the manual publishes no effects");
-    // `ramLock` and `phased` come from the contact pass and from the deathmatch respawn, not from a
-    // weapon row, so nothing in the Cars section links to them by construction. `reeling` is named
-    // here too even though Wild Charge's own impulse chip links to it now (its slam's immediate
-    // push, not the wall-impact one) — the exemption still covers the contact pass's ordinary-ram
-    // source, which no weapon card names. All three are named in EFFECT_SOURCES, which is exactly
-    // what publishes them.
-    const fromCopy = new Set(Object.keys(EFFECT_SOURCES).map((id) => `fx-${id}`));
-    const orphans = published.filter((id) => !linked.has(id) && !fromCopy.has(id));
-    assert.deepEqual(
-      orphans,
-      [],
-      `the manual describes effects no weapon links to: ${orphans.join(", ")}`,
-    );
+    for (const mode of activeGameModes()) {
+      assert.match(html, new RegExp(`id="mode-${mode}"`), `no section for mode ${mode}`);
+      assert.match(html, new RegExp(`id="cars-${mode}"`), `mode ${mode} publishes no Cars section`);
+      assert.match(html, new RegExp(`id="effects-${mode}"`), `mode ${mode} publishes no Effects section`);
+    }
+  });
+
+  /**
+   * A reader looking at two tabs has to be told which one they are on, and the label has to be the
+   * mode's real name rather than copy invented here — `MODE_TABLE`'s `name` is the same string the
+   * lobby card carries, so a rename reaches both or neither.
+   */
+  it("labels every tab with that mode's registry name", () => {
+    const html = read(path.join(PUBLIC_DIR, manualPath()));
+    for (const mode of activeGameModes()) {
+      const name = MODE_TABLE[mode].name;
+      assert.match(html, new RegExp(`data-mode="mode-${mode}">${name}</button>`), `no tab named ${name}`);
+      assert.match(html, new RegExp(`<h2 class="modename">${name}</h2>`), `mode ${mode} is unlabelled`);
+    }
   });
 
   it("points at art the client already ships", () => {

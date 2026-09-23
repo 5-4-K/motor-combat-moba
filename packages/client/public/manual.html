@@ -99,8 +99,32 @@ a { color: inherit; }
 }
 .jump a:hover { color: var(--ink); border-color: #3A465A; }
 
+/* ---- the mode tabs ----
+   One tab per ACTIVE mode. Only the selected panel is in flow; the print rules below and the
+   noscript block in the document head both put every panel back, so a printed guide and a page
+   with scripting off carry every mode stacked rather than only the one that happened to open. */
+.tabs {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  max-width: 1180px; margin: 0 auto; padding: 16px 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+.tab {
+  font-family: var(--display); font-size: 14px; font-weight: 500;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
+  background: transparent; border: 1px solid var(--line); border-bottom: 0;
+  border-radius: 5px 5px 0 0; padding: 8px 18px; margin-bottom: -1px; cursor: pointer;
+}
+.tab:hover { color: var(--ink); }
+.tab.on { color: var(--ink); background: var(--panel); border-color: #3A465A; }
+.modesec { display: none; }
+.modesec.on { display: block; }
+.modename {
+  font-size: 15px; font-weight: 500; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--faint); margin: 22px 0 0;
+}
+
 main { max-width: 1180px; margin: 0 auto; padding: 8px 20px 80px; }
-main > section > h2 {
+.modesec > section > h2 {
   font-size: 28px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
   margin: 40px 0 6px; padding-bottom: 8px; border-bottom: 2px solid var(--line);
 }
@@ -194,28 +218,37 @@ main > section > h2 {
 }
 
 @media print {
-  .topbar, .jump { display: none; }
+  .topbar, .jump, .tabs { display: none; }
+  /* Every mode, stacked, each under its own name — a printout has no tabs to click. */
+  .modesec { display: block; }
+  .modesec + .modesec { break-before: page; }
+  .modename { color: #111; }
   body { background: #fff; color: #111; }
   .weapon, .effect { background: #fff; border-color: #bbb; break-inside: avoid; }
   .car { break-inside: avoid-page; }
   .bl, .bn, .row dt, .props li, .effect .from { color: #555; }
   .bt { background: #eee; }
 }
-</style></head><body><div class="topbar">
+</style>
+<noscript><style>.tabs { display: none; } .modesec { display: block; }</style></noscript>
+</head><body><div class="topbar">
     <b>Motor Combat <span>Cars &amp; Weapons</span></b>
     <nav>
       <a href="./">Back to the game</a>
       <button type="button" onclick="window.print()">Print</button>
     </nav>
   </div>
-<nav class="jump"><a href="#car-mirage">Mirage</a><a href="#car-bullseye">Bullseye</a><a href="#car-bastion">Bastion</a><a href="#effects">Effects</a></nav>
+<nav class="tabs" role="tablist" aria-label="Game mode"><button type="button" class="tab on" id="tab-0" role="tab" aria-controls="mode-0" aria-selected="true" data-mode="mode-0">Brawl</button><button type="button" class="tab" id="tab-2" role="tab" aria-controls="mode-2" aria-selected="false" data-mode="mode-2">Deathmatch</button></nav>
 <main>
-  <section id="cars">
+<section class="modesec on" id="mode-0" role="tabpanel" aria-labelledby="tab-0">
+  <h2 class="modename">Brawl</h2>
+  <nav class="jump"><a href="#car-0-mirage">Mirage</a><a href="#car-0-bullseye">Bullseye</a><a href="#car-0-bastion">Bastion</a><a href="#effects-0">Effects</a></nav>
+  <section id="cars-0">
     <h2>Cars</h2>
     <p class="secnote">Ratings are 0-100 and the figure beside each one is what it buys.
       Weapon damage is what THAT chassis deals — its Attack rating is already in the number.
       A row a weapon has no answer for is left out rather than printed empty.</p>
-    <section class="car" id="car-mirage">
+    <section class="car" id="car-0-mirage">
     <header class="carhead">
       <img src="art/cars/mirage.png" alt="">
       <div>
@@ -243,7 +276,7 @@ main > section > h2 {
       </div>
     </header>
     <p class="line">A fast bolt that leaves a corroding field wherever it dies.</p>
-    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Single bolt, 24 across</dd></div><div class="row"><dt>Damage</dt><dd>57 direct · 17 blast</dd></div><div class="row"><dt>Cooldown</dt><dd>1.6s</dd></div><div class="row"><dt>Range</dt><dd>900 <span class="sub">80% of the arena</span></dd></div><div class="row"><dt>Aim</dt><dd>turret <span class="sub">mouse; turns at 540°/s before firing</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-corroded">Corroded <b>2s</b><i>from the blast</i></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Explodes where it dies — 60 radius, 2s field, hits again if you re-enter</li></ul></dd></div></dl>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Single bolt, 24 across</dd></div><div class="row"><dt>Damage</dt><dd>57 direct · 17 blast</dd></div><div class="row"><dt>Cooldown</dt><dd>1.6s</dd></div><div class="row"><dt>Range</dt><dd>900 <span class="sub">80% of the arena</span></dd></div><div class="row"><dt>Aim</dt><dd>turret <span class="sub">mouse; turns at 540°/s before firing</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-0-corroded">Corroded <b>2s</b><i>from the blast</i></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Explodes where it dies — 60 radius, 2s field, hits again if you re-enter</li></ul></dd></div></dl>
   </article><article class="weapon" style="--acc:#8fe4fc">
     <header>
       <img src="art/weapon-icons/thunderclap.png" alt="">
@@ -253,7 +286,7 @@ main > section > h2 {
       </div>
     </header>
     <p class="line">A lunge that ends the fight where it lands.</p>
-    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Dash</dd></div><div class="row"><dt>Damage</dt><dd>102</dd></div><div class="row"><dt>Cooldown</dt><dd>5s</dd></div><div class="row"><dt>Range</dt><dd>400 <span class="sub">how far you lunge</span></dd></div><div class="row"><dt>Recovery</dt><dd>200ms <span class="sub">your other slots are locked</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-stunned">Stunned <b>1s</b></a></div></dd></div></dl>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Dash</dd></div><div class="row"><dt>Damage</dt><dd>102</dd></div><div class="row"><dt>Cooldown</dt><dd>5s</dd></div><div class="row"><dt>Range</dt><dd>400 <span class="sub">how far you lunge</span></dd></div><div class="row"><dt>Recovery</dt><dd>200ms <span class="sub">your other slots are locked</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-0-stunned">Stunned <b>1s</b></a></div></dd></div></dl>
   </article><article class="weapon" style="--acc:#ffbf6b">
     <header>
       <img src="art/weapon-icons/afterburner.png" alt="">
@@ -263,10 +296,10 @@ main > section > h2 {
       </div>
     </header>
     <p class="line">Flame cones off the nose and the tail at once.</p>
-    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Cone, 55° arc × 2 muzzles</dd></div><div class="row"><dt>Damage</dt><dd>55 per tick · 275 over 5 ticks</dd></div><div class="row"><dt>Cooldown</dt><dd>13s</dd></div><div class="row"><dt>Range</dt><dd>220 <span class="sub">19% of the arena</span></dd></div><div class="row"><dt>Lifetime</dt><dd>2.2s <span class="sub">grows for 200ms, then lingers</span></dd></div><div class="row"><dt>Recovery</dt><dd>200ms <span class="sub">your other slots are locked</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-overheated">Overheated <b>1.5s</b></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Rides your car and dies with you</li></ul></dd></div></dl>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Cone, 55° arc × 2 muzzles</dd></div><div class="row"><dt>Damage</dt><dd>55 per tick · 275 over 5 ticks</dd></div><div class="row"><dt>Cooldown</dt><dd>13s</dd></div><div class="row"><dt>Range</dt><dd>220 <span class="sub">19% of the arena</span></dd></div><div class="row"><dt>Lifetime</dt><dd>2.2s <span class="sub">grows for 200ms, then lingers</span></dd></div><div class="row"><dt>Recovery</dt><dd>200ms <span class="sub">your other slots are locked</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-0-overheated">Overheated <b>1.5s</b></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Rides your car and dies with you</li></ul></dd></div></dl>
   </article></div>
   </section>
-<section class="car" id="car-bullseye">
+<section class="car" id="car-0-bullseye">
     <header class="carhead">
       <img src="art/cars/bullseye.png" alt="">
       <div>
@@ -317,7 +350,7 @@ main > section > h2 {
     <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Beam, 57.5 wide</dd></div><div class="row"><dt>Damage</dt><dd>45 per tick · 180 over 4 ticks</dd></div><div class="row"><dt>Cooldown</dt><dd>16s</dd></div><div class="row"><dt>Range</dt><dd>1200 <span class="sub">106% of the arena</span></dd></div><div class="row"><dt>Lifetime</dt><dd>1.7s <span class="sub">grows for 200ms, then lingers</span></dd></div><div class="row"><dt>Windup</dt><dd>700ms <span class="sub">21 ticks, and you are visible</span></dd></div><div class="row"><dt>Recovery</dt><dd>1000ms <span class="sub">your other slots are locked</span></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Holds you in place — steering still works</li><li>Rides your car and dies with you</li></ul></dd></div></dl>
   </article></div>
   </section>
-<section class="car" id="car-bastion">
+<section class="car" id="car-0-bastion">
     <header class="carhead">
       <img src="art/cars/bastion.png" alt="">
       <div>
@@ -345,7 +378,7 @@ main > section > h2 {
       </div>
     </header>
     <p class="line">A bouncing slug, the biggest projectile in the game.</p>
-    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Single slug, 48 × 30, flat tail</dd></div><div class="row"><dt>Damage</dt><dd>55</dd></div><div class="row"><dt>Cooldown</dt><dd>3s</dd></div><div class="row"><dt>Range</dt><dd>1305 <span class="sub">115% of the arena</span></dd></div><div class="row"><dt>Aim</dt><dd>turret <span class="sub">mouse; turns at 540°/s before firing</span></dd></div><div class="row"><dt>Lifetime</dt><dd>2.9s</dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-spiked">Spiked <b>3s</b></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Bounces off walls</li></ul></dd></div></dl>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Single slug, 48 × 30, flat tail</dd></div><div class="row"><dt>Damage</dt><dd>55</dd></div><div class="row"><dt>Cooldown</dt><dd>3s</dd></div><div class="row"><dt>Range</dt><dd>1305 <span class="sub">115% of the arena</span></dd></div><div class="row"><dt>Aim</dt><dd>turret <span class="sub">mouse; turns at 540°/s before firing</span></dd></div><div class="row"><dt>Lifetime</dt><dd>2.9s</dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-0-spiked">Spiked <b>3s</b></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Bounces off walls</li></ul></dd></div></dl>
   </article><article class="weapon" style="--acc:#e8bf6b">
     <header>
       <img src="art/weapon-icons/roadblock.png" alt="">
@@ -355,7 +388,7 @@ main > section > h2 {
       </div>
     </header>
     <p class="line">A wall on the move. It stuns through cover.</p>
-    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Single bar, 120 wide, 12 thick</dd></div><div class="row"><dt>Damage</dt><dd>92</dd></div><div class="row"><dt>Cooldown</dt><dd>6s</dd></div><div class="row"><dt>Range</dt><dd>500 <span class="sub">44% of the arena</span></dd></div><div class="row"><dt>Recovery</dt><dd>200ms <span class="sub">your other slots are locked</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-stunned">Stunned <b>1s</b></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Flies through walls</li><li>Pierces 5 cars</li></ul></dd></div></dl>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Single bar, 120 wide, 12 thick</dd></div><div class="row"><dt>Damage</dt><dd>92</dd></div><div class="row"><dt>Cooldown</dt><dd>6s</dd></div><div class="row"><dt>Range</dt><dd>500 <span class="sub">44% of the arena</span></dd></div><div class="row"><dt>Recovery</dt><dd>200ms <span class="sub">your other slots are locked</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-0-stunned">Stunned <b>1s</b></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Flies through walls</li><li>Pierces 5 cars</li></ul></dd></div></dl>
   </article><article class="weapon" style="--acc:#f6a36b">
     <header>
       <img src="art/weapon-icons/wildcharge.png" alt="">
@@ -365,46 +398,273 @@ main > section > h2 {
       </div>
     </header>
     <p class="line">Armor up, then hard-slam the first car you touch.</p>
-    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Charge</dd></div><div class="row"><dt>Damage</dt><dd>230</dd></div><div class="row"><dt>Cooldown</dt><dd>20s</dd></div><div class="row"><dt>Recovery</dt><dd>200ms <span class="sub">your other slots are locked</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-buff" href="#fx-fortified">Fortified <b>10s</b><i>on you</i></a><a class="fx fx-debuff" href="#fx-reeling">Reeling <b>1.4s</b></a><a class="fx fx-debuff" href="#fx-stunned">Stunned <b>0.5s</b><i>slammed into a wall</i></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>A stun cannot cancel it</li><li>Knocks back at 520 u/s</li><li>Armed for 10s or until it lands</li><li>Slams a stunned car too</li></ul></dd></div></dl>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Charge</dd></div><div class="row"><dt>Damage</dt><dd>230</dd></div><div class="row"><dt>Cooldown</dt><dd>20s</dd></div><div class="row"><dt>Recovery</dt><dd>200ms <span class="sub">your other slots are locked</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-buff" href="#fx-0-fortified">Fortified <b>10s</b><i>on you</i></a><a class="fx fx-debuff" href="#fx-0-reeling">Reeling <b>1.4s</b></a><a class="fx fx-debuff" href="#fx-0-stunned">Stunned <b>0.5s</b><i>slammed into a wall</i></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>A stun cannot cancel it</li><li>Knocks back at 520 u/s</li><li>Armed for 10s or until it lands</li><li>Slams a stunned car too</li></ul></dd></div></dl>
   </article></div>
   </section>
   </section>
-  <section class="effects" id="effects">
+  <section class="effects" id="effects-0">
     <h2>Effects</h2>
     <p class="secnote">A car is never in the same effect twice — a second application refreshes the
       clock rather than stacking. Durations are set by whatever applied it, not by the effect.</p>
-    <div class="effectgrid"><article class="effect" id="fx-overheated" style="--acc:#e99574">
+    <div class="effectgrid"><article class="effect" id="fx-0-overheated" style="--acc:#e99574">
       <h4>Overheated <span class="kind">debuff</span></h4>
       <p class="does">8 hp per 0.4s</p>
       <p class="from"><span>From</span> Afterburner 1.5s</p>
-    </article><article class="effect" id="fx-corroded" style="--acc:#aed678">
+    </article><article class="effect" id="fx-0-corroded" style="--acc:#aed678">
       <h4>Corroded <span class="kind">debuff</span></h4>
       <p class="does">damage taken +30%</p>
       <p class="from"><span>From</span> Magma Blast 2s (from the blast)</p>
-    </article><article class="effect" id="fx-stunned" style="--acc:#91a5f3">
+    </article><article class="effect" id="fx-0-stunned" style="--acc:#91a5f3">
       <h4>Stunned <span class="kind">debuff</span></h4>
       <p class="does">total stop · no control · no steering · cannot fire</p>
       <p class="from"><span>From</span> Thunderclap 1s · Roadblock 1s · Wild Charge 0.5s (slammed into a wall)</p>
-    </article><article class="effect" id="fx-spiked" style="--acc:#72b8c4">
+    </article><article class="effect" id="fx-0-spiked" style="--acc:#72b8c4">
       <h4>Spiked <span class="kind">debuff</span></h4>
       <p class="does">top speed −40%</p>
       <p class="from"><span>From</span> Thumper 3s</p>
-    </article><article class="effect" id="fx-fortified" style="--acc:#7aaddc">
+    </article><article class="effect" id="fx-0-fortified" style="--acc:#7aaddc">
       <h4>Fortified <span class="kind">buff</span></h4>
       <p class="does">damage taken −30%</p>
       <p class="from"><span>From</span> Wild Charge 10s (on yourself)</p>
-    </article><article class="effect" id="fx-phased" style="--acc:#98cefa">
+    </article><article class="effect" id="fx-0-phased" style="--acc:#98cefa">
       <h4>Phasing <span class="kind">buff</span></h4>
       <p class="does">cannot be hit or rammed</p>
       <p class="from"><span>From</span> The moment after you respawn in Deathmatch.</p>
-    </article><article class="effect" id="fx-reeling" style="--acc:#f29f72">
+    </article><article class="effect" id="fx-0-reeling" style="--acc:#f29f72">
       <h4>Reeling <span class="kind">debuff</span></h4>
       <p class="does">no control · no steering · spins freely · cannot ram · traction −40%</p>
       <p class="from"><span>From</span> Any ram but a head-on, and Wild Charge's slam.</p>
-    </article><article class="effect" id="fx-ramLock" style="--acc:#cfd4d9">
+    </article><article class="effect" id="fx-0-ramLock" style="--acc:#cfd4d9">
       <h4>Ram Lock <span class="kind">debuff</span></h4>
       <p class="does">no control · no steering · cannot ram</p>
       <p class="from"><span>From</span> Landing a ram yourself, and both cars in a head-on.</p>
     </article></div>
   </section>
-</main></body></html>
+</section>
+<section class="modesec" id="mode-2" role="tabpanel" aria-labelledby="tab-2">
+  <h2 class="modename">Deathmatch</h2>
+  <nav class="jump"><a href="#car-2-mirage">Mirage</a><a href="#car-2-bullseye">Bullseye</a><a href="#car-2-bastion">Bastion</a><a href="#effects-2">Effects</a></nav>
+  <section id="cars-2">
+    <h2>Cars</h2>
+    <p class="secnote">Ratings are 0-100 and the figure beside each one is what it buys.
+      Weapon damage is what THAT chassis deals — its Attack rating is already in the number.
+      A row a weapon has no answer for is left out rather than printed empty.</p>
+    <section class="car" id="car-2-mirage">
+    <header class="carhead">
+      <img src="art/cars/mirage.png" alt="">
+      <div>
+        <h3>Mirage</h3>
+        <p>The fastest chassis and the thinnest hull. Most of its kit only reaches at contact range, so it has to arrive, land the kit, and leave.</p>
+      </div>
+    </header>
+    <ul class="ratings"><li><span class="bl">Speed</span><span class="bt"><i style="width:85%"></i></span><span class="bv">85</span><span class="bn">284 u/s top</span></li><li><span class="bl">Acceleration</span><span class="bt"><i style="width:85%"></i></span><span class="bv">85</span><span class="bn">364 u/s² · 1.79s to 90%</span></li><li><span class="bl">Handling</span><span class="bt"><i style="width:85%"></i></span><span class="bv">85</span><span class="bn">3.16 rad/s · 90u turn radius</span></li><li><span class="bl">Attack</span><span class="bt"><i style="width:63%"></i></span><span class="bv">63</span><span class="bn">1.13× weapon damage</span></li><li><span class="bl">HP</span><span class="bt"><i style="width:70%"></i></span><span class="bv">70</span><span class="bn">700 hull</span></li><li><span class="bl">Ram power</span><span class="bt"><i style="width:55%"></i></span><span class="bv">55</span><span class="bn">how hard it shoves</span></li><li><span class="bl">Ram resistance</span><span class="bt"><i style="width:50%"></i></span><span class="bv">50</span><span class="bn">how hard it is to shove</span></li></ul>
+    <div class="weapons"><article class="weapon" style="--acc:#747477">
+    <header>
+      <div class="icon-fallback" style="background:#747477" aria-hidden="true"></div>
+      <div>
+        <h4>Basic Attack</h4>
+        <span class="slot">Basic attack</span>
+      </div>
+    </header>
+    <p class="line">Always loaded. A plain black bolt, and the only shot that never runs out.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Single bolt, 24 across</dd></div><div class="row"><dt>Damage</dt><dd>23</dd></div><div class="row"><dt>Cooldown</dt><dd>0.8s</dd></div><div class="row"><dt>Range</dt><dd>960 <span class="sub">85% of the arena</span></dd></div><div class="row"><dt>Aim</dt><dd>turret <span class="sub">mouse; turns at 540°/s before firing</span></dd></div></dl>
+  </article><article class="weapon" style="--acc:#ffa36b">
+    <header>
+      <img src="art/weapon-icons/magmablast.png" alt="">
+      <div>
+        <h4>Magma Blast</h4>
+        <span class="slot">Slot 1</span>
+      </div>
+    </header>
+    <p class="line">A fast bolt that leaves a corroding field wherever it dies.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Single bolt, 24 across</dd></div><div class="row"><dt>Damage</dt><dd>57 direct · 17 blast</dd></div><div class="row"><dt>Cooldown</dt><dd>1.6s</dd></div><div class="row"><dt>Range</dt><dd>900 <span class="sub">80% of the arena</span></dd></div><div class="row"><dt>Aim</dt><dd>turret <span class="sub">mouse; turns at 540°/s before firing</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-2-corroded">Corroded <b>2s</b><i>from the blast</i></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Explodes where it dies — 60 radius, 2s field, hits again if you re-enter</li></ul></dd></div></dl>
+  </article><article class="weapon" style="--acc:#8fe4fc">
+    <header>
+      <img src="art/weapon-icons/thunderclap.png" alt="">
+      <div>
+        <h4>Thunderclap</h4>
+        <span class="slot">Slot 2</span>
+      </div>
+    </header>
+    <p class="line">A lunge that ends the fight where it lands.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Dash</dd></div><div class="row"><dt>Damage</dt><dd>102</dd></div><div class="row"><dt>Cooldown</dt><dd>5s</dd></div><div class="row"><dt>Range</dt><dd>400 <span class="sub">how far you lunge</span></dd></div><div class="row"><dt>Recovery</dt><dd>200ms <span class="sub">your other slots are locked</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-2-stunned">Stunned <b>1s</b></a></div></dd></div></dl>
+  </article><article class="weapon" style="--acc:#ffbf6b">
+    <header>
+      <img src="art/weapon-icons/afterburner.png" alt="">
+      <div>
+        <h4>Afterburner</h4>
+        <span class="slot">Slot 3</span>
+      </div>
+    </header>
+    <p class="line">Flame cones off the nose and the tail at once.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Cone, 55° arc × 2 muzzles</dd></div><div class="row"><dt>Damage</dt><dd>55 per tick · 275 over 5 ticks</dd></div><div class="row"><dt>Cooldown</dt><dd>13s</dd></div><div class="row"><dt>Range</dt><dd>220 <span class="sub">19% of the arena</span></dd></div><div class="row"><dt>Lifetime</dt><dd>2.2s <span class="sub">grows for 200ms, then lingers</span></dd></div><div class="row"><dt>Recovery</dt><dd>200ms <span class="sub">your other slots are locked</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-2-overheated">Overheated <b>1.5s</b></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Rides your car and dies with you</li></ul></dd></div></dl>
+  </article></div>
+  </section>
+<section class="car" id="car-2-bullseye">
+    <header class="carhead">
+      <img src="art/cars/bullseye.png" alt="">
+      <div>
+        <h3>Bullseye</h3>
+        <p>The longest reach in the game, paid for with the lightest hull on the grid. Its opener steers itself once it is near you — the other two ask you to aim.</p>
+      </div>
+    </header>
+    <ul class="ratings"><li><span class="bl">Speed</span><span class="bt"><i style="width:65%"></i></span><span class="bv">65</span><span class="bn">238 u/s top</span></li><li><span class="bl">Acceleration</span><span class="bt"><i style="width:45%"></i></span><span class="bv">45</span><span class="bn">248 u/s² · 2.21s to 90%</span></li><li><span class="bl">Handling</span><span class="bt"><i style="width:65%"></i></span><span class="bv">65</span><span class="bn">2.65 rad/s · 90u turn radius</span></li><li><span class="bl">Attack</span><span class="bt"><i style="width:55%"></i></span><span class="bv">55</span><span class="bn">1.05× weapon damage</span></li><li><span class="bl">HP</span><span class="bt"><i style="width:65%"></i></span><span class="bv">65</span><span class="bn">650 hull</span></li><li><span class="bl">Ram power</span><span class="bt"><i style="width:45%"></i></span><span class="bv">45</span><span class="bn">how hard it shoves</span></li><li><span class="bl">Ram resistance</span><span class="bt"><i style="width:30%"></i></span><span class="bv">30</span><span class="bn">how hard it is to shove</span></li></ul>
+    <div class="weapons"><article class="weapon" style="--acc:#747477">
+    <header>
+      <div class="icon-fallback" style="background:#747477" aria-hidden="true"></div>
+      <div>
+        <h4>Basic Attack</h4>
+        <span class="slot">Basic attack</span>
+      </div>
+    </header>
+    <p class="line">Always loaded. A plain black bolt, and the only shot that never runs out.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Single bolt, 24 across</dd></div><div class="row"><dt>Damage</dt><dd>21</dd></div><div class="row"><dt>Cooldown</dt><dd>0.8s</dd></div><div class="row"><dt>Range</dt><dd>960 <span class="sub">85% of the arena</span></dd></div><div class="row"><dt>Aim</dt><dd>turret <span class="sub">mouse; turns at 540°/s before firing</span></dd></div></dl>
+  </article><article class="weapon" style="--acc:#a3a3a3">
+    <header>
+      <img src="art/weapon-icons/predator.png" alt="">
+      <div>
+        <h4>Predator</h4>
+        <span class="slot">Slot 1</span>
+      </div>
+    </header>
+    <p class="line">Fired blind — it picks its target after it is already in the air.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Single slug, 38 × 12, flat tail</dd></div><div class="row"><dt>Damage</dt><dd>32</dd></div><div class="row"><dt>Cooldown</dt><dd>1s</dd></div><div class="row"><dt>Range</dt><dd>1800 <span class="sub">159% of the arena</span></dd></div><div class="row"><dt>Aim</dt><dd>turret <span class="sub">mouse; turns at 540°/s before firing</span></dd></div><div class="row"><dt>Lifetime</dt><dd>2s</dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Homes on anything within 200 of the shot</li></ul></dd></div></dl>
+  </article><article class="weapon" style="--acc:#da9579">
+    <header>
+      <img src="art/weapon-icons/pepperbox.png" alt="">
+      <div>
+        <h4>Pepperbox</h4>
+        <span class="slot">Slot 2</span>
+      </div>
+    </header>
+    <p class="line">Darts out of every side at once. The panic button.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>4 muzzles × 3-dart fan, 12° spread — 12 out, 3 can hit one car</dd></div><div class="row"><dt>Damage</dt><dd>47 per pellet · 141 if all 3 land</dd></div><div class="row"><dt>Cooldown</dt><dd>1.8s</dd></div><div class="row"><dt>Range</dt><dd>600 <span class="sub">53% of the arena</span></dd></div><div class="row"><dt>Recovery</dt><dd>200ms <span class="sub">your other slots are locked</span></dd></div></dl>
+  </article><article class="weapon" style="--acc:#f6ff6b">
+    <header>
+      <img src="art/weapon-icons/lance.png" alt="">
+      <div>
+        <h4>Lance</h4>
+        <span class="slot">Slot 3</span>
+      </div>
+    </header>
+    <p class="line">Held in place, then sweep the beam across the line.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Beam, 57.5 wide</dd></div><div class="row"><dt>Damage</dt><dd>45 per tick · 180 over 4 ticks</dd></div><div class="row"><dt>Cooldown</dt><dd>16s</dd></div><div class="row"><dt>Range</dt><dd>1200 <span class="sub">106% of the arena</span></dd></div><div class="row"><dt>Lifetime</dt><dd>1.7s <span class="sub">grows for 200ms, then lingers</span></dd></div><div class="row"><dt>Windup</dt><dd>700ms <span class="sub">21 ticks, and you are visible</span></dd></div><div class="row"><dt>Recovery</dt><dd>1000ms <span class="sub">your other slots are locked</span></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Holds you in place — steering still works</li><li>Rides your car and dies with you</li></ul></dd></div></dl>
+  </article></div>
+  </section>
+<section class="car" id="car-2-bastion">
+    <header class="carhead">
+      <img src="art/cars/bastion.png" alt="">
+      <div>
+        <h3>Bastion</h3>
+        <p>The slowest chassis and the biggest hull. It cannot chase you, so it stops you instead: there is a stun in its kit, and a slam beside it.</p>
+      </div>
+    </header>
+    <ul class="ratings"><li><span class="bl">Speed</span><span class="bt"><i style="width:50%"></i></span><span class="bv">50</span><span class="bn">204 u/s top</span></li><li><span class="bl">Acceleration</span><span class="bt"><i style="width:20%"></i></span><span class="bv">20</span><span class="bn">181 u/s² · 2.59s to 90%</span></li><li><span class="bl">Handling</span><span class="bt"><i style="width:50%"></i></span><span class="bv">50</span><span class="bn">2.27 rad/s · 90u turn radius</span></li><li><span class="bl">Attack</span><span class="bt"><i style="width:42%"></i></span><span class="bv">42</span><span class="bn">0.92× weapon damage</span></li><li><span class="bl">HP</span><span class="bt"><i style="width:90%"></i></span><span class="bv">90</span><span class="bn">900 hull</span></li><li><span class="bl">Ram power</span><span class="bt"><i style="width:70%"></i></span><span class="bv">70</span><span class="bn">how hard it shoves</span></li><li><span class="bl">Ram resistance</span><span class="bt"><i style="width:90%"></i></span><span class="bv">90</span><span class="bn">how hard it is to shove</span></li></ul>
+    <div class="weapons"><article class="weapon" style="--acc:#747477">
+    <header>
+      <div class="icon-fallback" style="background:#747477" aria-hidden="true"></div>
+      <div>
+        <h4>Basic Attack</h4>
+        <span class="slot">Basic attack</span>
+      </div>
+    </header>
+    <p class="line">Always loaded. A plain black bolt, and the only shot that never runs out.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Single bolt, 24 across</dd></div><div class="row"><dt>Damage</dt><dd>18</dd></div><div class="row"><dt>Cooldown</dt><dd>0.8s</dd></div><div class="row"><dt>Range</dt><dd>960 <span class="sub">85% of the arena</span></dd></div><div class="row"><dt>Aim</dt><dd>turret <span class="sub">mouse; turns at 540°/s before firing</span></dd></div></dl>
+  </article><article class="weapon" style="--acc:#ffe86b">
+    <header>
+      <img src="art/weapon-icons/thumper.png" alt="">
+      <div>
+        <h4>Thumper</h4>
+        <span class="slot">Slot 1</span>
+      </div>
+    </header>
+    <p class="line">A bouncing slug, the biggest projectile in the game.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Single slug, 48 × 30, flat tail</dd></div><div class="row"><dt>Damage</dt><dd>55</dd></div><div class="row"><dt>Cooldown</dt><dd>3s</dd></div><div class="row"><dt>Range</dt><dd>1305 <span class="sub">115% of the arena</span></dd></div><div class="row"><dt>Aim</dt><dd>turret <span class="sub">mouse; turns at 540°/s before firing</span></dd></div><div class="row"><dt>Lifetime</dt><dd>2.9s</dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-2-spiked">Spiked <b>3s</b></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Bounces off walls</li></ul></dd></div></dl>
+  </article><article class="weapon" style="--acc:#e8bf6b">
+    <header>
+      <img src="art/weapon-icons/roadblock.png" alt="">
+      <div>
+        <h4>Roadblock</h4>
+        <span class="slot">Slot 2</span>
+      </div>
+    </header>
+    <p class="line">A wall on the move. It stuns through cover.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Single bar, 120 wide, 12 thick</dd></div><div class="row"><dt>Damage</dt><dd>92</dd></div><div class="row"><dt>Cooldown</dt><dd>6s</dd></div><div class="row"><dt>Range</dt><dd>500 <span class="sub">44% of the arena</span></dd></div><div class="row"><dt>Recovery</dt><dd>200ms <span class="sub">your other slots are locked</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-debuff" href="#fx-2-stunned">Stunned <b>1s</b></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>Flies through walls</li><li>Pierces 5 cars</li></ul></dd></div></dl>
+  </article><article class="weapon" style="--acc:#f6a36b">
+    <header>
+      <img src="art/weapon-icons/wildcharge.png" alt="">
+      <div>
+        <h4>Wild Charge</h4>
+        <span class="slot">Slot 3</span>
+      </div>
+    </header>
+    <p class="line">Armor up, then hard-slam the first car you touch.</p>
+    <dl class="stats"><div class="row"><dt>Shot type</dt><dd>Charge</dd></div><div class="row"><dt>Damage</dt><dd>230</dd></div><div class="row"><dt>Cooldown</dt><dd>20s</dd></div><div class="row"><dt>Recovery</dt><dd>200ms <span class="sub">your other slots are locked</span></dd></div><div class="row"><dt>Effect</dt><dd><div class="fxrow"><a class="fx fx-buff" href="#fx-2-fortified">Fortified <b>10s</b><i>on you</i></a><a class="fx fx-debuff" href="#fx-2-reeling">Reeling <b>1.4s</b></a><a class="fx fx-debuff" href="#fx-2-stunned">Stunned <b>0.5s</b><i>slammed into a wall</i></a></div></dd></div><div class="row"><dt>Properties</dt><dd><ul class="props"><li>A stun cannot cancel it</li><li>Knocks back at 520 u/s</li><li>Armed for 10s or until it lands</li><li>Slams a stunned car too</li></ul></dd></div></dl>
+  </article></div>
+  </section>
+  </section>
+  <section class="effects" id="effects-2">
+    <h2>Effects</h2>
+    <p class="secnote">A car is never in the same effect twice — a second application refreshes the
+      clock rather than stacking. Durations are set by whatever applied it, not by the effect.</p>
+    <div class="effectgrid"><article class="effect" id="fx-2-overheated" style="--acc:#e99574">
+      <h4>Overheated <span class="kind">debuff</span></h4>
+      <p class="does">8 hp per 0.4s</p>
+      <p class="from"><span>From</span> Afterburner 1.5s</p>
+    </article><article class="effect" id="fx-2-corroded" style="--acc:#aed678">
+      <h4>Corroded <span class="kind">debuff</span></h4>
+      <p class="does">damage taken +30%</p>
+      <p class="from"><span>From</span> Magma Blast 2s (from the blast)</p>
+    </article><article class="effect" id="fx-2-stunned" style="--acc:#91a5f3">
+      <h4>Stunned <span class="kind">debuff</span></h4>
+      <p class="does">total stop · no control · no steering · cannot fire</p>
+      <p class="from"><span>From</span> Thunderclap 1s · Roadblock 1s · Wild Charge 0.5s (slammed into a wall)</p>
+    </article><article class="effect" id="fx-2-spiked" style="--acc:#72b8c4">
+      <h4>Spiked <span class="kind">debuff</span></h4>
+      <p class="does">top speed −40%</p>
+      <p class="from"><span>From</span> Thumper 3s</p>
+    </article><article class="effect" id="fx-2-fortified" style="--acc:#7aaddc">
+      <h4>Fortified <span class="kind">buff</span></h4>
+      <p class="does">damage taken −30%</p>
+      <p class="from"><span>From</span> Wild Charge 10s (on yourself)</p>
+    </article><article class="effect" id="fx-2-phased" style="--acc:#98cefa">
+      <h4>Phasing <span class="kind">buff</span></h4>
+      <p class="does">cannot be hit or rammed</p>
+      <p class="from"><span>From</span> The moment after you respawn in Deathmatch.</p>
+    </article><article class="effect" id="fx-2-reeling" style="--acc:#f29f72">
+      <h4>Reeling <span class="kind">debuff</span></h4>
+      <p class="does">no control · no steering · spins freely · cannot ram · traction −40%</p>
+      <p class="from"><span>From</span> Any ram but a head-on, and Wild Charge's slam.</p>
+    </article><article class="effect" id="fx-2-ramLock" style="--acc:#cfd4d9">
+      <h4>Ram Lock <span class="kind">debuff</span></h4>
+      <p class="does">no control · no steering · cannot ram</p>
+      <p class="from"><span>From</span> Landing a ram yourself, and both cars in a head-on.</p>
+    </article></div>
+  </section>
+</section>
+</main>
+<script>(function () {
+  var tabs = [].slice.call(document.querySelectorAll(".tab"));
+  var panels = [].slice.call(document.querySelectorAll(".modesec"));
+  function show(id) {
+    tabs.forEach(function (t) {
+      var on = t.getAttribute("data-mode") === id;
+      t.classList.toggle("on", on);
+      t.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    panels.forEach(function (p) { p.classList.toggle("on", p.id === id); });
+  }
+  tabs.forEach(function (t) {
+    t.addEventListener("click", function () { show(t.getAttribute("data-mode")); });
+  });
+  function follow() {
+    var target = document.getElementById(location.hash.slice(1));
+    if (!target) return;
+    var panel = target.closest(".modesec");
+    if (!panel) return;
+    show(panel.id);
+    target.scrollIntoView();
+  }
+  window.addEventListener("hashchange", follow);
+  follow();
+})();</script></body></html>

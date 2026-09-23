@@ -10,11 +10,13 @@
  * effects link into that second section, so "what is Corroded?" is one click rather than a search.
  * Prose is one line per chassis and one per weapon; everything else on the page is generated.
  *
- * **Every table it reads belongs to a `GameMode` now (MC41).** `modelOf` resolves one mode's whole
- * half of the page inside that mode's own `withMode` scope, and `balanceStamp` hashes EVERY active
- * mode's bundle — so a Deathmatch-only rebalance fails the staleness guard instead of passing
- * silently. The page itself still publishes the default mode alone; a tab per mode is the next
- * step.
+ * **Those two sections are published once per ACTIVE MODE (MC41), behind a tab strip.** Every
+ * balance table in this game belongs to a `GameMode` now, so a single page could only ever publish
+ * one mode's numbers and call them the game's. Each tab is one `modelOf` bundle, and every id it
+ * defines — `mode-N`, `car-N-<carId>`, `fx-N-<statusId>` — carries the mode, so a weapon's effect
+ * chips can only resolve inside their own mode's Effects list. The two shipped modes carry
+ * byte-identical tables today, so the tabs render the same content; the structure is what makes a
+ * future divergence visible instead of silent.
  *
  * It is a web page rather than a document players download: an <embed>ed file is at the mercy of
  * whatever viewer they have, and on mobile is usually just a download prompt. It still prints — the
@@ -514,13 +516,18 @@ async function fontCss() {
 // ---------------------------------------------------------------------------- effects
 
 /**
- * The anchor a weapon's effect chip links to, and the id the Effects section publishes.
+ * The anchor a weapon's effect chip links to, and the id that mode's Effects section publishes.
  *
  * One function so the two can never disagree — a chip pointing at an id nothing renders is a dead
  * link that no compiler and no existing guard would catch, which is why `manual-page.test.mjs`
  * resolves every one of them.
+ *
+ * **Prefixed with the mode.** Each tab carries its own Effects section, so an unprefixed `fx-…`
+ * would be defined once per mode in one document — and a browser resolves a duplicate id to the
+ * FIRST one. Deathmatch's chips would silently scroll to Brawl's description of the status: one
+ * mode's numbers published under another mode's name, with every link still looking fine.
  */
-const effectAnchor = (statusId) => `fx-${statusId}`;
+const effectAnchor = (model, statusId) => `fx-${model.mode}-${statusId}`;
 
 /**
  * Every status an ACTIVE chassis can inflict or grant in THIS mode, and what applies it.
@@ -672,13 +679,13 @@ function propertiesOf(w) {
   return out;
 }
 
-/** The effect chips, each a link into the Effects section. */
+/** The effect chips, each a link into THIS mode's Effects section. */
 function effectChips(model, w) {
   const chips = [];
   const push = (statusId, durationMs, note) => {
     const def = statusDefOf(statusId);
     chips.push(
-      `<a class="fx fx-${def.kind}" href="#${effectAnchor(statusId)}">${esc(def.name)} ` +
+      `<a class="fx fx-${def.kind}" href="#${effectAnchor(model, statusId)}">${esc(def.name)} ` +
         `<b>${secs(durationMs)}</b>${note ? `<i>${esc(note)}</i>` : ""}</a>`,
     );
   };
@@ -798,7 +805,9 @@ function renderCarSection(model, carId) {
     ["Ram power", car.ramAttack, "how hard it shoves"],
     ["Ram resistance", car.ramDefence, "how hard it is to shove"],
   ];
-  return `<section class="car" id="car-${carId}">
+  // Prefixed with the mode, like every other id this page publishes: the same chassis appears in
+  // every tab, and a duplicate id would send both tabs' jump links to whichever came first.
+  return `<section class="car" id="car-${model.mode}-${carId}">
     <header class="carhead">
       <img src="${carUrl(carId)}" alt="">
       <div>
@@ -820,7 +829,7 @@ function renderCarSection(model, carId) {
   </section>`;
 }
 
-/** Every effect a player can be put in: what it does, how long, and what puts you there. */
+/** Every effect a player can be put in IN THIS MODE: what it does, how long, and what puts you there. */
 function effectsSection(model) {
   const rows = model.publishedEffects.map((statusId) => {
     const def = statusDefOf(statusId);
@@ -829,13 +838,13 @@ function effectsSection(model) {
         `${esc(weapons()[s.weaponId].name)} ${secs(s.durationMs)}${s.note ? ` (${esc(s.note)})` : ""}`,
     );
     if (EFFECT_SOURCES[statusId]) applied.push(esc(EFFECT_SOURCES[statusId]));
-    return `<article class="effect" id="${effectAnchor(statusId)}" style="--acc:${lift(def.color)}">
+    return `<article class="effect" id="${effectAnchor(model, statusId)}" style="--acc:${lift(def.color)}">
       <h4>${esc(def.name)} <span class="kind">${esc(def.kind)}</span></h4>
       <p class="does">${esc(statusBlurb(def))}</p>
       <p class="from"><span>From</span> ${applied.join(" · ")}</p>
     </article>`;
   }).join("");
-  return `<section class="effects" id="effects">
+  return `<section class="effects" id="effects-${model.mode}">
     <h2>Effects</h2>
     <p class="secnote">A car is never in the same effect twice — a second application refreshes the
       clock rather than stacking. Durations are set by whatever applied it, not by the effect.</p>
@@ -889,8 +898,32 @@ a { color: inherit; }
 }
 .jump a:hover { color: var(--ink); border-color: #3A465A; }
 
+/* ---- the mode tabs ----
+   One tab per ACTIVE mode. Only the selected panel is in flow; the print rules below and the
+   noscript block in the document head both put every panel back, so a printed guide and a page
+   with scripting off carry every mode stacked rather than only the one that happened to open. */
+.tabs {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  max-width: 1180px; margin: 0 auto; padding: 16px 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+.tab {
+  font-family: var(--display); font-size: 14px; font-weight: 500;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
+  background: transparent; border: 1px solid var(--line); border-bottom: 0;
+  border-radius: 5px 5px 0 0; padding: 8px 18px; margin-bottom: -1px; cursor: pointer;
+}
+.tab:hover { color: var(--ink); }
+.tab.on { color: var(--ink); background: var(--panel); border-color: #3A465A; }
+.modesec { display: none; }
+.modesec.on { display: block; }
+.modename {
+  font-size: 15px; font-weight: 500; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--faint); margin: 22px 0 0;
+}
+
 main { max-width: 1180px; margin: 0 auto; padding: 8px 20px 80px; }
-main > section > h2 {
+.modesec > section > h2 {
   font-size: 28px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
   margin: 40px 0 6px; padding-bottom: 8px; border-bottom: 2px solid var(--line);
 }
@@ -984,7 +1017,11 @@ main > section > h2 {
 }
 
 @media print {
-  .topbar, .jump { display: none; }
+  .topbar, .jump, .tabs { display: none; }
+  /* Every mode, stacked, each under its own name — a printout has no tabs to click. */
+  .modesec { display: block; }
+  .modesec + .modesec { break-before: page; }
+  .modename { color: #111; }
   body { background: #fff; color: #111; }
   .weapon, .effect { background: #fff; border-color: #bbb; break-inside: avoid; }
   .car { break-inside: avoid-page; }
@@ -1005,34 +1042,106 @@ function topbar() {
   </div>`;
 }
 
-/** The two sections, as one self-contained page — the DEFAULT mode's, for now. */
-function buildDocument(fonts) {
-  return withMode(DEFAULT_MODEL.config, () => {
+/**
+ * One mode's whole half of the guide: its own jump strip, its Cars, its Effects.
+ *
+ * Every id inside carries the mode, and every in-page link inside points at one of them, so a chip
+ * in Brawl's weapon list can only ever resolve to Brawl's description of that status.
+ */
+function modeSection(model, isFirst) {
+  return withMode(model.config, () => {
     const jump = [
-      ...DEFAULT_MODEL.carIds.map(
-        (carId) => `<a href="#car-${carId}">${esc(cars()[carId].name)}</a>`,
+      ...model.carIds.map(
+        (carId) => `<a href="#car-${model.mode}-${carId}">${esc(cars()[carId].name)}</a>`,
       ),
-      `<a href="#effects">Effects</a>`,
+      `<a href="#effects-${model.mode}">Effects</a>`,
     ].join("");
 
-    const body = `<nav class="jump">${jump}</nav>
-<main>
-  <section id="cars">
+    return `<section class="modesec${isFirst ? " on" : ""}" id="mode-${model.mode}" role="tabpanel" aria-labelledby="tab-${model.mode}">
+  <h2 class="modename">${esc(model.name)}</h2>
+  <nav class="jump">${jump}</nav>
+  <section id="cars-${model.mode}">
     <h2>Cars</h2>
     <p class="secnote">Ratings are 0-100 and the figure beside each one is what it buys.
       Weapon damage is what THAT chassis deals — its Attack rating is already in the number.
       A row a weapon has no answer for is left out rather than printed empty.</p>
-    ${DEFAULT_MODEL.carIds.map((carId) => carSection(carId, DEFAULT_MODEL)).join("\n")}
+    ${model.carIds.map((carId) => carSection(carId, model)).join("\n")}
   </section>
-  ${effectsSection(DEFAULT_MODEL)}
-</main>`;
+  ${effectsSection(model)}
+</section>`;
+  });
+}
 
-    return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+/**
+ * The tab strip: one button per active mode, labelled from `MODE_TABLE`'s own `name`.
+ *
+ * The label is never written here. It is the same string the lobby's mode card carries, so a mode
+ * renamed in the registry is renamed on this page by the next build and the two cannot drift.
+ */
+function tabStrip() {
+  return `<nav class="tabs" role="tablist" aria-label="Game mode">${MODELS.map(
+    (model, i) =>
+      `<button type="button" class="tab${i === 0 ? " on" : ""}" id="tab-${model.mode}"` +
+      ` role="tab" aria-controls="mode-${model.mode}" aria-selected="${i === 0 ? "true" : "false"}"` +
+      ` data-mode="mode-${model.mode}">${esc(model.name)}</button>`,
+  ).join("")}</nav>`;
+}
+
+/**
+ * The page's only script: it switches tabs, and it follows a `#anchor` into whichever mode's section
+ * defines it.
+ *
+ * That second job is not decoration. Every effect and chassis anchor is mode-prefixed and sits
+ * inside a panel that is `display: none` unless its tab is on, so a link someone pasted into chat
+ * would otherwise scroll the browser to a hidden element and show an apparently empty page. Opening
+ * the owning tab first is what keeps a shared link honest.
+ *
+ * Inline, dependency-free, and no framework: the guide ships in a LAN zip with no route to the
+ * internet, and `manual-page.test.mjs` asserts the page reaches for nothing off the machine.
+ */
+function tabScript() {
+  return `(function () {
+  var tabs = [].slice.call(document.querySelectorAll(".tab"));
+  var panels = [].slice.call(document.querySelectorAll(".modesec"));
+  function show(id) {
+    tabs.forEach(function (t) {
+      var on = t.getAttribute("data-mode") === id;
+      t.classList.toggle("on", on);
+      t.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    panels.forEach(function (p) { p.classList.toggle("on", p.id === id); });
+  }
+  tabs.forEach(function (t) {
+    t.addEventListener("click", function () { show(t.getAttribute("data-mode")); });
+  });
+  function follow() {
+    var target = document.getElementById(location.hash.slice(1));
+    if (!target) return;
+    var panel = target.closest(".modesec");
+    if (!panel) return;
+    show(panel.id);
+    target.scrollIntoView();
+  }
+  window.addEventListener("hashchange", follow);
+  follow();
+})();`;
+}
+
+/** A tab per active mode, each with its own Cars and Effects, as one self-contained page. */
+function buildDocument(fonts) {
+  const body = `${tabStrip()}
+<main>
+${MODELS.map((model, i) => modeSection(model, i === 0)).join("\n")}
+</main>
+<script>${tabScript()}</script>`;
+
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="${STAMP_META_NAME}" content="${balanceStamp()}">
 <title>${esc(MANUAL_META.title)} — ${esc(MANUAL_META.subtitle)}</title>
-<style>${css(fonts)}</style></head><body>${topbar()}\n${body}</body></html>`;
-  });
+<style>${css(fonts)}</style>
+<noscript><style>.tabs { display: none; } .modesec { display: block; }</style></noscript>
+</head><body>${topbar()}\n${body}</body></html>`;
 }
 
 async function main() {
@@ -1040,9 +1149,12 @@ async function main() {
   writeFileSync(OUT_WEB_HTML, buildDocument(await fontCss()));
   const kb = Math.round(statSync(OUT_WEB_HTML).size / 1024);
   console.log(
-    `[manual] ${DEFAULT_MODEL.weapons.length} weapons, ${DEFAULT_MODEL.carIds.length} chassis, ` +
-      `${DEFAULT_MODEL.publishedEffects.length} effects, stamp ${balanceStamp()} ` +
-      `over ${MODELS.length} active modes -> ${OUT_WEB_HTML} (${kb} KB)`,
+    `[manual] ${MODELS.length} modes — ` +
+      MODELS.map(
+        (m) => `${m.name}: ${m.weapons.length} weapons / ${m.carIds.length} chassis / ` +
+          `${m.publishedEffects.length} effects`,
+      ).join("; ") +
+      `, stamp ${balanceStamp()} -> ${OUT_WEB_HTML} (${kb} KB)`,
   );
 }
 
