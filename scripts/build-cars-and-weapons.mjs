@@ -10,14 +10,21 @@
  * effects link into that second section, so "what is Corroded?" is one click rather than a search.
  * Prose is one line per chassis and one per weapon; everything else on the page is generated.
  *
+ * **Every table it reads belongs to a `GameMode` now (MC41).** `modelOf` resolves one mode's whole
+ * half of the page inside that mode's own `withMode` scope, and `balanceStamp` hashes EVERY active
+ * mode's bundle — so a Deathmatch-only rebalance fails the staleness guard instead of passing
+ * silently. The page itself still publishes the default mode alone; a tab per mode is the next
+ * step.
+ *
  * It is a web page rather than a document players download: an <embed>ed file is at the mercy of
  * whatever viewer they have, and on mobile is usually just a download prompt. It still prints — the
  * topbar's Print button hands the browser the page — but it is no longer laid out as A4 sheets, so
  * page breaks fall where the browser puts them rather than where a fixed-height section ends.
  *
- * Every number on it is read from BUILT shared (`WEAPON_TABLE`, `CAR_TABLE`, `WEAPON_TICKS`,
- * `weaponDamageOf`), never transcribed, so a balance edit is reprinted by re-running this script and
- * cannot drift from the sim. The prose lives in `cars-and-weapons-copy.mjs`.
+ * Every number on it is read from BUILT shared — each mode's own `weapons()`, `cars()`,
+ * `weaponTicksOf` and `weaponDamageOf`, inside that mode's `withMode` scope, never the raw `config/`
+ * globals the game itself stopped reading — so a balance edit is reprinted by re-running this script
+ * and cannot drift from the sim. The prose lives in `cars-and-weapons-copy.mjs`.
  *
  *   npm run build -w @motor-combat-moba/shared   # this reads dist, not src
  *   node scripts/build-cars-and-weapons.mjs
@@ -35,31 +42,31 @@ import { fileURLToPath } from "node:url";
 import {
   ACTIVE_ARENA_ID,
   BASIC_ATTACK_CONFIG,
-  CAR_TABLE,
-  COMBAT_CONFIG,
   DEFAULT_GAME_MODE,
-  DRIVE_CONFIG,
-  STATUS_TABLE,
+  MODE_TABLE,
   TICK_RATE_HZ,
-  TURRET_CONFIG,
-  WEAPON_SLOT_CONFIG,
-  WEAPON_TABLE,
-  WEAPON_TICKS,
   activeCarIds,
+  activeGameModes,
   basicAttackOf,
+  cars,
+  combat,
   damageFor,
   dragRateOf,
   engineAccelOf,
   forwardMaxSpeedOf,
   getArena,
   hpOf,
-  installMode,
   modeConfigOf,
   playableExtentOf,
   slotsOf,
   statusDefOf,
+  statusTable,
   turnRateOf,
+  turret,
   weaponDamageOf,
+  weaponTicksOf,
+  weapons,
+  withMode,
 } from "@motor-combat-moba/shared";
 
 import {
@@ -70,14 +77,16 @@ import {
 } from "./cars-and-weapons-copy.mjs";
 import { manualFacts, renderCopy } from "./manual-facts.mjs";
 
-// ---------------------------------------------------------------------------- mode scope (MC12)
+// ---------------------------------------------------------------------------- mode scope (MC12, MC41)
 //
-// The one boundary in this file: everything below reads config, so the mode is installed here,
-// once, before any of it runs — not scoped around each individual read. This is a one-shot CLI
-// script (the process exits once `main` finishes), so there is nothing to restore afterward, and
-// this reports for DEFAULT_GAME_MODE's bundle only. Per-mode building (a --mode flag, or one page
-// per mode) is outstanding follow-up work this line does not take on.
-installMode(modeConfigOf(DEFAULT_GAME_MODE));
+// There is no longer ONE mode to install here. The page publishes a tab per ACTIVE mode, so every
+// number below belongs to a particular bundle, and the boundary moved from this line down into
+// `modelOf` — which wraps a `withMode` around everything one mode's section is derived from.
+//
+// Nothing in this file calls `installMode` any more. That writes the module-level current bundle for
+// the whole PROCESS, which is exactly what a script building two modes' sections in one run must not
+// do: having installed one, it could never leave that scope to enter the other's. `withMode`
+// restores whatever was installed before it, so the scopes nest and unwind cleanly (MC10, MC11).
 
 /**
  * The prose with its `{roster.fact}` placeholders resolved against the live tables.
@@ -116,22 +125,8 @@ const ARENA_WIDTH = playableExtentOf(getArena(ACTIVE_ARENA_ID)).width;
 
 // ---------------------------------------------------------------------------- derived stats
 
-/**
- * The chassis the page publishes: ACTIVE ones only.
- *
- * This is the guide's half of `CarDef.isActive` (PG18). The flag hides an unreleased chassis from
- * car select and from every server-side gate, but this script used to read the table whole — so
- * authoring a car in development shipped its stats, its kit and its silhouette to players on the
- * next `npm run build:manual`, with nothing saying so. Every downstream derivation here follows
- * this list: `OWNER_OF`, `WEAPONS` (which is `CAR_IDS.flatMap(slotsOf)`, so an inactive car's
- * exclusive weapons drop off the page with it), the car sections, and the sources the Effects
- * section credits each status to.
- */
-const CAR_IDS = activeCarIds();
-
-const OWNER_OF = Object.fromEntries(
-  CAR_IDS.flatMap((carId) => [...slotsOf(carId), basicAttackOf(carId)].map((weaponId) => [weaponId, carId])),
-);
+// (The chassis a mode publishes, the weapons they carry and the effects those weapons apply are all
+// per mode now — see `modelOf` below, which resolves each of them inside that mode's own scope.)
 
 const round = (n, dp = 0) => Number(n.toFixed(dp));
 /** Seconds, printed the way the page talks: `1.8s`, `0.7s`, `13s`. */
@@ -220,11 +215,17 @@ function hitboxSize(def) {
   return "";
 }
 
-function derive(id) {
-  const def = WEAPON_TABLE[id];
-  const ticks = WEAPON_TICKS[id];
-  const carId = OWNER_OF[id];
-  const car = CAR_TABLE[carId];
+/**
+ * One weapon's printed figures, resolved inside `model`'s mode scope.
+ *
+ * Takes the model rather than reading a module-level table: every number here is that MODE's own, and
+ * two modes' copies of the same weapon row may differ without anything else in this file noticing.
+ */
+function derive(model, id) {
+  const def = weapons()[id];
+  const ticks = weaponTicksOf(id);
+  const carId = model.ownerOf[id];
+  const car = cars()[carId];
   const slot = slotsOf(carId).indexOf(id);
   // `-1` means this is the chassis's basic attack, not a kit slot (BA27): indexing `SLOT_LABEL` by
   // a fire-slot index would print `undefined`.
@@ -295,22 +296,76 @@ function derive(id) {
   };
 }
 
-const WEAPONS = CAR_IDS.flatMap((carId) => [...slotsOf(carId), basicAttackOf(carId)]).map(derive);
-const byId = Object.fromEntries(WEAPONS.map((w) => [w.id, w]));
+/**
+ * Everything ONE mode's half of the page is derived from, resolved inside that mode's own scope.
+ *
+ * The chassis it publishes are the ACTIVE ones only. This is the guide's half of `CarDef.isActive`
+ * (PG18): the flag hides an unreleased chassis from car select and from every server-side gate, but
+ * this script used to read the table whole — so authoring a car in development shipped its stats, its
+ * kit and its silhouette to players on the next `npm run build:manual`, with nothing saying so.
+ * Every derivation here follows that list: `ownerOf`, `weapons` (which is `carIds.flatMap(slotsOf)`,
+ * so an inactive car's exclusive weapons drop off the page with it), the car sections, and the
+ * sources the Effects section credits each status to.
+ *
+ * `isActive` is itself per mode — `cars` is one of the thirteen tables a mode folder authors — so a
+ * chassis published in one mode and held back in another is a shape this already handles.
+ */
+function modelOf(config) {
+  return withMode(config, () => {
+    const carIds = activeCarIds();
+    const model = {
+      config,
+      /** The `GameMode` wire value. Every id this mode's section publishes is prefixed with it. */
+      mode: config.id,
+      /** The tab's label, from `MODE_TABLE` — the same string the lobby card carries (MC41). */
+      name: MODE_TABLE[config.id].name,
+      carIds,
+      ownerOf: Object.fromEntries(
+        carIds.flatMap((carId) =>
+          [...slotsOf(carId), basicAttackOf(carId)].map((weaponId) => [weaponId, carId]),
+        ),
+      ),
+    };
+    model.weapons = carIds
+      .flatMap((carId) => [...slotsOf(carId), basicAttackOf(carId)])
+      .map((id) => derive(model, id));
+    model.byId = Object.fromEntries(model.weapons.map((w) => [w.id, w]));
+    model.effectSourceMap = effectSources(model);
+    model.publishedEffects = publishedEffectsOf(model);
+    return model;
+  });
+}
+
+/** One model per ACTIVE mode, in `activeGameModes()` order — the order the tab strip publishes. */
+const MODELS = activeGameModes().map((mode) => modelOf(modeConfigOf(mode)));
 
 /**
- * How many times one press can damage a SINGLE car — the "if all N land" ceiling the guide prints.
+ * The mode the module-level exports answer for.
+ *
+ * `carrierOf` and `hitsPerTargetOf` exist for `manual-page.test.mjs`, which drives the real sim to
+ * check one number against the page; the sim it drives is whichever bundle that test installed, so
+ * these answer for the DEFAULT mode and the test scopes itself to match. Everything the page itself
+ * prints goes through `MODELS`, never through this.
+ */
+const DEFAULT_MODEL = MODELS.find((m) => m.mode === DEFAULT_GAME_MODE) ?? MODELS[0];
+if (DEFAULT_MODEL === undefined) {
+  throw new Error("no active game mode: the guide has nothing to publish");
+}
+
+/**
+ * How many times one press can damage a SINGLE car — the "if all N land" ceiling the guide prints,
+ * for the DEFAULT mode.
  *
  * Exported purely as a seam for `manual-page.test.mjs`, which checks it by driving the real sim
  * instead of repeating the arithmetic above. Nothing in the page build calls this.
  */
 export function hitsPerTargetOf(weaponId) {
-  return byId[weaponId].hitsPerTarget;
+  return DEFAULT_MODEL.byId[weaponId].hitsPerTarget;
 }
 
 /** The chassis that carries each weapon. The test needs it to spawn a shot the way a match does. */
 export function carrierOf(weaponId) {
-  return OWNER_OF[weaponId];
+  return DEFAULT_MODEL.ownerOf[weaponId];
 }
 
 /**
@@ -330,34 +385,63 @@ export function carrierOf(weaponId) {
  * outright when the target-lock feature was removed later that day. The lesson survives the
  * constant: hashing something the page does not print demands a rebuild that produces a
  * byte-identical page but for this tag, which is how a guard gets rubber-stamped.
+ *
+ * **Per mode as of MC41.** It used to hash the raw `config/` globals, which the game stopped reading
+ * when every table became per-mode: a Deathmatch-only rebalance moved nothing here and failed
+ * nothing, while the Deathmatch tab shipped last week's numbers. It hashes every ACTIVE mode's
+ * bundle instead — one entry per tab, in tab order.
  */
-export function balanceStamp() {
+export function stampOfModes(configs) {
   const inputs = {
-    weapons: WEAPON_TABLE,
+    // ---- GLOBAL inputs. Not per mode, and the page prints each of them exactly once.
+    //
     // Whether the Basic attack card prints at all — the toggle changes what the page says without
-    // touching any table the other keys already hash.
+    // touching any table the per-mode keys below already hash.
     basicAttackEnabled: BASIC_ATTACK_CONFIG.enabled,
-    // ACTIVE cars only, matching `CAR_IDS` — the stamp fingerprints what the page SAYS, and the
-    // page says nothing about an inactive chassis. Hashing `CAR_TABLE` whole would fail `npm test`
-    // on every ratings tweak to an unreleased car. Flipping `isActive` to true still moves the
-    // stamp, correctly: that edit really does owe players a rebuild.
-    cars: Object.fromEntries(CAR_IDS.map((id) => [id, CAR_TABLE[id]])),
-    combat: COMBAT_CONFIG,
-    statuses: STATUS_TABLE,
-    drive: DRIVE_CONFIG,
     tickRateHz: TICK_RATE_HZ,
     arenaWidth: ARENA_WIDTH,
-    // How many ability slots this build has. N changes how many weapons each chassis lists, which
-    // is something the page SAYS, so it belongs in the fingerprint (VS30).
-    abilitySlots: WEAPON_SLOT_CONFIG.maxAbilitySlots,
-    // The turret's turn rate, which every turret weapon's Aim point prints (TR47). Only the rate:
-    // `defaultOffset` places the shot but the page never states it, so hashing it would demand a
-    // rebuild that changes nothing but this tag.
-    turretTurnRateDegPerSec: TURRET_CONFIG.turnRateDegPerSec,
     // The RENDERED copy, not the raw templates: the stamp should fingerprint what the page says.
     copy: { MANUAL_META, CHASSIS_COPY, WEAPON_COPY, EFFECT_SOURCES },
+    // ---- One entry per tab.
+    modes: configs.map((config) =>
+      withMode(config, () => ({
+        // The section id (`mode-N`) and the tab's label, both printed. They are also what makes
+        // ADDING or REMOVING an active mode move the stamp: the two shipped modes carry
+        // byte-identical tables today (`modes/table-pinning.test.ts` enforces it), so without these
+        // two keys a set of one would hash the same as either mode alone.
+        id: config.id,
+        name: MODE_TABLE[config.id]?.name ?? "",
+        weapons: config.weapons,
+        // ACTIVE cars only, matching this mode's own `carIds` — the stamp fingerprints what the page
+        // SAYS, and the page says nothing about an inactive chassis. Hashing the car table whole
+        // would fail `npm test` on every ratings tweak to an unreleased car. Flipping `isActive` to
+        // true still moves the stamp, correctly: that edit really does owe players a rebuild.
+        cars: Object.fromEntries(activeCarIds().map((id) => [id, config.cars[id]])),
+        combat: config.combat,
+        statuses: config.statusTable,
+        drive: config.drive,
+        // How many ability slots this mode has. N changes how many weapons each chassis lists, which
+        // is something the page SAYS, so it belongs in the fingerprint (VS30).
+        abilitySlots: config.slots.maxAbilitySlots,
+        // The turret's turn rate, which every turret weapon's Aim point prints (TR47). Only the
+        // rate: `defaultOffset` places the shot but the page never states it, so hashing it would
+        // demand a rebuild that changes nothing but this tag.
+        turretTurnRateDegPerSec: config.turret.turnRateDegPerSec,
+      })),
+    ),
   };
   return createHash("sha256").update(JSON.stringify(inputs)).digest("hex").slice(0, 16);
+}
+
+/**
+ * The shipped page's stamp: every ACTIVE mode, in the order the tab strip publishes them.
+ *
+ * Split from `stampOfModes` so the guard can be TESTED. A test that has to mutate `MODE_TABLE` to
+ * prove a non-default mode reaches the hash is a test that leaves a live registry edited behind it;
+ * passing a bundle built with `applyOverrides` proves the same thing and installs nothing.
+ */
+export function balanceStamp() {
+  return stampOfModes(activeGameModes().map(modeConfigOf));
 }
 
 /** Where the stamp lives in the page, and how the test finds it again. */
@@ -433,13 +517,13 @@ async function fontCss() {
  * The anchor a weapon's effect chip links to, and the id the Effects section publishes.
  *
  * One function so the two can never disagree — a chip pointing at an id nothing renders is a dead
- * link that no compiler and no existing guard would catch, which is why `manual-page.test.mjs` now
+ * link that no compiler and no existing guard would catch, which is why `manual-page.test.mjs`
  * resolves every one of them.
  */
 const effectAnchor = (statusId) => `fx-${statusId}`;
 
 /**
- * Every status an ACTIVE chassis can inflict or grant, and what applies it.
+ * Every status an ACTIVE chassis can inflict or grant in THIS mode, and what applies it.
  *
  * Three application paths, and a status is only as published as the paths that reach it:
  *  - `WeaponDef.applies` — the ordinary one, `self` or `opponents`.
@@ -450,16 +534,16 @@ const effectAnchor = (statusId) => `fx-${statusId}`;
  *    from `ImpulseDef.wallStun` (a single `{ windowMs, durationMs }`, always `"stunned"`) by the
  *    2026-09-19 restructure to a list, so this reads every entry rather than assuming one.
  *
- * Returns `Map<statusId, { weaponId, durationMs, note }[]>` in `WEAPONS` order, so the Effects
+ * Returns `Map<statusId, { weaponId, durationMs, note }[]>` in `model.weapons` order, so the Effects
  * section credits the sources a player will meet first.
  */
-function effectSources() {
+function effectSources(model) {
   const sources = new Map();
   const add = (statusId, entry) => {
     if (!sources.has(statusId)) sources.set(statusId, []);
     sources.get(statusId).push(entry);
   };
-  for (const w of WEAPONS) {
+  for (const w of model.weapons) {
     for (const a of w.def.applies ?? []) {
       add(a.statusId, { weaponId: w.id, durationMs: a.durationMs, note: a.target === "self" ? "on yourself" : "" });
     }
@@ -473,10 +557,8 @@ function effectSources() {
   return sources;
 }
 
-const EFFECT_SOURCE_MAP = effectSources();
-
 /**
- * The statuses the page publishes, in `STATUS_TABLE` order.
+ * The statuses one mode's page publishes, in that mode's `STATUS_TABLE` order.
  *
  * A row appears only if something can actually apply it: a weapon an active chassis carries, or an
  * authored `EFFECT_SOURCES` line for the three that reach a player outside the weapon tables
@@ -484,10 +566,15 @@ const EFFECT_SOURCE_MAP = effectSources();
  * and `overhauled` have neither today and so do not appear — publishing a status no shipped code
  * can inflict would be describing a game the player is not playing. Giving one a source is what
  * publishes it.
+ *
+ * Called inside `modelOf`'s scope, so `statusTable()` is THIS mode's: a mode that retires a status
+ * row stops publishing it without anything here knowing the mode by name.
  */
-const PUBLISHED_EFFECTS = Object.keys(STATUS_TABLE).filter(
-  (id) => EFFECT_SOURCE_MAP.has(id) || id in EFFECT_SOURCES,
-);
+function publishedEffectsOf(model) {
+  return Object.keys(statusTable()).filter(
+    (id) => model.effectSourceMap.has(id) || id in EFFECT_SOURCES,
+  );
+}
 
 // ---------------------------------------------------------------------------- weapon stats
 
@@ -586,7 +673,7 @@ function propertiesOf(w) {
 }
 
 /** The effect chips, each a link into the Effects section. */
-function effectChips(w) {
+function effectChips(model, w) {
   const chips = [];
   const push = (statusId, durationMs, note) => {
     const def = statusDefOf(statusId);
@@ -606,9 +693,9 @@ function effectChips(w) {
   // `impulse.applies` lands the moment the push does — unlike `onWallImpact.applies` below, it is
   // not conditional on anything, so it gets no qualifier. Wild Charge's slam is the only row that
   // authors one today (`reeling`), and without this loop its most consequential property never
-  // reached the card at all. Deliberately NOT fed into `EFFECT_SOURCE_MAP` in `effectSources()`
-  // below — `EFFECT_SOURCES.reeling` already credits "Wild Charge's slam" in prose, and crediting it
-  // again here would double up the Effects section's "From" line for the one weapon that has both.
+  // reached the card at all. Deliberately NOT fed into `effectSources()` above — `EFFECT_SOURCES.reeling`
+  // already credits "Wild Charge's slam" in prose, and crediting it again here would double up the
+  // Effects section's "From" line for the one weapon that has both.
   for (const a of w.def.impulse?.applies ?? []) push(a.statusId, a.durationMs, "");
   for (const a of w.def.impulse?.onWallImpact?.applies ?? []) {
     push(a.statusId, a.durationMs, "slammed into a wall");
@@ -625,7 +712,7 @@ function effectChips(w) {
  * no wind-up, three have no recovery, four have no lifetime clock at all, three inflict nothing, and
  * a plain shot has no extra properties. A table of dashes would be longer and say less.
  */
-function statRows(w) {
+function statRows(model, w) {
   const d = w.def;
   const rows = [
     ["Shot type", esc(shotType(w))],
@@ -642,7 +729,7 @@ function statRows(w) {
   // A turret weapon fires along the bearing the mouse chose, once the turret has turned to it
   // (TR47). A fixed muzzle prints nothing here: a point that does not apply is left out.
   if (d.turret) {
-    rows.push(["Aim", `turret <span class="sub">mouse; turns at ${TURRET_CONFIG.turnRateDegPerSec}°/s before firing</span>`]);
+    rows.push(["Aim", `turret <span class="sub">mouse; turns at ${turret().turnRateDegPerSec}°/s before firing</span>`]);
   }
   if (w.totalLifeMs > 0) {
     rows.push([
@@ -656,7 +743,7 @@ function statRows(w) {
   if (d.recoveryMs > 0) {
     rows.push(["Recovery", `${d.recoveryMs}ms <span class="sub">your other slots are locked</span>`]);
   }
-  const chips = effectChips(w);
+  const chips = effectChips(model, w);
   if (chips) rows.push(["Effect", `<div class="fxrow">${chips}</div>`]);
   const props = propertiesOf(w);
   if (props.length > 0) {
@@ -669,7 +756,7 @@ function statRows(w) {
 
 // ---------------------------------------------------------------------------- page sections
 
-function weaponCard(w) {
+function weaponCard(model, w) {
   return `<article class="weapon" style="--acc:${lift(w.def.color)}">
     <header>
       ${iconMarkup(w)}
@@ -679,7 +766,7 @@ function weaponCard(w) {
       </div>
     </header>
     <p class="line">${esc(WEAPON_COPY[w.id].line)}</p>
-    <dl class="stats">${statRows(w)}</dl>
+    <dl class="stats">${statRows(model, w)}</dl>
   </article>`;
 }
 
@@ -691,8 +778,13 @@ function weaponCard(w) {
  * Handling prints turn RADIUS beside the rate for the same reason: the rate is what the rating sets,
  * the radius is what a corner costs.
  */
-export function carSection(carId) {
-  const car = CAR_TABLE[carId];
+export function carSection(carId, model = DEFAULT_MODEL) {
+  return withMode(model.config, () => renderCarSection(model, carId));
+}
+
+/** The body of `carSection`, already inside its mode's scope. */
+function renderCarSection(model, carId) {
+  const car = cars()[carId];
   const ratings = [
     ["Speed", car.speed, `${round(forwardMaxSpeedOf(carId))} u/s top`],
     // "s to top" is gone on purpose: under the Unity drive-model port there is no time at which a
@@ -701,7 +793,7 @@ export function carSection(carId) {
     // `Math.log(10) / dragRate` to reach 90% of it. Labelled honestly as "to 90%", not "to top".
     ["Acceleration", car.accel, `${round(engineAccelOf(carId))} u/s² · ${round(Math.log(10) / dragRateOf(carId), 2)}s to 90%`],
     ["Handling", car.handling, `${round(turnRateOf(carId), 2)} rad/s · ${round(forwardMaxSpeedOf(carId) / turnRateOf(carId))}u turn radius`],
-    ["Attack", car.attack, `${round(1 + (car.attack - COMBAT_CONFIG.attackBaseline) * COMBAT_CONFIG.damagePerAttack, 2)}× weapon damage`],
+    ["Attack", car.attack, `${round(1 + (car.attack - combat().attackBaseline) * combat().damagePerAttack, 2)}× weapon damage`],
     ["HP", car.hp, `${hpOf(carId)} hull`],
     ["Ram power", car.ramAttack, "how hard it shoves"],
     ["Ram resistance", car.ramDefence, "how hard it is to shove"],
@@ -724,17 +816,17 @@ export function carSection(carId) {
       ...(BASIC_ATTACK_CONFIG.enabled ? [basicAttackOf(carId)] : []),
       // `slotsOf` already truncates to this build's N (VS30) — no second cap needed here.
       ...slotsOf(carId),
-    ].map((id) => weaponCard(byId[id])).join("")}</div>
+    ].map((id) => weaponCard(model, model.byId[id])).join("")}</div>
   </section>`;
 }
 
 /** Every effect a player can be put in: what it does, how long, and what puts you there. */
-function effectsSection() {
-  const rows = PUBLISHED_EFFECTS.map((statusId) => {
+function effectsSection(model) {
+  const rows = model.publishedEffects.map((statusId) => {
     const def = statusDefOf(statusId);
-    const applied = (EFFECT_SOURCE_MAP.get(statusId) ?? []).map(
+    const applied = (model.effectSourceMap.get(statusId) ?? []).map(
       (s) =>
-        `${esc(WEAPON_TABLE[s.weaponId].name)} ${secs(s.durationMs)}${s.note ? ` (${esc(s.note)})` : ""}`,
+        `${esc(weapons()[s.weaponId].name)} ${secs(s.durationMs)}${s.note ? ` (${esc(s.note)})` : ""}`,
     );
     if (EFFECT_SOURCES[statusId]) applied.push(esc(EFFECT_SOURCES[statusId]));
     return `<article class="effect" id="${effectAnchor(statusId)}" style="--acc:${lift(def.color)}">
@@ -913,30 +1005,34 @@ function topbar() {
   </div>`;
 }
 
-/** The two sections, as one self-contained page. */
+/** The two sections, as one self-contained page — the DEFAULT mode's, for now. */
 function buildDocument(fonts) {
-  const jump = [
-    ...CAR_IDS.map((carId) => `<a href="#car-${carId}">${esc(CAR_TABLE[carId].name)}</a>`),
-    `<a href="#effects">Effects</a>`,
-  ].join("");
+  return withMode(DEFAULT_MODEL.config, () => {
+    const jump = [
+      ...DEFAULT_MODEL.carIds.map(
+        (carId) => `<a href="#car-${carId}">${esc(cars()[carId].name)}</a>`,
+      ),
+      `<a href="#effects">Effects</a>`,
+    ].join("");
 
-  const body = `<nav class="jump">${jump}</nav>
+    const body = `<nav class="jump">${jump}</nav>
 <main>
   <section id="cars">
     <h2>Cars</h2>
     <p class="secnote">Ratings are 0-100 and the figure beside each one is what it buys.
       Weapon damage is what THAT chassis deals — its Attack rating is already in the number.
       A row a weapon has no answer for is left out rather than printed empty.</p>
-    ${CAR_IDS.map(carSection).join("\n")}
+    ${DEFAULT_MODEL.carIds.map((carId) => carSection(carId, DEFAULT_MODEL)).join("\n")}
   </section>
-  ${effectsSection()}
+  ${effectsSection(DEFAULT_MODEL)}
 </main>`;
 
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+    return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="${STAMP_META_NAME}" content="${balanceStamp()}">
 <title>${esc(MANUAL_META.title)} — ${esc(MANUAL_META.subtitle)}</title>
 <style>${css(fonts)}</style></head><body>${topbar()}\n${body}</body></html>`;
+  });
 }
 
 async function main() {
@@ -944,8 +1040,9 @@ async function main() {
   writeFileSync(OUT_WEB_HTML, buildDocument(await fontCss()));
   const kb = Math.round(statSync(OUT_WEB_HTML).size / 1024);
   console.log(
-    `[manual] ${WEAPONS.length} weapons, ${CAR_IDS.length} chassis, ` +
-      `${PUBLISHED_EFFECTS.length} effects, stamp ${balanceStamp()} -> ${OUT_WEB_HTML} (${kb} KB)`,
+    `[manual] ${DEFAULT_MODEL.weapons.length} weapons, ${DEFAULT_MODEL.carIds.length} chassis, ` +
+      `${DEFAULT_MODEL.publishedEffects.length} effects, stamp ${balanceStamp()} ` +
+      `over ${MODELS.length} active modes -> ${OUT_WEB_HTML} (${kb} KB)`,
   );
 }
 

@@ -6,11 +6,14 @@ import { afterEach, describe, it } from "node:test";
 import {
   BASIC_ATTACK_CONFIG,
   CAR_TABLE,
+  GameMode,
   TICK_RATE_HZ,
   TURRET_CONFIG,
   WEAPON_TABLE,
   DEFAULT_GAME_MODE,
   activeCarIds,
+  activeGameModes,
+  applyOverrides,
   carHullOf,
   installMode,
   instanceExpired,
@@ -21,13 +24,16 @@ import {
 } from "@motor-combat-moba/shared";
 import { EFFECT_SOURCES } from "./cars-and-weapons-copy.mjs";
 
-// `build-cars-and-weapons.mjs` reads config (`activeCarIds()` and its derivations) at MODULE LOAD —
-// it is a flat CLI script, not a set of lazily-called functions, so the whole build runs as a side
-// effect of importing it. A static `import` of it here would resolve and run before ANY of this
-// file's own top-level code, including an `installMode` call — the same unscoped-read hazard MC12
-// exists to catch. So this file installs a mode FIRST, then imports the module under test
-// dynamically, which is the one way to control that ordering from a test without changing the
-// script's own (correct, real-CLI-entry-point) load-time build.
+// THIS FILE's own config reads need a mode installed: `simHitsPerTarget` drives the real sim
+// (`spawnInstances`, `stepInstance`, `resolveInstanceHits`), `activeCarIds()` and `carHullOf` read
+// the bundle, and `cfg()` throws outside a scope (MC12). It is installed here, before the dynamic
+// import below, rather than in a `beforeEach`, because several cases read config at describe level.
+//
+// The module under test no longer needs it. `build-cars-and-weapons.mjs` used to `installMode` the
+// default bundle at module load and derive everything under it; since MC41 it scopes each mode's
+// derivation in its own `withMode` and installs nothing, so a static import would be safe. The
+// dynamic import is kept anyway: the ordering it guarantees is what stops this file's own
+// `installMode` from being silently load-order-dependent again the day the builder changes back.
 installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 const {
@@ -37,6 +43,7 @@ const {
   carSection,
   carrierOf,
   hitsPerTargetOf,
+  stampOfModes,
 } = await import("./build-cars-and-weapons.mjs");
 
 /**
@@ -181,7 +188,9 @@ describe("the generated manual page", () => {
    */
   it("folds the build's slot count into the stamp", () => {
     const src = read(BUILDER);
-    assert.match(src, /abilitySlots: WEAPON_SLOT_CONFIG\.maxAbilitySlots/);
+    // Per mode since MC41: `slots` is one of the thirteen tables a mode folder authors, so the
+    // input is the BUNDLE's copy, not the raw global the game stopped reading.
+    assert.match(src, /abilitySlots: config\.slots\.maxAbilitySlots/);
   });
 
   /**
@@ -325,6 +334,77 @@ describe("the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)", () => {
 });
 
 /**
+ * MC41. `balanceStamp` used to hash the raw `config/` tables — the ones the game stopped reading
+ * when every table became per-mode. A page built from one mode's bundle and fingerprinted from a
+ * global the sim ignores is a guard that cannot see the change it exists to catch.
+ *
+ * `stampOfModes` is the pure inner function precisely so these cases can be written: proving a
+ * non-default mode reaches the hash by editing `MODE_TABLE` would leave a live registry mutated for
+ * every later test in the process, while `applyOverrides` builds a tuned SIBLING bundle and installs
+ * nothing.
+ */
+describe("balanceStamp covers every active mode (MC41)", () => {
+  it("is stable across two calls with nothing changed", () => {
+    assert.equal(balanceStamp(), balanceStamp());
+  });
+
+  it("moves when a NON-default active mode's tables move", () => {
+    // A stamp computed over ONE mode would let a Deathmatch rebalance ship a page whose Deathmatch
+    // tab still shows last week's numbers, with nothing failing.
+    const shipped = balanceStamp();
+    const tweaked = applyOverrides(modeConfigOf(GameMode.FFA_DEATHMATCH), {
+      "weapon.predator.damage": 999,
+    });
+    assert.notEqual(
+      stampOfModes([modeConfigOf(GameMode.FFA_LAST_STANDING), tweaked]),
+      shipped,
+      "a Deathmatch-only balance edit does not move the guide's staleness stamp",
+    );
+  });
+
+  it("moves when the default mode's tables move", () => {
+    // The other half of the pair: the stamp must not have quietly become "Deathmatch only" either.
+    const shipped = balanceStamp();
+    const tweaked = applyOverrides(modeConfigOf(GameMode.FFA_LAST_STANDING), {
+      "weapon.predator.damage": 999,
+    });
+    assert.notEqual(stampOfModes([tweaked, modeConfigOf(GameMode.FFA_DEATHMATCH)]), shipped);
+  });
+
+  /**
+   * Not in the brief, and the case the other three cannot see: publishing a mode, or retiring one,
+   * changes the page — a whole tab appears or disappears — while every number inside every surviving
+   * mode stays exactly where it was.
+   *
+   * The second assertion is the sharp one. Brawl and Deathmatch carry byte-identical tables today
+   * (`modes/table-pinning.test.ts` enforces it), so a stamp that hashed only the tables would give
+   * the two single-mode sets the SAME fingerprint — swapping which mode ships would move nothing.
+   * It is the mode's own id and its `MODE_TABLE` name, both printed on the page, that separate them.
+   */
+  it("moves when an active mode is added to or removed from the set", () => {
+    const brawl = modeConfigOf(GameMode.FFA_LAST_STANDING);
+    const deathmatch = modeConfigOf(GameMode.FFA_DEATHMATCH);
+    assert.notEqual(
+      stampOfModes([brawl]),
+      stampOfModes([brawl, deathmatch]),
+      "publishing a second mode does not move the guide's staleness stamp",
+    );
+    assert.notEqual(
+      stampOfModes([brawl]),
+      stampOfModes([deathmatch]),
+      "two modes with identical tables hash the same — the mode's own identity is not in the stamp",
+    );
+  });
+
+  it("is the stamp the shipped page carries", () => {
+    // Ties the split to the guard it serves: `balanceStamp()` is `stampOfModes` over exactly the
+    // active set, so refactoring one of the two apart from the other fails here rather than in a
+    // rebuild nobody runs.
+    assert.equal(balanceStamp(), stampOfModes(activeGameModes().map(modeConfigOf)));
+  });
+});
+
+/**
  * TR47. A weapon that fires from the turret prints an "Aim" point; one with a fixed muzzle prints
  * nothing new, because a point that does not apply is left out, never printed as a dash. Read off
  * the rendered chassis sections rather than the builder's internals, so a card that loses the row
@@ -367,6 +447,7 @@ describe("the turret Aim point (TR47)", () => {
   it("folds the printed turn rate into the stamp", () => {
     // Structural, like VS30's check above: the key is the stamp's own input line, so a mention of
     // the knob elsewhere in the builder (the Aim row itself) cannot satisfy it.
-    assert.match(read(BUILDER), /turretTurnRateDegPerSec: TURRET_CONFIG\.turnRateDegPerSec/);
+    // Per mode since MC41, for the same reason as `abilitySlots` above.
+    assert.match(read(BUILDER), /turretTurnRateDegPerSec: config\.turret\.turnRateDegPerSec/);
   });
 });
