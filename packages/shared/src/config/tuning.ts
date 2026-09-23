@@ -10,7 +10,7 @@ import { DEFAULT_GAME_MODE } from "../modes/registry.js";
 import { installMode } from "../modes/active.js";
 import { assembleModeConfig } from "../modes/build.js";
 import { BRAWL_TABLES } from "../modes/brawl/index.js";
-import type { ModeTables } from "../modes/types.js";
+import type { ModeConfig, ModeTables } from "../modes/types.js";
 
 export type TuningValue = number | boolean | string;
 
@@ -129,7 +129,18 @@ function assertAssignable(path: string, value: TuningValue): void {
   }
 }
 
-export function setTuning(overrides: TuningOverrides | null): void {
+/**
+ * Returns the `ModeConfig` it just installed (2026-09-22 final review, PlaygroundRoom tuning fix),
+ * so a caller that needs to keep that exact bundle alive past this call — a room whose own
+ * `scoped(...)` re-installs a REMEMBERED bundle every tick, rather than trusting the module-level
+ * `installMode` write to stick — has something to remember it BY. `installMode` alone is not
+ * enough for that caller: a room wraps this whole handler in `withMode(this.modeConfig, ...)`,
+ * whose `finally` restores `this.modeConfig` the instant the handler returns, discarding whatever
+ * this function just installed unless the caller captures the return value and makes it the room's
+ * new `this.modeConfig` itself. The client (`PlaygroundScene`) has no such wrapper — it runs one
+ * bundle for the tab's whole life and simply ignores the return value, exactly as before.
+ */
+export function setTuning(overrides: TuningOverrides | null): ModeConfig {
   if (overrides) {
     // Shape-validated against the frozen `DEFAULTS` snapshot, all-or-nothing, before a single byte
     // of `tables` below is written — unchanged from before this rewrite. A rejected call installs
@@ -138,9 +149,10 @@ export function setTuning(overrides: TuningOverrides | null): void {
   }
 
   if (!overrides) {
-    installMode(assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES));
+    const bundle = assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES);
+    installMode(bundle);
     active = null;
-    return;
+    return bundle;
   }
 
   // A fresh clone every call — never `BRAWL_TABLES` itself, and never a bundle from a previous
@@ -160,8 +172,10 @@ export function setTuning(overrides: TuningOverrides | null): void {
     const { container, key } = leafOf(tuningRoots, path);
     container[key] = value;
   }
-  installMode(assembleModeConfig(DEFAULT_GAME_MODE, tables));
+  const bundle = assembleModeConfig(DEFAULT_GAME_MODE, tables);
+  installMode(bundle);
   active = Object.freeze({ ...overrides });
+  return bundle;
 }
 
 export function activeTuning(): TuningOverrides | null {

@@ -188,13 +188,23 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     PLAYGROUND_SEAT_IDS.map((id, seat) => [id, makeRng(deriveSeed(1, "playground-seat", seat))]),
   );
   /**
-   * The bundle this room's session runs inside. Resolved from `DEFAULT_GAME_MODE` for now — the
-   * playground has no mode picker of its own (a later phase gives it an ad-hoc bundle built from
-   * `PlaygroundSetup`'s tuning overrides, once that plumbing exists). Every entry point below runs
-   * wrapped in `scoped(this.modeConfig, ...)` so nothing here reads whatever bundle another room last
-   * happened to install (MC15, MC21).
+   * The bundle this room's session runs inside. Resolved from `DEFAULT_GAME_MODE` initially — the
+   * playground has no mode picker of its own. Every entry point below runs wrapped in
+   * `scoped(this.modeConfig, ...)` so nothing here reads whatever bundle another room last happened
+   * to install (MC15, MC21).
+   *
+   * **Mutable, not `readonly` (2026-09-22 final review, tuning-inert-server-side fix).** The
+   * `MSG_PLAYGROUND_TUNING` handler below re-assigns this field to `setTuning`'s return value — the
+   * freshly assembled bundle it just installed — rather than trusting the module-level `installMode`
+   * write inside `setTuning` to survive. It cannot survive on its own: this whole handler already
+   * runs inside `scoped(this.modeConfig, ...)`, i.e. `withMode(this.modeConfig, fn)`, whose `finally`
+   * restores the module-level "current" bundle to whatever `this.modeConfig` was BEFORE the handler
+   * ran the instant `fn` returns — discarding `setTuning`'s install. And even if it did not, every
+   * later tick re-enters through its OWN `scoped(this.modeConfig, () => this.tick())`, which would
+   * re-install this same stale field value regardless. Reassigning the field is what makes a tuned
+   * value actually reach a subsequent tick — see `PlaygroundRoom.test.ts` for the regression test.
    */
-  private readonly modeConfig: ModeConfig = modeConfigOrDefault(DEFAULT_GAME_MODE);
+  private modeConfig: ModeConfig = modeConfigOrDefault(DEFAULT_GAME_MODE);
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -245,17 +255,7 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
       );
 
       this.onMessage(MSG_PLAYGROUND_TUNING, (_client, msg: unknown) =>
-        scoped(this.modeConfig, () => {
-          const result = validateTuning(msg);
-          // Reject-whole (PG13): one bad path discards the blob rather than applying the good half, so
-          // the client's view of what is active can never disagree with the store field by field.
-          if (!result.ok) return;
-          // An empty object IS the reset: `setTuning(null)` restores every table, and `""` is what the
-          // client's watcher reads as "clear my store too" (an empty string is not malformed JSON).
-          const overrides = Object.keys(result.overrides).length > 0 ? result.overrides : null;
-          setTuning(overrides);
-          this.state.tuningJson = overrides ? JSON.stringify(overrides) : "";
-        }),
+        scoped(this.modeConfig, () => this.applyTuningMessage(msg)),
       );
 
       this.onMessage(MSG_PLAYGROUND_SETUP, (_client, msg: unknown) =>
@@ -294,6 +294,28 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     scoped(this.modeConfig, () => {
       setTuning(null);
     });
+  }
+
+  /**
+   * Validate and apply one `MSG_PLAYGROUND_TUNING` blob — extracted out of the `onMessage` closure
+   * (2026-09-22 final review) so a test can drive it directly, the same way `applySetup` already is,
+   * rather than only through Colyseus's own message dispatch.
+   *
+   * Reject-whole (PG13): one bad path discards the blob rather than applying the good half, so the
+   * client's view of what is active can never disagree with the store field by field.
+   */
+  private applyTuningMessage(msg: unknown): void {
+    const result = validateTuning(msg);
+    if (!result.ok) return;
+    // An empty object IS the reset: `setTuning(null)` restores every table, and `""` is what the
+    // client's watcher reads as "clear my store too" (an empty string is not malformed JSON).
+    const overrides = Object.keys(result.overrides).length > 0 ? result.overrides : null;
+    // Capture the bundle `setTuning` just installed and make it THIS ROOM's bundle (see
+    // `modeConfig`'s own doc comment) — a subsequent tick's `scoped(this.modeConfig, ...)` is what
+    // actually adopts the tuned numbers; `setTuning`'s own `installMode` call alone does not survive
+    // this handler returning.
+    this.modeConfig = setTuning(overrides);
+    this.state.tuningJson = overrides ? JSON.stringify(overrides) : "";
   }
 
   /**

@@ -10,13 +10,18 @@ import {
   RoomPhase,
   WEAPON_TABLE,
   defaultPlaygroundSetup,
+  drive,
+  forwardMaxSpeedOf,
   hpOf,
   pairKey,
   slotsOf,
+  speedOf,
   type BotDifficulty,
+  type CarId,
   type CombatEvents,
   type FiredEvent,
   type InputMessage,
+  type ModeConfig,
   type PlaygroundSetup,
 } from "@motor-combat-moba/shared";
 import { BOT_PROFILES } from "../config/bot-profiles.js";
@@ -30,6 +35,7 @@ import {
   seatIndexOf,
   shouldRefusePlayground,
 } from "./PlaygroundRoom.js";
+import { scoped } from "./mode-scope.js";
 import { shouldRejectSecondArena } from "./singleton-arena.js";
 import type { CombatMemory } from "../sim/combat-bridge.js";
 import type { ContactMemory } from "../sim/ram-bridge.js";
@@ -567,5 +573,94 @@ describe("debugBot (PG72)", () => {
   it("returns undefined with no bots at all", () => {
     const room = roomWithBots({});
     expect(room.debugBot()).toBeUndefined();
+  });
+});
+
+/**
+ * Regression test for the IMPORTANT finding "playground tuning is inert server-side and diverges
+ * on the client" (2026-09-22 final review). Before the fix, `MSG_PLAYGROUND_TUNING`'s handler
+ * called `setTuning`, which calls shared's `installMode` — but the handler ran inside
+ * `scoped(this.modeConfig, ...)`, whose `finally` restored `this.modeConfig` (the OLD bundle) the
+ * instant the handler returned, discarding the install. Every later tick then re-entered through
+ * its OWN `scoped(this.modeConfig, () => this.tick())`, re-installing the same stale bundle
+ * regardless. The room's `modeConfig` field itself never moved, so a tuned value never reached a
+ * live tick — measured as "server keeps 90, client uses 999" in the review, which reads as a
+ * netcode fault rather than a config one.
+ *
+ * This drives the REAL handler path: `applyTuningMessage` wrapped in `scoped(room.modeConfig, ...)`
+ * exactly as `onCreate`'s `onMessage(MSG_PLAYGROUND_TUNING, ...)` registers it, and a subsequent
+ * `room.tick()` wrapped in `scoped(room.modeConfig, ...)` exactly as `setSimulationInterval`'s own
+ * callback does. Calling either unscoped (as this file's other tests do for tick()) would not
+ * reproduce the bug at all — the module-level bundle would simply stay whatever was last installed,
+ * masking the exact defect this test exists to catch.
+ */
+describe("PlaygroundRoom tuning: a tuned value survives into a SUBSEQUENT tick (IMPORTANT, 2026-09-22)", () => {
+  const DRIVEN = PLAYGROUND_SEAT_IDS[0]!;
+
+  interface TuningHarness {
+    modeConfig: ModeConfig;
+    state: PlaygroundState;
+    inputQueues: Map<string, InputMessage[]>;
+    setState(state: PlaygroundState): void;
+    addCar(sessionId: string, name: string, colorId: number, team: number): PlayerState;
+    applyTuningMessage(msg: unknown): void;
+    tick(): void;
+  }
+
+  function readyRoom(): TuningHarness {
+    const room = new PlaygroundRoom() as unknown as TuningHarness;
+    room.setState(new PlaygroundState());
+    room.state.phase = RoomPhase.MATCH;
+    room.state.controlledSessionId = DRIVEN;
+    const car = room.addCar(DRIVEN, "Player", 0, 0);
+    car.carId = "mirage";
+    car.hp = hpOf("mirage");
+    // Parked well clear of every arena wall, facing +x, throttle held — a straight acceleration
+    // run with nothing else to explain a speed difference between the two configs.
+    car.x = 640;
+    car.y = 360;
+    car.angle = 0;
+    return room;
+  }
+
+  it("a `drive.baseMaxSpeed` override reaches a tick that runs AFTER the tuning message", () => {
+    const room = readyRoom();
+
+    // The shipped ceiling — the number a bugged run cannot get past no matter how long it drives.
+    const shippedTopSpeed = scoped(room.modeConfig, () => forwardMaxSpeedOf("mirage" as CarId));
+    const shippedBase = scoped(room.modeConfig, () => drive().baseMaxSpeed);
+
+    // The tuning surface caps a positive field at 3x its shipped value (`numberRange` in
+    // `tuning-walker.ts`) — this is that cap, the largest override `validateTuning` will accept.
+    const tunedBase = shippedBase * 3;
+
+    // The real handler path: `onCreate` wraps `applyTuningMessage` in exactly this scope.
+    scoped(room.modeConfig, () => room.applyTuningMessage({ "drive.baseMaxSpeed": tunedBase }));
+
+    // The room's OWN bundle must have moved — proof the fix (a field re-assignment, not just a
+    // transient `installMode`) actually happened.
+    const tunedTopSpeed = scoped(room.modeConfig, () => forwardMaxSpeedOf("mirage" as CarId));
+    expect(tunedTopSpeed).toBeGreaterThan(shippedTopSpeed * 1.4);
+
+    // Now prove a TICK actually reads it, through the exact wrapper `setSimulationInterval` uses.
+    // Full throttle, straight ahead, re-centred after every tick so the run measures acceleration
+    // toward a top speed rather than a wall collision.
+    for (let t = 1; t <= 200; t++) {
+      room.inputQueues.get(DRIVEN)?.push({ seq: t, steer: 0, throttle: 1, fireSlots: 0 });
+      scoped(room.modeConfig, () => room.tick());
+      const player = room.state.players.get(DRIVEN)!;
+      player.x = 640;
+      player.y = 360;
+    }
+
+    const player = room.state.players.get(DRIVEN)!;
+    const reachedSpeed = speedOf(player.vx, player.vy);
+
+    // dragRate is untouched by this override, so both configs converge to their own ceiling at the
+    // same rate — 200 ticks (6.7s) against roughly a 0.8s time constant is many time constants deep,
+    // comfortably converged. A car stuck on the SHIPPED ceiling (the pre-fix bug) tops out at
+    // `shippedTopSpeed`; the busted-tuning failure mode reads as this assertion failing with
+    // `reachedSpeed` stuck near `shippedTopSpeed` instead of near `tunedTopSpeed`.
+    expect(reachedSpeed).toBeGreaterThan((shippedTopSpeed + tunedTopSpeed) / 2);
   });
 });
