@@ -35,6 +35,19 @@ export class BootScene extends Phaser.Scene {
   }
 
   create(): void {
+    // The client's TRUE entry point for config (C1/C2, 2026-09-22 final review). This must run
+    // before anything else in this method, and before any scene this one launches — `JoinScene`
+    // reads `flow()` directly (join.ts's name-field `maxLength`), and modules statically imported
+    // by `main.ts` (e.g. `ArenaScene.js` -> `maneuver-visual.js`) can read config at module scope
+    // via `memoOnBundle`-backed lazy derivations that still need a bundle installed before their
+    // first real call. Without this, the whole page was blank: `cfg()` threw "config read outside
+    // a mode scope" before `BootScene` ever got this far, with no room ever having been joined.
+    // Every real room (arena, practice, playground) reinstalls its OWN mode the moment it is
+    // joined, via `watchRoomMode` — this is only the bridge value for the stretch of time before
+    // that happens (the join screen, the lobby, and — for `?dev=` tools that never join a room at
+    // all — for their entire life).
+    installRoomMode(DEFAULT_GAME_MODE);
+
     // Everything dev-only lives inside this block, imports included. Vite replaces
     // `import.meta.env.DEV` with the literal `false` in a production build, so Rollup drops the
     // whole branch and never emits a chunk for anything it names.
@@ -52,12 +65,11 @@ export class BootScene extends Phaser.Scene {
           }
           // A dev tool's `create()` can read config synchronously (car/weapon stat lists, turret
           // numbers) with no room ever joined — `?dev=assets` and `?dev=fx` never connect to a
-          // server at all. Installed here, once, before ANY dev tool scene starts, so `cfg()` never
-          // throws on that first frame. `PlaygroundScene` is the one dev tool that DOES join a room
+          // server at all. The unconditional `installRoomMode` above already covers that; nothing
+          // further to install here. `PlaygroundScene` is the one dev tool that DOES join a room
           // (`PlaygroundRoom`, always pinned to `DEFAULT_GAME_MODE` — see its own CLAUDE.md note);
           // its later `watchRoomMode(room)` call re-affirms the same bundle from the room's own
-          // `state.mode` rather than depending on this default staying correct forever.
-          installRoomMode(DEFAULT_GAME_MODE);
+          // `state.mode` rather than depending on the default staying correct forever.
           // Tools read the manifest directly, so the art must be in the TextureManager before the
           // scene's create() runs — unlike normal play, there is no lobby to hide the wait behind.
           ready = this.loadArt(loadsEveryArena(id));

@@ -1,4 +1,5 @@
 import { ManeuverKind, weaponDefOf } from "@motor-combat-moba/shared";
+import { memoOnBundle } from "../net/mode-memo.js";
 
 /**
  * Pure derivations behind two render-only reads of `PlayerState.maneuver` (spec S3, S6): the wild
@@ -18,8 +19,18 @@ import { ManeuverKind, weaponDefOf } from "@motor-combat-moba/shared";
  * green, because the test asserted the literal. Derived, the two cannot drift again.
  *
  * `wildcharge` spawns no instance, so this is the ONLY place its colour reaches the world.
+ *
+ * **Lazy, via `memoOnBundle` (2026-09-22 final review, C1).** This used to be a module-scope
+ * `const`, evaluated the instant this module was imported — before `BootScene.create()` had
+ * installed any mode bundle, since `ArenaScene.js` (and this file transitively through it) is
+ * statically imported by `main.ts`. That threw `config read outside a mode scope` on every page
+ * load. `memoOnBundle` defers the `weaponDefOf` read to the first actual call (inside
+ * `maneuverOutline`, well after a room has installed its bundle) and re-derives it if the bundle
+ * ever changes underneath it, so a mode switch still cannot leave this reading a stale colour.
  */
-const CHARGE_OUTLINE_COLOR = Number.parseInt(weaponDefOf("wildcharge").color.slice(1), 16);
+const chargeOutlineColor = memoOnBundle(
+  (): number => Number.parseInt(weaponDefOf("wildcharge").color.slice(1), 16),
+);
 const CHARGE_OUTLINE_WIDTH = 3;
 
 export interface ManeuverOutlineStyle {
@@ -34,7 +45,7 @@ export interface ManeuverOutlineStyle {
  */
 export function maneuverOutline(maneuver: number): ManeuverOutlineStyle | null {
   if (maneuver !== ManeuverKind.CHARGE) return null;
-  return { color: CHARGE_OUTLINE_COLOR, width: CHARGE_OUTLINE_WIDTH };
+  return { color: chargeOutlineColor(), width: CHARGE_OUTLINE_WIDTH };
 }
 
 /** Alpha of each ghost hull outline trailed behind a dashing car, nearest the car first. */
