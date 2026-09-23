@@ -19,6 +19,7 @@ import { ABILITY_SLOT_CEILING } from "../config/weapon-slots.js";
 import { COLOR_TABLE } from "../config/color-config.js";
 import { ManeuverKind } from "../sim/maneuver.js";
 import { PlayerState } from "../schema/PlayerState.js";
+import { isArenaId } from "../arena/registry.js";
 import { MODE_TABLE } from "./registry.js";
 
 const UINT8_MAX = 255;
@@ -79,6 +80,13 @@ for (const def of Object.values(MODE_TABLE)) {
           );
         }
       }
+    });
+
+    it("names at least one arena, all of them registered (MC23)", () => {
+      // An empty set makes arenas[0] undefined and getArena throws MID-MATCH, killing the room;
+      // an unregistered id does the same one tick later. Both must fail the suite, not the match.
+      expect(def.config.arenas.length).toBeGreaterThan(0);
+      for (const id of def.config.arenas) expect(isArenaId(id)).toBe(true);
     });
 
     it("truncates an over-long kit silently, and only warns past the ceiling", () => {
