@@ -127,10 +127,11 @@ describe("variable kit length (Task 5)", () => {
 
 describe("pressing", () => {
   it("schedules a shot and spends a stock immediately", () => {
-    // predator carries a turret mount (Task 1), so the press alone commits the stock but leaves the
-    // shot unscheduled until `turnTurret` aligns it (TR12/TR13) — see turret.test.ts for that phase
-    // in isolation. Aligning here with the default aim (the car's own heading, matching the fresh
-    // turret's 0) restores the exact pre-turret nextShotTick.
+    // `predator` is a FIXED-MUZZLE row on this build (`development/main` returned it, `magmablast`
+    // and `thumper` to fixed muzzles when the basic attack went off), so the press schedules its
+    // shot immediately: `bearing` is null and `aligned` is true from `beginFire`. The `turnTurret`
+    // call below is kept because it is the canonical per-tick order, and a no-op on a fixed-muzzle
+    // press is part of what that order has to get right. `turret.test.ts` covers the turret phase.
     let state = beginFire("p1", fresh(), ABILITY_1, 100);
     expect(state.slots[1]!.stocks).toBe(0);
     state = turnTurret(state, 0, 100);
@@ -140,7 +141,7 @@ describe("pressing", () => {
       shotsLeft: 1,
       nextShotTick: 100,
       pressId: "p1#100#1",
-      bearing: 0,
+      bearing: null,
       aligned: true,
     });
   });
@@ -154,7 +155,7 @@ describe("pressing", () => {
 
   it("ignores a press with no stock left", () => {
     let spent = beginFire("p1", fresh(), ABILITY_1, 100);
-    spent = turnTurret(spent, 0, 100); // let predator's turret align so the shot actually exits
+    spent = turnTurret(spent, 0, 100); // canonical order; a no-op for fixed-muzzle predator
     const released = releaseShots(spent, 100).state;
     expect(beginFire("p1", released, ABILITY_1, 101).pending).toBeNull();
   });
@@ -183,10 +184,10 @@ describe("pressing", () => {
 describe("releasing", () => {
   it("emits the order on the scheduled tick and starts the recharge", () => {
     let pressed = beginFire("p1", fresh(), ABILITY_1, 100);
-    pressed = turnTurret(pressed, 0, 100); // predator's turret; aligns instantly at the default aim
+    pressed = turnTurret(pressed, 0, 100); // canonical order; a no-op for fixed-muzzle predator
     const { state, orders } = releaseShots(pressed, 100);
     expect(orders).toEqual([
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: 0 },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: null },
     ]);
     expect(state.pending).toBeNull();
     expect(state.slots[1]!.rechargeEndsTick).toBe(130); // 1000ms == 30 ticks
@@ -290,9 +291,9 @@ describe("per-tick order", () => {
   /**
    * Every function call below uses the SAME tick number, exactly as a real per-tick loop would.
    * `turnTurret` sits between `beginFire` and `releaseShots` per the canonical order (fire.ts's
-   * module doc); predator carries a turret mount (Task 1), and aiming at `carAngle` 0 — the same
-   * heading the turret already starts at — aligns it instantly, so this reproduces the exact
-   * pre-turret timing for a zero-start-up press.
+   * module doc). `predator` is fixed-muzzle on this build, so that call is a no-op here and the
+   * timing is the plain zero-start-up one — which is what makes this a test of the ORDER rather
+   * than of the turret. `turret.test.ts` runs the same order against a real turret row.
    */
   function step(state: FireState, tick: number, mask: number): { state: FireState; orders: ShotOrder[] } {
     const recharged = tickRecharge(state, tick);
@@ -312,7 +313,7 @@ describe("per-tick order", () => {
     state = step1.state;
     seen.push(...step1.orders);
     expect(seen).toEqual([
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: 0 },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: null },
     ]);
     expect(state.pending).toBeNull();
     expect(state.slots[1]!.stocks).toBe(0);
@@ -332,8 +333,8 @@ describe("per-tick order", () => {
     state = step2.state;
     seen.push(...step2.orders);
     expect(seen).toEqual([
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: 0 },
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#130#1", bearing: 0 },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: null },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#130#1", bearing: null },
     ]);
   });
 
@@ -351,21 +352,21 @@ describe("per-tick order", () => {
     expect(releasedBeforePress.orders).toEqual([]);
     state = releasedBeforePress.state;
     state = beginFire("p1", state, ABILITY_1, 100); // press registers AFTER release already ran this tick
-    state = turnTurret(state, 0, 100); // predator's turret; aligns instantly at the default aim
+    state = turnTurret(state, 0, 100); // canonical order; a no-op for fixed-muzzle predator
     expect(state.pending).toEqual({
       weaponId: "predator",
       slot: 1,
       shotsLeft: 1,
       nextShotTick: 100,
       pressId: "p1#100#1",
-      bearing: 0,
+      bearing: null,
       aligned: true,
     });
 
     // The next call to releaseShots happens on the NEXT tick, 101 — one tick after nextShotTick.
     const releasedNextTick = releaseShots(state, 101);
     expect(releasedNextTick.orders).toEqual([
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: 0 },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: null },
     ]); // late, but not lost
     expect(releasedNextTick.state.pending).toBeNull();
   });

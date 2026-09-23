@@ -7,5 +7,5 @@ export const BRAWL_SLOTS = {
   maxAbilitySlots: 3,
   maxFireSlots: 4,
   basicAttackSlotIndex: 0,
-  basicAttackEnabled: true,
+  basicAttackEnabled: false,
 } as const satisfies WeaponSlotConfig;

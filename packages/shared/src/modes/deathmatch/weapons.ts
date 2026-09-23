@@ -38,9 +38,6 @@ export const DEATHMATCH_WEAPONS = {
       pelletsPerVolley: 1,
       spreadAngleDeg: 0,
     },
-    turret: {
-      additionalOffset: 0,
-    },
   },
   thunderclap: {
     id: "thunderclap",
@@ -131,9 +128,6 @@ export const DEATHMATCH_WEAPONS = {
     pellets: {
       pelletsPerVolley: 1,
       spreadAngleDeg: 0,
-    },
-    turret: {
-      additionalOffset: 0,
     },
     explosion: {
       radius: 60,
@@ -237,9 +231,6 @@ export const DEATHMATCH_WEAPONS = {
     pellets: {
       pelletsPerVolley: 1,
       spreadAngleDeg: 0,
-    },
-    turret: {
-      additionalOffset: 0,
     },
     applies: [
       {

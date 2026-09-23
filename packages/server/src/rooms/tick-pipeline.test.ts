@@ -1,5 +1,11 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  DEFAULT_GAME_MODE,
+  assembleModeConfig,
+  installMode,
+  modeConfigOf,
+  type ModeTables,
+} from "@motor-combat-moba/shared";
 import {
   ArenaState,
   PlayerState,
@@ -65,6 +71,31 @@ function instanceAngle(state: ArenaState, weaponId: string): number | undefined 
 }
 
 describe("runPipeline: a mouse-aimed turret press (TR7, TR10-TR24)", () => {
+  /**
+   * The one weapon this build can make a turret press with, and the flag that lets it be pressed.
+   *
+   * `development/main` returned `predator`, `magmablast` and `thumper` to fixed muzzles, leaving the
+   * nine `basic-attack-*` rows as the table's only `turret` carriers — and those sit on fire slot 0,
+   * which `beginFire` refuses while the active bundle's `slots().basicAttackEnabled` is `false`. Unlike the unit tests
+   * elsewhere, this one drives the REAL pipeline off `PlayerState.carId`, so it cannot hand itself
+   * an ability slot carrying a basic attack; it pins the flag on instead, which is the repo's own
+   * rule for a test that covers the mechanic rather than the shipped position.
+   */
+  const TURRET_ROW = "basic-attack-mirage";
+
+  // Pinned on the BUNDLE, not on `BASIC_ATTACK_CONFIG`. `development/main` pinned the raw global,
+  // which was correct when `beginFire` read it; since the per-mode work `fire.ts` reads
+  // `slots().basicAttackEnabled` off the INSTALLED bundle, so writing the global reaches nothing
+  // and this test failed with the shipped flag `false`. Same intent, carried to where the sim now
+  // looks: assemble a sibling of the default bundle with the flag on and install it for these cases.
+  const SHIPPED = modeConfigOf(DEFAULT_GAME_MODE);
+  const BASIC_ATTACK_ON = assembleModeConfig(DEFAULT_GAME_MODE, {
+    ...(SHIPPED as unknown as ModeTables),
+    slots: { ...SHIPPED.slots, basicAttackEnabled: true },
+  });
+  beforeEach(() => installMode(BASIC_ATTACK_ON));
+  afterEach(() => installMode(SHIPPED));
+
   it("turns the turret toward the pressed bearing over several ticks, then fires and mirrors turretAngle", () => {
     const state = new ArenaState();
     state.phase = RoomPhase.MATCH;
@@ -89,26 +120,26 @@ describe("runPipeline: a mouse-aimed turret press (TR7, TR10-TR24)", () => {
       runPipeline(ctx);
     }
 
-    // magmablast is mirage's turret weapon, on fire slot 1 (basic attack occupies slot 0).
-    oneTick({ seq: 1, steer: 0, throttle: 0, fireSlots: 1 << 1, aimAngle: Math.PI / 2 });
+    // Mirage's basic attack is its only turret weapon on this build, and it sits on fire slot 0.
+    oneTick({ seq: 1, steer: 0, throttle: 0, fireSlots: 1 << 0, aimAngle: Math.PI / 2 });
 
     // The turret is still turning, so nothing has fired yet.
-    expect(hasInstance(state, "magmablast")).toBe(false);
+    expect(hasInstance(state, TURRET_ROW)).toBe(false);
 
     // The +1 absorbs float rounding at an exact multiple: at 540deg/s and 30 Hz the turn is exactly
     // 5 steps of 18deg (TURRET_TICKS.turnPerTick), and the press tick above already spent the first
     // one, so at most 4 more ticks should be needed.
     const maxTicks = Math.ceil(Math.PI / 2 / TURRET_TICKS.turnPerTick) + 1;
     let seq = 2;
-    for (let i = 1; i < maxTicks && !hasInstance(state, "magmablast"); i++) {
+    for (let i = 1; i < maxTicks && !hasInstance(state, TURRET_ROW); i++) {
       // The mask is HELD, not re-pressed: the same bit was already down last tick, so no new press
       // is detected and no aimAngle is needed — the turret keeps turning toward the frozen bearing
       // on its own every tick a turret press is pending (TR11/TR15).
-      oneTick({ seq: seq++, steer: 0, throttle: 0, fireSlots: 1 << 1 });
+      oneTick({ seq: seq++, steer: 0, throttle: 0, fireSlots: 1 << 0 });
     }
 
-    expect(hasInstance(state, "magmablast")).toBe(true);
-    expect(instanceAngle(state, "magmablast")).toBeCloseTo(Math.PI / 2, 3);
+    expect(hasInstance(state, TURRET_ROW)).toBe(true);
+    expect(instanceAngle(state, TURRET_ROW)).toBeCloseTo(Math.PI / 2, 3);
     expect(player.turretAngle).toBeCloseTo(Math.PI / 2, 3);
   });
 });

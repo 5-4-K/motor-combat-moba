@@ -67,12 +67,41 @@ describe("day one is behaviourally a no-op (G4)", () => {
 
       for (const key of TABLE_KEYS) {
         if (key === "drive") continue; // handled below, hull stripped first
+        if (key === "weapons" || key === "slots") continue; // deliberately moved since — see below
         it(`${key} matches the shipped fixture`, () => {
           // toStrictEqual (not toEqual) so a dropped optional field and an explicit `undefined`
           // are NOT treated as equivalent, and array order is checked positionally.
           expect(c[key]).toStrictEqual(shippedTables[key]);
         });
       }
+
+      /*
+       * `weapons` and `slots` are the two tables a DELIBERATE config change has moved since the
+       * fixture was captured: `development/main`'s `c78bbe3` set `BASIC_ATTACK_CONFIG.enabled` to
+       * `false` and returned `predator`, `magmablast` and `thumper` to fixed muzzles. The per-mode
+       * merge carried both into every mode folder, because the sim reads the folder and not the raw
+       * table — leaving them out of the folders would have silently un-done that commit.
+       *
+       * They are NOT exempted from the fixture, which would stop witnessing them entirely. The
+       * fixture is restated with exactly that change applied, so everything else in both tables is
+       * still held to the pre-migration snapshot: remove a turret from a FOURTH weapon, or move any
+       * other weapon field, or flip the flag back in one mode folder, and these fail.
+       */
+      const FIXED_MUZZLE_SINCE_MAIN = ["predator", "magmablast", "thumper"] as const;
+
+      it("weapons matches the shipped fixture, less the three turrets main returned to muzzles", () => {
+        const expected = structuredClone(shippedTables.weapons) as Record<string, { turret?: unknown }>;
+        for (const id of FIXED_MUZZLE_SINCE_MAIN) {
+          expect(expected[id]!.turret, `${id} carried no turret in the fixture`).toBeDefined();
+          delete expected[id]!.turret;
+        }
+        expect(c.weapons).toStrictEqual(expected);
+      });
+
+      it("slots matches the shipped fixture, less the basic attack main switched off", () => {
+        expect(shippedTables.slots.basicAttackEnabled, "fixture had the flag on").toBe(true);
+        expect(c.slots).toStrictEqual({ ...shippedTables.slots, basicAttackEnabled: false });
+      });
 
       it("drive (hull stripped) matches the shipped fixture", () => {
         expect(driveWithoutHull(c)).toStrictEqual(shippedTables.drive);

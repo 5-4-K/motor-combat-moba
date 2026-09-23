@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { ABILITY_SLOT_CEILING, WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
-import { SLOT_KEYS, hintSlotOrder, hintSlotOrderDefault, slotMaskFrom } from "./slot-keys.js";
+import { SLOT_KEYS, hintSlotOrder, slotMaskFrom } from "./slot-keys.js";
 
+// `hintSlotOrder` reads the ACTIVE mode's `maxAbilitySlots` for its default ability count, so every
+// case here needs a bundle installed.
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
 describe("slot keys", () => {
@@ -72,8 +74,10 @@ describe("slot key glyphs", () => {
   });
 
   it("gives the basic attack the left mouse button, in fire-slot 0 (TR29, TR46)", () => {
-    // The basic attack takes LMB back now that it is switched on: bit 0 is set by the left button
-    // alone, never a keyboard code.
+    // The BINDING, which the toggle does not touch: bit 0 is set by the left button alone, never a
+    // keyboard code, whether or not this build lets slot 0 fire. With the basic attack off
+    // (`development/main`) LMB is bound to a weapon that refuses every press, which is what a dead
+    // LMB looks like from here.
     expect(SLOT_KEYS[WEAPON_SLOT_CONFIG.basicAttackSlotIndex]!.buttonsMask).toBe(1);
     expect(SLOT_KEYS[WEAPON_SLOT_CONFIG.basicAttackSlotIndex]!.codes).toEqual([]);
     expect(slotMaskFrom([], 0b01) & 0b0001).toBe(0b0001);
@@ -116,7 +120,12 @@ describe("hintSlotOrder (basic-attack-toggle)", () => {
     expect(hintSlotOrder(false, 4)).toEqual([1, 2, 3, 4]);
   });
 
-  it("teaches the basic attack first now it is on (TR30)", () => {
-    expect(hintSlotOrderDefault()).toEqual([0, 1, 2, 3]);
-  });
+  // `development/main` carried a third case here, asserting `HINT_SLOT_ORDER` equalled
+  // `hintSlotOrder(BASIC_ATTACK_CONFIG.enabled)` — that the order came from the flag rather than
+  // from one build's hardcoded answer. It is gone because its SUBJECT is: `HINT_SLOT_ORDER` was a
+  // module-level const, and a const computed at import freezes whichever mode was installed first,
+  // so the per-mode work replaced it with `hintSlotOrderDefault()`, resolved per call. Restating it
+  // against the function would assert nothing — `hintSlotOrderDefault()` IS
+  // `hintSlotOrder(BASIC_ATTACK_CONFIG.enabled)` by definition. The durable half of that case is
+  // the two above, which pin BOTH rows explicitly and hold whichever way the toggle ships.
 });

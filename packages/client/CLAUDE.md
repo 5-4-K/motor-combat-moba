@@ -143,7 +143,7 @@ swatch's own claim (that the panel can never disagree with the field about who i
 
 Combat is drawn, never predicted: live instances (projectiles and beams alike) come from `state.weapons` (cosmetically extrapolated along their own motion by `combat-visual.ts`), HP from `PlayerState.hp`. A dead car stops driving, predicting, and interpolating, and — **in Last Standing only** — gains the spectate controls in `spectate.ts`. A Deathmatch wreck keeps its own seat instead: the camera holds where it died, the slot column keeps showing the player's own kit, and the camera cuts (never eases) to the new car on respawn, which is marked for the local player alone by the blinking self arrow (`drawSelfArrow`, gated on `isPhasedAt`). **There is no wreck left on the field**: it is intangible from the tick it dies, and `deathFadeAlpha` (`car-visual.ts`) fades it out over `DEATH_FADE_MS` from the networked `diedAtTick`, after which the container is destroyed rather than left invisible.
 
-There is no lock bracket, and no targeting assist of any kind: the 2026-09-17 removal of the aim-lock feature deleted `PlayerState.lockTargetSessionId`, `SHOW_LOCK_BRACKET`, `lockBracketArms` and the `lockGfx` layer it was stroked into. Since the 2026-09-21 mouse-aim work there are two aiming HUDs, one per muzzle kind. A **fixed-muzzle** shot leaves along the car's heading, so the nose is its aiming HUD. A **turret** shot (a row carrying `WeaponDef.turret` — the basic attack, `predator`, `magmablast`, `thumper`) leaves from the turret along the bearing to the **crosshair** (`scenes/crosshair.ts`, styled by `config/crosshair.ts`'s `CROSSHAIR_STYLE`), drawn while the lock is held and the car is on the field. Since TR56 the crosshair is a **world offset from the driven car's centre** (`input/aim-offset.ts`), not a screen cursor: mouse movement moves it, it rides with the car, keeps its world direction as the car turns, and is held within `CROSSHAIR_CONFIG.maxDistance` (60 u) and inside the turret's swing arc (`TURRET_CONFIG.maxSwingDeg`), re-clamped every frame. The drawn turret (`scenes/turret-visual.ts`, sized by `config/turret-visual.ts`'s `TURRET_VISUAL.lengthUnits`) shows where it is pointing, and turns toward the bearing before the shot leaves. `aimAngle` is computed from `turretPivotOf` on the **rendered** pose, because that is what the player aimed at on screen. See [`docs/combat-model.md`](../../docs/combat-model.md#turret-muzzle).
+There is no lock bracket, and no targeting assist of any kind: the 2026-09-17 removal of the aim-lock feature deleted `PlayerState.lockTargetSessionId`, `SHOW_LOCK_BRACKET`, `lockBracketArms` and the `lockGfx` layer it was stroked into. Since the 2026-09-21 mouse-aim work there are two aiming HUDs, one per muzzle kind. A **fixed-muzzle** shot leaves along the car's heading, so the nose is its aiming HUD. A **turret** shot (a row carrying `WeaponDef.turret` — on `development/main`, the nine basic-attack rows and nothing else, none of which can be pressed while `BASIC_ATTACK_CONFIG.enabled` is `false`, so this whole path is dormant on this build) leaves from the turret along the bearing to the **crosshair** (`scenes/crosshair.ts`, styled by `config/crosshair.ts`'s `CROSSHAIR_STYLE`), drawn while the lock is held and the car is on the field. Since TR56 the crosshair is a **world offset from the driven car's centre** (`input/aim-offset.ts`), not a screen cursor: mouse movement moves it, it rides with the car, keeps its world direction as the car turns, and is held within `CROSSHAIR_CONFIG.maxDistance` (60 u) and inside the turret's swing arc (`TURRET_CONFIG.maxSwingDeg`), re-clamped every frame. The drawn turret (`scenes/turret-visual.ts`, sized by `config/turret-visual.ts`'s `TURRET_VISUAL.lengthUnits`) shows where it is pointing, and turns toward the bearing before the shot leaves. `aimAngle` is computed from `turretPivotOf` on the **rendered** pose, because that is what the player aimed at on screen. See [`docs/combat-model.md`](../../docs/combat-model.md#turret-muzzle).
 
 **The AIM HUD is three white marks drawn UNDER the driven car and nobody else's**, in the car's own
 frame (`scenes/aim-hud.ts`, switched by `config/aim-hud.ts`, at `AIM_HUD_DEPTH` -2 between
@@ -173,12 +173,19 @@ unlocked, which is exactly how mouse fire worked before the turret existed — c
 and the shot leaves the fixed muzzle it was always going to leave. `swallow` is still masked on that
 path, and is always 0 there, since only `acquired` ever sets it.
 
-**Nothing in the shipped roster makes that gate false.** Every active chassis carries a turret ability
-(`magmablast`, `predator`, `thumper`) on top of a basic attack that is one, so `carHasTurretWeapon`
-is true for every real loadout — with the basic attack toggled off too. The turret-less path is
-reachable only from a hand-built playground kit or a chassis nobody has authored yet. It is the rule
-the code should hold regardless, and it was verified on screen by stubbing the predicate false rather
-than by reading the branch.
+**On `development/main` that gate is false for EVERY car, and that is the point.** This build
+returned `predator`, `magmablast` and `thumper` to fixed muzzles and set
+`BASIC_ATTACK_CONFIG.enabled` to `false`, so the only `turret` rows left are nine basic attacks on a
+fire slot that refuses every press. `carHasTurretWeapon` therefore answers false for all three
+chassis: no turret sprite, no pointer lock, no crosshair, no turret HUD — and the four muzzle arrows
+are the whole of the aim HUD a player sees. A config test in `turret-config.test.ts` asserts that
+over the live roster, so a weapon quietly regaining a turret is caught rather than discovered on
+screen.
+
+It reads the other way on `feature/mouse-aim`, where every chassis carries a turret ability on top
+of a basic attack that is one, and the turret-less path is reachable only from a hand-built
+playground kit. That is the branch the gate was written and verified on — by stubbing the predicate
+false and looking at the screen, rather than by reading the branch.
 
 **Player colour is for cars; weapon colour is for shots.**
 

@@ -39,8 +39,9 @@ const owner = { sessionId: "aaa", team: 0 as const, carId: "mirage", x: 500, y: 
 
 // `roadblock` is a fixed-muzzle projectile (no `turret` row) — the generic stand-in for exercising
 // spawn seq, ids, pierce, damage scaling and expiry, none of which is about any one weapon's own
-// geometry. `magmablast` used to serve that role but is a turret row for real now (spec TR18), so it
-// spawns from the turret pivot rather than the nose these tests are about.
+// geometry. `magmablast` served that role, became a turret row for a release (spec TR18) and is
+// fixed-muzzle again on this build — `roadblock` stays here regardless, so these cases can never
+// start spawning from a turret pivot instead of the nose they are about.
 describe("spawning", () => {
   it("births a shot at the car's nose, not its centre", () => {
     const { instances } = spawnInstances({ weaponId: "roadblock", slot: 0, finalVolley: true }, owner, 100, 0);
@@ -280,9 +281,17 @@ describe("wall clipping", () => {
 describe("turret spawn (TR18-TR19)", () => {
   const owner = { sessionId: "a", team: 0 as const, carId: "mirage", x: 100, y: 100, angle: 0 };
   const d = TURRET_CONFIG.defaultOffset;
+  /**
+   * The turret row these cases spawn from. A BASIC ATTACK rather than `magmablast`, which used to
+   * serve here: `development/main` returned `predator`, `magmablast` and `thumper` to fixed muzzles
+   * when the basic attack went off, leaving the nine `basic-attack-*` rows as the table's only
+   * `turret` carriers. `spawnInstances` reads the row, never the fire slot, so
+   * `BASIC_ATTACK_CONFIG.enabled` does not reach it and these stay a test of the real spawn branch.
+   */
+  const TURRET_ROW = "basic-attack-mirage" as const;
 
   it("spawns along the bearing from the pivot, not from the nose", () => {
-    const order = { weaponId: "magmablast" as const, slot: 1, finalVolley: true, pressId: "p", bearing: Math.PI / 2 };
+    const order = { weaponId: TURRET_ROW, slot: 1, finalVolley: true, pressId: "p", bearing: Math.PI / 2 };
     const [shot] = spawnInstances(order, owner, 0, 0).instances;
     expect(shot!.x).toBeCloseTo(100, 9);
     expect(shot!.y).toBeCloseTo(100 + d, 9);
@@ -293,7 +302,7 @@ describe("turret spawn (TR18-TR19)", () => {
   it("clamps a bearing the car has turned away from to the arc edge at release (TR55)", () => {
     // Pressed along +y; by release the car faces nearly -y, so +y is almost straight behind it. A
     // 180 arc sends the shot out along the nearer arc edge instead of through the car's blind side.
-    const order = { weaponId: "magmablast" as const, slot: 1, finalVolley: true, pressId: "p", bearing: Math.PI / 2 };
+    const order = { weaponId: TURRET_ROW, slot: 1, finalVolley: true, pressId: "p", bearing: Math.PI / 2 };
     const turned = { ...owner, angle: -Math.PI / 2 + 0.1 };
     const [shot] = spawnInstances(order, turned, 0, 0, 1, "", undefined, undefined, 180).instances;
     expect(shot!.angle).toBeCloseTo(0.1, 12);
@@ -304,7 +313,7 @@ describe("turret spawn (TR18-TR19)", () => {
   });
 
   it("uses the heading when a turret order carries no bearing", () => {
-    const order = { weaponId: "magmablast" as const, slot: 1, finalVolley: true, pressId: "p" };
+    const order = { weaponId: TURRET_ROW, slot: 1, finalVolley: true, pressId: "p" };
     const [shot] = spawnInstances(order, owner, 0, 0).instances;
     expect(shot!.x).toBeCloseTo(100 + d, 9);
     expect(shot!.y).toBeCloseTo(100, 9);
@@ -315,7 +324,7 @@ describe("turret spawn (TR18-TR19)", () => {
     // of MUZZLE_STEP_UNITS(4), so the quantised raycast in `wallClipDistance` lands exactly on the
     // face rather than overshooting into it by up to one step.
     const wall = { x: 108, y: 0, w: 20, h: 200 };
-    const order = { weaponId: "magmablast" as const, slot: 1, finalVolley: true, pressId: "p", bearing: 0 };
+    const order = { weaponId: TURRET_ROW, slot: 1, finalVolley: true, pressId: "p", bearing: 0 };
     const [shot] = spawnInstances(order, owner, 0, 0, 1, "", undefined, { obstacles: [wall], bounds: BOUNDS }).instances;
     expect(shot!.x).toBeLessThanOrEqual(wall.x);
   });
@@ -331,8 +340,9 @@ const quadMuzzle = {
   usesAimAssist: false,
   aimRangeUnits: undefined,
   muzzles: [0, 90, 180, 270],
-  // Spread from a real row that carries `turret` (spec TR18) — cleared here because this fixture is
-  // testing FIXED-muzzle fan geometry, which the turret branch bypasses entirely.
+  // Explicitly cleared rather than assumed: `magmablast` is fixed-muzzle again on this build, but
+  // this fixture is about FIXED-muzzle fan geometry and must keep testing it if the row ever gets
+  // its turret back (spec TR18 — the turret branch bypasses muzzle fans entirely).
   turret: undefined,
 } as const;
 

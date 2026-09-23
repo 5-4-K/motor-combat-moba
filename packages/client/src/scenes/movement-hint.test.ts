@@ -112,16 +112,23 @@ describe("movementHintItems", () => {
     }
   });
 
-  it("teaches the basic attack first now it is on, LMB RMB Q E, with no alternates (TR30)", () => {
-    // Keyed off hintSlotOrderDefault() rather than all of SLOT_KEYS, so the assertion survives the
-    // basic-attack toggle in either position instead of pinning one build's slot count. The row a
-    // full-kit chassis is taught in THIS build is exactly that order's glyphs, and with one layout
-    // now `actionAltsFor` has nothing left to print.
+  it("teaches LMB RMB Q E with the basic attack on, RMB Q E with it off, no alternates (TR30)", () => {
+    // BOTH positions of the toggle are pinned here rather than only the shipped one, so neither
+    // build's row silently goes untested. An earlier version read the flag and then asserted the
+    // enabled row against it, which measured nothing once the flag went `false`.
+    // Keyed off `hintSlotOrderDefault()` rather than the deleted `HINT_SLOT_ORDER` const: a const
+    // computed at import freezes whichever mode was installed first, so the per-mode work replaced
+    // it with a function resolved per call. The relationship asserted is the same one — the glyph
+    // row a full-kit chassis is taught is exactly the hint order's glyphs.
     const full = WEAPON_SLOT_CONFIG.maxAbilitySlots;
+    expect(actionKeysFor(full, true)).toEqual(["LMB", "RMB", "Q", "E"]);
+    expect(actionKeysFor(full, false)).toEqual(["RMB", "Q", "E"]);
+    // And whichever way THIS build ships it, the hint's own order is the row that gets drawn.
     const enabled = BASIC_ATTACK_CONFIG.enabled;
-    expect(actionKeysFor(full, enabled)).toEqual(["LMB", "RMB", "Q", "E"]);
     expect(actionKeysFor(full, enabled)).toEqual(hintSlotOrderDefault().map((s) => SLOT_KEYS[s]!.glyph));
-    expect(actionAltsFor(full, enabled)).toEqual([]);
+    // One layout now, so `actionAltsFor` has nothing left to print either way.
+    expect(actionAltsFor(full, true)).toEqual([]);
+    expect(actionAltsFor(full, false)).toEqual([]);
   });
 });
 
