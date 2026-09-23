@@ -134,9 +134,9 @@ describe("pruneArenaAssets", () => {
     return dir;
   }
 
-  it("keeps the active arena and common, removes the rest", () => {
+  it("keeps every arena in the list plus common, removes the rest", () => {
     const dir = makeDist();
-    const result = pruneArenaAssets(dir, "arena-01");
+    const result = pruneArenaAssets(dir, ["arena-01"]);
     assert.deepEqual(result.kept, ["arena-01", "common"]);
     assert.deepEqual(result.removed, ["arena-02", "arena-03"]);
     assert.ok(result.bytesRemoved >= 200);
@@ -146,9 +146,23 @@ describe("pruneArenaAssets", () => {
     assert.ok(!fs.existsSync(path.join(dir, "art", "arenas", "arena-03")));
   });
 
+  it("keeps every arena in a multi-id union, removing only the one outside it (MC25)", () => {
+    // The list has two ids now — arena-01 and arena-02 both survive, and arena-03 is still the one
+    // that proves the filter is a filter: a prune fed the whole union and told to "keep everything"
+    // would pass a test that asserts arena-01 and arena-02 survive alone, so arena-03 staying pruned
+    // is the assertion that actually falsifies a pass-through.
+    const dir = makeDist();
+    const result = pruneArenaAssets(dir, ["arena-01", "arena-02"]);
+    assert.deepEqual(result.kept, ["arena-01", "arena-02", "common"]);
+    assert.deepEqual(result.removed, ["arena-03"]);
+    assert.ok(fs.existsSync(path.join(dir, "art", "arenas", "arena-01", "floor.png")));
+    assert.ok(fs.existsSync(path.join(dir, "art", "arenas", "arena-02", "floor.png")));
+    assert.ok(!fs.existsSync(path.join(dir, "art", "arenas", "arena-03")));
+  });
+
   it("drops the pruned arenas' manifest keys and keeps every other key", () => {
     const dir = makeDist();
-    pruneArenaAssets(dir, "arena-01");
+    pruneArenaAssets(dir, ["arena-01"]);
     const manifest = JSON.parse(fs.readFileSync(path.join(dir, "art", "manifest.json"), "utf8"));
     assert.deepEqual(Object.keys(manifest.sprites).sort(), [
       "arena.arena-01.floor",
@@ -159,8 +173,8 @@ describe("pruneArenaAssets", () => {
 
   it("is idempotent", () => {
     const dir = makeDist();
-    pruneArenaAssets(dir, "arena-01");
-    const second = pruneArenaAssets(dir, "arena-01");
+    pruneArenaAssets(dir, ["arena-01"]);
+    const second = pruneArenaAssets(dir, ["arena-01"]);
     assert.deepEqual(second.removed, []);
     assert.equal(second.bytesRemoved, 0);
   });
@@ -168,15 +182,15 @@ describe("pruneArenaAssets", () => {
   it("does nothing when there is no arena art at all", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcm-arena-"));
     madeDirs.push(dir);
-    const result = pruneArenaAssets(dir, "arena-01");
+    const result = pruneArenaAssets(dir, ["arena-01"]);
     assert.deepEqual(result.kept, []);
     assert.deepEqual(result.removed, []);
   });
 
   it("passes its own assertion afterwards", () => {
     const dir = makeDist();
-    pruneArenaAssets(dir, "arena-01");
-    assert.doesNotThrow(() => assertOnlyActiveArenaShipped(dir, "arena-01"));
+    pruneArenaAssets(dir, ["arena-01"]);
+    assert.doesNotThrow(() => assertOnlyActiveArenaShipped(dir, ["arena-01"]));
   });
 });
 
@@ -197,7 +211,7 @@ describe("assertOnlyActiveArenaShipped", () => {
   it("throws when another arena's directory survived", () => {
     const dir = makeDir();
     fs.mkdirSync(path.join(dir, "art", "arenas", "arena-07"), { recursive: true });
-    assert.throws(() => assertOnlyActiveArenaShipped(dir, "arena-01"), /arena-07/);
+    assert.throws(() => assertOnlyActiveArenaShipped(dir, ["arena-01"]), /arena-07/);
   });
 
   it("throws when another arena's manifest key survived", () => {
@@ -206,7 +220,13 @@ describe("assertOnlyActiveArenaShipped", () => {
       path.join(dir, "art", "manifest.json"),
       JSON.stringify({ sprites: { "arena.arena-07.floor": { file: "arenas/arena-07/floor.png" } } }),
     );
-    assert.throws(() => assertOnlyActiveArenaShipped(dir, "arena-01"), /arena\.arena-07\.floor/);
+    assert.throws(() => assertOnlyActiveArenaShipped(dir, ["arena-01"]), /arena\.arena-07\.floor/);
+  });
+
+  it("does not throw for an arena that IS in a multi-id union", () => {
+    const dir = makeDir();
+    fs.mkdirSync(path.join(dir, "art", "arenas", "arena-02"), { recursive: true });
+    assert.doesNotThrow(() => assertOnlyActiveArenaShipped(dir, ["arena-01", "arena-02"]));
   });
 });
 

@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 // any code in this module runs, so a missing `packages/shared/dist` fails at load time and names
 // the exact missing path — a runtime check here could never execute.
 import {
-  ACTIVE_ARENA_ID,
+  activeArenaIds,
   ARENA_ART_COMMON,
   arenaIdFromArtKey,
 } from "../packages/shared/dist/index.js";
@@ -175,16 +175,19 @@ function readManifest(manifestPath) {
 }
 
 /**
- * Strip every arena's art but the active one's from a built client tree.
+ * Strip every arena's art but the active-mode UNION's from a built client tree.
  *
- * Two namespaces always survive: `arena.common.*`, for art several arenas share, and every key
- * outside the `arena.` prefix. `arenaIdFromArtKey` is imported from shared rather than reimplemented
- * here so the file-level rule and the client's boot-time load filter cannot drift apart.
+ * A host can switch mode in the lobby, and each mode carries its own arena set, so the zip must
+ * ship every arena any active mode can select — not just one — or a mode switch reaches the
+ * client's "Arena mismatch" screen. Two namespaces always survive regardless: `arena.common.*`, for
+ * art several arenas share, and every key outside the `arena.` prefix. `arenaIdFromArtKey` is
+ * imported from shared rather than reimplemented here so the file-level rule and the client's
+ * boot-time load filter (`shouldLoadAssetKey`) cannot drift apart.
  *
  * Call this on the **copied** release tree, never on `packages/client/dist`: the source dist stays
  * complete and reusable, and running a release twice in a row does the same thing as running it once.
  */
-export function pruneArenaAssets(clientDistDir, activeArenaId) {
+export function pruneArenaAssets(clientDistDir, arenaIds) {
   const arenasDir = path.join(clientDistDir, "art", "arenas");
   const kept = [];
   const removed = [];
@@ -193,7 +196,7 @@ export function pruneArenaAssets(clientDistDir, activeArenaId) {
   if (fs.existsSync(arenasDir)) {
     for (const entry of fs.readdirSync(arenasDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
-      if (entry.name === ARENA_ART_COMMON || entry.name === activeArenaId) {
+      if (entry.name === ARENA_ART_COMMON || arenaIds.includes(entry.name)) {
         kept.push(entry.name);
         continue;
       }
@@ -210,7 +213,7 @@ export function pruneArenaAssets(clientDistDir, activeArenaId) {
     for (const key of Object.keys(manifest.sprites)) {
       const arenaId = arenaIdFromArtKey(key);
       if (arenaId === undefined) continue;
-      if (arenaId === ARENA_ART_COMMON || arenaId === activeArenaId) continue;
+      if (arenaId === ARENA_ART_COMMON || arenaIds.includes(arenaId)) continue;
       delete manifest.sprites[key];
     }
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -220,17 +223,17 @@ export function pruneArenaAssets(clientDistDir, activeArenaId) {
 }
 
 /**
- * Throw if any non-active arena's art or manifest key reached the release. Checks the condition the
- * player would actually suffer — a file in the zip — rather than trusting that the prune ran, the
- * same way `assertFontsVendored` checks the file rather than the copy step.
+ * Throw if any arena outside the active-mode union's art or manifest key reached the release.
+ * Checks the condition the player would actually suffer — a file in the zip — rather than trusting
+ * that the prune ran, the same way `assertFontsVendored` checks the file rather than the copy step.
  */
-export function assertOnlyActiveArenaShipped(clientDistDir, activeArenaId) {
+export function assertOnlyActiveArenaShipped(clientDistDir, arenaIds) {
   const offenders = [];
   const arenasDir = path.join(clientDistDir, "art", "arenas");
   if (fs.existsSync(arenasDir)) {
     for (const entry of fs.readdirSync(arenasDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
-      if (entry.name === ARENA_ART_COMMON || entry.name === activeArenaId) continue;
+      if (entry.name === ARENA_ART_COMMON || arenaIds.includes(entry.name)) continue;
       offenders.push(`art/arenas/${entry.name}/`);
     }
   }
@@ -240,15 +243,16 @@ export function assertOnlyActiveArenaShipped(clientDistDir, activeArenaId) {
     for (const key of Object.keys(manifest.sprites)) {
       const arenaId = arenaIdFromArtKey(key);
       if (arenaId === undefined) continue;
-      if (arenaId === ARENA_ART_COMMON || arenaId === activeArenaId) continue;
+      if (arenaId === ARENA_ART_COMMON || arenaIds.includes(arenaId)) continue;
       offenders.push(`manifest key ${key}`);
     }
   }
 
   if (offenders.length > 0) {
     throw new Error(
-      `non-active arena art shipped (ACTIVE_ARENA_ID is "${activeArenaId}"): ${offenders.join(", ")}. ` +
-        `pruneArenaAssets should have removed these from the copied client dist.`,
+      `non-active-mode arena art shipped (active arena union is [${arenaIds.join(", ")}]): ` +
+        `${offenders.join(", ")}. pruneArenaAssets should have removed these from the copied client ` +
+        `dist.`,
     );
   }
 }
@@ -287,8 +291,9 @@ export async function main(argv = process.argv.slice(2)) {
   });
 
   const releaseClientDist = path.join(appDir, "packages", "client", "dist");
-  const pruned = pruneArenaAssets(releaseClientDist, ACTIVE_ARENA_ID);
-  assertOnlyActiveArenaShipped(releaseClientDist, ACTIVE_ARENA_ID);
+  const arenaUnion = activeArenaIds();
+  const pruned = pruneArenaAssets(releaseClientDist, arenaUnion);
+  assertOnlyActiveArenaShipped(releaseClientDist, arenaUnion);
 
   const serverPkg = JSON.parse(
     fs.readFileSync(path.join(rootDir, "packages", "server", "package.json"), "utf8"),
@@ -310,7 +315,7 @@ export async function main(argv = process.argv.slice(2)) {
 
   console.log(`Release folder: ${appDir}`);
   console.log(`Release zip: ${zipPath}`);
-  console.log(`Arena: ${ACTIVE_ARENA_ID}`);
+  console.log(`Arenas: ${arenaUnion.join(", ")}`);
   console.log(
     `Port: ${port} (${parsedPort.port === undefined ? "default; pass --port <n> to change" : "--port"})` +
       `${port < 1024 ? " — privileged on macOS/Linux" : ""}`,
