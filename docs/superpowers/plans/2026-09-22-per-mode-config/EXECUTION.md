@@ -67,11 +67,44 @@ to the task named after it.
 | 1. Accessor layer, one bundle | [`01-accessor-layer.md`](01-accessor-layer.md) | **DONE** (`fbe386a..f0f0112`) |
 | 2. Two mode folders | [`02-mode-folders.md`](02-mode-folders.md) | **DONE** (`1da2c85..74b8320`) |
 | 3. Scopes installed | [`03-room-scopes.md`](03-room-scopes.md) | **DONE** (`eb8b9cc..b78ad38`) |
-| 4. Lobby and arena sets | [`04-lobby-and-arenas.md`](04-lobby-and-arenas.md) | not started |
+| 4. Lobby and arena sets | [`04-lobby-and-arenas.md`](04-lobby-and-arenas.md) | **DONE** (`b5c868a..9c169a9`) |
 | 5. `setTuning` retired | [`05-retire-set-tuning.md`](05-retire-set-tuning.md) | not started |
 | 6. Tooling | [`06-tooling.md`](06-tooling.md) | not started |
 
-**Next:** Phase 3, Task 1.
+**Next:** Phase 5, Task 1.
+
+### Phase 4, as landed (commits `b5c868a..9c169a9`)
+
+A mode plays its **own** arena. `ArenaRoom` writes `state.arenaId = this.modeConfig.arenas[0]` in
+`onCreate` and again when the host switches mode; `newPracticeState()` writes it from Deathmatch's
+bundle. `ACTIVE_ARENA_ID` survives exactly where MC26 says it must — `ArenaState.arenaId`'s field
+initializer, the playground's default, and `build-cars-and-weapons.mjs` — and nowhere else.
+`BootScene` and `scripts/build-release.mjs` both cover `activeArenaIds()`, the union of every ACTIVE
+mode's set, so a mode switch cannot land on art the client never loaded or the zip never shipped.
+`golden.test.ts` is byte-identical: not one balance number moved.
+
+**Task 1 (`activeArenaIds()`) was already done** — it landed with phase 2's registry work.
+
+Two changes beyond the plan's five tasks, both made because the phase falsified something:
+
+- **A docs task.** The change made six statements false across `asset-pipeline.md`,
+  `config-reference.md`, `deployment.md` and `project-structure.md`. `config-reference.md`'s "Arena
+  selection" section was a how-to that had become actively WRONG — it told the reader to set
+  `ACTIVE_ARENA_ID`, which no longer changes what a match plays. Rewritten to point at the mode
+  folder's `arenas` list.
+- **`MSG_SET_MODE`'s guard asymmetry, fixed.** `state.mode` was written whenever nobody was
+  `IN_MATCH`, while `modeConfig` and `arenaId` were written only in `RoomPhase.LOBBY` — so outside
+  LOBBY the three diverged. Phase 3 introduced that for the bundle; phase 4 would have enlarged it
+  to "dropped into the previous mode's arena". The decision is now the pure, tested
+  `resolveSetMode(phase, hasPlayerInMatch, mode)` in `rooms/match-helpers.ts`, and the three values
+  move together or not at all.
+
+**Spec erratum, recorded under MC24.** The clause justified the union by claiming that otherwise a
+mode switch reaches the client's "Arena mismatch" screen. That is false. The overlay fires on an
+UNREGISTERED arena id (`ArenaScene.ts`); missing ART falls back to the procedurally generated
+asphalt floor. The requirement stands — a correctly-playing arena drawn with the wrong floor is
+still a bug — but it is a cosmetic failure, not a crash, and anyone weighing the union's cost
+should weigh it against that and not against an error screen.
 
 ### Phase 2, as landed (commits `1da2c85..74b8320`)
 
@@ -222,3 +255,63 @@ probes had crashed.
 
 Every one passed CI. The only thing that found them was asking, of each guard, *what edit would make
 this fail?* — and then making that edit. That question is worth applying to any new guard here.
+
+---
+
+# Handover addendum — phase 4 (2026-09-23)
+
+`b5c868a..9c169a9`, all pushed. Phases **5 and 6 remain unstarted.**
+
+## What phase 4 changed about the six outstanding risks above
+
+Nothing. All six survive as written — they are about tables and tooling, and phase 4 touched
+arenas. Risk 5 (`PracticeRoom.onCreate`'s unscoped-read fix has no regression test) now has a
+sibling: `ArenaRoom`'s `MSG_SET_MODE` path is testable ONLY through the pure `resolveSetMode` helper
+phase 4 extracted; the handler that calls it is still untested, for the same reason — no test in
+this repo instantiates a room, because none mocks `matchMaker`. A room harness would close both at
+once and is the single highest-value piece of test infrastructure this branch is missing.
+
+## New, from phase 4
+
+7. **The zip and every client now carry 5.8 MB of art for an arena nobody can play.**
+   `public/art/arenas/arena-02/floor.png` is 5,836,906 bytes. MC24/MC25 ship the UNION of every
+   active mode's `arenas`; MC23 makes a match play `arenas[0]`. Both shipped modes list
+   `["arena-01", "arena-02"]`, so the reachable set is `{arena-01}` and the shipped set is both.
+   Every LAN client downloads that file and uploads it to the GPU at boot, for nothing.
+   **This was ruled deliberate, not fixed** — narrowing the prune to `unique(arenas[0])` would
+   contradict MC24/MC25 as approved, and widening later is the harder direction. `asset-pipeline.md`
+   now says so in as many words. **It is a live decision for the user**: the alternative is one
+   line in `build-release.mjs` and one in `BootScene`, plus re-widening them when an arena picker
+   or a second first-arena lands.
+8. **A late-joining host can open the Game-modes menu mid-match, and the click now does nothing.**
+   `lobby/status.ts` routes to the lobby SCREEN on `isReady(status)` regardless of room phase, and
+   `ArenaRoom.onJoin` sets every joiner READY — so the menu is reachable outside `LOBBY`.
+   `resolveSetMode` correctly refuses there, which is strictly safer than the divergence it
+   replaced, but the host gets no feedback. The honest fix is client-side: hide or disable the menu
+   when the room is not in `LOBBY`. Nobody has done it.
+9. **One assertion in `asset-keys.test.ts` cannot fail on its own today.** The per-mode containment
+   half of the MC24 test passes trivially while both modes carry identical arena lists; the
+   `union.length > 1` assertion beside it is the live falsifier. Disclosed in the test's own comment.
+   It becomes real the day a mode's list diverges — which is the point of the whole feature.
+
+## Rulings made during phase 4
+
+- **P1** — Task 1 (`activeArenaIds()`) was already landed in phase 2; skipped rather than re-done.
+- **P2** — the plan's "repoint its three call sites" for `shouldLoadAssetKey` was wrong: one
+  production site plus a test file.
+- **P3** — `scripts/build-release.test.mjs` exists, so updating it was mandatory, not the plan's
+  optional "if one exists".
+- **P4** — tasks 4 and 5 batched into one dispatch; same shape, one review surface.
+- **T3-A** — the phase-3 handover's failing-test baseline was stale. OFF-AXIS, P49 and P50 all pass
+  now; the branch's two failures are `bot/brain/controller.test.ts`'s G12 pair, confirmed
+  pre-existing twice over.
+- **T3-B** — `ArenaRoom`'s untested `MSG_SET_MODE` write was parked rather than met with a
+  matchMaker harness. The fix wave later made it partly moot by extracting `resolveSetMode`.
+- **T45-A** — a docs task was added to the phase, because the change falsified six doc statements.
+- **T6-A** — the docs task's review was folded into the final whole-branch review.
+- **FR-1** — **the union stays; the 5.8 MB is surfaced, not silently removed.** See risk 7.
+- **FR-2** — the `MSG_SET_MODE` guard asymmetry was fixed although it predates phase 4, because
+  phase 4 raised its cost from "wrong win rule in the HUD" to "wrong arena under the player".
+- **FR-3** — the final review's two load-bearing claims were verified in the source by hand before
+  being acted on. One of them found that spec clause MC24's own justification is false; the clause
+  now carries an erratum.
