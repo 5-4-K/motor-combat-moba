@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CAR_ID } from "@motor-combat-moba/shared";
+import {
+  DEFAULT_CAR_ID,
+  GameMode,
+  RoomPhase,
+  modeConfigOf,
+} from "@motor-combat-moba/shared";
 import {
   carAtDeadline,
   copySpawnNumbers,
   livingAfterLeave,
+  resolveSetMode,
 } from "./match-helpers.js";
 
 describe("copySpawnNumbers", () => {
@@ -43,5 +49,49 @@ describe("carAtDeadline", () => {
   it("is deterministic — the same input always yields the same car", () => {
     const runs = Array.from({ length: 20 }, () => carAtDeadline(undefined));
     expect(new Set(runs).size).toBe(1);
+  });
+});
+
+describe("resolveSetMode", () => {
+  const OTHER = GameMode.FFA_DEATHMATCH;
+
+  it("resolves the bundle and the arena alongside the mode, never the mode alone", () => {
+    const next = resolveSetMode(RoomPhase.LOBBY, false, OTHER);
+    expect(next).toBeDefined();
+    expect(next?.mode).toBe(OTHER);
+    expect(next?.config).toBe(modeConfigOf(OTHER));
+    expect(next?.arenaId).toBe(modeConfigOf(OTHER).arenas[0]);
+  });
+
+  // The bug this function exists to make impossible: `state.mode` used to be written outside the
+  // LOBBY guard while the bundle and the arena were written inside it, so any phase that is neither
+  // LOBBY nor "someone is IN_MATCH" left the room advertising one mode and running another's
+  // tables. Every non-LOBBY phase must refuse, not partially apply.
+  it.each([
+    ["CAR_SELECT", RoomPhase.CAR_SELECT],
+    ["REVEAL", RoomPhase.REVEAL],
+    ["COUNTDOWN", RoomPhase.COUNTDOWN],
+    ["MATCH", RoomPhase.MATCH],
+  ])("refuses outside LOBBY even with nobody IN_MATCH (%s)", (_name, phase) => {
+    expect(resolveSetMode(phase, false, OTHER)).toBeUndefined();
+  });
+
+  it("refuses in LOBBY while a player is still IN_MATCH", () => {
+    expect(resolveSetMode(RoomPhase.LOBBY, true, OTHER)).toBeUndefined();
+  });
+
+  it("falls back to the default bundle for an unknown wire value rather than throwing", () => {
+    const next = resolveSetMode(RoomPhase.LOBBY, false, 99 as GameMode);
+    expect(next).toBeDefined();
+    // The arena still comes from a real bundle, so a stale client cannot strand the room on an
+    // unregistered arena id — which is the one thing that DOES reach the mismatch screen.
+    expect(next?.arenaId).toBe(next?.config.arenas[0]);
+  });
+
+  it("is pure: two calls give equal results and share the frozen bundle", () => {
+    const a = resolveSetMode(RoomPhase.LOBBY, false, OTHER);
+    const b = resolveSetMode(RoomPhase.LOBBY, false, OTHER);
+    expect(a).toEqual(b);
+    expect(a?.config).toBe(b?.config);
   });
 });

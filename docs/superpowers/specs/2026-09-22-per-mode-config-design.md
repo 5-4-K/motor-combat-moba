@@ -121,6 +121,15 @@ same time.
 - **MC24.** `BootScene` loads the **union** of every active mode's arena set, not
   `ACTIVE_ARENA_ID`'s art alone. Without this, switching mode in the lobby reaches the "Arena
   mismatch" screen.
+
+  > **Erratum (2026-09-23).** That last sentence is wrong, and the requirement stands without it.
+  > The "Arena mismatch" overlay fires on an **unregistered** arena id — `!isArenaId(arenaId)` in
+  > `packages/client/src/scenes/ArenaScene.ts` — and every arena in every mode's set is registered
+  > by definition (MC23's own test pins it). Missing *art* is a different thing entirely:
+  > `resolveArenaFloor` (`packages/client/src/assets/arena-floor.ts`) returns `undefined` and the
+  > scene falls back to the procedurally generated asphalt floor. So the real consequence of
+  > loading less than the union is a **correctly-playing arena drawn with the wrong floor** — a
+  > visual defect, not a crash or an error screen. MC24 is unchanged; only this rationale was.
 - **MC25.** `build-release.mjs` prunes to that same union, and its post-build assertion checks the
   union rather than a single id.
 - **MC26.** `ACTIVE_ARENA_ID` stops being the source of truth for play. It survives as the

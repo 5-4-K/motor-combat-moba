@@ -10,10 +10,12 @@ Writes `dist-release/motor-combat-moba/` and `dist-release/motor-combat-moba-rel
 
 The release build prints the arenas it shipped — the union of every active mode's arena set,
 `activeArenaIds()` — the port it configured (`Port: 2567 (default; pass --port <n> to change)`) and,
-when it removed any, the arenas whose art it pruned and how much that saved. Both shipped modes play
-`["arena-01", "arena-02"]` today, so the zip ships both; a mode played on a narrower set would prune
-the rest. `assertOnlyActiveArenaShipped` then re-walks the copied client dist and fails the build if
-any arena outside that union's directory or manifest key survived.
+when it removed any, the arenas whose art it pruned and how much that saved. Both shipped modes list
+`["arena-01", "arena-02"]` today, so the zip ships both — although a match only ever plays
+`arenas[0]`, so `arena-01` is the one of the two a player can currently reach; a mode listing a
+narrower set would prune the rest. `assertOnlyActiveModeArenasShipped` then re-walks the copied
+client dist and fails the build if any arena outside that union's directory or manifest key
+survived.
 
 Pruning operates on the copy inside `dist-release/`, so `packages/client/dist` keeps every arena and
 running a release twice does not compound.

@@ -5,7 +5,7 @@ import path from "node:path";
 import { after, describe, it } from "node:test";
 import {
   assertNoDevOnlyCode,
-  assertOnlyActiveArenaShipped,
+  assertOnlyActiveModeArenasShipped,
   DEV_ONLY_MARKERS,
   pruneArenaAssets,
   releasePackageJson,
@@ -190,11 +190,29 @@ describe("pruneArenaAssets", () => {
   it("passes its own assertion afterwards", () => {
     const dir = makeDist();
     pruneArenaAssets(dir, ["arena-01"]);
-    assert.doesNotThrow(() => assertOnlyActiveArenaShipped(dir, ["arena-01"]));
+    assert.doesNotThrow(() => assertOnlyActiveModeArenasShipped(dir, ["arena-01"]));
+  });
+
+  // A bare string satisfies `.includes` — `"arena-01".includes("arena-01")` is `true` — so a revert
+  // to passing one id would prune to exactly that arena and throw nothing. Without this test that
+  // regression is invisible: every other case here hands in an array already.
+  it("throws on a bare string rather than treating it as a one-arena union", () => {
+    const dir = makeDist();
+    assert.throws(() => pruneArenaAssets(dir, "arena-01"), {
+      name: "TypeError",
+      message: /pruneArenaAssets\(dir, arenaIds\).*the string "arena-01"/s,
+    });
+    // And nothing was deleted on the way out: the guard runs before any fs work.
+    assert.ok(fs.existsSync(path.join(dir, "art", "arenas", "arena-02", "floor.png")));
+  });
+
+  it("throws on undefined too, naming the function", () => {
+    const dir = makeDist();
+    assert.throws(() => pruneArenaAssets(dir, undefined), /pruneArenaAssets\(dir, arenaIds\)/);
   });
 });
 
-describe("assertOnlyActiveArenaShipped", () => {
+describe("assertOnlyActiveModeArenasShipped", () => {
   const madeDirs = [];
   after(() => {
     for (const dir of madeDirs) fs.rmSync(dir, { recursive: true, force: true });
@@ -211,7 +229,7 @@ describe("assertOnlyActiveArenaShipped", () => {
   it("throws when another arena's directory survived", () => {
     const dir = makeDir();
     fs.mkdirSync(path.join(dir, "art", "arenas", "arena-07"), { recursive: true });
-    assert.throws(() => assertOnlyActiveArenaShipped(dir, ["arena-01"]), /arena-07/);
+    assert.throws(() => assertOnlyActiveModeArenasShipped(dir, ["arena-01"]), /arena-07/);
   });
 
   it("throws when another arena's manifest key survived", () => {
@@ -220,13 +238,31 @@ describe("assertOnlyActiveArenaShipped", () => {
       path.join(dir, "art", "manifest.json"),
       JSON.stringify({ sprites: { "arena.arena-07.floor": { file: "arenas/arena-07/floor.png" } } }),
     );
-    assert.throws(() => assertOnlyActiveArenaShipped(dir, ["arena-01"]), /arena\.arena-07\.floor/);
+    assert.throws(() => assertOnlyActiveModeArenasShipped(dir, ["arena-01"]), /arena\.arena-07\.floor/);
   });
 
   it("does not throw for an arena that IS in a multi-id union", () => {
     const dir = makeDir();
     fs.mkdirSync(path.join(dir, "art", "arenas", "arena-02"), { recursive: true });
-    assert.doesNotThrow(() => assertOnlyActiveArenaShipped(dir, ["arena-01", "arena-02"]));
+    assert.doesNotThrow(() => assertOnlyActiveModeArenasShipped(dir, ["arena-01", "arena-02"]));
+  });
+
+  // Same trap as `pruneArenaAssets` above: fed a bare string the assertion would quietly check
+  // membership with `String#includes` and pass, certifying a zip nobody actually verified.
+  it("throws on a bare string rather than treating it as a one-arena union", () => {
+    const dir = makeDir();
+    assert.throws(() => assertOnlyActiveModeArenasShipped(dir, "arena-01"), {
+      name: "TypeError",
+      message: /assertOnlyActiveModeArenasShipped\(dir, arenaIds\).*the string "arena-01"/s,
+    });
+  });
+
+  it("throws on undefined too, naming the function", () => {
+    const dir = makeDir();
+    assert.throws(
+      () => assertOnlyActiveModeArenasShipped(dir, undefined),
+      /assertOnlyActiveModeArenasShipped\(dir, arenaIds\)/,
+    );
   });
 });
 

@@ -1,7 +1,13 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import {
+  DEFAULT_GAME_MODE,
+  activeArenaIds,
+  installMode,
+  isActiveGameMode,
+  modeConfigOf,
+} from "@motor-combat-moba/shared";
 import {
   BOT_SESSION_ID,
   GameMode,
@@ -49,6 +55,20 @@ describe("newPracticeState (PR9)", () => {
 
   it("runs deathmatch rules, so death respawns instead of eliminating", () => {
     expect(newPracticeState().mode).toBe(GameMode.FFA_DEATHMATCH);
+  });
+
+  // `newPracticeState` pins this mode by CONSTANT, and nothing else ties that constant to the mode
+  // still being published. Mark Deathmatch `isActive: false` and practice keeps running it — but
+  // `activeArenaIds()` stops covering its arenas, so the client's boot filter skips that art and
+  // `build-release.mjs` prunes it from the zip: every practice session would then play on the
+  // procedural fallback floor instead of the arena's own, with nothing anywhere saying why.
+  // Whoever deactivates Deathmatch must decide what practice runs instead; this is the tripwire.
+  it("pins a mode that is actually ACTIVE, so the arena union still covers practice's arena", () => {
+    expect(isActiveGameMode(GameMode.FFA_DEATHMATCH)).toBe(true);
+    for (const arenaId of modeConfigOf(GameMode.FFA_DEATHMATCH).arenas) {
+      expect(activeArenaIds()).toContain(arenaId);
+    }
+    expect(activeArenaIds()).toContain(newPracticeState().arenaId);
   });
 
   // MC23/MC26: pins the INTENDED source — Deathmatch's own bundle, not `ACTIVE_ARENA_ID` — as

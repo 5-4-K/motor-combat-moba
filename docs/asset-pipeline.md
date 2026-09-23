@@ -422,11 +422,16 @@ render-only.
 ## Arena art
 
 Arena-owned art is namespaced by arena id, so the release can carry only the arenas some ACTIVE mode
-actually plays — `activeArenaIds()` in `packages/shared/src/modes/registry.ts`, the de-duplicated
-union of every active `GameMode`'s own `ModeTables.arenas` list, not one arena picked for the whole
-game. Brawl and Deathmatch both list `["arena-01", "arena-02"]` today, so the union happens to be
-both arenas; a mode authored against a narrower or disjoint set would ship only what it and its
-siblings actually play.
+could draw on — `activeArenaIds()` in `packages/shared/src/modes/registry.ts`, the de-duplicated
+union of every active `GameMode`'s whole `ModeTables.arenas` list, not one arena picked for the whole
+game. Brawl and Deathmatch both list `["arena-01", "arena-02"]` today, so the union is both arenas.
+
+**Only `arenas[0]` is reachable today.** A match plays the first entry of its mode's list and
+nothing selects any other, so `arena-01` is the one arena a player can actually be dropped into
+while the union the zip ships is two. That slack is deliberate: the union is what the day a mode
+carries a different first arena needs, and it costs nothing to keep the wider set shipping until
+then. A mode authored against a narrower or disjoint set would ship only what it and its siblings
+list.
 
 | Manifest key | On disk | In the release? |
 |---|---|---|
@@ -439,7 +444,7 @@ Two places apply the same rule, both through `arenaIdFromArtKey` in
 manifest entries at boot against the LIST `activeArenaIds()` returns, so `BootScene` loads every
 active mode's arena art together rather than a single arena's, and `pruneArenaAssets(dir, arenaIds)`
 in `scripts/build-release.mjs` keeps that same union in the release, deleting only the arenas no
-active mode ever plays.
+active mode lists at all.
 
 The consequence worth knowing: an arena you are experimenting with costs the shipped zip nothing, so
 there is no reason to delete an arena to keep the download small.

@@ -86,6 +86,7 @@ import {
   carAtDeadline,
   copySpawnNumbers,
   livingAfterLeave,
+  resolveSetMode,
 } from "./match-helpers.js";
 import { selectNextHost } from "./select-next-host.js";
 import { ROOM_FULL_ERROR, shouldRejectSecondArena } from "./singleton-arena.js";
@@ -191,20 +192,18 @@ export class ArenaRoom extends Room<ArenaState> {
       this.onMessage(MSG_SET_MODE, (client, msg: unknown) =>
         scoped(this.modeConfig, () => {
           if (client.sessionId !== this.state.hostSessionId) return;
-          if (this.hasPlayerInMatch()) return;
           if (!isSetModePayload(msg)) return;
-          this.state.mode = msg.mode;
-          // Re-resolve immediately (MC21): car select must already show the chosen mode's roster
-          // and kits, so resolution cannot wait until the match starts. Guarded on LOBBY, not just
-          // `hasPlayerInMatch` above, because LOBBY is the exact window MC21 names — the room must
-          // never swap the bundle a live match is running inside.
-          if (this.state.phase === RoomPhase.LOBBY) {
-            this.modeConfig = modeConfigOrDefault(this.state.mode);
-            // The host switching mode moves the arena with it (MC23): otherwise car select and the
-            // client's loaded art would keep showing the OLD mode's arena while the new bundle's
-            // roster and kits are already live.
-            this.state.arenaId = this.modeConfig.arenas[0];
-          }
+          // All three writes come out of one decision, or none of them do — `resolveSetMode`'s doc
+          // comment has the why. Applied immediately (MC21): car select must already show the
+          // chosen mode's roster and kits, so resolution cannot wait until the match starts.
+          const next = resolveSetMode(this.state.phase, this.hasPlayerInMatch(), msg.mode);
+          if (!next) return;
+          this.state.mode = next.mode;
+          this.modeConfig = next.config;
+          // The host switching mode moves the arena with it (MC23): otherwise car select and the
+          // client's loaded art would keep showing the OLD mode's arena while the new bundle's
+          // roster and kits are already live.
+          this.state.arenaId = next.arenaId;
         }),
       );
 

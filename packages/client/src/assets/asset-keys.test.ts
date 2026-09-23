@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   activeArenaIds,
   DEFAULT_GAME_MODE,
+  MODE_TABLE,
   installMode,
   modeConfigOf,
 } from "@motor-combat-moba/shared";
@@ -77,8 +78,23 @@ describe("shouldLoadAssetKey", () => {
   });
 
   it("loads art for every active mode's arenas, not just one (MC24)", () => {
-    for (const id of activeArenaIds()) {
-      expect(shouldLoadAssetKey(`arena.${id}.floor`, activeArenaIds(), false)).toBe(true);
+    // Feeding `activeArenaIds()` as BOTH the key source and the filter would only re-test
+    // `Array.includes` — it passes vacuously on an empty union and cannot fail if `BootScene`
+    // reverts to a single id. So: pin that the union is genuinely wider than one arena, and check
+    // containment PER MODE, against each mode's own authored list rather than against the union it
+    // was derived from.
+    const union = activeArenaIds();
+    expect(union.length).toBeGreaterThan(1);
+
+    const activeModes = Object.values(MODE_TABLE).filter((mode) => mode.isActive);
+    expect(activeModes.length).toBeGreaterThan(0);
+    for (const mode of activeModes) {
+      const arenas = modeConfigOf(mode.id).arenas;
+      expect(arenas.length).toBeGreaterThan(0);
+      for (const id of arenas) {
+        expect(union).toContain(id);
+        expect(shouldLoadAssetKey(`arena.${id}.floor`, union, false)).toBe(true);
+      }
     }
   });
 

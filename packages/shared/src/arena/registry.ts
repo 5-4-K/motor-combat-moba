@@ -4,7 +4,9 @@ import type { ArenaDef } from "./types.js";
 
 /**
  * Every arena the build knows about. Adding one is a new `arena-0N.ts` plus a row here; which of
- * them the game actually plays is `ACTIVE_ARENA_ID` in `config/arena-config.ts`.
+ * them the game actually plays is per mode — `arenas[0]` of that mode's own `arenas` list in
+ * `modes/<mode>/index.ts` (MC23), never `ACTIVE_ARENA_ID`, which is only a default for a few call
+ * sites (see `config/arena-config.ts`).
  *
  * Registered arenas that are not active still cost the bundle their layout data — a few hundred
  * bytes of rects. Their *art* is what the release prunes, which is where the weight is.

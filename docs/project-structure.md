@@ -37,6 +37,13 @@ motor-combat-MOBA/
 │   │   ├── tuning-walker.ts      # tunableFields/validateTuning/sanitizeStoredTuning (PG14)
 │   │   ├── practice-config.ts    # PRACTICE_CONFIG: idle timeout/warning, maxConcurrentRooms (PR26–PR29)
 │   │   └── chat-config.ts        # CHAT_CONFIG: lobby chat limits — maxLength, maxMessages, sendCooldownMs (LC10)
+│   ├── modes/                    # per-mode config: the bundle every accessor reads, one folder per GameMode
+│   │   ├── types.ts              # ModeTables (what a mode folder authors — the OBB hull is excluded by type), ModeConfig
+│   │   ├── build.ts              # assembleModeConfig: tables -> one frozen bundle, tick tables derived per mode
+│   │   ├── registry.ts           # MODE_TABLE (mode -> bundle), DEFAULT_GAME_MODE, modeConfigOf/OrDefault, activeArenaIds
+│   │   ├── active.ts             # the active scope: withMode/installMode/cfg, and the sixteen accessors (cars(), drive(), …)
+│   │   ├── brawl/                # FFA_LAST_STANDING's thirteen table files + index.ts (ModeTables, arenas list)
+│   │   └── deathmatch/           # FFA_DEATHMATCH's own copy of the same thirteen + index.ts
 │   ├── schema/                   # PlayerState, StatusState, WeaponInstanceState, WeaponSlotState, ArenaState, ChatMessageState
 │   │   ├── PlaygroundState.ts    # extends ArenaState: paused, controlledSessionId, botEnabled, tuningJson (PG5)
 │   │   └── PracticeState.ts      # extends ArenaState: paused only — no controlledSessionId, no tuningJson (PR6)

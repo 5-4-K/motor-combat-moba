@@ -175,11 +175,34 @@ function readManifest(manifestPath) {
 }
 
 /**
+ * Throw unless `arenaIds` is a real array.
+ *
+ * This file is untyped `.mjs`, and every membership test below is `arenaIds.includes(id)` — which a
+ * bare STRING also answers, wrongly but plausibly: `"arena-01".includes("arena-01")` is `true`. So a
+ * caller that regressed to passing one id instead of the union would prune exactly as the old
+ * single-arena code did, throw nothing, and fail no test. This check is what makes that regression
+ * loud at the call site instead of silent in the zip.
+ */
+function requireArenaIdList(arenaIds, fnName) {
+  if (!Array.isArray(arenaIds)) {
+    throw new TypeError(
+      `${fnName}(dir, arenaIds): arenaIds must be an array of arena ids, got ` +
+        `${typeof arenaIds === "string" ? `the string ${JSON.stringify(arenaIds)}` : String(arenaIds)}. ` +
+        `Pass activeArenaIds() — the union of every active mode's arena set — not a single id: ` +
+        `String#includes would accept one and silently prune to it.`,
+    );
+  }
+}
+
+/**
  * Strip every arena's art but the active-mode UNION's from a built client tree.
  *
  * A host can switch mode in the lobby, and each mode carries its own arena set, so the zip must
- * ship every arena any active mode can select — not just one — or a mode switch reaches the
- * client's "Arena mismatch" screen. Two namespaces always survive regardless: `arena.common.*`, for
+ * ship every arena any active mode can select — not just one. Shipping less is not a crash: the
+ * client's "Arena mismatch" screen fires on an UNREGISTERED arena id, not on missing art, so an
+ * arena whose floor was pruned still plays correctly and merely draws on the procedurally generated
+ * asphalt (`resolveArenaFloor` returns `undefined` and `ArenaScene` falls back). Wrong-looking
+ * floor, not a broken match. Two namespaces always survive regardless: `arena.common.*`, for
  * art several arenas share, and every key outside the `arena.` prefix. `arenaIdFromArtKey` is
  * imported from shared rather than reimplemented here so the file-level rule and the client's
  * boot-time load filter (`shouldLoadAssetKey`) cannot drift apart.
@@ -188,6 +211,7 @@ function readManifest(manifestPath) {
  * complete and reusable, and running a release twice in a row does the same thing as running it once.
  */
 export function pruneArenaAssets(clientDistDir, arenaIds) {
+  requireArenaIdList(arenaIds, "pruneArenaAssets");
   const arenasDir = path.join(clientDistDir, "art", "arenas");
   const kept = [];
   const removed = [];
@@ -226,8 +250,12 @@ export function pruneArenaAssets(clientDistDir, arenaIds) {
  * Throw if any arena outside the active-mode union's art or manifest key reached the release.
  * Checks the condition the player would actually suffer — a file in the zip — rather than trusting
  * that the prune ran, the same way `assertFontsVendored` checks the file rather than the copy step.
+ *
+ * Named for the union, not for `ACTIVE_ARENA_ID`: what it allows through is `activeArenaIds()`,
+ * every arena any active mode can select, which is usually more than one.
  */
-export function assertOnlyActiveArenaShipped(clientDistDir, arenaIds) {
+export function assertOnlyActiveModeArenasShipped(clientDistDir, arenaIds) {
+  requireArenaIdList(arenaIds, "assertOnlyActiveModeArenasShipped");
   const offenders = [];
   const arenasDir = path.join(clientDistDir, "art", "arenas");
   if (fs.existsSync(arenasDir)) {
@@ -293,7 +321,7 @@ export async function main(argv = process.argv.slice(2)) {
   const releaseClientDist = path.join(appDir, "packages", "client", "dist");
   const arenaUnion = activeArenaIds();
   const pruned = pruneArenaAssets(releaseClientDist, arenaUnion);
-  assertOnlyActiveArenaShipped(releaseClientDist, arenaUnion);
+  assertOnlyActiveModeArenasShipped(releaseClientDist, arenaUnion);
 
   const serverPkg = JSON.parse(
     fs.readFileSync(path.join(rootDir, "packages", "server", "package.json"), "utf8"),
