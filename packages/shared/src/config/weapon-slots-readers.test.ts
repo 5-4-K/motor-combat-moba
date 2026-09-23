@@ -28,10 +28,21 @@
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+// Roots are resolved from THIS FILE'S OWN LOCATION, never `process.cwd()` — `npx vitest run
+// <path>` from the repo root and from `packages/shared` must walk the identical tree. `SHARED_SRC`
+// lands on `packages/shared/src` regardless of which directory the process started in.
+// `fileURLToPath` on a directory URL keeps its trailing slash; strip it so `label +
+// file.slice(dir.length)` below (dir === SHARED_SRC) reconstructs the separator correctly instead
+// of eating it.
+const SHARED_SRC = fileURLToPath(new URL("..", import.meta.url)).replace(/[/\\]+$/, "");
+const PACKAGES_ROOT = join(SHARED_SRC, "..", "..");
+const REPO_ROOT = join(PACKAGES_ROOT, "..");
+
 /** The file under test: its own doc comment is the thing being checked, so it is never a reader. */
-const SOURCE = "src/config/weapon-slots.ts";
+const SOURCE = join(SHARED_SRC, "config/weapon-slots.ts");
 /** The same file as the walk labels it — what the exclusion below has to match. */
 const SOURCE_PATH = "packages/shared/src/config/weapon-slots.ts";
 
@@ -45,12 +56,12 @@ const SOURCE_PATH = "packages/shared/src/config/weapon-slots.ts";
  * ran the test and matches the spelling the doc comment uses.
  */
 const ROOTS: ReadonlyArray<{ label: string; dir: string }> = [
-  { label: "packages/shared/src", dir: "src" },
-  { label: "packages/client/src", dir: "../client/src" },
-  { label: "packages/server/src", dir: "../server/src" },
-  { label: "packages/server/playtest", dir: "../server/playtest" },
-  { label: "packages/server/balance", dir: "../server/balance" },
-  { label: "scripts", dir: "../../scripts" },
+  { label: "packages/shared/src", dir: SHARED_SRC },
+  { label: "packages/client/src", dir: join(PACKAGES_ROOT, "client/src") },
+  { label: "packages/server/src", dir: join(PACKAGES_ROOT, "server/src") },
+  { label: "packages/server/playtest", dir: join(PACKAGES_ROOT, "server/playtest") },
+  { label: "packages/server/balance", dir: join(PACKAGES_ROOT, "server/balance") },
+  { label: "scripts", dir: join(REPO_ROOT, "scripts") },
 ];
 
 const SKIP_DIRS = new Set(["node_modules", "dist", "reports"]);

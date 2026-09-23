@@ -45,8 +45,18 @@
 // `client/scenes/ArenaScene.ts`) that have nothing to do with this guard's purpose.
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative as pathRelative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+
+// Roots are resolved from THIS FILE'S OWN LOCATION, never `process.cwd()` — `npx vitest run
+// <path>` from the repo root and from `packages/shared` must walk the identical tree. `SHARED_SRC`
+// lands on `packages/shared/src` regardless of which directory the process started in.
+// `fileURLToPath` on a directory URL keeps its trailing slash; strip it so `label +
+// file.slice(dir.length)` below reconstructs the separator correctly instead of eating it.
+const SHARED_SRC = fileURLToPath(new URL("..", import.meta.url)).replace(/[/\\]+$/, "");
+const PACKAGES_ROOT = join(SHARED_SRC, "..", "..");
+const REPO_ROOT = join(PACKAGES_ROOT, "..");
 
 const BANNED =
   /\b(WEAPON_TABLE|CAR_TABLE|DRIVE_CONFIG|RAM_CONFIG|COMBAT_CONFIG|IMPULSE_CONFIG|STATUS_TABLE|STATUS_CONFIG|SPIKE_CONFIG|SPIKE_TICKS|TURRET_CONFIG|TURRET_TICKS|WEAPON_SLOT_CONFIG|WEAPON_TICKS|DEATHMATCH_CONFIG|DEATHMATCH_TICKS|CHASSIS_DRIVE|FLOW_CONFIG|CAMERA_CONFIG)\b/;
@@ -84,7 +94,7 @@ function hasRawConfigReference(file: string): boolean {
 
 describe("sim reads config only through the bundle (MC13)", () => {
   it("has no raw config table reference — dotted, bracketed, destructured, or bare", () => {
-    const offenders = walk("src/sim").filter(hasRawConfigReference);
+    const offenders = walk(join(SHARED_SRC, "sim")).filter(hasRawConfigReference);
     expect(offenders).toEqual([]);
   });
 });
@@ -92,8 +102,8 @@ describe("sim reads config only through the bundle (MC13)", () => {
 describe("client and server read config only through the bundle (MC13, task 5b)", () => {
   it("has no raw config table reference outside the judged dev/playground/ allow-list", () => {
     const roots: Array<{ label: string; dir: string }> = [
-      { label: "packages/client/src", dir: "../client/src" },
-      { label: "packages/server/src", dir: "../server/src" },
+      { label: "packages/client/src", dir: join(PACKAGES_ROOT, "client/src") },
+      { label: "packages/server/src", dir: join(PACKAGES_ROOT, "server/src") },
     ];
     const offenders = roots.flatMap(({ label, dir }) =>
       walk(dir)
@@ -108,8 +118,9 @@ describe("client and server read config only through the bundle (MC13, task 5b)"
 
   it("the allow-list itself names only files that still exist and still need it", () => {
     for (const relPath of Object.keys(ALLOWED)) {
-      // packages/shared is this test's cwd, so "packages/client/..." resolves through "../client/...".
-      const fromShared = relPath.replace(/^packages\/[^/]+/, (pkg) => `../${pkg.slice("packages/".length)}`);
+      // relPath is project-relative ("packages/client/..."); REPO_ROOT is this file's own
+      // location walked back up to the repo root, so the join is cwd-independent.
+      const fromShared = join(REPO_ROOT, relPath);
       expect(hasRawConfigReference(fromShared), relPath).toBe(true);
     }
   });
@@ -169,20 +180,23 @@ const ALLOWED_FILES: Readonly<Record<string, string>> = {
 /** True if `file` sits under one of `ALLOWED_DIRS`'s directories, or is an `ALLOWED_FILES` entry
  * directly under `src/`, relative to `src/`. */
 function isAllowedRawReference(file: string): boolean {
-  const relative = file.startsWith("src/") ? file.slice("src/".length) : file;
+  // `pathRelative` rather than a "src/" prefix-strip: `file` is now an absolute path (or, for the
+  // tripwire fixture, a temp-dir path outside `SHARED_SRC` entirely, which correctly relativizes to
+  // something starting with "..", matching neither ALLOWED_FILES nor ALLOWED_DIRS below).
+  const relative = pathRelative(SHARED_SRC, file);
   if (relative in ALLOWED_FILES) return true;
   return Object.keys(ALLOWED_DIRS).some((dir) => relative === dir || relative.startsWith(`${dir}/`));
 }
 
 describe("ALL of packages/shared/src reads config only through the bundle (MC13, 2026-09-22 final review)", () => {
   it("has no raw config table reference outside the judged config/modes/schema/arena layers", () => {
-    const offenders = walk("src").filter(hasRawConfigReference).filter((file) => !isAllowedRawReference(file));
+    const offenders = walk(SHARED_SRC).filter(hasRawConfigReference).filter((file) => !isAllowedRawReference(file));
     expect(offenders).toEqual([]);
   });
 
   it("every ALLOWED_DIRS entry still points at a real directory that still needs it", () => {
     for (const dir of Object.keys(ALLOWED_DIRS)) {
-      const files = walk(`src/${dir}`);
+      const files = walk(join(SHARED_SRC, dir));
       expect(files.length, `src/${dir} does not exist or is empty`).toBeGreaterThan(0);
       expect(files.some(hasRawConfigReference), `src/${dir} — nothing here needs the exemption any more`).toBe(true);
     }
@@ -199,7 +213,7 @@ describe("ALL of packages/shared/src reads config only through the bundle (MC13,
     const fixturePath = join(tempRoot, "__tripwire-fixture.ts");
     try {
       writeFileSync(fixturePath, 'import { DEATHMATCH_TICKS } from "../config/deathmatch-config.js";\n');
-      const offenders = [...walk("src"), ...walk(tempRoot)]
+      const offenders = [...walk(SHARED_SRC), ...walk(tempRoot)]
         .filter(hasRawConfigReference)
         .filter((file) => !isAllowedRawReference(file));
       expect(offenders).toContain(fixturePath);
@@ -258,8 +272,8 @@ describe("ALL of packages/shared/src reads config only through the bundle (MC13,
  * around it.
  */
 const HARNESS_ROOTS: ReadonlyArray<{ label: string; dir: string }> = [
-  { label: "packages/server/playtest", dir: "../server/playtest" },
-  { label: "packages/server/balance", dir: "../server/balance" },
+  { label: "packages/server/playtest", dir: join(PACKAGES_ROOT, "server/playtest") },
+  { label: "packages/server/balance", dir: join(PACKAGES_ROOT, "server/balance") },
 ];
 
 /** MC35's hull, the one banned spelling a harness file may still use — see the block above. */
