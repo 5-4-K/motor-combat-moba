@@ -313,9 +313,10 @@ export { PRACTICE_CONFIG } from "./config/practice-config.js";
 export { CHAT_CONFIG } from "./config/chat-config.js";
 export { SPIKE_CONFIG, SPIKE_TICKS } from "./config/spike-config.js";
 
-export type { ArenaDef, Obstacle, Spawn } from "./arena/types.js";
+export type { ArenaDef, ArenaZone, Obstacle, Spawn } from "./arena/types.js";
 export { ARENA_01 } from "./arena/arena-01.js";
 export { ARENA_02 } from "./arena/arena-02.js";
+export { ARENA_03 } from "./arena/arena-03.js";
 export { ARENAS, ARENA_IDS, getArena, isArenaId } from "./arena/registry.js";
 export type { ArenaId } from "./arena/registry.js";
 export { ACTIVE_ARENA_ID } from "./config/arena-config.js";

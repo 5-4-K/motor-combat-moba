@@ -41,6 +41,13 @@ export interface ArenaPalette {
   readonly border: string;
 }
 
+/** A capture circle (Conquer, CQ20). A car is "in" it when its CENTRE is within `radius`. */
+export interface ArenaZone {
+  readonly x: number;
+  readonly y: number;
+  readonly radius: number;
+}
+
 export interface ArenaDef {
   id: string;
   width: number;
@@ -59,4 +66,11 @@ export interface ArenaDef {
    */
   boundary?: readonly { x: number; y: number }[];
   palette?: ArenaPalette;
+  /** The capture zone. Required by any mode whose win rule is "conquer" (modes/invariants.test.ts). */
+  readonly zone?: ArenaZone;
+  /**
+   * In a team mode, team 1's WORLD camera is rotated 180° so each team sees its own base at the
+   * bottom (CQ46). Only meaningful on a layout that maps onto itself under that rotation.
+   */
+  readonly flipForTeamB?: boolean;
 }

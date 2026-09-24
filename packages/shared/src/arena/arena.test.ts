@@ -179,9 +179,15 @@ describe.each(entries)("arena %s", (id, arena) => {
     }
   });
 
-  it("separates the teams across the halfway line", () => {
-    for (const s of arena.teamASpawns) expect(s.x).toBeLessThan(arena.width / 2);
-    for (const s of arena.teamBSpawns) expect(s.x).toBeGreaterThan(arena.width / 2);
+  it("team A and team B spawn on opposite halves (x or y axis)", () => {
+    const allA = arena.teamASpawns;
+    const allB = arena.teamBSpawns;
+    const splitX =
+      allA.every((s) => s.x < arena.width / 2) && allB.every((s) => s.x > arena.width / 2);
+    const splitY =
+      allA.every((s) => s.y > arena.height / 2) && allB.every((s) => s.y < arena.height / 2);
+    // CQ36: opposite halves along x (arena-01/02, side bases) OR along y (arena-03, end bases).
+    expect(splitX || splitY).toBe(true);
   });
 
   it("never stacks two spawns that are occupied in the same match", () => {
