@@ -1,6 +1,5 @@
 import {
   COLOR_TABLE,
-  conquer,
   deathmatch,
   DEFAULT_GAME_MODE,
   GameMode,
@@ -11,6 +10,7 @@ import {
   activeGameModes,
   canSwitchTeam,
   isActiveGameMode,
+  modeConfigOf,
   sidesOf,
 } from "@motor-combat-moba/shared";
 import { chatView, type ChatViewMessage, type ChatViewRow } from "./chat-view.js";
@@ -120,12 +120,14 @@ function clockLabel(seconds: number): string {
  * so flipping `MODE_TABLE.isActive` drops a card without a second edit.
  *
  * A FUNCTION, not a module-level constant: the deathmatch card's copy quotes
- * `deathmatch().respawnDelaySeconds`/`.matchSeconds`, and the Conquer card quotes `conquer()`'s own
- * numbers alongside `deathmatch().matchSeconds` (CQ58) — a `const` built at import time would
- * freeze all of that at whichever mode happened to be installed first rather than reading the
- * active mode's bundle on every render.
+ * `deathmatch().respawnDelaySeconds`/`.matchSeconds` off the ambient bundle, and the Conquer card
+ * quotes `modeConfigOf(GameMode.CONQUER)`'s own `conquer`/`deathmatch` tables (CQ58) rather than the
+ * ambient accessors, since the lobby's installed mode need not be Conquer — a `const` built at
+ * import time would freeze all of that at whichever mode happened to be installed first rather than
+ * reading the right bundle on every render.
  */
 function modeCardsData() {
+  const { conquer: cq, deathmatch: cqDm } = modeConfigOf(GameMode.CONQUER);
   return [
     {
       id: GameMode.FFA_LAST_STANDING,
@@ -150,13 +152,16 @@ function modeCardsData() {
       meta: ["2-6 players", `${deathmatch().matchSeconds / 60} minutes`],
     },
     {
-      // CQ58: last in `MODE_ORDER`, so last here too. Conquer reads its clock from the
-      // `deathmatch` table (CQ22, the "clock and respawn" table), not from a Conquer-only field —
-      // same rule `winRuleOf`'s Conquer branch follows everywhere else.
+      // CQ58: last in `MODE_ORDER`, so last here too. Conquer reads its clock from its OWN
+      // `deathmatch` table (`modes/conquer/deathmatch.ts`, 180 s / 5 s respawn) — not Deathmatch's
+      // — the same rule `winRuleOf`'s Conquer branch follows everywhere else. Read through
+      // `modeConfigOf(GameMode.CONQUER)` rather than the ambient `conquer()`/`deathmatch()`
+      // accessors: this catalog renders under whatever mode the LOBBY has installed, which need
+      // not be Conquer, and the ambient accessors would then quote the wrong mode's numbers.
       id: GameMode.CONQUER,
       kicker: "Team objective",
-      body: `Two teams of three fight over the centre zone. Hold it unopposed for ${conquer().captureDelaySeconds} s to take control; ${conquer().controlTargetSeconds} s of control wins. Highest control when the ${clockLabel(deathmatch().matchSeconds)} clock ends wins; a tie goes to overtime.`,
-      meta: [`${conquer().teamSize}v${conquer().teamSize}`, clockLabel(deathmatch().matchSeconds), "zone control"],
+      body: `${cq.teamSize}v${cq.teamSize} teams fight over the centre zone. Hold it unopposed for ${cq.captureDelaySeconds} s to take control; ${cq.controlTargetSeconds} s of control wins. Highest control when the ${clockLabel(cqDm.matchSeconds)} clock ends wins; a tie goes to overtime.`,
+      meta: [`${cq.teamSize}v${cq.teamSize}`, clockLabel(cqDm.matchSeconds), "zone control"],
     },
   ] as const;
 }

@@ -23,8 +23,10 @@ plays; see [`docs/config-reference.md`](docs/config-reference.md#arena-selection
 (never renumber — invariant 7), published (`isActive: true`) as of 2026-09-24 — `GameMode` now
 carries **three win rules**, read through `winRuleOf(mode)`: `"last_standing"`, `"deathmatch"`, and
 `"conquer"`. It is a 3v3 zone-control mode with the same respawn-on-death flow as Deathmatch — it
-reads Deathmatch's own `deathmatch()` table for the clock, respawn delay and spawn-protection
-windows — but wins on `winRuleOf(mode) === "conquer"`: a team that holds the capture zone
+reads the `deathmatch()` table for the clock, respawn delay and spawn-protection windows, but that
+table is **Conquer's own copy**, `modes/conquer/deathmatch.ts` (180 s match, 5 s respawn), not
+Deathmatch's — every mode's `deathmatch()` resolves through its own bundle, never another mode's —
+but wins on `winRuleOf(mode) === "conquer"`: a team that holds the capture zone
 (`ArenaDef.zone`) uncontested long enough fills a control bar, and a full bar wins outright
 regardless of the clock. It plays its own arena, `arena-03`, and authors `CONQUER_CONFIG`
 (`captureDelaySeconds`, `controlTargetSeconds`, `teamSize`, `uniqueChassisPerTeam`) through the
@@ -49,11 +51,13 @@ carries it"; it asks `weaponCarriers` in `scripts/mode-rosters.mjs` now, the sam
 
 ### Where to edit, depending on what you want
 
-- **An ordinary balance change, both modes** — edit the raw global in `config/` AND the matching
-  file in `modes/brawl/` AND in `modes/deathmatch/`. All three, equal; `table-pinning.test.ts`
-  enforces it. Tedious, and deliberately so: the raw global is now nothing but the pinned baseline
-  the tripwire measures both modes against, and keeping it in step is what makes an accidental
-  one-mode edit legible as an accident.
+- **An ordinary balance change, every mode** — edit the raw global in `config/` AND the matching
+  file in `modes/brawl/` AND in `modes/deathmatch/` AND in `modes/conquer/`. All four, equal.
+  `table-pinning.test.ts` only enforces the first three of those — it does **not** cover
+  `modes/conquer/`, deliberately, so a `modes/conquer/` edit you skip fails no test; keeping it in
+  step is on you, by hand, every time. Tedious for brawl/deathmatch, and deliberately so: the raw
+  global is now nothing but the pinned baseline the tripwire measures those two modes against, and
+  keeping it in step is what makes an accidental one-mode edit legible as an accident.
 - **A change to ONE mode only, which is the whole point of this system** — edit that mode's folder
   alone, then delete that table's assertion from `table-pinning.test.ts` with a comment saying the
   modes have intentionally diverged. The tripwire exists to catch an accident, not to forbid the

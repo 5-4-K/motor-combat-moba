@@ -22,10 +22,18 @@ describe("captureChip (CQ55)", () => {
 
 describe("conquerClockLabel (CQ54)", () => {
   it("counts down m:ss and switches to OVERTIME", () => {
-    expect(conquerClockLabel(0, 5400, false, 30)).toBe("3:00");
-    expect(conquerClockLabel(5400 - 30 * 134, 5400, false, 30)).toBe("2:14");
-    expect(conquerClockLabel(5400, 5400, false, 30)).toBe("0:00");
-    expect(conquerClockLabel(9999, 5400, true, 30)).toBe("OVERTIME");
+    expect(conquerClockLabel(0, 5400, false, 30, 5400)).toBe("3:00");
+    expect(conquerClockLabel(5400 - 30 * 134, 5400, false, 30, 5400)).toBe("2:14");
+    expect(conquerClockLabel(5400, 5400, false, 30, 5400)).toBe("0:00");
+    expect(conquerClockLabel(9999, 5400, true, 30, 5400)).toBe("OVERTIME");
+  });
+
+  it("shows the full match length during a countdown, before matchEndsTick is stamped", () => {
+    // matchEndsTick is 0 for every tick before the edge into MATCH (CAR_SELECT/REVEAL/COUNTDOWN),
+    // and counting down against 0 would misread as an elapsed clock rather than the match length.
+    expect(conquerClockLabel(0, 0, false, 30, 5400)).toBe("3:00");
+    // Overtime still wins even if it were somehow set during a countdown.
+    expect(conquerClockLabel(0, 0, true, 30, 5400)).toBe("OVERTIME");
   });
 });
 

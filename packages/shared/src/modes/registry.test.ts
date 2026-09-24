@@ -62,7 +62,7 @@ it("Conquer is registered, published, and plays arena-03 only (CQ12, CQ13, CQ41)
 });
 
 describe("isGameMode", () => {
-  it("accepts the three wire values and refuses everything else", () => {
+  it("accepts the four wire values and refuses everything else", () => {
     expect(isGameMode(GameMode.FFA_LAST_STANDING)).toBe(true);
     expect(isGameMode(GameMode.TEAM)).toBe(true);
     expect(isGameMode(GameMode.FFA_DEATHMATCH)).toBe(true);

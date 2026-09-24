@@ -3869,7 +3869,7 @@ export class ArenaScene extends Phaser.Scene {
 
     hud.clock
       .setPosition(L.clock.x, L.clock.y)
-      .setText(conquerClockLabel(tick, state.matchEndsTick, state.overtime, TICK_RATE_HZ))
+      .setText(conquerClockLabel(tick, state.matchEndsTick, state.overtime, TICK_RATE_HZ, derived().deathmatchTicks.match))
       .setVisible(true);
 
     // [ally, enemy], each read off the team it stands for rather than off A/B.

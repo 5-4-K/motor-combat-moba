@@ -230,10 +230,21 @@ export function cssOf(color: number): string {
 /**
  * The panel's clock (CQ54): `OVERTIME` once set, otherwise `m:ss` remaining, rounded UP so the
  * first frame reads the full authored length and the last second reads 0:01 rather than 0:00.
+ *
+ * `matchEndsTick` is 0 for every tick before the edge into MATCH (CAR_SELECT / REVEAL /
+ * COUNTDOWN) — counting down against it would misread the countdown as an elapsed, expired clock.
+ * `matchTicks` (the resolved match length, e.g. `derived().deathmatchTicks.match`) is what this
+ * shows instead, formatted the same way as the live countdown's first frame.
  */
-export function conquerClockLabel(tick: number, matchEndsTick: number, overtime: boolean, hz: number): string {
+export function conquerClockLabel(
+  tick: number,
+  matchEndsTick: number,
+  overtime: boolean,
+  hz: number,
+  matchTicks: number,
+): string {
   if (overtime) return "OVERTIME";
-  const total = Math.max(0, Math.ceil((matchEndsTick - tick) / hz));
+  const total = matchEndsTick <= 0 ? Math.max(0, Math.ceil(matchTicks / hz)) : Math.max(0, Math.ceil((matchEndsTick - tick) / hz));
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;

@@ -256,6 +256,11 @@ export class ArenaRoom extends Room<ArenaState> {
           this.state.players.forEach((p) => {
             p.lockedCarId = "";
           });
+          // Also reset here, not only on the edge into MATCH: without this, CAR_SELECT / REVEAL /
+          // COUNTDOWN for the next match still show the previous match's zone bars, holder, streak,
+          // contested and overtime. The results screen reads the final values before this fires, so
+          // it is unaffected.
+          resetZone(this.state);
         }),
       );
 
