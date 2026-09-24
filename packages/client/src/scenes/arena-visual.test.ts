@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { ArenaDef } from "@motor-combat-moba/shared";
+import { ARENA_02, ARENA_03, type ArenaDef } from "@motor-combat-moba/shared";
 import {
   ARENA_COLOR_DEFAULTS,
   arenaBorderRect,
   arenaColorsOf,
   arenaDecoration,
+  boundaryGaps,
   drawableObstacles,
+  markingsCircleVisible,
+  spikeStrips,
 } from "./arena-visual.js";
 
 const bare: ArenaDef = {
@@ -77,5 +80,24 @@ describe("arenaDecoration", () => {
 describe("drawableObstacles", () => {
   it("keeps ordinary blocks and drops wall-mounted ones", () => {
     expect(drawableObstacles([{ kind: "spike" }, {}, { kind: "spike" }])).toEqual([{}]);
+  });
+});
+
+describe("art-less arena extras (CQ49–CQ51)", () => {
+  it("draws every spike obstacle, teeth pointing into the playable side", () => {
+    const strips = spikeStrips(ARENA_03);
+    expect(strips).toHaveLength(2);
+    const left = strips.find((s) => s.x === 0)!;
+    // every tooth apex is inward (x > strip's inner face - tolerance)
+    for (const t of left.teeth) expect(Math.max(t[0], t[2], t[4])).toBeGreaterThan(left.x + left.w - 1);
+  });
+  it("fills the four chamfer triangles of arena-03", () => {
+    const gaps = boundaryGaps(ARENA_03);
+    expect(gaps).toHaveLength(4);
+    for (const g of gaps) expect(g).toHaveLength(3);
+  });
+  it("finds no gaps on a boundary equal to its frame, and skips the centre circle only when a zone exists", () => {
+    expect(markingsCircleVisible(ARENA_03)).toBe(false);
+    expect(markingsCircleVisible(ARENA_02)).toBe(true);
   });
 });

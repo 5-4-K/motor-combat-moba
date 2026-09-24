@@ -117,7 +117,18 @@ import { drawCrosshair } from "./crosshair.js";
 import { controlledCarOf, isPlaygroundRoom, isPracticeRoom, isSimPaused } from "./controlled-car.js";
 import { AIM_HUD_CONFIG } from "../config/aim-hud.js";
 import { aimHudIsEmpty, aimHudSignature, drawAimHud, type AimHudSpec } from "./aim-hud.js";
-import { arenaBorderRect, arenaColorsOf, arenaDecoration, drawableObstacles } from "./arena-visual.js";
+import {
+  arenaBorderRect,
+  arenaColorsOf,
+  arenaDecoration,
+  boundaryGaps,
+  drawableObstacles,
+  markingsCircleVisible,
+  SPIKE_STRIP_COLOR,
+  SPIKE_TOOTH_COLOR,
+  spikeStrips,
+} from "./arena-visual.js";
+import { zoneTint, type ZoneTint } from "./zone-visual.js";
 import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
 import {
@@ -333,6 +344,16 @@ const DASH_GHOST_WIDTH = 2;
 const SHOT_DEPTH = -5;
 /** The floor everything else is drawn on. */
 const ARENA_DEPTH = -10;
+/**
+ * The capture zone's ring (CQ52): over the floor, obstacles and markings (`ARENA_DEPTH`), under the
+ * decals and everything else a car leaves on the ground, so a scorch mark still reads on top of it.
+ */
+const ZONE_DEPTH = -9;
+/** The zone's fill alpha and ring width (CQ52). A wash, not a wall: the floor must stay readable. */
+const ZONE_FILL_ALPHA = 0.14;
+const ZONE_RING_PX = 5;
+/** The ring's colour while nobody holds the zone, or while it is contested. */
+const ZONE_NEUTRAL_COLOR = 0xffffff;
 
 const HP_BAR_BACK = 0x22252b;
 
@@ -746,6 +767,13 @@ export class ArenaScene extends Phaser.Scene {
    */
   private readonly turretShown = new Map<string, number>();
   private arenaGfx: Phaser.GameObjects.Graphics | undefined;
+  /**
+   * The capture zone's ring (CQ52), created only for an arena with a `zone`. Its own object so it can
+   * be redrawn on a capture-state change without re-issuing the whole arena; `zoneTintDrawn` is the
+   * tint it currently shows, so `renderZone` clears and redraws only when that changes.
+   */
+  private zoneGfx: Phaser.GameObjects.Graphics | undefined;
+  private zoneTintDrawn: ZoneTint | undefined;
   /**
    * The generated asphalt, one `TileSprite` covering the whole arena at `FLOOR_DEPTH` (VFX36).
    *
@@ -1333,6 +1361,9 @@ export class ArenaScene extends Phaser.Scene {
     // arena with none of them — no obstacles, no markings, no border — which is visible immediately
     // but easy to introduce.
     this.arenaGfx = this.add.graphics().setDepth(ARENA_DEPTH);
+    // Drawn by `renderZone` on its first frame; `zoneTintDrawn` unset is what forces that draw.
+    if (arena.zone) this.zoneGfx = this.add.graphics().setDepth(ZONE_DEPTH);
+    this.zoneTintDrawn = undefined;
 
     const cam = this.cameras.main;
     // Clipped to the arena's share of the canvas, leaving `HUD_GUTTER_WIDTH` down the right for the
@@ -1462,14 +1493,47 @@ export class ArenaScene extends Phaser.Scene {
           Math.min(y + m.laneDash, arena.height - m.laneMargin),
         );
       }
-      gfx.lineStyle(m.circleWidth, m.laneColor, m.circleAlpha);
-      gfx.strokeCircle(arena.width / 2, arena.height / 2, m.circleRadius);
+      // Not under a zone (CQ51): the zone's own ring sits there, and a second circle would read as
+      // part of it.
+      if (markingsCircleVisible(arena)) {
+        gfx.lineStyle(m.circleWidth, m.laneColor, m.circleAlpha);
+        gfx.strokeCircle(arena.width / 2, arena.height / 2, m.circleRadius);
+      }
     }
 
     if (decoration.drawBorder) {
-      gfx.lineStyle(ARENA_BORDER_PX, colors.border, 1);
-      const border = arenaBorderRect(arena, ARENA_BORDER_PX);
-      gfx.strokeRect(border.x, border.y, border.w, border.h);
+      // An art-less arena whose boundary cuts the frame's corners (CQ50): fill the cut corners as
+      // wall and stroke the polygon itself. Anything else keeps the plain rect border.
+      const gaps = boundaryGaps(arena);
+      if (gaps.length > 0 && arena.boundary) {
+        gfx.fillStyle(colors.border, 1);
+        for (const gap of gaps) {
+          gfx.beginPath();
+          gap.forEach((v, i) => (i === 0 ? gfx.moveTo(v.x, v.y) : gfx.lineTo(v.x, v.y)));
+          gfx.closePath();
+          gfx.fillPath();
+        }
+        // Double width, centred on the polygon: along the frame edges the outer half is clipped by
+        // the camera bounds (the reason `arenaBorderRect` insets), and along a chamfer the outer half
+        // lands on the gap fill in the same colour. Either way `ARENA_BORDER_PX` shows inward.
+        gfx.lineStyle(ARENA_BORDER_PX * 2, colors.border, 1);
+        gfx.beginPath();
+        arena.boundary.forEach((v, i) => (i === 0 ? gfx.moveTo(v.x, v.y) : gfx.lineTo(v.x, v.y)));
+        gfx.closePath();
+        gfx.strokePath();
+      } else {
+        gfx.lineStyle(ARENA_BORDER_PX, colors.border, 1);
+        const border = arenaBorderRect(arena, ARENA_BORDER_PX);
+        gfx.strokeRect(border.x, border.y, border.w, border.h);
+      }
+      // Spikes are painted into floor art (AS25), so they are drawn only here, on an arena without
+      // it (CQ49) — the same condition as the border.
+      for (const strip of spikeStrips(arena)) {
+        gfx.fillStyle(SPIKE_STRIP_COLOR, 1);
+        gfx.fillRect(strip.x, strip.y, strip.w, strip.h);
+        gfx.fillStyle(SPIKE_TOOTH_COLOR, 1);
+        for (const t of strip.teeth) gfx.fillTriangle(t[0], t[1], t[2], t[3], t[4], t[5]);
+      }
     }
   }
 
@@ -1579,6 +1643,9 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.floorTile ? [this.floorTile] : []),
       ...(this.floorImage ? [this.floorImage] : []),
       ...(this.arenaGfx ? [this.arenaGfx] : []),
+      // World space at `ZONE_DEPTH` — a zone ring drawn on the HUD camera too would float over the
+      // gutter.
+      ...(this.zoneGfx ? [this.zoneGfx] : []),
       ...(this.shotGfx ? [this.shotGfx] : []),
       ...(this.glowGfx ? [this.glowGfx] : []),
       ...(this.hpGfx ? [this.hpGfx] : []),
@@ -1671,6 +1738,9 @@ export class ArenaScene extends Phaser.Scene {
     this.interps.clear();
     this.arenaGfx?.destroy();
     this.arenaGfx = undefined;
+    this.zoneGfx?.destroy();
+    this.zoneGfx = undefined;
+    this.zoneTintDrawn = undefined;
     this.floorTile?.destroy();
     this.floorTile = undefined;
     this.floorImage?.destroy();
@@ -1810,6 +1880,7 @@ export class ArenaScene extends Phaser.Scene {
     this.syncRespawnCamera(room);
     // Before `renderCars`, which lights the cars and draws the self-arrow against this angle.
     this.syncViewRotation(this.arena);
+    this.renderZone(room, this.arena);
     this.renderCars(room, delta);
     this.syncCrosshair(room);
     this.renderShots(room);
@@ -1838,6 +1909,27 @@ export class ArenaScene extends Phaser.Scene {
     if (!force && rotation === this.viewRotation) return;
     this.viewRotation = rotation;
     this.cameras.main.setRotation(rotation);
+  }
+
+  /**
+   * Tint the capture zone's ring for the local player's side (CQ52) — the local player's `team`, the
+   * same viewer `syncViewRotation` reads, so spectating an enemy does not swap the colours. Redrawn
+   * only when the tint changes; a circle needs no turning for team B's rotated view.
+   */
+  private renderZone(room: Room<ArenaState>, arena: ArenaDef): void {
+    const gfx = this.zoneGfx;
+    const zone = arena.zone;
+    if (!gfx || !zone) return;
+    const local = room.state.players.get(this.drivenSid(room));
+    const tint = zoneTint(local?.team ?? -1, room.state.zoneHolder, room.state.zoneContested);
+    if (tint === this.zoneTintDrawn) return;
+    this.zoneTintDrawn = tint;
+    const color = tint === "neutral" ? ZONE_NEUTRAL_COLOR : hpBarColor(tint);
+    gfx.clear();
+    gfx.fillStyle(color, ZONE_FILL_ALPHA);
+    gfx.fillCircle(zone.x, zone.y, zone.radius);
+    gfx.lineStyle(ZONE_RING_PX, color, 1);
+    gfx.strokeCircle(zone.x, zone.y, zone.radius);
   }
 
   /** `carLook` turned for this view (CQ48), so the light stays on the same side of the screen. */
