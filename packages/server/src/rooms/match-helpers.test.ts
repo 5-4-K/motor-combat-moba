@@ -89,11 +89,16 @@ describe("resolveSetMode", () => {
     expect(resolveSetMode(RoomPhase.LOBBY, false, GameMode.TEAM)).toBeUndefined();
   });
 
-  // Conquer ships `isActive: false` until its lobby card lands; until then the lobby cannot
-  // seat it by wire id either.
-  it("refuses Conquer while it is inactive", () => {
-    expect(MODE_TABLE[GameMode.CONQUER].isActive).toBe(false);
-    expect(resolveSetMode(RoomPhase.LOBBY, false, GameMode.CONQUER)).toBeUndefined();
+  // Conquer published (CQ41): the lobby can now seat it by wire id, resolving to its own bundle
+  // and arena-03.
+  it("resolves Conquer now that it is published", () => {
+    expect(MODE_TABLE[GameMode.CONQUER].isActive).toBe(true);
+    const next = resolveSetMode(RoomPhase.LOBBY, false, GameMode.CONQUER);
+    expect(next).toEqual({
+      mode: GameMode.CONQUER,
+      config: modeConfigOf(GameMode.CONQUER),
+      arenaId: "arena-03",
+    });
   });
 
   it("refuses an unknown wire value rather than falling back or throwing", () => {

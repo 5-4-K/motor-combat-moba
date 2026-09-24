@@ -7,16 +7,29 @@ LAN-hosted top-down 2D multiplayer car combat (last player/team standing, max 6)
 
 **The game does not read `CAR_TABLE`, `WEAPON_TABLE`, `DRIVE_CONFIG` or any other table in
 `config/` any more. It reads a per-mode copy.** Every `GameMode` maps to a frozen `ModeConfig`
-bundle assembled from its own folder — `packages/shared/src/modes/brawl/` and
-`packages/shared/src/modes/deathmatch/`, thirteen table files each. `modes/registry.ts` binds mode
-to bundle; `modes/active.ts` holds the active one and exposes it through sixteen accessors — `cars()`,
-`weapons()`, `drive()`, `ram()`, `impulse()`, `combat()`, `turret()`, `statusConfig()`,
-`statusTable()`, `statusLimits()`, `spike()`, `slots()`, `flow()`, `deathmatch()`, `camera()` and
-`derived()` (the last for the eight artifacts `assembleModeConfig` resolves per mode: weapon ticks,
-chassis drive, burst defs, ram ticks, turret ticks, spike ticks, deathmatch ticks and status pulse
-ticks). Two more `ModeTables` fields have no accessor because nothing reads them per-tick —
-`arenas` (which arenas the mode plays; see [`docs/config-reference.md`](docs/config-reference.md#arena-selection))
-and `maxPlayers` (the mode's own seat count, bounded above by the global `MAX_PLAYERS`).
+bundle assembled from its own folder — `packages/shared/src/modes/brawl/`,
+`packages/shared/src/modes/deathmatch/` and `packages/shared/src/modes/conquer/`, fourteen table
+files each. `modes/registry.ts` binds mode to bundle; `modes/active.ts` holds the active one and
+exposes it through seventeen accessors — `cars()`, `weapons()`, `drive()`, `ram()`, `impulse()`,
+`combat()`, `turret()`, `statusConfig()`, `statusTable()`, `statusLimits()`, `spike()`, `slots()`,
+`flow()`, `deathmatch()`, `conquer()`, `camera()` and `derived()` (the last for the nine artifacts
+`assembleModeConfig` resolves per mode: weapon ticks, chassis drive, burst defs, ram ticks, turret
+ticks, spike ticks, deathmatch ticks, conquer ticks and status pulse ticks). Two more `ModeTables`
+fields have no accessor because nothing reads them per-tick — `arenas` (which arenas the mode
+plays; see [`docs/config-reference.md`](docs/config-reference.md#arena-selection)) and `maxPlayers`
+(the mode's own seat count, bounded above by the global `MAX_PLAYERS`).
+
+**Conquer is the third mode, and the first team mode that ships active.** `GameMode.CONQUER = 3`
+(never renumber — invariant 7), published (`isActive: true`) as of 2026-09-24 — `GameMode` now
+carries **three win rules**, read through `winRuleOf(mode)`: `"last_standing"`, `"deathmatch"`, and
+`"conquer"`. It is a 3v3 zone-control mode with the same respawn-on-death flow as Deathmatch — it
+reads Deathmatch's own `deathmatch()` table for the clock, respawn delay and spawn-protection
+windows — but wins on `winRuleOf(mode) === "conquer"`: a team that holds the capture zone
+(`ArenaDef.zone`) uncontested long enough fills a control bar, and a full bar wins outright
+regardless of the clock. It plays its own arena, `arena-03`, and authors `CONQUER_CONFIG`
+(`captureDelaySeconds`, `controlTargetSeconds`, `teamSize`, `uniqueChassisPerTeam`) through the
+`conquer()` accessor. See
+[`docs/superpowers/specs/2026-09-24-conquer-mode-design.md`](docs/superpowers/specs/2026-09-24-conquer-mode-design.md).
 
 **The trap this section exists to prevent:** the raw globals in `config/` still exist, so editing
 `WEAPON_TABLE` the way this file used to tell you to **changes nothing about how the game plays.**
@@ -585,6 +598,7 @@ something, discuss it — do not answer with a parameter sweep.
 | FFA Deathmatch: the second win condition, kill attribution, respawn and spawn-protection lifecycle, the `isOnField`/`isSolid` split (M1–M33) | [`docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md`](docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md) |
 | The dev-only playtest playground: `?dev=playground`, the extracted tick pipeline, the runtime tuning store, `isActive`, the bot, persistence/export (PG1–PG23); bot difficulty profiles, per-car colour selection, the settings-panel relayout, and the `?dev=assets` additions (PG24–PG40); the VFX settings panel over `WEAPON_FX`, its preview and its export (PG41–PG55); the environment settings panel over `ENVIRONMENT_FX` — the arena's visual ground rather than per-weapon bursts — and its three non-live knobs (EV1–EV34); the six-seat widening, the Car select panel and the stable seat ids (PG56–PG88) | [`docs/superpowers/specs/2026-09-01-playtest-playground-design.md`](docs/superpowers/specs/2026-09-01-playtest-playground-design.md), [`docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md`](docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md), [`docs/superpowers/specs/2026-09-08-playground-vfx-settings-design.md`](docs/superpowers/specs/2026-09-08-playground-vfx-settings-design.md), [`docs/superpowers/specs/2026-09-08-playground-environment-vfx-design.md`](docs/superpowers/specs/2026-09-08-playground-environment-vfx-design.md), [`docs/superpowers/specs/2026-09-16-playground-six-car-select-design.md`](docs/superpowers/specs/2026-09-16-playground-six-car-select-design.md) |
 | Practice mode: the shipped 1v1-vs-bot room, its settings page, session limits (PR1–PR31) | [`docs/superpowers/specs/2026-09-03-practice-mode-design.md`](docs/superpowers/specs/2026-09-03-practice-mode-design.md) |
+| Conquer: the third win condition and first shipped team mode, the capture zone and control bar, car claims (`lockedCarId`), the respawn-on-death flow it shares with Deathmatch, `arena-03` (CQ1–CQ62) | [`docs/superpowers/specs/2026-09-24-conquer-mode-design.md`](docs/superpowers/specs/2026-09-24-conquer-mode-design.md) |
 | The user's own idea / invariant notes | `docs/ideas/`, `docs/invariants/` — **off limits unless the user names them**, see below |
 
 ## The netcode and rendering rewrite: fourteen phases, planned, not yet started

@@ -28,7 +28,7 @@ plus a rebuild, never an env var or a join option.
 | Piece | Where | If you skip it |
 |---|---|---|
 | `GameMode` enum value | `packages/shared/src/constants.ts` | Nothing compiles — `MODE_TABLE` is `satisfies Record<GameMode, ModeDef>` |
-| Thirteen table files + `index.ts` | `packages/shared/src/modes/<mode>/` | Nothing to point the row at |
+| Fourteen table files + `index.ts` | `packages/shared/src/modes/<mode>/` | Nothing to point the row at |
 | `MODE_TABLE` row (`id`, `name`, `isActive`, `config`) | `packages/shared/src/modes/registry.ts` | The enum value exists and resolves to nothing |
 | `arenas` + `maxPlayers` | that mode's `index.ts` | `invariants.test.ts` fails: an empty `arenas` throws mid-match |
 | Lobby card copy | `packages/client/src/ui/lobby-view.ts`, `modeCardsData()` | An ACTIVE mode with no card is silently unpickable — `lobby-view.test.ts` catches it |
@@ -50,7 +50,8 @@ export enum GameMode {
   FFA_LAST_STANDING = 0,
   TEAM = 1,
   FFA_DEATHMATCH = 2,
-  // next one is 3
+  CONQUER = 3,
+  // next one is 4
 }
 ```
 
@@ -58,10 +59,10 @@ export enum GameMode {
 re-labels every stored balance report, every playtest folder and every old client's lobby. A mode
 that is retired keeps its number and goes `isActive: false`; the number is never reused.
 
-Three cases in `registry.test.ts` pin the current set and will fail the moment a fourth value
-exists — "has exactly the three `GameMode` wire values", `isGameMode`'s `expect(isGameMode(3))
-.toBe(false)`, and (once it is published) `activeGameModes()`'s exact list. That is the tripwire
-doing its job — extend each to the new mode, do not weaken an assertion into a tautology.
+Cases in `registry.test.ts` pin the current set and will fail the moment a new value exists — "has
+exactly the four `GameMode` wire values", `isGameMode`'s `expect(isGameMode(4)).toBe(false)`, and
+(once it is published) `activeGameModes()`'s exact list. That is the tripwire doing its job — extend
+each to the new mode, do not weaken an assertion into a tautology.
 
 ## 2. The mode folder — copy one, do not hand-author it
 
@@ -69,11 +70,11 @@ doing its job — extend each to the new mode, do not weaken an assertion into a
 cp -r packages/shared/src/modes/deathmatch packages/shared/src/modes/<mode>
 ```
 
-Thirteen table files — `cars.ts`, `weapons.ts`, `drive.ts`, `ram.ts`, `impulse.ts`, `combat.ts`,
-`turret.ts`, `status.ts`, `spike.ts`, `slots.ts`, `flow.ts`, `deathmatch.ts`, `camera.ts` — plus an
-`index.ts` that assembles them into a `ModeTables` along with `arenas` and `maxPlayers`. Rename every
-`DEATHMATCH_*` export to your mode's prefix; the `index.ts` is the only file that has to agree with
-them.
+Fourteen table files — `cars.ts`, `weapons.ts`, `drive.ts`, `ram.ts`, `impulse.ts`, `combat.ts`,
+`turret.ts`, `status.ts`, `spike.ts`, `slots.ts`, `flow.ts`, `deathmatch.ts`, `conquer.ts`,
+`camera.ts` — plus an `index.ts` that assembles them into a `ModeTables` along with `arenas` and
+`maxPlayers`. Rename every `DEATHMATCH_*` export to your mode's prefix; the `index.ts` is the only
+file that has to agree with them.
 
 Three things about the shape, each of which will bite otherwise:
 
@@ -84,6 +85,10 @@ Three things about the shape, each of which will bite otherwise:
   check. `assembleModeConfig` re-attaches both from the global `DRIVE_CONFIG`.
 - **`deathmatch.ts` exists in every mode**, including ones with no respawns. It is a table, not a
   feature flag; `winRuleOf(mode)` is what decides whether anything reads it.
+- **`conquer.ts` exists in every mode too, for the same reason.** `teamSize` and
+  `uniqueChassisPerTeam` are inert outside a `winRuleOf(mode) === "conquer"` mode; a mode whose win
+  rule is `"conquer"` also reads its own `deathmatch.ts` for the clock, respawn delay and
+  spawn-protection windows rather than authoring a second copy of them (CQ22).
 - **`maxPlayers` is the mode's own seat count**, held to `[2, MAX_PLAYERS]` by
   `modes/invariants.test.ts`. `MAX_PLAYERS` (6, hard invariant 10) is the ceiling, not the number.
 
@@ -116,11 +121,11 @@ and every one of those guards derives its own expectation from `activeGameModes(
 all agreed the mode did not exist, before and after the flag flipped. Flipping it changed nothing
 anywhere and failed no test. Add it in the same edit as the row.
 
-`assembleModeConfig` `structuredClone`s the tables, resolves the eight derived artifacts
+`assembleModeConfig` `structuredClone`s the tables, resolves the nine derived artifacts
 (weapon ticks, chassis drive, burst defs, ram ticks, turret ticks, spike ticks, deathmatch ticks,
-status pulse ticks) and deep-freezes the result. It is the **only** place a bundle is made, and two
-bundles never share a sub-object — which is why `TEAM` can point at `BRAWL_TABLES` and still be a
-distinct frozen object.
+conquer ticks, status pulse ticks) and deep-freezes the result. It is the **only** place a bundle is
+made, and two bundles never share a sub-object — which is why `TEAM` can point at `BRAWL_TABLES` and
+still be a distinct frozen object.
 
 **Name it something whose slug is unique.** `modeSlug` lowercases the display name and collapses
 non-alphanumerics to hyphens; that slug is both the `--mode=` spelling and the report folder's
@@ -133,11 +138,12 @@ suffix. Two modes normalising to the same slug makes one of them unreachable by 
 since 2026-09-23 each is an **exhaustive `switch` with a `never` check**:
 
 ```ts
-export function winRuleOf(mode: GameMode): "last_standing" | "deathmatch" {
+export function winRuleOf(mode: GameMode): "last_standing" | "deathmatch" | "conquer" {
   switch (mode) {
     case GameMode.FFA_DEATHMATCH: return "deathmatch";
     case GameMode.FFA_LAST_STANDING: return "last_standing";
     case GameMode.TEAM: return "last_standing";
+    case GameMode.CONQUER: return "conquer";
     default: { const _never: never = mode; void _never; return "last_standing"; }
   }
 }
@@ -245,7 +251,7 @@ It is **the alarm, not the fix**.
 
 ## 10. The scope rule, for any new entry point
 
-`cfg()` and all sixteen accessors **throw** outside a mode scope — there is no default-mode
+`cfg()` and all seventeen accessors **throw** outside a mode scope — there is no default-mode
 fallback, by design. If this mode needs a new room, harness or script:
 
 - A server room holds its own `ModeConfig` and wraps **every** entry point in

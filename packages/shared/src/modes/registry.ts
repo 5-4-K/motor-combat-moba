@@ -64,7 +64,7 @@ export const MODE_TABLE = {
   [GameMode.CONQUER]: {
     id: GameMode.CONQUER,
     name: "Conquer",
-    isActive: false,
+    isActive: true,
     config: assembleModeConfig(GameMode.CONQUER, CONQUER_TABLES),
   },
 } as const satisfies Record<GameMode, ModeDef>;

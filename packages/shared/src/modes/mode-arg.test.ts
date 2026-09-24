@@ -81,11 +81,10 @@ describe("modeSlug / modeLabelOf / modeOptions", () => {
     expect(modeLabelOf(GameMode.FFA_DEATHMATCH)).toBe("Deathmatch (mode 2)");
     expect(modeLabelOf(GameMode.FFA_LAST_STANDING)).toBe("Brawl (mode 0)");
     expect(modeLabelOf(GameMode.TEAM)).toBe("Team brawl (mode 1, inactive)");
+    expect(modeLabelOf(GameMode.CONQUER)).toBe("Conquer (mode 3)");
   });
 
   it("lists every mode in wire-id order", () => {
-    expect(modeOptions()).toBe(
-      "0/brawl, 1/team-brawl (inactive), 2/deathmatch, 3/conquer (inactive)",
-    );
+    expect(modeOptions()).toBe("0/brawl, 1/team-brawl (inactive), 2/deathmatch, 3/conquer");
   });
 });

@@ -99,10 +99,12 @@ describe("shouldLoadAssetKey", () => {
   });
 
   it("still skips an arena outside the union, proving the list is a filter and not a pass-through", () => {
-    // arena-03 carries no `MODE_TABLE` entry today — it must never appear inside `activeArenaIds()`,
-    // and this assertion is what would catch a filter that quietly accepts everything.
-    expect(activeArenaIds()).not.toContain("arena-03");
-    expect(shouldLoadAssetKey("arena.arena-03.floor", activeArenaIds())).toBe(false);
+    // arena-04 carries no `MODE_TABLE` entry at all — it must never appear inside
+    // `activeArenaIds()`, and this assertion is what would catch a filter that quietly accepts
+    // everything. (arena-03 used to be this file's example, but Conquer publishing it (CQ41) put
+    // it in the union like any other active mode's arena.)
+    expect(activeArenaIds()).not.toContain("arena-04");
+    expect(shouldLoadAssetKey("arena.arena-04.floor", activeArenaIds())).toBe(false);
   });
 });
 

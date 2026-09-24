@@ -52,10 +52,10 @@ describe("MODE_TABLE", () => {
   });
 });
 
-it("Conquer is registered, unpublished, and plays arena-03 only (CQ12, CQ13)", () => {
+it("Conquer is registered, published, and plays arena-03 only (CQ12, CQ13, CQ41)", () => {
   const def = MODE_TABLE[GameMode.CONQUER];
   expect(def.name).toBe("Conquer");
-  expect(def.isActive).toBe(false);
+  expect(def.isActive).toBe(true);
   expect(def.config.arenas).toStrictEqual(["arena-03"]);
   expect(def.config.maxPlayers).toBe(6);
   expect(MODE_ORDER.at(-1)).toBe(GameMode.CONQUER);
@@ -74,8 +74,12 @@ describe("isGameMode", () => {
 });
 
 describe("isActive", () => {
-  it("publishes the two FFA modes; Team brawl is unpublished", () => {
-    expect(activeGameModes()).toEqual([GameMode.FFA_LAST_STANDING, GameMode.FFA_DEATHMATCH]);
+  it("publishes the two FFA modes and Conquer; Team brawl is unpublished", () => {
+    expect(activeGameModes()).toEqual([
+      GameMode.FFA_LAST_STANDING,
+      GameMode.FFA_DEATHMATCH,
+      GameMode.CONQUER,
+    ]);
   });
 
   it("keeps DEFAULT_GAME_MODE active, so a new lobby always opens on a selectable mode", () => {
@@ -85,7 +89,7 @@ describe("isActive", () => {
   it("isActiveGameMode refuses unknown values and inactive rows", () => {
     expect(isActiveGameMode(GameMode.FFA_LAST_STANDING)).toBe(true);
     expect(isActiveGameMode(GameMode.TEAM)).toBe(false);
-    expect(isActiveGameMode(GameMode.CONQUER)).toBe(false);
+    expect(isActiveGameMode(GameMode.CONQUER)).toBe(true);
     expect(isActiveGameMode(4)).toBe(false);
     expect(isActiveGameMode("0")).toBe(false);
     expect(isActiveGameMode(undefined)).toBe(false);

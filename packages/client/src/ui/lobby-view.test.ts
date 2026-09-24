@@ -261,9 +261,8 @@ describe("mode picker", () => {
   });
 });
 
-// CQ58: the Conquer lobby card's data exists (for whenever a future task flips `isActive`), but
-// Conquer stays hidden from the published catalog until Task 13 flips that flag.
-describe("Conquer mode card (CQ58)", () => {
+// CQ41, CQ58: Conquer's lobby card is published now that `isActive: true`.
+describe("Conquer mode card (CQ41, CQ58)", () => {
   it("builds a Conquer card with 3v3 / clock / zone-control meta, from the mode's own accessors", () => {
     withConquerMode(() => {
       const cards = modeCardsData();
@@ -272,8 +271,9 @@ describe("Conquer mode card (CQ58)", () => {
     });
   });
 
-  it("still omits Conquer from the published catalog while it ships inactive", () => {
-    expect(modeCards().map((c) => c.id)).not.toContain(GameMode.CONQUER);
-    expect(MODE_TABLE[GameMode.CONQUER].isActive).toBe(false);
+  it("appears last in the published catalog, now that it ships active", () => {
+    expect(modeCards().map((c) => c.id)).toContain(GameMode.CONQUER);
+    expect(modeCards().at(-1)?.id).toBe(GameMode.CONQUER);
+    expect(MODE_TABLE[GameMode.CONQUER].isActive).toBe(true);
   });
 });

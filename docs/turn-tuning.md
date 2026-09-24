@@ -364,6 +364,63 @@ The `FFA_DEATHMATCH` bundle, assembled from `packages/shared/src/modes/deathmatc
 | Grip while reeling | `lateralGripRate × STATUS_TABLE.reeling.grip` | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s |
 | Spin kept per tick while reeling | `exp(−reelingSpinDecayRate / TICK_RATE_HZ)` | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 |
 
+## Conquer
+
+The `CONQUER` bundle, assembled from `packages/shared/src/modes/conquer/`. Its three tables are
+byte-identical to Deathmatch's (CQ13) — `table-pinning.test.ts` does not enforce this pairing (it
+only pins each mode against the raw `config/` globals), but nothing has diverged them yet.
+
+**Per-car ratings** — `cars()`, one value per chassis:
+
+| Rating | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
+|---|---|---|---|---|---|---|---|---|---|
+| `handling` (turn rate) | 65 | 85 | 50 | 50 | 50 | 85 | 85 | 65 | 50 |
+| `speed` (the other half of radius) | 65 | 85 | 50 | 50 | 50 | 85 | 85 | 65 | 50 |
+
+**Per-car direct values** — `brakeDecel` off `cars()`, `dragRate` off `driveOf(id)`:
+
+| Value | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
+|---|---|---|---|---|---|---|---|---|---|
+| `dragRate` — drag (1/s) | 1.0416 | 1.2848 | 0.8896 | 0.8896 | 0.8896 | 1.2848 | 1.2848 | 1.0416 | 0.8896 |
+| `brakeDecel` — brake deceleration (u/s²) | 520 | 500 | 430 | 430 | 430 | 500 | 500 | 520 | 430 |
+
+**Global** — one value, applied to this mode's whole roster:
+
+| Knob | Where | Value | What it does |
+|---|---|---|---|
+| `baseTurnRate` | `modes/conquer/drive.ts` | 1.0005 | Flat part of every car's turn rate |
+| `turnRatePerRating` | `modes/conquer/drive.ts` | 0.02535 | What one point of `handling` buys |
+| `spinMaxRate` | `modes/conquer/ram.ts` | 6 rad/s | Cap on ram-imposed rotation |
+| `reelingSpinDecayRate` | `modes/conquer/ram.ts` | 2.0 /s | How fast a ram's imposed spin winds down while the victim is reeling |
+| `baseMaxSpeed` | `modes/conquer/drive.ts` | 90 | Flat part of every car's top speed — radius only, no effect on turn rate |
+| `speedPerRating` | `modes/conquer/drive.ts` | 2.277 | Radius only — what one point of `speed` buys |
+| `baseDrag` | `modes/conquer/drive.ts` | 0.768 | Drag rate at `accel` 0 — sets top speed, wind-up time and roll together |
+| `dragPerRating` | `modes/conquer/drive.ts` | 0.00608 | What one point of `accel` buys — more drag, sooner to top speed, shorter roll |
+| `lateralGripRate` | `modes/conquer/drive.ts` | 3.0 | The drift knob — how fast sideways velocity bleeds off |
+| `reverseAccelFactor` | `modes/conquer/drive.ts` | 0.6 | Reverse push as a fraction of forward — sets reverse top speed too |
+| `reverseEpsilon` | `modes/conquer/drive.ts` | 6.0 | Forward speed below which Down reverses instead of braking |
+
+**Derived** — nothing below is typed anywhere; all of it is computed from the three tables above:
+
+| Stat | Formula | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Turn rate** | `baseTurnRate + handling × turnRatePerRating` | 2.648 rad/s | **3.155 rad/s** | 2.268 rad/s | 2.268 rad/s | 2.268 rad/s | 3.155 rad/s | 3.155 rad/s | 2.648 rad/s | 2.268 rad/s |
+| — in degrees | × 180/π | 151.7°/s | 180.8°/s | 129.9°/s | 129.9°/s | 129.9°/s | 180.8°/s | 180.8°/s | 151.7°/s | 129.9°/s |
+| — per tick | ÷ `TICK_RATE_HZ` (30) | 0.0883 rad | 0.1052 rad | 0.0756 rad | 0.0756 rad | 0.0756 rad | 0.1052 rad | 0.1052 rad | 0.0883 rad | 0.0756 rad |
+| — degrees per tick | ″ | 5.06° | 6.03° | 4.33° | 4.33° | 4.33° | 6.03° | 6.03° | 5.06° | 4.33° |
+| **Engine push** | `topSpeed × dragRate` | 247.91 u/s² | **364.30 u/s²** | 181.34 u/s² | 181.34 u/s² | 181.34 u/s² | 364.30 u/s² | 364.30 u/s² | 247.91 u/s² | 181.34 u/s² |
+| Time to 90% of top speed | `ln(10) / dragRate` | 2.21 s | 1.79 s | 2.59 s | 2.59 s | 2.59 s | 1.79 s | 1.79 s | 2.21 s | 2.59 s |
+| Top speed | `baseMaxSpeed + speed × speedPerRating` | 238 u/s | **283.55 u/s** | 203.85 u/s | 203.85 u/s | 203.85 u/s | 283.55 u/s | 283.55 u/s | 238 u/s | 203.85 u/s |
+| Roll distance from top speed | `topSpeed / dragRate` | 228.5 u | 220.7 u | 229.1 u | 229.1 u | 229.1 u | 220.7 u | 220.7 u | 228.5 u | 229.1 u |
+| Reverse top speed | `topSpeed × reverseAccelFactor` | 142.8 u/s | 170.1 u/s | 122.3 u/s | 122.3 u/s | 122.3 u/s | 170.1 u/s | 170.1 u/s | 142.8 u/s | 122.3 u/s |
+| **Turn radius** | `topSpeed / turnRate` | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u |
+| Reverse turn radius | `reverseTopSpeed / turnRate` | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u |
+| Slip angle at full lock | `atan(turnRate / (dragRate + lateralGripRate))` | 33.2° | **36.4°** | 30.2° | 30.2° | 30.2° | 36.4° | 36.4° | 33.2° | 30.2° |
+| 180° while moving | `π / turnRate` | 1.19 s | 1.00 s | 1.39 s | 1.39 s | 1.39 s | 1.00 s | 1.00 s | 1.19 s | 1.39 s |
+| 360° while moving | `2π / turnRate` | 2.37 s | 1.99 s | 2.77 s | 2.77 s | 2.77 s | 1.99 s | 1.99 s | 2.37 s | 2.77 s |
+| Grip while reeling | `lateralGripRate × STATUS_TABLE.reeling.grip` | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s |
+| Spin kept per tick while reeling | `exp(−reelingSpinDecayRate / TICK_RATE_HZ)` | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 |
+
 ## What to reach for, by outcome
 
 Every row below is an edit to a MODE's tables. Making it in one mode's folder is the whole point of

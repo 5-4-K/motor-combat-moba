@@ -1152,6 +1152,35 @@ press. Parking on a phased car to hold it intangible past the minimum is weak gr
 camper cannot damage it and is only delaying their own shot; `phaseMaxSeconds` is what stops that
 delay being indefinite.
 
+## CONQUER_CONFIG
+
+`packages/shared/src/config/conquer-config.ts`, per mode through `conquer()` / `derived().conquerTicks`.
+Every mode carries a copy (CQ26), the same as `deathmatch()`, but only a mode whose `winRuleOf` is
+`"conquer"` ever reads it — `teamSize` and `uniqueChassisPerTeam` are inert everywhere else, which is
+how Team brawl keeps its 1v1-to-3v3 start rule untouched. Conquer's match clock, respawn delay and
+spawn-protection windows are **not** here: it reads those from its own `deathmatch()` table (CQ22),
+the "clock and respawn" table named for its first user.
+
+| Knob | Value | Notes |
+|---|---|---|
+| `captureDelaySeconds` | 5 | Uncontested presence needed before a team is "in control" and its bar starts to fill |
+| `controlTargetSeconds` | 60 | Accumulated control that fills a bar to 100% and wins outright |
+| `teamSize` | 3 | The exact number of ready players each team must have to start (CQ28) |
+| `uniqueChassisPerTeam` | true | A chassis a teammate has locked is refused (CQ4, CQ30) |
+
+`resolveConquerTicks` converts the two durations to whole ticks once per mode, at bundle assembly —
+`derived().conquerTicks.captureDelay` / `.controlTarget` — the same pattern as the weapon and
+status-pulse tick tables; the room reads only the derived ticks, never raw seconds. `flow/conquer.ts`
+holds the pure zone-state machine (`stepZone`, `inControl`, `conquerOutcome`,
+`conquerLeaveOutcome`) that these ticks feed; it reads no config itself; the caller passes the ticks
+in.
+
+`ArenaDef.zone` (an `ArenaZone` — `x`, `y`, `radius`) is the capture circle a car's centre must sit
+inside to count as present; it is required on any arena a `"conquer"`-win-rule mode plays
+(`modes/invariants.test.ts`). `ArenaDef.flipForTeamB` rotates team B's world camera 180° so each team
+sees its own base at the bottom (CQ46) — meaningful only on a layout that maps onto itself under that
+rotation, which `arena-03` (below) is built symmetric about both centre lines specifically to satisfy.
+
 ## NET_CONFIG
 
 | Knob | Value |
@@ -1340,6 +1369,7 @@ keep hand-in-sync as more arenas land.
 |---|---|---|---|---|
 | `arena-01` | 1280 × 720 | 1132 × 612 octagon | 14 (all `kind: "spike"`) | `#3b4747` floor / `#4a5568` obstacle / `#2d3436` border |
 | `arena-02` | 1280 × 720 | 1161 × 607 rect | 4 (all `kind: "spike"`) | `#9a7a58` floor / `#4a3e34` obstacle / `#2a2420` border |
+| `arena-03` | 1280 × 2160 | chamfered octagon (100 u chamfers) | 12 (2 `kind: "spike"`) | `#2b2f35` floor / `#4b5362` obstacle / `#1a1d22` border |
 
 `arena-01` is no longer one open rectangle. As of the 2026-09-11 arena-sprite-and-spike-hazard work
 it authors an `ArenaDef.boundary` — an optional convex polygon, wound clockwise, carried as inward
@@ -1371,6 +1401,19 @@ one per wall, each `SPIKE_CONFIG.depth` (20) inward. Top and bottom take the cor
 right sit between them. It ships `arena.arena-02.floor`. Spawns reuse the same facing pattern as
 `arena-01`, reseated in this rect. Both shipped arenas now fit the viewport at `CAMERA_CONFIG.zoom`
 of 1.
+
+`arena-03` is Conquer's own arena (CQ37–CQ40): a tall pitch, one screen wide and three tall, with the
+capture zone (`zone: { x: 640, y: 1080, radius: 150 }`) at its centre and each team's base at an end.
+It authors `flipForTeamB: true`, and is built symmetric about both centre lines specifically so that
+holds — team B's world camera rotates 180° and still shows the same map with its own base at the
+bottom. It carries no arena art and renders procedurally, spikes and chamfer corners included; its
+`boundary` is the frame itself with 100 u chamfers, since there is no painted wall band to inset. Of
+its 12 obstacles, 2 are `kind: "spike"` strips on the side walls level with the zone; the rest are
+plain lane pillars and zone-cover blocks. Its `teamASpawns`/`teamBSpawns` sit roughly 810 u from the
+zone edge (about 3 s for Mirage at top speed) — CQ42: that distance plus the 3 s `phaseMaxSeconds`
+ceiling is what keeps a freshly respawned (phased) car from contesting the zone while untouchable.
+Its `ffaSpawns` exist only to satisfy the type and the `≥ MAX_PLAYERS` invariant; Conquer is a team
+mode and never reads them.
 
 `getArena(id)` throws on an unknown id; it exists for the server's sim path, where an unresolvable
 arena is a programming error with no sane fallback. The client checks `isArenaId` first and shows a

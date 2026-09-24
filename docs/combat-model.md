@@ -1367,7 +1367,7 @@ for how long, and what that status does, derived from `STATUS_TABLE` itself so i
 - `diedAtTick` is networked rather than derived from `alive` flipping, so a spectator or a late
   joiner — neither of whom saw the transition — fades it correctly instead of drawing a corpse
   forever.
-- **Two win conditions now**, picked per-match by `GameMode` and read through `winRuleOf(mode)`:
+- **Three win conditions now**, picked per-match by `GameMode` and read through `winRuleOf(mode)`:
   - `"last_standing"` (`FFA_LAST_STANDING` and `TEAM`) — after damage each tick, `livingSides(mode,
     roster)` counts the living sides. `sides <= 1` ends the match through the same `endMatch` a
     disconnect uses. FFA names a `winnerSessionId`; team mode names a `winnerTeam`; zero living sides
@@ -1379,6 +1379,20 @@ for how long, and what that status does, derived from `STATUS_TABLE` itself so i
     kills descending, then deaths ascending. A top position still tied on both is the existing draw
     path (`winnerSessionId: ""`), which reads identically to "nobody won"; naming tied leaders is
     deliberately out of scope. See "Kill attribution" and "The respawn lifecycle" below.
+  - `"conquer"` (`CONQUER`, CQ18–CQ23) — a team mode that respawns, exactly like Deathmatch (it
+    reads Deathmatch's own `deathmatch()` table for the clock, respawn delay and spawn-protection
+    windows, CQ22), but decided by the capture zone rather than kills. Each tick,
+    `zonePresence(zone, roster)` counts each team's living, in-roster cars whose centre sits inside
+    `ArenaDef.zone`; `stepZone` turns that into a streak — uncontested presence for
+    `derived().conquerTicks.captureDelay` (5 s) puts a team "in control" and starts filling its bar,
+    a contested zone or an empty one freezes the streak, and a streak broken for even one tick resets
+    it to zero. A full bar (`derived().conquerTicks.controlTarget`, 60 s of accumulated control) wins
+    outright at any time. Short of that, the match ends on `ArenaState.matchEndsTick` exactly like
+    Deathmatch, except a **tied** pair of bars does not draw: `ArenaState.overtime` flips true and
+    the clock stops mattering — the match runs on until one team takes uncontested control
+    (`inControl`), which then wins. A team with nobody left on its roster loses outright
+    (`conquerLeaveOutcome`); nobody left on either roster is a draw. See
+    [`docs/superpowers/specs/2026-09-24-conquer-mode-design.md`](superpowers/specs/2026-09-24-conquer-mode-design.md).
 - Ending a match clears every shot in flight, and so does setting one up, so nothing from a previous
   match can carry into the next one.
 

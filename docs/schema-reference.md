@@ -9,14 +9,19 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 | `phase` | uint8 `RoomPhase` | `LOBBY` | LOBBY=0, CAR_SELECT=1, COUNTDOWN=2, MATCH=3 |
 | `tick` | uint32 | `0` | Sim tick counter |
 | `hostSessionId` | string | `""` | First joiner; transfers on leave |
-| `mode` | uint8 `GameMode` | `FFA_LAST_STANDING` | FFA_LAST_STANDING=0 (renamed from FFA; wire value unchanged), TEAM=1, FFA_DEATHMATCH=2 |
+| `mode` | uint8 `GameMode` | `FFA_LAST_STANDING` | FFA_LAST_STANDING=0 (renamed from FFA; wire value unchanged), TEAM=1, FFA_DEATHMATCH=2, CONQUER=3 |
 | `arenaId` | string | `"arena-01"` | Current arena definition id |
 | `carSelectDeadlineTick` | uint32 | `0` | 0 if not selecting |
 | `countdownEndsTick` | uint32 | `0` | 0 if not counting down |
 | `matchStartedAtTick` | uint32 | `0` | Stamped on the transition into MATCH. Display only — `stepSim` never reads it |
-| `matchEndsTick` | uint32 | `0` | The tick `FFA_DEATHMATCH` ends on; `0` in every other mode. Stamped on the same edge as `matchStartedAtTick`, for the same reason: one number patched to everyone beats a local stopwatch per machine |
+| `matchEndsTick` | uint32 | `0` | The tick `FFA_DEATHMATCH` or `CONQUER` ends on; `0` in every other mode. Stamped on the same edge as `matchStartedAtTick`, for the same reason: one number patched to everyone beats a local stopwatch per machine |
 | `winnerTeam` | int8 | `-1` | `-1` none/draw, `0` A, `1` B |
 | `winnerSessionId` | string | `""` | FFA winner; else empty |
+| `controlTicksA`, `controlTicksB` | uint16 | `0` | Conquer only: accumulated control-fill ticks per team, toward `derived().conquerTicks.controlTarget`. Written by the room, not read by `stepSim` |
+| `zoneHolder` | int8 | `-1` | Conquer only: the team whose uncontested, unopposed streak is currently running, or `-1` |
+| `zoneStreakTicks` | uint16 | `0` | Conquer only: that streak's length, saturating at `derived().conquerTicks.captureDelay` |
+| `zoneContested` | boolean | `false` | Conquer only: both teams present in the zone this tick |
+| `overtime` | boolean | `false` | Conquer only: the clock has expired with the control bars tied, and the match continues until one team takes uncontested control |
 | `players` | map `PlayerState` | empty | Keyed by sessionId |
 | `weapons` | map `WeaponInstanceState` | empty | Live projectile and beam instances, keyed by instance id |
 | `chat` | array `ChatMessageState` | empty | Last `CHAT_CONFIG.maxMessages` (20) lobby messages, oldest first. Nothing ever clears it — not a phase transition, not a kick — so a returning or late-joining player reads the backlog; dies with the room, since `ArenaRoom` sets no `autoDispose` override |
@@ -98,6 +103,7 @@ field at all, so the check is always false there. See root `CLAUDE.md` and
 | `deaths` | uint8 | `0` | Counted in every mode; the tie-break under `deathmatchOutcome` |
 | `killedBySessionId` | string | `""` | Who landed the killing blow, or `""` while alive. Render-only — `stepSim` never reads it. Networked for the same reason `diedAtTick` is: a spectator or a late joiner who never saw the death still needs to be able to name the killer. Cleared on respawn, which is also what dismisses the "killed you" banner |
 | `selectLocked` | boolean | `false` | Car-select lock; pick still hidden |
+| `lockedCarId` | string | `""` | Conquer's car-claims field (CQ4, CQ30): the chassis this player has locked in car select, written only where `uniqueChassisApplies` so teammates can grey out taken cards. `""` in every other mode, since blind pick applies there instead. Not read by `stepSim` |
 | `weapons` | array `WeaponSlotState` | empty | Per-slot state; array **position** is the slot index. `1 + min(kit.length, N)` rows per car: index 0 is the basic attack (BA15) and indices 1..`N` are the ability kit, since the 2026-09-20 index flip — the HUD draws only the kit |
 | `switchLockUntilTick` | uint32 | `0` | Tick a DIFFERENT weapon may fire; the weapon that just fired instead is gated by its own slot's `refireLockUntilTick` |
 | `level` | uint8 | `1` | In-match level; pinned to 1 until the level system exists. Gates `unlocksAt` |
