@@ -15,6 +15,7 @@
 import {
   GameMode,
   isArenaId,
+  MODE_TABLE,
   modeConfigOf,
   modeLabelOf,
   modeOptions,
@@ -126,8 +127,9 @@ function parseSkill(raw: string): PlayerSkill {
 function parseMode(raw: string): GameMode {
   if (raw === "deathmatch") return GameMode.FFA_DEATHMATCH;
   if (raw === "last-standing") return GameMode.FFA_LAST_STANDING;
+  let mode: GameMode;
   try {
-    return parseModeArg(raw);
+    mode = parseModeArg(raw);
   } catch (err) {
     // Re-thrown under this file's own `parseArgs:` prefix, the way every other flag's error reads,
     // with the legacy aliases named alongside the modes themselves.
@@ -136,6 +138,17 @@ function parseMode(raw: string): GameMode {
         `or the aliases "deathmatch" / "last-standing" (${(err as Error).message})`,
     );
   }
+  // CQ59: an objective mode has no win condition a bot can play toward — there is nothing in the
+  // bot brain that captures a zone — so a bot-vs-bot balance run cannot measure it at all. Refused
+  // the same way an unknown mode is: at resolution, naming the mode rather than producing a report
+  // that quietly measured nothing meaningful.
+  if (winRuleOf(mode) === "conquer") {
+    throw new Error(
+      `parseArgs: --mode "${raw}" resolved to ${MODE_TABLE[mode].name} — ` +
+        `${MODE_TABLE[mode].name} is an objective mode; balance bots cannot play it.`,
+    );
+  }
+  return mode;
 }
 
 /**

@@ -364,6 +364,9 @@ here so it is discoverable without having run anything yet:
 - **One arena.** Only the arena named in the report header, unless a future run says otherwise —
   arena geometry is itself a balance input this report does not vary.
 - **No lobby, no team play.** `GameMode.TEAM` is out of scope for this harness.
+- **No Conquer.** `--mode=conquer` is refused outright (CQ59) — Conquer's win condition is holding a
+  zone, and no layer of the bot brain plays toward that, so a bot-vs-bot run cannot measure it at
+  all. `cli.ts`'s `parseMode` refuses it the same way it refuses an unknown mode.
 - **Bot targeting drives kill distribution.** Who the bot chooses to shoot is a bot-tuning decision,
   not a chassis property, and it will move every per-car number here again when the bot improves.
 

@@ -98,6 +98,17 @@ describe("parseArgs (B41, B42)", () => {
     expect(() => parseArgs(["--mode"])).toThrow(/is not a known mode/);
   });
 
+  // CQ59: Conquer has no win condition a bot can play toward, so the balance harness refuses it
+  // outright rather than producing a report that measured nothing meaningful. Named through
+  // `MODE_TABLE[GameMode.CONQUER].name`, not a literal, so the message can never drift from the
+  // mode's real display name.
+  it("refuses Conquer, since balance bots cannot play an objective mode (CQ59)", () => {
+    const name = MODE_TABLE[GameMode.CONQUER].name;
+    expect(() => parseArgs(["--mode=conquer"])).toThrow(new RegExp(name));
+    expect(() => parseArgs(["--mode=conquer"])).toThrow(/objective/);
+    expect(() => parseArgs([`--mode=${GameMode.CONQUER}`])).toThrow(/objective/);
+  });
+
   it("rejects an unknown shape, skill, mode or arena", () => {
     expect(() => parseArgs(["--shape=melee"])).toThrow(/shape/);
     expect(() => parseArgs(["--skill=noob"])).toThrow(/skill/);
