@@ -110,7 +110,17 @@ describe("controlLine (CQ33)", () => {
         state({ mode: GameMode.CONQUER, controlTicksA: 765, controlTicksB: 325 }),
         "p1",
       );
-      expect(view.controlLine).toBe("Control — Team A 42.50% · Team B 18.05%");
+      expect(view.controlLine).toBe("Control — You 42.50% · Them 18.05%");
+    });
+  });
+
+  it("is viewer-relative: team B reads its own bar first", () => {
+    withConquerMode(() => {
+      const view = resultsView(
+        state({ mode: GameMode.CONQUER, controlTicksA: 765, controlTicksB: 325 }),
+        "p2",
+      );
+      expect(view.controlLine).toBe("Control — You 18.05% · Them 42.50%");
     });
   });
 
@@ -141,5 +151,22 @@ describe("scoreboard stats", () => {
       "p1",
     );
     expect(view.statsA[0]!.a).toBe(0);
+  });
+});
+
+// Conquer's title is viewer-relative ("You win"), like its HUD's US/THEM — a team-B player never
+// saw "Team B" anywhere in the match. Team brawl keeps "Team A/B wins".
+describe("winnerLabel in Conquer", () => {
+  it("reads You win / You lose from the viewer's team, Draw on -1", () => {
+    withConquerMode(() => {
+      const conquer = (winnerTeam: number) => state({ mode: GameMode.CONQUER, winnerTeam });
+      expect(resultsView(conquer(0), "p1").winnerLabel).toBe("You win");
+      expect(resultsView(conquer(0), "p2").winnerLabel).toBe("You lose");
+      expect(resultsView(conquer(1), "p2").winnerLabel).toBe("You win");
+      expect(resultsView(conquer(-1), "p1").winnerLabel).toBe("Draw");
+    });
+  });
+  it("leaves Team brawl's title alone", () => {
+    expect(resultsView(state({ mode: GameMode.TEAM, winnerTeam: 1 }), "p1").winnerLabel).toBe("Team B wins");
   });
 });

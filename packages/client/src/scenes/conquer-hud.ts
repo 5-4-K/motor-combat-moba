@@ -60,12 +60,13 @@ export const CONQUER_CHIP_H = 16;
 /** Bar label and percent size — the gutter's one small text scale. */
 export const CONQUER_LABEL_FONT_PX = 12;
 /**
- * The chip's text size, and why it is small. Its longest line, `ENEMY TAKING CONTROL · 5`, is 24
- * characters; at the monospace 0.6 em advance that is 24 × 5.4 = 129.6 px at 9 px, which fits the
- * chip's {@link CONQUER_CHIP_INSET_PX}-inset 136 px and would not fit the 112 px column every other
- * row uses at any size that still reads (12 px costs 172.8).
+ * The chip's text size. Its longest line, `ENEMY CAPTURING · 5`, is 19 characters; at the monospace
+ * 0.6 em advance that is 19 × 6.6 = 125.4 px at 11 px, which fits the chip's
+ * {@link CONQUER_CHIP_INSET_PX}-inset 136 px (12 px would cost 136.8 and clip). The enemy countdown
+ * was "ENEMY TAKING CONTROL · n" (24 characters, 9 px, unreadable on screen) until the user's
+ * 2026-09-24 rewording.
  */
-export const CONQUER_CHIP_FONT_PX = 9;
+export const CONQUER_CHIP_FONT_PX = 11;
 /**
  * The chip's inset from each gutter edge — narrower than `ROSTER_PAD_X_PX` on purpose: the chip is
  * the one row whose text is a sentence rather than a label, so it takes the gutter's width.
@@ -208,7 +209,8 @@ export function captureChip(
   const prefix = ours ? "" : "ENEMY ";
   const seconds = captureCountdownSeconds(streak, delayTicks, hz);
   if (seconds <= 0) return { text: `${prefix}HOLDING`, tone };
-  return { text: `${prefix}TAKING CONTROL · ${seconds}`, tone };
+  // The enemy line is shorter wording, not merely prefixed: see CONQUER_CHIP_FONT_PX.
+  return { text: ours ? `TAKING CONTROL · ${seconds}` : `ENEMY CAPTURING · ${seconds}`, tone };
 }
 
 /** Muted chip grey: the roster's dead-name grey, so the gutter has one "not happening" colour. */

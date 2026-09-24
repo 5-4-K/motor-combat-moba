@@ -120,8 +120,9 @@ turned into rules.
 - **CQ23** A player leaving mid-match: if a team is left with **zero** roster members, the other
   team wins immediately. If both teams are empty, the match ends as a draw (`winnerTeam −1`).
   Otherwise the match continues short-handed. Leaves never change either bar.
-- **CQ24** `endMatch(winnerSessionId = "", winnerTeam)` is the existing path. The results screen
-  already titles `winnerTeam` 0/1 as "Team A wins"/"Team B wins".
+- **CQ24** `endMatch(winnerSessionId = "", winnerTeam)` is the existing path. In a conquer-rule
+  mode the results title is **viewer-relative**: "You win" / "You lose", or "Draw" for
+  `winnerTeam −1` (user decision, 2026-09-24). Team brawl keeps "Team A wins"/"Team B wins".
 
 ## 5. Config
 
@@ -202,8 +203,12 @@ turned into rules.
   - `teamASpawns`: (460,2040) (640,2040) (820,2040), angle `−π/2` (facing up the map)
   - `teamBSpawns`: (460,120) (640,120) (820,120), angle `π/2`
   - `ffaSpawns`: those six, required by the type and by the ≥ 6 test, and unused by Conquer
-- **CQ40** Palette `{ floor: "#2b2f35", obstacle: "#4b5362", border: "#1a1d22" }`. The floor is
-  cool asphalt, so the green/red/white zone tints read clearly against it.
+- **CQ40** Palette `{ floor: "#2b2f35", obstacle: "#4b5362", border: "#1a1d22" }`. **Correction
+  (2026-09-24, found in the browser check):** `palette.floor` is only the main camera's background
+  colour, and on an arena without floor art the generated asphalt `TileSprite` covers the whole
+  arena above it. So the visible floor is `ENVIRONMENT_FX.floor`'s texture seen through the global
+  camera grade (`brightness 1.5`, warm tint), which reads sandy, the same as every art-less arena.
+  `palette.floor` never shows. `obstacle` and `border` do apply.
 - **CQ41** Arena-03 appears in `activeArenaIds()` only once Conquer is published. BootScene
   therefore loads nothing new before that, and after that there is no art to load.
 - **CQ42** The spawn-to-zone distance (≈ 810 u) and the phase ceiling (3 s) together keep a
@@ -294,7 +299,8 @@ turned into rules.
   build's `maxFireSlots`.
 - **CQ55** Status chip text, viewer-relative:
   - `TAKING CONTROL · n` (green) while the viewer's team is holder and `streak < D`
-  - `ENEMY TAKING CONTROL · n` (red) for the enemy
+  - `ENEMY CAPTURING · n` (red) for the enemy (user's wording, 2026-09-24; it replaced
+    "ENEMY TAKING CONTROL · n", which needed 9 px text to fit and was unreadable)
   - `HOLDING` (green) / `ENEMY HOLDING` (red) once in control
   - `CONTESTED` (white) when contested
   - `ZONE EMPTY` (muted) otherwise
@@ -309,8 +315,8 @@ turned into rules.
 
 ## 13. Results
 
-- **CQ58** The results screen in a conquer-rule mode adds one line under the title:
-  `Control — Team A 42.52 % · Team B 18.06 %`, read from the final `controlTicksA/B`.
+- **CQ58** The results screen in a conquer-rule mode adds one line under the title, viewer-relative
+  like the title: `Control — You 42.52% · Them 18.06%`, read from the final `controlTicksA/B`.
 
 ## 14. Harnesses, docs and publishing
 

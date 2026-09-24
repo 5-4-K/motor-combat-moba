@@ -12,7 +12,7 @@ const withDefaultMode = <T>(fn: () => T): T => withMode(modeConfigOf(DEFAULT_GAM
 describe("captureChip (CQ55)", () => {
   it("reads viewer-relative", () => {
     expect(captureChip(0, 0, 30, false, 150, 30)).toStrictEqual({ text: "TAKING CONTROL · 4", tone: "ally" });
-    expect(captureChip(1, 0, 30, false, 150, 30)).toStrictEqual({ text: "ENEMY TAKING CONTROL · 4", tone: "enemy" });
+    expect(captureChip(1, 0, 30, false, 150, 30)).toStrictEqual({ text: "ENEMY CAPTURING · 4", tone: "enemy" });
     expect(captureChip(0, 0, 150, false, 150, 30)).toStrictEqual({ text: "HOLDING", tone: "ally" });
     expect(captureChip(0, 1, 150, false, 150, 30)).toStrictEqual({ text: "ENEMY HOLDING", tone: "enemy" });
     expect(captureChip(0, -1, 0, true, 150, 30)).toStrictEqual({ text: "CONTESTED", tone: "neutral" });

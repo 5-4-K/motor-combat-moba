@@ -36,7 +36,7 @@ export interface ResultsView {
   durationLabel: string;
   statsA: StatRow[];
   statsB: StatRow[];
-  /** CQ33: "Control — Team A NN.NN% · Team B NN.NN%", only when `winRuleOf(mode) === "conquer"`. */
+  /** CQ58: "Control — You NN.NN% · Them NN.NN%", viewer-relative, only when `winRuleOf(mode) === "conquer"`. */
   controlLine?: string;
 }
 
@@ -82,20 +82,27 @@ export function resultsView(state: ResultsViewState, localSessionId: string): Re
   );
 
   return {
-    winnerLabel: winnerLabel(state),
+    winnerLabel: winnerLabel(state, localSessionId),
     modeLabel: modeLabel(state.mode),
     durationLabel: durationLabel(state.matchStartedAtTick, state.tick),
     statsA: rows(played.filter((p) => p.team !== 1), localSessionId),
     statsB: rows(played.filter((p) => p.team === 1), localSessionId),
-    controlLine: winRuleOf(state.mode) === "conquer" ? controlLine(state) : undefined,
+    controlLine: winRuleOf(state.mode) === "conquer" ? controlLine(state, localSessionId) : undefined,
   };
 }
 
-function controlLine(state: ResultsViewState): string {
+/** The viewer's team (0 when the viewer has no row, e.g. a late joiner watching the results). */
+function localTeamOf(state: ResultsViewState, localSessionId: string): number {
+  return state.players.find((p) => p.sessionId === localSessionId)?.team === 1 ? 1 : 0;
+}
+
+/** Viewer-relative, like the match HUD's US/THEM: the viewer's own team is always read first. */
+function controlLine(state: ResultsViewState, localSessionId: string): string {
   const target = derived().conquerTicks.controlTarget;
   const a = controlPercentText(state.controlTicksA, target);
   const b = controlPercentText(state.controlTicksB, target);
-  return `Control — Team A ${a} · Team B ${b}`;
+  const [ours, theirs] = localTeamOf(state, localSessionId) === 1 ? [b, a] : [a, b];
+  return `Control — You ${ours} · Them ${theirs}`;
 }
 
 function rows(players: readonly ResultsViewPlayer[], localSessionId: string): StatRow[] {
@@ -111,8 +118,16 @@ function rows(players: readonly ResultsViewPlayer[], localSessionId: string): St
   }));
 }
 
-/** Mirrors the old `ResultsScene.resultsTitle`: a player wins Brawl, a team wins everything else. */
-function winnerLabel(state: ResultsViewState): string {
+/**
+ * Mirrors the old `ResultsScene.resultsTitle`: a player wins Brawl, a team wins everything else.
+ * Conquer names the outcome from the viewer's side ("You win"), because its whole HUD is US/THEM
+ * and a team-B player, whose base sat at the bottom of their screen, never saw "Team B" anywhere.
+ */
+function winnerLabel(state: ResultsViewState, localSessionId: string): string {
+  if (winRuleOf(state.mode) === "conquer") {
+    if (state.winnerTeam !== 0 && state.winnerTeam !== 1) return "Draw";
+    return state.winnerTeam === localTeamOf(state, localSessionId) ? "You win" : "You lose";
+  }
   if (state.winnerSessionId) {
     const winner = state.players.find((p) => p.sessionId === state.winnerSessionId);
     return `${winner?.name || state.winnerSessionId} wins`;
