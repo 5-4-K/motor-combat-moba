@@ -18,6 +18,7 @@ import { DEATHMATCH_SPIKE } from "./spike.js";
 import { DEATHMATCH_SLOTS } from "./slots.js";
 import { DEATHMATCH_FLOW } from "./flow.js";
 import { DEATHMATCH_DEATHMATCH } from "./deathmatch.js";
+import { DEATHMATCH_CONQUER } from "./conquer.js";
 import { DEATHMATCH_CAMERA } from "./camera.js";
 
 export const DEATHMATCH_TABLES: ModeTables = {
@@ -35,6 +36,7 @@ export const DEATHMATCH_TABLES: ModeTables = {
   slots: DEATHMATCH_SLOTS,
   flow: DEATHMATCH_FLOW,
   deathmatch: DEATHMATCH_DEATHMATCH,
+  conquer: DEATHMATCH_CONQUER,
   camera: DEATHMATCH_CAMERA,
   arenas: ["arena-01", "arena-02"] as readonly ArenaId[],
   maxPlayers: 6,

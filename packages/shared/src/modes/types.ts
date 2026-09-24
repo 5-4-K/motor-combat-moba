@@ -2,6 +2,7 @@ import type { GameMode } from "../constants.js";
 import type { ArenaId } from "../arena/registry.js";
 import type { ChassisDrive } from "../config/car-config.js";
 import type { CombatConfig } from "../config/combat-config.js";
+import type { ConquerConfig, ConquerTicks } from "../config/conquer-config.js";
 import type { DeathmatchConfig, DeathmatchTicks } from "../config/deathmatch-config.js";
 import type { CameraConfig, DriveConfig } from "../config/drive-config.js";
 import type { FlowConfig } from "../config/flow-config.js";
@@ -43,12 +44,13 @@ export interface ModeTables {
   readonly slots: WeaponSlotConfig;
   readonly flow: FlowConfig;
   readonly deathmatch: DeathmatchConfig;
+  readonly conquer: ConquerConfig;
   readonly camera: CameraConfig;
   readonly arenas: readonly ArenaId[];
   readonly maxPlayers: number;
 }
 
-/** Artifacts derived once per mode at module load and frozen (MC7). */
+/** Artifacts derived once per mode at module load and frozen (MC7, nine as of Conquer). */
 export interface ModeDerived {
   readonly weaponTicks: Readonly<Record<WeaponId, WeaponTicks>>;
   readonly chassisDrive: Readonly<Record<CarId, ChassisDrive>>;
@@ -57,6 +59,7 @@ export interface ModeDerived {
   readonly turretTicks: Readonly<TurretTicks>;
   readonly spikeTicks: Readonly<SpikeTicks>;
   readonly deathmatchTicks: Readonly<DeathmatchTicks>;
+  readonly conquerTicks: Readonly<ConquerTicks>;
   readonly statusPulseTicks: Readonly<Record<StatusId, number>>;
 }
 

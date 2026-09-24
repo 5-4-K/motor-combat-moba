@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 // thing a config-tuning PR is most likely to touch out of habit.
 import { CAR_TABLE } from "../config/car-config.js";
 import { COMBAT_CONFIG } from "../config/combat-config.js";
+import { CONQUER_CONFIG } from "../config/conquer-config.js";
 import { DEATHMATCH_CONFIG } from "../config/deathmatch-config.js";
 import { CAMERA_CONFIG, DRIVE_CONFIG } from "../config/drive-config.js";
 import { FLOW_CONFIG } from "../config/flow-config.js";
@@ -20,6 +21,7 @@ import { BRAWL_CAMERA } from "./brawl/camera.js";
 import { BRAWL_CARS } from "./brawl/cars.js";
 import { BRAWL_COMBAT } from "./brawl/combat.js";
 import { BRAWL_DEATHMATCH } from "./brawl/deathmatch.js";
+import { BRAWL_CONQUER } from "./brawl/conquer.js";
 import { BRAWL_DRIVE } from "./brawl/drive.js";
 import { BRAWL_FLOW } from "./brawl/flow.js";
 import { BRAWL_IMPULSE } from "./brawl/impulse.js";
@@ -35,6 +37,7 @@ import { DEATHMATCH_CAMERA } from "./deathmatch/camera.js";
 import { DEATHMATCH_CARS } from "./deathmatch/cars.js";
 import { DEATHMATCH_COMBAT } from "./deathmatch/combat.js";
 import { DEATHMATCH_DEATHMATCH } from "./deathmatch/deathmatch.js";
+import { DEATHMATCH_CONQUER } from "./deathmatch/conquer.js";
 import { DEATHMATCH_DRIVE } from "./deathmatch/drive.js";
 import { DEATHMATCH_FLOW } from "./deathmatch/flow.js";
 import { DEATHMATCH_IMPULSE } from "./deathmatch/impulse.js";
@@ -121,6 +124,7 @@ describe("table pinning: the raw global equals each mode folder's copy (tripwire
       brawl: BRAWL_DEATHMATCH,
       deathmatch: DEATHMATCH_DEATHMATCH,
     },
+    { table: "conquer (CONQUER_CONFIG)", raw: CONQUER_CONFIG, brawl: BRAWL_CONQUER, deathmatch: DEATHMATCH_CONQUER },
     { table: "camera (CAMERA_CONFIG)", raw: CAMERA_CONFIG, brawl: BRAWL_CAMERA, deathmatch: DEATHMATCH_CAMERA },
   ];
 

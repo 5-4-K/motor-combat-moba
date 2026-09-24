@@ -42,6 +42,7 @@ export {
   weapons,
   flow,
   deathmatch,
+  conquer,
   camera,
 } from "./modes/active.js";
 export { assembleModeConfig } from "./modes/build.js";
@@ -305,6 +306,8 @@ export type { Modifiers } from "./sim/status/modifiers.js";
 export { CAMERA_CONFIG, DRIVE_CONFIG, LOGICAL_CANVAS } from "./config/drive-config.js";
 export { FLOW_CONFIG } from "./config/flow-config.js";
 export { DEATHMATCH_CONFIG, DEATHMATCH_TICKS } from "./config/deathmatch-config.js";
+export { CONQUER_CONFIG, resolveConquerTicks } from "./config/conquer-config.js";
+export type { ConquerConfig, ConquerTicks } from "./config/conquer-config.js";
 export { NET_CONFIG } from "./config/net-config.js";
 export { PRACTICE_CONFIG } from "./config/practice-config.js";
 export { CHAT_CONFIG } from "./config/chat-config.js";

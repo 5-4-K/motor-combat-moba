@@ -8,6 +8,7 @@
 // `MODE_TABLE`, so a value import from here back into that graph could run against a
 // partially-initialised module. Type-only imports are erased at compile time and cannot.
 import type { CombatConfig } from "../config/combat-config.js";
+import type { ConquerConfig } from "../config/conquer-config.js";
 import type { DeathmatchConfig } from "../config/deathmatch-config.js";
 import type { CameraConfig, DriveConfig } from "../config/drive-config.js";
 import type { FlowConfig } from "../config/flow-config.js";
@@ -142,6 +143,10 @@ export function flow(): FlowConfig {
 
 export function deathmatch(): DeathmatchConfig {
   return cfg().deathmatch;
+}
+
+export function conquer(): ConquerConfig {
+  return cfg().conquer;
 }
 
 export function camera(): CameraConfig {

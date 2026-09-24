@@ -2,7 +2,7 @@
 // table read — in `sim/`, and since task 5b in every non-test file under `packages/client/src` and
 // `packages/server/src` too — must go through the mode bundle's accessors — `drive()`, `ram()`,
 // `impulse()`, `combat()`, `spike()`, `turret()`, `statusConfig()`, `statusTable()`, `statusLimits()`,
-// `slots()`, `cars()`, `weapons()`, `flow()`, `deathmatch()`, `camera()`, `derived()`
+// `slots()`, `cars()`, `weapons()`, `flow()`, `deathmatch()`, `conquer()`, `camera()`, `derived()`
 // (`../modes/active.js`) — never a RAW global (`WEAPON_TABLE`, `CAR_TABLE`, `DRIVE_CONFIG`, ...) in
 // any form. A raw read is invisible to a playground retune's rebuilt bundle and to a room ticking inside a
 // non-default mode's `withMode` scope, so this walks every non-test file under the three roots and
@@ -59,7 +59,7 @@ const PACKAGES_ROOT = join(SHARED_SRC, "..", "..");
 const REPO_ROOT = join(PACKAGES_ROOT, "..");
 
 const BANNED =
-  /\b(WEAPON_TABLE|CAR_TABLE|DRIVE_CONFIG|RAM_CONFIG|COMBAT_CONFIG|IMPULSE_CONFIG|STATUS_TABLE|STATUS_CONFIG|SPIKE_CONFIG|SPIKE_TICKS|TURRET_CONFIG|TURRET_TICKS|WEAPON_SLOT_CONFIG|WEAPON_TICKS|DEATHMATCH_CONFIG|DEATHMATCH_TICKS|CHASSIS_DRIVE|FLOW_CONFIG|CAMERA_CONFIG)\b/;
+  /\b(WEAPON_TABLE|CAR_TABLE|DRIVE_CONFIG|RAM_CONFIG|COMBAT_CONFIG|IMPULSE_CONFIG|STATUS_TABLE|STATUS_CONFIG|SPIKE_CONFIG|SPIKE_TICKS|TURRET_CONFIG|TURRET_TICKS|WEAPON_SLOT_CONFIG|WEAPON_TICKS|DEATHMATCH_CONFIG|DEATHMATCH_TICKS|CONQUER_CONFIG|CHASSIS_DRIVE|FLOW_CONFIG|CAMERA_CONFIG)\b/;
 const IMPORT_TYPE_LINE = /^\s*import\s+type\b/;
 
 /**

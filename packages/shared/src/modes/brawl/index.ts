@@ -14,6 +14,7 @@ import { BRAWL_SPIKE } from "./spike.js";
 import { BRAWL_SLOTS } from "./slots.js";
 import { BRAWL_FLOW } from "./flow.js";
 import { BRAWL_DEATHMATCH } from "./deathmatch.js";
+import { BRAWL_CONQUER } from "./conquer.js";
 import { BRAWL_CAMERA } from "./camera.js";
 
 export const BRAWL_TABLES: ModeTables = {
@@ -31,6 +32,7 @@ export const BRAWL_TABLES: ModeTables = {
   slots: BRAWL_SLOTS,
   flow: BRAWL_FLOW,
   deathmatch: BRAWL_DEATHMATCH,
+  conquer: BRAWL_CONQUER,
   camera: BRAWL_CAMERA,
   arenas: ["arena-01", "arena-02"] as readonly ArenaId[],
   maxPlayers: 6,

@@ -41,10 +41,14 @@ const TABLE_KEYS = [
   "slots",
   "flow",
   "deathmatch",
+  "conquer",
   "camera",
   "arenas",
   "maxPlayers",
 ] as const satisfies readonly (keyof ModeTables)[];
+
+// Tables added after the fixture was captured (Conquer, 2026-09-24): no pre-migration value to compare.
+const POST_FIXTURE_KEYS = ["conquer"] as const;
 
 function driveWithoutHull(config: ModeConfig): ModeTables["drive"] {
   const { carWidth: _carWidth, carHeight: _carHeight, ...rest } = config.drive;
@@ -62,10 +66,13 @@ describe("day one is behaviourally a no-op (G4)", () => {
       it("TABLE_KEYS covers every ModeTables field the bundle actually carries (no interface drift)", () => {
         const { id: _id, derived: _derived, ...tableFields } = c;
         expect(Object.keys(tableFields).sort()).toStrictEqual([...TABLE_KEYS].sort());
-        expect(Object.keys(shippedTables).sort()).toStrictEqual([...TABLE_KEYS].sort());
+        expect(Object.keys(shippedTables).sort()).toStrictEqual(
+          TABLE_KEYS.filter((k) => !(POST_FIXTURE_KEYS as readonly string[]).includes(k)).sort(),
+        );
       });
 
       for (const key of TABLE_KEYS) {
+        if ((POST_FIXTURE_KEYS as readonly string[]).includes(key)) continue;
         if (key === "drive") continue; // handled below, hull stripped first
         if (key === "weapons" || key === "slots") continue; // deliberately moved since — see below
         it(`${key} matches the shipped fixture`, () => {

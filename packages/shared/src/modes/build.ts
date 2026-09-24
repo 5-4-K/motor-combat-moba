@@ -1,5 +1,6 @@
 import type { GameMode } from "../constants.js";
 import { resolveChassisDrive } from "../config/car-config.js";
+import { resolveConquerTicks } from "../config/conquer-config.js";
 import { resolveDeathmatchTicks } from "../config/deathmatch-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { DriveConfig } from "../config/drive-config.js";
@@ -55,6 +56,7 @@ export function assembleModeConfig(id: GameMode, tables: ModeTables): ModeConfig
     turretTicks: resolveTurretTicks(cloned.turret),
     spikeTicks: resolveSpikeTicks(cloned.spike),
     deathmatchTicks: resolveDeathmatchTicks(cloned.deathmatch),
+    conquerTicks: resolveConquerTicks(cloned.conquer),
     statusPulseTicks: resolveStatusPulseTicks(cloned.statusTable),
   };
 
