@@ -19,7 +19,10 @@ import { ABILITY_SLOT_CEILING } from "../config/weapon-slots.js";
 import { COLOR_TABLE } from "../config/color-config.js";
 import { ManeuverKind } from "../sim/maneuver.js";
 import { PlayerState } from "../schema/PlayerState.js";
-import { isArenaId } from "../arena/registry.js";
+import { isArenaId, getArena } from "../arena/registry.js";
+import { winRuleOf } from "../flow/modes.js";
+import { activeCarIds } from "../config/car-config.js";
+import { withMode } from "./active.js";
 import { MODE_TABLE } from "./registry.js";
 
 const UINT8_MAX = 255;
@@ -142,6 +145,21 @@ for (const def of Object.values(MODE_TABLE)) {
         neverFiredSentinel,
         `PlayerState.lastFiredSlot's "never fired" sentinel ${neverFiredSentinel} underflows int8`,
       ).toBeGreaterThanOrEqual(INT8_MIN);
+    });
+
+    it(`${def.name}: a conquer-rule mode plays only arenas that have a zone (CQ20)`, () => {
+      if (winRuleOf(def.id) !== "conquer") return;
+      for (const arenaId of def.config.arenas) {
+        expect(getArena(arenaId).zone, `${def.name} lists ${arenaId}, which has no zone`).toBeDefined();
+      }
+    });
+
+    it(`${def.name}: a conquer-rule mode's teamSize fits its active roster (CQ27)`, () => {
+      if (winRuleOf(def.id) !== "conquer") return;
+      withMode(def.config, () => {
+        expect(def.config.conquer.teamSize).toBeLessThanOrEqual(activeCarIds().length);
+        expect(def.config.conquer.teamSize * 2).toBeLessThanOrEqual(def.config.maxPlayers);
+      });
     });
   });
 }

@@ -343,4 +343,15 @@ export { farthestSpawn, isDueToRespawn, phaseDecision } from "./flow/respawn.js"
 export type { PhaseAction, PhaseInput } from "./flow/respawn.js";
 export { deathmatchEnded, deathmatchOutcome, livingSides } from "./flow/win.js";
 export type { DeathmatchPlayer, LivingPlayer, LivingSidesResult } from "./flow/win.js";
+export {
+  INITIAL_ZONE,
+  captureCountdownSeconds,
+  conquerLeaveOutcome,
+  conquerOutcome,
+  controlPercentText,
+  inControl,
+  stepZone,
+  zonePresence,
+} from "./flow/conquer.js";
+export type { ConquerOutcome, ZonePresenceCar, ZoneState } from "./flow/conquer.js";
 

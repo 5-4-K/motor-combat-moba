@@ -30,6 +30,15 @@ export class ArenaState extends Schema {
   @type("uint32") matchEndsTick = 0;
   @type("int8") winnerTeam = -1;
   @type("string") winnerSessionId = "";
+  /** Conquer (CQ43): accumulated fill ticks per team. Written by the room only; not read by stepSim. */
+  @type("uint16") controlTicksA = 0;
+  @type("uint16") controlTicksB = 0;
+  /** Conquer: the team whose capture streak is running, or -1. */
+  @type("int8") zoneHolder = -1;
+  /** Conquer: that streak, saturating at the capture delay. */
+  @type("uint16") zoneStreakTicks = 0;
+  @type("boolean") zoneContested = false;
+  @type("boolean") overtime = false;
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
   @type({ map: WeaponInstanceState }) weapons = new MapSchema<WeaponInstanceState>();
   /**
