@@ -4,6 +4,7 @@ import { assembleModeConfig } from "./build.js";
 import type { ModeConfig } from "./types.js";
 import { BRAWL_TABLES } from "./brawl/index.js";
 import { DEATHMATCH_TABLES } from "./deathmatch/index.js";
+import { CONQUER_TABLES } from "./conquer/index.js";
 
 /**
  * One row of the mode picker, plus the assembled bundle that row resolves to. Display names live
@@ -60,6 +61,12 @@ export const MODE_TABLE = {
     isActive: true,
     config: assembleModeConfig(GameMode.FFA_DEATHMATCH, DEATHMATCH_TABLES),
   },
+  [GameMode.CONQUER]: {
+    id: GameMode.CONQUER,
+    name: "Conquer",
+    isActive: false,
+    config: assembleModeConfig(GameMode.CONQUER, CONQUER_TABLES),
+  },
 } as const satisfies Record<GameMode, ModeDef>;
 
 /**
@@ -69,7 +76,8 @@ export const MODE_TABLE = {
 export const DEFAULT_GAME_MODE: GameMode = GameMode.FFA_LAST_STANDING;
 
 /**
- * Stable picker order: Brawl, Team brawl, Deathmatch — the lobby cards follow this, not enum order.
+ * Stable picker order: Brawl, Team brawl, Deathmatch, Conquer — the lobby cards follow this, not
+ * enum order.
  *
  * **Exported only so `registry.test.ts` can hold it COMPLETE against `MODE_TABLE`** (2026-09-23).
  * `MODE_TABLE` is held complete by `satisfies Record<GameMode, ModeDef>`; this list had no anchor
@@ -83,6 +91,7 @@ export const MODE_ORDER: readonly GameMode[] = [
   GameMode.FFA_LAST_STANDING,
   GameMode.TEAM,
   GameMode.FFA_DEATHMATCH,
+  GameMode.CONQUER,
 ];
 
 export function isGameMode(value: unknown): value is GameMode {

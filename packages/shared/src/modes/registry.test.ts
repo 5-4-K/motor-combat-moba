@@ -43,12 +43,22 @@ describe("MODE_TABLE", () => {
     );
   });
 
-  it("has exactly the three GameMode wire values", () => {
-    expect(Object.keys(MODE_TABLE).sort()).toEqual(["0", "1", "2"]);
+  it("has exactly the four GameMode wire values", () => {
+    expect(Object.keys(MODE_TABLE).sort()).toEqual(["0", "1", "2", "3"]);
     expect(MODE_TABLE[GameMode.FFA_LAST_STANDING].name).toBe("Brawl");
     expect(MODE_TABLE[GameMode.TEAM].name).toBe("Team brawl");
     expect(MODE_TABLE[GameMode.FFA_DEATHMATCH].name).toBe("Deathmatch");
+    expect(MODE_TABLE[GameMode.CONQUER].name).toBe("Conquer");
   });
+});
+
+it("Conquer is registered, unpublished, and plays arena-03 only (CQ12, CQ13)", () => {
+  const def = MODE_TABLE[GameMode.CONQUER];
+  expect(def.name).toBe("Conquer");
+  expect(def.isActive).toBe(false);
+  expect(def.config.arenas).toStrictEqual(["arena-03"]);
+  expect(def.config.maxPlayers).toBe(6);
+  expect(MODE_ORDER.at(-1)).toBe(GameMode.CONQUER);
 });
 
 describe("isGameMode", () => {
@@ -56,7 +66,8 @@ describe("isGameMode", () => {
     expect(isGameMode(GameMode.FFA_LAST_STANDING)).toBe(true);
     expect(isGameMode(GameMode.TEAM)).toBe(true);
     expect(isGameMode(GameMode.FFA_DEATHMATCH)).toBe(true);
-    expect(isGameMode(3)).toBe(false);
+    expect(isGameMode(GameMode.CONQUER)).toBe(true);
+    expect(isGameMode(4)).toBe(false);
     expect(isGameMode("0")).toBe(false);
     expect(isGameMode(undefined)).toBe(false);
   });
@@ -74,7 +85,8 @@ describe("isActive", () => {
   it("isActiveGameMode refuses unknown values and inactive rows", () => {
     expect(isActiveGameMode(GameMode.FFA_LAST_STANDING)).toBe(true);
     expect(isActiveGameMode(GameMode.TEAM)).toBe(false);
-    expect(isActiveGameMode(3)).toBe(false);
+    expect(isActiveGameMode(GameMode.CONQUER)).toBe(false);
+    expect(isActiveGameMode(4)).toBe(false);
     expect(isActiveGameMode("0")).toBe(false);
     expect(isActiveGameMode(undefined)).toBe(false);
   });

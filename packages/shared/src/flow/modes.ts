@@ -33,6 +33,8 @@ export function sidesOf(mode: GameMode): "ffa" | "team" {
       return "ffa";
     case GameMode.TEAM:
       return "team";
+    case GameMode.CONQUER:
+      return "team";
     default: {
       const _never: never = mode;
       void _never;
@@ -49,7 +51,7 @@ export function sidesOf(mode: GameMode): "ffa" | "team" {
  *
  * Exhaustive for the same reason `sidesOf` is, and with the same wire-byte fallback — see above.
  */
-export function winRuleOf(mode: GameMode): "last_standing" | "deathmatch" {
+export function winRuleOf(mode: GameMode): "last_standing" | "deathmatch" | "conquer" {
   switch (mode) {
     case GameMode.FFA_DEATHMATCH:
       return "deathmatch";
@@ -57,10 +59,37 @@ export function winRuleOf(mode: GameMode): "last_standing" | "deathmatch" {
       return "last_standing";
     case GameMode.TEAM:
       return "last_standing";
+    case GameMode.CONQUER:
+      return "conquer";
     default: {
       const _never: never = mode;
       void _never;
       return "last_standing";
+    }
+  }
+}
+
+/**
+ * Whether a dead car comes back (CQ15). The question every "=== 'deathmatch'" check that gated
+ * respawning, the phase sweep, the match clock, the no-spectate rule or the "Respawning in N" text
+ * was really asking. Sites that mean "kills decide the match" keep asking `winRuleOf` instead.
+ *
+ * Exhaustive for the same reason `sidesOf` is, and with the same wire-byte fallback.
+ */
+export function respawnsIn(mode: GameMode): boolean {
+  switch (mode) {
+    case GameMode.FFA_DEATHMATCH:
+      return true;
+    case GameMode.CONQUER:
+      return true;
+    case GameMode.FFA_LAST_STANDING:
+      return false;
+    case GameMode.TEAM:
+      return false;
+    default: {
+      const _never: never = mode;
+      void _never;
+      return false;
     }
   }
 }

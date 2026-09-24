@@ -84,6 +84,8 @@ describe("modeSlug / modeLabelOf / modeOptions", () => {
   });
 
   it("lists every mode in wire-id order", () => {
-    expect(modeOptions()).toBe("0/brawl, 1/team-brawl (inactive), 2/deathmatch");
+    expect(modeOptions()).toBe(
+      "0/brawl, 1/team-brawl (inactive), 2/deathmatch, 3/conquer (inactive)",
+    );
   });
 });

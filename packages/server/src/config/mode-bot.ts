@@ -37,6 +37,8 @@ export const MODE_BOT_CONFIG: Readonly<Record<GameMode, BotModeConfig>> = Object
   [GameMode.FFA_LAST_STANDING]: SHARED_BOT_CONFIG,
   [GameMode.TEAM]: SHARED_BOT_CONFIG,
   [GameMode.FFA_DEATHMATCH]: SHARED_BOT_CONFIG,
+  // CQ17: no bot plays Conquer; this row exists because the table is Record<GameMode, …>.
+  [GameMode.CONQUER]: SHARED_BOT_CONFIG,
 } as const satisfies Record<GameMode, BotModeConfig>);
 
 /** Throws on an unknown mode, mirroring `modeConfigOf` (shared's registry.ts) — never a wire value. */

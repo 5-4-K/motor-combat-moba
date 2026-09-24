@@ -34,6 +34,7 @@ export enum GameMode {
   FFA_LAST_STANDING = 0,
   TEAM = 1,
   FFA_DEATHMATCH = 2,
+  CONQUER = 3,
 }
 
 export enum PlayerStatus {
