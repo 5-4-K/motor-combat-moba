@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { GameMode, PlayerStatus, TICK_RATE_HZ } from "@motor-combat-moba/shared";
+import { GameMode, PlayerStatus, TICK_RATE_HZ, modeConfigOf, withMode } from "@motor-combat-moba/shared";
 import { durationLabel, resultsView, type ResultsViewPlayer } from "./results-view.js";
+
+const withConquerMode = <T>(fn: () => T): T => withMode(modeConfigOf(GameMode.CONQUER), fn);
 
 const basePlayer = (over: Partial<ResultsViewPlayer> = {}): ResultsViewPlayer => ({
   sessionId: "p1",
@@ -26,6 +28,8 @@ const state = (over = {}) => ({
   tick: 0,
   matchStartedAtTick: 0,
   players: roster,
+  controlTicksA: 0,
+  controlTicksB: 0,
   ...over,
 });
 
@@ -94,6 +98,26 @@ describe("resultsView", () => {
     }];
     const view = resultsView(state({ players: withSpectator }), "p1");
     expect(view.statsA.map((r) => r.name)).toEqual(["Vex"]);
+  });
+});
+
+// CQ33: the results screen's Conquer-only control line, built off the room's raw control ticks
+// (never re-derived in the view) so a room's own count is what the player reads.
+describe("controlLine (CQ33)", () => {
+  it("reports both teams' control percentage in Conquer", () => {
+    withConquerMode(() => {
+      const view = resultsView(
+        state({ mode: GameMode.CONQUER, controlTicksA: 765, controlTicksB: 325 }),
+        "p1",
+      );
+      expect(view.controlLine).toBe("Control — Team A 42.50% · Team B 18.05%");
+    });
+  });
+
+  it("is undefined outside Conquer", () => {
+    expect(resultsView(state({ mode: GameMode.TEAM }), "p1").controlLine).toBeUndefined();
+    expect(resultsView(state({ mode: GameMode.FFA_LAST_STANDING }), "p1").controlLine).toBeUndefined();
+    expect(resultsView(state({ mode: GameMode.FFA_DEATHMATCH }), "p1").controlLine).toBeUndefined();
   });
 });
 

@@ -60,6 +60,8 @@ export class ResultsScene extends Phaser.Scene {
         tick: room.state.tick,
         matchStartedAtTick: room.state.matchStartedAtTick,
         players,
+        controlTicksA: room.state.controlTicksA,
+        controlTicksB: room.state.controlTicksB,
       },
       room.sessionId,
     );

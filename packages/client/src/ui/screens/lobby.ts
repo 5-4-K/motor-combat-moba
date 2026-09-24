@@ -185,10 +185,11 @@ function modesModal(_view: LobbyView, menus: LobbyMenus, handlers: LobbyHandlers
               ]),
               h("div", { style: "font-family: var(--font-heading); font-size: 24px; text-transform: uppercase; margin-top: 10px;" }, [mode.name]),
               h("p", { style: "font-size: 14px; margin: 8px 0 0; color: var(--color-neutral-800);" }, [mode.body]),
-              h("div", { style: "display: flex; gap: 8px; margin-top: 16px;" }, [
-                h("span", { class: "tag tag-neutral" }, [mode.metaA]),
-                h("span", { class: "tag tag-neutral" }, [mode.metaB]),
-              ]),
+              h(
+                "div",
+                { style: "display: flex; gap: 8px; margin-top: 16px;" },
+                mode.meta.map((m) => h("span", { class: "tag tag-neutral" }, [m])),
+              ),
             ],
           );
           card.addEventListener("click", () => handlers.onPickMode(mode.id));

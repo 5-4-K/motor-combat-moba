@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf, withMode } from "@motor-combat-moba/shared";
 import { activeGameModes, GameMode, MAX_TEAM_SIZE, MODE_TABLE, PlayerStatus } from "@motor-combat-moba/shared";
-import { lobbyView, modeCards, modeLabel, TEAM_SLOTS } from "./lobby-view.js";
+import { lobbyView, modeCards, modeCardsData, modeLabel, TEAM_SLOTS } from "./lobby-view.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+
+const withConquerMode = <T>(fn: () => T): T => withMode(modeConfigOf(GameMode.CONQUER), fn);
 
 const player = (over: Partial<LobbyTestPlayer> = {}): LobbyTestPlayer => ({
   sessionId: "p1",
@@ -256,5 +258,22 @@ describe("mode picker", () => {
     // too) — but only the host may re-mode the room, so this entry stays host-only.
     const players = [player(), player({ sessionId: "p2", name: "Juno" })];
     expect(lobbyView(state(players), "p2", "").canOpenModes).toBe(false);
+  });
+});
+
+// CQ58: the Conquer lobby card's data exists (for whenever a future task flips `isActive`), but
+// Conquer stays hidden from the published catalog until Task 13 flips that flag.
+describe("Conquer mode card (CQ58)", () => {
+  it("builds a Conquer card with 3v3 / clock / zone-control meta, from the mode's own accessors", () => {
+    withConquerMode(() => {
+      const cards = modeCardsData();
+      const conquer = cards.find((c) => c.id === GameMode.CONQUER);
+      expect(conquer?.meta).toEqual(["3v3", "3:00", "zone control"]);
+    });
+  });
+
+  it("still omits Conquer from the published catalog while it ships inactive", () => {
+    expect(modeCards().map((c) => c.id)).not.toContain(GameMode.CONQUER);
+    expect(MODE_TABLE[GameMode.CONQUER].isActive).toBe(false);
   });
 });

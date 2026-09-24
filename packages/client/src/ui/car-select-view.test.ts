@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import { DEFAULT_GAME_MODE, GameMode, installMode, modeConfigOf, withMode } from "@motor-combat-moba/shared";
 import {
   CAR_TABLE,
   TICK_RATE_HZ,
@@ -16,14 +16,17 @@ import {
   weaponDefOf,
   type CarId,
 } from "@motor-combat-moba/shared";
-import { CAR_BARS, carSelectView, fullStatsFor } from "./car-select-view.js";
+import { CAR_BARS, carSelectView, fullStatsFor, type CarSelectViewPlayer } from "./car-select-view.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+
+const withConquerMode = <T>(fn: () => T): T => withMode(modeConfigOf(GameMode.CONQUER), fn);
 
 const state = (over = {}) => ({
   mode: 1 as const,
   tick: 0,
   carSelectDeadlineTick: 60 * TICK_RATE_HZ,
+  players: [] as CarSelectViewPlayer[],
   ...over,
 });
 
@@ -223,5 +226,72 @@ describe("carSelectView", () => {
   it("says so when the pick is already locked", () => {
     expect(carSelectView(state(), "mirage", true).lockLabel).toBe("Locked in");
     expect(carSelectView(state(), "mirage", false).lockLabel).toBe("Lock in");
+  });
+
+  // CQ32/CQ30: a teammate's lock greys the card in a unique-chassis mode (Conquer today).
+  describe("taken cards (CQ32)", () => {
+    const teammate: CarSelectViewPlayer = {
+      sessionId: "p2",
+      name: "Nyx",
+      team: 0,
+      lockedCarId: "mirage",
+    };
+    const enemy: CarSelectViewPlayer = {
+      sessionId: "p3",
+      name: "Rook",
+      team: 1,
+      lockedCarId: "bastion",
+    };
+
+    it("marks a teammate's locked chassis taken, and names who has it", () => {
+      withConquerMode(() => {
+        const view = carSelectView(
+          state({ mode: GameMode.CONQUER, players: [teammate, enemy] }),
+          "bullseye",
+          false,
+          "p1",
+        );
+        const mirage = view.cars.find((c) => c.id === "mirage");
+        expect(mirage?.taken).toBe(true);
+        expect(mirage?.takenBy).toBe("Nyx");
+      });
+    });
+
+    it("never marks an enemy's lock taken", () => {
+      withConquerMode(() => {
+        const view = carSelectView(
+          state({ mode: GameMode.CONQUER, players: [teammate, enemy] }),
+          "bullseye",
+          false,
+          "p1",
+        );
+        const bastion = view.cars.find((c) => c.id === "bastion");
+        expect(bastion?.taken).toBe(false);
+        expect(bastion?.takenBy).toBe("");
+      });
+    });
+
+    it("refuses to lock in a taken chassis previewed by the local player", () => {
+      withConquerMode(() => {
+        const view = carSelectView(
+          state({ mode: GameMode.CONQUER, players: [teammate, enemy] }),
+          "mirage",
+          false,
+          "p1",
+        );
+        expect(view.canLockIn).toBe(false);
+      });
+    });
+
+    it("marks nothing taken in Brawl, even with the same lock data", () => {
+      const view = carSelectView(
+        state({ mode: GameMode.FFA_LAST_STANDING, players: [teammate, enemy] }),
+        "mirage",
+        false,
+        "p1",
+      );
+      expect(view.cars.every((c) => !c.taken)).toBe(true);
+      expect(view.canLockIn).toBe(true);
+    });
   });
 });

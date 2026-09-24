@@ -3,6 +3,7 @@ import {
   drive,
   GameMode,
   activeCarIds,
+  chassisTakenByTeammate,
   dragRateOf,
   engineAccelOf,
   forwardMaxSpeedOf,
@@ -11,6 +12,7 @@ import {
   ramDefenceOf,
   reverseAccelOf,
   turnRateOf,
+  uniqueChassisApplies,
   weaponDamageOf,
   weaponDefOf,
   type CarId,
@@ -48,6 +50,10 @@ export interface CarCard {
   selected: boolean;
   image: string;
   bars: StatBar[];
+  /** A teammate has already locked this chassis, in a mode where `uniqueChassisApplies` (CQ32). */
+  taken: boolean;
+  /** The teammate's name, or "" when `taken` is false. */
+  takenBy: string;
 }
 
 export interface StatRow {
@@ -67,10 +73,18 @@ export interface CarSelectView {
   lockLabel: string;
 }
 
+export interface CarSelectViewPlayer {
+  sessionId: string;
+  name: string;
+  team: number;
+  lockedCarId: string;
+}
+
 export interface CarSelectViewState {
   mode: GameMode;
   tick: number;
   carSelectDeadlineTick: number;
+  players: readonly CarSelectViewPlayer[];
 }
 
 /** One decimal at most, and no trailing `.0` — 0.5 s reads better than 0.500 s or 1.0 s. */
@@ -121,24 +135,37 @@ export function carSelectView(
   state: CarSelectViewState,
   selectedId: CarId,
   locked: boolean,
+  selfId = "",
 ): CarSelectView {
   const remaining = secondsLeft(state.carSelectDeadlineTick, state.tick);
+  const unique = uniqueChassisApplies(state.mode);
+  const team = state.players.find((p) => p.sessionId === selfId)?.team ?? 0;
 
   return {
     modeLabel: modeLabel(state.mode),
     clock: clockLabel(remaining),
     secondsLeft: remaining,
     urgent: remaining <= URGENT_SECONDS,
-    cars: activeCarIds().map((id) => ({
-      id,
-      name: cars()[id].name,
-      selected: id === selectedId,
-      image: `url("art/cars/${id}.png")`,
-      bars: CAR_BARS.map((key) => ({ key, percent: cars()[id][key] })),
-    })),
+    cars: activeCarIds().map((id) => {
+      // Only a TEAMMATE'S lock greys a card — never the local player's own, never an enemy's
+      // (CQ30). `chassisTakenByTeammate` is the one shared predicate every reader of this rule
+      // uses; the teammate itself is found the same way, to name who has it.
+      const takenBy = unique
+        ? state.players.find((p) => p.sessionId !== selfId && p.team === team && p.lockedCarId === id)
+        : undefined;
+      return {
+        id,
+        name: cars()[id].name,
+        selected: id === selectedId,
+        image: `url("art/cars/${id}.png")`,
+        bars: CAR_BARS.map((key) => ({ key, percent: cars()[id][key] })),
+        taken: takenBy !== undefined,
+        takenBy: takenBy?.name ?? "",
+      };
+    }),
     selectedName: cars()[selectedId].name,
     stats: fullStatsFor(selectedId),
-    canLockIn: !locked,
+    canLockIn: !locked && !(unique && chassisTakenByTeammate(selectedId, team, selfId, state.players)),
     lockLabel: locked ? "Locked in" : "Lock in",
   };
 }

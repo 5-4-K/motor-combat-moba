@@ -1,4 +1,12 @@
-import { COLOR_TABLE, GameMode, PlayerStatus, TICK_RATE_HZ } from "@motor-combat-moba/shared";
+import {
+  COLOR_TABLE,
+  GameMode,
+  PlayerStatus,
+  TICK_RATE_HZ,
+  controlPercentText,
+  derived,
+  winRuleOf,
+} from "@motor-combat-moba/shared";
 import { modeLabel } from "./lobby-view.js";
 
 /**
@@ -28,6 +36,8 @@ export interface ResultsView {
   durationLabel: string;
   statsA: StatRow[];
   statsB: StatRow[];
+  /** CQ33: "Control — Team A NN.NN% · Team B NN.NN%", only when `winRuleOf(mode) === "conquer"`. */
+  controlLine?: string;
 }
 
 export interface ResultsViewPlayer {
@@ -48,6 +58,9 @@ export interface ResultsViewState {
   tick: number;
   matchStartedAtTick: number;
   players: readonly ResultsViewPlayer[];
+  /** CQ33: the room's own control ticks — the view never re-derives them. */
+  controlTicksA: number;
+  controlTicksB: number;
 }
 
 /**
@@ -74,7 +87,15 @@ export function resultsView(state: ResultsViewState, localSessionId: string): Re
     durationLabel: durationLabel(state.matchStartedAtTick, state.tick),
     statsA: rows(played.filter((p) => p.team !== 1), localSessionId),
     statsB: rows(played.filter((p) => p.team === 1), localSessionId),
+    controlLine: winRuleOf(state.mode) === "conquer" ? controlLine(state) : undefined,
   };
+}
+
+function controlLine(state: ResultsViewState): string {
+  const target = derived().conquerTicks.controlTarget;
+  const a = controlPercentText(state.controlTicksA, target);
+  const b = controlPercentText(state.controlTicksB, target);
+  return `Control — Team A ${a} · Team B ${b}`;
 }
 
 function rows(players: readonly ResultsViewPlayer[], localSessionId: string): StatRow[] {

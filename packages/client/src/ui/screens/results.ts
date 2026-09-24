@@ -56,6 +56,11 @@ export function renderResults(view: ResultsView, handlers: ResultsHandlers): HTM
       h("span", { class: "tag tag-accent", style: "align-self: flex-end; position: relative; bottom: 6px;" }, [view.modeLabel]),
       h("span", { class: "tag tag-neutral", style: "align-self: flex-end; position: relative; bottom: 6px;" }, [view.durationLabel]),
     ]),
+    // CQ33: Conquer's own control line, under the title. `undefined` elsewhere, so every other
+    // mode's results screen renders with nothing added here — an empty array, not an empty node.
+    ...(view.controlLine
+      ? [h("div", { style: "margin-top: 10px; font-size: 15px; color: var(--color-neutral-700);" }, [view.controlLine])]
+      : []),
     h("div", { style: "display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 26px;" }, [
       statTable(view.statsA),
       statTable(view.statsB),

@@ -8,7 +8,7 @@ import {
   type CarId,
 } from "@motor-combat-moba/shared";
 import { bindViewRouter } from "../net/view.js";
-import { carSelectView } from "../ui/car-select-view.js";
+import { carSelectView, type CarSelectView, type CarSelectViewPlayer } from "../ui/car-select-view.js";
 import { ScreenOverlay } from "../ui/overlay.js";
 import { renderCarSelect } from "../ui/screens/car-select.js";
 
@@ -30,6 +30,7 @@ export class CarSelectScene extends Phaser.Scene {
   private locked = false;
   private lastSecond = -1;
   private unbind: Array<() => void> = [];
+  private currentView: CarSelectView | undefined;
 
   constructor() {
     super({ key: "car_select" });
@@ -59,16 +60,18 @@ export class CarSelectScene extends Phaser.Scene {
     this.overlay = undefined;
     this.locked = false;
     this.lastSecond = -1;
+    this.currentView = undefined;
     this.room = undefined;
   }
 
   private bindRoom(room: Room<ArenaState>): void {
     this.unbind.push(bindViewRouter(this, room));
 
+    // Always forced: a teammate locking a chassis in a unique-chassis mode (CQ32) has to grey this
+    // player's card too, and that has nothing to do with whether the clock's second ticked over.
     const onState = (): void => {
-      const wasLocked = this.locked;
       this.locked = Boolean(room.state.players.get(room.sessionId)?.selectLocked);
-      this.render(wasLocked !== this.locked);
+      this.render(true);
     };
     room.onStateChange(onState);
     this.unbind.push(() => room.onStateChange.remove(onState));
@@ -97,7 +100,9 @@ export class CarSelectScene extends Phaser.Scene {
   }
 
   private lockIn(): void {
-    if (this.locked || !this.room) return;
+    // `canLockIn` already covers a card a teammate has taken (CQ32); re-read the last-rendered
+    // view rather than recomputing it, so this can never send a pick the button itself refused.
+    if (this.locked || !this.room || !this.currentView?.canLockIn) return;
     this.room.send(MSG_SELECT_CAR, { carId: this.selected });
   }
 
@@ -106,18 +111,26 @@ export class CarSelectScene extends Phaser.Scene {
     const room = this.room;
     if (!room || !this.overlay) return;
 
+    const players: CarSelectViewPlayer[] = [];
+    room.state.players.forEach((player, sessionId) => {
+      players.push({ sessionId, name: player.name, team: player.team, lockedCarId: player.lockedCarId });
+    });
+
     const view = carSelectView(
       {
         mode: room.state.mode,
         tick: room.state.tick,
         carSelectDeadlineTick: room.state.carSelectDeadlineTick,
+        players,
       },
       this.selected,
       this.locked,
+      room.sessionId,
     );
 
     if (!force && view.secondsLeft === this.lastSecond) return;
     this.lastSecond = view.secondsLeft;
+    this.currentView = view;
     this.overlay.render(
       renderCarSelect(view, {
         onPick: (carId) => this.pick(carId),

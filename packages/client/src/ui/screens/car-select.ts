@@ -5,8 +5,10 @@ import type { CarBarKey, CarSelectView } from "../car-select-view.js";
 /**
  * Car select: three chassis cards against a countdown, with a scrolling full-stats panel.
  *
- * The card shows three summary bars and nothing else — no "taken" pills, because any player may pick
- * any car, including one someone else already has. Clicking is a free preview; "Lock in" commits.
+ * The card shows three summary bars and, in a unique-chassis mode (Conquer today), a "Taken" pill
+ * over a teammate's locked chassis (CQ32) — greyed and unclickable, since that pick is refused
+ * server-side anyway. Every other mode shows no pill at all: any player may pick any car, including
+ * one someone else already has. Clicking a free card is still a free preview; "Lock in" commits.
  */
 
 /** Lucide `zap`, `sword`, `shield` at the design system's stroke-width 2.75. */
@@ -47,12 +49,21 @@ export function renderCarSelect(view: CarSelectView, handlers: CarSelectHandlers
       "div",
       {
         style:
-          `cursor: pointer; padding: 18px 20px 20px; border-radius: 4px; background: var(--color-surface); ` +
-          `display: flex; flex-direction: column; gap: 14px; ` +
+          `cursor: ${car.taken ? "default" : "pointer"}; padding: 18px 20px 20px; border-radius: 4px; background: var(--color-surface); ` +
+          `display: flex; flex-direction: column; gap: 14px; position: relative; ` +
+          `opacity: ${car.taken ? "0.45" : "1"}; ` +
           `border: 1px solid ${car.selected ? "var(--color-accent)" : "var(--color-divider)"}; ` +
           `box-shadow: ${car.selected ? "var(--shadow-md)" : "none"};`,
       },
       [
+        ...(car.taken
+          ? [
+              h("div", {
+                class: "tag tag-neutral",
+                style: "position: absolute; top: 12px; right: 12px;",
+              }, [`Taken · ${car.takenBy}`]),
+            ]
+          : []),
         h("div", {
           role: "img",
           "aria-label": car.name,
@@ -76,7 +87,9 @@ export function renderCarSelect(view: CarSelectView, handlers: CarSelectHandlers
         ),
       ],
     );
-    card.addEventListener("click", () => handlers.onPick(car.id));
+    // A taken card ignores clicks entirely — the server would refuse the pick anyway (CQ30), and a
+    // greyed card that still "worked" would read as a bug rather than a rule.
+    if (!car.taken) card.addEventListener("click", () => handlers.onPick(car.id));
     return card;
   });
 
