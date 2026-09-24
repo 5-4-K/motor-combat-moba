@@ -1,4 +1,4 @@
-import type { Spawn } from "../arena/types.js";
+import type { ArenaDef, Spawn } from "../arena/types.js";
 import { derived } from "../modes/active.js";
 
 /**
@@ -36,6 +36,24 @@ export function farthestSpawn(
     }
   }
   return best;
+}
+
+/**
+ * Where a respawning car appears (CQ35). Team modes respawn at the car's OWN base, the spawn
+ * farthest from the nearest living ENEMY; teammates are not threats. FFA is unchanged: every other
+ * living car is an enemy and `ffaSpawns` is the list.
+ */
+export function respawnPointFor(
+  arena: ArenaDef,
+  sides: "ffa" | "team",
+  team: number,
+  others: readonly { x: number; y: number; team: number }[],
+): Spawn {
+  if (sides === "team") {
+    const own = team === 1 ? arena.teamBSpawns : arena.teamASpawns;
+    return farthestSpawn(own, others.filter((o) => o.team !== team));
+  }
+  return farthestSpawn(arena.ffaSpawns, others);
 }
 
 /**

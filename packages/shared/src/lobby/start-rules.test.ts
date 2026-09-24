@@ -66,3 +66,29 @@ describe("canStart TEAM", () => {
     });
   });
 });
+
+describe("canStart, Conquer (CQ28)", () => {
+  const p = (team: number, status: "ready" | "in_match" | "post_match" = "ready") => ({ team, status });
+  it("needs exactly teamSize ready players per team", () => {
+    expect(canStart(GameMode.CONQUER, [p(0), p(0), p(0), p(1), p(1), p(1)])).toStrictEqual({ ok: true });
+    for (const lobby of [
+      [p(0), p(1)],
+      [p(0), p(0), p(1), p(1)],
+      [p(0), p(0), p(0), p(1), p(1)],
+      [p(0), p(0), p(0), p(0), p(1), p(1)],
+    ]) {
+      expect(canStart(GameMode.CONQUER, lobby)).toStrictEqual({
+        ok: false,
+        error: "Conquer needs exactly 3 ready players per team",
+      });
+    }
+  });
+  it("ignores players who are not ready", () => {
+    expect(
+      canStart(GameMode.CONQUER, [p(0), p(0), p(0), p(1), p(1), p(1), p(1, "post_match")]),
+    ).toStrictEqual({ ok: true });
+  });
+  it("leaves Team brawl's 1v1 start alone", () => {
+    expect(canStart(GameMode.TEAM, [p(0), p(1)])).toStrictEqual({ ok: true });
+  });
+});

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ARENA_01 } from "../arena/arena-01.js";
+import { ARENA_03 } from "../arena/arena-03.js";
 import type { Spawn } from "../arena/types.js";
 import { GameMode } from "../constants.js";
 import { assignSpawns } from "./spawns.js";
@@ -131,5 +132,23 @@ describe("assignSpawns TEAM", () => {
       { sessionId: "a4", team: 0 as const },
     ];
     expect(() => assignSpawns(ARENA_01, GameMode.TEAM, roster, () => 0)).toThrow(/spawn/i);
+  });
+});
+
+describe("assignSpawns CONQUER", () => {
+  it("uses team spawns like Team brawl (sidesOf, not a mode literal)", () => {
+    const assigned = assignSpawns(
+      ARENA_03,
+      GameMode.CONQUER,
+      [
+        { sessionId: "a", team: 0 },
+        { sessionId: "b", team: 1 },
+      ],
+      () => 0,
+    );
+    const aKeys = new Set(ARENA_03.teamASpawns.map(spawnKey));
+    const bKeys = new Set(ARENA_03.teamBSpawns.map(spawnKey));
+    expect(aKeys.has(spawnKey(assigned.a!))).toBe(true);
+    expect(bKeys.has(spawnKey(assigned.b!))).toBe(true);
   });
 });

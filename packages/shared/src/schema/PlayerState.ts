@@ -68,6 +68,12 @@ export class PlayerState extends Schema {
    */
   @type("string") killedBySessionId = "";
   @type("boolean") selectLocked = false;
+  /**
+   * The chassis this player LOCKED this car select, "" otherwise (CQ29). Written only in a mode where
+   * `uniqueChassisApplies`, so teammates can grey out taken cards; other modes keep a blind pick.
+   * Not read by stepSim.
+   */
+  @type("string") lockedCarId = "";
   @type([WeaponSlotState]) weapons = new ArraySchema<WeaponSlotState>();
   @type("uint32") switchLockUntilTick = 0;
   @type("uint8") level = 1;

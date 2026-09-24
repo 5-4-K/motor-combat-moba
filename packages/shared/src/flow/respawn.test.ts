@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { Spawn } from "../arena/types.js";
+import type { ArenaDef, Spawn } from "../arena/types.js";
 import { derived, installMode } from "../modes/active.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
-import { farthestSpawn, isDueToRespawn, phaseDecision, type PhaseInput } from "./respawn.js";
+import { farthestSpawn, isDueToRespawn, phaseDecision, respawnPointFor, type PhaseInput } from "./respawn.js";
 
 // `isDueToRespawn` reads the active mode's `derived().deathmatchTicks` (2026-09-22 final review),
 // so this file needs one installed before it can be called at all.
@@ -95,5 +95,24 @@ describe("phaseDecision", () => {
     expect(
       phaseDecision(input({ tick: 250, endsTick: 251, capTick: 250, overlapping: true })),
     ).toBe("drop");
+  });
+});
+
+describe("respawnPointFor (CQ35)", () => {
+  const arena = {
+    ffaSpawns: [{ x: 0, y: 0, angle: 0 }, { x: 1000, y: 0, angle: 0 }],
+    teamASpawns: [{ x: 0, y: 900, angle: 0 }, { x: 500, y: 900, angle: 0 }],
+    teamBSpawns: [{ x: 0, y: 100, angle: 0 }, { x: 500, y: 100, angle: 0 }],
+  } as unknown as ArenaDef;
+  it("team mode: own team's list, threatened only by the OTHER team", () => {
+    const others = [
+      { x: 0, y: 880, team: 0 }, // a teammate on spawn 0: not a threat
+      { x: 480, y: 500, team: 1 }, // enemy nearer spawn 1
+    ];
+    expect(respawnPointFor(arena, "team", 0, others)).toBe(arena.teamASpawns[0]);
+    expect(respawnPointFor(arena, "team", 1, [])).toBe(arena.teamBSpawns[0]);
+  });
+  it("ffa: everyone is a threat, ffaSpawns as before", () => {
+    expect(respawnPointFor(arena, "ffa", 0, [{ x: 0, y: 0, team: 0 }])).toBe(arena.ffaSpawns[1]);
   });
 });
