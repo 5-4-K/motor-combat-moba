@@ -131,6 +131,21 @@ function clockLabel(seconds: number): string {
   return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+/**
+ * A pure signature of the roster's claims (CQ32 review fix): `sessionId:team:lockedCarId` per
+ * player, sorted so row order never matters, joined into one string. `CarSelectScene` compares this
+ * against the last one it saw to decide whether a teammate's lock changed and the taken cards need
+ * a redraw — the same "cheap key, not a deep compare" trick `lobbyRenderSignature` uses for the
+ * lobby screen. Mirrors `chassisTakenByTeammate`'s own three fields exactly, so nothing this
+ * predicate could ever act on is left out of the key.
+ */
+export function claimsSignature(players: readonly CarSelectViewPlayer[]): string {
+  return players
+    .map((p) => `${p.sessionId}:${p.team}:${p.lockedCarId}`)
+    .sort()
+    .join(";");
+}
+
 export function carSelectView(
   state: CarSelectViewState,
   selectedId: CarId,

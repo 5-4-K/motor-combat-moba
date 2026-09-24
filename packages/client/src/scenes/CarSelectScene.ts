@@ -8,7 +8,12 @@ import {
   type CarId,
 } from "@motor-combat-moba/shared";
 import { bindViewRouter } from "../net/view.js";
-import { carSelectView, type CarSelectView, type CarSelectViewPlayer } from "../ui/car-select-view.js";
+import {
+  carSelectView,
+  claimsSignature,
+  type CarSelectView,
+  type CarSelectViewPlayer,
+} from "../ui/car-select-view.js";
 import { ScreenOverlay } from "../ui/overlay.js";
 import { renderCarSelect } from "../ui/screens/car-select.js";
 
@@ -31,6 +36,7 @@ export class CarSelectScene extends Phaser.Scene {
   private lastSecond = -1;
   private unbind: Array<() => void> = [];
   private currentView: CarSelectView | undefined;
+  private lastClaims = "";
 
   constructor() {
     super({ key: "car_select" });
@@ -50,6 +56,7 @@ export class CarSelectScene extends Phaser.Scene {
     }
 
     this.locked = Boolean(this.room.state.players.get(this.room.sessionId)?.selectLocked);
+    this.lastClaims = claimsSignature(this.collectPlayers());
     this.bindRoom(this.room);
     this.render();
   }
@@ -60,18 +67,34 @@ export class CarSelectScene extends Phaser.Scene {
     this.overlay = undefined;
     this.locked = false;
     this.lastSecond = -1;
+    this.lastClaims = "";
     this.currentView = undefined;
     this.room = undefined;
+  }
+
+  private collectPlayers(): CarSelectViewPlayer[] {
+    const players: CarSelectViewPlayer[] = [];
+    this.room?.state.players.forEach((player, sessionId) => {
+      players.push({ sessionId, name: player.name, team: player.team, lockedCarId: player.lockedCarId });
+    });
+    return players;
   }
 
   private bindRoom(room: Room<ArenaState>): void {
     this.unbind.push(bindViewRouter(this, room));
 
-    // Always forced: a teammate locking a chassis in a unique-chassis mode (CQ32) has to grey this
-    // player's card too, and that has nothing to do with whether the clock's second ticked over.
+    // A room patch fires this ~20x/s in the worst case, and a full DOM rebuild on every one of them
+    // can drop a click mid-rebuild — so this stays throttled to the clock's second exactly as
+    // before, plus ONE more forced case: a teammate's lock changing in a unique-chassis mode (CQ32)
+    // has to grey this player's card even between two ticks of the same second. `claimsSignature`
+    // is the cheap key that answers "did any claim actually change" without a deep compare.
     const onState = (): void => {
+      const wasLocked = this.locked;
       this.locked = Boolean(room.state.players.get(room.sessionId)?.selectLocked);
-      this.render(true);
+      const claims = claimsSignature(this.collectPlayers());
+      const claimsChanged = claims !== this.lastClaims;
+      this.lastClaims = claims;
+      this.render(wasLocked !== this.locked || claimsChanged);
     };
     room.onStateChange(onState);
     this.unbind.push(() => room.onStateChange.remove(onState));
@@ -111,17 +134,12 @@ export class CarSelectScene extends Phaser.Scene {
     const room = this.room;
     if (!room || !this.overlay) return;
 
-    const players: CarSelectViewPlayer[] = [];
-    room.state.players.forEach((player, sessionId) => {
-      players.push({ sessionId, name: player.name, team: player.team, lockedCarId: player.lockedCarId });
-    });
-
     const view = carSelectView(
       {
         mode: room.state.mode,
         tick: room.state.tick,
         carSelectDeadlineTick: room.state.carSelectDeadlineTick,
-        players,
+        players: this.collectPlayers(),
       },
       this.selected,
       this.locked,

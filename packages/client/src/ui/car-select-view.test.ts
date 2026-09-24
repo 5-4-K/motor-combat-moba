@@ -16,7 +16,13 @@ import {
   weaponDefOf,
   type CarId,
 } from "@motor-combat-moba/shared";
-import { CAR_BARS, carSelectView, fullStatsFor, type CarSelectViewPlayer } from "./car-select-view.js";
+import {
+  CAR_BARS,
+  carSelectView,
+  claimsSignature,
+  fullStatsFor,
+  type CarSelectViewPlayer,
+} from "./car-select-view.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
@@ -293,5 +299,40 @@ describe("carSelectView", () => {
       expect(view.cars.every((c) => !c.taken)).toBe(true);
       expect(view.canLockIn).toBe(true);
     });
+  });
+});
+
+// Review fix round 1: the throttle `CarSelectScene` restored needs a pure, testable snapshot key of
+// the roster's claims, so a teammate's lock can force a redraw without forcing one on every patch.
+describe("claimsSignature", () => {
+  const roster = (over: Partial<CarSelectViewPlayer>[] = []): CarSelectViewPlayer[] => [
+    { sessionId: "p1", name: "Vex", team: 0, lockedCarId: "" },
+    { sessionId: "p2", name: "Nyx", team: 0, lockedCarId: "mirage" },
+    ...over.map((p) => ({ sessionId: "p3", name: "Rook", team: 1, lockedCarId: "", ...p })),
+  ];
+
+  it("changes when a teammate's lockedCarId changes", () => {
+    const before = claimsSignature(roster());
+    const after = claimsSignature([
+      { sessionId: "p1", name: "Vex", team: 0, lockedCarId: "bastion" },
+      { sessionId: "p2", name: "Nyx", team: 0, lockedCarId: "mirage" },
+    ]);
+    expect(after).not.toBe(before);
+  });
+
+  it("is order-independent, so it never flags a change on a re-sort alone", () => {
+    const a = roster();
+    const b = [...roster()].reverse();
+    expect(claimsSignature(a)).toBe(claimsSignature(b));
+  });
+
+  it("is unchanged by anything that is not a claim — name, or nothing at all moving", () => {
+    const before = claimsSignature(roster());
+    const renamed = claimsSignature([
+      { sessionId: "p1", name: "Vex II", team: 0, lockedCarId: "" },
+      { sessionId: "p2", name: "Nyx", team: 0, lockedCarId: "mirage" },
+    ]);
+    expect(renamed).toBe(before);
+    expect(claimsSignature(roster())).toBe(before);
   });
 });
