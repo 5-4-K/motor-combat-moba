@@ -16,7 +16,6 @@ import {
   camera,
   drive,
   statusConfig,
-  GameMode,
   INPUT_MESSAGE,
   ManeuverKind,
   MAX_PLAYERS,
@@ -31,7 +30,9 @@ import {
   carHasTurretWeapon,
   carIdOf,
   muzzleOf,
+  respawnsIn,
   RoomPhase,
+  sidesOf,
   TICK_RATE_HZ,
   turret,
   turretMountOf,
@@ -2401,7 +2402,7 @@ export class ArenaScene extends Phaser.Scene {
     const viewer = room.state.players.get(this.drivenSid(room));
     // Hoisted rather than derived twice: the impact-spark pass below wants the same answer, and two
     // copies of this expression is two things that can drift about what game we are in.
-    const mode = room.state.mode === GameMode.TEAM ? "team" : "ffa";
+    const mode = sidesOf(room.state.mode);
 
     room.state.players.forEach((player, sessionId) => {
       if (player.status !== PlayerStatus.IN_MATCH) return;
@@ -4362,9 +4363,7 @@ export class ArenaScene extends Phaser.Scene {
       // called for a living car as freely as a dead one and answers 0 — no `alive` gate here, which
       // would be a second copy of a rule the schema already carries.
       const seconds =
-        local && winRuleOf(room.state.mode) === "deathmatch"
-          ? respawnSeconds(local.diedAtTick, tick)
-          : 0;
+        local && respawnsIn(room.state.mode) ? respawnSeconds(local.diedAtTick, tick) : 0;
       if (seconds > 0) this.respawnText.setText(`Respawning in ${seconds}`);
       this.respawnText.setVisible(seconds > 0);
     }

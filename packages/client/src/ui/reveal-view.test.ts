@@ -77,6 +77,22 @@ describe("revealView — brawl", () => {
   });
 });
 
+// Conquer is a team mode too (`sidesOf` returns "team"), so its reveal splits by `team` and titles
+// the panels exactly as Team brawl's does.
+describe("revealView — conquer", () => {
+  it("titles the panels, shows occupancy and splits by team", () => {
+    const view = revealView(
+      state([p("a1", 0), p("a2", 0), p("b1", 1)], { mode: GameMode.CONQUER }),
+      "a1",
+    );
+    expect(view.showTeamHeadings).toBe(true);
+    expect(view.panelA.title).toBe("Team A");
+    expect(view.panelB.title).toBe("Team B");
+    expect(view.panelA.rows.filter((r) => r.filled).map((r) => r.name)).toEqual(["a1", "a2"]);
+    expect(view.panelB.rows.filter((r) => r.filled).map((r) => r.name)).toEqual(["b1"]);
+  });
+});
+
 describe("revealView — rows", () => {
   it("pads each panel to REVEAL_SLOTS with driverless rows", () => {
     const view = revealView(state([p("a1", 0)]), "a1");

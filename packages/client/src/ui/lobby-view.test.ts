@@ -187,6 +187,15 @@ describe("lobbyView", () => {
     expect(view.teamBCount).toBe("");
   });
 
+  // Conquer is a team mode too (`sidesOf` returns "team"), so it heads its columns exactly as Team
+  // brawl does.
+  it("heads the columns Team A and Team B in Conquer as well", () => {
+    const view = lobbyView(state([player()], { mode: GameMode.CONQUER }), "p1", "");
+    expect(view.showTeamHeadings).toBe(true);
+    expect(view.teamACount).toBe(`1 / ${MAX_TEAM_SIZE}`);
+    expect(view.teamBCount).toBe(`0 / ${MAX_TEAM_SIZE}`);
+  });
+
   /**
    * The columns still split on `team` in Brawl, because `pickTeam` runs in every mode and keeps
    * them even. Losing the headings must not lose the seats — a player seated on team 1 belongs in

@@ -3,6 +3,7 @@ import {
   GameMode,
   MAX_PLAYERS,
   PlayerStatus,
+  sidesOf,
   TICK_RATE_HZ,
 } from "@motor-combat-moba/shared";
 import { modeLabel } from "./lobby-view.js";
@@ -77,7 +78,7 @@ const URGENT_SECONDS = 3;
 
 export function revealView(state: RevealViewState, localSessionId: string): RevealView {
   const drivers = state.players.filter((p) => p.status === PlayerStatus.IN_MATCH);
-  const isTeam = state.mode === GameMode.TEAM;
+  const isTeam = sidesOf(state.mode) === "team";
 
   const [left, right] = isTeam
     ? [drivers.filter((p) => p.team !== 1), drivers.filter((p) => p.team === 1)]

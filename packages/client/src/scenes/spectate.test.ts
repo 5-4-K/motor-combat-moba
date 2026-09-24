@@ -170,6 +170,14 @@ describe("isSpectating", () => {
     expect(isSpectating(RoomPhase.MATCH, GameMode.FFA_LAST_STANDING, PlayerStatus.IN_MATCH, false))
       .toBe(true);
   });
+
+  // Conquer respawns too (CQ15), so it is never spectated either — the same rule that exempts
+  // Deathmatch, mirrored exactly.
+  it("is false for a Conquer wreck — the mode gives the car back", () => {
+    expect(isSpectating(RoomPhase.MATCH, GameMode.CONQUER, PlayerStatus.IN_MATCH, false)).toBe(
+      false,
+    );
+  });
 });
 
 describe("smoothFollow", () => {

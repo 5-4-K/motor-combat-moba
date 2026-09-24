@@ -1,4 +1,4 @@
-import { PlayerStatus, RoomPhase, winRuleOf, type GameMode } from "@motor-combat-moba/shared";
+import { PlayerStatus, respawnsIn, RoomPhase, type GameMode } from "@motor-combat-moba/shared";
 
 /**
  * Is this player watching rather than playing? True only for a wreck in a live match that is not
@@ -9,18 +9,21 @@ import { PlayerStatus, RoomPhase, winRuleOf, type GameMode } from "@motor-combat
  * by session id instead of your own. Being dead is what makes you a spectator; not being able to
  * move yet is not.
  *
- * **Deathmatch is never spectated.** Spectating is what a game offers a player it has taken out of
- * the match for good — Last Standing's death is final, so the camera going to find someone still
- * fighting is the only thing left to show. A deathmatch death lasts five seconds and hands the car
- * straight back, and pointing the camera at a stranger for those five seconds costs the player the
- * one thing they actually want to look at: the fight they were just in, and their own kit in the
- * gutter. So the wreck keeps its own seat — the camera holds where it died and the HUD keeps
- * showing the player's own loadout, because `cameraTarget` and `hudTargetPlayer` both fall back to
- * the local session the moment this answers false.
+ * **A respawning mode is never spectated** (CQ15). Spectating is what a game offers a player it has
+ * taken out of the match for good — Last Standing's death is final, so the camera going to find
+ * someone still fighting is the only thing left to show. A deathmatch death lasts five seconds and
+ * hands the car straight back, and a Conquer death works the same way, so pointing the camera at a
+ * stranger for those few seconds costs the player the one thing they actually want to look at: the
+ * fight they were just in, and their own kit in the gutter. So the wreck keeps its own seat — the
+ * camera holds where it died and the HUD keeps showing the player's own loadout, because
+ * `cameraTarget` and `hudTargetPlayer` both fall back to the local session the moment this answers
+ * false.
  *
- * Keyed on `winRuleOf(mode)` rather than on "does this room respawn", which is not a thing the
- * schema says. The dev-only playground respawns forever while running `FFA_LAST_STANDING`, so it
- * keeps the spectate camera; it is the one room where these two questions come apart.
+ * Keyed on `respawnsIn(mode)` — the question every "does this room give the car back" gate was
+ * really asking — rather than winRuleOf, since Conquer's win rule ("conquer") and Deathmatch's
+ * ("deathmatch") differ but both respawn. The dev-only playground respawns forever while running
+ * `FFA_LAST_STANDING`, so it keeps the spectate camera; it is the one room where "does this mode
+ * respawn" and "does this room respawn" come apart.
  */
 export function isSpectating(
   phase: number,
@@ -29,7 +32,7 @@ export function isSpectating(
   alive: boolean,
 ): boolean {
   if (phase !== RoomPhase.MATCH) return false;
-  if (winRuleOf(mode) === "deathmatch") return false;
+  if (respawnsIn(mode)) return false;
   return status === PlayerStatus.IN_MATCH && !alive;
 }
 
