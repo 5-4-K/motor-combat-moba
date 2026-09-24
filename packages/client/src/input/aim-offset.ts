@@ -56,8 +56,12 @@ export function moveAimOffset(
 /**
  * A pointer-lock `movementX/Y` delta, in CSS pixels, as world units: CSS pixels to game pixels
  * through the canvas's fitted size (they differ whenever the Scale Manager has fitted the canvas to
- * a window of another size), then game pixels to world units through the camera zoom. A canvas not
- * yet laid out (zero client size) is treated as unscaled.
+ * a window of another size), then game pixels to world units through the camera zoom, then turned
+ * out of the camera's rotation. A canvas not yet laid out (zero client size) is treated as unscaled.
+ *
+ * `viewRotation` is the world camera's rotation — 0, or π for team B on a flip arena (CQ46). Phaser
+ * turns world into screen by `+rotation`, so a screen step is turned back by `-rotation` here: the
+ * mouse moving right moves the crosshair right on screen, whichever way the world is drawn (CQ48).
  */
 export function cssDeltaToWorld(
   dxCss: number,
@@ -65,10 +69,16 @@ export function cssDeltaToWorld(
   game: { width: number; height: number },
   css: { width: number; height: number },
   zoom: number,
+  viewRotation = 0,
 ): AimOffset {
   const sx = css.width > 0 ? game.width / css.width : 1;
   const sy = css.height > 0 ? game.height / css.height : 1;
-  return { x: (dxCss * sx) / zoom, y: (dyCss * sy) / zoom };
+  const x = (dxCss * sx) / zoom;
+  const y = (dyCss * sy) / zoom;
+  if (viewRotation === 0) return { x, y };
+  const cos = Math.cos(viewRotation);
+  const sin = Math.sin(viewRotation);
+  return { x: x * cos + y * sin, y: -x * sin + y * cos };
 }
 
 /** The parts of a Phaser camera `projectToScreen` needs, with the scroll ALREADY bounds-clamped. */
@@ -87,17 +97,29 @@ export interface CameraView {
 
 /**
  * A world point in canvas pixels, through the same transform Phaser's camera builds in its
- * `preRender` (translate to the origin, zoom, translate back by the scroll), minus rotation and
- * shake — the arena camera never rotates, and the crosshair is the player's hand, not the world, so
- * it does not shake with it. Computed from the camera's CURRENT scroll rather than read off
- * `matrixCombined`, which is last frame's until the camera renders: reading that would leave the
- * crosshair a frame behind a camera that follows the car.
+ * `preRender` (translate to the origin, rotate, zoom, translate back by the scroll), minus shake —
+ * the crosshair is the player's hand, not the world, so it does not shake with it. The arena camera
+ * rotates by 0, or by π for team B on a flip arena (CQ46); `viewRotation` is that angle, applied as
+ * Phaser's `applyITRS` applies it (`+rotation`, about the view's origin). Computed from the camera's
+ * CURRENT scroll rather than read off `matrixCombined`, which is last frame's until the camera
+ * renders: reading that would leave the crosshair a frame behind a camera that follows the car.
  */
-export function projectToScreen(view: CameraView, world: { x: number; y: number }): AimOffset {
+export function projectToScreen(
+  view: CameraView,
+  world: { x: number; y: number },
+  viewRotation = 0,
+): AimOffset {
   const ox = view.width * view.originX;
   const oy = view.height * view.originY;
-  return {
-    x: view.x + ox + (world.x - view.scrollX - ox) * view.zoomX,
-    y: view.y + oy + (world.y - view.scrollY - oy) * view.zoomY,
-  };
+  const dx = world.x - view.scrollX - ox;
+  const dy = world.y - view.scrollY - oy;
+  if (viewRotation === 0) {
+    return { x: view.x + ox + dx * view.zoomX, y: view.y + oy + dy * view.zoomY };
+  }
+  const cos = Math.cos(viewRotation);
+  const sin = Math.sin(viewRotation);
+  // ITRS: zoom first, then rotate — the same order Phaser composes them in.
+  const zx = dx * view.zoomX;
+  const zy = dy * view.zoomY;
+  return { x: view.x + ox + zx * cos - zy * sin, y: view.y + oy + zx * sin + zy * cos };
 }

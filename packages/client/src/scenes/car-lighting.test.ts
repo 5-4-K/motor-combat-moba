@@ -3,6 +3,7 @@ import { ENVIRONMENT_FX } from "../fx/environment.js";
 import type { EnvironmentFx } from "../fx/environment.js";
 import {
   contactBandsFor,
+  lookForView,
   placeOutline,
   rimOffsetFor,
   shadowBandsFor,
@@ -279,5 +280,23 @@ describe("shadowStampOf", () => {
     const widest = stamp.fills[0]!;
     expect(widest.rx * 2).toBeLessThan(stamp.width - 2);
     expect(widest.ry * 2).toBeLessThan(stamp.height - 2);
+  });
+});
+
+describe("lookForView (CQ48)", () => {
+  it("hands back the same look at a view rotation of 0", () => {
+    const l = look({ lightAngle: 37 });
+    expect(lookForView(l, 0)).toBe(l);
+  });
+
+  it("turns the world light angle by the view rotation, so it stays on the same side of the screen", () => {
+    const l = look({ lightAngle: 37, shadowOffset: 10 });
+    const turned = lookForView(l, Math.PI);
+    expect(turned.lightAngle).toBeCloseTo(37 + 180, 9);
+    // The drop shadow lands on the world-opposite side, which a 180° camera draws on the same side.
+    const a = shadowOffsetFor(l);
+    const b = shadowOffsetFor(turned);
+    expect(b.x).toBeCloseTo(-a.x, 9);
+    expect(b.y).toBeCloseTo(-a.y, 9);
   });
 });

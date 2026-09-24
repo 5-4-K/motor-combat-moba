@@ -139,6 +139,7 @@ import {
 } from "./car-visual.js";
 import {
   contactBandsFor,
+  lookForView,
   rimOffsetFor,
   shadowBandsFor,
   shadowOffsetFor,
@@ -210,6 +211,7 @@ import {
   statusStripLayout,
 } from "./status-hud.js";
 import { arrowBlinkOn, arrowBobOffset, countdownArrowPoints } from "./countdown-arrow.js";
+import { viewRotationFor } from "./view-rotation.js";
 import {
   ACTION_LABEL,
   MOVEMENT_ARROWS,
@@ -890,6 +892,13 @@ export class ArenaScene extends Phaser.Scene {
    */
   private staticCamera = false;
   /**
+   * The world camera's rotation for the local player: 0, or π for team B on an arena that declares
+   * `flipForTeamB` (CQ46). Set by `syncViewRotation` and handed to every world-space piece that is
+   * meant to read the same way on every screen — the self-arrow (CQ47), the car light and the
+   * crosshair's mouse path (CQ48). The HUD camera is never rotated.
+   */
+  private viewRotation = 0;
+  /**
    * When the last state patch landed, for drawing shots between patches. `performance.now()` rather
    * than Phaser's clock, for the reason spelled out in `pushRemoteSnapshots`.
    */
@@ -1337,6 +1346,11 @@ export class ArenaScene extends Phaser.Scene {
     cam.setZoom(camera().zoom);
     // Stops the soft follow from panning past the arena edge into empty space.
     cam.setBounds(0, 0, arena.width, arena.height);
+    // Team B's 180° view on a flip arena (CQ46), set here so the first frame is already turned, and
+    // re-checked every frame by `update` in case the local player's team arrives or changes later.
+    // Forced, so the camera and the field agree on every create, whatever an earlier match left in
+    // either.
+    this.syncViewRotation(arena, true);
 
     // Applied to the world camera only, so the HUD camera's text and icons keep their authored
     // colours — a graded HUD reads as a rendering bug rather than as atmosphere (VFX27-VFX28).
@@ -1794,6 +1808,8 @@ export class ArenaScene extends Phaser.Scene {
     // back has to find `camFocus` already cleared, or it eases from the wreck site for one frame
     // before the cut lands.
     this.syncRespawnCamera(room);
+    // Before `renderCars`, which lights the cars and draws the self-arrow against this angle.
+    this.syncViewRotation(this.arena);
     this.renderCars(room, delta);
     this.syncCrosshair(room);
     this.renderShots(room);
@@ -1805,6 +1821,28 @@ export class ArenaScene extends Phaser.Scene {
     // set of players and the two would disagree about where the panel ends (D12).
     const panelHeight = this.renderRosterPanel(room);
     this.renderWeaponHud(room, panelHeight);
+  }
+
+  /**
+   * Turn the WORLD camera for the local player's side (CQ46): team B sees arena-03 rotated 180° so
+   * its own base is at the bottom. Read from the local player's `team` — never the spectated car's,
+   * so watching an enemy never flips the floor — and applied only when it changes (or when `force`d,
+   * from `drawArena`, whose camera may be a fresh one). The HUD camera is left alone: it is screen
+   * space and never rotates.
+   */
+  private syncViewRotation(arena: ArenaDef, force = false): void {
+    const room = this.room;
+    const local = room ? room.state.players.get(this.drivenSid(room)) : undefined;
+    const rotation =
+      room && local ? viewRotationFor(arena, sidesOf(room.state.mode), local.team) : 0;
+    if (!force && rotation === this.viewRotation) return;
+    this.viewRotation = rotation;
+    this.cameras.main.setRotation(rotation);
+  }
+
+  /** `carLook` turned for this view (CQ48), so the light stays on the same side of the screen. */
+  private viewLook(): ReturnType<EnvResolver>["carLook"] {
+    return lookForView(this.resolveEnv().carLook, this.viewRotation);
   }
 
   /**
@@ -2012,6 +2050,7 @@ export class ArenaScene extends Phaser.Scene {
         { width: this.scale.width, height: this.scale.height },
         { width: canvas.clientWidth, height: canvas.clientHeight },
         cam.zoom,
+        this.viewRotation,
       );
       this.pendingAimDelta = { x: this.pendingAimDelta.x + delta.x, y: this.pendingAimDelta.y + delta.y };
     };
@@ -2132,6 +2171,7 @@ export class ArenaScene extends Phaser.Scene {
         scrollY: cam.useBounds ? cam.clampY(cam.scrollY) : cam.scrollY,
       },
       aim,
+      this.viewRotation,
     );
     drawCrosshair(gfx, screen.x, screen.y);
   }
@@ -2728,7 +2768,7 @@ export class ArenaScene extends Phaser.Scene {
     pose: SimBody,
     alpha: number,
   ): void {
-    const look = this.resolveEnv().carLook;
+    const look = this.viewLook();
     const container = this.cars.get(sessionId);
     if (!container) return;
 
@@ -2903,7 +2943,7 @@ export class ArenaScene extends Phaser.Scene {
     if (!resolved) return undefined;
     // Built lit rather than flat, and re-lit per frame by `drawCarLook`: a container is only rebuilt
     // when its `visualKeyOf` changes, so a car placed flat here would draw one unlit frame.
-    return applyCarSprite(this.add.image(0, 0, resolved.key), resolved, fill, this.resolveEnv().carLook);
+    return applyCarSprite(this.add.image(0, 0, resolved.key), resolved, fill, this.viewLook());
   }
 
   /**
@@ -2928,7 +2968,7 @@ export class ArenaScene extends Phaser.Scene {
         this.add.image(0, 0, resolved.key),
         resolved,
         fill,
-        this.resolveEnv().carLook,
+        this.viewLook(),
       );
       // Named for `syncTurret`'s per-frame re-light only when the row takes the player colour, the
       // same `colorMode` rule `applyCarSprite` just applied — so the frame loop needs no manifest
@@ -2977,7 +3017,7 @@ export class ArenaScene extends Phaser.Scene {
     tintCarSprite(
       image,
       carFillFor(sessionId, player.colorId),
-      this.resolveEnv().carLook,
+      this.viewLook(),
       pose.angle + shown,
     );
   }
@@ -3108,7 +3148,7 @@ export class ArenaScene extends Phaser.Scene {
     if (respawned && !arrowBlinkOn(nowMs)) return;
 
     gfx.fillStyle(ARROW_COLOR, ARROW_ALPHA);
-    gfx.fillPoints(pts(countdownArrowPoints(pose.x, pose.y, arrowBobOffset(nowMs))), true);
+    gfx.fillPoints(pts(countdownArrowPoints(pose.x, pose.y, arrowBobOffset(nowMs), this.viewRotation)), true);
   }
 
   /**

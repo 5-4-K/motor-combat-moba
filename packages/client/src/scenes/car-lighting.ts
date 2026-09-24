@@ -50,6 +50,17 @@ function lightDirOf(look: CarLook): Vec2 {
   return { x: Math.cos(radians), y: Math.sin(radians) };
 }
 
+/**
+ * The look as seen through a rotated world camera (CQ48): the light angle turned by the view's
+ * rotation, so the light keeps coming from the same side of the SCREEN on team B's 180° view as it
+ * does on everyone else's. Still world-fixed within that view — it is the one constant that moves,
+ * not a per-car one. At 0 the same object comes back, so every other view is untouched.
+ */
+export function lookForView(look: CarLook, viewRotation: number): CarLook {
+  if (viewRotation === 0) return look;
+  return { ...look, lightAngle: look.lightAngle + (viewRotation * 180) / Math.PI };
+}
+
 /** Channel-wise lerp toward white by `t`, then toward black by `s`. Both clamp at the endpoints. */
 function shade(rgb: number, lit: number, dark: number): number {
   let out = 0;

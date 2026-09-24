@@ -74,6 +74,12 @@ describe("cssDeltaToWorld (TR56)", () => {
   it("treats an unlaid-out canvas as unscaled rather than dividing by zero", () => {
     expect(cssDeltaToWorld(5, 5, { width: 1600, height: 900 }, { width: 0, height: 0 }, 1)).toEqual({ x: 5, y: 5 });
   });
+
+  it("turns the delta by the view rotation, so a 180° view maps a screen step to its world opposite (CQ48)", () => {
+    const d = cssDeltaToWorld(10, 5, { width: 1600, height: 900 }, { width: 1600, height: 900 }, 1, Math.PI);
+    expect(d.x).toBeCloseTo(-10, 9);
+    expect(d.y).toBeCloseTo(-5, 9);
+  });
 });
 
 describe("projectToScreen (TR56)", () => {
@@ -90,5 +96,26 @@ describe("projectToScreen (TR56)", () => {
   it("scales a world step by the zoom and offsets by the viewport origin", () => {
     expect(projectToScreen(view, { x: 610, y: 345 })).toEqual({ x: 520, y: 290 });
     expect(projectToScreen({ ...view, x: 40, y: 8 }, { x: 600, y: 350 })).toEqual({ x: 540, y: 308 });
+  });
+
+  it("under a 180° view puts a point right of the camera centre LEFT of the viewport centre (CQ48)", () => {
+    const flat = { ...view, zoomX: 1, zoomY: 1 };
+    // Camera centre at (100 + 500, 50 + 300); 100 u to its right.
+    const screen = projectToScreen(flat, { x: 700, y: 350 }, Math.PI);
+    expect(screen.x).toBeCloseTo(400, 9);
+    expect(screen.y).toBeCloseTo(300, 9);
+    expect(projectToScreen(flat, { x: 700, y: 350 }, 0)).toEqual(projectToScreen(flat, { x: 700, y: 350 }));
+  });
+
+  it("is the inverse of cssDeltaToWorld at any view rotation (Phaser's +rotation convention)", () => {
+    const game = { width: 1000, height: 600 };
+    for (const rotation of [0.3, -1.1, Math.PI]) {
+      const step = cssDeltaToWorld(12, -7, game, game, view.zoomX, rotation);
+      const centre = { x: 600, y: 350 };
+      const a = projectToScreen(view, centre, rotation);
+      const b = projectToScreen(view, { x: centre.x + step.x, y: centre.y + step.y }, rotation);
+      expect(b.x - a.x).toBeCloseTo(12, 9);
+      expect(b.y - a.y).toBeCloseTo(-7, 9);
+    }
   });
 });

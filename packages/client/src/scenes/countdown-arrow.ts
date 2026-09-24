@@ -18,11 +18,10 @@
  *
  * **It takes no car angle, on purpose.** A marker that turned with the chassis would be saying
  * something about heading, and heading is the car's own job — the arrow's only sentence is "this
- * one" (D4). That signature rests on one property of this game's camera: `splitCameras` never
- * rotates the world camera, so world-up is screen-up and a triangle built with a fixed `-y` apex
- * offset in world space is drawn pointing up on screen. A camera that ever gained a rotation would
- * have to hand this module an angle to cancel it out, and the missing parameter is where that
- * change would surface.
+ * one" (D4). It does take the VIEW's rotation: on an arena that declares `flipForTeamB`, team B's
+ * world camera is turned 180° (CQ46), so world-up is no longer screen-up for them, and the triangle
+ * is turned by the same angle about the car to stay above it and pointing down on screen (CQ47).
+ * Every other view passes 0 and gets the fixed `-y` apex it always had.
  */
 
 /**
@@ -78,20 +77,32 @@ export const ARROW_GAP_PX = 47.5;
  * it means, so the eye lands on the car rather than on the arrow. `bobOffset` moves the whole
  * triangle rigidly — the shape never stretches, only travels — so the silhouette a player learns in
  * the first countdown is the one they see in every later one.
+ *
+ * `viewRotation` is the world camera's rotation (`viewRotationFor`); the whole triangle is turned by
+ * it about `(x, y)`, which is what puts it "above" the car on a rotated screen. 0 leaves it untouched.
  */
 export function countdownArrowPoints(
   x: number,
   y: number,
   bobOffset: number,
+  viewRotation = 0,
 ): Array<{ x: number; y: number }> {
   const apexY = y - ARROW_GAP_PX + bobOffset;
   const baseY = apexY - ARROW_HEIGHT_PX;
   const half = ARROW_WIDTH_PX / 2;
-  return [
+  const points = [
     { x: x - half, y: baseY },
     { x: x + half, y: baseY },
     { x, y: apexY },
   ];
+  if (viewRotation === 0) return points;
+  const cos = Math.cos(viewRotation);
+  const sin = Math.sin(viewRotation);
+  return points.map((p) => {
+    const dx = p.x - x;
+    const dy = p.y - y;
+    return { x: x + dx * cos - dy * sin, y: y + dx * sin + dy * cos };
+  });
 }
 
 /**

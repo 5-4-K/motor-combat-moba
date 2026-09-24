@@ -93,6 +93,22 @@ describe("countdownArrowPoints", () => {
     expect(apex.x).toBeCloseTo(7, 6);
     expect(apex.y).toBeCloseTo(9 - ARROW_GAP_PX, 6);
   });
+
+  it("under a 180° view sits BELOW in world space (above on screen), apex toward the car (CQ47)", () => {
+    const up = countdownArrowPoints(100, 500, 0);
+    const flipped = countdownArrowPoints(100, 500, 0, Math.PI);
+    // Each point is the unrotated one mirrored through the car centre.
+    for (let i = 0; i < up.length; i++) {
+      expect(flipped[i].x).toBeCloseTo(200 - up[i].x, 6);
+      expect(flipped[i].y).toBeCloseTo(1000 - up[i].y, 6);
+    }
+    const apex = flipped[2]!;
+    expect(apex.y).toBeGreaterThan(500); // below the car in world = above it on team B's screen
+  });
+
+  it("is exactly the unrotated arrow at a view rotation of 0", () => {
+    expect(countdownArrowPoints(30, -12, 4, 0)).toEqual(countdownArrowPoints(30, -12, 4));
+  });
 });
 
 describe("arrowBlinkOn", () => {
