@@ -34,6 +34,12 @@ import {
   livingSides,
   sidesOf,
   winRuleOf,
+  respawnsIn,
+  uniqueChassisApplies,
+  chassisTakenByTeammate,
+  pickDeadlineCar,
+  conquerLeaveOutcome,
+  activeCarIds,
   getArena,
   hpOf,
   isActiveCarId,
@@ -51,6 +57,7 @@ import {
   type InputMessage,
   type ModeConfig,
   type StartRulePlayer,
+  type ZonePresenceCar,
 } from "@motor-combat-moba/shared";
 import {
   getTickRateHz,
@@ -88,6 +95,7 @@ import {
   livingAfterLeave,
   resolveSetMode,
 } from "./match-helpers.js";
+import { advanceConquer, resetZone } from "./conquer-room.js";
 import { selectNextHost } from "./select-next-host.js";
 import { ROOM_FULL_ERROR, shouldRejectSecondArena } from "./singleton-arena.js";
 import { canSendChat, formatClockTime, pushChatMessage } from "./chat.js";
@@ -244,6 +252,10 @@ export class ArenaRoom extends Room<ArenaState> {
             carSelectTicks: getCarSelectSeconds(flow().carSelectSeconds) * TICK_RATE_HZ,
           });
           this.pendingCarId.clear();
+          // CQ29: last match's chassis claims must not block this car select.
+          this.state.players.forEach((p) => {
+            p.lockedCarId = "";
+          });
         }),
       );
 
@@ -254,6 +266,10 @@ export class ArenaRoom extends Room<ArenaState> {
           if (!this.matchRoster.has(client.sessionId)) return;
           const player = this.state.players.get(client.sessionId);
           if (!player || player.selectLocked) return;
+          if (uniqueChassisApplies(this.state.mode)) {
+            if (chassisTakenByTeammate(msg.carId, player.team, client.sessionId, this.claimants())) return;
+            player.lockedCarId = msg.carId;
+          }
           this.pendingCarId.set(client.sessionId, msg.carId);
           this.reduce({ type: "lock_car", sessionId: client.sessionId });
           if (this.allRosterLocked()) this.revealCars();
@@ -392,6 +408,19 @@ export class ArenaRoom extends Room<ArenaState> {
 
       if (!wasInMatch || !wasInRoster || this.state.phase === RoomPhase.LOBBY) return;
 
+      // The leaver is already gone from `matchRoster` and `state.players` above, so the counts
+      // are the roster that remains.
+      if (winRuleOf(this.state.mode) === "conquer") {
+        const counts: [number, number] = [0, 0];
+        for (const id of this.matchRoster) {
+          const p = this.state.players.get(id);
+          if (p) counts[p.team === 1 ? 1 : 0] += 1;
+        }
+        const left = conquerLeaveOutcome(counts);
+        if (left.ended) this.endMatch("", left.winnerTeam);
+        return;
+      }
+
       if (winRuleOf(this.state.mode) === "deathmatch") {
         this.checkDeathmatchEnd();
         return;
@@ -419,7 +448,7 @@ export class ArenaRoom extends Room<ArenaState> {
     this.state.tick += 1;
     if (
       this.state.phase === RoomPhase.MATCH &&
-      winRuleOf(this.state.mode) === "deathmatch"
+      respawnsIn(this.state.mode)
     ) {
       respawnSweep(this.ctx());
     }
@@ -430,7 +459,13 @@ export class ArenaRoom extends Room<ArenaState> {
       for (const id of this.matchRoster) {
         const player = this.state.players.get(id);
         if (!player || player.selectLocked) continue;
-        this.pendingCarId.set(id, carAtDeadline(this.pendingCarId.get(id)));
+        // `lockedCarId` is written before the next iteration, so each deadline pick sees the ones
+        // before it.
+        const carId = uniqueChassisApplies(this.state.mode)
+          ? pickDeadlineCar(this.pendingCarId.get(id), player.team, id, this.claimants(), activeCarIds(), carAtDeadline(undefined))
+          : carAtDeadline(this.pendingCarId.get(id));
+        this.pendingCarId.set(id, carId);
+        if (uniqueChassisApplies(this.state.mode)) player.lockedCarId = carId;
         this.reduce({ type: "lock_car", sessionId: id });
       }
       this.revealCars();
@@ -455,6 +490,10 @@ export class ArenaRoom extends Room<ArenaState> {
     if (!combatPlayers) return;
 
     // Win check every tick, on the state combat just wrote.
+    if (winRuleOf(this.state.mode) === "conquer") {
+      this.conquerTick();
+      return;
+    }
     if (winRuleOf(this.state.mode) === "deathmatch") {
       this.checkDeathmatchEnd();
       return;
@@ -488,8 +527,21 @@ export class ArenaRoom extends Room<ArenaState> {
       combat: this.combat,
       ram: this.ram,
       hz: getTickRateHz(TICK_RATE_HZ),
-      runPhaseSweep: winRuleOf(this.state.mode) === "deathmatch",
+      runPhaseSweep: respawnsIn(this.state.mode),
     };
+  }
+
+  /** CQ44: one zone step on the state combat just wrote, then the end check. */
+  private conquerTick(): void {
+    const zone = getArena(this.state.arenaId).zone;
+    if (!zone) return; // unreachable: invariants.test.ts holds every conquer arena to a zone
+    const cars: ZonePresenceCar[] = [];
+    this.state.players.forEach((p) => {
+      cars.push({ x: p.x, y: p.y, team: p.team, alive: p.alive, inRoster: this.matchRoster.has(p.sessionId) });
+    });
+    const ticks = derived().conquerTicks;
+    const result = advanceConquer(this.state, zone, cars, ticks.captureDelay, ticks.controlTarget);
+    if (result.ended) this.endMatch("", result.winnerTeam);
   }
 
   /**
@@ -548,12 +600,12 @@ export class ArenaRoom extends Room<ArenaState> {
     // duration counts from the green light rather than resetting under its own feet.
     if (this.state.phase === RoomPhase.MATCH && previousPhase !== RoomPhase.MATCH) {
       this.state.matchStartedAtTick = this.state.tick;
-      // 0 in every other mode: nothing reads it there, and a stale non-zero value would hand the
-      // client's HUD a clock to count down that means nothing.
-      this.state.matchEndsTick =
-        winRuleOf(this.state.mode) === "deathmatch"
-          ? this.state.tick + derived().deathmatchTicks.match
-          : 0;
+      // 0 in every mode without respawns: nothing reads it there, and a stale non-zero value would
+      // hand the client's HUD a clock to count down that means nothing.
+      this.state.matchEndsTick = respawnsIn(this.state.mode)
+        ? this.state.tick + derived().deathmatchTicks.match
+        : 0;
+      resetZone(this.state);
     }
     this.state.carSelectDeadlineTick = next.carSelectDeadlineTick;
     this.state.revealEndsTick = next.revealEndsTick;
@@ -578,6 +630,16 @@ export class ArenaRoom extends Room<ArenaState> {
       const player = this.state.players.get(fp.sessionId);
       if (player) player.status = fromFlowStatus(fp.status);
     }
+  }
+
+  /** The roster's chassis claims (CQ30), for the teammate-uniqueness checks. */
+  private claimants(): { sessionId: string; team: number; lockedCarId: string }[] {
+    const out: { sessionId: string; team: number; lockedCarId: string }[] = [];
+    for (const id of this.matchRoster) {
+      const p = this.state.players.get(id);
+      if (p) out.push({ sessionId: id, team: p.team, lockedCarId: p.lockedCarId });
+    }
+    return out;
   }
 
   private allRosterLocked(): boolean {

@@ -89,6 +89,13 @@ describe("resolveSetMode", () => {
     expect(resolveSetMode(RoomPhase.LOBBY, false, GameMode.TEAM)).toBeUndefined();
   });
 
+  // Conquer ships `isActive: false` until its lobby card lands; until then the lobby cannot
+  // seat it by wire id either.
+  it("refuses Conquer while it is inactive", () => {
+    expect(MODE_TABLE[GameMode.CONQUER].isActive).toBe(false);
+    expect(resolveSetMode(RoomPhase.LOBBY, false, GameMode.CONQUER)).toBeUndefined();
+  });
+
   it("refuses an unknown wire value rather than falling back or throwing", () => {
     // Was a fallback to `DEFAULT_GAME_MODE`'s bundle; the `isActive` guard subsumes it, since an
     // unregistered byte is not active either. Refusing leaves the room on the mode the host

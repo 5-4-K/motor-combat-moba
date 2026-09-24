@@ -5,7 +5,7 @@ import {
   getArena,
   hpOf,
   sidesOf,
-  farthestSpawn,
+  respawnPointFor,
   isDueToRespawn,
   phaseDecision,
   applyStatus,
@@ -206,14 +206,14 @@ export function respawnSweep(ctx: PipelineCtx): void {
 
 /** One car back on the field. Nothing survives a death except the score. */
 export function respawnPlayer(ctx: PipelineCtx, player: PlayerState): void {
-  const enemies: { x: number; y: number }[] = [];
+  const others: { x: number; y: number; team: number }[] = [];
   for (const id of ctx.matchRoster) {
     if (id === player.sessionId) continue;
     const other = ctx.state.players.get(id);
-    if (other?.alive) enemies.push({ x: other.x, y: other.y });
+    if (other?.alive) others.push({ x: other.x, y: other.y, team: other.team });
   }
 
-  const spawn = farthestSpawn(getArena(ctx.state.arenaId).ffaSpawns, enemies);
+  const spawn = respawnPointFor(getArena(ctx.state.arenaId), sidesOf(ctx.state.mode), player.team, others);
   player.x = spawn.x;
   player.y = spawn.y;
   player.angle = spawn.angle;
