@@ -1,0 +1,1080 @@
+{
+  "arenas": [
+    "arena-01",
+    "arena-02"
+  ],
+  "camera": {
+    "camLerp": 0.18,
+    "freeRoamSpeed": 340,
+    "zoom": 1
+  },
+  "cars": {
+    "anvil": {
+      "accel": 20,
+      "attack": 42,
+      "basicAttack": "basic-attack-anvil",
+      "brakeDecel": 430,
+      "handling": 50,
+      "hp": 90,
+      "id": "anvil",
+      "isActive": false,
+      "name": "Anvil",
+      "ramAttack": 70,
+      "ramDefence": 90,
+      "speed": 50,
+      "turretMount": {
+        "x": 0,
+        "y": 0
+      },
+      "weapons": []
+    },
+    "bastion": {
+      "accel": 20,
+      "attack": 42,
+      "basicAttack": "basic-attack-bastion",
+      "brakeDecel": 430,
+      "handling": 50,
+      "hp": 90,
+      "id": "bastion",
+      "isActive": true,
+      "name": "Bastion",
+      "ramAttack": 70,
+      "ramDefence": 90,
+      "speed": 50,
+      "turretMount": {
+        "x": 0,
+        "y": 0
+      },
+      "weapons": [
+        "thumper",
+        "roadblock",
+        "wildcharge"
+      ]
+    },
+    "bullseye": {
+      "accel": 45,
+      "attack": 55,
+      "basicAttack": "basic-attack-bullseye",
+      "brakeDecel": 520,
+      "handling": 65,
+      "hp": 65,
+      "id": "bullseye",
+      "isActive": true,
+      "name": "Bullseye",
+      "ramAttack": 45,
+      "ramDefence": 30,
+      "speed": 65,
+      "turretMount": {
+        "x": 0,
+        "y": 0
+      },
+      "weapons": [
+        "predator",
+        "pepperbox",
+        "lance"
+      ]
+    },
+    "caprico": {
+      "accel": 20,
+      "attack": 42,
+      "basicAttack": "basic-attack-caprico",
+      "brakeDecel": 430,
+      "handling": 50,
+      "hp": 90,
+      "id": "caprico",
+      "isActive": false,
+      "name": "Caprico",
+      "ramAttack": 70,
+      "ramDefence": 90,
+      "speed": 50,
+      "turretMount": {
+        "x": 0,
+        "y": 0
+      },
+      "weapons": []
+    },
+    "cleaver": {
+      "accel": 85,
+      "attack": 63,
+      "basicAttack": "basic-attack-cleaver",
+      "brakeDecel": 500,
+      "handling": 85,
+      "hp": 70,
+      "id": "cleaver",
+      "isActive": false,
+      "name": "Cleaver",
+      "ramAttack": 55,
+      "ramDefence": 50,
+      "speed": 85,
+      "turretMount": {
+        "x": 0,
+        "y": 0
+      },
+      "weapons": []
+    },
+    "mirage": {
+      "accel": 85,
+      "attack": 63,
+      "basicAttack": "basic-attack-mirage",
+      "brakeDecel": 500,
+      "handling": 85,
+      "hp": 70,
+      "id": "mirage",
+      "isActive": true,
+      "name": "Mirage",
+      "ramAttack": 55,
+      "ramDefence": 50,
+      "speed": 85,
+      "turretMount": {
+        "x": 0,
+        "y": 0
+      },
+      "weapons": [
+        "magmablast",
+        "thunderclap",
+        "afterburner"
+      ]
+    },
+    "prowler": {
+      "accel": 85,
+      "attack": 63,
+      "basicAttack": "basic-attack-prowler",
+      "brakeDecel": 500,
+      "handling": 85,
+      "hp": 70,
+      "id": "prowler",
+      "isActive": false,
+      "name": "Prowler",
+      "ramAttack": 55,
+      "ramDefence": 50,
+      "speed": 85,
+      "turretMount": {
+        "x": 0,
+        "y": 0
+      },
+      "weapons": []
+    },
+    "skorpios": {
+      "accel": 45,
+      "attack": 55,
+      "basicAttack": "basic-attack-skorpios",
+      "brakeDecel": 520,
+      "handling": 65,
+      "hp": 65,
+      "id": "skorpios",
+      "isActive": false,
+      "name": "Skorpios",
+      "ramAttack": 45,
+      "ramDefence": 30,
+      "speed": 65,
+      "turretMount": {
+        "x": 0,
+        "y": 0
+      },
+      "weapons": []
+    },
+    "taurus": {
+      "accel": 20,
+      "attack": 42,
+      "basicAttack": "basic-attack-taurus",
+      "brakeDecel": 430,
+      "handling": 50,
+      "hp": 90,
+      "id": "taurus",
+      "isActive": false,
+      "name": "Taurus",
+      "ramAttack": 70,
+      "ramDefence": 90,
+      "speed": 50,
+      "turretMount": {
+        "x": 0,
+        "y": 0
+      },
+      "weapons": []
+    }
+  },
+  "combat": {
+    "attackBaseline": 50,
+    "damagePerAttack": 0.01,
+    "hpPerRating": 10
+  },
+  "conquer": {
+    "captureDelaySeconds": 5,
+    "controlTargetSeconds": 60,
+    "teamSize": 3,
+    "uniqueChassisPerTeam": true
+  },
+  "deathmatch": {
+    "matchSeconds": 180,
+    "phaseMaxSeconds": 3,
+    "phaseSeconds": 1.5,
+    "respawnDelaySeconds": 5
+  },
+  "drive": {
+    "baseDrag": 0.768,
+    "baseMaxSpeed": 90,
+    "baseTurnRate": 1.0005,
+    "carHeight": 40,
+    "carWidth": 60,
+    "dashSubstepMaxUnits": 16,
+    "dragPerRating": 0.00608,
+    "flipSteeringInReverse": false,
+    "lateralGripRate": 3,
+    "restitution": 0,
+    "reverseAccelFactor": 0.6,
+    "reverseEpsilon": 6,
+    "speedPerRating": 2.277,
+    "stopEpsilon": 0.001,
+    "turnRatePerRating": 0.02535
+  },
+  "flow": {
+    "carSelectSeconds": 60,
+    "countdownSeconds": 3,
+    "nameMax": 16,
+    "nameMin": 1,
+    "revealSeconds": 10
+  },
+  "impulse": {
+    "spinScale": 12.5,
+    "wallContactPad": 1
+  },
+  "maxPlayers": 6,
+  "ram": {
+    "attackerLockMs": 500,
+    "contactPad": 1,
+    "cornerBandUnits": 4,
+    "drWindowMs": 2000,
+    "durationDrFloorMs": 150,
+    "durationDrScale": 0.5,
+    "flankScale": 1.5,
+    "globalScale": 0.6,
+    "headOnAngleDeg": 45,
+    "headOnScale": 0.2,
+    "impulseDrFloor": 0.25,
+    "impulseDrScale": 0.5,
+    "minRamSpeed": 39,
+    "ramUncontrolMs": 1000,
+    "rearScale": 1.2,
+    "reelingSpinDecayRate": 2,
+    "spinEpsilon": 0.01,
+    "spinMaxRate": 6,
+    "spinScale": 0.3
+  },
+  "slots": {
+    "basicAttackEnabled": false,
+    "basicAttackSlotIndex": 0,
+    "maxAbilitySlots": 3,
+    "maxFireSlots": 4
+  },
+  "spike": {
+    "contactPad": 2,
+    "damage": 80,
+    "depth": 20,
+    "retriggerMs": 750,
+    "shoverCreditMs": 4000,
+    "triggerSpeed": 25
+  },
+  "statusConfig": {
+    "maxActive": 6,
+    "maxDurationMs": 10000
+  },
+  "statusLimits": {
+    "accel": {
+      "max": 2.5,
+      "min": 0.4
+    },
+    "brakeDecel": {
+      "max": 1.5,
+      "min": 0.6
+    },
+    "damageDealt": {
+      "max": 2,
+      "min": 0.5
+    },
+    "damageTaken": {
+      "max": 2.5,
+      "min": 0.4
+    },
+    "grip": {
+      "max": 2,
+      "min": 0.25
+    },
+    "ramDefence": {
+      "max": 2,
+      "min": 0.5
+    },
+    "topSpeed": {
+      "max": 2,
+      "min": 0.5
+    },
+    "turnRate": {
+      "max": 2,
+      "min": 0.4
+    },
+    "weaponCooldown": {
+      "max": 3,
+      "min": 0.4
+    }
+  },
+  "statusTable": {
+    "armored": {
+      "chainable": true,
+      "color": "#868e96",
+      "flags": [
+        "invulnerable"
+      ],
+      "id": "armored",
+      "kind": "buff",
+      "modifiers": {},
+      "name": "Armored",
+      "reapply": "refresh"
+    },
+    "corroded": {
+      "color": "#74b816",
+      "id": "corroded",
+      "kind": "debuff",
+      "modifiers": {
+        "damageTaken": 1.3
+      },
+      "name": "Corroded",
+      "reapply": "refresh"
+    },
+    "fortified": {
+      "color": "#1971c2",
+      "id": "fortified",
+      "kind": "buff",
+      "modifiers": {
+        "damageTaken": 0.7
+      },
+      "name": "Fortified",
+      "reapply": "refresh"
+    },
+    "overhauled": {
+      "color": "#f1f3f5",
+      "id": "overhauled",
+      "kind": "buff",
+      "modifiers": {},
+      "name": "Overhauled",
+      "onApply": {
+        "cleanse": "debuff"
+      },
+      "reapply": "ignore"
+    },
+    "overheated": {
+      "color": "#d9480f",
+      "id": "overheated",
+      "kind": "debuff",
+      "modifiers": {},
+      "name": "Overheated",
+      "pulse": {
+        "damage": 8,
+        "intervalMs": 400
+      },
+      "reapply": "refresh"
+    },
+    "phased": {
+      "chainable": true,
+      "color": "#4dabf7",
+      "flags": [
+        "phased"
+      ],
+      "id": "phased",
+      "kind": "buff",
+      "modifiers": {},
+      "name": "Phasing",
+      "reapply": "refresh"
+    },
+    "ramLock": {
+      "color": "#adb5bd",
+      "flags": [
+        "immobilised",
+        "steeringLocked",
+        "ramBlocked"
+      ],
+      "id": "ramLock",
+      "kind": "debuff",
+      "modifiers": {},
+      "name": "Ram Lock",
+      "reapply": "ignore"
+    },
+    "reeling": {
+      "color": "#e8590c",
+      "flags": [
+        "immobilised",
+        "steeringLocked",
+        "spinFree",
+        "ramBlocked"
+      ],
+      "id": "reeling",
+      "kind": "debuff",
+      "modifiers": {
+        "grip": 0.6
+      },
+      "name": "Reeling",
+      "reapply": "ignore"
+    },
+    "spiked": {
+      "color": "#0c8599",
+      "id": "spiked",
+      "kind": "debuff",
+      "modifiers": {
+        "topSpeed": 0.6
+      },
+      "name": "Spiked",
+      "reapply": "refresh"
+    },
+    "stunned": {
+      "color": "#4263eb",
+      "flags": [
+        "immobilised",
+        "steeringLocked",
+        "disarmed",
+        "fullStop"
+      ],
+      "id": "stunned",
+      "kind": "debuff",
+      "modifiers": {},
+      "name": "Stunned",
+      "reapply": "ignore"
+    }
+  },
+  "turret": {
+    "defaultOffset": 25,
+    "maxSwingDeg": 360,
+    "turnRateDegPerSec": 540
+  },
+  "weapons": {
+    "afterburner": {
+      "applies": [
+        {
+          "durationMs": 1500,
+          "statusId": "overheated",
+          "target": "opponents"
+        }
+      ],
+      "attached": true,
+      "color": "#FF9000",
+      "cooldownMs": 13000,
+      "damage": 49,
+      "damageFrequencyMs": 500,
+      "hitbox": {
+        "angleDeg": 55,
+        "shape": "cone"
+      },
+      "id": "afterburner",
+      "kind": "beam",
+      "lifetimeMs": 2000,
+      "muzzles": [
+        0,
+        180
+      ],
+      "name": "Afterburner",
+      "origin": "muzzle",
+      "range": 220,
+      "recoveryMs": 200,
+      "speed": 1100,
+      "startUpMs": 0,
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    },
+    "basic-attack-anvil": {
+      "color": "#101014",
+      "cooldownMs": 800,
+      "damage": 20,
+      "damageFrequencyMs": 0,
+      "hitbox": {
+        "radius": 12,
+        "shape": "circle"
+      },
+      "id": "basic-attack-anvil",
+      "kind": "projectile",
+      "name": "Basic Attack",
+      "pellets": {
+        "pelletsPerVolley": 1,
+        "spreadAngleDeg": 0
+      },
+      "pierce": 0,
+      "range": 960,
+      "recoveryMs": 0,
+      "speed": 900,
+      "startUpMs": 0,
+      "turret": {
+        "additionalOffset": 0
+      },
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    },
+    "basic-attack-bastion": {
+      "color": "#101014",
+      "cooldownMs": 800,
+      "damage": 20,
+      "damageFrequencyMs": 0,
+      "hitbox": {
+        "radius": 12,
+        "shape": "circle"
+      },
+      "id": "basic-attack-bastion",
+      "kind": "projectile",
+      "name": "Basic Attack",
+      "pellets": {
+        "pelletsPerVolley": 1,
+        "spreadAngleDeg": 0
+      },
+      "pierce": 0,
+      "range": 960,
+      "recoveryMs": 0,
+      "speed": 900,
+      "startUpMs": 0,
+      "turret": {
+        "additionalOffset": 0
+      },
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    },
+    "basic-attack-bullseye": {
+      "color": "#101014",
+      "cooldownMs": 800,
+      "damage": 20,
+      "damageFrequencyMs": 0,
+      "hitbox": {
+        "radius": 12,
+        "shape": "circle"
+      },
+      "id": "basic-attack-bullseye",
+      "kind": "projectile",
+      "name": "Basic Attack",
+      "pellets": {
+        "pelletsPerVolley": 1,
+        "spreadAngleDeg": 0
+      },
+      "pierce": 0,
+      "range": 960,
+      "recoveryMs": 0,
+      "speed": 900,
+      "startUpMs": 0,
+      "turret": {
+        "additionalOffset": 0
+      },
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    },
+    "basic-attack-caprico": {
+      "color": "#101014",
+      "cooldownMs": 800,
+      "damage": 20,
+      "damageFrequencyMs": 0,
+      "hitbox": {
+        "radius": 12,
+        "shape": "circle"
+      },
+      "id": "basic-attack-caprico",
+      "kind": "projectile",
+      "name": "Basic Attack",
+      "pellets": {
+        "pelletsPerVolley": 1,
+        "spreadAngleDeg": 0
+      },
+      "pierce": 0,
+      "range": 960,
+      "recoveryMs": 0,
+      "speed": 900,
+      "startUpMs": 0,
+      "turret": {
+        "additionalOffset": 0
+      },
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    },
+    "basic-attack-cleaver": {
+      "color": "#101014",
+      "cooldownMs": 800,
+      "damage": 20,
+      "damageFrequencyMs": 0,
+      "hitbox": {
+        "radius": 12,
+        "shape": "circle"
+      },
+      "id": "basic-attack-cleaver",
+      "kind": "projectile",
+      "name": "Basic Attack",
+      "pellets": {
+        "pelletsPerVolley": 1,
+        "spreadAngleDeg": 0
+      },
+      "pierce": 0,
+      "range": 960,
+      "recoveryMs": 0,
+      "speed": 900,
+      "startUpMs": 0,
+      "turret": {
+        "additionalOffset": 0
+      },
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    },
+    "basic-attack-mirage": {
+      "color": "#101014",
+      "cooldownMs": 800,
+      "damage": 20,
+      "damageFrequencyMs": 0,
+      "hitbox": {
+        "radius": 12,
+        "shape": "circle"
+      },
+      "id": "basic-attack-mirage",
+      "kind": "projectile",
+      "name": "Basic Attack",
+      "pellets": {
+        "pelletsPerVolley": 1,
+        "spreadAngleDeg": 0
+      },
+      "pierce": 0,
+      "range": 960,
+      "recoveryMs": 0,
+      "speed": 900,
+      "startUpMs": 0,
+      "turret": {
+        "additionalOffset": 0
+      },
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    },
+    "basic-attack-prowler": {
+      "color": "#101014",
+      "cooldownMs": 800,
+      "damage": 20,
+      "damageFrequencyMs": 0,
+      "hitbox": {
+        "radius": 12,
+        "shape": "circle"
+      },
+      "id": "basic-attack-prowler",
+      "kind": "projectile",
+      "name": "Basic Attack",
+      "pellets": {
+        "pelletsPerVolley": 1,
+        "spreadAngleDeg": 0
+      },
+      "pierce": 0,
+      "range": 960,
+      "recoveryMs": 0,
+      "speed": 900,
+      "startUpMs": 0,
+      "turret": {
+        "additionalOffset": 0
+      },
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    },
+    "basic-attack-skorpios": {
+      "color": "#101014",
+      "cooldownMs": 800,
+      "damage": 20,
+      "damageFrequencyMs": 0,
+      "hitbox": {
+        "radius": 12,
+        "shape": "circle"
+      },
+      "id": "basic-attack-skorpios",
+      "kind": "projectile",
+      "name": "Basic Attack",
+      "pellets": {
+        "pelletsPerVolley": 1,
+        "spreadAngleDeg": 0
+      },
+      "pierce": 0,
+      "range": 960,
+      "recoveryMs": 0,
+      "speed": 900,
+      "startUpMs": 0,
+      "turret": {
+        "additionalOffset": 0
+      },
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    },
+    "basic-attack-taurus": {
+      "color": "#101014",
+      "cooldownMs": 800,
+      "damage": 20,
+      "damageFrequencyMs": 0,
+      "hitbox": {
+        "radius": 12,
+        "shape": "circle"
+      },
+      "id": "basic-attack-taurus",
+      "kind": "projectile",
+      "name": "Basic Attack",
+      "pellets": {
+        "pelletsPerVolley": 1,
+        "spreadAngleDeg": 0
+      },
+      "pierce": 0,
+      "range": 960,
+      "recoveryMs": 0,
+      "speed": 900,
+      "startUpMs": 0,
+      "turret": {
+        "additionalOffset": 0
+      },
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    },
+    "lance": {
+      "attached": true,
+      "color": "#F0FF00",
+      "cooldownMs": 16000,
+      "damage": 43,
+      "damageFrequencyMs": 500,
+      "hitbox": {
+        "shape": "rect",
+        "width": 57.5
+      },
+      "holdsDuringFire": true,
+      "id": "lance",
+      "kind": "beam",
+      "lifetimeMs": 1500,
+      "name": "Lance",
+      "origin": "muzzle",
+      "range": 1200,
+      "recoveryMs": 1000,
+      "speed": 6000,
+      "startUpMs": 700,
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    },
+    "magmablast": {
+      "color": "#FF6000",
+      "cooldownMs": 1600,
+      "damage": 50,
+      "damageFrequencyMs": 0,
+      "explosion": {
+        "applies": [
+          {
+            "durationMs": 2000,
+            "statusId": "corroded",
+            "target": "opponents"
+          }
+        ],
+        "damage": 15,
+        "damageMode": "perEntry",
+        "lingerMs": 2000,
+        "radius": 60
+      },
+      "hitbox": {
+        "radius": 12,
+        "shape": "circle"
+      },
+      "id": "magmablast",
+      "kind": "projectile",
+      "name": "Magma Blast",
+      "pellets": {
+        "pelletsPerVolley": 1,
+        "spreadAngleDeg": 0
+      },
+      "pierce": 0,
+      "range": 900,
+      "recoveryMs": 0,
+      "speed": 600,
+      "startUpMs": 0,
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    },
+    "pepperbox": {
+      "color": "#C04818",
+      "cooldownMs": 1800,
+      "damage": 45,
+      "damageFrequencyMs": 0,
+      "hitbox": {
+        "radiusAcross": 3,
+        "radiusAlong": 9,
+        "shape": "ellipse"
+      },
+      "id": "pepperbox",
+      "kind": "projectile",
+      "muzzles": [
+        0,
+        90,
+        180,
+        270
+      ],
+      "name": "Pepperbox",
+      "pellets": {
+        "pelletsPerVolley": 3,
+        "spreadAngleDeg": 12
+      },
+      "pierce": 0,
+      "range": 600,
+      "recoveryMs": 200,
+      "speed": 800,
+      "startUpMs": 0,
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    },
+    "predator": {
+      "color": "#606060",
+      "cooldownMs": 1000,
+      "damage": 30,
+      "damageFrequencyMs": 0,
+      "hitbox": {
+        "radiusAcross": 6,
+        "radiusAlong": 19,
+        "shape": "capsule"
+      },
+      "homing": {
+        "acquire": "proximity",
+        "acquireRadius": 200,
+        "durationMs": 2000,
+        "turnRateDegPerSec": 300
+      },
+      "id": "predator",
+      "kind": "projectile",
+      "lifetimeMs": 2000,
+      "name": "Predator",
+      "pellets": {
+        "pelletsPerVolley": 1,
+        "spreadAngleDeg": 0
+      },
+      "pierce": 0,
+      "range": 1800,
+      "recoveryMs": 0,
+      "speed": 900,
+      "startUpMs": 0,
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    },
+    "roadblock": {
+      "applies": [
+        {
+          "durationMs": 1000,
+          "statusId": "stunned",
+          "target": "opponents"
+        }
+      ],
+      "color": "#D89000",
+      "cooldownMs": 6000,
+      "damage": 100,
+      "damageFrequencyMs": 0,
+      "hitbox": {
+        "radiusAcross": 60,
+        "radiusAlong": 6,
+        "shape": "bar"
+      },
+      "id": "roadblock",
+      "kind": "projectile",
+      "name": "Roadblock",
+      "pellets": {
+        "pelletsPerVolley": 1,
+        "spreadAngleDeg": 0
+      },
+      "pierce": 4,
+      "piercesWalls": true,
+      "range": 500,
+      "recoveryMs": 200,
+      "speed": 600,
+      "startUpMs": 0,
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    },
+    "thumper": {
+      "applies": [
+        {
+          "durationMs": 3000,
+          "statusId": "spiked",
+          "target": "opponents"
+        }
+      ],
+      "bounces": true,
+      "color": "#FFD800",
+      "cooldownMs": 3000,
+      "damage": 60,
+      "damageFrequencyMs": 0,
+      "hitbox": {
+        "radiusAcross": 15,
+        "radiusAlong": 24,
+        "shape": "capsule"
+      },
+      "id": "thumper",
+      "kind": "projectile",
+      "lifetimeMs": 2900,
+      "name": "Thumper",
+      "pellets": {
+        "pelletsPerVolley": 1,
+        "spreadAngleDeg": 0
+      },
+      "pierce": 0,
+      "range": 1305,
+      "recoveryMs": 0,
+      "speed": 450,
+      "startUpMs": 0,
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    },
+    "thunderclap": {
+      "applies": [
+        {
+          "durationMs": 1000,
+          "statusId": "stunned",
+          "target": "opponents"
+        }
+      ],
+      "color": "#3ED1FA",
+      "cooldownMs": 5000,
+      "damage": 90,
+      "damageFrequencyMs": 0,
+      "id": "thunderclap",
+      "kind": "maneuver",
+      "maneuver": {
+        "type": "dash"
+      },
+      "name": "Thunderclap",
+      "range": 400,
+      "recoveryMs": 200,
+      "speed": 1600,
+      "startUpMs": 0,
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    },
+    "tremor": {
+      "applies": [
+        {
+          "durationMs": 600,
+          "statusId": "spiked",
+          "target": "opponents"
+        },
+        {
+          "durationMs": 300,
+          "statusId": "fortified",
+          "target": "ownerInside"
+        }
+      ],
+      "attached": false,
+      "color": "#8A6D12",
+      "cooldownMs": 15000,
+      "damage": 25,
+      "damageFrequencyMs": 400,
+      "hitbox": {
+        "angleDeg": 60,
+        "shape": "cone"
+      },
+      "id": "tremor",
+      "kind": "beam",
+      "lifetimeMs": 2875,
+      "name": "Tremor",
+      "origin": "muzzle",
+      "range": 492,
+      "recoveryMs": 200,
+      "speed": 492,
+      "startUpMs": 0,
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    },
+    "wildcharge": {
+      "applies": [
+        {
+          "durationMs": 10000,
+          "statusId": "fortified",
+          "target": "self"
+        }
+      ],
+      "color": "#F06000",
+      "cooldownMs": 20000,
+      "damage": 250,
+      "damageFrequencyMs": 0,
+      "id": "wildcharge",
+      "impulse": {
+        "applies": [
+          {
+            "durationMs": 1400,
+            "statusId": "reeling"
+          }
+        ],
+        "defenceScaled": false,
+        "direction": "radial",
+        "onWallImpact": {
+          "applies": [
+            {
+              "durationMs": 500,
+              "statusId": "stunned"
+            }
+          ],
+          "windowMs": 500
+        },
+        "retriggerImmunityMs": 600,
+        "speed": 520,
+        "spin": 0
+      },
+      "isUnInterruptable": true,
+      "kind": "maneuver",
+      "maneuver": {
+        "durationMs": 10000,
+        "slamsStunned": true,
+        "type": "charge"
+      },
+      "name": "Wild Charge",
+      "range": 0,
+      "recoveryMs": 200,
+      "speed": 0,
+      "startUpMs": 0,
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    }
+  }
+}
