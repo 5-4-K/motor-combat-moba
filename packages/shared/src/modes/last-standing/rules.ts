@@ -10,6 +10,7 @@ export function lastStandingRules(sides: Sides): ModeRules {
     sides,
     respawns: false,
     hasMatchClock: false,
+    winRuleLabel: "last_standing",
     claimsChassis: () => false,
     canStart(_config, ready): CanStartResult {
       if (sides !== "team") {

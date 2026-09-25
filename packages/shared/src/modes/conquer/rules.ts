@@ -5,6 +5,7 @@ export const CONQUER_RULES: ModeRules = {
   sides: "team",
   respawns: true,
   hasMatchClock: true,
+  winRuleLabel: "conquer",
   claimsChassis: (config) => config.conquer.uniqueChassisPerTeam,
   canStart(config, ready) {
     let team0 = 0;

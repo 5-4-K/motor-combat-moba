@@ -2,7 +2,8 @@ import { TICK_RATE_HZ } from "../constants.js";
 
 /**
  * Conquer's zone-control tuning (spec CQ25). Every mode carries a copy (CQ26), the way every mode
- * carries a `deathmatch` table, but only a mode whose `winRuleOf` is `"conquer"` reads any of it:
+ * carries a `deathmatch` table, but only a mode whose `rulesOf(mode).winRuleLabel` is `"conquer"`
+ * reads any of it:
  * `teamSize` and `uniqueChassisPerTeam` are inert everywhere else, which is how Team brawl keeps its
  * 1v1-to-3v3 start rule.
  *

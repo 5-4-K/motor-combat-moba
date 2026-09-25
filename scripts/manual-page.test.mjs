@@ -21,7 +21,7 @@ import {
   resolveInstanceHits,
   spawnInstances,
   stepInstance,
-  winRuleOf,
+  rulesOf,
 } from "@motor-combat-moba/shared";
 import { EFFECT_SOURCES } from "./cars-and-weapons-copy.mjs";
 
@@ -350,8 +350,8 @@ describe("the generated manual page", () => {
    * A tab must not publish an effect its own mode cannot inflict.
    *
    * `phased` is the one case, and it was live until 2026-09-23: `respawnSweep` is the only thing
-   * that applies it and is gated `winRuleOf(mode) === "deathmatch"`, so Brawl cannot put anyone in
-   * it — yet Brawl's tab published `fx-0-phased` reading "The moment after you respawn in
+   * that applies it and is gated `rulesOf(mode).winRuleLabel === "deathmatch"`, so Brawl cannot put
+   * anyone in it — yet Brawl's tab published `fx-0-phased` reading "The moment after you respawn in
    * Deathmatch". `EFFECT_SOURCES` is an authored list with no mode in it; the generator gates that
    * one line now, and this is what holds the gate.
    *
@@ -364,12 +364,13 @@ describe("the generated manual page", () => {
     for (const mode of activeGameModes()) {
       const section = sections.get(mode);
       const publishes = section.includes(`id="fx-${mode}-phased"`);
+      const isDeathmatch = rulesOf(mode).winRuleLabel === "deathmatch";
       assert.equal(
         publishes,
-        winRuleOf(mode) === "deathmatch",
-        winRuleOf(mode) === "deathmatch"
+        isDeathmatch,
+        isDeathmatch
           ? `mode ${mode} respawns cars but does not publish the spawn-protection effect`
-          : `mode ${mode} publishes "phased", which nothing in a ${winRuleOf(mode)} match applies`,
+          : `mode ${mode} publishes "phased", which nothing in a ${rulesOf(mode).winRuleLabel} match applies`,
       );
     }
   });

@@ -4,6 +4,7 @@ export const DEATHMATCH_RULES: ModeRules = {
   sides: "ffa",
   respawns: true,
   hasMatchClock: true,
+  winRuleLabel: "deathmatch",
   claimsChassis: () => false,
   canStart(_config, ready) {
     if (ready.length < 2) {

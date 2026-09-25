@@ -20,8 +20,9 @@ import { PlayerStatus, rulesOf, RoomPhase, type GameMode } from "@motor-combat-m
  * false.
  *
  * Keyed on `rulesOf(mode).respawns` — the question every "does this room give the car back" gate
- * was really asking — rather than winRuleOf, since Conquer's win rule ("conquer") and Deathmatch's
- * ("deathmatch") differ but both respawn. The dev-only playground respawns forever while running
+ * was really asking — rather than `rulesOf(mode).winRuleLabel`, since Conquer's win rule
+ * ("conquer") and Deathmatch's ("deathmatch") differ but both respawn. The dev-only playground
+ * respawns forever while running
  * `FFA_LAST_STANDING`, so it keeps the spectate camera; it is the one room where "does this mode
  * respawn" and "does this room respawn" come apart.
  */

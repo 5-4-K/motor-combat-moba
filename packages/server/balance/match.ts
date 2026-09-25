@@ -6,8 +6,9 @@
  * `ArenaRoom.revealCars` hands off to the countdown for in a real room. What follows is the same
  * `statusTick -> serverTick -> contactTick -> combat` pipeline (`runPipeline`), the same respawn
  * lifecycle (`respawnSweep`, run inside `runPipeline` via `combatTick`'s `phaseEndSweep`), and the
- * same win rule (`winRuleOf`, `deathmatchEnded`/`deathmatchOutcome`, `livingSides`) the room itself
- * reads. A harness with its own copy of any of that would be measuring a game nobody plays.
+ * same win rule (`rulesOf(mode).winRuleLabel`, `deathmatchEnded`/`deathmatchOutcome`, `livingSides`)
+ * the room itself reads. A harness with its own copy of any of that would be measuring a game
+ * nobody plays.
  */
 import {
   ArenaState,
@@ -25,7 +26,6 @@ import {
   livingSides,
   newCombatEvents,
   rulesOf,
-  winRuleOf,
   type BotDifficulty,
   type CarId,
   type CombatEvents,
@@ -122,7 +122,7 @@ export interface MatchOutcome {
  */
 export function runMatch(setup: MatchSetup): MatchOutcome {
   const spawnRng = makeRng(setup.seed);
-  const deathmatch = winRuleOf(setup.mode) === "deathmatch";
+  const deathmatch = rulesOf(setup.mode).winRuleLabel === "deathmatch";
   const botConfig = botConfigOf(setup.mode);
 
   const state = new ArenaState();
@@ -210,9 +210,9 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
     ram,
     hz: TICK_RATE_HZ,
     // `phaseEndSweep` runs inside `runPipeline` when this is set — same flag `ArenaRoom.ctx` derives
-    // from `winRuleOf`, and the harness must not call `phaseEndSweep` a second time itself: it would
-    // double-apply the same tick's phase decision (a `refresh` branch would extend spawn protection
-    // twice in one tick).
+    // from `rulesOf(mode).respawns`, and the harness must not call `phaseEndSweep` a second time
+    // itself: it would double-apply the same tick's phase decision (a `refresh` branch would extend
+    // spawn protection twice in one tick).
     runPhaseSweep: deathmatch,
     events,
   });

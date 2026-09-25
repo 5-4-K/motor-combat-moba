@@ -20,7 +20,7 @@ import {
   modeLabelOf,
   modeOptions,
   parseModeArg,
-  winRuleOf,
+  rulesOf,
   type BotDifficulty,
 } from "@motor-combat-moba/shared";
 import type { RunConfig, Shape } from "./runner.js";
@@ -57,16 +57,18 @@ const LAST_STANDING_SAFETY_CAP_SECONDS = 300;
  * where it is: `parseArgs` runs before `run.ts` installs a bundle, deliberately, because which
  * bundle to install is the answer it produces.
  *
- * Keyed on `winRuleOf(mode)`, not on `mode === GameMode.FFA_DEATHMATCH` (2026-09-23). Every other
- * consumer of the win condition already asks `winRuleOf` — `match.ts`, `report.ts`, `ArenaRoom`,
- * the client's `spectate.ts` — so naming one enum value here made the clock the ONE place that
- * disagreed: a second mode whose win rule is `"deathmatch"` would have had `match.ts` run it as a
- * deathmatch while `maxTicks` came from the last-standing safety cap, and the sentence two
- * paragraphs above ("this harness's clock IS the deathmatch clock, not a mock of it") would have
- * quietly stopped being true.
+ * Keyed on `rulesOf(mode).winRuleLabel`, not on `mode === GameMode.FFA_DEATHMATCH` (2026-09-23).
+ * Every other consumer of the win condition already asks that (Task 9 folded the old, now-deleted
+ * `flow/modes.ts` function into this field) — `match.ts`, `report.ts`, `ArenaRoom`, the client's
+ * `spectate.ts` (which reads `rulesOf(mode).respawns` directly for its own question) — so naming one
+ * enum value here made the clock the ONE place that disagreed: a second mode whose win rule is
+ * `"deathmatch"` would have had
+ * `match.ts` run it as a deathmatch while `maxTicks` came from the last-standing safety cap, and the
+ * sentence two paragraphs above ("this harness's clock IS the deathmatch clock, not a mock of it")
+ * would have quietly stopped being true.
  */
 function defaultMatchSeconds(mode: GameMode): number {
-  return winRuleOf(mode) === "deathmatch"
+  return rulesOf(mode).winRuleLabel === "deathmatch"
     ? modeConfigOf(mode).deathmatch.matchSeconds
     : LAST_STANDING_SAFETY_CAP_SECONDS;
 }
@@ -142,7 +144,7 @@ function parseMode(raw: string): GameMode {
   // bot brain that captures a zone — so a bot-vs-bot balance run cannot measure it at all. Refused
   // the same way an unknown mode is: at resolution, naming the mode rather than producing a report
   // that quietly measured nothing meaningful.
-  if (winRuleOf(mode) === "conquer") {
+  if (rulesOf(mode).winRuleLabel === "conquer") {
     throw new Error(
       `parseArgs: --mode "${raw}" resolved to ${MODE_TABLE[mode].name} — ` +
         `${MODE_TABLE[mode].name} is an objective mode; balance bots cannot play it.`,

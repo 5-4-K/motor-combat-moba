@@ -338,7 +338,6 @@ export type { ValidateChatResult } from "./lobby/chat.js";
 export { reduceFlow } from "./flow/match-flow.js";
 export type { FlowStatus, FlowPlayer, FlowState, FlowEvent } from "./flow/match-flow.js";
 export { assignSpawns } from "./flow/spawns.js";
-export { winRuleOf } from "./flow/modes.js";
 export { farthestSpawn, isDueToRespawn, phaseDecision, respawnPointFor } from "./flow/respawn.js";
 export type { PhaseAction, PhaseInput } from "./flow/respawn.js";
 export { livingSides } from "./modes/last-standing/outcome.js";

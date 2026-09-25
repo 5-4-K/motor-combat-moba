@@ -58,6 +58,7 @@ import {
   hpOf,
   modeConfigOf,
   playableExtentOf,
+  rulesOf,
   slots,
   slotsOf,
   statusDefOf,
@@ -67,7 +68,6 @@ import {
   weaponDamageOf,
   weaponTicksOf,
   weapons,
-  winRuleOf,
   withMode,
 } from "@motor-combat-moba/shared";
 
@@ -331,14 +331,14 @@ export function modelOf(config) {
        * The authored `EFFECT_SOURCES` lines that apply IN THIS MODE (2026-09-23).
        *
        * `phased` is the one mode-shaped entry: `respawnSweep` is the only thing that applies it and
-       * it is gated `winRuleOf(mode) === "deathmatch"`, so Brawl cannot inflict it — yet Brawl's
-       * Effects tab published `fx-0-phased` reading "The moment after you respawn in Deathmatch",
-       * a status describing a game that tab's reader is not playing. `reeling` and `ramLock` come
-       * from the contact pass, which every mode runs, so they are unconditional.
+       * it is gated `rulesOf(mode).winRuleLabel === "deathmatch"`, so Brawl cannot inflict it — yet
+       * Brawl's Effects tab published `fx-0-phased` reading "The moment after you respawn in
+       * Deathmatch", a status describing a game that tab's reader is not playing. `reeling` and
+       * `ramLock` come from the contact pass, which every mode runs, so they are unconditional.
        */
       effectSourceLines: Object.fromEntries(
         Object.entries(EFFECT_SOURCES).filter(
-          ([statusId]) => statusId !== "phased" || winRuleOf(config.id) === "deathmatch",
+          ([statusId]) => statusId !== "phased" || rulesOf(config.id).winRuleLabel === "deathmatch",
         ),
       ),
       ownerOf: Object.fromEntries(
@@ -410,7 +410,8 @@ export function carrierOf(weaponId) {
  * **The inverse hole is real, and nothing closes it: the page prints things no input covers.**
  * Every input here is DATA. The generator's own SELECTION RULES — which of that data reaches the
  * page — are code, and code is not hashable. The worked example, found by review on 2026-09-23:
- * removing the `winRuleOf(config.id) === "deathmatch"` gate on `EFFECT_SOURCES.phased` in `modelOf`
+ * removing the `rulesOf(config.id).winRuleLabel === "deathmatch"` gate on `EFFECT_SOURCES.phased`
+ * in `modelOf`
  * — the fix that stopped Brawl's tab publishing a status Brawl cannot inflict — leaves the stamp at
  * `0c7adc2746195fca`, unmoved, because the raw `EFFECT_SOURCES` object it hashes is unchanged and
  * the gate never was an input. The same blindness covers every rule the generator OWNS rather than

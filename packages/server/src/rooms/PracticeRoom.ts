@@ -83,7 +83,7 @@ import { scoped } from "./mode-scope.js";
  *
  * `mode` is Deathmatch, and `matchEndsTick` is deliberately left at 0. `matchClockLabel` returns ""
  * for a non-positive value, so the HUD drops the clock with no client conditional, while
- * `winRuleOf(mode) === "deathmatch"` keeps the kills panel lit. `runPipeline` reads the mode only
+ * `rulesOf(mode).winRuleLabel === "deathmatch"` keeps the kills panel lit. `runPipeline` reads the mode only
  * through `rulesOf(mode).sides`, which answers "ffa" for both FFA modes, so nothing else in the sim
  * changes.
  */

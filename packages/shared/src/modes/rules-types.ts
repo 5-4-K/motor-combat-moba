@@ -24,6 +24,14 @@ export interface ModeRules {
   readonly sides: Sides;
   readonly respawns: boolean;
   readonly hasMatchClock: boolean;
+  /**
+   * What ends the match, as a string — the same three values the deleted `flow/modes.ts` function
+   * used to return, before it was folded into this registry (Task 9, GM2). Kept as its own field
+   * only because a few non-test callers still need the STRING itself (a balance report printing
+   * "deathmatch" in prose, a CLI comparing against it) — everything that only needed a boolean fact
+   * now reads `respawns`/`hasMatchClock` directly instead.
+   */
+  readonly winRuleLabel: "last_standing" | "deathmatch" | "conquer";
   /** `players` is already filtered to READY players — `canStart` in `lobby/start-rules.ts` does that. */
   canStart(config: ModeConfig, ready: readonly StartRulePlayer[]): CanStartResult;
   claimsChassis(config: ModeConfig): boolean;

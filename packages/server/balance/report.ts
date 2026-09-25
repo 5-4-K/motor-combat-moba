@@ -23,7 +23,7 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { GameMode, modeLabelOf, winRuleOf, type CarId, type WeaponId } from "@motor-combat-moba/shared";
+import { GameMode, modeLabelOf, rulesOf, type CarId, type WeaponId } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, type BotProfile } from "../src/config/bot-profiles.js";
 import { deriveSeed } from "../src/bot/rng.js";
 import type { MatchOutcome } from "./match.js";
@@ -372,7 +372,7 @@ function renderPace(record: RunRecord): string {
   // read as a measured absence of stalemates; there is nothing to measure, so the column is marked
   // n/a for that mode instead of printing a number that cannot move.
   const clockCell =
-    winRuleOf(record.config.mode) === "deathmatch"
+    rulesOf(record.config.mode).winRuleLabel === "deathmatch"
       ? "n/a (deathmatch's clock is this harness's own match length — see summary below)"
       : formatInterval(clockInterval);
 
@@ -389,7 +389,7 @@ function renderPace(record: RunRecord): string {
       ]],
     ),
     "",
-    winRuleOf(record.config.mode) === "deathmatch"
+    rulesOf(record.config.mode).winRuleLabel === "deathmatch"
       ? "`Hit the clock` is n/a here: Deathmatch is timed, and this harness's match length IS " +
         "`matchEndsTick`, so every Deathmatch match ends via the clock by construction — the column " +
         "would read 0.0% every run, which is not a finding about any match, only about how this " +
