@@ -236,9 +236,9 @@ describe("ALL of packages/shared/src reads config only through the bundle (MC13,
  * over numbers that were mostly Brawl's: the `--mode` flag reached the report HEADER and the output
  * folder name, while `collision.ts` read `RAM_CONFIG.globalScale`, `ram.ts` read
  * `RAM_CONFIG.minRamSpeed`, `geometry.ts` read `SPIKE_CONFIG.depth` and `weapons.ts` read
- * `WEAPON_TABLE[id].damage` straight off the raw globals underneath it. Invisible only because
- * `table-pinning.test.ts` holds both shipped modes byte-identical — the flag minted a claim the
- * measurements did not honour, which is worse than not having the flag.
+ * `WEAPON_TABLE[id].damage` straight off the raw globals underneath it. Invisible only because both
+ * shipped modes' tables were (and still are) byte-identical to the raw globals — the flag minted a
+ * claim the measurements did not honour, which is worse than not having the flag.
  *
  * Neither harness ships, so neither is covered by the `packages/server/src` sweep above; both run
  * the real sim inside a real mode scope (`installPlaytestMode()` per probe process, `withMode` at

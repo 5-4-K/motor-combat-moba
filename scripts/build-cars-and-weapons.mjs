@@ -451,8 +451,8 @@ export function stampOfModes(configs) {
     modes: configs.map((config) => ({
       // The section id (`mode-N`) and the tab's label, both printed. They are also what makes
       // ADDING or REMOVING an active mode move the stamp: the two shipped modes carry
-      // byte-identical tables today (`modes/table-pinning.test.ts` enforces it), so without these
-      // two keys a set of one would hash the same as either mode alone.
+      // byte-identical tables today (neither's `config.ts` overrides them, so both resolve to the
+      // same base), so without these two keys a set of one would hash the same as either mode alone.
       id: config.id,
       name: MODE_TABLE[config.id]?.name ?? "",
       weapons: config.weapons,

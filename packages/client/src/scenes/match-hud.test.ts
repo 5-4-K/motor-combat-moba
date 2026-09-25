@@ -7,7 +7,7 @@ import {
   matchClockLabel,
   respawnSeconds,
   showKilledBy,
-} from "./deathmatch-hud.js";
+} from "./match-hud.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 

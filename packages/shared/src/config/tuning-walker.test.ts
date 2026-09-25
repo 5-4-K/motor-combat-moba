@@ -108,9 +108,10 @@ describe("tuning walker", () => {
 });
 
 /**
- * The bundle plumbing (phase 6). Both shipped modes are byte-identical — `table-pinning.test.ts`
- * holds them that way — so "mode 2's fields differ from mode 0's" cannot be asserted and would not
- * be worth asserting if it could. What CAN be asserted, and is what actually broke, is that the
+ * The bundle plumbing (phase 6). Both shipped modes are byte-identical — neither's `config.ts`
+ * overrides these tables, so both simply resolve to the same base — so "mode 2's fields differ
+ * from mode 0's" cannot be asserted and would not be worth asserting if it could. What CAN be
+ * asserted, and is what actually broke, is that the
  * walker describes WHICHEVER bundle it is handed: a tuned sibling built by `applyOverrides` is a
  * genuinely different `ModeConfig` object with genuinely different numbers, which is exactly the
  * divergence a second mode will one day be.
@@ -154,8 +155,8 @@ describe("the field list describes the bundle it was built from", () => {
    * hardcoded config left it green.
    *
    * What it was reaching for is a CROSS-bundle property, and that needs a divergence the two
-   * shipped modes cannot supply while `table-pinning.test.ts` holds them byte-identical. A tuned
-   * sibling from `applyOverrides` supplies it: `FAR` moves one field far outside BASE's own
+   * shipped modes cannot supply while neither overrides these tables. A tuned sibling from
+   * `applyOverrides` supplies it: `FAR` moves one field far outside BASE's own
    * `shipped * 3` ceiling, which is the shape a genuinely diverged second mode will one day have.
    * The panel's own value must then be accepted by its own bundle's validator and REFUSED by the
    * other's — that pair is what proves the two read the bundle they were given rather than a

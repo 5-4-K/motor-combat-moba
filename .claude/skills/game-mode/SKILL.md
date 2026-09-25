@@ -171,8 +171,9 @@ controller does this rather than repeating the ternary. Add your implementation 
 between matches gets the new family's behaviour immediately.
 
 If your mode plays by the same win condition and respawn flow as an existing family (last-standing,
-deathmatch, conquer), point your `MODE_TABLE` row's controller at that family's controller and skip
-writing a new one — that is exactly how Brawl and Team brawl share `LAST_STANDING_CONTROLLER`.
+deathmatch, conquer), point your mode's `MODE_CONTROLLERS` row (`server/src/modes/registry.ts` — not
+`MODE_TABLE`, which carries no controller of its own) at that family's controller and skip writing a
+new one — that is exactly how Brawl and Team brawl share `LAST_STANDING_CONTROLLER`.
 
 ## 6. The client HUD
 
@@ -297,10 +298,25 @@ An unknown mode refuses the run naming the ones that exist. An inactive mode is 
 5. `npx vitest run packages/shared/src/modes/snapshots.test.ts -u` and commit the new snapshot file.
 6. Root `npm run build` (shared → server → client; **never** `npm run build --workspaces`), then
    `npm test`.
-7. Add mode-folder tests, and a probe folder if the mode's own flow is worth measuring at scale.
-8. To publish: `isActive: true`, add the lobby card, `npm run build:manual`, add the
-   `## <Mode name>` section to `docs/turn-tuning.md`, `npm run check:art`, `npm test`.
+7. Add mode-folder tests, and a probe folder if the mode's own flow is worth measuring at scale. Add
+   your slug to the three maps below, or the mode falls through their "unknown" branch.
+8. To publish: `isActive: true`, add your mode's `hud.ts` lobbyCard() (the lobby card is authored
+   there, not as a separate step), `npm run build:manual`, add the `## <Mode name>` section to
+   `docs/turn-tuning.md`, `npm run check:art`, `npm test`.
 9. Say the playtest/balance part out loud — see below.
+
+### The three maps a new mode needs, beyond the three registries
+
+Every new mode owes an entry in these — none is a compile-time check, so a missing row fails
+silently (wrong test scope, wrong playtest family, wrong bot config) rather than failing the build:
+
+- **`scripts/test-scope.mjs`'s `MODE_FAMILY`** — which rule/controller family a slug belongs to
+  (`last-standing`, or the slug itself if it is its own family). `scripts/test-scope.test.mjs` holds
+  its keys to `Object.keys(MODE_TABLE).map(modeSlug)`, so a missing slug fails that test by name.
+- **`packages/server/playtest/common/mode.ts`'s `FAMILY_OF`** — the same family mapping for the
+  playtest harness's own probe-folder resolution (`packages/server/playtest/modes/<family>/`).
+- **`packages/server/src/config/mode-bot.ts`'s `MODE_BOT_CONFIG`** — per-mode bot tuning
+  (`BotModeConfig`), read by every room that hosts bots.
 
 ## Say it loudly
 

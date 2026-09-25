@@ -61,9 +61,12 @@ on the moved file(s), never a blanket `-u`. `table-pinning.test.ts` and `parity.
   `config.ts` does not override that value picks it up automatically; a mode that already overrides
   it keeps its own number, and its snapshot does not move — check whether that is what you meant.
 - **A change to ONE mode only, which is the whole point of this system** — edit that mode's
-  `config.ts` alone (a full-row `replace(...)` for a car, weapon or status row) and re-run its
-  snapshot test with `vitest -u` scoped to that mode's file. Nothing else to touch, and nothing else
-  to remember to keep in step.
+  `config.ts` alone and re-run its snapshot test with `vitest -u` scoped to that mode's file. A
+  partial nested override (e.g. one field of one car) merges fine as an ordinary object literal —
+  `replace(...)` is only needed to add a whole NEW keyed row (a car/weapon/status id the base does
+  not have) or to remove an optional field the base row carries. Either way, still check whether the
+  edit owes a `build:manual` (any hashed table moved) or a `turn-tuning.md` update (a drive/handling
+  knob moved, see below) — the per-mode split does not change what else a config edit owes.
 - **A NEW mode** — see the [`game-mode`](.claude/skills/game-mode/SKILL.md) skill: an overrides
   folder, `rules.ts`, a server controller (reuse a family or add one), a client `hud.ts`, the three
   registries, a fresh snapshot, and the mode-folder tests and probes that start running over the new
@@ -110,8 +113,8 @@ them. See
 [`docs/superpowers/plans/2026-09-22-per-mode-config/EXECUTION.md`](docs/superpowers/plans/2026-09-22-per-mode-config/EXECUTION.md).
 
 **Statuses** are the sim's duration layer (`sim/status/`) — timed conditions a car is in, listed in
-the active mode's status table (`statusTable()`; the raw `STATUS_TABLE` global is the pinned
-baseline, not what the sim reads). Every channel is a **multiplier** with 1 as neutral, and `Modifiers` is the only type
+the active mode's status table (`statusTable()`; the raw `STATUS_TABLE` global is the BASE table the
+modes merge over, not what the sim reads directly). Every channel is a **multiplier** with 1 as neutral, and `Modifiers` is the only type
 that reaches the sim: driving, ramming and combat never look at a status list. A status does not own
 its duration — the applier does (`WeaponDef.applies`, or `CombatInput.statusRequests` for future
 pickups) — and never stacks with itself. Hard CC no longer belongs to one chassis alone: since the
@@ -171,16 +174,19 @@ shipped modes (Brawl, Team brawl, Deathmatch, Conquer) carry `false` today — n
 `slots` — so `LMB` is bound to a weapon that refuses every press everywhere, the hint reads `RMB Q E
 to fire`, the bot never selects slot 0 and no chassis shows a "Basic attack" card, in every mode.
 Nothing about the nine `basic-attack-*` rows, `CarDef.basicAttack`, or its schema row at index 0
-goes away when a mode's flag is `false`; only four things read `slots().basicAttackEnabled` under
+goes away when a mode's flag is `false`; only five things read `slots().basicAttackEnabled` under
 whichever mode is installed. `beginFire` refuses a press on the basic-attack fire slot, so the key
 does nothing. `BotController`'s `chooseSlot` never selects that slot either, so a bot does not burn
 its one press a tick on a weapon that cannot fire. The client's `hintSlotOrder`
 (`config/slot-keys.ts`) drops the slot from the countdown action hint entirely, not merely from
 firing — the hint is the only place its binding is taught, and hiding the weapon means removing the
-pill, not leaving a dead one on screen. And `scripts/build-cars-and-weapons.mjs` skips every
+pill, not leaving a dead one on screen. `scripts/build-cars-and-weapons.mjs` skips every
 chassis's "Basic attack" card per mode and folds each mode's flag into `balanceStamp`, so toggling
 one mode's flag without rebuilding the manual fails `npm test` the same way any other stale-manual
-edit does. `fireSlotsOf`, the balance harness, `npm run ttk` and the playtest probes are
+edit does. And `carHasTurretWeapon` (`sim/weapons/turret.ts`) reads it too — since the nine
+basic-attack rows are this build's only `turret`-carrying rows, turning the flag ON for a mode also
+turns on turret drawing, pointer lock and the crosshair for every match played in that mode, with no
+separate step. `fireSlotsOf`, the balance harness, `npm run ttk` and the playtest probes are
 deliberately left unaware of the flag — they sweep every `WEAPON_TABLE` row structurally, and
 `carrierOf` must always be able to find a chassis for each of the nine basic-attack rows or those
 tools crash outright. See the
@@ -207,7 +213,8 @@ and playtest report. See the
 **Since 2026-09-21 a weapon may fire from a mouse-aimed turret rather than a fixed muzzle — but on
 this build none does.** `development/main` carries `turret` on **the nine basic-attack rows and
 nothing else**: `predator`, `magmablast` and `thumper` carried one on `feature/mouse-aim` and gave it
-back when that branch merged, in the same pass that set `BASIC_ATTACK_CONFIG.enabled` to `false`.
+back when that branch merged, in the same pass that turned the basic-attack flag off (then the
+global `BASIC_ATTACK_CONFIG.enabled`; now every mode's own `slots.basicAttackEnabled`, see below).
 Those two edits together are why **no car on this build draws a turret, captures the pointer, or
 shows a crosshair or the turret half of the aim HUD** — `carHasTurretWeapon` (TR53) is false for
 every chassis, and a config test asserts exactly that over the live roster rather than trusting the
@@ -241,8 +248,10 @@ original — wire value still `0`) ends the match when `livingSides` drops to on
 (`2`) never calls `livingSides` at all — it runs a `respawnSweep` on a `DEATHMATCH_CONFIG.respawnDelaySeconds`
 timer, grants the respawned car a `phased` status (driveable, not solid, not targetable) for at least
 `phaseSeconds`, and ends on `ArenaState.matchEndsTick` or the kills-then-deaths ranking in
-`deathmatchOutcome`. `winRuleOf(mode)` is the single place that answers "what ends the match"; every
-older consumer keeps reading `sidesOf(mode)`, which still returns `"ffa"` for both. See
+`deathmatchOutcome`. `controllerOf(mode)` (server) is now the single place that answers "what ends
+the match" — `rulesOf(mode)` carries the rest of the shape a mode's behaviour needs (`sides`,
+`respawns`, `hasMatchClock`, `winRuleLabel`, `canStart`, `claimsChassis`); the deleted `winRuleOf` and
+`sidesOf` free functions this file used to describe are both gone. See
 [`docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md`](docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md)
 and [`docs/combat-model.md`](docs/combat-model.md#elimination-and-winning).
 
@@ -883,9 +892,9 @@ It checks values, not a `balanceStamp`-style fingerprint: nothing generates this
 would only prove someone typed a new stamp.
 
 **Update it in the same commit whenever you change** a car's `handling`, `speed` or `brakeDecel`
-(in EVERY mode folder's `cars.ts`, and the `CAR_TABLE` global they are pinned to); `baseTurnRate`, `turnRatePerRating`, `baseMaxSpeed`, `speedPerRating`, `reverseAccelFactor`,
+(the base `config/car-config.ts`'s `CAR_TABLE`, or a mode's own `config.ts` override); `baseTurnRate`, `turnRatePerRating`, `baseMaxSpeed`, `speedPerRating`, `reverseAccelFactor`,
 `baseDrag`, `dragPerRating`, `lateralGripRate`, `reverseEpsilon` or `flipSteeringInReverse` in
-every mode folder's `drive.ts` (and the `DRIVE_CONFIG` global); **any `STATUS_TABLE` row's `turnRate` OR `grip` multiplier that
+the base `config/drive-config.ts`'s `DRIVE_CONFIG`, or a mode's own `config.ts` override; **any `STATUS_TABLE` row's `turnRate` OR `grip` multiplier that
 reaches the drive model — `reeling`'s `grip` (0.6) is the one shipped today, and it has its own
 "Grip while reeling" row in the derived table** (it was `reeling`'s `turnRate` (0.4) and a "Rate
 while reeling" row until the 2026-09-18 Unity ram port dropped `turnRate` from that row outright);
@@ -1020,7 +1029,8 @@ directions, scoped to one tab: every id the page publishes carries its mode (`mo
 Effects list and publish that mode's duration under Brawl's name. The tab labels are `MODE_TABLE`'s
 own `name`, never copy written in the generator, and the tab strip is plain CSS plus one inline
 script — a printout and a page with scripting off both fall back to every mode stacked. The two
-shipped modes carry byte-identical tables today (`modes/table-pinning.test.ts` enforces it), so both
+shipped modes carry byte-identical tables today (neither mode's `config.ts` overrides the base, so
+both simply resolve to it — the per-mode snapshots are what would show a future divergence), so both
 tabs render the same content; the structure is what makes a future divergence visible instead of
 silent. A status is published only when something can apply it: a weapon an active chassis
 carries, or an authored `EFFECT_SOURCES` line for the three that reach a player outside the weapon
@@ -1053,8 +1063,9 @@ sentence that measures something adds its fact back.
 chassis row, an active car's loadout, the combat, drive, status, slots or turret tables —
 **in ANY active mode's folder, not only the default one**: since MC41 the generator reads each
 mode's own bundle through `withMode` and `balanceStamp` hashes every active mode, so a
-Deathmatch-only edit owes a rebuild exactly as a roster-wide one does — or
-`TICK_RATE_HZ`, `ARENA_WIDTH`, `BASIC_ATTACK_CONFIG.enabled`, the set of ACTIVE modes
+Deathmatch-only edit owes a rebuild exactly as a roster-wide one does (this is also where each
+mode's own `slots.basicAttackEnabled` lives now — there is no longer a separate global flag) — or
+`TICK_RATE_HZ`, `ARENA_WIDTH`, the set of ACTIVE modes
 (`stampOfModes` hashes each tab's id and name, so publishing or un-publishing one moves the stamp
 even though both shipped modes' tables are byte-identical), or the prose in
 `cars-and-weapons-copy.mjs`. (`ARENA_WIDTH` is still global, read from `ACTIVE_ARENA_ID`, even

@@ -30,7 +30,7 @@ motor-combat-MOBA/
 │   │   ├── status-types.ts      # StatusDef, StatusChannel, StatusFlag, StatusPulse, StatusOnApply
 │   │   ├── status-config.ts      # STATUS_TABLE, STATUS_CONFIG, STATUS_LIMITS, isStatusId
 │   │   ├── status-ticks.ts       # STATUS_PULSE_TICKS: ms -> ticks, derived and frozen once
-│   │   ├── arena-config.ts       # ACTIVE_ARENA_ID — a default read by a few call sites, not the played arena (see modes/<slug>/index.ts's arenas list)
+│   │   ├── arena-config.ts       # ACTIVE_ARENA_ID — a default read by a few call sites, not the played arena (see the base `arenas` list in modes/base.ts, or a mode's own config.ts override)
 │   │   ├── deathmatch-config.ts  # DEATHMATCH_CONFIG, DEATHMATCH_TICKS: match/respawn/phase timing
 │   │   ├── tuning.ts             # TuningValue/TuningOverrides types only; applyOverrides (modes/overlay.ts) does the work (PG12, MC39)
 │   │   ├── tuning-walker.ts      # tunableFields/validateTuning/sanitizeStoredTuning (PG14)
@@ -94,7 +94,7 @@ motor-combat-MOBA/
 │   │   ├── registry.ts           # MODE_CONTROLLERS (mode -> controller), controllerOf — resolved fresh per call, never cached on a room
 │   │   ├── match-clock.ts        # stampMatchClock: rulesOf(mode).hasMatchClock -> ArenaState.matchEndsTick
 │   │   ├── last-standing/        # Brawl + Team brawl's shared controller.ts (livingAfterLeave in leave.ts)
-│   │   ├── deathmatch/           # controller.ts: respawn sweep, phase, clock/kills-then-deaths ranking
+│   │   ├── deathmatch/           # controller.ts: clock stamp, clock/kills-then-deaths ranking (the respawn sweep and phased grant are tick-pipeline.ts's respawnSweep, gated by ArenaRoom on rulesOf(mode).respawns — not the controller)
 │   │   └── conquer/              # controller.ts: absorbs the old conquer-room.ts's zone reset/advance/leave outcome
 │   ├── rooms/
 │   │   ├── ArenaRoom.ts          # the room: messages, phase machine, tick
@@ -176,7 +176,7 @@ motor-combat-MOBA/
         │   ├── weapon-hud.ts     # pure HUD derivations: sweepFraction, slotVisualState, countdownSeconds, slotBarLayout
         │   ├── roster-panel.ts   # pure roster derivations: row order, panel layout, name truncation
         │   ├── status-hud.ts     # pure status badge derivations: order, drain, strip layout
-        │   ├── deathmatch-hud.ts # pure Deathmatch derivations: match clock, respawn countdown, killed-by banner
+        │   ├── match-hud.ts      # pure match-HUD derivations shared by last-standing, deathmatch and conquer: match clock, respawn countdown, killed-by banner
         │   ├── spectate.ts       # spectate cycle, free-roam pan
         │   └── lobby-signature.ts
         ├── ui/                      # also dom.ts, lobby-view.ts, car-select-view.ts, results-view.ts, reveal-view.ts, overlay.ts, organic.css — only chat-view.ts is called out below

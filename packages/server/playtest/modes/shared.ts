@@ -48,6 +48,7 @@ import { newContactMemory, type ContactMemory } from "../../src/sim/ram-bridge.j
 import { readStatuses, writeStatuses } from "../../src/sim/status-bridge.js";
 import { FAMILY_OF, installPlaytestMode } from "../common/mode.js";
 import { IDLE, type SpawnSpec } from "../common/world.js";
+import { Reporter, VERDICT } from "../common/reporter.js";
 
 /**
  * Install the run's mode (same resolution every common probe uses) and refuse — printing why and
@@ -258,4 +259,25 @@ export function projectileAbilities(): { weaponId: WeaponId; carId: CarId; bit: 
  */
 export function subTickOffsets(base: number, unitsPerTick: number): number[] {
   return [0, 1, 2, 3, 4].map((k) => base + (k * unitsPerTick) / 5);
+}
+
+/**
+ * Three-column shorthand for a scenario row: what was expected, what was measured. Was duplicated
+ * verbatim in `modes/last-standing/elimination.ts`, `modes/deathmatch/respawn.ts` and
+ * `modes/conquer/zone.ts` (deferred-minor triage item 1); moved here since it has nothing
+ * family-specific about it and every mode probe wants it.
+ */
+export function row(
+  reporter: Reporter,
+  name: string,
+  ok: boolean,
+  expected: string,
+  measured: string,
+  extra = "",
+): void {
+  reporter.report(
+    name,
+    ok ? VERDICT.OK : VERDICT.FINDING,
+    `expected: ${expected}\nmeasured: ${measured}${extra ? `\n${extra}` : ""}`,
+  );
 }

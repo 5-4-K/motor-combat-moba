@@ -1135,8 +1135,9 @@ accepts an inactive mode on purpose and labels every report with it.
 ## DEATHMATCH_CONFIG
 
 `packages/shared/src/config/deathmatch-config.ts`. Networked balance, not render preference — the
-room's respawn sweep and the client's HUD both derive from it, so the two must agree. Read only in
-`FFA_DEATHMATCH` (`rulesOf(mode).winRuleLabel === "deathmatch"`); no car in any other mode is ever `phased`. See
+room's respawn sweep and the client's HUD both derive from it, so the two must agree. Read by every
+mode whose `rulesOf(mode).respawns` is true (Deathmatch, Conquer); no car in a non-respawning mode is
+ever `phased`. See
 [`combat-model.md`](combat-model.md#the-respawn-lifecycle).
 
 | Knob | Value | Rationale |
@@ -1164,8 +1165,8 @@ delay being indefinite.
 ## CONQUER_CONFIG
 
 `packages/shared/src/config/conquer-config.ts`, per mode through `conquer()` / `derived().conquerTicks`.
-Every mode carries a copy (CQ26), the same as `deathmatch()`, but only a mode whose `rulesOf(mode).winRuleLabel` is
-`"conquer"` ever reads it — `teamSize` and `uniqueChassisPerTeam` are inert everywhere else, which is
+Every mode carries a copy (CQ26), the same as `deathmatch()`, but only Conquer's controller ever
+reads `conquer()` — `teamSize` and `uniqueChassisPerTeam` are inert everywhere else, which is
 how Team brawl keeps its 1v1-to-3v3 start rule untouched. Conquer's match clock, respawn delay and
 spawn-protection windows are **not** here: it reads those from its own `deathmatch()` table (CQ22),
 the "clock and respawn" table named for its first user.

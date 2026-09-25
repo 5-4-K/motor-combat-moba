@@ -125,8 +125,9 @@ automatically a failure to fix by regenerating it:
 
 ## 7. The pre-existing G12 failures
 
-`packages/server/src/bot/brain/controller.test.ts` has two failing cases today — the "hunts a
-quadrant waypoint…" and "hunts toward a last-known pose…" cases (both tagged `G12`) — a bot-tuner
+`packages/server/src/bot/brain/controller.test.ts` has two failing-or-flaky cases today — the "hunts a
+quadrant waypoint…" and "hunts toward a last-known pose…" cases (both tagged `G12`; one has been
+observed to pass on an individual run) — a bot-tuner
 question, not something this refactor introduced or is expected to fix. Because root `npm test` runs
 `npm run test --workspaces --if-present` and **stops at the first failing workspace**, the server's
 two failures currently prevent the client and `scripts` suites from running under root `npm test`.

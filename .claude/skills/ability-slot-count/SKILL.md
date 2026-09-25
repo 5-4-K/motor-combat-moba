@@ -18,7 +18,7 @@ them — it is fire slot 0 and always present, so a car fires `N + 1` weapons. S
 (VS1–VS34) for the design and
 [`docs/combat-model.md`](../../../docs/combat-model.md#weapon) for the fire model.
 
-`N` is **build-time**, like `BASIC_ATTACK_CONFIG.enabled`: editing the source and rebuilding, not an
+`N` is **build-time**, like each mode's own `slots.basicAttackEnabled`: editing the source and rebuilding, not an
 env var, a join option or a playground control. It is a decision about what the shipped game IS for
 this build.
 
@@ -67,7 +67,7 @@ Read this list before promising what a change will do. Verified against the code
 - **The offline tools' sweep.** `npm run balance`, `npm run ttk` and the playtest probes sweep what
   is reachable at this `N` and skip-and-name what is not. `ttk.mjs`'s `carrierOf` is total and
   returns `undefined` for a row no chassis can fire, and `unreachableWeaponIds` collects them for
-  the matrix's footer; `packages/server/playtest/weapons.ts` keeps its own skip reasons. Lowering
+  the matrix's footer; `packages/server/playtest/common/weapons.ts` keeps its own skip reasons. Lowering
   `N` therefore lengthens those footers rather than crashing the run.
 
 **Nothing is deleted from `CAR_TABLE`.** A chassis may author more weapons than `N`; the extras stay
@@ -232,7 +232,7 @@ playtest rule:
   plus `LMB` — not `N + 1`. `ArenaScene` calls `actionKeysFor(this.localAbilityCount(), …)`, so the
   row follows the chassis, not the config. **At `N = 4` with today's three-weapon kits it still
   prints 4 pills (`LMB RMB Q E`), and that is the change working, not failing** — see section 5. Drop
-  the `LMB` pill from that count if `BASIC_ATTACK_CONFIG.enabled` is `false`.
+  the `LMB` pill from that count if that mode's `slots.basicAttackEnabled` is `false`.
 - The gutter's slot stack draws `min(kit, N)` boxes, and its TOP does not move with the count —
   the stack is top-anchored (VS20), so a shorter kit shortens it downward only.
 - `?dev=playground` is the fastest check: set a seat to one weapon and to `N`, and confirm the box

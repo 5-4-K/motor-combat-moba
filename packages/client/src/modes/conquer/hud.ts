@@ -32,7 +32,9 @@ function resultsHeadline(state: ResultsViewState, localSessionId: string): strin
  * `modeConfigOf(GameMode.CONQUER)` (CQ58) rather than the ambient `conquer()`/`deathmatch()`
  * accessors, since this card renders under whatever mode the LOBBY has installed, which need not be
  * Conquer — an ambient read would then quote the wrong mode's numbers. Conquer reads its clock from
- * its OWN `deathmatch` table (`modes/conquer/deathmatch.ts`, 180 s / 5 s respawn), not Deathmatch's.
+ * its own resolved `deathmatch` table (via `modeConfigOf(GameMode.CONQUER)`, 180 s / 5 s respawn —
+ * the same base values as Deathmatch's, since neither's `config.ts` overrides `deathmatch`, but
+ * resolved independently rather than borrowed from Deathmatch's bundle).
  *
  * `clockLabel` is always "": the arena clock lives in Conquer's own gutter panel instead (CQ56),
  * which `createGutter` builds (`gutter.ts`).

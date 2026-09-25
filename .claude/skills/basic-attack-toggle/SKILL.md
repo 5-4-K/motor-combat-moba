@@ -42,7 +42,7 @@ deliberately turns it on.
 
 ## What actually reads the flag
 
-Four places read `slots().basicAttackEnabled` under whichever mode is installed, and only four —
+Five places read `slots().basicAttackEnabled` under whichever mode is installed, and only five —
 everything else that touches a basic attack is deliberately left unaware of the toggle (see "What
 does NOT change" below).
 
@@ -61,6 +61,13 @@ does NOT change" below).
    chassis **in that mode's tab** when its flag is off, and `balanceStamp()` hashes each active
    mode's `slots().basicAttackEnabled` alongside the tables it already hashes — so flipping one
    mode's flag without rebuilding the manual fails `npm test` by name.
+5. **`carHasTurretWeapon`** (`packages/shared/src/sim/weapons/turret.ts`) skips the basic-attack fire
+   slot when the mode's flag is off — but the nine basic-attack rows are the only rows in this build
+   carrying `turret` (see the root `CLAUDE.md`'s mouse-aim section). So turning the basic attack ON
+   in a mode also turns on turret drawing, pointer lock and the crosshair FOR THAT MODE, purely as a
+   side effect of the flag flip: every chassis's basic attack becomes a turreted weapon the moment
+   `basicAttackEnabled` is `true`, with no separate step to enable turrets. Say this out loud when
+   flipping the flag on — it is a bigger client-side change than "the LMB pill appears."
 
 ## What does NOT change, and why that is deliberate
 
@@ -107,3 +114,6 @@ never be *pressed into* firing under that mode.
   Another mode's tab reflects its own flag.
 - Disabled, a bot never fires a basic-attack shot in that mode; watching `?dev=playground`'s bot
   line, `slot 0` never appears as a chosen slot.
+- Enabled, that mode's arena captures the pointer and draws a crosshair the moment a match starts —
+  every chassis now carries a turreted weapon on fire slot 0. A different mode with the flag still
+  off shows neither.

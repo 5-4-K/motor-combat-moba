@@ -17,7 +17,7 @@ import {
   weaponDefOf,
   type CarId,
 } from "@motor-combat-moba/shared";
-import { Reporter, VERDICT } from "../../common/reporter.js";
+import { Reporter } from "../../common/reporter.js";
 import { statusesOf } from "../../common/world.js";
 import { readStatuses } from "../../../src/sim/status-bridge.js";
 import {
@@ -25,6 +25,7 @@ import {
   installFamilyMode,
   killNextTick,
   projectileAbilities,
+  row,
   subTickOffsets,
 } from "../shared.js";
 
@@ -37,14 +38,6 @@ const reporter = new Reporter(
 
 const Y = 360;
 const CAR: CarId = "bastion";
-
-function row(name: string, ok: boolean, expected: string, measured: string, extra = ""): void {
-  reporter.report(
-    name,
-    ok ? VERDICT.OK : VERDICT.FINDING,
-    `expected: ${expected}\nmeasured: ${measured}${extra ? `\n${extra}` : ""}`,
-  );
-}
 
 /** A duel with `victim` killed by `killer`; returns the world, the death tick and the respawn tick. */
 function killAndRespawn(
@@ -85,6 +78,7 @@ function respawnDelay(): void {
   const expected = died + t.respawnDelay;
   const ok = died > 0 && deadAfterKill && Math.abs(respawned - expected) <= 1;
   row(
+    reporter,
     "R1. Killed at tick T -> dead until T + respawnDelay, respawns within +-1 tick",
     ok,
     `respawnDelay ${t.respawnDelay} ticks; died T, back on tick T + ${t.respawnDelay}`,
@@ -121,6 +115,7 @@ function phaseWindow(): void {
   w.run(t.phaseMax + 10);
   const ok = solidAtRespawn === false && phasedTicks >= t.phase && phasedTicks <= t.phaseMax;
   row(
+    reporter,
     "R2. After respawn the car is phased for >= phase ticks (idle, nothing overlapping)",
     ok,
     `not solid on the respawn tick; phased for >= ${t.phase} ticks (cap ${t.phaseMax})`,
@@ -204,6 +199,7 @@ function ramWhilePhased(): void {
     );
   }
   row(
+    reporter,
     `R3. A ${rammer} ram at max speed (${vmax.toFixed(1)} u/s) through a phased car, 5 sub-tick phases`,
     contacts === 0 && unmet === 0 && controlMissed === 0,
     "phased: no contact at any phase (victim never moves, no reeling / ramLock, hp untouched) and the " +
@@ -266,6 +262,7 @@ function shotsWhilePhased(): void {
     );
   }
   row(
+    reporter,
     "R4. Every ability projectile passes through a phased car, 5 sub-tick phases",
     hits === 0 && unmeasured === 0,
     "phased target 0 damage at every phase; the solid control is hit at every phase",
@@ -296,12 +293,14 @@ function clockAndRanking(): void {
   set("c", 0, 6);
   w.run(t.match + 10);
   row(
+    reporter,
     "R5. The match ends at matchEndsTick exactly",
     !!w.ended && endsTick === w.state.matchStartedAtTick + t.match && w.ended.tick === endsTick,
     `matchEndsTick = start ${w.state.matchStartedAtTick} + ${t.match}; ends on tick ${endsTick}`,
     w.ended ? `matchEndsTick ${endsTick}; ended on tick ${w.ended.tick}` : `matchEndsTick ${endsTick}; never ended`,
   );
   row(
+    reporter,
     "R6. Ranking is kills, then fewest deaths (a 3/1, b 3/0, c 0/6 -> b)",
     w.ended?.outcome.winnerSessionId === "b",
     `winnerSessionId "b", winnerTeam -1`,

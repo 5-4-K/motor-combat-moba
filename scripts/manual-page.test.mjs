@@ -484,7 +484,8 @@ describe("balanceStamp covers every active mode (MC41)", () => {
    * mode stays exactly where it was.
    *
    * The second assertion is the sharp one. Brawl and Deathmatch carry byte-identical tables today
-   * (`modes/table-pinning.test.ts` enforces it), so a stamp that hashed only the tables would give
+   * (neither's `config.ts` overrides them, so both resolve to the same base), so a stamp that
+   * hashed only the tables would give
    * the two single-mode sets the SAME fingerprint — swapping which mode ships would move nothing.
    * It is the mode's own id and its `MODE_TABLE` name, both printed on the page, that separate them.
    */

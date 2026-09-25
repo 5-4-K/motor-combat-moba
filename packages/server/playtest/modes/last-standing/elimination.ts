@@ -16,6 +16,7 @@ import {
   installFamilyMode,
   killNextTick,
   projectileAbilities,
+  row,
   subTickOffsets,
 } from "../shared.js";
 
@@ -29,15 +30,6 @@ const reporter = new Reporter(
 
 const CAR: CarId = "bastion";
 const Y = 360;
-
-/** Three-column shorthand for a scenario row: what was expected, what was measured. */
-function row(name: string, ok: boolean, expected: string, measured: string, extra = ""): void {
-  reporter.report(
-    name,
-    ok ? VERDICT.OK : VERDICT.FINDING,
-    `expected: ${expected}\nmeasured: ${measured}${extra ? `\n${extra}` : ""}`,
-  );
-}
 
 function outcomeText(w: ModeWorld): string {
   if (!w.ended) return "no outcome";
@@ -74,6 +66,7 @@ function ffaScenarios(): void {
     const died = killAndWatch(w, ["b", "c"], "a");
     const ok = !!w.ended && w.ended.tick - died <= 1 && w.ended.outcome.winnerSessionId === "a";
     row(
+      reporter,
       "E1. FFA: kill all but one -> survivor wins within 1 tick",
       ok,
       `ends by tick ${died + 1}, winnerSessionId "a"`,
@@ -95,6 +88,7 @@ function ffaScenarios(): void {
       w.ended.outcome.winnerSessionId === "" &&
       w.ended.outcome.winnerTeam === -1;
     row(
+      reporter,
       "E2. FFA: last two die on one tick -> draw",
       ok,
       `ends by tick ${died + 1}, winnerSessionId "", winnerTeam -1`,
@@ -114,6 +108,7 @@ function ffaScenarios(): void {
     const out = w.leave("b");
     const ok = beforeLeave === "still running" && out?.winnerSessionId === "a";
     row(
+      reporter,
       "E3. FFA: the only rival leaves -> remaining car wins (afterLeave)",
       ok,
       `still running before the leave; afterLeave -> winnerSessionId "a"`,
@@ -139,6 +134,7 @@ function teamScenarios(): void {
     const died = killAndWatch(w, ["b0", "b1"], "a0");
     const ok = !!w.ended && w.ended.tick - died <= 1 && w.ended.outcome.winnerTeam === 0;
     row(
+      reporter,
       "T1. Team: wipe team 1 -> winnerTeam 0 within 1 tick",
       ok,
       `ends by tick ${died + 1}, winnerTeam 0`,
@@ -162,6 +158,7 @@ function teamScenarios(): void {
       w.ended.tick - died <= 1 &&
       w.ended.outcome.winnerTeam === -1;
     row(
+      reporter,
       "T2. Team: each side's last car dies on one tick -> draw",
       ok,
       `still running at 1v1; ends by tick ${died + 1}, winnerTeam -1`,
@@ -178,6 +175,7 @@ function teamScenarios(): void {
     const second = w.leave("b1");
     const ok = first === undefined && second?.winnerTeam === 0;
     row(
+      reporter,
       "T3. Team: every team-1 car leaves -> winnerTeam 0 (afterLeave)",
       ok,
       "first leave: undefined; second leave: winnerTeam 0",

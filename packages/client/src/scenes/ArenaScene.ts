@@ -248,7 +248,7 @@ import {
   killerNameFor,
   respawnSeconds,
   showKilledBy,
-} from "./deathmatch-hud.js";
+} from "./match-hud.js";
 import { hudOf } from "../modes/registry.js";
 import type { GutterHost, ModeGutter } from "../modes/types.js";
 
@@ -865,7 +865,7 @@ export class ArenaScene extends Phaser.Scene {
    * `syncMatchHud`, destroyed in `resetMatchState`.
    *
    * Not gated on the mode at creation. Which of them ever becomes visible is decided per frame by
-   * the derivations in `deathmatch-hud.ts`, and `matchClockLabel` answers `""` outside Deathmatch —
+   * the derivations in `match-hud.ts`, and `matchClockLabel` answers `""` outside Deathmatch —
    * so the clock hides itself with no mode check on this side at all. Building them unconditionally
    * costs three idle `Text` objects in a Last Standing match and keeps one creation path.
    */
@@ -4471,7 +4471,7 @@ export class ArenaScene extends Phaser.Scene {
   /**
    * The three Deathmatch banners: the match clock, "[name] killed you", and the respawn countdown.
    *
-   * Every decision here comes out of `deathmatch-hud.ts`, which is where it can be tested — this
+   * Every decision here comes out of `match-hud.ts`, which is where it can be tested — this
    * method sets strings and flips `visible`, and holds no threshold of its own. Two of the three
    * carry no mode check at all: `matchClockLabel` answers `""` when `matchEndsTick` is 0, which is
    * every mode but this one, and `showKilledBy` answers on the local player's own death alone.

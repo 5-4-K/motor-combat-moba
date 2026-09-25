@@ -533,7 +533,7 @@ grows from), and the **turret**. A row opts into the turret with `WeaponBase.tur
 (`{ additionalOffset }`); presence is the flag. A config test holds it to single-muzzle
 `kind: "projectile"` rows, so a beam, a maneuver or a multi-muzzle row carrying it fails the suite by
 name. On `development/main` it ships on **the nine basic-attack rows and nothing else**, and those
-sit on a fire slot `BASIC_ATTACK_CONFIG.enabled` keeps shut — so no car can reach a turret at all and
+sit on a fire slot each shipped mode's own `slots.basicAttackEnabled` keeps shut — so no car can reach a turret at all and
 every row a player can actually fire uses a fixed muzzle. (`predator`, `magmablast` and `thumper`
 carried a turret on `feature/mouse-aim` and gave it back when that branch merged.) Everything below
 describes machinery that is present and correct, not machinery this build exercises.
@@ -592,8 +592,8 @@ describes machinery that is present and correct, not machinery this build exerci
   ahead so the car reads as mid-press; `PlayerState.turretAngle` mirrors `FireState.turretAngle` for
   drawing only — `stepSim` never reads it, and the client does not predict it.
 - **No turret weapon, no turret drawn (TR53).** `carHasTurretWeapon` answers whether at least one
-  weapon a car can actually fire carries `turret` — the basic attack counting only while
-  `BASIC_ATTACK_CONFIG.enabled`, an ability counting only up to `WEAPON_SLOT_CONFIG.maxAbilitySlots`
+  weapon a car can actually fire carries `turret` — the basic attack counting only while that mode's
+  `slots().basicAttackEnabled`, an ability counting only up to `WEAPON_SLOT_CONFIG.maxAbilitySlots`
   — and the client skips building the turret mount entirely when it says no. This is draw-only: the
   sim never checks it, and a car with no turret weapon simply never turns one.
 
@@ -719,19 +719,23 @@ the one place the "a binding nobody printed breaks quietly" controls rule is kno
 
 #### The basic-attack toggle
 
-`BASIC_ATTACK_CONFIG.enabled` (`config/weapon-config.ts`) can turn the whole mechanic off without
-touching any of the above — the nine rows, `CarDef.basicAttack` and its schema row at index 0 all
-stay exactly as described. It is a build-time flag: flip it, rebuild, `npm run build:manual`.
+Each mode's own `slots.basicAttackEnabled` (`WeaponSlotConfig`, per mode through `slots()`) can turn
+the whole mechanic off for that mode without touching any of the above — the nine rows,
+`CarDef.basicAttack` and its schema row at index 0 all stay exactly as described, in every mode. It is
+a build-time override on that mode's `config.ts`: flip it, rebuild, `npm run build:manual`.
 It shipped `false` from 2026-09-20 and `true` from 2026-09-21 on `feature/mouse-aim` (spec TR46),
-bound to LMB; **`development/main` ships it `false`**, alongside returning the three turret abilities
-to fixed muzzles — the pair that leaves this build with no reachable turret at all.
-Four
+bound to LMB (that branch predates the per-mode split, so it was a single global flag at the time);
+**all four shipped modes on `development/main` ship it `false`**, alongside returning the three
+turret abilities to fixed muzzles — the pair that leaves this build with no reachable turret at all.
+Five
 things read it when it is `false`: `beginFire` refuses a press on fire slot 0, so the key does
 nothing; the bot's `chooseSlot` never selects that slot either, so it does not waste a tick's press
 on a weapon that cannot fire; the client's `hintSlotOrder` drops the slot from the countdown action
-hint entirely, so the `LMB` pill disappears rather than sitting there doing nothing; and the guide
+hint entirely, so the `LMB` pill disappears rather than sitting there doing nothing; the guide
 skips every chassis's "Basic attack" card, with the flag folded into `balanceStamp` so a stale
-manual build fails the suite. `fireSlotsOf` and the balance/ttk/playtest tooling do not read it —
+manual build fails the suite; and `carHasTurretWeapon` skips the basic-attack fire slot, so turning
+the flag ON for a mode also turns on turret drawing for it, since the nine basic-attack rows are this
+build's only turret-carrying rows. `fireSlotsOf` and the balance/ttk/playtest tooling do not read it —
 they sweep `WEAPON_TABLE` structurally and must always be able to find a carrier for each of the
 nine rows. See the `basic-attack-toggle` skill for the full flip checklist.
 
@@ -1367,7 +1371,8 @@ for how long, and what that status does, derived from `STATUS_TABLE` itself so i
 - `diedAtTick` is networked rather than derived from `alive` flipping, so a spectator or a late
   joiner — neither of whom saw the transition — fades it correctly instead of drawing a corpse
   forever.
-- **Three win conditions now**, picked per-match by `GameMode` and read through `winRuleOf(mode)`:
+- **Three win conditions now**, picked per-match by `GameMode` and read through
+  `rulesOf(mode).winRuleLabel` (executed by that mode's `ModeController`):
   - `"last_standing"` (`FFA_LAST_STANDING` and `TEAM`) — after damage each tick, `livingSides(mode,
     roster)` counts the living sides. `sides <= 1` ends the match through the same `endMatch` a
     disconnect uses. FFA names a `winnerSessionId`; team mode names a `winnerTeam`; zero living sides
@@ -1628,9 +1633,9 @@ the far side of the arena, and `smoothFollow` would otherwise spend a second sai
 the player already driving a car they cannot see (`syncRespawnCamera` drops `camFocus` on the
 dead → alive edge, so `followCamera` re-seeds outright).
 
-The rule is keyed on `winRuleOf(mode)`, not on "does this room respawn". The dev-only playground
-respawns forever while running `FFA_LAST_STANDING`, and is the one place those two questions come
-apart — it keeps the spectate camera.
+The rule is keyed on `rulesOf(mode).winRuleLabel`, not on `rulesOf(mode).respawns` ("does this room
+respawn"). The dev-only playground respawns forever while running `FFA_LAST_STANDING`, and is the one
+place those two questions come apart — it keeps the spectate camera.
 
 The respawn itself is marked by the **countdown arrow drawn a second time**: the same green triangle
 that says "this one" before the gun, over your own car, for exactly as long as spawn protection lasts

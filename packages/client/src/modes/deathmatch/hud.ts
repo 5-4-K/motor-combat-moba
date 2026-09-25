@@ -1,6 +1,6 @@
 import type { ArenaState } from "@motor-combat-moba/shared";
 import { GameMode, modeConfigOf } from "@motor-combat-moba/shared";
-import { matchClockLabel } from "../../scenes/deathmatch-hud.js";
+import { matchClockLabel } from "../../scenes/match-hud.js";
 import type { ModeHud } from "../types.js";
 
 /**

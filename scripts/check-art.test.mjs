@@ -334,9 +334,10 @@ describe("the art this repo actually ships", () => {
 });
 
 /**
- * The union sweep (MC5). Both shipped modes are byte-identical today — `table-pinning.test.ts`
- * holds them that way — so there is no divergence here to assert on, and a test claiming "mode 2's
- * roster differs from mode 0's" could only ever pass by accident. What is asserted is the PLUMBING:
+ * The union sweep (MC5). Both shipped modes are byte-identical today — neither's `config.ts`
+ * overrides these tables, so both resolve to the same base — so there is no divergence here to
+ * assert on, and a test claiming "mode 2's roster differs from mode 0's" could only ever pass by
+ * accident. What is asserted is the PLUMBING:
  * that the sweep asked the mode bundles at all rather than one table, and that a partial carriage
  * is what produces the `(mode: ...)` marker.
  *

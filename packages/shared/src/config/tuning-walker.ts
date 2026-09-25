@@ -12,8 +12,9 @@ import type { WeaponId } from "./weapon-types.js";
  * **It used to walk the RAW `config/` globals, once, at module load** — so every range the
  * playground's sliders offered, and every `shipped` its "at shipped" indicator compared against,
  * described the DEFAULT mode no matter which bundle the room was actually writing into. The two
- * agreed only because `modes/table-pinning.test.ts` keeps both shipped modes byte-identical; the
- * first intentional divergence would have given a slider a range taken from one mode and a write
+ * agreed only because both shipped modes happened to leave these tables unoverridden, so both
+ * resolved to the same base; the first intentional divergence would have given a slider a range
+ * taken from one mode and a write
  * `applyOverrides` rejects against another, with nothing red. Hence the `ModeConfig` parameter on
  * all three entry points below: the caller names the bundle it is tuning, and the panel, the
  * validator and the write can no longer disagree about which game they are describing.

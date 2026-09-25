@@ -1,5 +1,5 @@
 import type { ArenaState } from "@motor-combat-moba/shared";
-import { matchClockLabel } from "../../scenes/deathmatch-hud.js";
+import { matchClockLabel } from "../../scenes/match-hud.js";
 import type { ModeCardCopy, ModeHud } from "../types.js";
 
 /**

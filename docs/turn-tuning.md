@@ -80,10 +80,13 @@ the default mode's; read any other mode's numbers off its own tables.**
 
 ### Authored in config
 
-Values a person typed into a file — into a MODE's folder. `modes/brawl/cars.ts` and
-`modes/deathmatch/cars.ts` each hold a whole roster, `modes/*/drive.ts` a whole `DriveConfig`, and
-the game reads only those. (The raw `config/` globals still exist and tooling still reads them, but
-editing one moves nothing about how a car drives — see root `CLAUDE.md`.) **Two of the authored
+Values a person typed into a file — the BASE `config/` table (`config/car-config.ts`'s roster,
+`config/drive-config.ts`'s `DriveConfig`), read by every mode that does not override it, or a mode's
+own `modes/<slug>/config.ts` when it does. None of today's four modes overrides cars or drive, so
+every mode reads the base table unchanged — but the accessor (`cars()`, `drive()`) is what the game
+actually calls, never the raw global directly, so an override in any one mode's `config.ts` would
+take effect with no other code change. (See root `CLAUDE.md`'s per-mode section for the merge rule.)
+**Two of the authored
 values shape turning and are per-car: `handling` and `speed`.** `brakeDecel` joined the roster with
 the 2026-09-06 vector-drive rework and still shapes how a chassis stops, not how it turns, so it gets
 its own table rather than a row in the ratings one. `coastHalfLifeSeconds` used to sit beside it
@@ -161,8 +164,9 @@ A global knob could not have made the 2026-08-31 fix, historically: Mirage was s
 **To change one car, change its rating. Reach for a global knob only when the whole roster is
 wrong** — as it was before the 2026-08-31 1.5x raise, and, on radius specifically, as it is again
 today. Either way, decide first whether the complaint is about ONE mode or about the game: a
-one-mode fix is an edit to that mode's folder alone, and the tripwire in
-`packages/shared/src/modes/table-pinning.test.ts` is what tells the two apart.
+one-mode fix is an edit to that mode's own `config.ts` override alone, and
+`packages/shared/src/modes/snapshots.test.ts` — the per-mode resolved-table snapshot, which moves
+only for the mode(s) whose bundle actually changed — is what tells the two apart.
 
 ### Derived
 
@@ -276,17 +280,17 @@ The `FFA_LAST_STANDING` bundle, assembled from `packages/shared/src/modes/brawl/
 
 | Knob | Where | Value | What it does |
 |---|---|---|---|
-| `baseTurnRate` | `modes/brawl/drive.ts` | 1.0005 | Flat part of every car's turn rate |
-| `turnRatePerRating` | `modes/brawl/drive.ts` | 0.02535 | What one point of `handling` buys |
-| `spinMaxRate` | `modes/brawl/ram.ts` | 6 rad/s | Cap on ram-imposed rotation |
-| `reelingSpinDecayRate` | `modes/brawl/ram.ts` | 2.0 /s | How fast a ram's imposed spin winds down while the victim is reeling |
-| `baseMaxSpeed` | `modes/brawl/drive.ts` | 90 | Flat part of every car's top speed — radius only, no effect on turn rate |
-| `speedPerRating` | `modes/brawl/drive.ts` | 2.277 | Radius only — what one point of `speed` buys |
-| `baseDrag` | `modes/brawl/drive.ts` | 0.768 | Drag rate at `accel` 0 — sets top speed, wind-up time and roll together |
-| `dragPerRating` | `modes/brawl/drive.ts` | 0.00608 | What one point of `accel` buys — more drag, sooner to top speed, shorter roll |
-| `lateralGripRate` | `modes/brawl/drive.ts` | 3.0 | The drift knob — how fast sideways velocity bleeds off |
-| `reverseAccelFactor` | `modes/brawl/drive.ts` | 0.6 | Reverse push as a fraction of forward — sets reverse top speed too |
-| `reverseEpsilon` | `modes/brawl/drive.ts` | 6.0 | Forward speed below which Down reverses instead of braking |
+| `baseTurnRate` | `config/drive-config.ts` | 1.0005 | Flat part of every car's turn rate |
+| `turnRatePerRating` | `config/drive-config.ts` | 0.02535 | What one point of `handling` buys |
+| `spinMaxRate` | `config/ram-config.ts` | 6 rad/s | Cap on ram-imposed rotation |
+| `reelingSpinDecayRate` | `config/ram-config.ts` | 2.0 /s | How fast a ram's imposed spin winds down while the victim is reeling |
+| `baseMaxSpeed` | `config/drive-config.ts` | 90 | Flat part of every car's top speed — radius only, no effect on turn rate |
+| `speedPerRating` | `config/drive-config.ts` | 2.277 | Radius only — what one point of `speed` buys |
+| `baseDrag` | `config/drive-config.ts` | 0.768 | Drag rate at `accel` 0 — sets top speed, wind-up time and roll together |
+| `dragPerRating` | `config/drive-config.ts` | 0.00608 | What one point of `accel` buys — more drag, sooner to top speed, shorter roll |
+| `lateralGripRate` | `config/drive-config.ts` | 3.0 | The drift knob — how fast sideways velocity bleeds off |
+| `reverseAccelFactor` | `config/drive-config.ts` | 0.6 | Reverse push as a fraction of forward — sets reverse top speed too |
+| `reverseEpsilon` | `config/drive-config.ts` | 6.0 | Forward speed below which Down reverses instead of braking |
 
 **Derived** — nothing below is typed anywhere; all of it is computed from the three tables above:
 
@@ -331,17 +335,17 @@ The `FFA_DEATHMATCH` bundle, assembled from `packages/shared/src/modes/deathmatc
 
 | Knob | Where | Value | What it does |
 |---|---|---|---|
-| `baseTurnRate` | `modes/deathmatch/drive.ts` | 1.0005 | Flat part of every car's turn rate |
-| `turnRatePerRating` | `modes/deathmatch/drive.ts` | 0.02535 | What one point of `handling` buys |
-| `spinMaxRate` | `modes/deathmatch/ram.ts` | 6 rad/s | Cap on ram-imposed rotation |
-| `reelingSpinDecayRate` | `modes/deathmatch/ram.ts` | 2.0 /s | How fast a ram's imposed spin winds down while the victim is reeling |
-| `baseMaxSpeed` | `modes/deathmatch/drive.ts` | 90 | Flat part of every car's top speed — radius only, no effect on turn rate |
-| `speedPerRating` | `modes/deathmatch/drive.ts` | 2.277 | Radius only — what one point of `speed` buys |
-| `baseDrag` | `modes/deathmatch/drive.ts` | 0.768 | Drag rate at `accel` 0 — sets top speed, wind-up time and roll together |
-| `dragPerRating` | `modes/deathmatch/drive.ts` | 0.00608 | What one point of `accel` buys — more drag, sooner to top speed, shorter roll |
-| `lateralGripRate` | `modes/deathmatch/drive.ts` | 3.0 | The drift knob — how fast sideways velocity bleeds off |
-| `reverseAccelFactor` | `modes/deathmatch/drive.ts` | 0.6 | Reverse push as a fraction of forward — sets reverse top speed too |
-| `reverseEpsilon` | `modes/deathmatch/drive.ts` | 6.0 | Forward speed below which Down reverses instead of braking |
+| `baseTurnRate` | `config/drive-config.ts` | 1.0005 | Flat part of every car's turn rate |
+| `turnRatePerRating` | `config/drive-config.ts` | 0.02535 | What one point of `handling` buys |
+| `spinMaxRate` | `config/ram-config.ts` | 6 rad/s | Cap on ram-imposed rotation |
+| `reelingSpinDecayRate` | `config/ram-config.ts` | 2.0 /s | How fast a ram's imposed spin winds down while the victim is reeling |
+| `baseMaxSpeed` | `config/drive-config.ts` | 90 | Flat part of every car's top speed — radius only, no effect on turn rate |
+| `speedPerRating` | `config/drive-config.ts` | 2.277 | Radius only — what one point of `speed` buys |
+| `baseDrag` | `config/drive-config.ts` | 0.768 | Drag rate at `accel` 0 — sets top speed, wind-up time and roll together |
+| `dragPerRating` | `config/drive-config.ts` | 0.00608 | What one point of `accel` buys — more drag, sooner to top speed, shorter roll |
+| `lateralGripRate` | `config/drive-config.ts` | 3.0 | The drift knob — how fast sideways velocity bleeds off |
+| `reverseAccelFactor` | `config/drive-config.ts` | 0.6 | Reverse push as a fraction of forward — sets reverse top speed too |
+| `reverseEpsilon` | `config/drive-config.ts` | 6.0 | Forward speed below which Down reverses instead of braking |
 
 **Derived** — nothing below is typed anywhere; all of it is computed from the three tables above:
 
@@ -367,8 +371,10 @@ The `FFA_DEATHMATCH` bundle, assembled from `packages/shared/src/modes/deathmatc
 ## Conquer
 
 The `CONQUER` bundle, assembled from `packages/shared/src/modes/conquer/`. Its three tables are
-byte-identical to Deathmatch's (CQ13) — `table-pinning.test.ts` does not enforce this pairing (it
-only pins each mode against the raw `config/` globals), but nothing has diverged them yet.
+byte-identical to Deathmatch's (CQ13) — neither mode's `config.ts` overrides them, so both simply
+read the same base `config/` tables. Nothing enforces that pairing itself (the per-mode snapshots
+each pin their own mode's resolved tables, not one mode against another), but nothing has diverged
+them yet.
 
 **Per-car ratings** — `cars()`, one value per chassis:
 
@@ -388,17 +394,17 @@ only pins each mode against the raw `config/` globals), but nothing has diverged
 
 | Knob | Where | Value | What it does |
 |---|---|---|---|
-| `baseTurnRate` | `modes/conquer/drive.ts` | 1.0005 | Flat part of every car's turn rate |
-| `turnRatePerRating` | `modes/conquer/drive.ts` | 0.02535 | What one point of `handling` buys |
-| `spinMaxRate` | `modes/conquer/ram.ts` | 6 rad/s | Cap on ram-imposed rotation |
-| `reelingSpinDecayRate` | `modes/conquer/ram.ts` | 2.0 /s | How fast a ram's imposed spin winds down while the victim is reeling |
-| `baseMaxSpeed` | `modes/conquer/drive.ts` | 90 | Flat part of every car's top speed — radius only, no effect on turn rate |
-| `speedPerRating` | `modes/conquer/drive.ts` | 2.277 | Radius only — what one point of `speed` buys |
-| `baseDrag` | `modes/conquer/drive.ts` | 0.768 | Drag rate at `accel` 0 — sets top speed, wind-up time and roll together |
-| `dragPerRating` | `modes/conquer/drive.ts` | 0.00608 | What one point of `accel` buys — more drag, sooner to top speed, shorter roll |
-| `lateralGripRate` | `modes/conquer/drive.ts` | 3.0 | The drift knob — how fast sideways velocity bleeds off |
-| `reverseAccelFactor` | `modes/conquer/drive.ts` | 0.6 | Reverse push as a fraction of forward — sets reverse top speed too |
-| `reverseEpsilon` | `modes/conquer/drive.ts` | 6.0 | Forward speed below which Down reverses instead of braking |
+| `baseTurnRate` | `config/drive-config.ts` | 1.0005 | Flat part of every car's turn rate |
+| `turnRatePerRating` | `config/drive-config.ts` | 0.02535 | What one point of `handling` buys |
+| `spinMaxRate` | `config/ram-config.ts` | 6 rad/s | Cap on ram-imposed rotation |
+| `reelingSpinDecayRate` | `config/ram-config.ts` | 2.0 /s | How fast a ram's imposed spin winds down while the victim is reeling |
+| `baseMaxSpeed` | `config/drive-config.ts` | 90 | Flat part of every car's top speed — radius only, no effect on turn rate |
+| `speedPerRating` | `config/drive-config.ts` | 2.277 | Radius only — what one point of `speed` buys |
+| `baseDrag` | `config/drive-config.ts` | 0.768 | Drag rate at `accel` 0 — sets top speed, wind-up time and roll together |
+| `dragPerRating` | `config/drive-config.ts` | 0.00608 | What one point of `accel` buys — more drag, sooner to top speed, shorter roll |
+| `lateralGripRate` | `config/drive-config.ts` | 3.0 | The drift knob — how fast sideways velocity bleeds off |
+| `reverseAccelFactor` | `config/drive-config.ts` | 0.6 | Reverse push as a fraction of forward — sets reverse top speed too |
+| `reverseEpsilon` | `config/drive-config.ts` | 6.0 | Forward speed below which Down reverses instead of braking |
 
 **Derived** — nothing below is typed anywhere; all of it is computed from the three tables above:
 
@@ -423,9 +429,10 @@ only pins each mode against the raw `config/` globals), but nothing has diverged
 
 ## What to reach for, by outcome
 
-Every row below is an edit to a MODE's tables. Making it in one mode's folder is the whole point of
-the per-mode system; making it in both (and in the pinned `config/` global) is an ordinary
-roster-wide balance change. Root `CLAUDE.md` has the rule and `table-pinning.test.ts` is the tripwire.
+Every row below is an edit to a MODE's tables. Making it in one mode's `config.ts` override alone is
+the whole point of the per-mode system; making it in the base `config/` global (and, if you want
+every mode to keep matching, in each mode's `config.ts` too) is an ordinary roster-wide balance
+change. Root `CLAUDE.md` has the rule, and `snapshots.test.ts` is the tripwire.
 
 | You want… | Tune | Why |
 |---|---|---|
@@ -511,15 +518,16 @@ than going silently unchecked. The `##` section headings are matched against `ac
 
 | Config | Fields |
 |---|---|
-| each mode's `cars.ts` (and the pinned `CAR_TABLE` global, for a roster-wide change) | any car's `handling`, `speed`, `accel` or `brakeDecel` |
-| each mode's `drive.ts` (and `DRIVE_CONFIG`) | `baseTurnRate`, `turnRatePerRating`, `baseMaxSpeed`, `speedPerRating`, `baseDrag`, `dragPerRating`, `lateralGripRate`, `reverseAccelFactor`, `reverseEpsilon` |
-| each mode's `ram.ts` (and `RAM_CONFIG`) | `spinMaxRate`, `reelingSpinDecayRate` |
-| each mode's `status.ts` (and `STATUS_TABLE`) | any row's `turnRate` OR `grip` multiplier that reaches the drive model — `reeling`'s `grip` (0.6) is the one shipped today, and it has its own "Grip while reeling" row |
+| `config/car-config.ts` (the base `CAR_TABLE`), or a mode's own `config.ts` override | any car's `handling`, `speed`, `accel` or `brakeDecel` |
+| `config/drive-config.ts` (the base `DRIVE_CONFIG`), or a mode's own `config.ts` override | `baseTurnRate`, `turnRatePerRating`, `baseMaxSpeed`, `speedPerRating`, `baseDrag`, `dragPerRating`, `lateralGripRate`, `reverseAccelFactor`, `reverseEpsilon` |
+| `config/ram-config.ts` (the base `RAM_CONFIG`), or a mode's own `config.ts` override | `spinMaxRate`, `reelingSpinDecayRate` |
+| `config/status-config.ts` (the base `STATUS_TABLE`), or a mode's own `config.ts` override | any row's `turnRate` OR `grip` multiplier that reaches the drive model — `reeling`'s `grip` (0.6) is the one shipped today, and it has its own "Grip while reeling" row |
 | shared (global, every mode) | `TICK_RATE_HZ` (the per-tick rows only) |
 
-A change to one mode's folder owes that mode's section alone. A roster-wide change owes every
-section — and `packages/shared/src/modes/table-pinning.test.ts` is what decides which kind of change
-you just made.
+An edit to one mode's own `config.ts` override owes that mode's section alone. A base `config/` edit
+owes every mode's section that does not already override the field — and
+`packages/shared/src/modes/snapshots.test.ts`, the per-mode resolved-table snapshot, is what shows
+you which mode(s) actually moved.
 
 Adding a fourth chassis means a new column in all three per-car tables of every mode section
 (ratings, direct values, and derived) — all of them are test-checked; see above.

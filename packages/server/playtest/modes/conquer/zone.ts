@@ -12,7 +12,7 @@
  */
 import { derived, getArena } from "@motor-combat-moba/shared";
 import { Reporter, VERDICT } from "../../common/reporter.js";
-import { ModeWorld, installFamilyMode } from "../shared.js";
+import { ModeWorld, installFamilyMode, row } from "../shared.js";
 
 const mode = installFamilyMode("conquer");
 
@@ -20,14 +20,6 @@ const reporter = new Reporter(
   "zone",
   "Conquer: capture delay, 1/tick control, contest freeze, full-bar win, clock win, overtime, and the empty-team leaver rule.",
 );
-
-function row(name: string, ok: boolean, expected: string, measured: string, extra = ""): void {
-  reporter.report(
-    name,
-    ok ? VERDICT.OK : VERDICT.FINDING,
-    `expected: ${expected}\nmeasured: ${measured}${extra ? `\n${extra}` : ""}`,
-  );
-}
 
 /** The zone and three places around it: centre, a second in-zone seat, and each team's parking spot. */
 function spots(w: ModeWorld) {
@@ -81,6 +73,7 @@ function capture(): void {
   const inControlAfter = controlTick - entered;
   const fillTicks = w.state.tick - firstFillTick + 1;
   row(
+    reporter,
     "Z1. One team-0 car in the zone: in control after exactly captureDelay ticks, then +1 per tick",
     inControlAfter === captureDelay && firstFillTick === controlTick + 1 && badFill === 0 &&
       w.state.controlTicksA === fillTicks,
@@ -122,6 +115,7 @@ function contest(): void {
     if (!resumed && w.state.controlTicksA > before.a) resumed = tick;
   });
   row(
+    reporter,
     "Z2. A team-1 car entering sets zoneContested and freezes both bars",
     contestedTicks === hold && moved === 0 && resumed - cleared === captureDelay + 1,
     `contested (holder -1) on all ${hold} ticks, bars unchanged at A ${before.a} / B ${before.b}; ` +
@@ -140,6 +134,7 @@ function fullBar(): void {
   w.run(captureDelay + controlTarget + 20);
   const expectedEnd = entered + captureDelay + controlTarget;
   row(
+    reporter,
     "Z3. Team 0 alone reaches controlTarget -> wins before the clock",
     !!w.ended && w.ended.outcome.winnerTeam === 0 && w.ended.tick === expectedEnd && w.ended.tick < w.state.matchEndsTick,
     `ends tick ${expectedEnd} (captureDelay ${captureDelay} + controlTarget ${controlTarget}), winnerTeam 0, before matchEndsTick ${w.state.matchEndsTick}`,
@@ -176,6 +171,7 @@ function barsThenClock(fillA: number, fillB: number): ModeWorld {
 function clockWin(): void {
   const w = barsThenClock(50, 100);
   row(
+    reporter,
     "Z4. At matchEndsTick the higher bar wins (A 50, B 100 -> team 1)",
     !!w.ended && w.ended.tick === w.state.matchEndsTick && w.ended.outcome.winnerTeam === 1,
     `ends on matchEndsTick ${w.state.matchEndsTick}, winnerTeam 1`,
@@ -194,6 +190,7 @@ function overtime(): void {
   const entered = w.state.tick;
   w.run(captureDelay + 20);
   row(
+    reporter,
     "Z5. Equal bars at matchEndsTick -> overtime; the next team to take control wins",
     !atClock.ended && atClock.overtime && !!w.ended && w.ended.outcome.winnerTeam === 0 &&
       w.ended.tick === entered + captureDelay,
@@ -221,6 +218,7 @@ function leaver(): void {
   const first = w.leave("b0");
   const second = w.leave("b1");
   row(
+    reporter,
     "Z6. Every team-1 car leaving -> afterLeave gives team 0 the win",
     first === undefined && second?.winnerTeam === 0 && second.winnerSessionId === "",
     "first leave: undefined; second leave: winnerTeam 0",

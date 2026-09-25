@@ -119,8 +119,9 @@ describe("applyOverrides", () => {
   });
 
   // NOTE: this is real coverage of a real future failure mode, not a placeholder — but today it is
-  // weaker than it looks. `table-pinning.test.ts` holds Brawl's and Deathmatch's tables byte-equal,
-  // so the ONLY assertion below that can currently fail is `expect(tuned.id)`; every `.toEqual`
+  // weaker than it looks. Brawl's and Deathmatch's tables are byte-equal (neither's `config.ts`
+  // overrides them, so both resolve to the same base), so the ONLY assertion below that can
+  // currently fail is `expect(tuned.id)`; every `.toEqual`
   // against `freshDeathmatch` would pass just as well against a fresh BRAWL bundle right now,
   // because the two modes' numbers have not diverged yet. It becomes a real cross-mode assertion —
   // catching `applyOverrides` accidentally reading or writing the wrong mode's tables — the day
