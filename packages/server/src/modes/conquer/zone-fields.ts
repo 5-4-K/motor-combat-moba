@@ -1,6 +1,6 @@
-// Conquer's room glue, kept out of `ArenaRoom` so it can be tested: nothing in the repo
-// instantiates the room itself. `ArenaState` satisfies `ZoneFields & { tick; matchEndsTick }`
-// structurally, so the room passes its own state straight in.
+// Conquer's zone-field glue, kept out of the controller so it can be tested on its own.
+// `ArenaState` satisfies `ZoneFields & { tick; matchEndsTick }` structurally, so the controller
+// passes its own state straight in.
 import {
   conquerOutcome, stepZone, zonePresence,
   type ArenaZone, type ZonePresenceCar, type ZoneState,

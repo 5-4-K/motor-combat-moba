@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceConquer, readZone, resetZone } from "./conquer-room.js";
+import { advanceConquer, readZone, resetZone } from "./zone-fields.js";
 
 const fields = () => ({
   controlTicksA: 0, controlTicksB: 0, zoneHolder: -1, zoneStreakTicks: 0,

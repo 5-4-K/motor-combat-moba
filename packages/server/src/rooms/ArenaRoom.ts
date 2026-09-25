@@ -31,32 +31,24 @@ import {
   canSwitchTeam,
   reduceFlow,
   assignSpawns,
-  livingSides,
   rulesOf,
-  winRuleOf,
   uniqueChassisApplies,
   chassisTakenByTeammate,
   pickDeadlineCar,
-  conquerLeaveOutcome,
   activeCarIds,
   getArena,
   hpOf,
   isActiveCarId,
   isActiveGameMode,
-  derived,
-  deathmatchEnded,
-  deathmatchOutcome,
   DEFAULT_GAME_MODE,
   modeConfigOrDefault,
   type CarId,
-  type DeathmatchPlayer,
   type FlowEvent,
   type FlowPlayer,
   type FlowState,
   type InputMessage,
   type ModeConfig,
   type StartRulePlayer,
-  type ZonePresenceCar,
 } from "@motor-combat-moba/shared";
 import {
   getTickRateHz,
@@ -91,10 +83,10 @@ import {
 import {
   carAtDeadline,
   copySpawnNumbers,
-  livingAfterLeave,
   resolveSetMode,
 } from "./match-helpers.js";
-import { advanceConquer, resetZone } from "./conquer-room.js";
+import { controllerOf, resetZone } from "../modes/registry.js";
+import type { ModeRoomView } from "../modes/types.js";
 import { selectNextHost } from "./select-next-host.js";
 import { ROOM_FULL_ERROR, shouldRejectSecondArena } from "./singleton-arena.js";
 import { canSendChat, formatClockTime, pushChatMessage } from "./chat.js";
@@ -412,39 +404,10 @@ export class ArenaRoom extends Room<ArenaState> {
 
       if (!wasInMatch || !wasInRoster || this.state.phase === RoomPhase.LOBBY) return;
 
-      // The leaver is already gone from `matchRoster` and `state.players` above, so the counts
-      // are the roster that remains.
-      if (winRuleOf(this.state.mode) === "conquer") {
-        const counts: [number, number] = [0, 0];
-        for (const id of this.matchRoster) {
-          const p = this.state.players.get(id);
-          if (p) counts[p.team === 1 ? 1 : 0] += 1;
-        }
-        const left = conquerLeaveOutcome(counts);
-        if (left.ended) this.endMatch("", left.winnerTeam);
-        return;
-      }
-
-      if (winRuleOf(this.state.mode) === "deathmatch") {
-        this.checkDeathmatchEnd();
-        return;
-      }
-
-      const remainingPlayers: { sessionId: string; team: 0 | 1; alive: boolean }[] = [];
-      this.state.players.forEach((player) => {
-        remainingPlayers.push({
-          sessionId: player.sessionId,
-          team: player.team === 1 ? 1 : 0,
-          alive: player.alive,
-        });
-      });
-      const result = livingSides(
-        rulesOf(this.state.mode).sides,
-        livingAfterLeave(remainingPlayers, this.matchRoster),
-      );
-      if (result.sides <= 1) {
-        this.endMatch(result.winnerSessionId, result.winnerTeam);
-      }
+      // The leaver is already gone from `matchRoster` and `state.players` above, so whatever the
+      // controller reads off them is the roster that remains.
+      const out = controllerOf(this.state.mode).afterLeave(this.modeView());
+      if (out) this.endMatch(out.winnerSessionId, out.winnerTeam);
     });
   }
 
@@ -493,30 +456,10 @@ export class ArenaRoom extends Room<ArenaState> {
     // Combat was skipped this tick (no match, or no roster), so there is nothing to win on.
     if (!combatPlayers) return;
 
-    // Win check every tick, on the state combat just wrote.
-    if (winRuleOf(this.state.mode) === "conquer") {
-      this.conquerTick();
-      return;
-    }
-    if (winRuleOf(this.state.mode) === "deathmatch") {
-      this.checkDeathmatchEnd();
-      return;
-    }
-
-    // `livingSides` counts only roster members who are still alive, so a wreck and a disconnect end
-    // the match by the same rule.
-    const outcome = livingSides(
-      rulesOf(this.state.mode).sides,
-      combatPlayers.map((p) => ({
-        sessionId: p.sessionId,
-        team: p.team,
-        alive: p.alive,
-        inRoster: p.inRoster,
-      })),
-    );
-    if (outcome.sides <= 1) {
-      this.endMatch(outcome.winnerSessionId, outcome.winnerTeam);
-    }
+    // Win check every tick, on the state combat just wrote. Resolved fresh every tick, never
+    // cached, so a host switching mode between matches gets the new family's win test immediately.
+    const out = controllerOf(this.state.mode).afterTick(this.modeView(), combatPlayers);
+    if (out) this.endMatch(out.winnerSessionId, out.winnerTeam);
   }
 
   /** The room's long-lived maps and memory bags, handed to the pipeline for one tick. */
@@ -535,34 +478,9 @@ export class ArenaRoom extends Room<ArenaState> {
     };
   }
 
-  /** CQ44: one zone step on the state combat just wrote, then the end check. */
-  private conquerTick(): void {
-    const zone = getArena(this.state.arenaId).zone;
-    if (!zone) return; // unreachable: invariants.test.ts holds every conquer arena to a zone
-    const cars: ZonePresenceCar[] = [];
-    this.state.players.forEach((p) => {
-      cars.push({ x: p.x, y: p.y, team: p.team, alive: p.alive, inRoster: this.matchRoster.has(p.sessionId) });
-    });
-    const ticks = derived().conquerTicks;
-    const result = advanceConquer(this.state, zone, cars, ticks.captureDelay, ticks.controlTarget);
-    if (result.ended) this.endMatch("", result.winnerTeam);
-  }
-
-  /**
-   * Deathmatch never asks `livingSides` (M25). With respawns every player can be dead at once while
-   * their timers run, and that would read as a draw and end the match under everyone's feet.
-   */
-  private checkDeathmatchEnd(): void {
-    const players: DeathmatchPlayer[] = [];
-    for (const id of this.matchRoster) {
-      const player = this.state.players.get(id);
-      if (!player) continue;
-      players.push({ sessionId: id, kills: player.kills, deaths: player.deaths, inRoster: true });
-    }
-
-    if (!deathmatchEnded(players.length, this.state.tick, this.state.matchEndsTick)) return;
-    const outcome = deathmatchOutcome(players);
-    this.endMatch(outcome.winnerSessionId, outcome.winnerTeam);
+  /** The slice of room state a `ModeController` reads. Never stored — resolved fresh per call. */
+  private modeView(): ModeRoomView {
+    return { state: this.state, roster: this.matchRoster };
   }
 
   private reduce(event: FlowEvent): void {
@@ -604,12 +522,10 @@ export class ArenaRoom extends Room<ArenaState> {
     // duration counts from the green light rather than resetting under its own feet.
     if (this.state.phase === RoomPhase.MATCH && previousPhase !== RoomPhase.MATCH) {
       this.state.matchStartedAtTick = this.state.tick;
-      // 0 in every mode without respawns: nothing reads it there, and a stale non-zero value would
-      // hand the client's HUD a clock to count down that means nothing.
-      this.state.matchEndsTick = rulesOf(this.state.mode).hasMatchClock
-        ? this.state.tick + derived().deathmatchTicks.match
-        : 0;
-      resetZone(this.state);
+      // The clock stamp (0 in every mode without one) and whatever else the family owns resetting
+      // — Conquer's zone fields, nobody else's — are the controller's `onMatchStart`, resolved
+      // fresh here rather than cached, same as every other call site.
+      controllerOf(this.state.mode).onMatchStart(this.modeView());
     }
     this.state.carSelectDeadlineTick = next.carSelectDeadlineTick;
     this.state.revealEndsTick = next.revealEndsTick;
