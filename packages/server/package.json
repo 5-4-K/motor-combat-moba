@@ -9,6 +9,8 @@
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit && tsc --noEmit -p playtest/tsconfig.json && tsc --noEmit -p balance/tsconfig.json",
     "test": "vitest run",
+    "test:common": "vitest run --exclude \"**/modes/*/**\"",
+    "test:mode": "vitest run",
     "playtest": "tsx playtest/run-all.ts",
     "playtest:lan": "tsx playtest/lan.ts",
     "balance": "tsx balance/run.ts"

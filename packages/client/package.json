@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "test:common": "vitest run --passWithNoTests --exclude \"**/modes/*/**\"",
+    "test:mode": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@motor-combat-moba/shared": "*",

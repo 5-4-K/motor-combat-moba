@@ -16,7 +16,9 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:common": "vitest run --exclude \"**/modes/*/**\"",
+    "test:mode": "vitest run"
   },
   "dependencies": { "@colyseus/schema": "^2.0.0" },
   "devDependencies": { "typescript": "^5.5.0", "vitest": "^2.0.0" }
