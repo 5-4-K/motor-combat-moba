@@ -4,7 +4,7 @@
  * `npm run playtest -- --mode=<id|name>` reaches `run-all.ts`, which resolves it ONCE, names the
  * run folder after it, and passes it down to each probe through `PLAYTEST_MODE_ENV` — the same
  * shape `PLAYTEST_RUN_DIR` already uses to keep six spawned probes writing into one folder. A probe
- * run on its own (`tsx playtest/ram.ts --mode=2`) parses the flag itself, so neither entry point is
+ * run on its own (`tsx playtest/common/ram.ts --mode=2`) parses the flag itself, so neither entry point is
  * the only one that understands it.
  *
  * Every probe is a one-shot process, so `installMode` (no restore) is right here where `withMode`

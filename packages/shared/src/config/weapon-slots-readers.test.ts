@@ -12,7 +12,7 @@
 // stale without making the list untrue. The doc comment stays readable prose and the paths are
 // parsed back out of it, rather than being restructured into a machine-readable block nobody
 // enjoys reading: the one rule the prose owes this test is that every reader is named by its FULL
-// project-relative path inside backticks (``packages/server/playtest/weapons.ts``, not "`weapons.ts`
+// project-relative path inside backticks (``packages/server/playtest/common/weapons.ts``, not "`weapons.ts`
 // in `packages/server/playtest/`").
 //
 // The corollary of that rule, and the one way to surprise yourself here: a full path in this doc
