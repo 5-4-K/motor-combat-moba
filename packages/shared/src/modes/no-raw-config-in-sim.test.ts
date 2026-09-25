@@ -153,11 +153,13 @@ const ALLOWED_DIRS: Readonly<Record<string, string>> = {
     "left in it are doc-comment mentions of the tables a knob used to live in — which is exactly " +
     "the kind of reference `IMPORT_TYPE_LINE` cannot distinguish and this directory exemption " +
     "covers. `tuning.ts` beside it is types only.",
-  "modes": "The mode-ASSEMBLY layer. `build.ts` reads raw `DRIVE_CONFIG.carWidth`/`carHeight` " +
-    "because the OBB hull is explicitly out of tuning scope (never per-mode, never a slider) — see " +
-    "`tuning-walker.ts`'s own `DRIVE_SKIP_KEYS` comment. `registry.ts`, `brawl/`, `deathmatch/` and " +
-    "`active.ts` do not reference a raw identifier at all (checked); `types.ts` only names one in a " +
-    "doc comment.",
+  "modes": "The mode-ASSEMBLY layer. `base.ts` reads every raw global by design (GM6) — it IS the " +
+    "raw globals, assembled once into `BASE_TABLES` for every mode's overrides to merge over. " +
+    "`build.ts` reads raw `DRIVE_CONFIG.carWidth`/`carHeight` because the OBB hull is explicitly " +
+    "out of tuning scope (never per-mode, never a slider) — see `tuning-walker.ts`'s own " +
+    "`DRIVE_SKIP_KEYS` comment. `registry.ts`, `brawl/`, `team-brawl/`, `deathmatch/`, `conquer/` " +
+    "and `active.ts` do not reference a raw identifier at all (checked); `types.ts` only names one " +
+    "in a doc comment.",
   "schema": "Colyseus schema field declarations. Every match here is a doc comment naming which " +
     "table a field is validated or drained against (e.g. `STATUS_CONFIG.maxActive`); no schema " +
     "field type or default reads a live config value.",

@@ -1,6 +1,6 @@
 import { BASE_TABLES } from "../base.js";
 import { mergeTables } from "../merge.js";
 import type { ModeTables } from "../types.js";
-import { BRAWL_OVERRIDES } from "./config.js";
+import { TEAM_OVERRIDES } from "./config.js";
 
-export const BRAWL_TABLES: ModeTables = mergeTables(BASE_TABLES, BRAWL_OVERRIDES);
+export const TEAM_TABLES: ModeTables = mergeTables(BASE_TABLES, TEAM_OVERRIDES);

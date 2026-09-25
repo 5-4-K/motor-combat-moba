@@ -3,6 +3,7 @@ import type { ArenaId } from "../arena/registry.js";
 import { assembleModeConfig } from "./build.js";
 import type { ModeConfig } from "./types.js";
 import { BRAWL_TABLES } from "./brawl/index.js";
+import { TEAM_TABLES } from "./team-brawl/index.js";
 import { DEATHMATCH_TABLES } from "./deathmatch/index.js";
 import { CONQUER_TABLES } from "./conquer/index.js";
 
@@ -33,12 +34,12 @@ export interface ModeDef {
  * Every match kind the sim knows, each carrying its own frozen bundle, assembled once at module
  * load (MC7) — switching mode is a pointer read into this table, never a rebuild.
  *
- * `TEAM` is unpublished today and has no `modes/` folder of its own — no one has authored team-mode
- * numbers yet. It is pointed at `BRAWL_TABLES` because the playground, the balance harness and the
+ * `TEAM` is unpublished today, but has its own folder (`modes/team-brawl/`) with empty overrides,
+ * so it can diverge from Brawl without touching it. The playground, the balance harness and the
  * team win rule still drive it even while it is hidden from a real lobby; that is also why the row
  * stays in this table rather than being dropped. `assembleModeConfig` is called again for it with
  * its own `GameMode.TEAM` id, so its bundle is a distinct object from Brawl's — see the "own bundle
- * object" test below — even though every value inside is Brawl's today.
+ * object" test below — even though every value inside is base's today, same as Brawl's.
  */
 export const MODE_TABLE = {
   [GameMode.FFA_LAST_STANDING]: {
@@ -51,9 +52,9 @@ export const MODE_TABLE = {
     id: GameMode.TEAM,
     name: "Team brawl",
     isActive: false,
-    // No modes/team/ folder exists yet: nobody has authored team-mode numbers. Brawl's tables
-    // stand in for it so the balance harness and playground can keep driving GameMode.TEAM.
-    config: assembleModeConfig(GameMode.TEAM, BRAWL_TABLES),
+    // TEAM has its own folder (`modes/team-brawl/`), empty overrides today, so it can diverge from
+    // Brawl without touching it.
+    config: assembleModeConfig(GameMode.TEAM, TEAM_TABLES),
   },
   [GameMode.FFA_DEATHMATCH]: {
     id: GameMode.FFA_DEATHMATCH,
