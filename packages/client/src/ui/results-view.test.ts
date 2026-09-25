@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { GameMode, PlayerStatus, TICK_RATE_HZ, modeConfigOf, withMode } from "@motor-combat-moba/shared";
+import { GameMode, PlayerStatus, TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { durationLabel, resultsView, type ResultsViewPlayer } from "./results-view.js";
-
-const withConquerMode = <T>(fn: () => T): T => withMode(modeConfigOf(GameMode.CONQUER), fn);
 
 const basePlayer = (over: Partial<ResultsViewPlayer> = {}): ResultsViewPlayer => ({
   sessionId: "p1",
@@ -101,29 +99,10 @@ describe("resultsView", () => {
   });
 });
 
-// CQ33: the results screen's Conquer-only control line, built off the room's raw control ticks
-// (never re-derived in the view) so a room's own count is what the player reads.
+// CQ33: the results screen's Conquer-only control line, via `hudOf(mode).resultsLine`. Conquer's
+// own percentage math is covered by `modes/conquer/hud.test.ts` now; this is the common case every
+// other mode's HUD shares (`resultsLine: () => undefined`).
 describe("controlLine (CQ33)", () => {
-  it("reports both teams' control percentage in Conquer", () => {
-    withConquerMode(() => {
-      const view = resultsView(
-        state({ mode: GameMode.CONQUER, controlTicksA: 765, controlTicksB: 325 }),
-        "p1",
-      );
-      expect(view.controlLine).toBe("Control — You 42.50% · Them 18.05%");
-    });
-  });
-
-  it("is viewer-relative: team B reads its own bar first", () => {
-    withConquerMode(() => {
-      const view = resultsView(
-        state({ mode: GameMode.CONQUER, controlTicksA: 765, controlTicksB: 325 }),
-        "p2",
-      );
-      expect(view.controlLine).toBe("Control — You 18.05% · Them 42.50%");
-    });
-  });
-
   it("is undefined outside Conquer", () => {
     expect(resultsView(state({ mode: GameMode.TEAM }), "p1").controlLine).toBeUndefined();
     expect(resultsView(state({ mode: GameMode.FFA_LAST_STANDING }), "p1").controlLine).toBeUndefined();
@@ -154,18 +133,9 @@ describe("scoreboard stats", () => {
   });
 });
 
-// Conquer's title is viewer-relative ("You win"), like its HUD's US/THEM — a team-B player never
-// saw "Team B" anywhere in the match. Team brawl keeps "Team A/B wins".
+// Conquer's title is viewer-relative ("You win"), via `hudOf(mode).resultsHeadline`
+// (`modes/conquer/hud.test.ts` covers that override). Team brawl keeps the default "Team A/B wins".
 describe("winnerLabel in Conquer", () => {
-  it("reads You win / You lose from the viewer's team, Draw on -1", () => {
-    withConquerMode(() => {
-      const conquer = (winnerTeam: number) => state({ mode: GameMode.CONQUER, winnerTeam });
-      expect(resultsView(conquer(0), "p1").winnerLabel).toBe("You win");
-      expect(resultsView(conquer(0), "p2").winnerLabel).toBe("You lose");
-      expect(resultsView(conquer(1), "p2").winnerLabel).toBe("You win");
-      expect(resultsView(conquer(-1), "p1").winnerLabel).toBe("Draw");
-    });
-  });
   it("leaves Team brawl's title alone", () => {
     expect(resultsView(state({ mode: GameMode.TEAM, winnerTeam: 1 }), "p1").winnerLabel).toBe("Team B wins");
   });

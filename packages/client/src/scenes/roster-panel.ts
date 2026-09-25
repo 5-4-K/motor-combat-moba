@@ -192,8 +192,8 @@ export interface RosterPanelLayout {
  * whole picture loses to `FIT`, so names truncate to the column instead.
  *
  * `killsColumn` is Deathmatch's live scoreboard asking for its share of the row. It is a parameter
- * rather than a mode read because this module knows nothing about modes — the caller answers
- * `winRuleOf` and passes the result — and it defaults to **false** so every existing caller, and
+ * rather than a mode read because this module knows nothing about modes — the caller reads
+ * `hudOf(mode).showsKills` and passes the result — and it defaults to **false** so every existing caller, and
  * therefore Last Standing's and Team's panel, is laid out exactly as it was before Deathmatch
  * existed. All it changes is `nameMaxChars`: the horizontal budget is a residual, so the only way to
  * seat a fourth drawer is to charge it here.

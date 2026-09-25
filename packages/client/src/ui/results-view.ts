@@ -1,13 +1,6 @@
-import {
-  COLOR_TABLE,
-  GameMode,
-  PlayerStatus,
-  TICK_RATE_HZ,
-  controlPercentText,
-  derived,
-  winRuleOf,
-} from "@motor-combat-moba/shared";
+import { COLOR_TABLE, GameMode, PlayerStatus, TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { modeLabel } from "./lobby-view.js";
+import { hudOf } from "../modes/registry.js";
 
 /**
  * Room state to everything the post-match screen draws. Pure, for the same reason `lobby-view.ts` is.
@@ -36,7 +29,7 @@ export interface ResultsView {
   durationLabel: string;
   statsA: StatRow[];
   statsB: StatRow[];
-  /** CQ58: "Control — You NN.NN% · Them NN.NN%", viewer-relative, only when `winRuleOf(mode) === "conquer"`. */
+  /** CQ58: "Control — You NN.NN% · Them NN.NN%", viewer-relative — Conquer's own `resultsLine`. */
   controlLine?: string;
 }
 
@@ -81,28 +74,24 @@ export function resultsView(state: ResultsViewState, localSessionId: string): Re
     (p) => p.status === PlayerStatus.POST_MATCH || p.status === PlayerStatus.IN_MATCH,
   );
 
+  const hud = hudOf(state.mode);
+
   return {
-    winnerLabel: winnerLabel(state, localSessionId),
+    winnerLabel: hud.resultsHeadline?.(state, localSessionId) ?? defaultWinnerLabel(state),
     modeLabel: modeLabel(state.mode),
     durationLabel: durationLabel(state.matchStartedAtTick, state.tick),
     statsA: rows(played.filter((p) => p.team !== 1), localSessionId),
     statsB: rows(played.filter((p) => p.team === 1), localSessionId),
-    controlLine: winRuleOf(state.mode) === "conquer" ? controlLine(state, localSessionId) : undefined,
+    controlLine: hud.resultsLine(state, localSessionId),
   };
 }
 
-/** The viewer's team (0 when the viewer has no row, e.g. a late joiner watching the results). */
-function localTeamOf(state: ResultsViewState, localSessionId: string): number {
+/**
+ * The viewer's team (0 when the viewer has no row, e.g. a late joiner watching the results).
+ * Exported for `modes/conquer/hud.ts`'s `resultsLine`/`resultsHeadline`, the only other reader.
+ */
+export function localTeamOf(state: ResultsViewState, localSessionId: string): number {
   return state.players.find((p) => p.sessionId === localSessionId)?.team === 1 ? 1 : 0;
-}
-
-/** Viewer-relative, like the match HUD's US/THEM: the viewer's own team is always read first. */
-function controlLine(state: ResultsViewState, localSessionId: string): string {
-  const target = derived().conquerTicks.controlTarget;
-  const a = controlPercentText(state.controlTicksA, target);
-  const b = controlPercentText(state.controlTicksB, target);
-  const [ours, theirs] = localTeamOf(state, localSessionId) === 1 ? [b, a] : [a, b];
-  return `Control — You ${ours} · Them ${theirs}`;
 }
 
 function rows(players: readonly ResultsViewPlayer[], localSessionId: string): StatRow[] {
@@ -120,14 +109,11 @@ function rows(players: readonly ResultsViewPlayer[], localSessionId: string): St
 
 /**
  * Mirrors the old `ResultsScene.resultsTitle`: a player wins Brawl, a team wins everything else.
- * Conquer names the outcome from the viewer's side ("You win"), because its whole HUD is US/THEM
- * and a team-B player, whose base sat at the bottom of their screen, never saw "Team B" anywhere.
+ * Conquer overrides this with its own viewer-relative headline ("You win") through
+ * `hudOf(mode).resultsHeadline` (`modes/conquer/hud.ts`) — its whole HUD is US/THEM, and a team-B
+ * player, whose base sat at the bottom of their screen, never saw "Team B" anywhere.
  */
-function winnerLabel(state: ResultsViewState, localSessionId: string): string {
-  if (winRuleOf(state.mode) === "conquer") {
-    if (state.winnerTeam !== 0 && state.winnerTeam !== 1) return "Draw";
-    return state.winnerTeam === localTeamOf(state, localSessionId) ? "You win" : "You lose";
-  }
+function defaultWinnerLabel(state: ResultsViewState): string {
   if (state.winnerSessionId) {
     const winner = state.players.find((p) => p.sessionId === state.winnerSessionId);
     return `${winner?.name || state.winnerSessionId} wins`;

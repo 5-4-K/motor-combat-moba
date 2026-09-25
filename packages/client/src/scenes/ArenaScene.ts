@@ -245,10 +245,10 @@ import {
 import {
   killedByText,
   killerNameFor,
-  matchClockLabel,
   respawnSeconds,
   showKilledBy,
 } from "./deathmatch-hud.js";
+import { hudOf } from "../modes/registry.js";
 import {
   CONQUER_ALLY_HEADER,
   CONQUER_ALLY_LABEL,
@@ -3795,9 +3795,9 @@ export class ArenaScene extends Phaser.Scene {
 
     // The one mode question the panel asks, and it asks it once: `rosterPanelLayout` charges the
     // column against the name budget, so passing this in is what keeps the two halves of one row
-    // from disagreeing about how wide the label column is. Answered through `winRuleOf` rather than
-    // by testing the enum, so the panel asks what the server's win check asks.
-    const showKills = winRuleOf(room.state.mode) === "deathmatch";
+    // from disagreeing about how wide the label column is. Answered through the mode's own HUD
+    // (`hudOf`) rather than by testing the enum.
+    const showKills = hudOf(room.state.mode).showsKills;
     const rows = rosterRows([...room.state.players.values()]);
     const panel = rosterPanelLayout(rows.length, VIEW_WIDTH, HUD_GUTTER_WIDTH, showKills);
 
@@ -4649,10 +4649,10 @@ export class ArenaScene extends Phaser.Scene {
     const tick = room.state.tick;
 
     if (this.matchClockText) {
-      // Conquer's clock lives in its control panel (CQ56), so the banner over the arena stays hidden
-      // there; every other mode reads it exactly as before.
-      const label =
-        winRuleOf(room.state.mode) === "conquer" ? "" : matchClockLabel(tick, room.state.matchEndsTick);
+      // Conquer's clock lives in its control panel (CQ56, `hudOf(mode).clockLabel` answers "" for
+      // it there), so the banner over the arena stays hidden; every other mode reads it exactly as
+      // before, through its own HUD's `clockLabel`.
+      const label = hudOf(room.state.mode).clockLabel(room.state, tick);
       this.matchClockText.setText(label).setVisible(label !== "");
     }
 

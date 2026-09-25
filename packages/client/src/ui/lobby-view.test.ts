@@ -1,12 +1,9 @@
-import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf, withMode } from "@motor-combat-moba/shared";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { activeGameModes, GameMode, MAX_TEAM_SIZE, MODE_TABLE, PlayerStatus } from "@motor-combat-moba/shared";
-import { lobbyView, modeCards, modeCardsData, modeLabel, TEAM_SLOTS } from "./lobby-view.js";
+import { lobbyView, modeCards, modeLabel, TEAM_SLOTS } from "./lobby-view.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
-
-const withConquerMode = <T>(fn: () => T): T => withMode(modeConfigOf(GameMode.CONQUER), fn);
 
 const player = (over: Partial<LobbyTestPlayer> = {}): LobbyTestPlayer => ({
   sessionId: "p1",
@@ -262,44 +259,13 @@ describe("mode picker", () => {
   });
 });
 
-// CQ41, CQ58: Conquer's lobby card is published now that `isActive: true`.
+// CQ41, CQ58: Conquer's lobby card is published now that `isActive: true`. Its own card copy is
+// covered by `modes/conquer/hud.test.ts` now — this is the one assertion about `modeCards()`'s own
+// ordering, which belongs here rather than in one mode's HUD test.
 describe("Conquer mode card (CQ41, CQ58)", () => {
-  it("builds a Conquer card with 3v3 / clock / zone-control meta, from the mode's own accessors", () => {
-    withConquerMode(() => {
-      const cards = modeCardsData();
-      const conquer = cards.find((c) => c.id === GameMode.CONQUER);
-      expect(conquer?.meta).toEqual(["3v3", "3:00", "zone control"]);
-    });
-  });
-
   it("appears last in the published catalog, now that it ships active", () => {
     expect(modeCards().map((c) => c.id)).toContain(GameMode.CONQUER);
     expect(modeCards().at(-1)?.id).toBe(GameMode.CONQUER);
     expect(MODE_TABLE[GameMode.CONQUER].isActive).toBe(true);
-  });
-
-  it("reads Conquer's own bundle by GameMode, not the ambient installed mode", () => {
-    // The catalog is drawn while the LOBBY's own mode is installed, which can be any mode the host
-    // has picked — not necessarily Conquer. The Conquer card must still quote Conquer's own numbers.
-    const cards = modeCardsData(); // DEFAULT_GAME_MODE (FFA_LAST_STANDING) is installed, not Conquer.
-    const card = cards.find((c) => c.id === GameMode.CONQUER);
-    const bundle = modeConfigOf(GameMode.CONQUER);
-    expect(card?.meta).toEqual([
-      `${bundle.conquer.teamSize}v${bundle.conquer.teamSize}`,
-      "3:00",
-      "zone control",
-    ]);
-    expect(card?.body).not.toContain("Two teams of three");
-  });
-
-  it("never calls the ambient conquer()/deathmatch() accessors for the Conquer card's own numbers", () => {
-    // A source-text guard, not just a behavioural one: today every mode's `conquer`/`deathmatch`
-    // tables are pinned equal (`table-pinning.test.ts`), so a bundle mix-up here produces no
-    // observable difference in the numbers above — only in what the card would read once a mode's
-    // table is intentionally allowed to diverge (as `modes/conquer/` already is).
-    const source = readFileSync(new URL("./lobby-view.ts", import.meta.url), "utf8");
-    const conquerCardBlock = source.slice(source.indexOf("id: GameMode.CONQUER"));
-    expect(conquerCardBlock).not.toMatch(/\bconquer\(\)/);
-    expect(conquerCardBlock).not.toMatch(/\bdeathmatch\(\)/);
   });
 });

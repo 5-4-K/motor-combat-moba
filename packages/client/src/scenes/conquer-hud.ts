@@ -36,8 +36,9 @@ import {
  * roster      14 + 58 + 6 + 14 + 58 = 150, top 720 - 10 - 150 = 560 -> 15 px under the last name
  * ```
  *
- * Other modes never reach this module: the scene selects it by `winRuleOf(mode) === "conquer"`, so
- * their gutter stays exactly as it was (CQ57).
+ * Other modes never reach this module: the scene selects it by `winRuleOf(mode) === "conquer"` at
+ * `ArenaScene.ts`'s gutter branch (a Task 8 concern — this task left it alone), so their gutter
+ * stays exactly as it was (CQ57).
  */
 
 // --- the control panel (CQ54) ------------------------------------------------------------------
