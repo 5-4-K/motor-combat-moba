@@ -21,7 +21,7 @@ motor-combat-MOBA/
 │   ├── index.ts                  # the package's whole public surface
 │   ├── constants.ts              # TICK_RATE_HZ, enums, MAX_PLAYERS
 │   ├── config/                   # the TYPES for every table, plus the raw globals the mode folders are pinned to (the sim reads none of them)
-│   │   ├── car-config.ts         # CAR_TABLE, DEFAULT_CAR_ID, the derived stats, ChassisDrive/driveOf
+│   │   ├── car-config.ts         # CAR_TABLE, DEFAULT_CAR_ID, the derived stats, ChassisDrive/driveOf — the common DEFAULTS `modes/base.ts` assembles, not what the sim reads directly
 │   │   ├── drive-config.ts       # DRIVE_CONFIG (base + per-rating scales), CAMERA_CONFIG
 │   │   ├── weapon-types.ts       # WeaponDef union, StockDef, VolleyDef (base) / PelletDef (projectile), Hitbox, StatusApplication.onWave
 │   │   ├── weapon-config.ts      # WEAPON_TABLE
@@ -30,19 +30,25 @@ motor-combat-MOBA/
 │   │   ├── status-types.ts      # StatusDef, StatusChannel, StatusFlag, StatusPulse, StatusOnApply
 │   │   ├── status-config.ts      # STATUS_TABLE, STATUS_CONFIG, STATUS_LIMITS, isStatusId
 │   │   ├── status-ticks.ts       # STATUS_PULSE_TICKS: ms -> ticks, derived and frozen once
-│   │   ├── arena-config.ts       # ACTIVE_ARENA_ID — a default read by a few call sites, not the played arena (see modes/<mode>/index.ts's arenas list)
+│   │   ├── arena-config.ts       # ACTIVE_ARENA_ID — a default read by a few call sites, not the played arena (see modes/<slug>/index.ts's arenas list)
 │   │   ├── deathmatch-config.ts  # DEATHMATCH_CONFIG, DEATHMATCH_TICKS: match/respawn/phase timing
 │   │   ├── tuning.ts             # TuningValue/TuningOverrides types only; applyOverrides (modes/overlay.ts) does the work (PG12, MC39)
 │   │   ├── tuning-walker.ts      # tunableFields/validateTuning/sanitizeStoredTuning (PG14)
 │   │   ├── practice-config.ts    # PRACTICE_CONFIG: idle timeout/warning, maxConcurrentRooms (PR26–PR29)
 │   │   └── chat-config.ts        # CHAT_CONFIG: lobby chat limits — maxLength, maxMessages, sendCooldownMs (LC10)
-│   ├── modes/                    # per-mode config: the bundle every accessor reads, one folder per GameMode
-│   │   ├── types.ts              # ModeTables (what a mode folder authors — the OBB hull is excluded by type), ModeConfig
-│   │   ├── build.ts              # assembleModeConfig: tables -> one frozen bundle, tick tables derived per mode
+│   ├── modes/                    # base + per-mode overrides, the mode layer's shared half (ModeRules), the bundle every accessor reads
+│   │   ├── types.ts              # ModeTables (what an override folder authors — the OBB hull is excluded by type), ModeConfig
+│   │   ├── base.ts               # BASE_TABLES: the config/ globals assembled into the common defaults every mode starts from
+│   │   ├── merge.ts              # mergeTables (base + ModeOverrides -> ModeTables), replace(), ModeOverrides/DeepPartial
+│   │   ├── build.ts              # assembleModeConfig: merged tables -> one frozen bundle, tick tables derived per mode
 │   │   ├── registry.ts           # MODE_TABLE (mode -> bundle), DEFAULT_GAME_MODE, modeConfigOf/OrDefault, activeArenaIds
-│   │   ├── active.ts             # the active scope: withMode/installMode/cfg, and the sixteen accessors (cars(), drive(), …)
-│   │   ├── brawl/                # FFA_LAST_STANDING's thirteen table files + index.ts (ModeTables, arenas list)
-│   │   └── deathmatch/           # FFA_DEATHMATCH's own copy of the same thirteen + index.ts
+│   │   ├── active.ts             # the active scope: withMode/installMode/cfg, and the seventeen accessors (cars(), drive(), …)
+│   │   ├── rules-types.ts        # ModeRules interface (sides, respawns, hasMatchClock, winRuleLabel, canStart, claimsChassis)
+│   │   ├── rules-registry.ts     # MODE_RULES (mode -> ModeRules), rulesOf — replaces the deleted flow/modes.ts switches
+│   │   ├── snapshots.test.ts     # writes each mode's resolved ModeTables to __snapshots__/<slug>.tables.json — the blast-radius safety net
+│   │   ├── no-mode-branching.test.ts # fails on a GameMode.X literal or win-rule string outside modes/ (a 5-file allow-list)
+│   │   ├── brawl/, team-brawl/, deathmatch/, conquer/  # each: config.ts (ModeOverrides), index.ts (<MODE>_TABLES), rules.ts
+│   │   └── last-standing/        # the rule FAMILY brawl + team-brawl share: rules.ts, outcome.ts
 │   ├── schema/                   # PlayerState, StatusState, WeaponInstanceState, WeaponSlotState, ArenaState, ChatMessageState
 │   │   ├── PlaygroundState.ts    # extends ArenaState: paused, controlledSessionId, botEnabled, tuningJson (PG5)
 │   │   └── PracticeState.ts      # extends ArenaState: paused only — no controlledSessionId, no tuningJson (PR6)
@@ -56,8 +62,8 @@ motor-combat-MOBA/
 │   │   ├── playground-messages.ts # MSG_PLAYGROUND_*, PlaygroundSetup + validator, defaultPlaygroundSetup (PG13)
 │   │   └── practice-messages.ts  # PRACTICE_ROOM_NAME, close codes 4006–4009, PracticeSetup + validator (PR3, PR7)
 │   ├── lobby/                    # names, teams, start rules, status → view, chat text validation (LC13)
-│   ├── flow/                     # match-flow reducer, spawn assignment, livingSides
-│   │   ├── modes.ts              # sidesOf (ffa|team), winRuleOf (last_standing|deathmatch)
+│   ├── flow/                     # match-flow reducer, spawn assignment — genuinely common helpers only;
+│   │   │                         # `modes.ts`'s sidesOf/winRuleOf switches are deleted (GM15) — read `rulesOf(mode)` instead
 │   │   └── respawn.ts            # farthestSpawn, isDueToRespawn, phaseDecision (the M23 state machine)
 │   └── sim/
 │       ├── step.ts               # stepSim: the lockstep (drive, then resolve)
@@ -83,6 +89,13 @@ motor-combat-MOBA/
 │   ├── monitor.ts
 │   ├── config/
 │   │   └── bot-profiles.ts       # BOT_PROFILES: easy/medium/hard, shared by PlaygroundRoom and PracticeRoom (PR17)
+│   ├── modes/                    # the mode layer's server half: ModeController per family
+│   │   ├── types.ts              # ModeController (onStartRequested, onMatchStart, afterTick, afterLeave), ModeRoomView
+│   │   ├── registry.ts           # MODE_CONTROLLERS (mode -> controller), controllerOf — resolved fresh per call, never cached on a room
+│   │   ├── match-clock.ts        # stampMatchClock: rulesOf(mode).hasMatchClock -> ArenaState.matchEndsTick
+│   │   ├── last-standing/        # Brawl + Team brawl's shared controller.ts (livingAfterLeave in leave.ts)
+│   │   ├── deathmatch/           # controller.ts: respawn sweep, phase, clock/kills-then-deaths ranking
+│   │   └── conquer/              # controller.ts: absorbs the old conquer-room.ts's zone reset/advance/leave outcome
 │   ├── rooms/
 │   │   ├── ArenaRoom.ts          # the room: messages, phase machine, tick
 │   │   ├── tick-pipeline.ts      # runPipeline: statusTick→serverTick→contactTick→combatTick, shared by ArenaRoom, PlaygroundRoom and PracticeRoom (PG4, PR16)
@@ -115,6 +128,12 @@ motor-combat-MOBA/
         ├── config/client-mode.ts
         ├── config/display.ts     # FIT-to-window scaling rationale + fullscreen key
         ├── config/slot-keys.ts   # SLOT_KEYS: LMB (basic attack, slot 0), RMB/Q/E/SPACE (abilities 1-4); pill + hint glyphs; slotMaskFrom
+        ├── modes/                # the mode layer's client half: ModeHud per mode
+        │   ├── types.ts          # ModeHud (lobbyCard, clockLabel, showsKills, resultsLine/Headline, createGutter?), GutterHost/ModeGutter
+        │   ├── registry.ts       # MODE_HUDS (mode -> hud), hudOf
+        │   ├── last-standing/    # hud.ts: lastStandingHud factory, shared by Brawl + Team brawl
+        │   ├── brawl/, team-brawl/, deathmatch/  # each: hud.ts
+        │   └── conquer/          # gutter.ts, layout.ts, hud.ts — the control-bar gutter (moved off ArenaScene)
         ├── assets/
         │   ├── manifest-schema.ts # SpriteEntry, SPRITE_DEFAULTS, parseManifest (never throws)
         │   ├── load-manifest.ts   # MANIFEST_URL, fetch + parse, empty manifest on any failure

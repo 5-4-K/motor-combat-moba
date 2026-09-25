@@ -5,35 +5,38 @@ description: >-
   — "add a king-of-the-hill mode", "make a sudden-death variant", "turn Team
   brawl back on", "hide Deathmatch from the lobby", "why doesn't my new mode
   show up", "can Deathmatch have its own car stats". Adds a GameMode enum
-  value, a mode folder, a MODE_TABLE row and everything that row owes — the
-  arena set, the lobby card, the win rule, the guide tab, the turn-tuning
-  section, the per-mode tests. Not for tuning a number inside a mode that
-  already exists — that is weapon-forger or an ordinary config edit.
+  value, an overrides folder, a rules/controller/HUD triple and everything
+  that owes — the arena set, the lobby card, the win rule, the guide tab, the
+  turn-tuning section, the mode-scoped tests and probes. Not for tuning a
+  number inside a mode that already exists — that is weapon-forger or an
+  ordinary config edit.
 ---
 
 # Game mode
 
-A game mode is a `GameMode` wire value with a row in `MODE_TABLE` and a **whole configuration of its
-own**: its own roster, weapons, drive model, ram rules, statuses, spikes, slot count, flow timings,
-camera, arena set and seat count. Two modes can feel like different games. See the root
-`CLAUDE.md`'s "Configuration is PER-GAME-MODE" section for the overview and
-[`docs/superpowers/specs/2026-09-22-per-mode-config-design.md`](../../../docs/superpowers/specs/2026-09-22-per-mode-config-design.md)
-(MC1–MC42) for the design.
+A game mode is a `GameMode` wire value with a row in `MODE_TABLE` (a config bundle) plus three more
+pieces, one per package: a `ModeRules` (shared), a `ModeController` (server) and a `ModeHud`
+(client). Two modes can feel like different games. See the root `CLAUDE.md`'s "Configuration is
+PER-GAME-MODE" section for the overview and
+[`docs/superpowers/specs/2026-09-25-game-mode-layer-design.md`](../../../docs/superpowers/specs/2026-09-25-game-mode-layer-design.md)
+(GM1–GM40) for the design — it supersedes
+[`docs/superpowers/specs/2026-09-22-per-mode-config-design.md`](../../../docs/superpowers/specs/2026-09-22-per-mode-config-design.md)'s
+copy-a-folder/table-pinning mechanics, which no longer exist.
 
-Adding one is **build-time**, like `CarDef.isActive` or `BASIC_ATTACK_CONFIG.enabled`: source edits
-plus a rebuild, never an env var or a join option.
+Adding one is **build-time**: source edits plus a rebuild, never an env var or a join option.
 
 ## What a mode is made of
 
 | Piece | Where | If you skip it |
 |---|---|---|
-| `GameMode` enum value | `packages/shared/src/constants.ts` | Nothing compiles — `MODE_TABLE` is `satisfies Record<GameMode, ModeDef>` |
-| Fourteen table files + `index.ts` | `packages/shared/src/modes/<mode>/` | Nothing to point the row at |
+| `GameMode` enum value | `packages/shared/src/constants.ts` | Nothing compiles — `MODE_TABLE`, `MODE_RULES`, `MODE_CONTROLLERS` and `MODE_HUDS` are all `satisfies Record<GameMode, …>` |
+| A `config.ts` (overrides) + `index.ts` | `packages/shared/src/modes/<slug>/` | Nothing to point the row at |
 | `MODE_TABLE` row (`id`, `name`, `isActive`, `config`) | `packages/shared/src/modes/registry.ts` | The enum value exists and resolves to nothing |
-| `arenas` + `maxPlayers` | that mode's `index.ts` | `invariants.test.ts` fails: an empty `arenas` throws mid-match |
-| Lobby card copy | `packages/client/src/ui/lobby-view.ts`, `modeCardsData()` | An ACTIVE mode with no card is silently unpickable — `lobby-view.test.ts` catches it |
-| Win rule / sides | `packages/shared/src/flow/modes.ts` | **Nothing compiles** — both functions are exhaustive `switch`es with a `never` check |
-| `MODE_ORDER` entry | `packages/shared/src/modes/registry.ts` | `registry.test.ts`'s "orders every mode in MODE_TABLE" fails. Without it the mode has no card, no guide tab, no turn-tuning section and no stamp entry, `isActive` or not |
+| `arenas` + `maxPlayers` | that mode's `config.ts` (as overrides) or the base | `invariants.test.ts` fails: an empty `arenas` throws mid-match |
+| `rules.ts` + a `MODE_RULES` row | `packages/shared/src/modes/<slug>/`, `modes/rules-registry.ts` | **Compile error** — `MODE_RULES` is exhaustive |
+| A server controller + a `MODE_CONTROLLERS` row | `packages/server/src/modes/<family>/controller.ts`, `server/src/modes/registry.ts` | **Compile error** — `MODE_CONTROLLERS` is exhaustive |
+| A client `hud.ts` + a `MODE_HUDS` row | `packages/client/src/modes/<slug>/hud.ts`, `client/src/modes/registry.ts` | **Compile error** — `MODE_HUDS` is exhaustive |
+| A resolved-bundle snapshot | `packages/shared/src/modes/__snapshots__/<slug>.tables.json` | `snapshots.test.ts` writes one for you the first time you run it; commit it |
 | A `## <Mode name>` section in `docs/turn-tuning.md` | that page | `scripts/turn-tuning-doc.test.mjs` fails naming the mode |
 | A rebuilt guide | `npm run build:manual` | `scripts/manual-page.test.mjs` fails: the stamp moved |
 
@@ -59,42 +62,41 @@ export enum GameMode {
 re-labels every stored balance report, every playtest folder and every old client's lobby. A mode
 that is retired keeps its number and goes `isActive: false`; the number is never reused.
 
-Cases in `registry.test.ts` pin the current set and will fail the moment a new value exists — "has
-exactly the four `GameMode` wire values", `isGameMode`'s `expect(isGameMode(4)).toBe(false)`, and
-(once it is published) `activeGameModes()`'s exact list. That is the tripwire doing its job — extend
-each to the new mode, do not weaken an assertion into a tautology.
+## 2. The overrides folder — write only what your mode changes
 
-## 2. The mode folder — copy one, do not hand-author it
-
-```bash
-cp -r packages/shared/src/modes/deathmatch packages/shared/src/modes/<mode>
+```ts
+// packages/shared/src/modes/<slug>/config.ts
+import type { ModeOverrides } from "../merge.js";
+export const YOUR_MODE_OVERRIDES: ModeOverrides = {
+  arenas: ["arena-04"],
+  // only the values that differ from `modes/base.ts`'s BASE_TABLES
+};
 ```
 
-Fourteen table files — `cars.ts`, `weapons.ts`, `drive.ts`, `ram.ts`, `impulse.ts`, `combat.ts`,
-`turret.ts`, `status.ts`, `spike.ts`, `slots.ts`, `flow.ts`, `deathmatch.ts`, `conquer.ts`,
-`camera.ts` — plus an `index.ts` that assembles them into a `ModeTables` along with `arenas` and
-`maxPlayers`. Rename every `DEATHMATCH_*` export to your mode's prefix; the `index.ts` is the only
-file that has to agree with them.
+```ts
+// packages/shared/src/modes/<slug>/index.ts
+import { BASE_TABLES } from "../base.js";
+import { mergeTables } from "../merge.js";
+import type { ModeTables } from "../types.js";
+import { YOUR_MODE_OVERRIDES } from "./config.js";
+export const YOUR_MODE_TABLES: ModeTables = mergeTables(BASE_TABLES, YOUR_MODE_OVERRIDES);
+```
 
-Three things about the shape, each of which will bite otherwise:
+A folder with **empty overrides is legal and normal** — that is how Brawl, Team brawl and Deathmatch
+ship today, each with its own folder so it can diverge later without touching a sibling. Three
+things about the shape, each of which will bite otherwise:
 
-- **`drive` has no `carWidth`/`carHeight`.** The OBB hull is global (MC35) — it drags car art pixel
-  sizes, arena spawn clearance, `inertiaRadiusSquared()` and both `spinScale` constants behind it.
-  `ModeTables.drive` is `Omit<DriveConfig, "carWidth" | "carHeight">`, so a mode folder **cannot**
-  author one even by accident: an inline literal that tried would fail TypeScript's excess-property
-  check. `assembleModeConfig` re-attaches both from the global `DRIVE_CONFIG`.
-- **`deathmatch.ts` exists in every mode**, including ones with no respawns. It is a table, not a
-  feature flag; `winRuleOf(mode)` is what decides whether anything reads it.
-- **`conquer.ts` exists in every mode too, for the same reason.** `teamSize` and
-  `uniqueChassisPerTeam` are inert outside a `winRuleOf(mode) === "conquer"` mode; a mode whose win
-  rule is `"conquer"` also reads its own `deathmatch.ts` for the clock, respawn delay and
-  spawn-protection windows rather than authoring a second copy of them (CQ22).
-- **`maxPlayers` is the mode's own seat count**, held to `[2, MAX_PLAYERS]` by
-  `modes/invariants.test.ts`. `MAX_PLAYERS` (6, hard invariant 10) is the ceiling, not the number.
+- **`drive` has no `carWidth`/`carHeight`.** The OBB hull is global — `ModeTables.drive` is
+  `Omit<DriveConfig, "carWidth" | "carHeight">`, so an override cannot author one even by accident.
+- **A typo'd override key throws at load, naming the full path.** `mergeTables` checks every key
+  against the base; `cars.mirage.sped` fails immediately rather than silently doing nothing.
+- **To add a new row (a car, a weapon, a status) or to swap one whole (including removing an
+  optional field like a weapon's `turret`), wrap it in `replace(def)`.** A plain nested object
+  merges key by key into the base row instead.
 
-Weapon exclusivity (L1) is enforced **per mode**, not globally: `invariants.test.ts` fails if two
-chassis in the SAME mode carry one weapon id. Two different modes may both slot `predator` — they
-are different tables.
+Weapon exclusivity (L1) is enforced **per mode's resolved bundle**, not globally:
+`invariants.test.ts` fails if two chassis in the SAME mode carry one weapon id. Two different modes
+may both slot `predator` — they resolve to different bundles.
 
 ## 3. The registry row
 
@@ -104,201 +106,196 @@ are different tables.
 [GameMode.YOUR_MODE]: {
   id: GameMode.YOUR_MODE,
   name: "Your mode",
-  isActive: false,          // see step 7
-  config: assembleModeConfig(GameMode.YOUR_MODE, YOUR_TABLES),
+  isActive: false,          // see step 8
+  config: assembleModeConfig(GameMode.YOUR_MODE, YOUR_MODE_TABLES),
 },
 ```
 
-Then add it to `MODE_ORDER` — the lobby's card order, deliberately not enum order.
-**`registry.test.ts`'s "orders every mode in MODE_TABLE, with nothing extra" fails until you do**,
-naming nothing else, so this is one red test rather than a mystery.
-
-That guard was added on 2026-09-23 because nothing caught the omission before it — and the previous
-version of this page told you the opposite of the truth about when you would find out. You would
-NOT have found out on `isActive: true`: `activeGameModes()` filters `MODE_ORDER`, so a mode missing
-from the order got no lobby card, no guide tab, no turn-tuning section and no `balanceStamp` entry,
-and every one of those guards derives its own expectation from `activeGameModes()` too — so they
-all agreed the mode did not exist, before and after the flag flipped. Flipping it changed nothing
-anywhere and failed no test. Add it in the same edit as the row.
-
-`assembleModeConfig` `structuredClone`s the tables, resolves the nine derived artifacts
+`assembleModeConfig` `structuredClone`s the merged tables, resolves the nine derived artifacts
 (weapon ticks, chassis drive, burst defs, ram ticks, turret ticks, spike ticks, deathmatch ticks,
 conquer ticks, status pulse ticks) and deep-freezes the result. It is the **only** place a bundle is
-made, and two bundles never share a sub-object — which is why `TEAM` can point at `BRAWL_TABLES` and
-still be a distinct frozen object.
+made, and two bundles never share a sub-object.
 
 **Name it something whose slug is unique.** `modeSlug` lowercases the display name and collapses
 non-alphanumerics to hyphens; that slug is both the `--mode=` spelling and the report folder's
-suffix. Two modes normalising to the same slug makes one of them unreachable by name, and
-`mode-arg.test.ts`'s round-trip case fails.
+suffix, and it names the mode's folders in every package (`modes/<slug>/`).
 
-## 4. The win rule is NOT part of the bundle, but it no longer defaults silently
+## 4. `rules.ts` — the shared facts every mode must state
 
-`packages/shared/src/flow/modes.ts` holds the two mode-shaped facts that are not in any bundle, and
-since 2026-09-23 each is an **exhaustive `switch` with a `never` check**:
+`packages/shared/src/modes/<slug>/rules.ts` (or reuse a **rule family** — see below) exports a
+`ModeRules` (`modes/rules-types.ts`):
 
 ```ts
-export function winRuleOf(mode: GameMode): "last_standing" | "deathmatch" | "conquer" {
-  switch (mode) {
-    case GameMode.FFA_DEATHMATCH: return "deathmatch";
-    case GameMode.FFA_LAST_STANDING: return "last_standing";
-    case GameMode.TEAM: return "last_standing";
-    case GameMode.CONQUER: return "conquer";
-    default: { const _never: never = mode; void _never; return "last_standing"; }
-  }
+export interface ModeRules {
+  readonly sides: "ffa" | "team";
+  readonly respawns: boolean;
+  readonly hasMatchClock: boolean;
+  readonly winRuleLabel: "last_standing" | "deathmatch" | "conquer";
+  canStart(config: ModeConfig, ready: readonly StartRulePlayer[]): CanStartResult;
+  claimsChassis(config: ModeConfig): boolean;
 }
 ```
 
-`GameMode` is a plain numeric TS enum, so that is real exhaustiveness: **step 1's enum value stops
-this file compiling**, in both functions, until you say which side structure and which win rule your
-mode plays under. You will meet it at `npm run build`, before any test runs. There is no longer a
-silent default to say out loud — write the two cases.
+Add a row to `packages/shared/src/modes/rules-registry.ts`'s `MODE_RULES` — it is `satisfies
+Record<GameMode, ModeRules>`, so the object literal fails to compile until your mode has one.
+`rulesOf(mode)` is the wire-facing accessor everywhere else reads (falls back to
+`DEFAULT_GAME_MODE`'s rules for an unrecognised byte).
 
-(They were two `if`s until that date, and a new mode defaulted to FFA last-standing with nothing
-saying so. The `default` branch still RETURNS a value rather than returning `_never`, because
-`mode` is not always a value this build authored — the client reads `room.state.mode` as a uint8 off
-the wire and `balance/report.ts` reads one out of a baseline `run.json` — and handing a stray byte
-back as the answer is worse than serving the old fallback. The `never` line above it is what makes
-the authored case a compile error, which is all it is there for.)
+**A rule FAMILY is a shared implementation several slugs point at**, not a mode of its own — Brawl
+and Team brawl both resolve to `lastStandingRules("ffa" | "team")` from
+`modes/last-standing/rules.ts`. If your new mode is genuinely a variant of last-standing or
+deathmatch play, parameterise the family instead of writing a fourth near-duplicate; if it needs its
+own win test, write `modes/<slug>/rules.ts` from scratch, the way Deathmatch and Conquer did. Pure
+outcome logic (who won, when to end) belongs beside the rules in the same family folder — see
+`modes/last-standing/outcome.ts`, `modes/deathmatch/outcome.ts`, `modes/conquer/outcome.ts`.
 
-`winRuleOf` is deliberately consumed in exactly one place, the room's end-of-match check, so a grep
-for it answers "what does the win condition actually change?" completely. A genuinely new win
-condition is a design change, not a config edit: stop and agree it first.
+## 5. The server controller — reuse a family, or add one
 
-## 5. The client's lobby card
+`packages/server/src/modes/types.ts`'s `ModeController` has **four** hooks:
 
-`modeCards()` filters a **hand-authored** list, `modeCardsData()` in
-`packages/client/src/ui/lobby-view.ts`, by `isActiveGameMode`. An active mode with no entry there
-publishes no card and cannot be picked. `lobby-view.test.ts`'s "offers only active modes, in
-activeGameModes order" is the tripwire.
+```ts
+export interface ModeController {
+  onStartRequested(room: ModeRoomView): void;   // MSG_START_MATCH, before car select (CQ29)
+  onMatchStart(room: ModeRoomView): void;       // the edge into MATCH — stamp the clock, reset state
+  afterTick(room: ModeRoomView, combatPlayers: readonly CombatPlayerView[]): MatchOutcome | undefined;
+  afterLeave(room: ModeRoomView): MatchOutcome | undefined;
+}
+```
 
-Keep it a **function**, never a module-level const: the Deathmatch card quotes
-`deathmatch().respawnDelaySeconds`, and a const built at import time would freeze whichever bundle
-was installed first. That is the module-scope-accessor rule, in the one place it has already bitten.
+`onMatchStart` should call `stampMatchClock(room)` (`packages/server/src/modes/match-clock.ts`),
+which reads `rulesOf(mode).hasMatchClock` and stamps `matchEndsTick` accordingly — every existing
+controller does this rather than repeating the ternary. Add your implementation to
+`packages/server/src/modes/<family>/controller.ts` and a row to `server/src/modes/registry.ts`'s
+`MODE_CONTROLLERS` (`satisfies Record<GameMode, ModeController>`, same exhaustiveness guard).
+`controllerOf(mode)` resolves fresh on every call — a room never caches it, so a host switching mode
+between matches gets the new family's behaviour immediately.
 
-## 6. What an ACTIVE mode changes outside its own folder
+If your mode plays by the same win condition and respawn flow as an existing family (last-standing,
+deathmatch, conquer), point your `MODE_TABLE` row's controller at that family's controller and skip
+writing a new one — that is exactly how Brawl and Team brawl share `LAST_STANDING_CONTROLLER`.
 
-Flipping `isActive: true` is one field, and these follow from it with no further edit:
+## 6. The client HUD
 
-- **The lobby picker** gains a card (step 5), and the Settings → Game modes entry appears once two
-  modes are active.
-- **`activeArenaIds()`** — the union of every active mode's `arenas`, de-duplicated, registry order
-  — grows. That is what `BootScene` preloads and what `scripts/build-release.mjs` puts in the zip,
-  so a mode with a new arena changes what ships.
-- **The players' guide** gains a tab. `stampOfModes` hashes each tab's id and name, so publishing or
-  un-publishing a mode moves `balanceStamp` **even though both shipped modes' tables are
-  byte-identical** — `npm run build:manual` is not optional here.
-- **`docs/turn-tuning.md`** owes a `## <Mode name>` section carrying all three tables.
-  `scripts/turn-tuning-doc.test.mjs` iterates `activeGameModes()` and fails until the page's `##`
-  headings match it exactly, in order.
-- **`npm run check:art`** already sweeps EVERY mode, active or not (`scripts/mode-rosters.mjs`), so
-  a chassis or weapon only your mode carries is checked from the day the folder exists. A row some
-  modes carry and others do not prints a `(mode: …)` suffix.
+`packages/client/src/modes/types.ts`'s `ModeHud`:
 
-`isActive: false` is the publish gate and nothing else: the bundle stays reachable, and the
-playground, practice and the three harnesses all pin or pass a mode directly rather than reading the
-flag. Measuring a mode before publishing it is the point of measuring it.
+```ts
+export interface ModeHud {
+  lobbyCard(): ModeCardCopy;
+  clockLabel(state: ArenaState, tick: number): string;   // "" hides the clock
+  readonly showsKills: boolean;
+  resultsLine(state: ResultsViewState, localSessionId: string): string | undefined;
+  resultsHeadline?(state: ResultsViewState, localSessionId: string): string | undefined;
+  createGutter?(host: GutterHost): ModeGutter;   // omit to get the default roster panel
+}
+```
 
-It IS a real gate on the wire, though, as of 2026-09-23: `resolveSetMode`
-(`packages/server/src/rooms/match-helpers.ts`) refuses `MSG_SET_MODE` for a mode that is not
-`isActiveGameMode`, so an unpublished mode cannot be seated in a real lobby by a hand-built or stale
-client — not merely hidden from the picker. (It checked phase and `hasPlayerInMatch` only until
-then, which made the registry's own "`set_mode` refuses it" comment false for as long as it had
-existed.)
+Write `packages/client/src/modes/<slug>/hud.ts` and add a row to `client/src/modes/registry.ts`'s
+`MODE_HUDS` (`satisfies Record<GameMode, ModeHud>`). `lobbyCard()` must return non-empty copy — the
+contract test checks it. A mode that needs its own gutter layout (Conquer's control bar) supplies
+`createGutter`; everything else leaves it out.
 
-## 7. Author it hidden, publish it in a second commit
+## 7. The snapshot — your safety net, and your proof of what changed
+
+```bash
+npx vitest run packages/shared/src/modes/snapshots.test.ts -u
+```
+
+Run this once your mode's tables resolve. It writes
+`packages/shared/src/modes/__snapshots__/<slug>.tables.json` — the resolved `ModeTables`, keys
+sorted. Commit it. On every later change, re-running the same command (scoped to `snapshots.test.ts`,
+never a blanket `-u` across the repo) shows you exactly which modes' resolved bundles moved: your
+mode's file if you touched its `config.ts`, every non-overriding mode's file if you touched
+`modes/base.ts` or a `config/` global. A snapshot that moved when you did not expect it is the
+tripwire this system runs on.
+
+## 8. Author it hidden, publish it in a second commit
 
 `isActive: false` first. It costs one field to flip later, and it keeps the guide rebuild, the
 turn-tuning tables and the lobby card out of the commit that is still deciding what the mode IS.
 `DEFAULT_GAME_MODE` must stay active (`registry.test.ts`), so never hide the last active mode or the
 mode a new lobby opens on.
 
-## 8. The tests that start running over your row the moment it exists
+## 9. Tests in the mode's own folders, and the contract tests that run over it automatically
 
-Per-`MODE_TABLE`-row, automatically, naming the mode on failure:
+**Write mode-specific tests inside the mode's folders**, mirroring the folder split:
+`packages/shared/src/modes/<slug>/*.test.ts` (or `<family>/*.test.ts` for a shared rule family),
+`packages/server/src/modes/<family>/*.test.ts`, `packages/client/src/modes/<slug>/*.test.ts`. That
+is what makes `npm run test:mode -- <slug>` and `node scripts/test-scope.mjs` scope correctly to a
+diff that touches only your mode.
 
-- `modes/invariants.test.ts` — `maxAbilitySlots` in `[1, ABILITY_SLOT_CEILING]`; `maxFireSlots ===
-  maxAbilitySlots + 1` and `basicAttackSlotIndex === 0`; weapon exclusivity; `maxPlayers` in
-  `[2, MAX_PLAYERS]`; an `impulse` only on a `kind: "maneuver"` row; at least one arena and every
-  one registered; no kit past the ceiling; and the MC38 wire-width bounds (hp within uint16,
-  `unlocksAt` within uint8, the highest fire-slot index within int8).
-- `modes/registry.test.ts` — one bundle per mode, each its own object, the enum-value count, the
-  active set, `DEFAULT_GAME_MODE` active, and both resolver forms.
-- `modes/registry-arenas.test.ts` — the `activeArenaIds()` union, de-dup and order.
-- `modes/mode-arg.test.ts` — `--mode=` accepts your wire id and your slug, and round-trips.
-- `modes/no-raw-config-in-sim.test.ts` — no non-test file outside `config/` and `modes/` may name a
-  raw global at all.
+Automatically, the moment your row exists in every registry, `describe.each` over `GameMode` picks
+it up:
 
-Not automatic: `modes/parity.test.ts` names Brawl and Deathmatch explicitly. It is the migration's
-witness that no balance number moved on day one, **not** a per-mode invariant — a new mode does not
-belong in it.
+- `modes/contract.test.ts` (one per package) — your `ModeRules` is internally consistent
+  (`respawns ⇒ hasMatchClock`); your controller ends a match on the condition it documents, from a
+  fixture; your HUD returns a card with non-empty copy.
+- `modes/invariants.test.ts` — slot range, weapon exclusivity, `maxPlayers` in `[2, MAX_PLAYERS]`,
+  an `impulse` only on a `kind: "maneuver"` row, at least one registered arena, wire-width bounds.
+- `modes/registry.test.ts`, `modes/registry-arenas.test.ts`, `modes/mode-arg.test.ts` — one bundle
+  per mode, the active set, `DEFAULT_GAME_MODE` active, `activeArenaIds()`, `--mode=` round-trip.
+- `modes/no-mode-branching.test.ts` — fails if common code names your mode by literal instead of
+  going through `rulesOf`/`controllerOf`/`hudOf`.
+- `modes/no-raw-config-in-sim.test.ts` — no non-test file outside `config/` and `modes/base.ts` may
+  name a raw global at all.
 
-## 9. `table-pinning.test.ts`, and how to diverge on purpose
+See [`docs/testing.md`](../../../docs/testing.md) for the full layout and the scoping rule.
 
-Every table exists three times today: the raw global in `config/`, and a literal copy in each mode
-folder. `modes/table-pinning.test.ts` asserts all three stay equal and fails naming the table.
-It is **the alarm, not the fix**.
+## 10. The probe folder
 
-- **A balance change meant for every mode** — edit the raw global AND every mode folder's copy,
-  equal. Tedious on purpose: the raw global is the pinned baseline, and keeping it in step is what
-  makes an accidental one-mode edit legible as an accident.
-- **A change meant for ONE mode — the whole point of this system** — edit that mode's folder alone,
-  then **delete that table's assertion** from `table-pinning.test.ts` with a comment saying the modes
-  have intentionally diverged and why. The tripwire exists to catch an accident, not to forbid the
-  feature. Deleting the row is the correct action, not a workaround.
-- **A brand-new mode's own tables** are not pinned by this file at all unless you add them. Do not
-  add them: a mode authored to feel different will diverge by design on its first tuning pass.
+If your mode has its own win condition or flow worth measuring at scale, add
+`packages/server/playtest/modes/<family>/` — the mode probes are authorised, real-room-tick-pipeline
+harnesses that drive the actual controller through `ModeWorld` (`playtest/modes/shared.ts`). Follow
+the existing ones (`last-standing/elimination.ts`, `deathmatch/respawn.ts`, `conquer/zone.ts`) for
+shape: report, never assert; verdicts `OK` / `FINDING` / `KNOWN-BY-DESIGN`; sweep the sub-tick phase
+where contact is involved. `run-all.ts --scope=mode` picks the probe folder up automatically once it
+exists, keyed off `FAMILY_OF` (`playtest/common/mode.ts`). **Never invent a scenario the user did not
+ask for** — adding the folder for your mode's documented win condition is expected; anything beyond
+that is their call.
 
-## 10. The scope rule, for any new entry point
+## 11. What an ACTIVE mode changes outside its own folder
 
-`cfg()` and all seventeen accessors **throw** outside a mode scope — there is no default-mode
-fallback, by design. If this mode needs a new room, harness or script:
+Flipping `isActive: true` is one field, and these follow from it with no further edit:
 
-- A server room holds its own `ModeConfig` and wraps **every** entry point in
-  `scoped(this.modeConfig, fn)` — each message handler, the simulation interval, the synchronous
-  tail of `onCreate`. **No room may call `installMode`**: it writes one bundle per PROCESS, so a
-  room that installed would hand its numbers to every other live room. `practice-room.test.ts`
-  reads the room's own source to hold that.
-- A script or harness calls `withMode(modeConfigOf(mode), fn)` once around its work. `withMode` is
-  strictly synchronous and **refuses a thenable** — an async callback would restore the previous
-  bundle before the awaited work ran.
-- Tests use `withDefaultMode(fn)` (`modes/test-setup.ts`) when they need *some* mode, and an explicit
-  `withMode(modeConfigOf(MODE), fn)` when the test is about a particular mode's numbers.
-- **Never read an accessor at module scope.** `const X = drive().maxSpeed` at the top of a file
-  freezes the first bundle installed for the life of the process. `memoOnBundle`
-  (`packages/client/src/net/mode-memo.ts`) is the sanctioned fix. No test can see this one — it is
-  on you.
+- **The lobby picker** gains a card, and the Settings → Game modes entry appears once two modes are
+  active.
+- **`activeArenaIds()`** — the union of every active mode's `arenas` — grows, changing what
+  `BootScene` preloads and what `scripts/build-release.mjs` ships in the zip.
+- **The players' guide** gains a tab, and `balanceStamp` moves — `npm run build:manual` is not
+  optional here, even if both modes' resolved tables happen to be byte-identical.
+- **`docs/turn-tuning.md`** owes a `## <Mode name>` section carrying all three tables;
+  `scripts/turn-tuning-doc.test.mjs` fails until the page's `##` headings match `activeGameModes()`.
+- **`npm run check:art`** already sweeps every mode, active or not — a chassis or weapon only your
+  mode carries is checked from the day the folder exists.
 
-## 11. The harnesses
+`isActive: false` is the publish gate and nothing else: the bundle stays reachable, and the
+playground, practice and the three harnesses all pin or pass a mode directly. It is also a real wire
+gate: `resolveSetMode` refuses `MSG_SET_MODE` for a mode that is not `isActiveGameMode`.
 
-All three take `--mode=<id|name>`, parsed by shared's one `parseModeArg`:
+## 12. The harnesses
+
+All three take `--mode=<id|name>`:
 
 ```bash
-npm run ttk -- --mode=deathmatch
-npm run balance -- --mode=2 --shape=duel --matches=20
-npm run playtest -- --mode=your-mode
+npm run ttk -- --mode=your-mode
+npm run balance -- --mode=your-mode --shape=duel --matches=20
+npm run playtest -- --mode=your-mode --scope=all
 ```
 
-A wire id or the display name in any casing or separator. An unknown mode **refuses the run naming
-the ones that exist** rather than falling back to the default — a report labelled with one mode and
-filled with another's numbers is worse than no report. An inactive mode is accepted on purpose and
-marked `inactive` in every header it reaches. Balance and playtest end the report folder's name with
-the mode slug (`2026-09-23-01-your-mode`).
-
-**`--baseline` refuses a cross-mode comparison outright**, before a single match is simulated, the
-same way it refuses one across a `BOT_BRAIN_VERSION` change. Balance's config fingerprint hashes the
-MODE's bundle, so two modes can never share one.
+An unknown mode refuses the run naming the ones that exist. An inactive mode is accepted on purpose.
+`--baseline` refuses a cross-mode comparison outright.
 
 ## Path to add a mode
 
 1. Add the `GameMode` value at the next unused integer.
-2. `cp -r` a mode folder, rename its exports, edit its `index.ts` (`arenas`, `maxPlayers`).
-3. Add the `MODE_TABLE` row with `isActive: false`, and a `MODE_ORDER` entry.
-4. Decide the win rule — `flow/modes.ts` will not compile until you add a case to BOTH `sidesOf`
-   and `winRuleOf`, so this is a step the build makes you take rather than one to remember.
-5. Root `npm run build` (shared → server → client; **never** `npm run build --workspaces`).
-6. `npm test`. Expect the three `registry.test.ts` cases above to fail; extend each.
-7. Tune the folder. Delete a `table-pinning.test.ts` assertion per table you diverge, with a comment.
+2. Write `modes/<slug>/config.ts` (overrides, possibly empty) and `index.ts`.
+3. Add the `MODE_TABLE` row (`isActive: false`).
+4. Write or reuse a `rules.ts`; add it to `MODE_RULES`. Write or reuse a server controller; add it
+   to `MODE_CONTROLLERS`. Write a client `hud.ts`; add it to `MODE_HUDS`. The build will not compile
+   until all three registries have your row.
+5. `npx vitest run packages/shared/src/modes/snapshots.test.ts -u` and commit the new snapshot file.
+6. Root `npm run build` (shared → server → client; **never** `npm run build --workspaces`), then
+   `npm test`.
+7. Add mode-folder tests, and a probe folder if the mode's own flow is worth measuring at scale.
 8. To publish: `isActive: true`, add the lobby card, `npm run build:manual`, add the
    `## <Mode name>` section to `docs/turn-tuning.md`, `npm run check:art`, `npm test`.
 9. Say the playtest/balance part out loud — see below.
@@ -320,8 +317,7 @@ rule:
 - `npm run dev`, host a lobby: the Game modes picker shows your card, and picking it changes
   `state.mode` — the client reinstalls the bundle through `watchRoomMode` before the next scene
   renders, so car select immediately offers **that mode's** roster.
-- Two browser tabs, two modes, one server: both rooms tick their own numbers. This is the property
-  `scoped` exists for; if one room's tuning shows up in the other, something called `installMode`.
+- Two browser tabs, two modes, one server: both rooms tick their own numbers.
 - `npm run ttk -- --mode=<yours>` prints a matrix headed with your mode's name and wire id.
 - `http://localhost:5173/manual.html` has a tab per active mode, and yours is on it only if
   `isActive` is `true`.

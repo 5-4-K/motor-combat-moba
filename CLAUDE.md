@@ -5,12 +5,20 @@ LAN-hosted top-down 2D multiplayer car combat (last player/team standing, max 6)
 
 ## Configuration is PER-GAME-MODE — read this before tuning anything
 
-**The game does not read `CAR_TABLE`, `WEAPON_TABLE`, `DRIVE_CONFIG` or any other table in
-`config/` any more. It reads a per-mode copy.** Every `GameMode` maps to a frozen `ModeConfig`
-bundle assembled from its own folder — `packages/shared/src/modes/brawl/`,
-`packages/shared/src/modes/deathmatch/` and `packages/shared/src/modes/conquer/`, fourteen table
-files each. `modes/registry.ts` binds mode to bundle; `modes/active.ts` holds the active one and
-exposes it through seventeen accessors — `cars()`, `weapons()`, `drive()`, `ram()`, `impulse()`,
+**Config is one BASE plus per-mode OVERRIDES, not four parallel copies.** `modes/base.ts` exports
+`BASE_TABLES: ModeTables`, assembled straight from the `config/` globals (`CAR_TABLE`,
+`WEAPON_TABLE`, `DRIVE_CONFIG` with the hull stripped, and the rest) — **these globals are now the
+common defaults, not a "pinned baseline nothing reads"**: editing one changes every mode that does
+not override that value. Each mode folder (`modes/brawl/`, `modes/team-brawl/`, `modes/deathmatch/`,
+`modes/conquer/`) holds a `config.ts` exporting a `ModeOverrides` — a `DeepPartial<ModeTables>`
+naming only what that mode changes — and an `index.ts` exporting `<MODE>_TABLES =
+mergeTables(BASE_TABLES, <MODE>_OVERRIDES)`. `mergeTables` (`modes/merge.ts`) merges plain objects
+key by key, **replaces** arrays and primitives whole (an overridden kit is the whole new kit), and
+throws at load naming the full path if an override key does not exist in the base — a typo cannot
+silently do nothing. `replace(def)` wraps a keyed-row value (a car, a weapon, a status) to swap the
+whole row or add a new one; it is the only way to *remove* an optional field such as a weapon's
+`turret`. `modes/registry.ts` binds mode to assembled bundle; `modes/active.ts` holds the active one
+and exposes it through seventeen accessors — `cars()`, `weapons()`, `drive()`, `ram()`, `impulse()`,
 `combat()`, `turret()`, `statusConfig()`, `statusTable()`, `statusLimits()`, `spike()`, `slots()`,
 `flow()`, `deathmatch()`, `conquer()`, `camera()` and `derived()` (the last for the nine artifacts
 `assembleModeConfig` resolves per mode: weapon ticks, chassis drive, burst defs, ram ticks, turret
@@ -21,53 +29,45 @@ plays; see [`docs/config-reference.md`](docs/config-reference.md#arena-selection
 
 **Conquer is the third mode, and the first team mode that ships active.** `GameMode.CONQUER = 3`
 (never renumber — invariant 7), published (`isActive: true`) as of 2026-09-24 — `GameMode` now
-carries **three win rules**, read through `winRuleOf(mode)`: `"last_standing"`, `"deathmatch"`, and
-`"conquer"`. It is a 3v3 zone-control mode with the same respawn-on-death flow as Deathmatch — it
-reads the `deathmatch()` table for the clock, respawn delay and spawn-protection windows, but that
-table is **Conquer's own copy**, `modes/conquer/deathmatch.ts` (180 s match, 5 s respawn), not
-Deathmatch's — every mode's `deathmatch()` resolves through its own bundle, never another mode's —
-but wins on `winRuleOf(mode) === "conquer"`: a team that holds the capture zone
-(`ArenaDef.zone`) uncontested long enough fills a control bar, and a full bar wins outright
-regardless of the clock. It plays its own arena, `arena-03`, and authors `CONQUER_CONFIG`
-(`captureDelaySeconds`, `controlTargetSeconds`, `teamSize`, `uniqueChassisPerTeam`) through the
-`conquer()` accessor. See
+carries **three win rules**, read through `rulesOf(mode).winRuleLabel` (a field on the mode's own
+`ModeRules`, resolved through `packages/shared/src/modes/rules-registry.ts`; the exhaustive-switch
+`winRuleOf` this file used to describe is gone — see
+[`docs/superpowers/specs/2026-09-25-game-mode-layer-design.md`](docs/superpowers/specs/2026-09-25-game-mode-layer-design.md)
+for the mode layer, `ModeRules`/`ModeController`/`ModeHud`, this replaced):
+`"last_standing"`, `"deathmatch"`, and `"conquer"`. It is a 3v3 zone-control mode with the same
+respawn-on-death flow as Deathmatch — it reads the `deathmatch()` table for the clock, respawn delay
+and spawn-protection windows, resolved through its own bundle same as every mode's `deathmatch()` —
+today Conquer's `config.ts` overrides only `arenas`, so its resolved `deathmatch()` is byte-identical
+to the base's (and to Deathmatch's), but that identity is a fact about what each mode currently
+chooses to override, not a rule the merge enforces — but wins on
+`rulesOf(mode).winRuleLabel === "conquer"`: a team that holds the capture zone (`ArenaDef.zone`)
+uncontested long enough fills a control bar, and a full bar wins outright regardless of the clock.
+It plays its own arena, `arena-03`, and authors `CONQUER_CONFIG` (`captureDelaySeconds`,
+`controlTargetSeconds`, `teamSize`, `uniqueChassisPerTeam`) through the `conquer()` accessor. See
 [`docs/superpowers/specs/2026-09-24-conquer-mode-design.md`](docs/superpowers/specs/2026-09-24-conquer-mode-design.md).
 
-**The trap this section exists to prevent:** the raw globals in `config/` still exist, so editing
-`WEAPON_TABLE` the way this file used to tell you to **changes nothing about how the game plays.**
-It no longer changes anything about the tooling either — since MC41 the guide, `balanceStamp`,
-`npm run ttk`, `npm run balance`, `npm run playtest`, `check:cars`/`check:weapons` and
-`docs/turn-tuning.md` all read a MODE's bundle, so a raw edit moves no report and no page. What it
-does do is fail `packages/shared/src/modes/table-pinning.test.ts`, the tripwire: it asserts every
-raw global still equals both mode folders' copies, and fails naming the table. (The art importers,
-`scripts/import-art.mjs` and `import-weapon-icon.mjs`, are the last live raw readers, and only for
-things no mode owns: `Object.keys(CAR_TABLE)` / `Object.keys(WEAPON_TABLE)` as the id list an
-unknown `--car`/`--weapon` is spelled against, plus the global hull `import-art.mjs` fits a sprite
-to. Neither is a balance number. `import-weapon-icon.mjs` also asked raw `CAR_TABLE[carId].weapons`
-"which car carries this" until 2026-09-23 — that WAS a per-mode question, and a wrong one twice
-over, since `.weapons` is the ability kit alone and every basic attack therefore printed "no car
-carries it"; it asks `weaponCarriers` in `scripts/mode-rosters.mjs` now, the same mode union
-`check:weapons` sweeps.)
+**The safety net is a resolved-bundle snapshot per mode, not a copy-equality test.** Each mode's
+resolved `ModeTables` (not `derived()`) is written to
+`packages/shared/src/modes/__snapshots__/<slug>.tables.json` by `modes/snapshots.test.ts`. An edit
+to one mode's `config.ts` moves only that mode's snapshot file; an edit to `modes/base.ts` (or a
+`config/` global it reads) moves every mode that does not override the changed value — so an
+accidental all-mode edit is visible in the diff, and a deliberate one is accepted with `vitest -u`
+on the moved file(s), never a blanket `-u`. `table-pinning.test.ts` and `parity.test.ts` — the old
+"the copies are equal" tests — are deleted; the snapshot is what replaced them.
 
 ### Where to edit, depending on what you want
 
-- **An ordinary balance change, every mode** — edit the raw global in `config/` AND the matching
-  file in `modes/brawl/` AND in `modes/deathmatch/` AND in `modes/conquer/`. All four, equal.
-  `table-pinning.test.ts` only enforces the first three of those — it does **not** cover
-  `modes/conquer/`, deliberately, so a `modes/conquer/` edit you skip fails no test; keeping it in
-  step is on you, by hand, every time. Tedious for brawl/deathmatch, and deliberately so: the raw
-  global is now nothing but the pinned baseline the tripwire measures those two modes against, and
-  keeping it in step is what makes an accidental one-mode edit legible as an accident.
-- **A change to ONE mode only, which is the whole point of this system** — edit that mode's folder
-  alone, then delete that table's assertion from `table-pinning.test.ts` with a comment saying the
-  modes have intentionally diverged. The tripwire exists to catch an accident, not to forbid the
-  feature.
-- **A NEW mode** — copy a folder, add a `GameMode` enum value at the next unused integer (never
-  renumber — invariant 7), add a `MODE_TABLE` row in `modes/registry.ts`. `isActive: false` hides it
-  from the lobby with no other code change. Use the
-  [`game-mode`](.claude/skills/game-mode/SKILL.md) skill, which walks the whole checklist — the
-  arena set, the lobby card, the win rule, the guide tab, the turn-tuning section and the
-  per-mode tests that start running over the new row the moment it exists.
+- **An ordinary balance change, every mode** — edit the raw global in `config/`. Every mode whose
+  `config.ts` does not override that value picks it up automatically; a mode that already overrides
+  it keeps its own number, and its snapshot does not move — check whether that is what you meant.
+- **A change to ONE mode only, which is the whole point of this system** — edit that mode's
+  `config.ts` alone (a full-row `replace(...)` for a car, weapon or status row) and re-run its
+  snapshot test with `vitest -u` scoped to that mode's file. Nothing else to touch, and nothing else
+  to remember to keep in step.
+- **A NEW mode** — see the [`game-mode`](.claude/skills/game-mode/SKILL.md) skill: an overrides
+  folder, `rules.ts`, a server controller (reuse a family or add one), a client `hud.ts`, the three
+  registries, a fresh snapshot, and the mode-folder tests and probes that start running over the new
+  row the moment it exists. `isActive: false` hides it from the lobby with no other code change.
 
 ### What is NOT per-mode, and why
 
@@ -140,7 +140,7 @@ variable-slot work that kit is **1 to `N`** weapons rather than exactly three, w
 `WEAPON_SLOT_CONFIG.maxAbilitySlots` (3 in this build). `fireSlotsOf(carId)` is where
 the two are joined, and its live readers are `packages/server/balance/stats.ts`'s accumulator
 seeding, `scripts/ttk.mjs` (two call sites), `packages/server/src/bot/brain/duel.fixture.ts` (two
-call sites) and the playtest probes (`packages/server/playtest/weapons.ts`, `weapons2.ts`,
+call sites) and the playtest probes (`packages/server/playtest/common/weapons.ts`, `weapons2.ts`,
 `geometry.ts`, which sweep `WEAPON_TABLE` whole and need "who can fire this, and on which slot") —
 `duel.fixture.ts`'s `bestSustainedDpsOf` deliberately counts the basic attack in its DPS
 ceiling, moving Bastion's figure from 18.3 to 22.5. `fireSlotsOf`'s own doc comment carries the
@@ -163,26 +163,27 @@ binding is taught **only** in the countdown action hint — it has no gutter pil
 place the "a binding nobody printed breaks quietly" rule is knowingly bent. See
 [`docs/superpowers/specs/2026-09-17-basic-attack-design.md`](docs/superpowers/specs/2026-09-17-basic-attack-design.md) (BA1–BA38).
 
-**The basic attack can be switched off without deleting any of that**, via
-`BASIC_ATTACK_CONFIG.enabled` (`config/weapon-config.ts`) — a build-time flag, not a live-session
-setting: flip it, rebuild shared/server/client, and `npm run build:manual`. It shipped `false` from
-2026-09-20 and `true` from 2026-09-21 on `feature/mouse-aim`; **it ships `false` on
-`development/main`**, flipped when that branch merged, so `LMB` is bound to a weapon that refuses
-every press, the hint reads `RMB Q E to fire`, the bot never selects slot 0 and no chassis shows a
-"Basic attack" card. Every test that covers the mechanic sets the flag itself rather than
-leaning on the shipped position, so both halves stay covered whichever way it ships. Nothing about the nine
-`basic-attack-*` rows, `CarDef.basicAttack`, or its schema row at index 0 goes away when it is
-`false`; only four things read it. `beginFire` refuses a press on the basic-attack fire slot, so the
-key does nothing. `BotController`'s `chooseSlot` never selects that slot either, so a bot does not
-burn its one press a tick on a weapon that cannot fire. The client's `hintSlotOrder`
+**The basic attack can be switched off per mode without deleting any of that.** The flag is
+`slots.basicAttackEnabled` (`WeaponSlotConfig`, base value `false` in `weapon-slots.ts`) — a
+build-time override on that mode's `config.ts`, not a global and not a live-session setting: flip
+it in the mode's overrides, rebuild shared/server/client, and `npm run build:manual`. All four
+shipped modes (Brawl, Team brawl, Deathmatch, Conquer) carry `false` today — none overrides
+`slots` — so `LMB` is bound to a weapon that refuses every press everywhere, the hint reads `RMB Q E
+to fire`, the bot never selects slot 0 and no chassis shows a "Basic attack" card, in every mode.
+Nothing about the nine `basic-attack-*` rows, `CarDef.basicAttack`, or its schema row at index 0
+goes away when a mode's flag is `false`; only four things read `slots().basicAttackEnabled` under
+whichever mode is installed. `beginFire` refuses a press on the basic-attack fire slot, so the key
+does nothing. `BotController`'s `chooseSlot` never selects that slot either, so a bot does not burn
+its one press a tick on a weapon that cannot fire. The client's `hintSlotOrder`
 (`config/slot-keys.ts`) drops the slot from the countdown action hint entirely, not merely from
 firing — the hint is the only place its binding is taught, and hiding the weapon means removing the
 pill, not leaving a dead one on screen. And `scripts/build-cars-and-weapons.mjs` skips every
-chassis's "Basic attack" card and folds the flag into `balanceStamp`, so toggling it without
-rebuilding the manual fails `npm test` the same way any other stale-manual edit does. `fireSlotsOf`,
-the balance harness, `npm run ttk` and the playtest probes are deliberately left unaware of the flag
-— they sweep every `WEAPON_TABLE` row structurally, and `carrierOf` must always be able to find a
-chassis for each of the nine basic-attack rows or those tools crash outright. See the
+chassis's "Basic attack" card per mode and folds each mode's flag into `balanceStamp`, so toggling
+one mode's flag without rebuilding the manual fails `npm test` the same way any other stale-manual
+edit does. `fireSlotsOf`, the balance harness, `npm run ttk` and the playtest probes are
+deliberately left unaware of the flag — they sweep every `WEAPON_TABLE` row structurally, and
+`carrierOf` must always be able to find a chassis for each of the nine basic-attack rows or those
+tools crash outright. See the
 [`basic-attack-toggle`](.claude/skills/basic-attack-toggle/SKILL.md) skill for the full checklist.
 
 **How many ABILITY slots a car has is itself a build-time number, `N`.** `ABILITY_SLOTS` in
@@ -563,6 +564,22 @@ something, discuss it — do not answer with a parameter sweep.
 9. Shared is consumed as built `dist`.
 10. Max 6 players.
 
+## Which tests to run
+
+Mode-specific tests and playtest probes live inside their mode's own folders
+(`packages/*/src/modes/<slug>/`, `packages/server/playtest/modes/<family>/`); everything else is
+common. The rule: if every changed path sits inside one mode's (or one rule family's) own folders,
+you owe **mode scope** — `npm run test:mode -- <slug>` plus
+`npm run playtest -- --mode=<slug> --scope=mode` (add `--scope=common` too if that mode's
+`config.ts` moved). Any other changed path under `packages/` or `scripts/` — including the `modes/`
+root files (`merge.ts`, `registry.ts`, `rules-registry.ts`, `contract.test.ts`, …) — owes **full
+scope**: `npm test` plus `npm run playtest -- --scope=all` for every active mode. Docs-only changes
+owe nothing, except `docs/turn-tuning.md`, which a test reads values out of.
+
+`node scripts/test-scope.mjs` prints the scope a diff owes without running anything;
+`npm run test:affected` runs it. See [`docs/testing.md`](docs/testing.md) for the full layout, the
+contract tests, snapshots, and the pre-existing G12 failures.
+
 ## Read the right doc
 
 | Topic | Doc |
@@ -572,8 +589,9 @@ something, discuss it — do not answer with a parameter sweep.
 | Input / prediction seams | [`docs/networking.md`](docs/networking.md) |
 | Schema fields | [`docs/schema-reference.md`](docs/schema-reference.md) |
 | Env knobs / balance tables | [`docs/config-reference.md`](docs/config-reference.md) |
-| **Per-mode config: the mode folders, the scope, what stays global** | **the section at the top of this file**, then [`docs/superpowers/specs/2026-09-22-per-mode-config-design.md`](docs/superpowers/specs/2026-09-22-per-mode-config-design.md) (MC1–MC42) |
+| **Per-mode config: base + overrides, the mode layer (`ModeRules`/`ModeController`/`ModeHud`), what stays global** | **the section at the top of this file**, then [`docs/superpowers/specs/2026-09-22-per-mode-config-design.md`](docs/superpowers/specs/2026-09-22-per-mode-config-design.md) (MC1–MC42) and [`docs/superpowers/specs/2026-09-25-game-mode-layer-design.md`](docs/superpowers/specs/2026-09-25-game-mode-layer-design.md) (GM1–GM40, supersedes MC's table-pinning/copy-folder mechanics) |
 | Adding, publishing or un-publishing a game mode — the whole checklist | the [`game-mode`](.claude/skills/game-mode/SKILL.md) skill |
+| Which tests and playtests a diff owes — common vs mode scope | **the "Which tests to run" section below**, then [`docs/testing.md`](docs/testing.md) |
 | Which knob to tune for a turning/aiming complaint, and every turn stat on the roster | [`docs/turn-tuning.md`](docs/turn-tuning.md) — **hand-maintained, see below** |
 | Which knob to tune when a bot feels wrong, and every bot parameter | [`docs/bot-behavior.md`](docs/bot-behavior.md) |
 | LAN zip / `start.bat` | [`docs/deployment.md`](docs/deployment.md) |

@@ -6,24 +6,38 @@ Lockstep constants, Colyseus schema, input types, and `stepSim`. Server and clie
 
 P0: `TICK_RATE_HZ` / `MS_PER_TICK` / `DEFAULT_PATCH_RATE_HZ` / `MAX_PLAYERS` / `ROOM_NAME`, enums (`RoomPhase`, `GameMode`, `PlayerStatus`), `PlayerState` / `ArenaState`, `INPUT_MESSAGE` + `InputMessage`, identity `stepSim`.
 
-**`modes/` owns configuration; `config/` owns its TYPES.** Every table below still has a raw global
-in `config/` and **the sim reads none of them.** `modes/brawl/` and `modes/deathmatch/` each hold
-thirteen table files plus an `index.ts`; `modes/build.ts`'s `assembleModeConfig` clones them,
-resolves the eight derived artifacts and deep-freezes the result; `modes/registry.ts`'s `MODE_TABLE`
-binds each `GameMode` to its bundle; `modes/active.ts` holds the installed one behind sixteen
+**`modes/` owns configuration; `config/` owns its TYPES and its BASE values.** `modes/base.ts`
+assembles `BASE_TABLES` straight from the `config/` globals (hull stripped from `drive`) — these are
+now the common defaults, read whenever a mode does not override them, not a pinned baseline nothing
+reads. Each mode folder (`modes/brawl/`, `modes/team-brawl/`, `modes/deathmatch/`, `modes/conquer/`)
+holds a `config.ts` (a `ModeOverrides` — only what that mode changes) and an `index.ts` exporting
+`<MODE>_TABLES = mergeTables(BASE_TABLES, <MODE>_OVERRIDES)`; `modes/merge.ts`'s `mergeTables`
+merges plain objects key by key, replaces arrays/primitives whole, and throws at load naming the
+path for a typo'd override key. `modes/build.ts`'s `assembleModeConfig` clones the merged tables,
+resolves the nine derived artifacts and deep-freezes the result; `modes/registry.ts`'s `MODE_TABLE`
+binds each `GameMode` to its bundle; `modes/active.ts` holds the installed one behind seventeen
 accessors (`cars()`, `weapons()`, `drive()`, … `derived()`) and `cfg()`, which **throws outside a
 `withMode` scope** — there is deliberately no default-mode fallback. `withMode` is strictly
 synchronous and refuses a thenable; `installMode` is the no-restore, one-per-process form, used by
-the client's boot and by tests, never by a server room. Three guards ride on this:
-`modes/table-pinning.test.ts` (every raw global still equals both folders' copies — delete a row's
-assertion when a mode is DELIBERATELY tuned away), `modes/no-raw-config-in-sim.test.ts` (no
-non-test file under shared, server, client or either harness may name a raw table at all) and
-`modes/invariants.test.ts` (every config invariant re-run per `MODE_TABLE` row, naming the mode).
-Adding a mode is the [`game-mode`](../../.claude/skills/game-mode/SKILL.md) skill. Nothing in this
-package may read an accessor at MODULE scope — that freezes whichever bundle was installed first.
-See the root `CLAUDE.md`'s per-mode section and
+the client's boot and by tests, never by a server room. Guards ride on this: `modes/snapshots.test.ts`
+(each mode's resolved `ModeTables` written to `modes/__snapshots__/<slug>.tables.json` — an edit to
+one mode's `config.ts` moves only that file, an edit to the base moves every mode that does not
+override the changed value; `vitest -u` scoped to the moved file(s) is how a deliberate change is
+accepted), `modes/no-raw-config-in-sim.test.ts` (no non-test file under shared, server, client or
+either harness may name a raw table at all) and `modes/invariants.test.ts` (every config invariant
+re-run per `MODE_TABLE` row, naming the mode). The old "every raw global equals both folders' copies"
+tests (`table-pinning.test.ts`, `parity.test.ts`) are deleted — the snapshot replaced them.
+`modes/rules-registry.ts`, `modes/rules-types.ts` and each mode's own `rules.ts` are the shared half
+of the mode layer (`ModeRules`: `sides`, `respawns`, `hasMatchClock`, `winRuleLabel`, `canStart`,
+`claimsChassis`) — the server's `ModeController` and the client's `ModeHud` are the other two thirds,
+in their own packages. Adding a mode is the
+[`game-mode`](../../.claude/skills/game-mode/SKILL.md) skill. Nothing in this package may read an
+accessor at MODULE scope — that freezes whichever bundle was installed first. See the root
+`CLAUDE.md`'s per-mode section,
 [`docs/superpowers/specs/2026-09-22-per-mode-config-design.md`](../../docs/superpowers/specs/2026-09-22-per-mode-config-design.md)
-(MC1–MC42).
+(MC1–MC42) and
+[`docs/superpowers/specs/2026-09-25-game-mode-layer-design.md`](../../docs/superpowers/specs/2026-09-25-game-mode-layer-design.md)
+(GM1–GM40).
 
 P5 combat: `sim/damage.ts` (the **only** place hp moves — `applyDamage` and `applyHeal` — plus `damageFor` and `scaleDamage`, the only places a hit's size is decided), `sim/combat.ts` (`runCombat`, one pure tick of combat over POJOs). `runCombat` runs *after* driving, never moves a car, and is server-only — the client draws its results and predicts none of them. Collision deals no damage.
 

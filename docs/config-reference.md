@@ -4,19 +4,21 @@ Balance tables live in `@motor-combat-moba/shared`. Env knobs override process s
 
 ## Every section below is a SHAPE; the live values are a mode's own
 
-**Since the per-mode config work (MC1–MC42) nothing in the game reads the raw `CAR_TABLE`,
-`WEAPON_TABLE`, `DRIVE_CONFIG`, `STATUS_TABLE` or any other global in
-`packages/shared/src/config/`.** Each `GameMode` maps to a frozen `ModeConfig` bundle assembled from
-its own folder — `packages/shared/src/modes/brawl/` and `modes/deathmatch/`, thirteen table files
-each — and the sim, the rooms and the client read whichever bundle is installed, through the
-accessors in `modes/active.ts` (`cars()`, `weapons()`, `drive()`, …). So read a section below as
-**the shape of the table and the values both shipped modes carry today**, which are byte-identical
-by intent and pinned that way by `modes/table-pinning.test.ts`. The moment a mode is deliberately
-tuned away, its own folder is the only truthful source for that table and this page can only
-describe the shape. Where a knob is genuinely global — `TICK_RATE_HZ`, `NET_CONFIG`, `COLOR_TABLE`,
-`PRACTICE_CONFIG`, `CHAT_CONFIG`, `ABILITY_SLOT_CEILING`, `MAX_PLAYERS` and the OBB hull
-(`DRIVE_CONFIG.carWidth`/`carHeight`, excluded from `ModeTables` by type) — this page says so in
-that section. Adding a mode is the [`game-mode`](../.claude/skills/game-mode/SKILL.md) skill; the
+**Since the per-mode config work (MC1–MC42, then the mode-layer work GM1–GM40) nothing in the game
+reads the raw `CAR_TABLE`, `WEAPON_TABLE`, `DRIVE_CONFIG`, `STATUS_TABLE` or any other global in
+`packages/shared/src/config/` directly.** Instead, those globals ARE the common defaults:
+`packages/shared/src/modes/base.ts` assembles them into `BASE_TABLES`, and each mode folder
+(`modes/brawl/`, `modes/team-brawl/`, `modes/deathmatch/`, `modes/conquer/`) holds a `config.ts`
+naming only the values that mode changes, merged over the base by `mergeTables` into that mode's
+`ModeTables`. `MODE_TABLE` (`modes/registry.ts`) binds each `GameMode` to its assembled bundle, and
+the sim, the rooms and the client read whichever bundle is installed, through the accessors in
+`modes/active.ts` (`cars()`, `weapons()`, `drive()`, …). So read a section below as **the shape of
+the table and the common-default values**, which a mode's own `config.ts` may override; a
+per-mode `__snapshots__/<slug>.tables.json` file (`modes/snapshots.test.ts`) is the truthful
+resolved value for that mode. Where a knob is genuinely global — `TICK_RATE_HZ`, `NET_CONFIG`,
+`COLOR_TABLE`, `PRACTICE_CONFIG`, `CHAT_CONFIG`, `ABILITY_SLOT_CEILING`, `MAX_PLAYERS` and the OBB
+hull (`DRIVE_CONFIG.carWidth`/`carHeight`, excluded from `ModeTables` by type) — this page says so
+in that section. Adding a mode is the [`game-mode`](../.claude/skills/game-mode/SKILL.md) skill; the
 root `CLAUDE.md`'s per-mode section is the overview.
 
 **The car, weapon, combat and drive tables are also printed to players**, by the generated
@@ -246,9 +248,11 @@ whose readers are enumerated in `fireSlotsOf`'s own doc comment in
 [`weapon-slots.ts`](../packages/shared/src/config/weapon-slots.ts). All nine rows point at the same
 `BASIC_ATTACK_BASE` — see [`WEAPON_TABLE`](#weapon_table) below.
 
-**`BASIC_ATTACK_CONFIG.enabled`** (same file, beside `BASIC_ATTACK_BASE`) is a build-time on/off
-switch for the whole mechanic — `false` disables firing, the countdown hint's pill and the guide's
-"Basic attack" card without removing this field, the nine rows, or its schema row at index 0. See
+**`WEAPON_SLOT_CONFIG.basicAttackEnabled`** (`config/weapon-slots.ts`, base value `false`) is a
+build-time on/off switch for the whole mechanic, authored **per mode** via that mode's `config.ts`
+override (`slots: { basicAttackEnabled: true }`) — `false` disables firing, the countdown hint's
+pill and the guide's "Basic attack" card for that mode, without removing this field, the nine rows,
+or its schema row at index 0, in any mode. All four shipped modes carry `false` today. See
 [`combat-model.md`](combat-model.md#the-basic-attack-toggle) and the `basic-attack-toggle` skill.
 
 ## COLOR_TABLE
@@ -1091,20 +1095,25 @@ already wrong before the heavy-car pass touched it, not a figure any of these re
 
 `packages/shared/src/modes/registry.ts` (it moved out of the deleted
 `config/mode-config.ts` when the mode folders landed). One row per `GameMode` wire value, each
-carrying the assembled `ModeConfig` bundle that row resolves to. Display names live here so the
-lobby cards and the mode tag cannot drift; the longer card copy stays in the client
+carrying the assembled `ModeConfig` bundle that row resolves to — `mergeTables(BASE_TABLES,
+<MODE>_OVERRIDES)` from that mode's own `config.ts`, run through `assembleModeConfig`. Display names
+live here so the lobby cards and the mode tag cannot drift; the longer card copy stays in the client
 (`ui/lobby-view.ts`'s `modeCardsData`, which an active mode needs an entry in or `modeCards()`
 publishes nothing for it — `lobby-view.test.ts` fails until it does).
 
-| id | name | isActive | config | arenas |
+| id | name | isActive | overrides folder | arenas |
 |---|---|---|---|---|
-| `FFA_LAST_STANDING` (`0`) | Brawl | `true` | `modes/brawl/` | `arena-01`, `arena-02` |
-| `TEAM` (`1`) | Team brawl | `false` | `modes/brawl/` (no folder of its own yet) | `arena-01`, `arena-02` |
-| `FFA_DEATHMATCH` (`2`) | Deathmatch | `true` | `modes/deathmatch/` | `arena-01`, `arena-02` |
+| `FFA_LAST_STANDING` (`0`) | Brawl | `true` | `modes/brawl/` (empty overrides) | `arena-01`, `arena-02` |
+| `TEAM` (`1`) | Team brawl | `false` | `modes/team-brawl/` (empty overrides) | `arena-01`, `arena-02` |
+| `FFA_DEATHMATCH` (`2`) | Deathmatch | `true` | `modes/deathmatch/` (empty overrides) | `arena-01`, `arena-02` |
+| `CONQUER` (`3`) | Conquer | `true` | `modes/conquer/` (overrides only `arenas`) | `arena-03` |
 
-`TEAM` points at `BRAWL_TABLES` because nobody has authored team-mode numbers; `assembleModeConfig`
-is still called separately for it, so its bundle is a distinct frozen object rather than a shared
-reference.
+Every row today overrides little or nothing — Brawl, Team brawl and Deathmatch author no overrides
+at all, and Conquer overrides only `arenas` — so all four resolve to values at or near the base;
+that is a fact about today's tuning, not a guarantee `mergeTables` enforces. `TEAM` has its own
+folder specifically so it can diverge from Brawl later without touching Brawl's; `assembleModeConfig`
+is called separately for each mode, so no two bundles ever share a sub-object even when their values
+are identical.
 
 `isActive` is the same publish gate as `CarDef.isActive`. Flip a row to `false` and it disappears
 from the host's Game modes picker (`modeCards()` / `activeGameModes()`), and `ArenaRoom`'s
@@ -1127,7 +1136,7 @@ accepts an inactive mode on purpose and labels every report with it.
 
 `packages/shared/src/config/deathmatch-config.ts`. Networked balance, not render preference — the
 room's respawn sweep and the client's HUD both derive from it, so the two must agree. Read only in
-`FFA_DEATHMATCH` (`winRuleOf(mode) === "deathmatch"`); no car in any other mode is ever `phased`. See
+`FFA_DEATHMATCH` (`rulesOf(mode).winRuleLabel === "deathmatch"`); no car in any other mode is ever `phased`. See
 [`combat-model.md`](combat-model.md#the-respawn-lifecycle).
 
 | Knob | Value | Rationale |
@@ -1155,7 +1164,7 @@ delay being indefinite.
 ## CONQUER_CONFIG
 
 `packages/shared/src/config/conquer-config.ts`, per mode through `conquer()` / `derived().conquerTicks`.
-Every mode carries a copy (CQ26), the same as `deathmatch()`, but only a mode whose `winRuleOf` is
+Every mode carries a copy (CQ26), the same as `deathmatch()`, but only a mode whose `rulesOf(mode).winRuleLabel` is
 `"conquer"` ever reads it — `teamSize` and `uniqueChassisPerTeam` are inert everywhere else, which is
 how Team brawl keeps its 1v1-to-3v3 start rule untouched. Conquer's match clock, respawn delay and
 spawn-protection windows are **not** here: it reads those from its own `deathmatch()` table (CQ22),
@@ -1275,8 +1284,8 @@ doubles as the server's validation whitelist, so a playground UI and the validat
 same invalidation key `client/src/net/mode-memo.ts` uses. Until phase 6 the walker built one list at
 module load from the RAW `config/` globals, so every slider's range and every "at shipped" reading
 described the DEFAULT mode while the write went through `applyOverrides` against whichever bundle the
-room held. The two agreed only because `modes/table-pinning.test.ts` keeps both shipped modes
-byte-identical; the first deliberate divergence would have produced a slider whose range came from
+room held. The two agreed only because both shipped modes' bundles were byte-identical at the time; a mode that diverges (the resolved-bundle snapshot,
+`modes/snapshots.test.ts`, is what shows this today) would produce a slider whose range came from
 one mode and whose write the other rejects, with nothing red. The bundle the playground passes is
 `packages/client/src/dev/playground/tuning-base.ts`'s `tuningBaseConfig()` — the PRISTINE
 `DEFAULT_GAME_MODE` bundle, not the tuned one currently installed, because the panel has to describe
