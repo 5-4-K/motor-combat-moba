@@ -11,7 +11,7 @@ import {
   canSwitchTeam,
   isActiveGameMode,
   modeConfigOf,
-  sidesOf,
+  rulesOf,
 } from "@motor-combat-moba/shared";
 import { chatView, type ChatViewMessage, type ChatViewRow } from "./chat-view.js";
 
@@ -181,7 +181,7 @@ export function lobbyView(
   startError: string,
 ): LobbyView {
   const isHost = localSessionId === state.hostSessionId;
-  const isTeam = sidesOf(state.mode) === "team";
+  const isTeam = rulesOf(state.mode).sides === "team";
   const teamA = state.players.filter((p) => p.team !== 1);
   const teamB = state.players.filter((p) => p.team === 1);
   const local = state.players.find((p) => p.sessionId === localSessionId);

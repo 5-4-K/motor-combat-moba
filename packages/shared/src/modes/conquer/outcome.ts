@@ -1,4 +1,4 @@
-import type { ArenaZone } from "../arena/types.js";
+import type { ArenaZone } from "../../arena/types.js";
 
 /**
  * Conquer's zone rules (spec CQ18–CQ23), pure and tick-counted. The room calls these; nothing here

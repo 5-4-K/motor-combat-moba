@@ -1,17 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GameMode } from "../constants.js";
-import { respawnsIn, sidesOf, winRuleOf } from "./modes.js";
-
-describe("sidesOf", () => {
-  it("puts both FFA modes on the same side structure", () => {
-    expect(sidesOf(GameMode.FFA_LAST_STANDING)).toBe("ffa");
-    expect(sidesOf(GameMode.FFA_DEATHMATCH)).toBe("ffa");
-  });
-
-  it("puts team mode on its own", () => {
-    expect(sidesOf(GameMode.TEAM)).toBe("team");
-  });
-});
+import { winRuleOf } from "./modes.js";
 
 describe("winRuleOf", () => {
   it("separates the win condition from the side structure", () => {
@@ -30,14 +19,7 @@ describe("wire values", () => {
 });
 
 describe("Conquer (CQ14, CQ15)", () => {
-  it("plays in teams under its own win rule", () => {
-    expect(sidesOf(GameMode.CONQUER)).toBe("team");
+  it("plays under its own win rule", () => {
     expect(winRuleOf(GameMode.CONQUER)).toBe("conquer");
-  });
-  it("respawnsIn is true exactly for the respawning modes", () => {
-    expect(respawnsIn(GameMode.FFA_DEATHMATCH)).toBe(true);
-    expect(respawnsIn(GameMode.CONQUER)).toBe(true);
-    expect(respawnsIn(GameMode.FFA_LAST_STANDING)).toBe(false);
-    expect(respawnsIn(GameMode.TEAM)).toBe(false);
   });
 });

@@ -4,7 +4,7 @@ import {
   derived,
   getArena,
   hpOf,
-  sidesOf,
+  rulesOf,
   respawnPointFor,
   isDueToRespawn,
   phaseDecision,
@@ -125,7 +125,7 @@ export function runPipeline(ctx: PipelineCtx): {
       state,
       ctx.matchRoster,
       ctx.ram,
-      sidesOf(state.mode),
+      rulesOf(state.mode).sides,
       statusMods,
       approachVelocities,
       ctx.combat.maneuverWeapons,
@@ -165,7 +165,7 @@ function combatTick(
     world: {
       tick: state.tick,
       dt,
-      mode: sidesOf(state.mode),
+      mode: rulesOf(state.mode).sides,
       obstacles: arena.obstacles,
       bounds: boundsOf(arena),
     },
@@ -213,7 +213,7 @@ export function respawnPlayer(ctx: PipelineCtx, player: PlayerState): void {
     if (other?.alive) others.push({ x: other.x, y: other.y, team: other.team });
   }
 
-  const spawn = respawnPointFor(getArena(ctx.state.arenaId), sidesOf(ctx.state.mode), player.team, others);
+  const spawn = respawnPointFor(getArena(ctx.state.arenaId), rulesOf(ctx.state.mode).sides, player.team, others);
   player.x = spawn.x;
   player.y = spawn.y;
   player.angle = spawn.angle;

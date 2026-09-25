@@ -190,7 +190,7 @@ describe("lobbyView", () => {
     expect(view.teamBCount).toBe("");
   });
 
-  // Conquer is a team mode too (`sidesOf` returns "team"), so it heads its columns exactly as Team
+  // Conquer is a team mode too (`rulesOf(mode).sides` returns "team"), so it heads its columns exactly as Team
   // brawl does.
   it("heads the columns Team A and Team B in Conquer as well", () => {
     const view = lobbyView(state([player()], { mode: GameMode.CONQUER }), "p1", "");

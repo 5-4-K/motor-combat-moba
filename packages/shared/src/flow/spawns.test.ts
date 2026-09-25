@@ -136,7 +136,7 @@ describe("assignSpawns TEAM", () => {
 });
 
 describe("assignSpawns CONQUER", () => {
-  it("uses team spawns like Team brawl (sidesOf, not a mode literal)", () => {
+  it("uses team spawns like Team brawl (rulesOf, not a mode literal)", () => {
     const assigned = assignSpawns(
       ARENA_03,
       GameMode.CONQUER,

@@ -29,9 +29,8 @@ import {
   carHasTurretWeapon,
   carIdOf,
   muzzleOf,
-  respawnsIn,
+  rulesOf,
   RoomPhase,
-  sidesOf,
   TICK_RATE_HZ,
   turret,
   turretMountOf,
@@ -1954,7 +1953,7 @@ export class ArenaScene extends Phaser.Scene {
     const room = this.room;
     const local = room ? room.state.players.get(this.drivenSid(room)) : undefined;
     const rotation =
-      room && local ? viewRotationFor(arena, sidesOf(room.state.mode), local.team) : 0;
+      room && local ? viewRotationFor(arena, rulesOf(room.state.mode).sides, local.team) : 0;
     if (!force && rotation === this.viewRotation) return;
     this.viewRotation = rotation;
     this.cameras.main.setRotation(rotation);
@@ -2583,7 +2582,7 @@ export class ArenaScene extends Phaser.Scene {
     const viewer = room.state.players.get(this.drivenSid(room));
     // Hoisted rather than derived twice: the impact-spark pass below wants the same answer, and two
     // copies of this expression is two things that can drift about what game we are in.
-    const mode = sidesOf(room.state.mode);
+    const mode = rulesOf(room.state.mode).sides;
 
     room.state.players.forEach((player, sessionId) => {
       if (player.status !== PlayerStatus.IN_MATCH) return;
@@ -4680,7 +4679,7 @@ export class ArenaScene extends Phaser.Scene {
       // called for a living car as freely as a dead one and answers 0 — no `alive` gate here, which
       // would be a second copy of a rule the schema already carries.
       const seconds =
-        local && respawnsIn(room.state.mode) ? respawnSeconds(local.diedAtTick, tick) : 0;
+        local && rulesOf(room.state.mode).respawns ? respawnSeconds(local.diedAtTick, tick) : 0;
       if (seconds > 0) this.respawnText.setText(`Respawning in ${seconds}`);
       this.respawnText.setVisible(seconds > 0);
     }

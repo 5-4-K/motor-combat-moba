@@ -1,6 +1,6 @@
 import type { ArenaDef, Spawn } from "../arena/types.js";
 import type { GameMode } from "../constants.js";
-import { sidesOf } from "./modes.js";
+import { rulesOf } from "../modes/rules-registry.js";
 
 export function assignSpawns(
   arena: ArenaDef,
@@ -8,7 +8,7 @@ export function assignSpawns(
   roster: readonly { sessionId: string; team: 0 | 1 }[],
   random: () => number,
 ): Record<string, Spawn> {
-  if (sidesOf(mode) === "team") {
+  if (rulesOf(mode).sides === "team") {
     return assignTeamSpawns(arena, roster);
   }
   return assignFfaSpawns(arena, roster, random);

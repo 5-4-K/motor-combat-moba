@@ -1,4 +1,4 @@
-import { PlayerStatus, respawnsIn, RoomPhase, type GameMode } from "@motor-combat-moba/shared";
+import { PlayerStatus, rulesOf, RoomPhase, type GameMode } from "@motor-combat-moba/shared";
 
 /**
  * Is this player watching rather than playing? True only for a wreck in a live match that is not
@@ -19,8 +19,8 @@ import { PlayerStatus, respawnsIn, RoomPhase, type GameMode } from "@motor-comba
  * `cameraTarget` and `hudTargetPlayer` both fall back to the local session the moment this answers
  * false.
  *
- * Keyed on `respawnsIn(mode)` — the question every "does this room give the car back" gate was
- * really asking — rather than winRuleOf, since Conquer's win rule ("conquer") and Deathmatch's
+ * Keyed on `rulesOf(mode).respawns` — the question every "does this room give the car back" gate
+ * was really asking — rather than winRuleOf, since Conquer's win rule ("conquer") and Deathmatch's
  * ("deathmatch") differ but both respawn. The dev-only playground respawns forever while running
  * `FFA_LAST_STANDING`, so it keeps the spectate camera; it is the one room where "does this mode
  * respawn" and "does this room respawn" come apart.
@@ -32,7 +32,7 @@ export function isSpectating(
   alive: boolean,
 ): boolean {
   if (phase !== RoomPhase.MATCH) return false;
-  if (respawnsIn(mode)) return false;
+  if (rulesOf(mode).respawns) return false;
   return status === PlayerStatus.IN_MATCH && !alive;
 }
 

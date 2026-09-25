@@ -77,7 +77,7 @@ describe("revealView — brawl", () => {
   });
 });
 
-// Conquer is a team mode too (`sidesOf` returns "team"), so its reveal splits by `team` and titles
+// Conquer is a team mode too (`rulesOf(mode).sides` returns "team"), so its reveal splits by `team` and titles
 // the panels exactly as Team brawl's does.
 describe("revealView — conquer", () => {
   it("titles the panels, shows occupancy and splits by team", () => {

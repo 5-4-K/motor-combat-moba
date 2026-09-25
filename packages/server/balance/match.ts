@@ -24,7 +24,7 @@ import {
   hpOf,
   livingSides,
   newCombatEvents,
-  sidesOf,
+  rulesOf,
   winRuleOf,
   type BotDifficulty,
   type CarId,
@@ -308,7 +308,7 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
         break;
       }
     } else {
-      const outcome = livingSides(sidesOf(setup.mode), livingPlayers(setup, state));
+      const outcome = livingSides(rulesOf(setup.mode).sides, livingPlayers(setup, state));
       if (outcome.sides <= 1) {
         winnerSessionId = outcome.winnerSessionId;
         winnerTeam = outcome.winnerTeam;

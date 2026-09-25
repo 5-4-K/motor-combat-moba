@@ -1,13 +1,13 @@
 import type { GameMode } from "../constants.js";
 import type { CarId } from "../config/types.js";
-import { winRuleOf } from "../flow/modes.js";
 import { modeConfigOf } from "../modes/registry.js";
+import { rulesOf } from "../modes/rules-registry.js";
 
 type Claimant = { readonly sessionId: string; readonly team: number; readonly lockedCarId: string };
 
 /** Whether a team may not field two of one chassis in this mode (CQ4, CQ26). */
 export function uniqueChassisApplies(mode: GameMode): boolean {
-  return winRuleOf(mode) === "conquer" && modeConfigOf(mode).conquer.uniqueChassisPerTeam;
+  return rulesOf(mode).claimsChassis(modeConfigOf(mode));
 }
 
 /** A TEAMMATE (never yourself, never the enemy) has already locked this chassis (CQ30). */

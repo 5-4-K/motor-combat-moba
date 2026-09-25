@@ -25,7 +25,8 @@ export enum RoomPhase {
 
 /**
  * What kind of match this is. Two axes flattened into one list, because Deathmatch is FFA-only:
- * `sidesOf` answers "who is on whose side" and `winRuleOf` answers "what ends the match" (M1).
+ * `rulesOf(mode).sides` answers "who is on whose side" and `winRuleOf` answers "what ends the
+ * match" (M1, GM14).
  *
  * `FFA_LAST_STANDING` was called `FFA` before 2026-09-01. That was a source rename and the wire
  * value is unchanged — renumbering would silently repoint every client that had not been rebuilt.

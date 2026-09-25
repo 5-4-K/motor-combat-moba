@@ -9,7 +9,7 @@ import {
   stepZone,
   zonePresence,
   type ZoneState,
-} from "./conquer.js";
+} from "./outcome.js";
 
 const D = 150;
 const T = 1800;

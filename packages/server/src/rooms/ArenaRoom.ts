@@ -32,9 +32,8 @@ import {
   reduceFlow,
   assignSpawns,
   livingSides,
-  sidesOf,
+  rulesOf,
   winRuleOf,
-  respawnsIn,
   uniqueChassisApplies,
   chassisTakenByTeammate,
   pickDeadlineCar,
@@ -440,7 +439,7 @@ export class ArenaRoom extends Room<ArenaState> {
         });
       });
       const result = livingSides(
-        sidesOf(this.state.mode),
+        rulesOf(this.state.mode).sides,
         livingAfterLeave(remainingPlayers, this.matchRoster),
       );
       if (result.sides <= 1) {
@@ -453,7 +452,7 @@ export class ArenaRoom extends Room<ArenaState> {
     this.state.tick += 1;
     if (
       this.state.phase === RoomPhase.MATCH &&
-      respawnsIn(this.state.mode)
+      rulesOf(this.state.mode).respawns
     ) {
       respawnSweep(this.ctx());
     }
@@ -507,7 +506,7 @@ export class ArenaRoom extends Room<ArenaState> {
     // `livingSides` counts only roster members who are still alive, so a wreck and a disconnect end
     // the match by the same rule.
     const outcome = livingSides(
-      sidesOf(this.state.mode),
+      rulesOf(this.state.mode).sides,
       combatPlayers.map((p) => ({
         sessionId: p.sessionId,
         team: p.team,
@@ -532,7 +531,7 @@ export class ArenaRoom extends Room<ArenaState> {
       combat: this.combat,
       ram: this.ram,
       hz: getTickRateHz(TICK_RATE_HZ),
-      runPhaseSweep: respawnsIn(this.state.mode),
+      runPhaseSweep: rulesOf(this.state.mode).respawns,
     };
   }
 
@@ -584,7 +583,7 @@ export class ArenaRoom extends Room<ArenaState> {
     });
     return {
       phase: toFlowPhase(this.state.phase),
-      mode: sidesOf(this.state.mode),
+      mode: rulesOf(this.state.mode).sides,
       tick: this.state.tick,
       carSelectDeadlineTick: this.state.carSelectDeadlineTick,
       revealEndsTick: this.state.revealEndsTick,
@@ -607,7 +606,7 @@ export class ArenaRoom extends Room<ArenaState> {
       this.state.matchStartedAtTick = this.state.tick;
       // 0 in every mode without respawns: nothing reads it there, and a stale non-zero value would
       // hand the client's HUD a clock to count down that means nothing.
-      this.state.matchEndsTick = respawnsIn(this.state.mode)
+      this.state.matchEndsTick = rulesOf(this.state.mode).hasMatchClock
         ? this.state.tick + derived().deathmatchTicks.match
         : 0;
       resetZone(this.state);

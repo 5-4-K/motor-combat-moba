@@ -338,11 +338,13 @@ export type { ValidateChatResult } from "./lobby/chat.js";
 export { reduceFlow } from "./flow/match-flow.js";
 export type { FlowStatus, FlowPlayer, FlowState, FlowEvent } from "./flow/match-flow.js";
 export { assignSpawns } from "./flow/spawns.js";
-export { respawnsIn, sidesOf, winRuleOf } from "./flow/modes.js";
+export { winRuleOf } from "./flow/modes.js";
 export { farthestSpawn, isDueToRespawn, phaseDecision, respawnPointFor } from "./flow/respawn.js";
 export type { PhaseAction, PhaseInput } from "./flow/respawn.js";
-export { deathmatchEnded, deathmatchOutcome, livingSides } from "./flow/win.js";
-export type { DeathmatchPlayer, LivingPlayer, LivingSidesResult } from "./flow/win.js";
+export { livingSides } from "./modes/last-standing/outcome.js";
+export type { LivingPlayer, LivingSidesResult } from "./modes/last-standing/outcome.js";
+export { deathmatchEnded, deathmatchOutcome } from "./modes/deathmatch/outcome.js";
+export type { DeathmatchPlayer } from "./modes/deathmatch/outcome.js";
 export {
   INITIAL_ZONE,
   captureCountdownSeconds,
@@ -352,6 +354,9 @@ export {
   inControl,
   stepZone,
   zonePresence,
-} from "./flow/conquer.js";
-export type { ConquerOutcome, ZonePresenceCar, ZoneState } from "./flow/conquer.js";
+} from "./modes/conquer/outcome.js";
+export type { ConquerOutcome, ZonePresenceCar, ZoneState } from "./modes/conquer/outcome.js";
+export { MODE_RULES, rulesOf } from "./modes/rules-registry.js";
+export type { ModeRules, Sides } from "./modes/rules-types.js";
+export { lastStandingRules } from "./modes/last-standing/rules.js";
 
