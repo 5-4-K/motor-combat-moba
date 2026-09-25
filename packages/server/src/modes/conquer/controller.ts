@@ -5,16 +5,24 @@ import {
   type ZonePresenceCar,
 } from "@motor-combat-moba/shared";
 import type { MatchOutcome, ModeController, ModeRoomView } from "../types.js";
+import { stampMatchClock } from "../match-clock.js";
 import { advanceConquer, resetZone } from "./zone-fields.js";
 
 /**
  * Conquer (CQ44): the respawn-on-death flow of Deathmatch, but the win test is the zone's control
- * bar, not kills. `onMatchStart` stamps the same clock Deathmatch does AND resets the zone fields —
- * the previous match's bars, holder, streak, contested and overtime must not bleed into the next.
+ * bar, not kills. Zone fields are reset TWICE, deliberately, at two different edges: `onStartRequested`
+ * clears them the moment the host starts a match (CQ29) so the CAR_SELECT / REVEAL / COUNTDOWN
+ * screens that follow never show the previous match's bars, holder, streak, contested or overtime;
+ * `onMatchStart` clears them again (a no-op unless something wrote to them in between, which nothing
+ * does) alongside stamping the same clock Deathmatch does, on the actual edge into MATCH.
  */
 export const CONQUER_CONTROLLER: ModeController = {
+  onStartRequested(room: ModeRoomView): void {
+    resetZone(room.state);
+  },
+
   onMatchStart(room: ModeRoomView): void {
-    room.state.matchEndsTick = room.state.tick + derived().deathmatchTicks.match;
+    stampMatchClock(room);
     resetZone(room.state);
   },
 

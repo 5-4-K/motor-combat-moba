@@ -1,6 +1,7 @@
 import { livingSides, rulesOf, type LivingPlayer } from "@motor-combat-moba/shared";
 import type { CombatPlayerView, MatchOutcome, ModeController, ModeRoomView } from "../types.js";
-import { livingAfterLeave } from "../../rooms/match-helpers.js";
+import { stampMatchClock } from "../match-clock.js";
+import { livingAfterLeave } from "./leave.js";
 
 /**
  * Last Standing (brawl + team, GM18): ends when `livingSides` drops to one side. Shared by both
@@ -8,8 +9,12 @@ import { livingAfterLeave } from "../../rooms/match-helpers.js";
  * tells the two apart.
  */
 export const LAST_STANDING_CONTROLLER: ModeController = {
+  onStartRequested(): void {
+    // Last Standing owns no pre-match display state; nothing to clear.
+  },
+
   onMatchStart(room: ModeRoomView): void {
-    room.state.matchEndsTick = 0;
+    stampMatchClock(room);
   },
 
   afterTick(room: ModeRoomView, combatPlayers: readonly CombatPlayerView[]): MatchOutcome | undefined {

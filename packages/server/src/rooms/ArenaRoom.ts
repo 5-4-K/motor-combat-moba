@@ -85,7 +85,7 @@ import {
   copySpawnNumbers,
   resolveSetMode,
 } from "./match-helpers.js";
-import { controllerOf, resetZone } from "../modes/registry.js";
+import { controllerOf } from "../modes/registry.js";
 import type { ModeRoomView } from "../modes/types.js";
 import { selectNextHost } from "./select-next-host.js";
 import { ROOM_FULL_ERROR, shouldRejectSecondArena } from "./singleton-arena.js";
@@ -247,11 +247,12 @@ export class ArenaRoom extends Room<ArenaState> {
           this.state.players.forEach((p) => {
             p.lockedCarId = "";
           });
-          // Also reset here, not only on the edge into MATCH: without this, CAR_SELECT / REVEAL /
-          // COUNTDOWN for the next match still show the previous match's zone bars, holder, streak,
-          // contested and overtime. The results screen reads the final values before this fires, so
-          // it is unaffected.
-          resetZone(this.state);
+          // Whatever pre-match display state the family owns (Conquer's zone bars, holder, streak,
+          // contested, overtime; nothing for the others) must not still be showing when CAR_SELECT /
+          // REVEAL / COUNTDOWN come up for this match. The results screen reads the final values
+          // before this fires, so it is unaffected. Resolved fresh, not cached — same as every other
+          // call site.
+          controllerOf(this.state.mode).onStartRequested(this.modeView());
         }),
       );
 
@@ -523,8 +524,8 @@ export class ArenaRoom extends Room<ArenaState> {
     if (this.state.phase === RoomPhase.MATCH && previousPhase !== RoomPhase.MATCH) {
       this.state.matchStartedAtTick = this.state.tick;
       // The clock stamp (0 in every mode without one) and whatever else the family owns resetting
-      // — Conquer's zone fields, nobody else's — are the controller's `onMatchStart`, resolved
-      // fresh here rather than cached, same as every other call site.
+      // on this edge are the controller's `onMatchStart`, resolved fresh here rather than cached,
+      // same as every other call site.
       controllerOf(this.state.mode).onMatchStart(this.modeView());
     }
     this.state.carSelectDeadlineTick = next.carSelectDeadlineTick;

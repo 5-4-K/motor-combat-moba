@@ -26,6 +26,12 @@ export interface ModeRoomView {
  * host switching mode between matches gets the new family's behaviour immediately (Review Focus 4).
  */
 export interface ModeController {
+  /**
+   * `MSG_START_MATCH`, before car select opens (CQ29): pre-match screens (CAR_SELECT / REVEAL /
+   * COUNTDOWN) must not show state left over from the previous match. A no-op for a family that
+   * owns no such display-only state.
+   */
+  onStartRequested(room: ModeRoomView): void;
   /** The edge into `RoomPhase.MATCH`: stamp the clock, reset whatever the family owns. */
   onMatchStart(room: ModeRoomView): void;
   /** Every tick, after combat has run. Returns the match outcome once the family's win test fires. */

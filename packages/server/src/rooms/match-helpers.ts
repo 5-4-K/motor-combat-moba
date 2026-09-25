@@ -6,25 +6,12 @@ import {
   type ArenaId,
   type CarId,
   type GameMode,
-  type LivingPlayer,
   type ModeConfig,
   type Spawn,
 } from "@motor-combat-moba/shared";
 
 export function copySpawnNumbers(spawn: Spawn): { x: number; y: number; angle: number } {
   return { x: spawn.x, y: spawn.y, angle: spawn.angle };
-}
-
-export function livingAfterLeave(
-  remaining: readonly { sessionId: string; team: 0 | 1; alive: boolean }[],
-  roster: ReadonlySet<string>,
-): LivingPlayer[] {
-  return remaining.map((p) => ({
-    sessionId: p.sessionId,
-    team: p.team,
-    alive: p.alive,
-    inRoster: roster.has(p.sessionId),
-  }));
 }
 
 /**

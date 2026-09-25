@@ -5,14 +5,6 @@ import { DEATHMATCH_CONTROLLER } from "./deathmatch/controller.js";
 import { CONQUER_CONTROLLER } from "./conquer/controller.js";
 
 /**
- * Re-exported so `ArenaRoom` — which resets this display-only state on `MSG_START_MATCH` for a
- * reason that has nothing to do with any one mode's win rule (CQ29: the next match's CAR_SELECT /
- * REVEAL / COUNTDOWN must not show a previous match's zone bars) — can reach it without importing
- * from a mode's own folder.
- */
-export { resetZone } from "./conquer/zone-fields.js";
-
-/**
  * One `ModeController` per `GameMode` (GM18-GM21). `satisfies Record<GameMode, ModeController>` is
  * the exhaustiveness guard: a new `GameMode` value fails this object literal until it gets a row.
  * Brawl and Team share `LAST_STANDING_CONTROLLER` — the family, not the mode, owns the behaviour.

@@ -43,6 +43,16 @@ describe("DEATHMATCH_CONTROLLER", () => {
     });
   });
 
+  it("onStartRequested leaves zone fields untouched", () => {
+    const built = stateWith([]);
+    built.state.controlTicksA = 5;
+    built.state.zoneHolder = 1;
+    withMode(modeConfigOf(GameMode.FFA_DEATHMATCH), () => {
+      DEATHMATCH_CONTROLLER.onStartRequested(viewOf(built));
+    });
+    expect(built.state).toMatchObject({ controlTicksA: 5, zoneHolder: 1 });
+  });
+
   it("before matchEndsTick with 2+ roster players is not over", () => {
     const built = stateWith([
       { sessionId: "a", kills: 1, deaths: 0 },

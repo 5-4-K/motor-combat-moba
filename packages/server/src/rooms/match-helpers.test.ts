@@ -9,7 +9,6 @@ import {
 import {
   carAtDeadline,
   copySpawnNumbers,
-  livingAfterLeave,
   resolveSetMode,
 } from "./match-helpers.js";
 
@@ -20,20 +19,6 @@ describe("copySpawnNumbers", () => {
     copied.x = 99;
     expect(source.x).toBe(10);
     expect(copied).toEqual({ x: 99, y: 20, angle: 0.5 });
-  });
-});
-
-describe("livingAfterLeave", () => {
-  it("marks remaining roster members; the leaver is absent", () => {
-    const remaining = [
-      { sessionId: "b", team: 1 as const, alive: true },
-      { sessionId: "spec", team: 0 as const, alive: true },
-    ];
-    const snapshot = livingAfterLeave(remaining, new Set(["a", "b"]));
-    expect(snapshot).toEqual([
-      { sessionId: "b", team: 1, alive: true, inRoster: true },
-      { sessionId: "spec", team: 0, alive: true, inRoster: false },
-    ]);
   });
 });
 

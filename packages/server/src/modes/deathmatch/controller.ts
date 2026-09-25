@@ -1,10 +1,10 @@
 import {
   deathmatchEnded,
   deathmatchOutcome,
-  derived,
   type DeathmatchPlayer,
 } from "@motor-combat-moba/shared";
 import type { MatchOutcome, ModeController, ModeRoomView } from "../types.js";
+import { stampMatchClock } from "../match-clock.js";
 
 /**
  * FFA Deathmatch (M25): never asks `livingSides`. With respawns every player can be dead at once
@@ -13,8 +13,12 @@ import type { MatchOutcome, ModeController, ModeRoomView } from "../types.js";
  * way a wreck does.
  */
 export const DEATHMATCH_CONTROLLER: ModeController = {
+  onStartRequested(): void {
+    // Deathmatch owns no pre-match display state; nothing to clear.
+  },
+
   onMatchStart(room: ModeRoomView): void {
-    room.state.matchEndsTick = room.state.tick + derived().deathmatchTicks.match;
+    stampMatchClock(room);
   },
 
   afterTick(room: ModeRoomView): MatchOutcome | undefined {

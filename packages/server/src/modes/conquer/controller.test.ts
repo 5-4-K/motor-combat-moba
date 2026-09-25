@@ -60,6 +60,27 @@ describe("CONQUER_CONTROLLER", () => {
     });
   });
 
+  it("onStartRequested resets the zone fields", () => {
+    const built = stateWith([]);
+    built.state.controlTicksA = 5;
+    built.state.controlTicksB = 3;
+    built.state.zoneHolder = 1;
+    built.state.zoneStreakTicks = 2;
+    built.state.zoneContested = true;
+    built.state.overtime = true;
+    withMode(modeConfigOf(GameMode.CONQUER), () => {
+      CONQUER_CONTROLLER.onStartRequested(viewOf(built));
+    });
+    expect(built.state).toMatchObject({
+      controlTicksA: 0,
+      controlTicksB: 0,
+      zoneHolder: -1,
+      zoneStreakTicks: 0,
+      zoneContested: false,
+      overtime: false,
+    });
+  });
+
   it("one team-0 car in the zone for the capture delay then the control target wins team 0", () => {
     const arena = getArena(modeConfigOf(GameMode.CONQUER).arenas[0]);
     const zone = arena.zone!;

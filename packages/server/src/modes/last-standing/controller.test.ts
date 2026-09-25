@@ -41,6 +41,29 @@ describe("LAST_STANDING_CONTROLLER (FFA)", () => {
     expect(built.state.matchEndsTick).toBe(0);
   });
 
+  it("onStartRequested and onMatchStart both leave zone fields untouched", () => {
+    const built = stateWith(GameMode.FFA_LAST_STANDING, []);
+    built.state.controlTicksA = 5;
+    built.state.controlTicksB = 7;
+    built.state.zoneHolder = 1;
+    built.state.zoneStreakTicks = 3;
+    built.state.zoneContested = true;
+    built.state.overtime = true;
+    const zoneSnapshot = {
+      controlTicksA: built.state.controlTicksA,
+      controlTicksB: built.state.controlTicksB,
+      zoneHolder: built.state.zoneHolder,
+      zoneStreakTicks: built.state.zoneStreakTicks,
+      zoneContested: built.state.zoneContested,
+      overtime: built.state.overtime,
+    };
+    withMode(modeConfigOf(GameMode.FFA_LAST_STANDING), () => {
+      LAST_STANDING_CONTROLLER.onStartRequested(viewOf(built));
+      LAST_STANDING_CONTROLLER.onMatchStart(viewOf(built));
+    });
+    expect(built.state).toMatchObject(zoneSnapshot);
+  });
+
   it("2 dead of 3 roster ends with the survivor as winner", () => {
     const built = stateWith(GameMode.FFA_LAST_STANDING, [
       { sessionId: "a", team: 0, alive: true },
