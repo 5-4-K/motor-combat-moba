@@ -97,7 +97,16 @@ npx tsx playtest/common/weapons2.ts     # pellet spread, tunneling, crossing tar
 npx tsx playtest/common/prediction.ts   # client prediction vs server across a collision, by latency
 
 npx tsx playtest/common/ram.ts --mode=2 # any probe takes --mode directly too
+
+# mode probes (Task 15): each refuses, exit 0, under a mode outside its family
+npx tsx playtest/modes/last-standing/elimination.ts --mode=brawl       # or team-brawl: kills, draws, leavers, friendly fire
+npx tsx playtest/modes/deathmatch/respawn.ts --mode=deathmatch        # respawn delay, phased window, clock, ranking
+npx tsx playtest/modes/conquer/zone.ts --mode=conquer                 # capture, contest, full bar, clock, overtime, leavers
 ```
+
+The mode probes drive `respawnSweep` → `runPipeline` → `controllerOf(mode).afterTick` in
+`ArenaRoom.tick`'s order through `ModeWorld` (`playtest/modes/shared.ts`), which `run-all.ts` does
+not treat as a probe because it sits outside every family folder.
 
 ### 4. Read the report
 
