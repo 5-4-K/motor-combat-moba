@@ -54,10 +54,10 @@ the balance harness (skipped by request).
   `CONQUER_CONFIG`, `CAMERA_CONFIG`, plus `arenas: ["arena-01","arena-02"]` and `maxPlayers: 6`.
   The raw globals stop being a "pinned baseline nothing reads" and become what they look like: the
   common defaults. Editing one changes every mode that does not override it — visibly (GM10).
-- GM7. **A mode is `defineMode(overrides)`.** Each mode folder (`modes/brawl/`, `modes/team/`,
+- GM7. **A mode is `defineMode(overrides)`.** Each mode folder (`modes/brawl/`, `modes/team-brawl/`,
   `modes/deathmatch/`, `modes/conquer/`) holds an `index.ts` exporting
   `<MODE>_TABLES = mergeTables(BASE_TABLES, <MODE>_OVERRIDES)` and a `config.ts` exporting the
-  overrides object. The 42 copied table files are deleted. `modes/team/` is new: Team brawl gets its
+  overrides object. The 42 copied table files are deleted. `modes/team-brawl/` is new: Team brawl gets its
   own (empty) overrides instead of borrowing Brawl's tables, so it can diverge without touching Brawl.
 - GM8. **`ModeOverrides` type.** A `DeepPartial<ModeTables>` with these rules, enforced by
   `mergeTables` and the type:
@@ -109,8 +109,8 @@ Three per-package modules per mode, each behind one interface, each registered i
     readonly respawns: boolean;
     /** The match has a clock (`matchEndsTick` stamped at the green light). */
     readonly hasMatchClock: boolean;
-    /** Lobby start gate for this mode, given team counts. */
-    canStart(input: StartInput): StartVerdict;
+    /** Lobby start gate for this mode, given its own bundle and the READY players only. */
+    canStart(config: ModeConfig, ready: readonly StartRulePlayer[]): CanStartResult;
     /** Whether two teammates may not pick the same chassis, read from this mode's own bundle. */
     claimsChassis(config: ModeConfig): boolean;
   }
@@ -215,7 +215,7 @@ Three per-package modules per mode, each behind one interface, each registered i
 - GM27. **Mode-specific tests live in the mode's folder** in each package:
   `shared/src/modes/<slug>/*.test.ts`, `server/src/modes/<family>/*.test.ts`,
   `client/src/modes/<slug>/*.test.ts`. Folder names: shared and client use the mode slug
-  (`brawl`, `team`, `deathmatch`, `conquer`) plus the `last-standing` family; server uses the
+  (`brawl`, `team-brawl`, `deathmatch`, `conquer`) plus the `last-standing` family; server uses the
   family (`last-standing`, `deathmatch`, `conquer`) since Brawl and Team brawl share a controller.
   Rule-family tests (last-standing) live in `modes/last-standing/`.
 - GM28. **Contract tests** — one per package, `modes/contract.test.ts` — run `describe.each` over
