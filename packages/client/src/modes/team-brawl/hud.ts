@@ -1,15 +1,8 @@
-import type { ArenaState } from "@motor-combat-moba/shared";
-import { matchClockLabel } from "../../scenes/deathmatch-hud.js";
-import type { ModeHud } from "../types.js";
+import { lastStandingHud } from "../last-standing/hud.js";
 
-/** `TEAM`'s HUD — otherwise identical to Brawl's (`brawl/hud.ts`), only the card copy differs. */
-export const TEAM_HUD: ModeHud = {
-  lobbyCard: () => ({
-    kicker: "Team",
-    body: "Two teams, shared victory. Last team with a car standing wins.",
-    meta: ["2v2 – 3v3", "Last team standing"],
-  }),
-  clockLabel: (state: ArenaState, tick: number) => matchClockLabel(tick, state.matchEndsTick),
-  showsKills: false,
-  resultsLine: () => undefined,
-};
+/** `TEAM`'s HUD. Shared behaviour lives in `lastStandingHud` (`modes/last-standing/hud.ts`); only the card copy is Team brawl's own. */
+export const TEAM_HUD = lastStandingHud(() => ({
+  kicker: "Team",
+  body: "Two teams, shared victory. Last team with a car standing wins.",
+  meta: ["2v2 – 3v3", "Last team standing"],
+}));
