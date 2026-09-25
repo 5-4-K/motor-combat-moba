@@ -24,10 +24,16 @@ covers Brawl and Team brawl today — a change there is mode scope for *every* s
 just one.
 
 **Contract tests** — `modes/contract.test.ts`, one per package — are common tests that run
-`describe.each` over every `GameMode` and check the interface-level behaviour every mode must
-satisfy, regardless of which slug it is: a mode's `ModeRules` is internally consistent
-(`respawns ⇒ hasMatchClock`); its `ModeController` ends a match on the condition it documents, from a
-built fixture; its `ModeHud` returns a lobby card with non-empty copy. They sit at the `modes/` root,
+`describe.each` over every `GameMode` and check the interface-level shape every mode must satisfy,
+regardless of which slug it is: shared's asserts `ModeRules` is internally consistent
+(`hasMatchClock === respawns`, an equality, not a one-way implication); server's checks that a fresh
+match with every roster car alive and the clock not expired returns `undefined` from `afterTick`,
+and that `onMatchStart` zeroes `matchEndsTick` iff `!rulesOf(mode).hasMatchClock`; client's checks its
+`ModeHud` returns a lobby card with non-empty copy. **They do not check that a controller ends a
+match on the condition it documents** — that a fresh, ongoing match reports no outcome is as far as
+the shared contract goes. End conditions are covered by each family's own `controller.test.ts`
+(`modes/last-standing/controller.test.ts`, `modes/deathmatch/controller.test.ts`,
+`modes/conquer/controller.test.ts`), and a new mode must add its own. They sit at the `modes/` root,
 not in any one mode's folder — a mode-scoped run still owes them (`test:mode` includes them
 automatically).
 
@@ -44,9 +50,13 @@ description and its behaviour ever disagree.
 - Every changed path is under one mode's own folder (`packages/{shared,client}/src/modes/<slug>/`,
   that mode's snapshot file, or — via its rule family — `packages/{server,shared,client}/src/modes/<family>/`
   and `packages/server/playtest/modes/<family>/`) → **mode scope**. You owe `test:mode -- <slug>`
-  plus `playtest --mode=<slug> --scope=mode` for every affected slug (a family diff owes this for
-  every slug in that family), and `--scope=common` too if the mode's `config.ts` changed — overrides
-  moving is exactly what the common probes measure differently.
+  (shared's run always ALSO includes `src/modes/snapshots.test.ts` and `src/modes/invariants.test.ts`
+  — the two guards a `config.ts` edit can break — regardless of which slug's folder moved) plus
+  `playtest --mode=<slug> --scope=mode` for every affected slug (a family diff owes this for every
+  slug in that family), and `--scope=common` too if the mode's `config.ts` changed — overrides moving
+  is exactly what the common probes measure differently. A `config.ts` or snapshot change also owes
+  `npm run test:scripts` (the manual-page stamp and the turn-tuning doc), which `commandsFor` emits
+  whenever `commonProbes` is true.
 - Any other changed path under `packages/` or `scripts/` — including a `modes/` ROOT file — →
   **full scope**: `npm test` plus `playtest --scope=all` for every active mode.
 - Docs-only changes → nothing to run, except `docs/turn-tuning.md`, which
@@ -54,7 +64,7 @@ description and its behaviour ever disagree.
 
 | Example diff | Scope | Commands |
 |---|---|---|
-| `packages/shared/src/modes/conquer/config.ts` | mode: `conquer` | `test:mode -- conquer`; `playtest --mode=conquer --scope=mode`; `playtest --mode=conquer --scope=common` (config changed) |
+| `packages/shared/src/modes/conquer/config.ts` | mode: `conquer` | `test:mode -- conquer`; `playtest --mode=conquer --scope=mode`; `playtest --mode=conquer --scope=common` (config changed); `npm run test:scripts` (config changed) |
 | `packages/client/src/modes/brawl/hud.ts` | mode: `brawl` | `test:mode -- brawl`; `playtest --mode=brawl --scope=mode` |
 | `packages/server/src/modes/last-standing/controller.ts` | mode: `brawl` **and** `team-brawl` (the family) | `test:mode -- brawl`; `test:mode -- team-brawl`; a `--scope=mode` playtest run for each |
 | `packages/shared/src/modes/registry.ts` | full (a `modes/` root file) | `npm test`; `playtest --scope=all` for every active mode |
@@ -81,10 +91,11 @@ untracked) — run it before committing to see what a change actually owes.
 They are the reason a new mode cannot ship half-wired: `MODE_RULES`, `MODE_CONTROLLERS` and
 `MODE_HUDS` are each `satisfies Record<GameMode, …>`, so adding a `GameMode` value fails the build
 until all three have a row, and the contract test then runs the same interface-level checks over
-that row automatically — no one has to remember to write "does Conquer's controller end the match
-correctly" as a bespoke case, because the contract test already asks that question of every mode.
-They do **not** replace a mode's own tests: the contract test checks the shape every mode must have
-in common; a mode's own folder is where you test what makes it different.
+that row automatically. They do **not** replace a mode's own tests, and in particular do **not**
+check that a controller ends a match on the condition it documents — only that a fresh, ongoing
+match reports no outcome, plus the match-clock stamp. "Does Conquer's controller end the match
+correctly" is answered by Conquer's own `controller.test.ts`, not by the contract test; a new mode
+must write that case itself. A mode's own folder is where you test what makes it different.
 
 ## 5. Adding a mode's tests and probes
 

@@ -151,13 +151,6 @@ const ALLOWED_DIRS: Readonly<Record<string, string>> = {
     "left in it are doc-comment mentions of the tables a knob used to live in — which is exactly " +
     "the kind of reference `IMPORT_TYPE_LINE` cannot distinguish and this directory exemption " +
     "covers. `tuning.ts` beside it is types only.",
-  "modes": "The mode-ASSEMBLY layer. `base.ts` reads every raw global by design (GM6) — it IS the " +
-    "raw globals, assembled once into `BASE_TABLES` for every mode's overrides to merge over. " +
-    "`build.ts` reads raw `DRIVE_CONFIG.carWidth`/`carHeight` because the OBB hull is explicitly " +
-    "out of tuning scope (never per-mode, never a slider) — see `tuning-walker.ts`'s own " +
-    "`DRIVE_SKIP_KEYS` comment. `registry.ts`, `brawl/`, `team-brawl/`, `deathmatch/`, `conquer/` " +
-    "and `active.ts` do not reference a raw identifier at all (checked); `types.ts` only names one " +
-    "in a doc comment.",
   "schema": "Colyseus schema field declarations. Every match here is a doc comment naming which " +
     "table a field is validated or drained against (e.g. `STATUS_CONFIG.maxActive`); no schema " +
     "field type or default reads a live config value.",
@@ -167,7 +160,12 @@ const ALLOWED_DIRS: Readonly<Record<string, string>> = {
     "config value used elsewhere, not a read of it.",
 };
 
-/** Files directly under `src/` (not a subdirectory) that legitimately name a raw identifier. */
+/**
+ * Individual files (any depth under `src/`, given as a path relative to it) that legitimately name
+ * a raw identifier — narrower than a whole-directory exemption in `ALLOWED_DIRS` (Finding 12): only
+ * the file itself is exempt, so a sibling in the same folder that starts reading a raw table is
+ * still caught.
+ */
 const ALLOWED_FILES: Readonly<Record<string, string>> = {
   "index.ts": "The package's own public barrel. It deliberately RE-EXPORTS every raw table " +
     "(`export { CAR_TABLE } from \"./config/car-config.js\"`, and so on) for legitimate raw " +
@@ -175,6 +173,13 @@ const ALLOWED_FILES: Readonly<Record<string, string>> = {
     "comparisons, `scripts/build-cars-and-weapons.mjs`, config tests, and this very file's table- " +
     "pinning test all need the raw table alongside the accessor. Re-exporting a name is not reading " +
     "it.",
+  "modes/base.ts": "The mode-ASSEMBLY layer's base. Reads every raw global by design (GM6) — it IS " +
+    "the raw globals, assembled once into `BASE_TABLES` for every mode's overrides to merge over.",
+  "modes/build.ts": "Reads raw `DRIVE_CONFIG.carWidth`/`carHeight` because the OBB hull is " +
+    "explicitly out of tuning scope (never per-mode, never a slider) — see `tuning-walker.ts`'s own " +
+    "`DRIVE_SKIP_KEYS` comment.",
+  "modes/types.ts": "Names `DRIVE_CONFIG` once, in a doc comment explaining where `ModeConfig.drive` " +
+    "comes from, never a live read.",
 };
 
 /** True if `file` sits under one of `ALLOWED_DIRS`'s directories, or is an `ALLOWED_FILES` entry

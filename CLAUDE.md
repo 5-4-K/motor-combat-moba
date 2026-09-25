@@ -569,12 +569,15 @@ something, discuss it — do not answer with a parameter sweep.
 Mode-specific tests and playtest probes live inside their mode's own folders
 (`packages/*/src/modes/<slug>/`, `packages/server/playtest/modes/<family>/`); everything else is
 common. The rule: if every changed path sits inside one mode's (or one rule family's) own folders,
-you owe **mode scope** — `npm run test:mode -- <slug>` plus
-`npm run playtest -- --mode=<slug> --scope=mode` (add `--scope=common` too if that mode's
-`config.ts` moved). Any other changed path under `packages/` or `scripts/` — including the `modes/`
-root files (`merge.ts`, `registry.ts`, `rules-registry.ts`, `contract.test.ts`, …) — owes **full
-scope**: `npm test` plus `npm run playtest -- --scope=all` for every active mode. Docs-only changes
-owe nothing, except `docs/turn-tuning.md`, which a test reads values out of.
+you owe **mode scope** — `npm run test:mode -- <slug>` (which for shared ALWAYS also runs
+`src/modes/snapshots.test.ts` and `src/modes/invariants.test.ts`, since either guard can be broken
+by a mode-scoped `config.ts` edit) plus `npm run playtest -- --mode=<slug> --scope=mode` (add
+`--scope=common` too if that mode's `config.ts` moved, and in that case also `npm run test:scripts`
+for the manual-page stamp and the turn-tuning doc). Any other changed path under `packages/` or
+`scripts/` — including the `modes/` root files (`merge.ts`, `registry.ts`, `rules-registry.ts`,
+`contract.test.ts`, …) — owes **full scope**: `npm test` plus `npm run playtest -- --scope=all` for
+every active mode. Docs-only changes owe nothing, except `docs/turn-tuning.md`, which a test reads
+values out of.
 
 `node scripts/test-scope.mjs` prints the scope a diff owes without running anything;
 `npm run test:affected` runs it. See [`docs/testing.md`](docs/testing.md) for the full layout, the

@@ -153,6 +153,8 @@ export function slotsOf(carId: CarId): readonly WeaponId[] {
  *    (TR53), so `?dev=assets` draws a turret for exactly the chassis the arena would. `BootScene`
  *    calls `installRoomMode` unconditionally before launching any dev tool, so this reads the
  *    client tab's installed bundle.
+ * 7. `packages/server/playtest/modes/shared.ts` — `projectileAbilities`'s slot bit; one-shot probe
+ *    processes that call `installPlaytestMode()`.
  *
  * `newFireState` (`sim/weapons/fire.ts`) does **not** call this — its explicit-loadout path builds
  * the same `[basicAttackOf(carId), ...kit]` list inline, because it also has to accept a caller-given

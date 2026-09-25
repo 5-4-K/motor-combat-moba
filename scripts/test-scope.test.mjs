@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { scopeOf, commandsFor } from "./test-scope.mjs";
+import { scopeOf, commandsFor, MODE_FAMILY } from "./test-scope.mjs";
+import { MODE_TABLE, modeSlug } from "../packages/shared/dist/index.js";
 
 test("docs-only is none", () => assert.deepEqual(scopeOf(["docs/roadmap.md", "README.md"]), { scope: "none" }));
 test("tested doc is full", () => assert.equal(scopeOf(["docs/turn-tuning.md"]).scope, "full"));
@@ -32,3 +33,23 @@ test("client family folder expands to its modes", () =>
     { scope: "mode", modes: ["brawl", "team-brawl"], commonProbes: false }));
 test("an unknown modes folder is full", () =>
   assert.equal(scopeOf(["packages/shared/src/modes/bogus/x.ts"]).scope, "full"));
+
+// Finding 2: a `config.ts`/snapshot change also owes `npm run test:scripts` (the manual-page stamp
+// and the turn-tuning doc), since a mode-scoped table edit can move both without any mode-scoped
+// test suite noticing.
+test("commonProbes also owes npm run test:scripts", () =>
+  assert.deepEqual(commandsFor({ scope: "mode", modes: ["conquer"], commonProbes: true }), [
+    "npm run test:mode -- conquer",
+    "npm run playtest -- --mode=conquer --scope=mode",
+    "npm run playtest -- --mode=conquer --scope=common",
+    "npm run test:scripts",
+  ]));
+
+// Finding 13: `MODE_FAMILY`'s keys must equal every mode slug `MODE_TABLE` actually carries — a new
+// mode with no `MODE_FAMILY` entry would silently fall through `resolveSegment` as "unknown", which
+// this repo treats as common-code (safe but noisy) rather than a real gap in the map.
+test("MODE_FAMILY covers exactly the slugs in MODE_TABLE", () =>
+  assert.deepEqual(
+    Object.keys(MODE_FAMILY).sort(),
+    Object.keys(MODE_TABLE).map((mode) => modeSlug(Number(mode))).sort(),
+  ));

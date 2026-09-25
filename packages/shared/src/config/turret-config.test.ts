@@ -47,7 +47,7 @@ describe("turret config (TR1-TR5)", () => {
     // two edits separately, since it is their CONJUNCTION that produces it.
     expect(slots().basicAttackEnabled).toBe(false);
     for (const carId of activeCarIds()) {
-      expect(carHasTurretWeapon(fireSlotsOf(carId).map((s) => s.weaponId)), carId).toBe(false);
+      expect(carHasTurretWeapon(fireSlotsOf(carId)), carId).toBe(false);
     }
   });
 

@@ -144,6 +144,9 @@ Three per-package modules per mode, each behind one interface, each registered i
     readonly roster: ReadonlySet<string>;
   }
   export interface ModeController {
+    /** On `MSG_START_MATCH`, before car select. Conquer resets its zone here too (CQ29); the other
+     *  families no-op. */
+    onStartRequested(room: ModeRoomView): void;
     /** On the edge into MATCH: stamp clocks, reset per-mode state (e.g. the zone). */
     onMatchStart(room: ModeRoomView): void;
     /** After combat each MATCH tick: advance per-mode state; return an outcome to end the match. */
@@ -219,9 +222,12 @@ Three per-package modules per mode, each behind one interface, each registered i
   family (`last-standing`, `deathmatch`, `conquer`) since Brawl and Team brawl share a controller.
   Rule-family tests (last-standing) live in `modes/last-standing/`.
 - GM28. **Contract tests** — one per package, `modes/contract.test.ts` — run `describe.each` over
-  every `GameMode` and assert the interface-level behaviour every mode must satisfy (rules are
-  internally consistent; `respawns ⇒ hasMatchClock`; a controller ends a match on the documented
-  condition built from a fixture; a HUD returns a card with non-empty copy). They are common tests.
+  every `GameMode` and assert the interface-level behaviour every mode must satisfy: rules are
+  internally consistent (`hasMatchClock === respawns`, an equality); from a fresh, ongoing-match
+  fixture, `afterTick` reports no outcome and `onMatchStart` zeroes `matchEndsTick` iff
+  `!hasMatchClock`; a HUD returns a card with non-empty copy. **They do not check that a controller
+  ends a match on the condition it documents** — that is each family's own `controller.test.ts`, and
+  a new mode must add its own. They are common tests.
 - GM29. **Everything else is common** and stays beside its code.
 - GM30. **Dedupe criteria**, applied package by package: (a) tests asserting a raw table equals a
   mode copy (made obsolete by GM10/GM11) are deleted; (b) two tests asserting the same behaviour
@@ -288,3 +294,10 @@ Three per-package modules per mode, each behind one interface, each registered i
   a byte-identical `manual.html` (the page reads bundles, which did not change) — if the stamp
   moves only because a hashed *input* was renamed, rebuild and say so; `npm run playtest -- --mode=<m>`
   runs clean for every active mode after part C.
+
+## Changelog
+
+- 2026-09-25 (final fix wave, Task 6 ruling): GM18 was missing `onStartRequested(room)` from the
+  `ModeController` interface, even though every implementation already carries it — it runs on
+  `MSG_START_MATCH`, before car select, and it is Conquer's second zone reset (CQ29); the other
+  families no-op. Spec text amended to match the shipped interface; no code changed for this entry.

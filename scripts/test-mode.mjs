@@ -56,6 +56,15 @@ function main() {
     if (existsSync(path.join(modesDir, slug))) filters.push(`src/modes/${slug}/`);
     if (family !== slug && existsSync(path.join(modesDir, family))) filters.push(`src/modes/${family}/`);
     if (existsSync(path.join(modesDir, "contract.test.ts"))) filters.push("src/modes/contract.test.ts");
+    // Shared's `modes/` root also carries the guards a mode `config.ts` edit can break: the
+    // per-mode snapshots (a config change moves the wrong mode's snapshot, or none at all) and the
+    // cross-mode invariants (every mode's bundle re-checked against the same rules). A mode-scoped
+    // run that skipped these could pass while a config.ts edit silently broke another mode's pinned
+    // snapshot or an invariant.
+    if (pkg === "shared") {
+      if (existsSync(path.join(modesDir, "snapshots.test.ts"))) filters.push("src/modes/snapshots.test.ts");
+      if (existsSync(path.join(modesDir, "invariants.test.ts"))) filters.push("src/modes/invariants.test.ts");
+    }
 
     if (filters.length === 0) {
       console.log(`test:mode: skipping @motor-combat-moba/${pkg} — no modes/${slug}/, modes/${family}/ or contract test`);

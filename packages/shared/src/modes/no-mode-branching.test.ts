@@ -32,9 +32,13 @@ const ROOTS: ReadonlyArray<{ label: string; dir: string }> = [
 const ALLOWED: Readonly<Record<string, string>> = {
   "packages/shared/src/constants.ts": "defines the enum",
   "packages/shared/src/modes/registry.ts": "is under /modes/ anyway",
+  "packages/shared/src/modes/rules-registry.ts": "is under /modes/ anyway",
+  "packages/server/src/modes/registry.ts": "is under /modes/ anyway",
+  "packages/client/src/modes/registry.ts": "is under /modes/ anyway",
   "packages/server/src/config/mode-bot.ts": "Record<GameMode, BotModeConfig> registry",
   "packages/server/src/rooms/PracticeRoom.ts": "practice pins FFA_DEATHMATCH (room kind, GM21)",
   "packages/client/src/scenes/PracticeSetupScene.ts": "installs practice's pinned mode",
+  "packages/shared/src/modes/rules-types.ts": "declares the winRuleLabel union type itself, not a branch on it",
 };
 
 const BANNED_PATTERNS: ReadonlyArray<RegExp> = [
@@ -43,9 +47,21 @@ const BANNED_PATTERNS: ReadonlyArray<RegExp> = [
   /["'](conquer|deathmatch|last_standing)["']/,
 ];
 
-/** True if `file` is under `/modes/` (any package) — its own carve-out, same as the brief's list. */
-function isUnderModesDir(file: string): boolean {
-  return file.split(/[/\\]/).includes("modes");
+/**
+ * Every per-mode SLUG folder and per-family folder, across all three packages — the actual carve-out
+ * this guard means: a mode (or family) is allowed to name itself, since its own module IS the place
+ * that fact lives. This is narrower than "any file under `/modes/`" (Finding 12): a common `modes/`
+ * ROOT file (`active.ts`, `build.ts`, `match-clock.ts`, `overlay.ts`, `mode-arg.ts`, `test-setup.ts`,
+ * …) sits at the same directory depth as a mode's own folder but is not one, and branching there is
+ * exactly the shape this guard exists to catch.
+ */
+const MODE_AND_FAMILY_FOLDERS = new Set(["brawl", "team-brawl", "deathmatch", "conquer", "last-standing"]);
+
+/** True if `file` sits inside one of `MODE_AND_FAMILY_FOLDERS`, i.e. `.../modes/<slug-or-family>/...`. */
+function isUnderModeOrFamilyDir(file: string): boolean {
+  const segments = file.split(/[/\\]/);
+  const modesIndex = segments.indexOf("modes");
+  return modesIndex !== -1 && MODE_AND_FAMILY_FOLDERS.has(segments[modesIndex + 1] ?? "");
 }
 
 function walk(dir: string): string[] {
@@ -78,7 +94,7 @@ describe("common code never branches on a specific game mode (GM2)", () => {
   it("has no GameMode.X / winRuleOf / win-rule-string branch outside modes/ and the judged allow-list", () => {
     const offenders = ROOTS.flatMap(({ label, dir }) =>
       walk(dir)
-        .filter((file) => !isUnderModesDir(file))
+        .filter((file) => !isUnderModeOrFamilyDir(file))
         .map((file) => ({ file, rel: label + file.slice(dir.length) }))
         .filter(({ rel }) => !(rel in ALLOWED))
         .flatMap(({ file }) => offendingLines(file)),

@@ -154,6 +154,9 @@ export function commandsFor(scope) {
       commands.push(`npm run playtest -- --mode=${slug} --scope=mode`);
       if (scope.commonProbes) commands.push(`npm run playtest -- --mode=${slug} --scope=common`);
     }
+    // A `config.ts` or snapshot change also owes the tooling that reads the tables outside any
+    // test suite: the manual-page stamp and the turn-tuning doc, both `npm run test:scripts`.
+    if (scope.commonProbes) commands.push("npm run test:scripts");
     return commands;
   }
 

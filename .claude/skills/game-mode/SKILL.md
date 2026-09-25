@@ -227,8 +227,10 @@ Automatically, the moment your row exists in every registry, `describe.each` ove
 it up:
 
 - `modes/contract.test.ts` (one per package) — your `ModeRules` is internally consistent
-  (`respawns ⇒ hasMatchClock`); your controller ends a match on the condition it documents, from a
-  fixture; your HUD returns a card with non-empty copy.
+  (`hasMatchClock === respawns`); a fresh, ongoing match from a fixture reports no outcome from
+  `afterTick`, and `onMatchStart` zeroes `matchEndsTick` iff `!hasMatchClock`; your HUD returns a
+  card with non-empty copy. **It does not check that your controller ends a match on the condition
+  it documents** — write that case yourself in your own family's `controller.test.ts`.
 - `modes/invariants.test.ts` — slot range, weapon exclusivity, `maxPlayers` in `[2, MAX_PLAYERS]`,
   an `impulse` only on a `kind: "maneuver"` row, at least one registered arena, wire-width bounds.
 - `modes/registry.test.ts`, `modes/registry-arenas.test.ts`, `modes/mode-arg.test.ts` — one bundle
