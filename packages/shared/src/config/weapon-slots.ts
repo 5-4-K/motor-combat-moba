@@ -143,8 +143,8 @@ export function slotsOf(carId: CarId): readonly WeaponId[] {
  *    `beforeEach`. `bestSustainedDpsOf` counting the basic attack is deliberate, not an oversight:
  *    a sustained-DPS ceiling should count every trigger a car can pull, and including it moved
  *    Bastion's figure from 18.3 (thumper alone) to 22.5.
- * 5. `packages/server/playtest/weapons.ts`, `packages/server/playtest/weapons2.ts` and
- *    `packages/server/playtest/geometry.ts` — `carrierOf`, `hasCarrier`, `skipReasonFor` and
+ * 5. `packages/server/playtest/common/weapons.ts`, `packages/server/playtest/common/weapons2.ts` and
+ *    `packages/server/playtest/common/geometry.ts` — `carrierOf`, `hasCarrier`, `skipReasonFor` and
  *    `slotBitFor`; every probe is a one-shot process that calls `installPlaytestMode()` on its
  *    first line (MC41). Those probes sweep the mode's weapon table whole and press each row through
  *    the real slot pipeline, so "who can fire this, and on which slot" is exactly their question;

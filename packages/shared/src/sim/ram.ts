@@ -61,7 +61,7 @@ export interface RamCar {
    * tick, supplied by `serverTick`'s `TickResult.approachVelocities`. Collision resolution runs
    * before ram does, so a caller that passes post-resolution velocity makes every drive-in wrong on
    * exactly the ticks a hull overlapped. That is not hypothetical: it shipped, and it cost 80-90% of
-   * all rams until `playtest/ram.ts` measured the trigger rate.
+   * all rams until `playtest/common/ram.ts` measured the trigger rate.
    *
    * The WHOLE velocity, lateral component included — `forwardOf` is what projects it onto the car's
    * nose, which is the only component the Unity rule reads.

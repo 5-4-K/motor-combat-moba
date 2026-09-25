@@ -52,7 +52,7 @@ export interface TickResult {
    * WITHOUT overlapping: a ~1.5 unit window against a per-tick step that was 10.5-18 units at the
    * time this bug was found, so 8-20% of contacts. (The 2026-09-06 heavy-car pass has since cut
    * that step to 6.3-8.9 units; the fix and the window it measures are unaffected either way.)
-   * Measured in `playtest/ram.ts`, which is what found it.
+   * Measured in `playtest/common/ram.ts`, which is what found it.
    *
    * **A VECTOR, not the forward scalar it was through stage 3 Task 2.** The old field carried only
    * `forwardOf(vx, vy, angle)`, and `contactCarsOf` rebuilt a purely-forward `vx`/`vy` from it — a
