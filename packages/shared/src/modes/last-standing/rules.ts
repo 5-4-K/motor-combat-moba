@@ -1,4 +1,4 @@
-import type { CanStartResult, ModeRules, Sides, StartRulePlayer } from "../rules-types.js";
+import type { CanStartResult, ModeRules, Sides } from "../rules-types.js";
 
 /**
  * The rule family shared by Brawl and Team brawl (GM14): no respawns, no match clock, no chassis
@@ -21,7 +21,7 @@ export function lastStandingRules(sides: Sides): ModeRules {
 
       let team0 = 0;
       let team1 = 0;
-      for (const player of ready as readonly StartRulePlayer[]) {
+      for (const player of ready) {
         if (player.team === 0) team0 += 1;
         else if (player.team === 1) team1 += 1;
       }
