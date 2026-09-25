@@ -282,7 +282,7 @@ describe("solve — nose, not bearing", () => {
       // `basic-attack-bullseye`, not `predator`: `development/main` returned `predator`,
       // `magmablast` and `thumper` to fixed muzzles when the basic attack went off, leaving the nine
       // `basic-attack-*` rows as the table's only `turret` carriers. `solve` reads the ROW, never a
-      // fire slot, so `BASIC_ATTACK_CONFIG.enabled` does not reach it and this still measures the
+      // fire slot, so `slots().basicAttackEnabled` does not reach it and this still measures the
       // real bearing branch.
       slot: slotFor("basic-attack-bullseye"), slotIndex: 1,
       target, targetAt: constantVelocityPredictor(target),

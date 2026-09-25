@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import { DEFAULT_GAME_MODE, applyOverrides, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
-  BASIC_ATTACK_CONFIG,
   TICK_RATE_HZ,
   forwardMaxSpeedOf,
   hpOf,
@@ -21,7 +20,8 @@ beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 /**
- * Pins `BASIC_ATTACK_CONFIG.enabled` ON for one test, restoring whatever the build ships afterwards.
+ * Pins `slots().basicAttackEnabled` ON for one test, restoring the shipped default mode afterwards
+ * (GM9, Task 4: the flag has no raw global any more — `BASIC_ATTACK_CONFIG` is deleted).
  *
  * `slotsFor` builds a KIT-indexed fixture (`slotsOf`, three ability rows), so its index 0 holds an
  * ability — but in production fire slot 0 IS the basic attack (VS6) and `chooseSlot` refuses that
@@ -30,12 +30,11 @@ installMode(modeConfigOf(DEFAULT_GAME_MODE));
  * in the `chooseSlot — the basic-attack toggle` block, which sets the flag itself.
  */
 function pinBasicAttackEnabled(): void {
-  const shipped = BASIC_ATTACK_CONFIG.enabled;
   beforeEach(() => {
-    BASIC_ATTACK_CONFIG.enabled = true;
+    installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "slots.basicAttackEnabled": true }));
   });
   afterEach(() => {
-    BASIC_ATTACK_CONFIG.enabled = shipped;
+    installMode(modeConfigOf(DEFAULT_GAME_MODE));
   });
 }
 

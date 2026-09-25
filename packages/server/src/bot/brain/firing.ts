@@ -1,4 +1,4 @@
-import { BASIC_ATTACK_CONFIG, hasStatus, slots, weaponDefOf } from "@motor-combat-moba/shared";
+import { hasStatus, slots, weaponDefOf } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
 import type { Rng } from "../rng.js";
 import type { BotCarView, BotSelfView, BotSlotView, SituationId } from "../types.js";
@@ -260,7 +260,7 @@ export function chooseSlot(args: {
     // `basicAttackSlotIndex` is 0 as of 2026-09-20 (VS6), not the LAST slot it used to be, so this
     // guards the head of the scan rather than its tail. The line itself never changed — it reads
     // the constant — which is exactly why it is worth saying out loud here.
-    if (i === basicAttackSlotIndex && !BASIC_ATTACK_CONFIG.enabled) continue;
+    if (i === basicAttackSlotIndex && !slots().basicAttackEnabled) continue;
     const slot = self.slots[i]!;
     if (!slotIsReady(slot, tick)) {
       // Not ready: fired, or still mid-recharge. The episode that memo belonged to is over — the

@@ -231,7 +231,6 @@ export type { ModeDef } from "./modes/registry.js";
 export { modeLabelOf, modeOptions, modeSlug, parseModeArg } from "./modes/mode-arg.js";
 export { COLOR_TABLE, isColorId } from "./config/color-config.js";
 export {
-  BASIC_ATTACK_CONFIG,
   WEAPON_TABLE,
   instanceDefOf,
   isWeaponId,

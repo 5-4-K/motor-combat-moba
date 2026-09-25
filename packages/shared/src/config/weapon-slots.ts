@@ -1,7 +1,6 @@
 import { basicAttackOf } from "./car-config.js";
 import type { CarId } from "./types.js";
 import type { WeaponId } from "./weapon-types.js";
-import { BASIC_ATTACK_CONFIG } from "./weapon-config.js";
 import { cars } from "../modes/active.js";
 
 /**
@@ -30,11 +29,11 @@ const ABILITY_SLOTS = 3;
  * `maxFireSlots` is how many weapons a car can actually fire: the kit plus its basic attack (BA11).
  * `basicAttackSlotIndex` is 0. Both are derived rather than typed, so they cannot disagree with `N`.
  *
- * `basicAttackEnabled` mirrors `BASIC_ATTACK_CONFIG.enabled` (`config/weapon-config.ts`) into the
- * per-mode bundle so `sim/` never reaches for that global directly (MC13, MC27) — the flag itself
- * is still authored on `BASIC_ATTACK_CONFIG`, since readers outside `sim/` (the client HUD, the
- * manual builder, the bot) are not part of this migration yet; a test pins the two equal for the
- * installed mode so they cannot drift while both exist.
+ * `basicAttackEnabled` is per mode as of GM9 (Task 4) — override `slots.basicAttackEnabled` in a
+ * mode's `config.ts` to turn the basic attack on or off for that mode alone. The old
+ * `BASIC_ATTACK_CONFIG` global it used to mirror (`config/weapon-config.ts`) is deleted: every
+ * reader — `sim/`, the client HUD, the manual builder, the bot — reads this field through `slots()`
+ * now, so there is nothing left to drift.
  */
 export interface WeaponSlotConfig {
   readonly maxAbilitySlots: number;
@@ -56,7 +55,9 @@ export const WEAPON_SLOT_CONFIG: WeaponSlotConfig = {
    * is `[basicAttack, ...kit]`, so nothing about `N` can move it.
    */
   basicAttackSlotIndex: 0,
-  basicAttackEnabled: BASIC_ATTACK_CONFIG.enabled,
+  // The pinned baseline `modes/base.ts` builds `BASE_TABLES.slots` from — per-mode overrides live in
+  // each mode's own `config.ts` `slots.basicAttackEnabled`, never here.
+  basicAttackEnabled: false,
 } as const;
 
 /** Cars already warned about, so an over-long loadout logs once rather than once per tick. */

@@ -121,11 +121,11 @@ describe("hintSlotOrder (basic-attack-toggle)", () => {
   });
 
   // `development/main` carried a third case here, asserting `HINT_SLOT_ORDER` equalled
-  // `hintSlotOrder(BASIC_ATTACK_CONFIG.enabled)` — that the order came from the flag rather than
+  // `hintSlotOrder(slots().basicAttackEnabled)` — that the order came from the flag rather than
   // from one build's hardcoded answer. It is gone because its SUBJECT is: `HINT_SLOT_ORDER` was a
   // module-level const, and a const computed at import freezes whichever mode was installed first,
   // so the per-mode work replaced it with `hintSlotOrderDefault()`, resolved per call. Restating it
   // against the function would assert nothing — `hintSlotOrderDefault()` IS
-  // `hintSlotOrder(BASIC_ATTACK_CONFIG.enabled)` by definition. The durable half of that case is
+  // `hintSlotOrder(slots().basicAttackEnabled)` by definition. The durable half of that case is
   // the two above, which pin BOTH rows explicitly and hold whichever way the toggle ships.
 });

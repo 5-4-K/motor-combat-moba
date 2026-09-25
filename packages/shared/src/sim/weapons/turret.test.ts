@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { installMode } from "../../modes/active.js";
+import { installMode, slots } from "../../modes/active.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../../modes/registry.js";
 import { TURRET_TICKS } from "../../config/turret-config.js";
-import { BASIC_ATTACK_CONFIG } from "../../config/weapon-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import { beginFire, newFireState, releaseShots, tickRecharge, type FireState } from "./fire.js";
 import {
@@ -45,8 +44,8 @@ const step = TURRET_TICKS.turnPerTick;
  * carries a `turret` row on a build where no ability does.
  *
  * `development/main` returned `predator`, `magmablast` and `thumper` to fixed muzzles, which left the
- * nine `basic-attack-*` rows as the table's only turret carriers — and `BASIC_ATTACK_CONFIG.enabled`
- * is `false` here, so fire slot 0 refuses every press. Putting a basic attack in an ABILITY slot is
+ * nine `basic-attack-*` rows as the table's only turret carriers — and `slots().basicAttackEnabled`
+ * is `false` for every shipped mode, so fire slot 0 refuses every press. Putting a basic attack in an ABILITY slot is
  * what keeps these tests exercising the real mechanism against a real `WEAPON_TABLE` row: the
  * basic-attack flag gates the slot INDEX, never the row, so slot 1 fires normally.
  *
@@ -193,13 +192,13 @@ describe("carHasTurretWeapon (TR53)", () => {
     );
   });
 
-  it("defaults the basic-attack flag to BASIC_ATTACK_CONFIG.enabled", () => {
+  it("defaults the basic-attack flag to slots().basicAttackEnabled", () => {
     // Pinned against the flag rather than against a hardcoded answer, so this keeps testing the
-    // DEFAULTING either way the build ships it. `development/main` ships `false` with no turret
-    // ability, so mirage's real fire slots come back false; `feature/mouse-aim` ships `true` and
-    // the basic attack's own turret carries every car.
+    // DEFAULTING either way the installed mode ships it. `development/main`'s modes ship `false`
+    // with no turret ability, so mirage's real fire slots come back false; a mode shipping `true`
+    // would have the basic attack's own turret carry every car.
     expect(carHasTurretWeapon(["basic-attack-mirage", "thunderclap", "afterburner"])).toBe(
-      BASIC_ATTACK_CONFIG.enabled,
+      slots().basicAttackEnabled,
     );
   });
 

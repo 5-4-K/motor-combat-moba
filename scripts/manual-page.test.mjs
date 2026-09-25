@@ -2,9 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import {
-  BASIC_ATTACK_CONFIG,
   CAR_TABLE,
   GameMode,
   MODE_TABLE,
@@ -45,8 +44,19 @@ const {
   carSection,
   carrierOf,
   hitsPerTargetOf,
+  modelOf,
   stampOfModes,
 } = await import("./build-cars-and-weapons.mjs");
+
+/**
+ * A model of the DEFAULT mode with `slots.basicAttackEnabled` set to `enabled` (GM9, Task 4: the
+ * flag is per mode now, no raw `BASIC_ATTACK_CONFIG` global left to flip). `carSection(carId,
+ * model)` takes this in place of the shipped `DEFAULT_MODEL` for the cases below that need to
+ * exercise both positions of the toggle.
+ */
+function modelWithBasicAttack(enabled) {
+  return modelOf(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "slots.basicAttackEnabled": enabled }));
+}
 
 /**
  * Guards on the generated cars-and-weapons guide page.
@@ -406,30 +416,23 @@ describe("the generated manual page", () => {
   });
 });
 
-describe("the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)", () => {
-  // Captured, never hard-coded to `true` — see the same note in shared's `fire.test.ts`. Each case
-  // below SETS the position it is about rather than leaning on whichever way the build ships, so
-  // both halves of the toggle stay covered from either starting point.
-  const shipped = BASIC_ATTACK_CONFIG.enabled;
-  afterEach(() => {
-    BASIC_ATTACK_CONFIG.enabled = shipped;
-  });
+describe("the basic-attack toggle (slots().basicAttackEnabled)", () => {
+  // Each case below builds a MODEL with the position it is about (`modelWithBasicAttack`), rather
+  // than mutating a raw global — GM9 (Task 4) deleted `BASIC_ATTACK_CONFIG`, so there is nothing
+  // left to set or restore.
 
   it("prints a Basic attack card for a chassis when the toggle is enabled", () => {
-    BASIC_ATTACK_CONFIG.enabled = true;
-    assert.match(carSection("bastion"), /Basic attack/);
+    assert.match(carSection("bastion", modelWithBasicAttack(true)), /Basic attack/);
   });
 
   it("omits the Basic attack card when the toggle is disabled", () => {
-    BASIC_ATTACK_CONFIG.enabled = false;
-    assert.doesNotMatch(carSection("bastion"), /Basic attack/);
+    assert.doesNotMatch(carSection("bastion", modelWithBasicAttack(false)), /Basic attack/);
   });
 
   it("moves balanceStamp when the toggle changes, so a stale build fails loudly", () => {
-    BASIC_ATTACK_CONFIG.enabled = true;
-    const enabledStamp = balanceStamp();
-    BASIC_ATTACK_CONFIG.enabled = false;
-    assert.notEqual(balanceStamp(), enabledStamp);
+    const enabledConfig = applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "slots.basicAttackEnabled": true });
+    const disabledConfig = applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "slots.basicAttackEnabled": false });
+    assert.notEqual(stampOfModes([enabledConfig]), stampOfModes([disabledConfig]));
   });
 });
 
@@ -511,21 +514,17 @@ describe("balanceStamp covers every active mode (MC41)", () => {
  * (or a fixed-muzzle card that grows one) fails here by weapon name.
  */
 describe("the turret Aim point (TR47)", () => {
-  const shipped = BASIC_ATTACK_CONFIG.enabled;
-  afterEach(() => {
-    BASIC_ATTACK_CONFIG.enabled = shipped;
-  });
-
   it("prints Aim on every turret card and on no fixed-muzzle card", () => {
-    // Set on, so the basic-attack cards — nine of the turret rows — are on the page to be checked.
-    BASIC_ATTACK_CONFIG.enabled = true;
+    // Basic attack ON, so the basic-attack cards — nine of the turret rows — are on the page to be
+    // checked (GM9, Task 4: built as a model rather than by flipping the deleted raw global).
+    const model = modelWithBasicAttack(true);
     let turretCards = 0;
     let fixedCards = 0;
     for (const carId of activeCarIds()) {
       // Resolved per chassis: the nine basic-attack rows share one display name.
       const own = [CAR_TABLE[carId].basicAttack, ...CAR_TABLE[carId].weapons];
       const byName = new Map(own.map((id) => [WEAPON_TABLE[id].name, id]));
-      const cards = carSection(carId).split('<article class="weapon"').slice(1);
+      const cards = carSection(carId, model).split('<article class="weapon"').slice(1);
       for (const card of cards) {
         const name = /<h4>([^<]+)<\/h4>/.exec(card)?.[1];
         const id = byName.get(name);

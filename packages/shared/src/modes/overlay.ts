@@ -100,6 +100,7 @@ function rootsOf(tables: ModeTables): Readonly<Record<string, unknown>> {
     impulse: tables.impulse,
     combat: tables.combat,
     turret: tables.turret,
+    slots: tables.slots,
   };
 }
 

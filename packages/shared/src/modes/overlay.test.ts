@@ -143,4 +143,15 @@ describe("applyOverrides", () => {
     expect(tuned.deathmatch).toEqual(freshDeathmatch.deathmatch);
     expect({ ...tuned.weapons, predator: freshDeathmatch.weapons.predator }).toEqual(freshDeathmatch.weapons);
   });
+
+  // GM9 (Task 4): `slots.basicAttackEnabled` is the per-mode home of what used to be the global
+  // `BASIC_ATTACK_CONFIG.enabled` flag. `applyOverrides` needs a `slots` root to build a tuned
+  // sibling bundle with the flag flipped, which is what `withBasicAttack` (`test-setup.ts`) does.
+  it("can switch slots.basicAttackEnabled", () => {
+    const base = modeConfigOf(GameMode.FFA_LAST_STANDING);
+    expect(base.slots.basicAttackEnabled).toBe(false);
+    const tuned = applyOverrides(base, { "slots.basicAttackEnabled": true });
+    expect(tuned.slots.basicAttackEnabled).toBe(true);
+    expect(base.slots.basicAttackEnabled).toBe(false);
+  });
 });

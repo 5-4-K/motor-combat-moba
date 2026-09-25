@@ -34,15 +34,13 @@
 // joins them for completeness (`derived().chassisDrive`), though no walked file was found reading it
 // raw.
 //
-// `BASIC_ATTACK_CONFIG` is REMOVED from the list task 5b inherited. It is a genuine build-time
-// global outside the per-mode bundle — confirmed against `ModeTables`/`ModeConfig`, neither of which
-// carries it, and against `01-accessor-layer/task-4-5-report.md`, which converted its sibling field
-// (`WEAPON_SLOT_CONFIG.basicAttackEnabled`) but deliberately left `BASIC_ATTACK_CONFIG.enabled`
-// itself raw everywhere, including `sim/fire.ts` and `bot/brain/firing.ts`. It was never actually
-// read raw inside `sim/` (zero offenders either way), so leaving it banned was harmless there; but
-// banning it across client/server would flag five genuinely-correct raw reads
-// (`bot/brain/firing.ts`, `client/config/{aim-hud,slot-keys}.ts`, `client/scenes/movement-hint.ts`,
-// `client/scenes/ArenaScene.ts`) that have nothing to do with this guard's purpose.
+// `BASIC_ATTACK_CONFIG` was never added to `BANNED` above — it stayed a genuine build-time global
+// outside the per-mode bundle from task 5b through the rest of the accessor-layer work, since only
+// its sibling field (`WEAPON_SLOT_CONFIG.basicAttackEnabled`) had a per-mode home at the time. As of
+// GM9 (Task 4) `BASIC_ATTACK_CONFIG` is deleted outright: the flag lives only as
+// `slots.basicAttackEnabled` now, read through `slots()` everywhere — `bot/brain/firing.ts`,
+// `client/config/{aim-hud,slot-keys}.ts`, `client/scenes/movement-hint.ts` and
+// `client/scenes/ArenaScene.ts` all switched over. There is nothing left to ban or exempt.
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative as pathRelative } from "node:path";

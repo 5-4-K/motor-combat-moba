@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import { DEFAULT_GAME_MODE, applyOverrides, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
-  BASIC_ATTACK_CONFIG,
   WEAPON_SLOT_CONFIG,
   basicAttackOf,
   slotsOf,
@@ -46,7 +45,15 @@ function solutionsFor(
 }
 
 /**
- * Pins `BASIC_ATTACK_CONFIG.enabled` ON for one test, restoring whatever the build ships afterwards.
+ * Installs the default mode's bundle with `slots.basicAttackEnabled` set to `enabled` (GM9, Task 4:
+ * the flag has no raw global any more — `BASIC_ATTACK_CONFIG` is deleted).
+ */
+function installBasicAttackEnabled(enabled: boolean): void {
+  installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "slots.basicAttackEnabled": enabled }));
+}
+
+/**
+ * Pins `slots().basicAttackEnabled` ON for one test, restoring the shipped default mode afterwards.
  *
  * `slotsFor` builds a KIT-indexed fixture (`slotsOf`, three ability rows), so its index 0 holds an
  * ability — but in production fire slot 0 IS the basic attack (VS6) and `chooseSlot` refuses that
@@ -55,13 +62,8 @@ function solutionsFor(
  * in the `chooseSlot — the basic-attack toggle` block, which sets the flag itself.
  */
 function pinBasicAttackEnabled(): void {
-  const shipped = BASIC_ATTACK_CONFIG.enabled;
-  beforeEach(() => {
-    BASIC_ATTACK_CONFIG.enabled = true;
-  });
-  afterEach(() => {
-    BASIC_ATTACK_CONFIG.enabled = shipped;
-  });
+  beforeEach(() => installBasicAttackEnabled(true));
+  afterEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 }
 
 function slotsFor(carId: "bullseye" | "mirage" | "bastion"): BotSlotView[] {
@@ -669,11 +671,9 @@ describe("chooseSlot — expected value gate (P14, R20)", () => {
   });
 });
 
-describe("chooseSlot — the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)", () => {
-  // Captured, never hard-coded to `true` — see the same note in shared's `fire.test.ts`.
-  const shipped = BASIC_ATTACK_CONFIG.enabled;
+describe("chooseSlot — the basic-attack toggle (slots().basicAttackEnabled)", () => {
   afterEach(() => {
-    BASIC_ATTACK_CONFIG.enabled = shipped;
+    installMode(modeConfigOf(DEFAULT_GAME_MODE));
   });
 
   /** A real four-slot loadout — kit plus the chassis's own basic attack, as `newFireState` builds it. */
@@ -697,7 +697,7 @@ describe("chooseSlot — the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)",
   }
 
   it("never selects the basic-attack slot when disabled, even when it scores far above every ability", () => {
-    BASIC_ATTACK_CONFIG.enabled = false;
+    installBasicAttackEnabled(false);
     const decision = chooseSlot({
       self: selfWithBasicAttack("bastion"),
       target,
@@ -718,7 +718,7 @@ describe("chooseSlot — the basic-attack toggle (BASIC_ATTACK_CONFIG.enabled)",
   });
 
   it("selects the basic-attack slot when enabled and it is the clear best score", () => {
-    BASIC_ATTACK_CONFIG.enabled = true;
+    installBasicAttackEnabled(true);
     const decision = chooseSlot({
       self: selfWithBasicAttack("bastion"),
       target,

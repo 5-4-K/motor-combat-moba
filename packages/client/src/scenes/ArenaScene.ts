@@ -12,7 +12,6 @@ import type {
 import {
   modifiersFromRows,
   ARENA_IDS,
-  BASIC_ATTACK_CONFIG,
   camera,
   drive,
   statusConfig,
@@ -4706,8 +4705,8 @@ export class ArenaScene extends Phaser.Scene {
       // show.
       ...this.buildHintRow(
         gfx,
-        actionKeysFor(this.localAbilityCount(), BASIC_ATTACK_CONFIG.enabled),
-        actionAltsFor(this.localAbilityCount(), BASIC_ATTACK_CONFIG.enabled),
+        actionKeysFor(this.localAbilityCount(), slots().basicAttackEnabled),
+        actionAltsFor(this.localAbilityCount(), slots().basicAttackEnabled),
         ACTION_LABEL,
         ACTION_HINT_Y,
       ),

@@ -42,7 +42,6 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  BASIC_ATTACK_CONFIG,
   DEFAULT_GAME_MODE,
   MODE_TABLE,
   TICK_RATE_HZ,
@@ -59,6 +58,7 @@ import {
   hpOf,
   modeConfigOf,
   playableExtentOf,
+  slots,
   slotsOf,
   statusDefOf,
   statusTable,
@@ -315,7 +315,7 @@ function derive(model, id) {
  * `isActive` is itself per mode — `cars` is one of the thirteen tables a mode folder authors — so a
  * chassis published in one mode and held back in another is a shape this already handles.
  */
-function modelOf(config) {
+export function modelOf(config) {
   return withMode(config, () => {
     const carIds = activeCarIds();
     const model = {
@@ -435,10 +435,6 @@ export function carrierOf(weaponId) {
 export function stampOfModes(configs) {
   const inputs = {
     // ---- GLOBAL inputs. Not per mode, and the page prints each of them exactly once.
-    //
-    // Whether the Basic attack card prints at all — the toggle changes what the page says without
-    // touching any table the per-mode keys below already hash.
-    basicAttackEnabled: BASIC_ATTACK_CONFIG.enabled,
     tickRateHz: TICK_RATE_HZ,
     // The RENDERED copy, not the raw templates: the stamp should fingerprint what the page says.
     copy: { MANUAL_META, CHASSIS_COPY, WEAPON_COPY, EFFECT_SOURCES },
@@ -472,6 +468,11 @@ export function stampOfModes(configs) {
       // How many ability slots this mode has. N changes how many weapons each chassis lists, which
       // is something the page SAYS, so it belongs in the fingerprint (VS30).
       abilitySlots: config.slots.maxAbilitySlots,
+      // Whether the Basic attack card prints at all for THIS mode (GM9, Task 4) — the toggle
+      // changes what the page says without touching any other per-mode key here, and it is per
+      // mode now rather than a build-time global, so it moved from the global inputs above into
+      // each mode's own entry.
+      basicAttackEnabled: config.slots.basicAttackEnabled,
       // The turret's turn rate, which every turret weapon's Aim point prints (TR47). Only the
       // rate: `defaultOffset` places the shot but the page never states it, so hashing it would
       // demand a rebuild that changes nothing but this tag.
@@ -872,7 +873,7 @@ function renderCarSection(model, carId) {
       )
       .join("")}</ul>
     <div class="weapons">${[
-      ...(BASIC_ATTACK_CONFIG.enabled ? [basicAttackOf(carId)] : []),
+      ...(slots().basicAttackEnabled ? [basicAttackOf(carId)] : []),
       // `slotsOf` already truncates to this build's N (VS30) — no second cap needed here.
       ...slotsOf(carId),
     ].map((id) => weaponCard(model, model.byId[id])).join("")}</div>

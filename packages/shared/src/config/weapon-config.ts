@@ -36,48 +36,13 @@ const BASIC_ATTACK_BASE = {
   pierce: 0,
   volley: { volleys: 1, volleyIntervalMs: 0 },
   pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
-  // Kept on this build even though `BASIC_ATTACK_CONFIG.enabled` is `false` and the three ability
-  // rows gave theirs back: the flag is what silences the weapon, and stripping the row as well
-  // would mean two edits to bring the basic attack back instead of one. It reaches nothing while
-  // the flag is off — `carHasTurretWeapon` skips fire slot 0 outright — so it costs a build nothing
-  // to leave authored.
+  // Kept on this build even though `slots().basicAttackEnabled` is `false` for every shipped mode
+  // and the three ability rows gave theirs back: the flag is what silences the weapon, and
+  // stripping the row as well would mean two edits to bring the basic attack back instead of one.
+  // It reaches nothing while the flag is off — `carHasTurretWeapon` skips fire slot 0 outright — so
+  // it costs a build nothing to leave authored.
   turret: { additionalOffset: 0 },
 } as const;
-
-/**
- * The basic-attack toggle. A build-time flag, not a live-session setting: flip it, rebuild
- * shared/server/client and `npm run build:manual`, the same weight as `CarDef.isActive`.
- *
- * Deliberately NOT `as const` — every other `_CONFIG` object in this package is a frozen balance
- * table nothing should ever reassign, but this one field exists specifically to be edited, and a
- * literal `true` type would make `enabled = false` a compile error. Flipping it either way does not
- * touch the nine `basic-attack-*` rows, `CarDef.basicAttack`, or its `WeaponSlotState` at index 0 —
- * the structure stays exactly as BA1-BA38 left it. What actually reads this flag: `beginFire`
- * (`sim/weapons/fire.ts`) refuses a press on the basic-attack fire slot when disabled, so the key
- * does nothing; `BotController`'s `chooseSlot` (`server/src/bot/brain/firing.ts`) never selects that
- * slot either while disabled, so a bot does not waste its one press a tick on a weapon that cannot
- * fire; the client's `hintSlotOrder` (`config/slot-keys.ts`) drops the slot from the countdown
- * action hint entirely, not merely from firing, whenever it is off; and
- * `scripts/build-cars-and-weapons.mjs` skips the "Basic attack" card on every chassis while it is
- * off and folds this flag into `balanceStamp` so a stale manual build fails loudly either way it
- * moves. `fireSlotsOf`, the balance harness, `npm run ttk` and the playtest probes are deliberately
- * left unaware of it — they sweep every `WEAPON_TABLE` row structurally and gating them risks
- * breaking `carrierOf`'s lookup for the nine rows it must always be able to find a chassis for.
- *
- * It shipped `true` on `feature/mouse-aim` (TR46), where cars fired the basic attack alongside their
- * ability kit on `LMB`. **It ships `false` on `development/main`**, flipped when that branch merged:
- * this build's cars fire their three abilities and nothing else, so `LMB` is bound to a weapon that
- * refuses every press, the countdown hint reads `RMB Q E to fire`, and no chassis shows a
- * "Basic attack" card in the guide.
- *
- * That flip is half of one decision, and the other half is in `WEAPON_TABLE` below: `predator`,
- * `magmablast` and `thumper` gave their `turret` rows back at the same time. Nine basic attacks that
- * cannot be pressed plus zero turret abilities means `carHasTurretWeapon` (TR53) is false for every
- * chassis on this build — so no car draws a turret, no room captures the pointer, and the crosshair
- * and the turret half of the aim HUD never appear. None of that machinery is deleted; it is held
- * dormant by these two edits and comes back the moment either is undone.
- */
-export const BASIC_ATTACK_CONFIG: { enabled: boolean } = { enabled: false };
 
 /**
  * Every weapon in the game, mirroring `CAR_TABLE`. Balance lives here and nowhere else.

@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { installMode } from "../modes/active.js";
+import { installMode, slots } from "../modes/active.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { TICK_RATE_HZ } from "../constants.js";
 import { CAR_TABLE, activeCarIds, basicAttackIds, turretMountOf } from "./car-config.js";
 import { carHasTurretWeapon } from "../sim/weapons/turret.js";
 import { fireSlotsOf } from "./weapon-slots.js";
 import { TURRET_CONFIG, TURRET_TICKS } from "./turret-config.js";
-import { BASIC_ATTACK_CONFIG, WEAPON_TABLE } from "./weapon-config.js";
+import { WEAPON_TABLE } from "./weapon-config.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
@@ -34,9 +34,9 @@ describe("turret config (TR1-TR5)", () => {
     // to follow today.
     const basics = [...basicAttackIds()];
     // `predator`, `magmablast` and `thumper` carried a turret on `feature/mouse-aim` and gave it
-    // back on `development/main`, alongside `BASIC_ATTACK_CONFIG.enabled` going `false`. That pair
-    // of edits is the whole of this build's "no car has a turret" posture, and this row is where a
-    // third weapon quietly gaining one would be caught.
+    // back on `development/main`, alongside `slots().basicAttackEnabled` going `false` for every
+    // shipped mode. That pair of edits is the whole of this build's "no car has a turret" posture,
+    // and this row is where a third weapon quietly gaining one would be caught.
     expect(turretIds).toEqual([...basics].sort());
   });
 
@@ -45,7 +45,7 @@ describe("turret config (TR1-TR5)", () => {
     // pressed, and no turret ability. Every car therefore draws no turret, captures no pointer, and
     // shows no crosshair or turret HUD. Asserted over the real roster rather than trusted from the
     // two edits separately, since it is their CONJUNCTION that produces it.
-    expect(BASIC_ATTACK_CONFIG.enabled).toBe(false);
+    expect(slots().basicAttackEnabled).toBe(false);
     for (const carId of activeCarIds()) {
       expect(carHasTurretWeapon(fireSlotsOf(carId).map((s) => s.weaponId)), carId).toBe(false);
     }

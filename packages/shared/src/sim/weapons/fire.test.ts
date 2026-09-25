@@ -28,10 +28,9 @@ const ABILITY_1 = 0b010;
 /**
  * Pins `slots().basicAttackEnabled` ON for the enclosing `describe`, restoring the ordinary
  * `BRAWL_TABLES` bundle afterwards — the same idiom `installBasicAttackEnabled` below uses for the
- * toggle block itself, since `beginFire` reads the flag off the installed mode bundle (MC13), not
- * off `BASIC_ATTACK_CONFIG.enabled` directly: the bundle is assembled and frozen once, so mutating
- * that raw global no longer reaches it, and a `beforeEach` that only flipped the global would be
- * inert here whenever the shipped bundle's `basicAttackEnabled` disagreed with it.
+ * toggle block itself. The flag lives only on the mode bundle now (GM9, Task 4; there is no raw
+ * global to mutate any more), so exercising a fixed position means installing a fresh bundle with
+ * the flag set the way the block wants and restoring the shipped bundle afterward.
  *
  * Needed because `beginFire` refuses fire slot 0 outright while the toggle is off (VS6: slot 0 IS
  * the basic-attack slot, whatever weapon a fixture happens to put there), so any block that presses
@@ -498,8 +497,8 @@ describe("beginFire pressId (B7)", () => {
 });
 
 describe("the basic attack slot", () => {
-  // These cover the MECHANIC, which `BASIC_ATTACK_CONFIG.enabled` switches off without deleting —
-  // so they pin the flag on rather than lean on however the build happens to ship it. Without this
+  // These cover the MECHANIC, which `slots().basicAttackEnabled` switches off without deleting —
+  // so they pin the flag on rather than lean on however the installed mode happens to ship it. Without this
   // the block silently stops testing anything the day the toggle goes off, which is exactly when a
   // regression in it would go unnoticed. The toggle's own behaviour is covered further down.
   pinBasicAttackEnabled();
@@ -581,12 +580,10 @@ describe("the basic attack slot", () => {
 });
 
 describe("the basic-attack toggle (slots().basicAttackEnabled)", () => {
-  // `beginFire` reads the flag off the installed mode bundle (`slots().basicAttackEnabled`), not off
-  // `BASIC_ATTACK_CONFIG.enabled` directly (MC13) — the bundle is assembled and frozen once, so
-  // mutating the raw global no longer reaches it. Exercising both positions here means installing a
-  // fresh bundle with the flag set the way each test wants, and restoring the ordinary
-  // `BRAWL_TABLES` bundle (what this file's own top-level `beforeEach` installs before every test)
-  // afterward.
+  // `beginFire` reads the flag off the installed mode bundle (`slots().basicAttackEnabled`) — the
+  // only home it has (GM9, Task 4). Exercising both positions here means installing a fresh bundle
+  // with the flag set the way each test wants, and restoring the ordinary `BRAWL_TABLES` bundle
+  // (what this file's own top-level `beforeEach` installs before every test) afterward.
   function installBasicAttackEnabled(enabled: boolean): void {
     installMode(
       assembleModeConfig(DEFAULT_GAME_MODE, {

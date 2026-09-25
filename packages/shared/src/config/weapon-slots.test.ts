@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CAR_TABLE, basicAttackIds, basicAttackOf } from "./car-config.js";
 import type { CarId } from "./types.js";
-import { BASIC_ATTACK_CONFIG, WEAPON_TABLE } from "./weapon-config.js";
+import { WEAPON_TABLE } from "./weapon-config.js";
 import { ABILITY_SLOT_CEILING, WEAPON_SLOT_CONFIG, slotsOf, slotsFrom, fireSlotsOf } from "./weapon-slots.js";
 import { installMode, slots } from "../modes/active.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
@@ -9,18 +9,10 @@ import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 afterEach(() => vi.restoreAllMocks());
 
-describe("basicAttackEnabled (MC27)", () => {
-  it("mirrors BASIC_ATTACK_CONFIG.enabled for the installed mode, so the two cannot drift", () => {
-    // `sim/` reads the flag off the bundle (`slots().basicAttackEnabled`) rather than off
-    // `BASIC_ATTACK_CONFIG` directly (MC13); `BASIC_ATTACK_CONFIG` itself stays the source the flag
-    // is authored on, since readers outside `sim/` (the client HUD, the manual builder, the bot)
-    // still read it raw. This pins the two equal for the default mode installed by this suite's
-    // own `beforeEach`, so a future edit to one without the other fails here instead of silently
-    // landing two different answers.
-    expect(WEAPON_SLOT_CONFIG.basicAttackEnabled).toBe(BASIC_ATTACK_CONFIG.enabled);
-    expect(slots().basicAttackEnabled).toBe(BASIC_ATTACK_CONFIG.enabled);
-  });
-});
+// GM9 (Task 4): the test that used to pin `slots().basicAttackEnabled` equal to the raw
+// `BASIC_ATTACK_CONFIG.enabled` global lived here (`describe("basicAttackEnabled (MC27)", ...)`).
+// The global is gone — `slots().basicAttackEnabled` is the only copy of the flag left, so there is
+// nothing left for it to drift from, and the test is deleted rather than rewritten.
 
 describe("loadouts", () => {
   it("gives every ACTIVE car between one and the ceiling's worth of weapons", () => {

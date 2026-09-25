@@ -39,7 +39,7 @@
  * capability gate above, where hiding it is the point.
  *
  * None of it owes a rebuild of anything generated. `scripts/build-cars-and-weapons.mjs` never reads
- * these and `balanceStamp` never hashes them — unlike `BASIC_ATTACK_CONFIG.enabled`, which hides a
+ * these and `balanceStamp` never hashes them — unlike `slots().basicAttackEnabled`, which hides a
  * real weapon and therefore owes the manual, the bot and the hint. These hide a drawing.
  */
 export const AIM_HUD_CONFIG: { enabled: boolean; turretHud: boolean; muzzleHud: boolean } = {

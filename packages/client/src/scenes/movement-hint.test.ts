@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf, slots } from "@motor-combat-moba/shared";
 import { GameMode, PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
 import { isSpectating } from "./spectate.js";
-import { BASIC_ATTACK_CONFIG, WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
+import { WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
 import { SLOT_KEYS, hintSlotOrder, hintSlotOrderDefault } from "../config/slot-keys.js";
 import {
   MOVEMENT_ARROWS,
@@ -124,7 +124,7 @@ describe("movementHintItems", () => {
     expect(actionKeysFor(full, true)).toEqual(["LMB", "RMB", "Q", "E"]);
     expect(actionKeysFor(full, false)).toEqual(["RMB", "Q", "E"]);
     // And whichever way THIS build ships it, the hint's own order is the row that gets drawn.
-    const enabled = BASIC_ATTACK_CONFIG.enabled;
+    const enabled = slots().basicAttackEnabled;
     expect(actionKeysFor(full, enabled)).toEqual(hintSlotOrderDefault().map((s) => SLOT_KEYS[s]!.glyph));
     // One layout now, so `actionAltsFor` has nothing left to print either way.
     expect(actionAltsFor(full, true)).toEqual([]);

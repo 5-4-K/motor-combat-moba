@@ -34,7 +34,7 @@ export const MOVEMENT_LABEL = "to move";
  * Parameterised by kit size (VS19): with variable kits a module constant would teach a two-weapon
  * chassis a binding for a slot it does not carry. The basic attack is taught FIRST and is the only
  * place its binding appears — the gutter pill never carries it (BA19) — so dropping it when
- * `BASIC_ATTACK_CONFIG.enabled` is false must remove the pill, not leave a dead one.
+ * `slots().basicAttackEnabled` is false must remove the pill, not leave a dead one.
  */
 export function actionKeysFor(abilities: number, enabled: boolean): readonly string[] {
   return hintSlotOrder(enabled, abilities).map((slot) => SLOT_KEYS[slot]!.glyph);

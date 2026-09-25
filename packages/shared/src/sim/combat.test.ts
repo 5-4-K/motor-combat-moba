@@ -106,9 +106,10 @@ function playerAt(sessionId: string, x: number, y: number, angle: number): Comba
  *
  * `development/main` returned `predator`, `magmablast` and `thumper` to fixed muzzles when the basic
  * attack went off, which leaves the nine `basic-attack-*` rows as the table's only `turret`
- * carriers — and `BASIC_ATTACK_CONFIG.enabled` is `false`, so fire slot 0 refuses every press. The
- * flag gates the slot INDEX and never the row, so a basic attack sitting in an ABILITY slot fires
- * normally and these cases keep exercising the real turret branch of `runCombat`.
+ * carriers — and `slots().basicAttackEnabled` is `false` for every shipped mode, so fire slot 0
+ * refuses every press. The flag gates the slot INDEX and never the row, so a basic attack sitting
+ * in an ABILITY slot fires normally and these cases keep exercising the real turret branch of
+ * `runCombat`.
  */
 const TURRET_KIT = ["basic-attack-mirage", "thunderclap", "afterburner"];
 const TURRET_ROW = "basic-attack-mirage";
@@ -657,9 +658,8 @@ describe("dealDamageTo", () => {
 /**
  * Pins `slots().basicAttackEnabled` ON for the enclosing `describe`, restoring the ordinary
  * `BRAWL_TABLES` bundle afterwards — mirrors `weapons/fire.test.ts`'s helper of the same name and
- * the same reason: `beginFire` reads the flag off the installed mode bundle (MC13), not off
- * `BASIC_ATTACK_CONFIG.enabled` directly, so a `beforeEach` that only flipped the raw global would
- * be inert here whenever the shipped bundle's `basicAttackEnabled` disagreed with it.
+ * the same reason: the flag lives only on the mode bundle (GM9, Task 4; there is no raw global to
+ * mutate any more), so exercising a fixed position means installing a fresh bundle with the flag on.
  *
  * The hand-built one-slot fire states below put an ordinary ability at index 0 and press bit 0, but
  * index 0 IS the basic-attack fire slot (VS6) and `beginFire` refuses it outright while the toggle

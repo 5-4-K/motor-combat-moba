@@ -286,7 +286,7 @@ describe("turret spawn (TR18-TR19)", () => {
    * serve here: `development/main` returned `predator`, `magmablast` and `thumper` to fixed muzzles
    * when the basic attack went off, leaving the nine `basic-attack-*` rows as the table's only
    * `turret` carriers. `spawnInstances` reads the row, never the fire slot, so
-   * `BASIC_ATTACK_CONFIG.enabled` does not reach it and these stay a test of the real spawn branch.
+   * `slots().basicAttackEnabled` does not reach it and these stay a test of the real spawn branch.
    */
   const TURRET_ROW = "basic-attack-mirage" as const;
 

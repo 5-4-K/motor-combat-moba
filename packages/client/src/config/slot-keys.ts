@@ -1,4 +1,4 @@
-import { BASIC_ATTACK_CONFIG, slots } from "@motor-combat-moba/shared";
+import { slots } from "@motor-combat-moba/shared";
 
 /**
  * Which inputs fire which FIRE SLOT, indexed by slot: 0 is the basic attack, 1..N are the ability
@@ -48,7 +48,7 @@ export const SLOT_KEYS: readonly {
 /**
  * Fire slots in the order the countdown hint teaches them: basic attack first when it can fire at
  * all (BA19), dropped from the row entirely rather than merely unpressable when
- * `BASIC_ATTACK_CONFIG.enabled` is false — the hint is the only place its binding is taught, so
+ * `slots().basicAttackEnabled` is false — the hint is the only place its binding is taught, so
  * disabling the weapon must remove the pill, not just the effect of pressing it.
  *
  * Takes an explicit `enabled` rather than reading the config directly so it stays a pure function —
@@ -74,7 +74,7 @@ export function hintSlotOrder(
  * count instead of relying on this default.
  */
 export function hintSlotOrderDefault(): readonly number[] {
-  return hintSlotOrder(BASIC_ATTACK_CONFIG.enabled);
+  return hintSlotOrder(slots().basicAttackEnabled);
 }
 
 /**
