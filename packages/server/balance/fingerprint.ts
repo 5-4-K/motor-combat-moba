@@ -95,9 +95,10 @@ function stableStringify(value: unknown): string {
  * Changes whenever any balance-relevant config field changes, however small — and, since MC41,
  * whenever the run measures a different mode.
  *
- * Two modes never share a fingerprint, even though they ship byte-identical tables today
- * (`table-pinning.test.ts` enforces that) — which matters, because a hash over the mode-BLIND raw
- * globals gave a Brawl run and a Deathmatch run the same value and let `--baseline` compare two
+ * Two modes never share a fingerprint, even though they ship byte-identical tables today (neither's
+ * `config.ts` overrides them, so both resolve to the same base) — which matters, because a hash
+ * over the mode-BLIND raw globals gave a Brawl run and a Deathmatch run the same value and let
+ * `--baseline` compare two
  * different games as if they were one. Two things carry the mode into the hash and either alone
  * would do it: the top-level `mode` key here, and `ModeConfig.id`, which every assembled bundle
  * carries as a field of its own. The redundancy is deliberate and cheap — the payload should say

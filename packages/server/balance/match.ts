@@ -5,10 +5,15 @@
  * A match starts already in `RoomPhase.MATCH` with cars placed and armed, which is what
  * `ArenaRoom.revealCars` hands off to the countdown for in a real room. What follows is the same
  * `statusTick -> serverTick -> contactTick -> combat` pipeline (`runPipeline`), the same respawn
- * lifecycle (`respawnSweep`, run inside `runPipeline` via `combatTick`'s `phaseEndSweep`), and the
- * same win rule (`rulesOf(mode).winRuleLabel`, `deathmatchEnded`/`deathmatchOutcome`, `livingSides`)
- * the room itself reads. A harness with its own copy of any of that would be measuring a game
- * nobody plays.
+ * lifecycle (`respawnSweep`, gated the same way `ArenaRoom.tick` gates it — `rulesOf(mode).respawns`
+ * — and run inside `runPipeline` via `combatTick`'s `phaseEndSweep`), and the same win rule the room
+ * itself reads: `controllerOf(mode)`, called `onMatchStart` once and `afterTick` every tick, exactly
+ * as `ArenaRoom.tick` calls it (Finding 9, 2026-09-25). This harness used to keep its own copy of
+ * the deathmatch/last-standing branch (`deathmatchEnded`/`deathmatchOutcome` vs `livingSides`,
+ * chosen by `winRuleLabel === "deathmatch"`) — a second implementation of the same win test the room
+ * runs, which is exactly the kind of drift a mode's controller exists to prevent. `deathmatchOutcome`
+ * is still called directly, but only for POST-match ranking (`placementsFor`) — a full placement
+ * order the controller's interface has no way to return, since it only reports a winner.
  */
 import {
   ArenaState,
@@ -18,12 +23,10 @@ import {
   RoomPhase,
   TICK_RATE_HZ,
   assignSpawns,
-  deathmatchEnded,
   deathmatchOutcome,
   getArena,
   hasStatus,
   hpOf,
-  livingSides,
   newCombatEvents,
   rulesOf,
   type BotDifficulty,
@@ -32,7 +35,6 @@ import {
   type DeathmatchPlayer,
   type FiredEvent,
   type InputMessage,
-  type LivingPlayer,
 } from "@motor-combat-moba/shared";
 import {
   buildBotView,
@@ -48,6 +50,8 @@ import {
 import { newCombatMemory, type CombatMemory } from "../src/sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../src/sim/ram-bridge.js";
 import { readStatuses } from "../src/sim/status-bridge.js";
+import { controllerOf } from "../src/modes/registry.js";
+import type { ModeRoomView } from "../src/modes/types.js";
 import { respawnSweep, runPipeline, type PipelineCtx } from "../src/rooms/tick-pipeline.js";
 
 export interface MatchSetup {
@@ -122,22 +126,16 @@ export interface MatchOutcome {
  */
 export function runMatch(setup: MatchSetup): MatchOutcome {
   const spawnRng = makeRng(setup.seed);
-  const deathmatch = rulesOf(setup.mode).winRuleLabel === "deathmatch";
+  // `hasMatchClock === respawns` (the shared contract test) for every shipped mode, so one flag
+  // covers both the respawn-sweep gate and the "does this mode run on a clock" question below.
+  const respawns = rulesOf(setup.mode).respawns;
+  const controller = controllerOf(setup.mode);
   const botConfig = botConfigOf(setup.mode);
 
   const state = new ArenaState();
   state.arenaId = setup.arenaId;
   state.phase = RoomPhase.MATCH;
   state.mode = setup.mode;
-  // The harness's own match length IS the deathmatch clock, rather than the game's default 180 s
-  // (`DEATHMATCH_TICKS.match`). A real room always runs the full 180 s, so `ArenaRoom.applyFlow`
-  // stamps that constant on the edge into MATCH — but this harness's loop cap is `setup.maxTicks`,
-  // and for any `matchSeconds` under 180 the loop would exit on that cap before `deathmatchEnded`
-  // ever fires. Every match would record a draw (`winnerSessionId: ""`) and per-car win rate — the
-  // harness's headline statistic — would always read 0%, silently, for exactly the shortened runs
-  // the plan offers for fast iteration (`--match-seconds`). The win RULE stays the room's own
-  // (`deathmatchEnded`, `deathmatchOutcome`) — only the clock it reads is the harness's.
-  state.matchEndsTick = deathmatch ? setup.maxTicks : 0;
 
   const matchRoster = new Set(setup.seats.map((seat) => seat.sessionId));
   const inputQueues = new Map<string, InputMessage[]>();
@@ -213,9 +211,26 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
     // from `rulesOf(mode).respawns`, and the harness must not call `phaseEndSweep` a second time
     // itself: it would double-apply the same tick's phase decision (a `refresh` branch would extend
     // spawn protection twice in one tick).
-    runPhaseSweep: deathmatch,
+    runPhaseSweep: respawns,
     events,
   });
+
+  /** The slice of room state the controller reads — matches `ArenaRoom.modeView()`. */
+  const view: ModeRoomView = { state, roster: matchRoster };
+
+  // Same edge `ArenaRoom.applyFlow` fires on entering MATCH: stamp the clock, reset whatever the
+  // family owns (e.g. Conquer's zone).
+  controller.onMatchStart(view);
+  // The harness's own match length IS the clock, rather than the game's default 180 s
+  // (`derived().deathmatchTicks.match`, what `stampMatchClock` just stamped above for a clocked
+  // mode). A real room always runs the full 180 s, but this harness's loop cap is `setup.maxTicks`,
+  // and for any `matchSeconds` under 180 the loop would exit on that cap before the controller's own
+  // clock check ever fires. Every match would record a draw (`winnerSessionId: ""`) and per-car win
+  // rate — the harness's headline statistic — would always read 0%, silently, for exactly the
+  // shortened runs the plan offers for fast iteration (`--match-seconds`). The win RULE stays the
+  // controller's own; only the clock it reads is overridden to the harness's here, after
+  // `onMatchStart` has already run.
+  if (respawns) state.matchEndsTick = setup.maxTicks;
 
   const aliveTicks = new Map<string, number>(setup.seats.map((seat) => [seat.sessionId, 0]));
   // Task 17's `phasedFraction` denominator's numerator — see the field's doc comment on
@@ -250,7 +265,7 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
     // Top of the tick, before statuses — same placement `ArenaRoom.tick` and `PracticeRoom.tick`
     // use, and the comment on `respawnSweep` explains why: the modifiers derived moments later must
     // already reflect a freshly respawned car's `phased` status.
-    if (deathmatch) respawnSweep(ctx());
+    if (respawns) respawnSweep(ctx());
 
     // Once per tick, not once per seat: the world at this tick does not depend on who is asking, and
     // every seat's bot below reads the SAME ring for THIS tick before it decides.
@@ -262,7 +277,7 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
       const rng = botRngs.get(seat.sessionId);
       if (!queue || !bot || !rng) continue;
 
-      const view = buildBotView({
+      const botView = buildBotView({
         state,
         selfSessionId: seat.sessionId,
         combat,
@@ -271,14 +286,14 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
         stalenessTicks: botConfig.profiles[setup.difficulty].viewStalenessTicks,
         ring,
       });
-      if (!view) continue;
+      if (!botView) continue;
 
       const seq = (seqs.get(seat.sessionId) ?? 0) + 1;
       seqs.set(seat.sessionId, seq);
-      queue.push({ seq, ...bot.decide(view) });
+      queue.push({ seq, ...bot.decide(botView) });
     }
 
-    runPipeline(ctx());
+    const { combatPlayers } = runPipeline(ctx());
 
     // New fires from the tick `runPipeline` just simulated, ready for NEXT tick's views.
     previousTickFires = events.fired.slice(firedCursor);
@@ -292,24 +307,17 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
         if (hasStatus(readStatuses(player), "phased", state.tick)) {
           phasedTicks.set(seat.sessionId, (phasedTicks.get(seat.sessionId) ?? 0) + 1);
         }
-      } else if (!deathmatch && !deathTick.has(seat.sessionId)) {
+      } else if (!respawns && !deathTick.has(seat.sessionId)) {
         deathTick.set(seat.sessionId, state.tick);
       }
     }
 
-    // The win check is the room's, not the harness's (B29) — the same two calls `ArenaRoom.tick`
-    // makes, on the state combat just wrote.
-    if (deathmatch) {
-      if (deathmatchEnded(matchRoster.size, state.tick, state.matchEndsTick)) {
-        const outcome = deathmatchOutcome(deathmatchPlayers(setup, state));
-        winnerSessionId = outcome.winnerSessionId;
-        winnerTeam = outcome.winnerTeam;
-        concluded = true;
-        break;
-      }
-    } else {
-      const outcome = livingSides(rulesOf(setup.mode).sides, livingPlayers(setup, state));
-      if (outcome.sides <= 1) {
+    // The win check is the controller's, not the harness's (B29, Finding 9) — the same call
+    // `ArenaRoom.tick` makes, on the state combat just wrote, skipped the same way the room skips it
+    // when combat itself was skipped this tick (`combatPlayers === null`).
+    if (combatPlayers) {
+      const outcome = controller.afterTick(view, combatPlayers);
+      if (outcome) {
         winnerSessionId = outcome.winnerSessionId;
         winnerTeam = outcome.winnerTeam;
         concluded = true;
@@ -318,7 +326,7 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
     }
   }
 
-  const placements = placementsFor(setup, state, deathmatch, deathTick);
+  const placements = placementsFor(setup, state, respawns, deathTick);
 
   const seats = setup.seats.map((seat) => {
     const player = state.players.get(seat.sessionId);
@@ -351,18 +359,6 @@ function deathmatchPlayers(setup: MatchSetup, state: ArenaState): DeathmatchPlay
       sessionId: seat.sessionId,
       kills: player?.kills ?? 0,
       deaths: player?.deaths ?? 0,
-      inRoster: true,
-    };
-  });
-}
-
-function livingPlayers(setup: MatchSetup, state: ArenaState): LivingPlayer[] {
-  return setup.seats.map((seat) => {
-    const player = state.players.get(seat.sessionId);
-    return {
-      sessionId: seat.sessionId,
-      team: seat.team,
-      alive: player?.alive ?? false,
       inRoster: true,
     };
   });
@@ -423,10 +419,10 @@ function competitionRank<T>(
 function placementsFor(
   setup: MatchSetup,
   state: ArenaState,
-  deathmatch: boolean,
+  respawns: boolean,
   deathTick: ReadonlyMap<string, number>,
 ): Map<string, number> {
-  if (deathmatch) {
+  if (respawns) {
     return competitionRank(
       deathmatchPlayers(setup, state),
       (a, b) => b.kills - a.kills || a.deaths - b.deaths,

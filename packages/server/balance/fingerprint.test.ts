@@ -37,8 +37,9 @@ describe("fingerprints (B39)", () => {
   });
 
   it("gives two modes two fingerprints, even with byte-identical tables (MC41)", () => {
-    // Brawl and Deathmatch ship identical tables today (`table-pinning.test.ts` enforces that), so
-    // the hash this replaced — over the mode-blind raw globals — gave them the same value and let
+    // Brawl and Deathmatch ship identical tables today (neither's `config.ts` overrides them, so
+    // both resolve to the same base), so the hash this replaced — over the mode-blind raw globals
+    // — gave them the same value and let
     // `--baseline` compare a Brawl run against a Deathmatch one as though the two measured the
     // same game. Two things now carry the mode in, the top-level `mode` key and the bundle's own
     // `ModeConfig.id`; this asserts the PROPERTY, so it holds whichever of them survives a future

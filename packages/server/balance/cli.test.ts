@@ -47,10 +47,10 @@ describe("parseArgs (B41, B42)", () => {
   // deathmatch clock, not a mock of it. The default must be a REAL match length for deathmatch and
   // a generous safety cap (not a target) for last-standing, which ends by elimination.
   // **Asserted against the RAW global, and that is a knowing shortcut.** `defaultMatchSeconds`
-  // reads `modeConfigOf(mode).deathmatch.matchSeconds`; this passes only because
-  // `modes/table-pinning.test.ts` still holds every mode folder's `deathmatch.ts` equal to the raw
+  // reads `modeConfigOf(mode).deathmatch.matchSeconds`; this passes only because Deathmatch's
+  // `config.ts` does not override `deathmatch`, so it still resolves to the raw
   // `DEATHMATCH_CONFIG`. The DAY a mode diverges its clock — which is the whole point of the
-  // per-mode system, and the day that pinning assertion is deliberately deleted — this case starts
+  // per-mode system — this case starts
   // asserting one mode's number against another's and must be re-pointed at
   // `modeConfigOf(parseArgs([]).mode).deathmatch.matchSeconds`. Left as the raw read on purpose:
   // it is the one place in this file that would notice the divergence, and it fails loudly.
