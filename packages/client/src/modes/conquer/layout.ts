@@ -1,5 +1,5 @@
 import { captureCountdownSeconds } from "@motor-combat-moba/shared";
-import { hpBarColor } from "./combat-visual.js";
+import { hpBarColor } from "../../scenes/combat-visual.js";
 import {
   ROSTER_NAME_CHAR_PX,
   ROSTER_PAD_BOTTOM_PX,
@@ -9,12 +9,13 @@ import {
   ROSTER_SWATCH_GAP_PX,
   ROSTER_SWATCH_PX,
   type RosterRowBox,
-} from "./roster-panel.js";
+} from "../../scenes/roster-panel.js";
 
 /**
- * Conquer's right gutter (CQ54–CQ57), pure layout and pure text, in the shape every other
- * `*-hud.ts` module here uses — `ArenaScene` owns the pooled `Text`s and the `Graphics`, and every
- * rule about what is said and where it sits lives here, where a Node test can reach it.
+ * Conquer's right gutter (CQ54–CQ57), pure layout and pure text, in the shape every
+ * `scenes/*-hud.ts` module uses — `gutter.ts` owns the pooled `Text`s and draws on the host's
+ * `Graphics`, and every rule about what is said and where it sits lives here, where a Node test can
+ * reach it.
  *
  * The column reads top to bottom as:
  *
@@ -26,7 +27,7 @@ import {
  * 3. the **roster**, grouped by team and anchored to the BOTTOM of the gutter, since the top is the
  *    panel's now.
  *
- * The worst case is arithmetic, pinned by `conquer-hud.test.ts` — three slots, six badges, three
+ * The worst case is arithmetic, pinned by `layout.test.ts` — three slots, six badges, three
  * players a side:
  *
  * ```
@@ -36,9 +37,9 @@ import {
  * roster      14 + 58 + 6 + 14 + 58 = 150, top 720 - 10 - 150 = 560 -> 15 px under the last name
  * ```
  *
- * Other modes never reach this module: the scene selects it by `winRuleOf(mode) === "conquer"` at
- * `ArenaScene.ts`'s gutter branch (a Task 8 concern — this task left it alone), so their gutter
- * stays exactly as it was (CQ57).
+ * Other modes never reach this module: only `CONQUER_HUD.createGutter` builds the gutter that reads
+ * it, and `ArenaScene` falls back to its own roster panel for any mode whose HUD has no
+ * `createGutter`, so their gutter stays exactly as it was (CQ57).
  */
 
 // --- the control panel (CQ54) ------------------------------------------------------------------
@@ -76,6 +77,13 @@ export const CONQUER_CHIP_INSET_PX = 4;
 /** The bars' labels (CQ54): viewer-relative, never "Team A"/"Team B". */
 export const CONQUER_ALLY_LABEL = "US";
 export const CONQUER_ENEMY_LABEL = "THEM";
+
+/**
+ * Conquer's control bars draw their empty track in the bar's own colour at this alpha, so an empty
+ * bar still reads as a bar of that team; and the capture chip sits on a wash of its tone.
+ */
+export const CONQUER_BAR_TRACK_ALPHA = 0.2;
+export const CONQUER_CHIP_FILL_ALPHA = 0.18;
 
 // --- the roster (CQ54) -------------------------------------------------------------------------
 /** A team header's line, above that team's rows. */

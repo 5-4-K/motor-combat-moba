@@ -1,6 +1,7 @@
 import { GameMode, controlPercentText, derived, modeConfigOf } from "@motor-combat-moba/shared";
 import { localTeamOf, type ResultsViewState } from "../../ui/results-view.js";
 import type { ModeHud } from "../types.js";
+import { ConquerGutter } from "./gutter.js";
 
 /** `m:ss`, the same shape the countdown clocks elsewhere on the lobby screen use. */
 function secondsLabel(seconds: number): string {
@@ -34,7 +35,7 @@ function resultsHeadline(state: ResultsViewState, localSessionId: string): strin
  * its OWN `deathmatch` table (`modes/conquer/deathmatch.ts`, 180 s / 5 s respawn), not Deathmatch's.
  *
  * `clockLabel` is always "": the arena clock lives in Conquer's own gutter panel instead (CQ56),
- * which lands in Task 8.
+ * which `createGutter` builds (`gutter.ts`).
  */
 export const CONQUER_HUD: ModeHud = {
   lobbyCard: () => {
@@ -49,4 +50,5 @@ export const CONQUER_HUD: ModeHud = {
   showsKills: false,
   resultsLine: controlLine,
   resultsHeadline,
+  createGutter: (host) => new ConquerGutter(host),
 };

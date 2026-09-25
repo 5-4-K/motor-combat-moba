@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 // Mode scope: shared's `withDefaultMode` lives in its test-setup and is not exported from the
 // package, so this uses the public `withMode` over the default bundle — the same scope it wraps.
 import { DEFAULT_GAME_MODE, modeConfigOf, withMode } from "@motor-combat-moba/shared";
-import { CONTROL_PANEL_H, captureChip, conquerClockLabel, conquerGutterLayout } from "./conquer-hud.js";
-import { slotBarLayout } from "./weapon-hud.js";
-import { statusStripLayout } from "./status-hud.js";
-import { HUD_GUTTER_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from "../config/display.js";
+import { CONTROL_PANEL_H, captureChip, conquerClockLabel, conquerGutterLayout } from "./layout.js";
+import { slotBarLayout } from "../../scenes/weapon-hud.js";
+import { statusStripLayout } from "../../scenes/status-hud.js";
+import { HUD_GUTTER_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from "../../config/display.js";
 
 const withDefaultMode = <T>(fn: () => T): T => withMode(modeConfigOf(DEFAULT_GAME_MODE), fn);
 

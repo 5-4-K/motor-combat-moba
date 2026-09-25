@@ -42,9 +42,6 @@ import {
   isWeaponId,
   weaponDefOf,
   weaponTicksOf,
-  winRuleOf,
-  controlPercentText,
-  derived,
 } from "@motor-combat-moba/shared";
 import { floorTintOf, phaserFloorTextures, resolveArenaFloor } from "../assets/arena-floor.js";
 import {
@@ -237,6 +234,10 @@ import {
 } from "./movement-hint.js";
 import type { HintItem } from "./movement-hint.js";
 import {
+  HUD_GUTTER_TEXT,
+  ROSTER_DEAD_SWATCH_ALPHA,
+  ROSTER_DEAD_TEXT,
+  ROSTER_LIVE_TEXT,
   ROSTER_NAME_FONT_PX,
   rosterPanelLayout,
   rosterRows,
@@ -249,22 +250,7 @@ import {
   showKilledBy,
 } from "./deathmatch-hud.js";
 import { hudOf } from "../modes/registry.js";
-import {
-  CONQUER_ALLY_HEADER,
-  CONQUER_ALLY_LABEL,
-  CONQUER_CHIP_FONT_PX,
-  CONQUER_CLOCK_FONT_PX,
-  CONQUER_ENEMY_HEADER,
-  CONQUER_ENEMY_LABEL,
-  CONQUER_LABEL_FONT_PX,
-  captureChip,
-  chipToneColor,
-  conquerClockLabel,
-  conquerGutterLayout,
-  conquerRosterName,
-  controlFillFraction,
-  cssOf,
-} from "./conquer-hud.js";
+import type { GutterHost, ModeGutter } from "../modes/types.js";
 
 const ARENA_BORDER_PX = 4;
 /**
@@ -272,17 +258,11 @@ const ARENA_BORDER_PX = 4;
  * banners, the match clock, and the movement hint's plain (non-pill) glyphs. All of those sit at
  * `ARENA_VIEW_WIDTH / 2`, centred on the arena camera's own light floor — see the "Centred on the
  * arena, not on the canvas" comment where `countdownText` is built. Never use this for anything drawn
- * in the gutter (`HUD_GUTTER_TEXT`, below): the gutter is the one strip of canvas the arena camera
+ * in the gutter (`HUD_GUTTER_TEXT`, in `roster-panel.ts`): the gutter is the one strip of canvas the arena camera
  * never covers, so its ground is whatever `main.ts`'s `Phaser.Game.backgroundColor` is, not the
  * floor's — dark ink on that dark ground is invisible, which is exactly what shipped once already.
  */
 const HUD_TEXT = "#1d1f21";
-/**
- * Bright text for the gutter: the roster names/kills and the weapon slots' countdown and stock
- * numbers. Matches the pill/status text (`HUD_KEY_PILL_TEXT`, `HUD_STATUS_TEXT`) already white down
- * here, rather than introducing a third near-white shade into one small column.
- */
-const HUD_GUTTER_TEXT = "#ffffff";
 const HITBOX_STROKE = 0x1d1f21;
 const HITBOX_PX = 1;
 /** How the OBB outline inside a car's container is found again to toggle it. See `drawCar`. */
@@ -506,26 +486,6 @@ const HUD_STATUS_WASH_ALPHA = 0.45;
 /** Inset from the badge box to its label. */
 const HUD_STATUS_LABEL_PAD_X = 6;
 
-// --- roster panel ------------------------------------------------------------------------------
-/**
- * How a dead player is greyed out: one text colour and one alpha on the swatch, so "greyed" is two
- * constants rather than a scattering of literals in the draw loop. The row stays listed either way
- * (D3) — the grey is the whole difference between alive and out.
- *
- * The colour is `HUD_GUTTER_TEXT` pulled toward the gutter's own dark ground until the name reads as
- * present but not current; the alpha is on the swatch's own player colour, which must stay
- * recognisable as that player's colour rather than becoming a neutral grey chip.
- */
-const ROSTER_DEAD_TEXT = "#8d9096";
-const ROSTER_DEAD_SWATCH_ALPHA = 0.3;
-/** A living row's name, matching the rest of the gutter's text. */
-const ROSTER_LIVE_TEXT = HUD_GUTTER_TEXT;
-/**
- * Conquer's control bars draw their empty track in the bar's own colour at this alpha, so an empty
- * bar still reads as a bar of that team; and the capture chip sits on a wash of its tone.
- */
-const CONQUER_BAR_TRACK_ALPHA = 0.2;
-const CONQUER_CHIP_FILL_ALPHA = 0.18;
 // --- the deathmatch HUD ------------------------------------------------------------------------
 /**
  * Ghost alpha for a car the sim is treating as intangible, multiplied INTO whatever
@@ -1034,20 +994,13 @@ export class ArenaScene extends Phaser.Scene {
    */
   private rosterKillTexts: Phaser.GameObjects.Text[] = [];
   /**
-   * Conquer's control panel and team headers (CQ54), pooled up front like every other gutter text
-   * and shown only by `renderConquerGutter`. They stay hidden in every other mode, whose gutter
-   * never touches them (CQ57). The Conquer roster reuses `rosterNameTexts` and `rosterGfx`.
+   * The mode's own gutter, when its HUD supplies one (`hudOf(mode).createGutter`); otherwise
+   * `renderRosterPanel` draws the default panel. Built in `buildHudTextPool` alongside every other
+   * pooled gutter text, routed to the HUD camera by `splitCameras`, and destroyed in
+   * `resetMatchState`. A mode gutter reuses `rosterNameTexts`/`rosterKillTexts` and `rosterGfx`
+   * through the `GutterHost` it is handed.
    */
-  private conquerTexts: Phaser.GameObjects.Text[] = [];
-  private conquerHud:
-    | {
-        readonly clock: Phaser.GameObjects.Text;
-        readonly labels: readonly [Phaser.GameObjects.Text, Phaser.GameObjects.Text];
-        readonly percents: readonly [Phaser.GameObjects.Text, Phaser.GameObjects.Text];
-        readonly chip: Phaser.GameObjects.Text;
-        readonly headers: readonly [Phaser.GameObjects.Text, Phaser.GameObjects.Text];
-      }
-    | undefined;
+  private modeGutter: ModeGutter | undefined;
 
   /**
    * Local-only contact tracker for {@link showImpact}. Purely a render-feel aid — see
@@ -1672,7 +1625,7 @@ export class ArenaScene extends Phaser.Scene {
       ...this.hudStatusTexts,
       ...this.rosterNameTexts,
       ...this.rosterKillTexts,
-      ...this.conquerTexts,
+      ...(this.modeGutter ? this.modeGutter.objects() : []),
     ];
     const worldObjects: Phaser.GameObjects.GameObject[] = [
       // World space at `FLOOR_DEPTH`, under everything. A display object like any other, so it needs
@@ -1839,7 +1792,7 @@ export class ArenaScene extends Phaser.Scene {
     for (const text of this.hudStatusTexts) text.destroy();
     for (const text of this.rosterNameTexts) text.destroy();
     for (const text of this.rosterKillTexts) text.destroy();
-    for (const text of this.conquerTexts) text.destroy();
+    this.modeGutter?.destroy();
     this.hudKeyTexts = [];
     this.hudNameTexts = [];
     this.hudStockTexts = [];
@@ -1847,8 +1800,7 @@ export class ArenaScene extends Phaser.Scene {
     this.hudStatusTexts = [];
     this.rosterNameTexts = [];
     this.rosterKillTexts = [];
-    this.conquerTexts = [];
-    this.conquerHud = undefined;
+    this.modeGutter = undefined;
     // Phaser tears the camera itself down with the scene; this just stops `syncCar` handing a
     // destroyed camera an ignore during the shutdown frame.
     this.hudCamera = undefined;
@@ -1932,13 +1884,9 @@ export class ArenaScene extends Phaser.Scene {
     // *spectated* car, which is not always yours — so a second derivation would count a different
     // set of players and the two would disagree about where the panel ends (D12).
     //
-    // Conquer lays the whole column out differently (CQ54) — its control panel on top and the
-    // roster anchored to the bottom — so it returns its own inset; every other mode takes exactly
-    // the path it always did (CQ57).
-    const panelHeight =
-      winRuleOf(room.state.mode) === "conquer"
-        ? this.renderConquerGutter(room)
-        : this.renderRosterPanel(room);
+    // A mode with its own gutter (`hudOf(mode).createGutter`) lays the whole column out itself and
+    // returns its own inset; every other mode takes exactly the path it always did (CQ57).
+    const panelHeight = this.modeGutter ? this.modeGutter.render(room) : this.renderRosterPanel(room);
     this.renderWeaponHud(room, panelHeight);
   }
 
@@ -3665,33 +3613,10 @@ export class ArenaScene extends Phaser.Scene {
       // shifting it.
       this.rosterKillTexts.push(this.makeHudText(ROSTER_NAME_FONT_PX).setOrigin(1, 0.5));
     }
-    // Conquer's panel texts (CQ54). Built in every mode and shown only in Conquer, for the same
-    // reason the kill counts are: a pool that existed only sometimes would be one more thing
-    // `splitCameras` and `resetMatchState` could be out of step with. Every colour that never
-    // changes is set here once; only the chip's carries state, and it is guarded where it is set.
-    const conquerText = (fontPx: number, ox: number, oy: number): Phaser.GameObjects.Text => {
-      const text = this.makeHudText(fontPx).setOrigin(ox, oy);
-      this.conquerTexts.push(text);
-      return text;
-    };
-    const allyCss = cssOf(chipToneColor("ally"));
-    const enemyCss = cssOf(chipToneColor("enemy"));
-    this.conquerHud = {
-      clock: conquerText(CONQUER_CLOCK_FONT_PX, 0.5, 0),
-      labels: [
-        conquerText(CONQUER_LABEL_FONT_PX, 0, 0).setText(CONQUER_ALLY_LABEL).setColor(allyCss),
-        conquerText(CONQUER_LABEL_FONT_PX, 0, 0).setText(CONQUER_ENEMY_LABEL).setColor(enemyCss),
-      ],
-      percents: [
-        conquerText(CONQUER_LABEL_FONT_PX, 1, 0).setColor(allyCss),
-        conquerText(CONQUER_LABEL_FONT_PX, 1, 0).setColor(enemyCss),
-      ],
-      chip: conquerText(CONQUER_CHIP_FONT_PX, 0.5, 0.5),
-      headers: [
-        conquerText(CONQUER_LABEL_FONT_PX, 0, 0.5).setText(CONQUER_ALLY_HEADER).setColor(allyCss),
-        conquerText(CONQUER_LABEL_FONT_PX, 0, 0.5).setText(CONQUER_ENEMY_HEADER).setColor(enemyCss),
-      ],
-    };
+    // The mode's own gutter texts, if it has one, pooled here with the rest (see `modeGutter`).
+    // `create` has already returned to the join screen when there is no room, so the mode is known.
+    const room = this.room;
+    this.modeGutter = room ? hudOf(room.state.mode).createGutter?.(this.gutterHost()) : undefined;
     // Left-centre, matching the key labels: a badge's text hangs off its box's left inset.
     for (let i = 0; i < statusConfig().maxActive; i++) {
       this.hudStatusTexts.push(
@@ -3740,6 +3665,28 @@ export class ArenaScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(HUD_TEXT_DEPTH)
       .setVisible(false);
+  }
+
+  /**
+   * What a mode's gutter may reach. An object literal rather than `this`, so the gutter sees these
+   * and nothing else; `gfx` and the text pools are getters because `resetMatchState` replaces them.
+   */
+  private gutterHost(): GutterHost {
+    const scene = this;
+    return {
+      addText: (fontPx, originX, originY) => scene.makeHudText(fontPx).setOrigin(originX, originY),
+      get gfx() {
+        return scene.rosterGfx;
+      },
+      get rosterNameTexts() {
+        return scene.rosterNameTexts;
+      },
+      get rosterKillTexts() {
+        return scene.rosterKillTexts;
+      },
+      viewerSessionId: (room) => scene.drivenSid(room),
+      carFill: (sessionId, colorId) => carFillFor(sessionId, colorId),
+    };
   }
 
   /**
@@ -3836,112 +3783,6 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     return panel.height;
-  }
-
-  /**
-   * Conquer's gutter (CQ54): the control panel at the top — clock, ally and enemy control bars with
-   * their percentages, the capture chip — and the roster grouped by team at the bottom. Returns the
-   * slot stack's `topInset`, in the role `renderRosterPanel`'s height plays in every other mode.
-   *
-   * Everything is viewer-relative, read off the LOCAL player's `team` (the same viewer
-   * `renderZone` reads), so spectating an enemy never swaps whose bar is green. Every rule is in
-   * `conquer-hud.ts`; this sets positions, strings and fills. Drawn on `rosterGfx`, which is a live
-   * layer cleared every frame, so the per-tick bar fill never touches the baked slot bar.
-   */
-  private renderConquerGutter(room: Room<ArenaState>): number {
-    const gfx = this.rosterGfx;
-    const hud = this.conquerHud;
-    if (!gfx || !hud) return 0;
-    gfx.clear();
-    const state = room.state;
-    const tick = state.tick;
-    const viewerTeam = state.players.get(this.drivenSid(room))?.team ?? 0;
-    const enemyTeam = viewerTeam === 1 ? 0 : 1;
-    const conquerTicks = derived().conquerTicks;
-
-    const rows = rosterRows([...state.players.values()]);
-    const teamOf = (sessionId: string): number => state.players.get(sessionId)?.team ?? 0;
-    const allyRows = rows.filter((row) => teamOf(row.sessionId) === viewerTeam);
-    const enemyRows = rows.filter((row) => teamOf(row.sessionId) !== viewerTeam);
-    const L = conquerGutterLayout(allyRows.length, enemyRows.length, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH);
-
-    hud.clock
-      .setPosition(L.clock.x, L.clock.y)
-      .setText(conquerClockLabel(tick, state.matchEndsTick, state.overtime, TICK_RATE_HZ, derived().deathmatchTicks.match))
-      .setVisible(true);
-
-    // [ally, enemy], each read off the team it stands for rather than off A/B.
-    const controlOf = (team: number): number => (team === 1 ? state.controlTicksB : state.controlTicksA);
-    const teams = [viewerTeam, enemyTeam] as const;
-    for (let i = 0; i < 2; i++) {
-      const box = L.bars[i]!;
-      const control = controlOf(teams[i]!);
-      hud.labels[i]!.setPosition(box.label.x, box.label.y).setVisible(true);
-      hud.percents[i]!
-        .setPosition(box.percent.x, box.percent.y)
-        .setText(controlPercentText(control, conquerTicks.controlTarget))
-        .setVisible(true);
-      const color = chipToneColor(i === 0 ? "ally" : "enemy");
-      gfx.fillStyle(color, CONQUER_BAR_TRACK_ALPHA);
-      gfx.fillRect(box.bar.x, box.bar.y, box.bar.w, box.bar.h);
-      gfx.fillStyle(color, 1);
-      gfx.fillRect(
-        box.bar.x,
-        box.bar.y,
-        box.bar.w * controlFillFraction(control, conquerTicks.controlTarget),
-        box.bar.h,
-      );
-    }
-
-    const chip = captureChip(
-      viewerTeam,
-      state.zoneHolder,
-      state.zoneStreakTicks,
-      state.zoneContested,
-      conquerTicks.captureDelay,
-      TICK_RATE_HZ,
-    );
-    const chipColor = chipToneColor(chip.tone);
-    gfx.fillStyle(chipColor, CONQUER_CHIP_FILL_ALPHA);
-    gfx.fillRect(L.chip.x, L.chip.y, L.chip.w, L.chip.h);
-    const chipCss = cssOf(chipColor);
-    if (hud.chip.style.color !== chipCss) hud.chip.setColor(chipCss);
-    hud.chip
-      .setPosition(L.chip.x + L.chip.w / 2, L.chip.y + L.chip.h / 2)
-      .setText(chip.text)
-      .setVisible(true);
-
-    for (let i = 0; i < 2; i++) {
-      const header = L.roster.headers[i]!;
-      hud.headers[i]!.setPosition(header.x, header.y).setVisible(true);
-    }
-
-    // Ally rows then enemy rows — the order `L.roster.rows` is laid out in. The swatch, the greyed
-    // dead row and the truncation are `renderRosterPanel`'s own; the kill column is not Conquer's.
-    const ordered = [...allyRows, ...enemyRows];
-    for (let i = 0; i < this.rosterNameTexts.length; i++) {
-      const row = ordered[i];
-      const box = L.roster.rows[i];
-      const label = this.rosterNameTexts[i]!;
-      this.rosterKillTexts[i]!.setVisible(false);
-      if (!row || !box) {
-        label.setVisible(false);
-        continue;
-      }
-      gfx.fillStyle(carFillFor(row.sessionId, row.colorId), row.alive ? 1 : ROSTER_DEAD_SWATCH_ALPHA);
-      gfx.fillRect(box.x, box.y, box.size, box.size);
-      const color = row.alive ? ROSTER_LIVE_TEXT : ROSTER_DEAD_TEXT;
-      if (label.style.color !== color) label.setColor(color);
-      const respawnIn = row.alive
-        ? 0
-        : respawnSeconds(state.players.get(row.sessionId)?.diedAtTick ?? 0, tick);
-      label
-        .setPosition(box.labelX, box.centerY)
-        .setText(conquerRosterName(row.name, respawnIn, L.roster.nameMaxChars))
-        .setVisible(true);
-    }
-
-    return L.slotTopInset;
   }
 
   /**
@@ -4649,8 +4490,8 @@ export class ArenaScene extends Phaser.Scene {
     const tick = room.state.tick;
 
     if (this.matchClockText) {
-      // Conquer's clock lives in its control panel (CQ56, `hudOf(mode).clockLabel` answers "" for
-      // it there), so the banner over the arena stays hidden; every other mode reads it exactly as
+      // A mode whose clock lives in its own gutter panel answers "" from `hudOf(mode).clockLabel`
+      // (CQ56), so the banner over the arena stays hidden; every other mode reads it exactly as
       // before, through its own HUD's `clockLabel`.
       const label = hudOf(room.state.mode).clockLabel(room.state, tick);
       this.matchClockText.setText(label).setVisible(label !== "");

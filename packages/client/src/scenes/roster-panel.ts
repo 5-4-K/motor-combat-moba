@@ -83,6 +83,30 @@ function comparePlayers(a: RosterPlayer, b: RosterPlayer): number {
   return a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0;
 }
 
+// --- the gutter's text colours -----------------------------------------------------------------
+/**
+ * Bright text for the gutter: the roster names/kills and the weapon slots' countdown and stock
+ * numbers. Matches the pill/status text (`HUD_KEY_PILL_TEXT`, `HUD_STATUS_TEXT`) already white down
+ * here, rather than introducing a third near-white shade into one small column.
+ */
+export const HUD_GUTTER_TEXT = "#ffffff";
+/**
+ * How a dead player is greyed out: one text colour and one alpha on the swatch, so "greyed" is two
+ * constants rather than a scattering of literals in the draw loop. The row stays listed either way
+ * (D3) — the grey is the whole difference between alive and out.
+ *
+ * The colour is `HUD_GUTTER_TEXT` pulled toward the gutter's own dark ground until the name reads as
+ * present but not current; the alpha is on the swatch's own player colour, which must stay
+ * recognisable as that player's colour rather than becoming a neutral grey chip.
+ *
+ * Exported because two gutters draw rows: `ArenaScene`'s default panel and Conquer's
+ * (`modes/conquer/gutter.ts`), and a dead row must grey the same way in both.
+ */
+export const ROSTER_DEAD_TEXT = "#8d9096";
+export const ROSTER_DEAD_SWATCH_ALPHA = 0.3;
+/** A living row's name, matching the rest of the gutter's text. */
+export const ROSTER_LIVE_TEXT = HUD_GUTTER_TEXT;
+
 // --- the gutter budget (D12) -------------------------------------------------------------------
 /**
  * A row's height and the air between rows. 18 + 2 is what makes six rows cost 138 px of a 720 px
