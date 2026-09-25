@@ -155,28 +155,24 @@ describe("isSpectating", () => {
     );
   });
 
-  // The whole of the change: a deathmatch death is five seconds long, so the camera stays on the
+  // The whole of the change: a respawning death is five seconds long, so the camera stays on the
   // player's own seat and the weapon bar keeps showing their own kit. Every other input to this
-  // function is the exact one that answers `true` above.
-  it("is false for a deathmatch wreck — the mode gives the car back", () => {
-    expect(
-      isSpectating(RoomPhase.MATCH, GameMode.FFA_DEATHMATCH, PlayerStatus.IN_MATCH, false),
-    ).toBe(false);
-  });
+  // function is the exact one that answers `true` above. Deathmatch and Conquer (CQ15) both respawn,
+  // so one case per respawns VALUE covers both rather than one case per mode (GM30b/d) — dedupe note:
+  // the former per-mode "is false for a deathmatch wreck" / "is false for a Conquer wreck" tests
+  // asserted the exact same behaviour through the same entry point with equivalent fixtures.
+  it.each([GameMode.FFA_DEATHMATCH, GameMode.CONQUER])(
+    "is false for a wreck in a respawning mode (%i) — the mode gives the car back",
+    (mode) => {
+      expect(isSpectating(RoomPhase.MATCH, mode, PlayerStatus.IN_MATCH, false)).toBe(false);
+    },
+  );
 
   // The playground respawns forever while running Last Standing, which is the one place "is this
   // deathmatch" and "do I come back" disagree. Keyed on the mode, so the sandbox keeps its camera.
   it("still spectates in Last Standing, which is what the rule is keyed on", () => {
     expect(isSpectating(RoomPhase.MATCH, GameMode.FFA_LAST_STANDING, PlayerStatus.IN_MATCH, false))
       .toBe(true);
-  });
-
-  // Conquer respawns too (CQ15), so it is never spectated either — the same rule that exempts
-  // Deathmatch, mirrored exactly.
-  it("is false for a Conquer wreck — the mode gives the car back", () => {
-    expect(isSpectating(RoomPhase.MATCH, GameMode.CONQUER, PlayerStatus.IN_MATCH, false)).toBe(
-      false,
-    );
   });
 });
 
