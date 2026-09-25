@@ -30,7 +30,7 @@ import {
   type StepContext,
 } from "@motor-combat-moba/shared";
 import { installPlaytestMode } from "./mode.js";
-import { PredictionBuffer } from "../../client/src/net/prediction.js";
+import { PredictionBuffer } from "../../../client/src/net/prediction.js";
 import { PlaytestWorld } from "./world.js";
 import { Reporter } from "./reporter.js";
 

@@ -25,14 +25,14 @@ import {
   type CarId,
   type InputMessage,
 } from "@motor-combat-moba/shared";
-import { serverTick } from "../src/sim/tick.js";
-import { statusTick } from "../src/sim/status-bridge.js";
+import { serverTick } from "../../src/sim/tick.js";
+import { statusTick } from "../../src/sim/status-bridge.js";
 import {
   contactTick,
   newContactMemory,
   type ContactMemory,
   type ContactTickResult,
-} from "../src/sim/ram-bridge.js";
+} from "../../src/sim/ram-bridge.js";
 import {
   applyCombatResult,
   newCombatMemory,
@@ -40,7 +40,7 @@ import {
   toCombatPlayers,
   toInstances,
   type CombatMemory,
-} from "../src/sim/combat-bridge.js";
+} from "../../src/sim/combat-bridge.js";
 
 export const DT = 1 / TICK_RATE_HZ;
 

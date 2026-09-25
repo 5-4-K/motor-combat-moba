@@ -67,19 +67,36 @@ purpose: a mode no lobby publishes is exactly the one whose numbers nobody has s
 `run-all.ts` resolves the flag once and passes it to each spawned probe through `PLAYTEST_MODE`, so
 all six measure the same bundle. A probe run on its own takes the same `--mode` flag directly.
 
+**Since Task 14 the six probes live under `common/`** — they measure the game regardless of which
+mode is installed, and `run-all.ts` and `lan.ts` stay at `playtest/` root. `--scope=<common|mode|all>`
+(default `all`) picks which set a run covers:
+
+```bash
+npm run playtest -- --scope=common          # exactly the six probes below
+npm run playtest -- --mode=conquer --scope=mode   # every probe in modes/<family>/ for that mode
+npm run playtest -- --mode=conquer --scope=all    # both sets together (the default)
+```
+
+The family a mode's probes live under comes from `FAMILY_OF` (`common/mode.ts`): brawl and team
+share `last-standing` (the same family split the server's `MODE_CONTROLLERS` uses), deathmatch and
+conquer each get their own. A `--scope=mode` run with no `playtest/modes/<family>/` folder, or an
+empty one, is not an error — it prints `no mode probes for <family>` and exits 0. An unrecognised
+`--scope` value exits 2 naming the valid ones, the same "never silently fall back" shape `--mode`
+uses.
+
 Or from `packages/server`, one probe at a time while you are iterating:
 
 ```bash
 cd packages/server
 
-npx tsx playtest/collision.ts    # car-on-car: tunneling, crush, pile-up, resolve order, energy, ram chaining
-npx tsx playtest/ram.ts          # ram trigger rate vs the sub-tick phase of the impact
-npx tsx playtest/geometry.ts     # arena-02: wedging, corners, spike walls, beam LOS, spawn seats
-npx tsx playtest/weapons.ts      # every fireable row (abilities + basic attacks): damage, friendly fire, death, cooldowns, statuses, leaks, pierce
-npx tsx playtest/weapons2.ts     # pellet spread, tunneling, crossing targets, point-blank angles, spin, wrecks
-npx tsx playtest/prediction.ts   # client prediction vs server across a collision, by latency
+npx tsx playtest/common/collision.ts    # car-on-car: tunneling, crush, pile-up, resolve order, energy, ram chaining
+npx tsx playtest/common/ram.ts          # ram trigger rate vs the sub-tick phase of the impact
+npx tsx playtest/common/geometry.ts     # arena-02: wedging, corners, spike walls, beam LOS, spawn seats
+npx tsx playtest/common/weapons.ts      # every fireable row (abilities + basic attacks): damage, friendly fire, death, cooldowns, statuses, leaks, pierce
+npx tsx playtest/common/weapons2.ts     # pellet spread, tunneling, crossing targets, point-blank angles, spin, wrecks
+npx tsx playtest/common/prediction.ts   # client prediction vs server across a collision, by latency
 
-npx tsx playtest/ram.ts --mode=2 # any probe takes --mode directly too
+npx tsx playtest/common/ram.ts --mode=2 # any probe takes --mode directly too
 ```
 
 ### 4. Read the report
@@ -169,7 +186,8 @@ Or from `packages/server`, `npx tsx playtest/lan.ts`. Point it elsewhere with
 
 ## The two harnesses
 
-**`world.ts` — offline.** `PlaytestWorld` drives the exact pipeline `ArenaRoom.tick` runs —
+**`world.ts` — offline** (`common/world.ts`). `PlaytestWorld` drives the exact pipeline
+`ArenaRoom.tick` runs —
 `statusTick` → `serverTick` → `contactTick` (ram/slam/dash) → `runCombat`, through the real bridges — with no Colyseus
 room, no sockets and no wall clock. It lets a scenario be *placed*: cars at exact poses, at exact
 speeds, on an exact tick. Driving a car into a corner case through the lobby and three seconds of
@@ -178,9 +196,9 @@ countdown is not a test, it is a coincidence waiting to not happen.
 **`lan.ts` — over the wire.** Two real `colyseus.js` clients against the built server, through the
 real lobby → car select → reveal → countdown → match flow.
 
-**`reporter.ts`** owns the run folder and the Markdown. **`run-all.ts`** spawns each probe as its own
-process — probes are top-level scripts that execute on import, so separate processes mean one can
-never leave state behind that changes the next one's numbers.
+**`reporter.ts`** (`common/reporter.ts`) owns the run folder and the Markdown. **`run-all.ts`** spawns
+each probe as its own process — probes are top-level scripts that execute on import, so separate
+processes mean one can never leave state behind that changes the next one's numbers.
 
 ---
 

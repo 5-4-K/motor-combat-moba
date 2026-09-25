@@ -18,11 +18,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { modeLabelOf, modeSlug } from "@motor-combat-moba/shared";
-import { createRunDir as createRunDirIn, resolveRunDir as resolveRunDirIn } from "../src/run-dir.js";
+import { createRunDir as createRunDirIn, resolveRunDir as resolveRunDirIn } from "../../src/run-dir.js";
 import { resolvePlaytestMode } from "./mode.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-export const REPORTS_ROOT = path.join(HERE, "reports");
+// One level up from `common/`, where this file lived before Task 14 moved it — the report folder's
+// location and naming are unchanged by that move, and `.gitignore` still names
+// `packages/server/playtest/reports/`.
+export const REPORTS_ROOT = path.join(HERE, "..", "reports");
 
 /**
  * Create the next run folder for today: `reports/2026-08-29-01-brawl`, then `-02-<mode>`, and so on.
