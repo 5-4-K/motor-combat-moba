@@ -45,45 +45,59 @@ export const MODE_FAMILY = {
   conquer: "conquer",
 };
 
-/** Every slug that shares a given family, in `MODE_FAMILY`'s own insertion order. */
+/** Every slug that shares a given family, in `MODE_FAMILY`'s own insertion order. Empty when
+ * `family` is not actually a family name (e.g. it is a slug, or unknown entirely). */
 function slugsInFamily(family) {
   return Object.keys(MODE_FAMILY).filter((slug) => MODE_FAMILY[slug] === family);
 }
 
 /**
+ * Resolve one path segment captured out of a `modes/<segment>/…` path to the slug(s) it means, or
+ * `null` if the segment is neither a known slug nor a known family name.
+ *
+ * A segment can name a mode DIRECTLY — its own slug, e.g. `conquer` — or its rule FAMILY, e.g.
+ * `last-standing`, which several slugs (`brawl`, `team-brawl`) share. Both spellings appear in a
+ * real diff: shared/client keep a folder per SLUG (`modes/brawl/`, `modes/conquer/`) *and*, for a
+ * family whose rules/HUD are not split per slug, a folder per FAMILY (`modes/last-standing/`);
+ * server keeps only the family folders. Trying the slug lookup first, then the family lookup, means
+ * one function handles every one of those shapes with no caller needing to know which shape a given
+ * path is.
+ */
+function resolveSegment(segment) {
+  if (Object.prototype.hasOwnProperty.call(MODE_FAMILY, segment)) return [segment];
+  const familyMembers = slugsInFamily(segment);
+  if (familyMembers.length > 0) return familyMembers;
+  return null;
+}
+
+/**
+ * Every path shape whose captured segment names a mode or a mode family: shared/client's per-slug
+ * *and* per-family folders (both live at the same `src/modes/<segment>/` depth, so one pattern
+ * covers both — `resolveSegment` is what tells them apart), server's per-family folders, the
+ * playtest per-family folders, and shared's per-mode snapshot file. Order does not matter for
+ * correctness (each path can match at most one shape), but the snapshot pattern is listed first
+ * since it is the most specific.
+ */
+const MODE_PATH_PATTERNS = [
+  /^packages\/shared\/src\/modes\/__snapshots__\/([^/]+)\.tables\.json$/,
+  /^packages\/(?:shared|client)\/src\/modes\/([^/]+)\//,
+  /^packages\/server\/src\/modes\/([^/]+)\//,
+  /^packages\/server\/playtest\/modes\/([^/]+)\//,
+];
+
+/**
  * Which mode slug(s) a single changed path belongs to, or `null` if it is not a per-mode path at
- * all (common code, or something outside `packages/`). A family-scoped path (e.g.
- * `packages/server/src/modes/last-standing/…`) expands to every slug in that family.
+ * all — common code (including the `modes/` ROOT files: `merge.ts`, `registry.ts`,
+ * `contract.test.ts`, …, none of which sit inside a further `/<segment>/`), something outside
+ * `packages/`, or a `modes/<segment>/` folder whose segment names neither a known slug nor a known
+ * family (an unrecognised/typo'd mode folder — treated as common rather than silently ignored, so
+ * the diff is promoted to `"full"` instead of understating its scope).
  */
 function slugsForPath(path) {
-  // Checked before the general per-slug pattern below: `__snapshots__` is not itself a mode slug,
-  // so without this ordering the per-slug regex would greedily capture it as one.
-  const snapshot = /^packages\/shared\/src\/modes\/__snapshots__\/([^/]+)\.tables\.json$/.exec(path);
-  if (snapshot) return [snapshot[1]];
-
-  const perSlug = /^packages\/(?:shared|client)\/src\/modes\/([^/]+)\//.exec(path);
-  if (perSlug) return [perSlug[1]];
-
-  const perFamily =
-    /^packages\/server\/src\/modes\/([^/]+)\//.exec(path) ||
-    /^packages\/shared\/src\/modes\/([^/]+)\//.exec(path) ||
-    /^packages\/client\/src\/modes\/([^/]+)\//.exec(path) ||
-    /^packages\/server\/playtest\/modes\/([^/]+)\//.exec(path);
-  if (perFamily) {
-    const family = perFamily[1];
-    const slugs = slugsInFamily(family);
-    // The captured segment might itself already be a slug (e.g. `deathmatch`, `conquer`) rather
-    // than a family name with several slugs under it — `slugsInFamily` returns [] for anything
-    // that is not a KEY of `MODE_FAMILY` (i.e. not a family name), so fall back to treating the
-    // captured segment as a direct slug in that case.
-    if (slugs.length > 0) return slugs;
-    if (Object.prototype.hasOwnProperty.call(MODE_FAMILY, family)) return [family];
-    // A folder under `modes/` that names neither a known slug nor a known family (e.g. the
-    // `modes/` root files this regex should never have matched — `merge.ts`, `registry.ts`,
-    // `contract.test.ts`) is common code, not per-mode.
-    return null;
+  for (const pattern of MODE_PATH_PATTERNS) {
+    const match = pattern.exec(path);
+    if (match) return resolveSegment(match[1]);
   }
-
   return null;
 }
 

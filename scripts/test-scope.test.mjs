@@ -20,3 +20,15 @@ test("modes root files are common", () =>
 test("mode commands", () =>
   assert.deepEqual(commandsFor({ scope: "mode", modes: ["conquer"], commonProbes: false }),
     ["npm run test:mode -- conquer", "npm run playtest -- --mode=conquer --scope=mode"]));
+
+// Review round 1: a shared/client path under a FAMILY name (e.g. `modes/last-standing/`) must
+// expand to that family's slugs, not be mistaken for a slug of its own — `last-standing` is a
+// family name, never a mode slug.
+test("shared family folder expands to its modes", () =>
+  assert.deepEqual(scopeOf(["packages/shared/src/modes/last-standing/rules.ts"]),
+    { scope: "mode", modes: ["brawl", "team-brawl"], commonProbes: false }));
+test("client family folder expands to its modes", () =>
+  assert.deepEqual(scopeOf(["packages/client/src/modes/last-standing/hud.ts"]),
+    { scope: "mode", modes: ["brawl", "team-brawl"], commonProbes: false }));
+test("an unknown modes folder is full", () =>
+  assert.equal(scopeOf(["packages/shared/src/modes/bogus/x.ts"]).scope, "full"));
