@@ -85,5 +85,5 @@ export const WEAPON_COPY = {
 export const EFFECT_SOURCES = {
   reeling: "Any ram but a head-on, and Wild Charge's slam.",
   ramLock: "Landing a ram yourself, and both cars in a head-on.",
-  phased: "The moment after you respawn in Deathmatch.",
+  phased: "The moment after you respawn.",
 };

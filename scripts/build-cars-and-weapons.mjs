@@ -330,15 +330,16 @@ export function modelOf(config) {
       /**
        * The authored `EFFECT_SOURCES` lines that apply IN THIS MODE (2026-09-23).
        *
-       * `phased` is the one mode-shaped entry: `respawnSweep` is the only thing that applies it and
-       * it is gated `rulesOf(mode).winRuleLabel === "deathmatch"`, so Brawl cannot inflict it — yet
-       * Brawl's Effects tab published `fx-0-phased` reading "The moment after you respawn in
-       * Deathmatch", a status describing a game that tab's reader is not playing. `reeling` and
-       * `ramLock` come from the contact pass, which every mode runs, so they are unconditional.
+       * `phased` is the one mode-shaped entry: `respawnSweep` is the only thing that applies it, and
+       * it runs whenever `rulesOf(mode).respawns` is true (`ArenaRoom.ts`'s tick, ~:419) — that is
+       * Deathmatch AND Conquer today, not "Deathmatch" as a literal. Gating this on
+       * `winRuleLabel === "deathmatch"` left Conquer's Effects tab silently missing `phased` even
+       * though a respawned Conquer car is phased exactly the same way. `reeling` and `ramLock` come
+       * from the contact pass, which every mode runs, so they are unconditional.
        */
       effectSourceLines: Object.fromEntries(
         Object.entries(EFFECT_SOURCES).filter(
-          ([statusId]) => statusId !== "phased" || rulesOf(config.id).winRuleLabel === "deathmatch",
+          ([statusId]) => statusId !== "phased" || rulesOf(config.id).respawns,
         ),
       ),
       ownerOf: Object.fromEntries(
@@ -410,13 +411,13 @@ export function carrierOf(weaponId) {
  * **The inverse hole is real, and nothing closes it: the page prints things no input covers.**
  * Every input here is DATA. The generator's own SELECTION RULES — which of that data reaches the
  * page — are code, and code is not hashable. The worked example, found by review on 2026-09-23:
- * removing the `rulesOf(config.id).winRuleLabel === "deathmatch"` gate on `EFFECT_SOURCES.phased`
- * in `modelOf`
- * — the fix that stopped Brawl's tab publishing a status Brawl cannot inflict — leaves the stamp at
- * `0c7adc2746195fca`, unmoved, because the raw `EFFECT_SOURCES` object it hashes is unchanged and
- * the gate never was an input. The same blindness covers every rule the generator OWNS rather than
- * reads: which statuses `publishedEffectsOf` admits, `statRows`'s "leave a row out when it does not
- * apply", the Basic attack card's branch shape, effect-anchor construction.
+ * removing (or narrowing) the `EFFECT_SOURCES.phased` gate in `modelOf` — most recently from
+ * `rulesOf(config.id).winRuleLabel === "deathmatch"` to `rulesOf(config.id).respawns`, so Conquer's
+ * tab gains the row a literal string match had missed — leaves the stamp at `0c7adc2746195fca`,
+ * unmoved, because the raw `EFFECT_SOURCES` object it hashes is unchanged and the gate never was an
+ * input. The same blindness covers every rule the generator OWNS rather than reads: which statuses
+ * `publishedEffectsOf` admits, `statRows`'s "leave a row out when it does not apply", the Basic
+ * attack card's branch shape, effect-anchor construction.
  *
  * What that costs, concretely, because it is a delayed fault rather than a silent one:
  * `manual-page.test.mjs` guards the COMMITTED PAGE against this stamp, not the generator against

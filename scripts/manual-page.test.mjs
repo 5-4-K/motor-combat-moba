@@ -349,28 +349,31 @@ describe("the generated manual page", () => {
   /**
    * A tab must not publish an effect its own mode cannot inflict.
    *
-   * `phased` is the one case, and it was live until 2026-09-23: `respawnSweep` is the only thing
-   * that applies it and is gated `rulesOf(mode).winRuleLabel === "deathmatch"`, so Brawl cannot put
-   * anyone in it — yet Brawl's tab published `fx-0-phased` reading "The moment after you respawn in
-   * Deathmatch". `EFFECT_SOURCES` is an authored list with no mode in it; the generator gates that
-   * one line now, and this is what holds the gate.
+   * `phased` is the one case. `respawnSweep` is the only thing that applies it and is gated
+   * `rulesOf(mode).respawns` (`ArenaRoom.ts`'s tick), which is true for every respawning mode —
+   * Deathmatch AND Conquer, not "deathmatch" as a literal. Gating this on
+   * `winRuleLabel === "deathmatch"` was live until 2026-09-25: Brawl's tab published `fx-0-phased`
+   * before that (fixed 2026-09-23), and Conquer's tab silently omitted it after, since Conquer also
+   * respawns cars but its win rule is not the string `"deathmatch"`. `EFFECT_SOURCES` is an authored
+   * list with no mode in it; the generator gates that one line on `rulesOf(mode).respawns` now, and
+   * this is what holds the gate.
    *
    * Asserted BOTH ways deliberately. "Brawl does not publish it" alone would pass just as well if
    * the generator dropped `phased` from every tab, which would be the opposite mistake — a status
    * a real mode does inflict, described nowhere.
    */
-  it("publishes `phased` in the deathmatch tabs and nowhere else", () => {
+  it("publishes `phased` in every respawning mode's tab and nowhere else", () => {
     const sections = modeSections(read(path.join(PUBLIC_DIR, manualPath())));
     for (const mode of activeGameModes()) {
       const section = sections.get(mode);
       const publishes = section.includes(`id="fx-${mode}-phased"`);
-      const isDeathmatch = rulesOf(mode).winRuleLabel === "deathmatch";
+      const respawns = rulesOf(mode).respawns;
       assert.equal(
         publishes,
-        isDeathmatch,
-        isDeathmatch
+        respawns,
+        respawns
           ? `mode ${mode} respawns cars but does not publish the spawn-protection effect`
-          : `mode ${mode} publishes "phased", which nothing in a ${rulesOf(mode).winRuleLabel} match applies`,
+          : `mode ${mode} publishes "phased", which a non-respawning mode never applies`,
       );
     }
   });
