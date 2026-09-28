@@ -219,7 +219,7 @@ import {
   statusStripLayout,
 } from "./status-hud.js";
 import { arrowBlinkOn, arrowBobOffset, countdownArrowPoints } from "./countdown-arrow.js";
-import { isAxisAligned, resolveViewRotation } from "../camera/rotation.js";
+import { boundsAlignedFor, resolveViewRotation } from "../camera/rotation.js";
 import {
   ACTION_LABEL,
   MOVEMENT_ARROWS,
@@ -1807,6 +1807,11 @@ export class ArenaScene extends Phaser.Scene {
     this.hiddenInstanceMemo.clear();
     this.lastHiddenInstances.clear();
     this.deathPose = undefined;
+    // I2: without this a match that ends turned (a "heading" spectate, or a "teamFacing" team not
+    // facing 0) leaves `viewRotation` non-zero, and the next match's first `syncViewRotation`
+    // (`force`d, but still comparing against a stale `current`) inherits it as the starting angle
+    // for an ease, or renders one frame at the old angle before `"none"`/`"teamFacing"` overwrite it.
+    this.viewRotation = 0;
     this.floorTile?.destroy();
     this.floorTile = undefined;
     this.floorImage?.destroy();
@@ -1981,8 +1986,8 @@ export class ArenaScene extends Phaser.Scene {
    * `followHeading` is the camera target's DRAWN heading, one frame behind — the same pose
    * `renderCars` hands `followCamera` — so `"heading"` turns off what is actually on screen. Eased
    * through `rotateLerp` unless `force`d or `snapRotation` is set (the first frame after `drawArena`
-   * or a respawn cut, CB12). Also keeps the camera's scroll bounds in sync (CB15): Phaser's clamp is
-   * only correct while the view is axis-aligned, so a turned view runs unclamped.
+   * or a respawn cut, CB12). Also keeps the camera's scroll bounds in sync (I2, CB15) through
+   * `boundsAlignedFor`, decided by the mode's `rotate` choice rather than this frame's angle.
    */
   private syncViewRotation(arena: ArenaDef, force = false, deltaMs = 0): void {
     const room = this.room;
@@ -2003,13 +2008,18 @@ export class ArenaScene extends Phaser.Scene {
       snap: force || this.snapRotation,
     });
     if (followHeading !== undefined) this.snapRotation = false;
-    this.applyCameraBounds(arena, isAxisAligned(rotation));
+    this.applyCameraBounds(arena, boundsAlignedFor(camera().rotate, rotation));
     if (!force && rotation === this.viewRotation) return;
     this.viewRotation = rotation;
     this.cameras.main.setRotation(rotation);
   }
 
-  /** Clamp to the arena only while the view is axis-aligned (CB15); a turned view follows freely. */
+  /**
+   * Clamp to the arena only when the MODE's `rotate` choice says the angle is fixed-axis-aligned
+   * (I2, CB15) — `boundsAlignedFor` decides by mode, not by this frame's instantaneous angle, so a
+   * `"heading"` ease passing back through an axis-aligned value mid-turn does not toggle the clamp
+   * on and off and produce a lurch.
+   */
   private applyCameraBounds(arena: ArenaDef, aligned: boolean): void {
     if (aligned === this.cameraBounded) return;
     this.cameraBounded = aligned;
@@ -4605,6 +4615,11 @@ export class ArenaScene extends Phaser.Scene {
       this.camFocus = undefined;
       this.snapRotation = true;
       this.deathPose = undefined;
+      // I2: the wreck's fade can still be running when the respawn lands, so `lastDrawnPose` may
+      // still hold the dead car's frozen heading here — read this same frame, before `renderCars`
+      // draws the respawned car's own pose, by `syncViewRotation` just below. Left in place, a
+      // `"heading"` camera would snap to the wreck's heading for one frame instead of the car's.
+      this.lastDrawnPose.delete(this.drivenSid(room));
     }
     // The alive -> dead edge: freeze where the car was last drawn, for `noTargetVision: "pov"` (CB26).
     if (!local.alive && this.localAlive) this.deathPose = this.lastDrawnPose.get(this.drivenSid(room));

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ARENA_03 } from "@motor-combat-moba/shared";
 import { projectToScreen } from "../input/aim-offset.js";
 import {
+  boundsAlignedFor,
   easeAngle,
   isAxisAligned,
   normalizeAngle,
@@ -75,6 +76,22 @@ describe("isAxisAligned (CB15)", () => {
     expect(isAxisAligned(2 * Math.PI)).toBe(true);
     expect(isAxisAligned(Math.PI / 2)).toBe(false);
     expect(isAxisAligned(0.01)).toBe(false);
+  });
+});
+
+describe("boundsAlignedFor (I2, CB15)", () => {
+  it('"heading" never clamps, even at a momentarily axis-aligned angle', () => {
+    expect(boundsAlignedFor("heading", 0)).toBe(false);
+    expect(boundsAlignedFor("heading", Math.PI)).toBe(false);
+    expect(boundsAlignedFor("heading", 0.01)).toBe(false);
+  });
+  it('"none" clamps whenever its angle is axis-aligned (it always is)', () => {
+    expect(boundsAlignedFor("none", 0)).toBe(true);
+  });
+  it('"teamFacing" clamps only when its fixed angle is axis-aligned', () => {
+    expect(boundsAlignedFor("teamFacing", 0)).toBe(true);
+    expect(boundsAlignedFor("teamFacing", Math.PI)).toBe(true);
+    expect(boundsAlignedFor("teamFacing", Math.PI / 2)).toBe(false);
   });
 });
 

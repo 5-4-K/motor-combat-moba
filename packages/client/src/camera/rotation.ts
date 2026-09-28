@@ -53,6 +53,21 @@ export function isAxisAligned(rotation: number): boolean {
   return m < AXIS_EPSILON || Math.abs(m - Math.PI) < AXIS_EPSILON;
 }
 
+/**
+ * Whether the arena camera should stay clamped to the arena rect, decided by the mode's `rotate`
+ * choice rather than this frame's instantaneous angle (I2, CB15). `"heading"` eases continuously
+ * and its angle passes back through axis-aligned values on every half-turn it makes on the way
+ * to some other heading, so testing `isAxisAligned` on the current value toggled `setBounds`/
+ * `removeBounds` on and off mid-ease — a lurch, not a clamp. A turned camera never clamps for the
+ * whole time it is in `"heading"`, full stop: bounds come off on the very first frame, before any
+ * pose has even been read. `"none"` and `"teamFacing"` hold one fixed angle per match, so testing
+ * that angle is safe — it cannot toggle mid-frame.
+ */
+export function boundsAlignedFor(rotate: CameraRotate, rotation: number): boolean {
+  if (rotate === "heading") return false;
+  return isAxisAligned(rotation);
+}
+
 export interface ViewRotationInput {
   readonly rotate: CameraRotate;
   readonly arena: Pick<ArenaDef, "teamASpawns" | "teamBSpawns">;

@@ -126,11 +126,18 @@ export interface CameraConfig {
   above the screen centre.
 - **CB14** `"none"`: rotation 0, as Brawl and Deathmatch have today.
 - **CB15** The arena clamp (CB2) is only correct when the rotation is a multiple of π, because
-  Phaser clamps an unrotated scroll rectangle. When the effective rotation is not (within 1e-6 of)
-  a multiple of π, the camera drops its bounds (`removeBounds`) and follows the target freely,
-  showing the floor colour past the walls. It re-applies bounds when the rotation returns to a
-  multiple of π. `"heading"` therefore effectively never clamps; `"teamFacing"` on a
-  sideways-spawning team does not either.
+  Phaser clamps an unrotated scroll rectangle. Whether it is applied is decided **by the mode's
+  `rotate` choice, not by the current frame's instantaneous angle** (`boundsAlignedFor` in
+  `camera/rotation.ts`): `"heading"` never clamps, full stop — bounds are removed (`removeBounds`)
+  from the very first frame of the match, before any pose has even been read, and stay off for the
+  whole time the mode is `"heading"`. `"none"` and `"teamFacing"` hold one fixed angle per match, so
+  clamping when THAT angle is a multiple of π is safe: it is applied (`setBounds`) when it is, and
+  left off when it is not (a sideways-spawning `"teamFacing"` team). The earlier draft of this clause
+  tested `isAxisAligned` on the live, per-frame rotation for every mode — for `"heading"`, whose
+  angle eases continuously and passes back through axis-aligned values on the way to some other
+  heading, that toggled `setBounds`/`removeBounds` on and off mid-ease, which read as a camera lurch
+  rather than a clamp (I2). Deciding by mode instead removes that thrash: a mode that rotates freely
+  is simply never bounded.
 - **CB16** While spectating, `"heading"` turns with the car being watched; in free roam
   (`target: "free"`, or the no-target hold of CB22) it holds the angle it had at the moment of
   death. `"teamFacing"` always uses the LOCAL player's team, never the watched car's (as today).
