@@ -1091,17 +1091,31 @@ decides any camera behaviour; it can only make a mode's choice illegal (caught b
 | Field | Meaning | Base value | Clause |
 |---|---|---|---|
 | `rotate` | `"none"` \| `"teamFacing"` \| `"heading"` — world rotation the camera holds | `"none"` | CB10, CB12, CB14 |
-| `rotateLerp` | Per-60Hz-frame ease fraction, read only by `"heading"` (stage 2, not yet wired) | `0.15` | CB12 |
-| `fov.enabled` | Restricted field of vision (stage 3, not yet wired) | `false` | CB25–CB29 |
+| `rotateLerp` | Per-60Hz-frame ease fraction, read only by `"heading"` | `0.15` | CB12 |
+| `fov.enabled` | Restricted field of vision: hide enemies out of sight, dim the view outside it | `false` | CB25–CB29 |
 | `fov.rangeX`/`rangeY`/`offsetX`/`offsetY`/`angleDeg`/`blockedByObstacles`/`outsideDim`/`sharedVision` | Vision-cone shape and rendering, inert while `fov.enabled` is `false` | `600`/`450`/`0`/`0`/`120`/`true`/`0.45`/`true` | CB25–CB29 |
 | `spectate.target` | `"anyone"` \| `"teammates"` \| `"none"` \| `"free"` — who a dead car may watch | `"anyone"` | CB18–CB22 |
-| `spectate.noTargetVision` | `"pov"` \| `"blind"` — FOV fallback with no spectate target (stage 3) | `"pov"` | CB26 |
+| `spectate.noTargetVision` | `"pov"` \| `"blind"` — FOV fallback with no spectate target | `"pov"` | CB26 |
 
 There is no fixed/follow setting any more (CB2): the camera always follows its target, clamped to
 the arena, so a one-screen arena simply has no room left to scroll — that reproduces today's
-"fixed" camera exactly, with no arena-side flag. `rotate: "heading"` and `fov.enabled` are defined
-in the type and this table today but are not wired until stages 2 and 3 of the camera-behaviours
-work; a mode that sets either is refused by a temporary invariant until its stage lands.
+"fixed" camera exactly, with no arena-side flag. `rotate: "heading"` and `fov.enabled` are both
+wired; no shipped mode turns either on yet.
+
+**What `fov.enabled` does (CB25–CB29).** Client-only and purely visual — the server, the sim and
+the bots still see the whole arena (CB5, CB33; the bot guard in `modes/invariants.test.ts` refuses
+FOV on the bundles Practice and the playground seat bots in). Each viewer car sees an ellipse
+(`rangeX` ahead, `rangeY` across, centred `offsetX`/`offsetY` off the car) cut to an `angleDeg`
+cone from that centre, and, with `blockedByObstacles`, not through any obstacle. The vision set is
+the perspective player's own car (or its death pose under `"pov"`), plus living teammates when
+`sharedVision` is on in a team mode. Out of that set, **enemy** things only are hidden (CB27): an
+enemy car and everything drawn for it (body, shadow, rim, turret, hp bar, maneuver marks, charge
+orb) unless its centre or a hull corner is seen; an enemy-owned shot unless one of its sample
+points is; and the fx events (`shotFired`, `shotEnded`, `damaged`, `died`) derived from a hidden
+enemy instance or at a hidden enemy car. Map features and your own and your teammates' things are
+never hidden. **Hiding is per object, not a stencil (CB28)**: a shot is drawn whole or not at all,
+so a beam half inside your vision draws in full. Everything outside the vision set is darkened by
+a black overlay at `outsideDim` alpha (CB29), over every world layer and under the HUD.
 
 Per-mode overrides today (CB9) — every shipped mode reproduces its pre-2026-09-28 behaviour exactly:
 

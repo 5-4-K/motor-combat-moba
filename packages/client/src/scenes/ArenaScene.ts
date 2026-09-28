@@ -250,6 +250,17 @@ import {
   showKilledBy,
 } from "./match-hud.js";
 import { hudOf } from "../modes/registry.js";
+import {
+  carVisible,
+  inVision,
+  shotSamplePoints,
+  visionPolygon,
+  visionPoses,
+  visionShapeOf,
+  type VisionPlayer,
+  type VisionShape,
+} from "../camera/vision.js";
+import { NOTHING_HIDDEN, type FxHidden } from "../fx/hidden.js";
 import type { GutterHost, ModeGutter } from "../modes/types.js";
 
 const ARENA_BORDER_PX = 4;
@@ -293,6 +304,15 @@ const TURRET_LIT_NAME = "turret-lit";
  * Over everything: a bar is the last thing that may ever be hidden.
  */
 const HP_BAR_DEPTH = 60;
+/**
+ * The field-of-vision dark overlay (CB29): one world-space cover with the vision polygons cut out.
+ * Over EVERY world layer — floor, obstacles, cars, shots, air fx, arrows and bars — because it is
+ * the view being dark, not a thing in the world; only the HUD camera's objects sit above it, and
+ * that camera ignores it. Invisible whenever the mode's `camera().fov.enabled` is false.
+ */
+const FOV_DIM_DEPTH = HP_BAR_DEPTH + 1;
+/** World units added to the FOV cover square's side, so a camera shake never bares its edge. */
+const FOV_DIM_MARGIN = 64;
 /**
  * The arrow that marks your own car — the countdown's bob and the respawn blink alike
  * (`drawSelfArrow`). Above the cars so the marker is never hidden by the car it is marking, and
@@ -914,6 +934,30 @@ export class ArenaScene extends Phaser.Scene {
    */
   private lastDrawnPose = new Map<string, { x: number; y: number; angle: number }>();
   /**
+   * This frame's vision (CB25–CB27), from `computeVision`; `active` false means the mode's FOV is off
+   * and nothing is hidden or dimmed. `perspective` is whose eyes we look through: the watched player
+   * while spectating one, otherwise the driven car.
+   */
+  private vision: { active: boolean; perspective: string; shapes: VisionShape[] } = {
+    active: false,
+    perspective: "",
+    shapes: [],
+  };
+  /** Enemy cars `renderCars` hid this frame — reused by the charge orbs and the fx filter (CB27). */
+  private hiddenCars = new Set<string>();
+  /** Per-frame memo of `instanceHidden`, so `renderShots` and `renderFx` test each instance once. */
+  private hiddenInstanceMemo = new Map<string, boolean>();
+  /** The local car's drawn pose on the frame it died, for `noTargetVision: "pov"` (CB26). */
+  private deathPose: { x: number; y: number; angle: number } | undefined;
+  /** The dark overlay outside vision (CB29), at `FOV_DIM_DEPTH`; hidden while FOV is off. */
+  private dimGfx: Phaser.GameObjects.Graphics | undefined;
+  /**
+   * The vision polygons, filled opaque, applied to `dimGfx` as an INVERTED mask filter so they cut
+   * holes in it. Made, not added: it is on no display list and no camera draws it directly — the
+   * mask filter renders it itself, through the world camera.
+   */
+  private visionMaskGfx: Phaser.GameObjects.Graphics | undefined;
+  /**
    * When the last state patch landed, for drawing shots between patches. `performance.now()` rather
    * than Phaser's clock, for the reason spelled out in `pushRemoteSnapshots`.
    */
@@ -1359,6 +1403,15 @@ export class ArenaScene extends Phaser.Scene {
     // Drawn by `renderZone` on its first frame; `zoneTintDrawn` unset is what forces that draw.
     if (arena.zone) this.zoneGfx = this.add.graphics().setDepth(ZONE_DEPTH);
     this.zoneTintDrawn = undefined;
+    // The FOV overlay (CB29). Built for every arena and simply left invisible when the mode has no
+    // FOV — an invisible object is skipped by the renderer, filters and all, so a mode without FOV
+    // pays nothing for it. Created here, before `splitCameras`, which hands it to the world camera.
+    this.visionMaskGfx = this.make.graphics({}, false);
+    this.dimGfx = this.add.graphics().setDepth(FOV_DIM_DEPTH).setVisible(false);
+    this.dimGfx.enableFilters();
+    // Inverted: the mask's opaque polygons are where the overlay is REMOVED. Viewed through the
+    // world camera, so the world-space polygons land where the world is drawn, rotation included.
+    this.dimGfx.filters?.internal.addMask(this.visionMaskGfx, true, this.cameras.main);
 
     const cam = this.cameras.main;
     // Clipped to the arena's share of the canvas, leaving `HUD_GUTTER_WIDTH` down the right for the
@@ -1640,6 +1693,8 @@ export class ArenaScene extends Phaser.Scene {
       // World space at `ZONE_DEPTH` — a zone ring drawn on the HUD camera too would float over the
       // gutter.
       ...(this.zoneGfx ? [this.zoneGfx] : []),
+      // World space at `FOV_DIM_DEPTH` — the HUD camera drawing it too would darken the gutter.
+      ...(this.dimGfx ? [this.dimGfx] : []),
       ...(this.shotGfx ? [this.shotGfx] : []),
       ...(this.glowGfx ? [this.glowGfx] : []),
       ...(this.hpGfx ? [this.hpGfx] : []),
@@ -1736,6 +1791,14 @@ export class ArenaScene extends Phaser.Scene {
     this.zoneGfx?.destroy();
     this.zoneGfx = undefined;
     this.zoneTintDrawn = undefined;
+    this.dimGfx?.destroy();
+    this.dimGfx = undefined;
+    this.visionMaskGfx?.destroy();
+    this.visionMaskGfx = undefined;
+    this.vision = { active: false, perspective: "", shapes: [] };
+    this.hiddenCars.clear();
+    this.hiddenInstanceMemo.clear();
+    this.deathPose = undefined;
     this.floorTile?.destroy();
     this.floorTile = undefined;
     this.floorImage?.destroy();
@@ -1881,10 +1944,13 @@ export class ArenaScene extends Phaser.Scene {
     // Before `renderCars`, which lights the cars and draws the self-arrow against this angle.
     this.syncViewRotation(this.arena, false, delta);
     this.renderZone(room, this.arena);
+    // Before every render pass that hides by it (CB25–CB27).
+    this.computeVision(room);
     this.renderCars(room, delta);
     this.syncCrosshair(room);
     this.renderShots(room);
     this.renderFx(room, delta);
+    this.renderVisionDim();
     // The panel's height is the slots' top inset, so the roster draws first and hands that one
     // number to the rest of the gutter. Derived here and nowhere else on purpose: the panel lists
     // every IN_MATCH player while `renderWeaponHud` lays out for `hudTargetPlayer` — the
@@ -2567,6 +2633,11 @@ export class ArenaScene extends Phaser.Scene {
     // Hoisted rather than derived twice: the impact-spark pass below wants the same answer, and two
     // copies of this expression is two things that can drift about what game we are in.
     const mode = rulesOf(room.state.mode).sides;
+    this.hiddenCars.clear();
+    // Read once per frame, and only when FOV is on — a mode without it never reaches a vision test.
+    const fov = this.vision.active ? camera().fov : undefined;
+    const hull = fov ? { width: drive().carWidth, height: drive().carHeight } : undefined;
+    const obstacles = this.arena?.obstacles ?? [];
 
     room.state.players.forEach((player, sessionId) => {
       if (player.status !== PlayerStatus.IN_MATCH) return;
@@ -2612,6 +2683,17 @@ export class ArenaScene extends Phaser.Scene {
       this.cars.get(sessionId)?.setAlpha(alpha);
       this.drawCarLook(sessionId, player.carId, player.colorId, pose, alpha);
       this.syncTurret(sessionId, player, pose, delta);
+      // FOV (CB27): an enemy out of sight keeps every object — kept current above, so it reappears
+      // exactly where it is — but none of them is drawn, and neither are its bar and maneuver marks.
+      // Decided AFTER the syncs rather than instead of them, so the syncs never have to know.
+      const hidden =
+        fov !== undefined &&
+        hull !== undefined &&
+        this.hiddenEnemy(room, sessionId, () =>
+          carVisible(pose, hull, this.vision.shapes, obstacles, fov.blockedByObstacles),
+        );
+      if (hidden) this.hiddenCars.add(sessionId);
+      this.setCarVisible(sessionId, !hidden);
       poses.set(sessionId, pose);
       this.lastDrawnPose.set(sessionId, { x: pose.x, y: pose.y, angle: pose.angle });
       const mods = modifiersFromRows(player.statuses, room.state.tick);
@@ -2649,13 +2731,13 @@ export class ArenaScene extends Phaser.Scene {
         defenceMult: mods.ramDefence,
         ramBlocked: mods.ramBlocked,
       });
-      if (hp && player.alive) {
+      if (hp && player.alive && !hidden) {
         const allegiance = viewer
           ? allegianceOf(viewer, { sessionId, team: player.team }, mode)
           : "enemy";
         this.drawHpBar(hp, player, pose, allegiance);
       }
-      if (maneuver && player.alive) this.drawManeuverVisuals(maneuver, sessionId, player, pose);
+      if (maneuver && player.alive && !hidden) this.drawManeuverVisuals(maneuver, sessionId, player, pose);
       if (sessionId === this.cameraTarget(room)) {
         this.followCamera(pose, delta * this.hitStopScale());
       }
@@ -2694,6 +2776,134 @@ export class ArenaScene extends Phaser.Scene {
       this.visualKeys.delete(sessionId);
       this.turretShown.delete(sessionId);
       this.interps.delete(sessionId);
+    }
+  }
+
+  /**
+   * Show or hide one car's every display object for FOV (CB27): the container (body, rim, turret
+   * and hitbox are all inside it) and its two shadow images on the shared shadow layer. Hiding
+   * never destroys anything. Showing leaves the shadows alone, because `placeShadow` has already
+   * decided this frame whether each one is drawn (a shadow switched off in `carLook` stays off).
+   */
+  private setCarVisible(sessionId: string, visible: boolean): void {
+    this.cars.get(sessionId)?.setVisible(visible);
+    if (visible) return;
+    const shadows = this.carShadows.get(sessionId);
+    shadows?.drop.setVisible(false);
+    shadows?.contact.setVisible(false);
+  }
+
+  /**
+   * This frame's vision set (CB26), once, before any pass that hides by it. Built from LAST frame's
+   * drawn poses (`lastDrawnPose`) — one frame of latency, accepted: this frame's poses are only known
+   * inside `renderCars`, which already needs the answer. A car with no drawn pose yet falls back to
+   * its schema pose. Everything is skipped when the mode has no FOV, so it costs nothing there.
+   */
+  private computeVision(room: Room<ArenaState>): void {
+    this.hiddenInstanceMemo.clear();
+    const fov = camera().fov;
+    if (!fov.enabled) {
+      this.vision = { active: false, perspective: "", shapes: [] };
+      return;
+    }
+    const localSid = this.drivenSid(room);
+    // The watched player while spectating one (CB19, CB27): you see exactly what they see.
+    const watching = this.isSpectating(room) && this.spectateTarget !== "" ? this.spectateTarget : "";
+    const perspectiveSid = watching || localSid;
+    const perspective = room.state.players.get(perspectiveSid);
+    const players: VisionPlayer[] = [];
+    room.state.players.forEach((p, sessionId) => {
+      if (p.status !== PlayerStatus.IN_MATCH) return;
+      const pose = this.lastDrawnPose.get(sessionId) ?? bodyOf(p);
+      players.push({ sessionId, team: p.team, alive: p.alive, pose });
+    });
+    // "pov" freezes the local car's own shape where it died; only while watching nobody.
+    const frozen =
+      watching === "" && camera().spectate.noTargetVision === "pov" ? this.deathPose : undefined;
+    const poses = visionPoses({
+      perspective: { sessionId: perspectiveSid, team: perspective?.team ?? 0 },
+      players,
+      sides: rulesOf(room.state.mode).sides,
+      sharedVision: fov.sharedVision,
+      frozenPose: frozen,
+    });
+    this.vision = {
+      active: true,
+      perspective: perspectiveSid,
+      shapes: poses.map((pose) => visionShapeOf(pose, fov)),
+    };
+  }
+
+  /**
+   * Is `subjectSid` an enemy of whoever we are looking through, and out of their sight (CB27)?
+   * `seen` is only called for an enemy, so an ally never pays for a vision test.
+   */
+  private hiddenEnemy(room: Room<ArenaState>, subjectSid: string, seen: () => boolean): boolean {
+    if (!this.vision.active) return false;
+    const perspective = room.state.players.get(this.vision.perspective);
+    const subject = room.state.players.get(subjectSid);
+    if (!perspective || !subject) return false;
+    const enemy =
+      allegianceOf(
+        { sessionId: this.vision.perspective, team: perspective.team },
+        { sessionId: subjectSid, team: subject.team },
+        rulesOf(room.state.mode).sides,
+      ) === "enemy";
+    return enemy && !seen();
+  }
+
+  /**
+   * Is this weapon instance an enemy's and wholly out of sight (CB27, CB28)? Tested on the shape it
+   * is DRAWN at, so a shot is shown whole or not at all. Memoised per frame by id, since
+   * `renderShots` and `renderFx` both ask about the same instances.
+   */
+  private instanceHidden(
+    room: Room<ArenaState>,
+    id: string,
+    instance: Parameters<typeof instanceDrawShape>[0] & { ownerSessionId: string },
+    elapsedMs: number,
+  ): boolean {
+    if (!this.vision.active) return false;
+    const memo = this.hiddenInstanceMemo.get(id);
+    if (memo !== undefined) return memo;
+    const obstacles = this.arena?.obstacles ?? [];
+    const blocked = camera().fov.blockedByObstacles;
+    const hidden = this.hiddenEnemy(room, instance.ownerSessionId, () =>
+      shotSamplePoints(instanceDrawShape(instance, elapsedMs)).some((p) =>
+        inVision(p, this.vision.shapes, obstacles, blocked),
+      ),
+    );
+    this.hiddenInstanceMemo.set(id, hidden);
+    return hidden;
+  }
+
+  /**
+   * The dark overlay outside vision (CB29). A square that covers the view at any rotation, centred
+   * on what the world camera is looking at this frame, darkened to `outsideDim`; the vision
+   * polygons are filled into `visionMaskGfx`, which cuts them out of it as an inverted mask. The
+   * polygons are for drawing only — every hide decision above uses the exact `inVision` test.
+   */
+  private renderVisionDim(): void {
+    const gfx = this.dimGfx;
+    const mask = this.visionMaskGfx;
+    if (!gfx || !mask) return;
+    gfx.setVisible(this.vision.active);
+    if (!this.vision.active) return;
+    gfx.clear();
+    mask.clear();
+    const fov = camera().fov;
+    const cam = this.cameras.main;
+    // Centred from the scroll `followCamera` set THIS frame (`midPoint` is only refreshed at
+    // render). The margin absorbs a camera shake's offset.
+    const side = Math.hypot(cam.width, cam.height) / cam.zoom + FOV_DIM_MARGIN;
+    const cx = cam.scrollX + cam.width / 2;
+    const cy = cam.scrollY + cam.height / 2;
+    gfx.fillStyle(0x000000, fov.outsideDim);
+    gfx.fillRect(cx - side / 2, cy - side / 2, side, side);
+    mask.fillStyle(0xffffff, 1);
+    const obstacles = this.arena?.obstacles ?? [];
+    for (const shape of this.vision.shapes) {
+      mask.fillPoints(pts(visionPolygon(shape, obstacles, fov.blockedByObstacles)), true);
     }
   }
 
@@ -3379,8 +3589,10 @@ export class ArenaScene extends Phaser.Scene {
 
     const nowMs = performance.now();
     const elapsedMs = this.lastPatchMs === 0 ? 0 : nowMs - this.lastPatchMs;
-    room.state.weapons.forEach((instance) => {
+    room.state.weapons.forEach((instance, id) => {
       if (!instance.alive) return;
+      // FOV (CB27, CB28): an enemy's shot wholly out of sight is not drawn at all.
+      if (this.instanceHidden(room, id, instance, elapsedMs)) return;
       const shape = instanceDrawShape(instance, elapsedMs);
       const alpha = beamFadeAlpha(
         instance.kind,
@@ -3586,7 +3798,7 @@ export class ArenaScene extends Phaser.Scene {
     // than zero. Distance-based spacing already lays nothing for a car whose pose is not changing;
     // this is the other half, and it also stops decals ageing through a pause, which is what a
     // paused frame should do anyway. `pumpPauseKey` is Practice-only but Practice ships.
-    fx.update({ cars, instances }, isSimPaused(room.state) ? 0 : delta);
+    fx.update({ cars, instances }, isSimPaused(room.state) ? 0 : delta, this.fxHidden(room));
 
     // Camera reaction to what just happened, severity-driven rather than a fixed jolt per hit. Read
     // off `lastEvents()` — the exact list `fx.update` just derived above — rather than re-deriving:
@@ -3603,6 +3815,22 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
+   * What the fx layer may not show this frame (CB27): the enemy cars `renderCars` hid, and every
+   * enemy instance out of sight — dead ones included, since `shotEnded` fires off the `alive` flip.
+   * Events are still DERIVED from the full world inside `FxLayer.update`; this only filters them.
+   * `NOTHING_HIDDEN`, with nothing computed, whenever the mode has no FOV.
+   */
+  private fxHidden(room: Room<ArenaState>): FxHidden {
+    if (!this.vision.active) return NOTHING_HIDDEN;
+    const elapsedMs = this.lastPatchMs === 0 ? 0 : performance.now() - this.lastPatchMs;
+    const instances = new Set<string>();
+    room.state.weapons.forEach((instance, id) => {
+      if (this.instanceHidden(room, id, instance, elapsedMs)) instances.add(id);
+    });
+    return { cars: this.hiddenCars, instances };
+  }
+
+  /**
    * The orb a wind-up weapon gathers at its muzzle before firing.
    *
    * A second pass over PLAYERS rather than more work inside the instance loop, because a charging
@@ -3614,8 +3842,11 @@ export class ArenaScene extends Phaser.Scene {
    * than a draw call of its own — see `docs/asset-pipeline.md`'s note on what shot detail costs.
    */
   private renderChargeOrbs(room: Room<ArenaState>, gfx: Phaser.GameObjects.Graphics): void {
-    room.state.players.forEach((player) => {
+    room.state.players.forEach((player, sessionId) => {
       if (player.status !== PlayerStatus.IN_MATCH || !player.alive) return;
+      // A hidden car's telegraph is part of "everything drawn for it" (CB27) — the same answer
+      // `renderCars` reached this frame, not a second test.
+      if (this.hiddenCars.has(sessionId)) return;
       if (player.lastFiredSlot < 0) return;
       const slot = player.weapons[player.lastFiredSlot];
       if (!slot) return;
@@ -4350,7 +4581,10 @@ export class ArenaScene extends Phaser.Scene {
     if (local.alive && !this.localAlive) {
       this.camFocus = undefined;
       this.snapRotation = true;
+      this.deathPose = undefined;
     }
+    // The alive -> dead edge: freeze where the car was last drawn, for `noTargetVision: "pov"` (CB26).
+    if (!local.alive && this.localAlive) this.deathPose = this.lastDrawnPose.get(this.drivenSid(room));
     this.localAlive = local.alive;
   }
 

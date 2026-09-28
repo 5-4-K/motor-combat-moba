@@ -92,7 +92,7 @@ for (const def of Object.values(MODE_TABLE)) {
       for (const id of def.config.arenas) expect(isArenaId(id)).toBe(true);
     });
 
-    // --- Camera (spec 2026-09-28-camera-behaviors-design.md, CB30–CB32, CB38) -------------
+    // --- Camera (spec 2026-09-28-camera-behaviors-design.md, CB30–CB32) -------------------
 
     it("puts teamFacing only on a team mode whose arenas give each team one spawn heading (CB30)", () => {
       const cam = def.config.camera;
@@ -132,11 +132,6 @@ for (const def of Object.values(MODE_TABLE)) {
       expect(fov.angleDeg, `${where}.fov.angleDeg`).toBeLessThanOrEqual(360);
       expect(fov.outsideDim, `${where}.fov.outsideDim`).toBeGreaterThanOrEqual(0);
       expect(fov.outsideDim, `${where}.fov.outsideDim`).toBeLessThanOrEqual(1);
-    });
-
-    // TEMPORARY (CB38): removed by the stage that wires each behaviour into ArenaScene.
-    it("does not turn on a camera behaviour that is not wired yet (CB38)", () => {
-      expect(def.config.camera.fov.enabled, `${def.name}: fov is wired in stage 3`).toBe(false);
     });
 
     it("truncates an over-long kit silently, and only warns past the ceiling", () => {
