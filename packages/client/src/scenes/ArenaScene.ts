@@ -947,10 +947,12 @@ export class ArenaScene extends Phaser.Scene {
   /** Enemy cars `renderCars` hid this frame — reused by the charge orbs and the fx filter (CB27). */
   private hiddenCars = new Set<string>();
   /**
-   * Last frame's hidden-instance ids (CB27, I1), so `fxHidden` can carry one forward the tick the
-   * server deletes it — it deletes a dead instance the same tick it dies rather than writing
-   * `alive: false` first, so a hidden enemy's `shotEnded` would otherwise resolve unhidden the
-   * instant the id leaves `state.weapons`.
+   * Last frame's OWN hidden-instance ids — never the carried result — so `fxHidden` can carry one
+   * forward for exactly the one tick the server deletes it (CB27, I1). It deletes a dead instance
+   * the same tick it dies rather than writing `alive: false` first, so a hidden enemy's `shotEnded`
+   * would otherwise resolve unhidden the instant the id leaves `state.weapons`. Holding the carried
+   * set here instead of the raw one would re-add a vanished id on every later frame too, since it
+   * never returns to `state.weapons` to fall back out of `lastHiddenInstances` on its own.
    */
   private lastHiddenInstances = new Set<string>();
   /** Per-frame memo of `instanceHidden`, so `renderShots` and `renderFx` test each instance once. */
@@ -3843,9 +3845,15 @@ export class ArenaScene extends Phaser.Scene {
    * into a row a client still holds (verified against `stepCombat`/`combat-bridge.ts`: a dying
    * instance is dropped from `survivors` and never reaches `state.weapons` with `alive: false`), so
    * an id that was hidden last frame and is gone from `state.weapons` this frame is carried forward
-   * (I1) — otherwise a hidden enemy's `shotEnded` would resolve against an empty hidden set on the
-   * very frame the id vanishes, and its impact burst/scorch would show for a shot the player never
-   * saw fired.
+   * for exactly that one frame (I1) — otherwise a hidden enemy's `shotEnded` would resolve against an
+   * empty hidden set on the very frame the id vanishes, and its impact burst/scorch would show for a
+   * shot the player never saw fired.
+   *
+   * `lastHiddenInstances` remembers this frame's OWN hidden ids (the ones still present in
+   * `state.weapons` and hidden), never the carried result: carrying the carried set forward would
+   * re-add a vanished id on every later frame too, since it is gone from `currentIds` forever —
+   * growing `lastHiddenInstances` for the rest of the match instead of forgetting the id after the
+   * one frame it was needed for.
    */
   private fxHidden(room: Room<ArenaState>): FxHidden {
     if (!this.vision.active) {
@@ -3860,7 +3868,7 @@ export class ArenaScene extends Phaser.Scene {
       if (this.instanceHidden(room, id, instance, elapsedMs)) instances.add(id);
     });
     const carried = carryHiddenInstances(this.lastHiddenInstances, currentIds, instances);
-    this.lastHiddenInstances = carried;
+    this.lastHiddenInstances = instances;
     return { cars: this.hiddenCars, instances: carried };
   }
 

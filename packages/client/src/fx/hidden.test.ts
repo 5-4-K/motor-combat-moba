@@ -52,3 +52,61 @@ describe("carryHiddenInstances (I1, CB27)", () => {
     expect(carryHiddenInstances(new Set(), new Set(), new Set())).toEqual(new Set());
   });
 });
+
+describe("carryHiddenInstances — ArenaScene.fxHidden's own usage contract (I1 re-review)", () => {
+  /**
+   * Mirrors `ArenaScene.fxHidden` exactly: the caller must feed THIS FRAME's own (uncarried) hidden
+   * set back in as next frame's `prevHidden`, never the carried result — otherwise a vanished id
+   * would be re-added forever (never falls out of `currentIds` again once its instance is gone), and
+   * `lastHiddenInstances` would grow for the rest of the match instead of forgetting it after the one
+   * frame it was needed for.
+   */
+  function fxHiddenFrame(
+    lastHidden: ReadonlySet<string>,
+    currentIds: ReadonlySet<string>,
+    currentHidden: ReadonlySet<string>,
+  ): { carried: Set<string>; nextLastHidden: Set<string> } {
+    return {
+      carried: carryHiddenInstances(lastHidden, currentIds, currentHidden),
+      nextLastHidden: new Set(currentHidden),
+    };
+  }
+
+  it("carries a vanished id for exactly one frame, then forgets it", () => {
+    let lastHidden = new Set<string>();
+
+    // Frame 1: "s1" is hidden and still in the world.
+    const f1 = fxHiddenFrame(lastHidden, new Set(["s1"]), new Set(["s1"]));
+    expect(f1.carried).toEqual(new Set(["s1"]));
+    lastHidden = f1.nextLastHidden;
+
+    // Frame 2: "s1"'s instance was deleted this tick, same tick it died — gone from the world and
+    // from this frame's own hidden set — but it must still be carried, so its shotEnded is hidden.
+    const f2 = fxHiddenFrame(lastHidden, new Set(), new Set());
+    expect(f2.carried).toEqual(new Set(["s1"]));
+    lastHidden = f2.nextLastHidden;
+
+    // Frame 3: nothing hidden last frame (frame 2 fed forward its OWN hidden set — empty — not the
+    // carried one), so "s1" must NOT be re-added; carrying it here would be the unbounded-growth bug.
+    const f3 = fxHiddenFrame(lastHidden, new Set(), new Set());
+    expect(f3.carried).toEqual(new Set());
+  });
+
+  it("never re-adds a vanished id across many further frames (no unbounded growth)", () => {
+    let lastHidden = new Set(["s1"]);
+    // Simulate feeding the carried set back in by mistake for one frame, then correctly for the rest
+    // — the fix under review reads `this.lastHiddenInstances = instances`, not `= carried`, so after
+    // the one legitimate carry frame every later frame's `prevHidden` must be an empty raw set.
+    const f1 = fxHiddenFrame(lastHidden, new Set(), new Set());
+    expect(f1.carried).toEqual(new Set(["s1"])); // the one frame it is owed
+    lastHidden = f1.nextLastHidden; // = new Set(currentHidden) = empty, NOT f1.carried
+    expect(lastHidden.size).toBe(0);
+
+    for (let frame = 0; frame < 50; frame++) {
+      const f = fxHiddenFrame(lastHidden, new Set(), new Set());
+      expect(f.carried.size).toBe(0);
+      lastHidden = f.nextLastHidden;
+      expect(lastHidden.size).toBe(0);
+    }
+  });
+});
