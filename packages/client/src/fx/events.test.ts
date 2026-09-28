@@ -43,7 +43,7 @@ describe("deriveFxEvents", () => {
 
   it("fires a shotFired when an instance id appears", () => {
     const events = deriveFxEvents(view([car("a", 100)]), view([car("a", 100)], [shot("s1", "lance", 10, 20)]));
-    expect(events).toEqual([{ kind: "shotFired", weaponId: "lance", x: 10, y: 20, angle: 0.5 }]);
+    expect(events).toEqual([{ kind: "shotFired", weaponId: "lance", x: 10, y: 20, angle: 0.5, instanceId: "s1" }]);
   });
 
   it("fires a shotEnded at the instance's LAST KNOWN pose when its id leaves", () => {
@@ -53,7 +53,7 @@ describe("deriveFxEvents", () => {
     );
     // The pose comes from the previous view: the instance is gone from the next one, so there is
     // nowhere else to read it from (VFX12).
-    expect(events).toEqual([{ kind: "shotEnded", weaponId: "magmablast", x: 700, y: 800, angle: 0.5 }]);
+    expect(events).toEqual([{ kind: "shotEnded", weaponId: "magmablast", x: 700, y: 800, angle: 0.5, instanceId: "s1" }]);
   });
 
   it("fires a damaged event carrying the amount when hp drops", () => {
@@ -91,7 +91,7 @@ describe("deriveFxEvents", () => {
     const before = view([car("a", 100)], [shot("s1", "magmablast", 700, 800)]);
     const after = view([car("a", 100)], [{ ...shot("s1", "magmablast", 700, 800), alive: false }]);
     expect(deriveFxEvents(before, after)).toEqual([
-      { kind: "shotEnded", weaponId: "magmablast", x: 700, y: 800, angle: 0.5 },
+      { kind: "shotEnded", weaponId: "magmablast", x: 700, y: 800, angle: 0.5, instanceId: "s1" },
     ]);
   });
 
@@ -108,7 +108,7 @@ describe("deriveFxEvents", () => {
       view([car("a", 100)], [beam]),
       view([car("a", 100)], [{ ...beam, alive: false }]),
     );
-    expect(events).toEqual([{ kind: "shotEnded", weaponId: "lance", x: 250, y: 0, angle: 0 }]);
+    expect(events).toEqual([{ kind: "shotEnded", weaponId: "lance", x: 250, y: 0, angle: 0, instanceId: "s1" }]);
   });
 
   it("pulls an overshooting projectile's shotEnded back onto the hull it struck", () => {
@@ -120,7 +120,7 @@ describe("deriveFxEvents", () => {
       view([car("a", 100)], [{ ...dart, alive: false }]),
     );
     expect(events).toEqual([
-      { kind: "shotEnded", weaponId: "predator", x: 100 - DRIVE_CONFIG.carWidth / 2, y: 200, angle: 0 },
+      { kind: "shotEnded", weaponId: "predator", x: 100 - DRIVE_CONFIG.carWidth / 2, y: 200, angle: 0, instanceId: "s1" },
     ]);
   });
 
@@ -160,7 +160,7 @@ describe("deriveFxEvents", () => {
       view([car("a", 100)], [shell]),
       view([car("a", 100)], [{ ...shell, alive: false }]),
     );
-    expect(events).toEqual([{ kind: "shotEnded", weaponId: "magmablast", x: 700, y: 800, angle: 0.5 }]);
+    expect(events).toEqual([{ kind: "shotEnded", weaponId: "magmablast", x: 700, y: 800, angle: 0.5, instanceId: "s1" }]);
   });
 });
 

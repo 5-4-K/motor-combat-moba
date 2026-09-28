@@ -11,6 +11,7 @@ import {
 import { AIR_FX_DEPTH, DECAL_DEPTH, GLOW_DEPTH, GROUND_FX_DEPTH, LAVA_DEPTH, SMOKE_DEPTH } from "./depths.js";
 import { deriveFxEvents, type FxEvent, type FxWorldView } from "./events.js";
 import { emitterSpecsForAll, type EmitterSpec } from "./emitters.js";
+import { isHiddenFxEvent, NOTHING_HIDDEN, type FxHidden } from "./hidden.js";
 import type { EnvResolver } from "./env-tuning.js";
 import { ENVIRONMENT_FX, type EnvironmentFx } from "./environment.js";
 import { eraserStampHeight, eraserStampsFor, eraserStampWidth } from "./occlusion.js";
@@ -549,19 +550,29 @@ export class FxLayer {
     return this.frameEvents;
   }
 
-  /** One frame: derive events from the view delta, spawn what they ask for, and lay decals. */
-  update(view: FxWorldView, dtMs: number): void {
+  /**
+   * One frame: derive events from the view delta, spawn what they ask for, and lay decals.
+   *
+   * `hidden` defaults to `NOTHING_HIDDEN` so every existing caller (ArenaScene today, the
+   * playground/FxPreview scenes) keeps drawing everything unchanged (spec 2026-09-28 camera, CB27).
+   */
+  update(view: FxWorldView, dtMs: number, hidden: FxHidden = NOTHING_HIDDEN): void {
     // Resolved ONCE per frame and threaded down, not once per particle or per helper call: the
     // resolver memoises so a repeat call is cheap, but everything one frame draws must agree on the
     // same values (Task 10).
     const env = this.resolveEnv();
     this.clockMs += dtMs;
+    // Derived from the FULL view — never `visibleView` below — so a shot entering vision mid-flight
+    // is not mistaken for a new one (CB27, Review Focus 5). `frameEvents` also stays unfiltered:
+    // `ArenaScene`'s camera shake reads `lastEvents()` for the LOCAL player's own car, which is
+    // never hidden from itself.
     const events = deriveFxEvents(this.prevView, view);
     this.frameEvents = events;
-    this.spawn(emitterSpecsForAll(events, this.resolveFx, env));
+    const shown = events.filter((e) => !isHiddenFxEvent(e, hidden));
+    this.spawn(emitterSpecsForAll(shown, this.resolveFx, env));
 
     const scorchCap = env.decals.maxScorch;
-    for (const event of events) {
+    for (const event of shown) {
       for (const stamp of decalStampsFor(event, env, this.resolveFx)) {
         this.pushDecal(this.scorchDecals, scorchCap, {
           key: FX_TEXTURE_KEYS.scorch,
@@ -578,11 +589,18 @@ export class FxLayer {
       }
     }
 
-    this.layTyreMarks(view, env);
+    // A hidden car lays no tyre marks and a hidden field draws no lava, and a hidden car is masked
+    // out of the smoke-occlusion pass too — every per-object pass below reads this filtered view,
+    // never the full one.
+    const visibleView: FxWorldView = {
+      cars: view.cars.filter((c) => !hidden.cars.has(c.sessionId)),
+      instances: view.instances.filter((i) => !hidden.instances.has(i.id)),
+    };
+    this.layTyreMarks(visibleView, env);
     this.redrawDecals(env, dtMs);
-    this.maskSmoke(view, env);
-    this.drawLavaFields(view, env);
-    this.prevView = view;
+    this.maskSmoke(visibleView, env);
+    this.drawLavaFields(visibleView, env);
+    this.prevView = view; // the FULL view: derivation must never see visibility
   }
 
   /**
@@ -775,7 +793,11 @@ export class FxLayer {
         }
       }
     }
-    // A car that left keeps no anchor, or the map grows for the life of the room.
+    // A car that left keeps no anchor, or the map grows for the life of the room. This is also what
+    // keeps a hidden car from laying one long streak across the gap when it reappears (CB27): `view`
+    // here is `update`'s `visibleView`, so a hidden car is simply absent from `present` for as long
+    // as it is hidden, its anchor is dropped the same way a disconnected car's is, and the first
+    // frame it is visible again starts a fresh anchor instead of interpolating across the gap.
     const present = new Set(view.cars.map((c) => c.sessionId));
     for (const id of [...this.tyreTrails.keys()]) if (!present.has(id)) this.tyreTrails.delete(id);
   }

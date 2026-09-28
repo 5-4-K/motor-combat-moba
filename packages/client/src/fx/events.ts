@@ -64,8 +64,8 @@ export interface FxWorldView {
 }
 
 export type FxEvent =
-  | { kind: "shotFired"; weaponId: string; x: number; y: number; angle: number }
-  | { kind: "shotEnded"; weaponId: string; x: number; y: number; angle: number }
+  | { kind: "shotFired"; weaponId: string; x: number; y: number; angle: number; instanceId: string }
+  | { kind: "shotEnded"; weaponId: string; x: number; y: number; angle: number; instanceId: string }
   | { kind: "damaged"; sessionId: string; x: number; y: number; amount: number }
   | { kind: "died"; sessionId: string; x: number; y: number };
 
@@ -98,6 +98,7 @@ export function deriveFxEvents(prev: FxWorldView | undefined, next: FxWorldView)
         x: instance.x,
         y: instance.y,
         angle: instance.angle,
+        instanceId: id,
       });
     }
   }
@@ -129,6 +130,7 @@ export function deriveFxEvents(prev: FxWorldView | undefined, next: FxWorldView)
         x: end.x,
         y: end.y,
         angle: instance.angle,
+        instanceId: id,
       });
     }
   }

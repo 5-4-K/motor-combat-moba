@@ -5,7 +5,7 @@ import { ENVIRONMENT_FX } from "./environment.js";
 
 describe("emitterSpecsFor", () => {
   it("turns a shotFired into that weapon's muzzle bursts, at the event pose", () => {
-    const specs = emitterSpecsFor({ kind: "shotFired", weaponId: "lance", x: 5, y: 6, angle: 1.2 });
+    const specs = emitterSpecsFor({ kind: "shotFired", weaponId: "lance", x: 5, y: 6, angle: 1.2, instanceId: "s1" });
     expect(specs).toHaveLength(WEAPON_FX.lance!.muzzle.length);
     for (const spec of specs) {
       expect(spec.x).toBe(5);
@@ -15,12 +15,12 @@ describe("emitterSpecsFor", () => {
   });
 
   it("turns a shotEnded into that weapon's impact bursts", () => {
-    const specs = emitterSpecsFor({ kind: "shotEnded", weaponId: "magmablast", x: 9, y: 9, angle: 0 });
+    const specs = emitterSpecsFor({ kind: "shotEnded", weaponId: "magmablast", x: 9, y: 9, angle: 0, instanceId: "s1" });
     expect(specs.map((s) => s.channel).sort()).toEqual(["debris", "fire", "smoke", "spark"]);
   });
 
   it("uses the default row for an unauthored weapon rather than emitting nothing", () => {
-    expect(emitterSpecsFor({ kind: "shotFired", weaponId: "tremor", x: 0, y: 0, angle: 0 }).length)
+    expect(emitterSpecsFor({ kind: "shotFired", weaponId: "tremor", x: 0, y: 0, angle: 0, instanceId: "s1" }).length)
       .toBeGreaterThan(0);
   });
 
@@ -48,8 +48,8 @@ describe("emitterSpecsFor", () => {
 describe("emitterSpecsForAll", () => {
   it("flattens every event's specs", () => {
     const specs = emitterSpecsForAll([
-      { kind: "shotFired", weaponId: "lance", x: 0, y: 0, angle: 0 },
-      { kind: "shotFired", weaponId: "lance", x: 0, y: 0, angle: 0 },
+      { kind: "shotFired", weaponId: "lance", x: 0, y: 0, angle: 0, instanceId: "s1" },
+      { kind: "shotFired", weaponId: "lance", x: 0, y: 0, angle: 0, instanceId: "s1" },
     ]);
     expect(specs).toHaveLength(WEAPON_FX.lance!.muzzle.length * 2);
   });
@@ -61,19 +61,21 @@ describe("emitterSpecsForAll", () => {
       x: 0,
       y: 0,
       angle: 0,
+      instanceId: "s1",
     }));
     expect(emitterSpecsForAll(many).length).toBeLessThanOrEqual(MAX_SPECS_PER_FRAME);
   });
 
   it("keeps the EARLIEST specs when it caps, so the first explosion is the one you see", () => {
     const specs = emitterSpecsForAll([
-      { kind: "shotFired", weaponId: "lance", x: 111, y: 0, angle: 0 },
+      { kind: "shotFired", weaponId: "lance", x: 111, y: 0, angle: 0, instanceId: "s1" },
       ...Array.from({ length: 400 }, () => ({
         kind: "shotEnded" as const,
         weaponId: "magmablast",
         x: 0,
         y: 0,
         angle: 0,
+        instanceId: "s1",
       })),
     ]);
     expect(specs[0].x).toBe(111);
@@ -89,7 +91,7 @@ describe("emitterSpecsFor with an injected resolver", () => {
       impact: [],
     });
     const specs = emitterSpecsFor(
-      { kind: "shotFired", weaponId: "lance", x: 0, y: 0, angle: 0 },
+      { kind: "shotFired", weaponId: "lance", x: 0, y: 0, angle: 0, instanceId: "s1" },
       resolve,
     );
     expect(specs).toHaveLength(1);
@@ -97,7 +99,7 @@ describe("emitterSpecsFor with an injected resolver", () => {
   });
 
   it("defaults to the shipped table when no resolver is passed", () => {
-    const specs = emitterSpecsFor({ kind: "shotFired", weaponId: "lance", x: 0, y: 0, angle: 0 });
+    const specs = emitterSpecsFor({ kind: "shotFired", weaponId: "lance", x: 0, y: 0, angle: 0, instanceId: "s1" });
     expect(specs.map((s) => s.channel)).toEqual(["fire", "spark"]);
   });
 
@@ -110,7 +112,7 @@ describe("emitterSpecsFor with an injected resolver", () => {
       impact: [],
     });
     const specs = emitterSpecsFor(
-      { kind: "shotFired", weaponId: "lance", x: 0, y: 0, angle: 0 },
+      { kind: "shotFired", weaponId: "lance", x: 0, y: 0, angle: 0, instanceId: "s1" },
       resolve,
     );
     expect(specs.map((s) => s.channel)).toEqual(["spark"]);
