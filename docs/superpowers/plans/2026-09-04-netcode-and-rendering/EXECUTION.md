@@ -206,6 +206,7 @@ would otherwise have to reconstruct. This is the file's memory: the tables above
 says *why* and *what it cost*.
 
 - **2026-09-05** — plan-writing finished (all fourteen); this tracker created. Nothing executed.
+- **2026-09-28** — the per-mode camera behaviours work (`docs/superpowers/specs/2026-09-28-camera-behaviors-design.md`) deleted `staticCamera`, `fitsViewport` and `scenes/arena-camera.ts` outright (CB2) — none of this plan set's fourteen phases has executed, but plans 01, 20, 21 and 25 still name those three by name; a session picking one of them up should read the camera spec first rather than expect to find what it describes.
 
 ## 9. When a session ends, expectedly or not
 

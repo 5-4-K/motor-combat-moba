@@ -1612,30 +1612,35 @@ There is no wreck alpha. A dead car is intangible and frozen from the tick it di
 over `DEATH_FADE_MS` (`deathFadeAlpha`, driven by the networked `diedAtTick`), and is then not drawn
 at all — it also stops being predicted or interpolated.
 
-A wrecked player becomes a spectator **in Last Standing**: `[` / `]` — or Left / Right — cycle the
-living cars, `V` toggles free roam, and WASD or the arrows pan in free roam. All of it is local; the
-server has no notion of who anyone is watching.
+Whether a wrecked player becomes a spectator, and who they may watch, is a **per-mode camera
+choice** (2026-09-28, `camera().spectate.target`, CB18–CB24) — not a rule keyed off whether the mode
+respawns. `spectate.target` is one of four values: `"anyone"` cycles every living car in the match
+(`[` / `]`, or Left / Right); `"teammates"` cycles the local player's own living teammates the same
+way; `"free"` gives no target at all — the camera pans with WASD/arrows at `freeRoamSpeed`, starting
+from where the car died, and is always on for a mode that chooses it, with no toggle to turn it off
+(there is no `V` key any more; it advertised free roam even where a one-screen arena gave it nowhere
+to pan); `"none"` never spectates — the camera simply holds where the car died, since it never
+receives a pose to follow once the wreck has faded. `isSpectating` reads that target directly (dead,
+in the match, during `MATCH`, target not `"none"`) — deliberately **not** "cannot drive right now",
+since the drive gate is also false during the countdown, and keying the camera off it made the 3-2-1
+follow whichever car sorted first by session id instead of your own.
 
-Spectating is gated on `isSpectating` (dead, in the match, during `MATCH`, in a mode that will not
-give the car back) and deliberately **not** on "cannot drive right now" — the drive gate is also
-false during the countdown, and keying the camera off it made the 3-2-1 follow whichever car sorted
-first by session id instead of your own.
-
-**Deathmatch is never spectated.** Spectating is what the game offers a player it has removed from
-the match for good; a Deathmatch death lasts `respawnDelaySeconds` and hands the car straight back,
-so the camera going to find a stranger costs the player the two things they actually want — the fight
-they were just in, and their own kit in the gutter. A Deathmatch wreck therefore keeps its own seat:
+Brawl and Team brawl ship `"anyone"`; Deathmatch and Conquer ship `"none"` — a respawning mode may
+still choose to spectate (Conquer could ship `"teammates"` so a player waiting to respawn can watch a
+teammate instead), but neither shipped respawn mode does today. A `"none"` wreck keeps its own seat:
 `cameraTarget` and `hudTargetPlayer` both fall through to the local session, the camera **holds on
-the spot it died** (there is no pose to follow once the wreck has faded), and the slot column keeps
-showing the player's own weapons. The "[name] killed you" banner and the respawn countdown are
-unchanged. On the way back the camera **cuts** rather than eases: `farthestSpawn` is by construction
-the far side of the arena, and `smoothFollow` would otherwise spend a second sailing across it with
-the player already driving a car they cannot see (`syncRespawnCamera` drops `camFocus` on the
-dead → alive edge, so `followCamera` re-seeds outright).
+the spot it died**, and the slot column keeps showing the player's own weapons. The "[name] killed
+you" banner and the respawn countdown are unchanged either way. On the way back the camera **cuts**
+rather than eases, whether or not the mode spectates: `farthestSpawn` is by construction the far side
+of the arena, and `smoothFollow` would otherwise spend a second sailing across it with the player
+already driving a car they cannot see (`syncRespawnCamera` drops `camFocus` on the dead → alive edge,
+so `followCamera` re-seeds outright — and, since 2026-09-28's review fix I2, also drops the wreck's
+frozen `lastDrawnPose`, so a `"heading"` camera cannot snap to the wreck's own heading for one frame).
 
-The rule is keyed on `rulesOf(mode).winRuleLabel`, not on `rulesOf(mode).respawns` ("does this room
-respawn"). The dev-only playground respawns forever while running `FFA_LAST_STANDING`, and is the one
-place those two questions come apart — it keeps the spectate camera.
+The spectator banner (CB24) mirrors the target: `"anyone"`/`"teammates"` read "Spectating <name> — [
+] or Left/Right to switch" while someone living is left to watch, or "Wrecked — no one left to watch"
+once nobody is (an empty `"teammates"` cycle, say); `"free"` reads "Free roam — WASD/arrows to pan";
+`"none"` shows no banner at all, as Deathmatch and Conquer do today.
 
 The respawn itself is marked by the **countdown arrow drawn a second time**: the same green triangle
 that says "this one" before the gun, over your own car, for exactly as long as spawn protection lasts

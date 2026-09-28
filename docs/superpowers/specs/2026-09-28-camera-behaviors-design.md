@@ -240,7 +240,8 @@ Only when the mode's `fov.enabled` is true. Every other mode renders exactly as 
   - `vision.ts` — `visionShapeOf(pose, fov)`, `inVision(point, shapes, obstacles, blocked)`,
     `carVisible`, `shotSamplePoints`, `visionPolygon(shape, obstacles, blocked, rays)`, and
     `visionViewers(...)` implementing CB26.
-  - `index.ts` — re-exports.
+
+  (No barrel file — `ArenaScene` and every test import each module directly by its own path.)
 - **CB35** `scenes/view-rotation.ts` and its test are deleted (replaced by `camera/rotation.ts`).
   `scenes/arena-camera.ts` and its test are deleted (CB2). `scenes/spectate.ts` moves to
   `camera/spectate.ts`; its test moves with it.
