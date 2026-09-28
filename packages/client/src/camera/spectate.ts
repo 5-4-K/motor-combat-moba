@@ -107,6 +107,27 @@ export function panFreeCam(
   return { x: focus.x + axisX * step, y: focus.y + axisY * step };
 }
 
+/**
+ * Keeps a free-roam focus from wandering off the playable field (M3). `panCamera` accumulates
+ * `panFreeCam` every frame with nothing to stop it, so holding a pan key long enough drifts the
+ * focus arbitrarily far past the arena — invisible while the camera is bounds-clamped (Phaser's own
+ * scroll clamp hides it), but exactly what a `"heading"` mode's camera shows, since I2 makes that
+ * mode's camera drop its bounds altogether: the floor colour past the walls, with nothing to walk
+ * it back. Clamping to the arena rect keeps the SAME simple range in both cases, bounded or not —
+ * on a bounded camera it is a strictly tighter clamp than Phaser's own (which additionally holds
+ * the visible edge inside the rect, not just the centre), so it never fights that clamp, only backs
+ * it up for the mode that has none.
+ */
+export function clampFreeCamFocus(
+  focus: { x: number; y: number },
+  arena: { width: number; height: number },
+): { x: number; y: number } {
+  return {
+    x: Math.min(Math.max(focus.x, 0), arena.width),
+    y: Math.min(Math.max(focus.y, 0), arena.height),
+  };
+}
+
 /** The frame time `camera().camLerp` is expressed against, so 60 Hz behaviour is unchanged. */
 const REFERENCE_FRAME_MS = 1000 / 60;
 

@@ -568,7 +568,13 @@ export class FxLayer {
     // never hidden from itself.
     const events = deriveFxEvents(this.prevView, view);
     this.frameEvents = events;
-    const shown = events.filter((e) => !isHiddenFxEvent(e, hidden));
+    // M5: with nothing hidden (FOV off, or every hidden set empty this frame — the common case even
+    // with FOV on, since most frames hide nothing new) `shown`/`visibleView` would be an identical
+    // copy of `events`/`view`, filtered through a predicate that always keeps everything. Every
+    // shipped mode has FOV off, so skipping the copy here is the difference between allocating two
+    // arrays and two objects every frame for nothing, and not.
+    const nothingHidden = hidden.cars.size === 0 && hidden.instances.size === 0;
+    const shown = nothingHidden ? events : events.filter((e) => !isHiddenFxEvent(e, hidden));
     this.spawn(emitterSpecsForAll(shown, this.resolveFx, env));
 
     const scorchCap = env.decals.maxScorch;
@@ -591,11 +597,13 @@ export class FxLayer {
 
     // A hidden car lays no tyre marks and a hidden field draws no lava, and a hidden car is masked
     // out of the smoke-occlusion pass too — every per-object pass below reads this filtered view,
-    // never the full one.
-    const visibleView: FxWorldView = {
-      cars: view.cars.filter((c) => !hidden.cars.has(c.sessionId)),
-      instances: view.instances.filter((i) => !hidden.instances.has(i.id)),
-    };
+    // never the full one. Skipped the same way as `shown` above (M5) when there is nothing to filter.
+    const visibleView: FxWorldView = nothingHidden
+      ? view
+      : {
+          cars: view.cars.filter((c) => !hidden.cars.has(c.sessionId)),
+          instances: view.instances.filter((i) => !hidden.instances.has(i.id)),
+        };
     this.layTyreMarks(visibleView, env);
     this.redrawDecals(env, dtMs);
     this.maskSmoke(visibleView, env);

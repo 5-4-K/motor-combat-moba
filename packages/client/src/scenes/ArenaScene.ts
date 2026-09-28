@@ -182,6 +182,7 @@ import {
   type Allegiance,
 } from "./combat-visual.js";
 import {
+  clampFreeCamFocus,
   cycleSpectate,
   isSpectating,
   panFreeCam,
@@ -4672,7 +4673,16 @@ export class ArenaScene extends Phaser.Scene {
     else if (forward) this.spectateTarget = cycleSpectate(ids, this.spectateTarget, 1);
   }
 
-  /** WASD or the arrows, panning the free-look camera. */
+  /**
+   * WASD or the arrows, panning the free-look camera.
+   *
+   * `clampFreeCamFocus` holds the focus to the arena rect on every axis (M3) — necessary because a
+   * `"heading"` mode's camera runs unbounded (I2, CB15), so nothing else stops a held pan key from
+   * drifting the centre arbitrarily far past the walls into empty floor colour. It is a strictly
+   * tighter range than Phaser's own `setBounds` clamp, so applying it while bounded too changes
+   * nothing visible — it only keeps `camFocus` itself from silently drifting off-field while the
+   * clamp is masking it.
+   */
   private panCamera(keys: SpectateKeys, delta: number): void {
     const axisX = axisOf(
       keys.panLeft.isDown || (this.cursors?.left.isDown ?? false),
@@ -4684,7 +4694,8 @@ export class ArenaScene extends Phaser.Scene {
     );
 
     const from = this.camFocus ?? { x: this.cameras.main.midPoint.x, y: this.cameras.main.midPoint.y };
-    this.camFocus = panFreeCam(from, axisX, axisY, delta, camera().freeRoamSpeed);
+    const panned = panFreeCam(from, axisX, axisY, delta, camera().freeRoamSpeed);
+    this.camFocus = this.arena ? clampFreeCamFocus(panned, this.arena) : panned;
     this.cameras.main.centerOn(this.camFocus.x, this.camFocus.y);
   }
 

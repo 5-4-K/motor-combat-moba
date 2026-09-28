@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
 import {
+  clampFreeCamFocus,
   cycleSpectate,
   isSpectating,
   panFreeCam,
@@ -127,6 +128,21 @@ describe("panFreeCam", () => {
     const focus = { x: 10, y: 20 };
     panFreeCam(focus, 1, 1, 1000, 600);
     expect(focus).toEqual({ x: 10, y: 20 });
+  });
+});
+
+describe("clampFreeCamFocus (M3)", () => {
+  const arena = { width: 1280, height: 720 };
+  it("leaves a focus already inside the arena rect untouched", () => {
+    expect(clampFreeCamFocus({ x: 640, y: 360 }, arena)).toEqual({ x: 640, y: 360 });
+  });
+  it("clamps a focus that has drifted past the arena edges", () => {
+    expect(clampFreeCamFocus({ x: -500, y: 5000 }, arena)).toEqual({ x: 0, y: 720 });
+    expect(clampFreeCamFocus({ x: 9999, y: -9999 }, arena)).toEqual({ x: 1280, y: 0 });
+  });
+  it("clamps each axis independently", () => {
+    expect(clampFreeCamFocus({ x: -10, y: 400 }, arena)).toEqual({ x: 0, y: 400 });
+    expect(clampFreeCamFocus({ x: 640, y: 800 }, arena)).toEqual({ x: 640, y: 720 });
   });
 });
 
