@@ -2,9 +2,9 @@ import type { ArenaDef } from "./types.js";
 
 /**
  * Conquer's arena (spec CQ37–CQ40): a tall pitch, one screen wide and three tall, the capture zone at
- * its centre and each team's base at an end. Symmetric about both centre lines, so a 180° rotation
- * maps it onto itself. That is what lets team B's view be rotated (CQ46) and still show the same map
- * with its own base at the bottom.
+ * its centre and each team's base at an end. Symmetric about both centre lines, so each team's view —
+ * derived from its spawn heading by the mode's `camera.rotate: "teamFacing"` (2026-09-28 camera
+ * spec, CB10) — shows the same map with its own base at the bottom.
  *
  * No floor art: it renders procedurally, spikes and chamfer corners included (CQ49, CQ50). The
  * boundary is the frame itself with 100 u chamfers, since there is no painted wall band to inset.
@@ -37,7 +37,6 @@ export const ARENA_03 = {
     { x: 0, y: CHAMFER },
   ],
   zone: { x: W / 2, y: H / 2, radius: 150 },
-  flipForTeamB: true,
   obstacles: [
     // B: lane pillars
     { x: 200, y: 480, w: 100, h: 100 },

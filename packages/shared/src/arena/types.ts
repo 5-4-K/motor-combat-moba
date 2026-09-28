@@ -68,9 +68,4 @@ export interface ArenaDef {
   palette?: ArenaPalette;
   /** The capture zone. Required by any mode whose win rule is "conquer" (modes/invariants.test.ts). */
   readonly zone?: ArenaZone;
-  /**
-   * In a team mode, team 1's WORLD camera is rotated 180° so each team sees its own base at the
-   * bottom (CQ46). Only meaningful on a layout that maps onto itself under that rotation.
-   */
-  readonly flipForTeamB?: boolean;
 }

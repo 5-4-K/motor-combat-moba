@@ -219,7 +219,7 @@ import {
   statusStripLayout,
 } from "./status-hud.js";
 import { arrowBlinkOn, arrowBobOffset, countdownArrowPoints } from "./countdown-arrow.js";
-import { viewRotationFor } from "./view-rotation.js";
+import { resolveViewRotation } from "../camera/rotation.js";
 import {
   ACTION_LABEL,
   MOVEMENT_ARROWS,
@@ -902,10 +902,12 @@ export class ArenaScene extends Phaser.Scene {
    */
   private staticCamera = false;
   /**
-   * The world camera's rotation for the local player: 0, or π for team B on an arena that declares
-   * `flipForTeamB` (CQ46). Set by `syncViewRotation` and handed to every world-space piece that is
-   * meant to read the same way on every screen — the self-arrow (CQ47), the car light and the
-   * crosshair's mouse path (CQ48). The HUD camera is never rotated.
+   * The world camera's rotation for the local player, from the active mode's `camera().rotate`
+   * (CB10–CB14) — 0 for `"none"`, the local team's spawn-facing angle for `"teamFacing"` (which is
+   * what π for team B on arena-03 comes from today), or the driven car's heading for `"heading"`.
+   * Set by `syncViewRotation` and handed to every world-space piece that is meant to read the same
+   * way on every screen — the self-arrow (CQ47), the car light and the crosshair's mouse path
+   * (CQ48). The HUD camera is never rotated.
    */
   private viewRotation = 0;
   /**
@@ -1891,17 +1893,28 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * Turn the WORLD camera for the local player's side (CQ46): team B sees arena-03 rotated 180° so
-   * its own base is at the bottom. Read from the local player's `team` — never the spectated car's,
-   * so watching an enemy never flips the floor — and applied only when it changes (or when `force`d,
-   * from `drawArena`, whose camera may be a fresh one). The HUD camera is left alone: it is screen
-   * space and never rotates.
+   * Turn the WORLD camera for the local player's side, per the active mode's `camera().rotate`
+   * (CB10–CB14) — resolved through `resolveViewRotation`, the one place that maths lives. Read from
+   * the local player's `team` — never the spectated car's, so watching an enemy never flips the
+   * floor — and applied only when it changes (or when `force`d, from `drawArena`, whose camera may
+   * be a fresh one). The HUD camera is left alone: it is screen space and never rotates.
+   *
+   * `followHeading` is left `undefined` here — `"heading"` is wired in stage 2 (CB38 keeps it off
+   * until then) — so this always snaps rather than easing.
    */
   private syncViewRotation(arena: ArenaDef, force = false): void {
     const room = this.room;
     const local = room ? room.state.players.get(this.drivenSid(room)) : undefined;
-    const rotation =
-      room && local ? viewRotationFor(arena, rulesOf(room.state.mode).sides, local.team) : 0;
+    const rotation = resolveViewRotation({
+      rotate: camera().rotate,
+      arena,
+      localTeam: local?.team,
+      followHeading: undefined, // "heading" is wired in stage 2 (CB38 keeps it off until then)
+      current: this.viewRotation,
+      lerp: camera().rotateLerp,
+      deltaMs: 0,
+      snap: true,
+    });
     if (!force && rotation === this.viewRotation) return;
     this.viewRotation = rotation;
     this.cameras.main.setRotation(rotation);
