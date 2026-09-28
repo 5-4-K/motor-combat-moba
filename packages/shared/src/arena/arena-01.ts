@@ -6,7 +6,8 @@ import type { ArenaDef } from "./types.js";
  *
  * 1280x720 is not a taste call — it is the client's logical canvas, so at `CAMERA_CONFIG.zoom` of 1
  * the camera covers the arena exactly and every car is always visible. Rescaling this arena without
- * rescaling the zoom to match breaks that; `arena-camera.test.ts` on the client is what fails.
+ * rescaling the zoom to match breaks that: the always-follow camera (CB2) clamps to the arena's own
+ * bounds, so an arena that no longer matches the viewport shows the whole world at a wrong scale.
  *
  * The spawn tables below are symmetric to the unit rather than merely spread out, because with no
  * cover to duck behind, position is the only advantage a spawn can confer.

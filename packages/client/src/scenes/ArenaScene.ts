@@ -126,7 +126,6 @@ import {
   spikeStrips,
 } from "./arena-visual.js";
 import { zoneTint, type ZoneTint } from "./zone-visual.js";
-import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
 import {
   freshImpacts,
@@ -189,8 +188,9 @@ import {
   resolveSpectateTarget,
   smoothFollow,
   spectatableIds,
+  spectateBanner,
   type SpectateCandidate,
-} from "./spectate.js";
+} from "../camera/spectate.js";
 import {
   abilityCountOf,
   abilitySlotOffset,
@@ -703,7 +703,6 @@ interface DriveKeys {
 interface SpectateKeys {
   prev: Phaser.Input.Keyboard.Key;
   next: Phaser.Input.Keyboard.Key;
-  freeRoam: Phaser.Input.Keyboard.Key;
   panLeft: Phaser.Input.Keyboard.Key;
   panRight: Phaser.Input.Keyboard.Key;
   panUp: Phaser.Input.Keyboard.Key;
@@ -894,13 +893,6 @@ export class ArenaScene extends Phaser.Scene {
   /** Last frame's `alive` for the driven car, so `syncRespawnCamera` can see the edge. Starts true:
    *  a match opens with everyone alive, and a false start would cut the camera on the first frame. */
   private localAlive = true;
-  /**
-   * True when the arena is small enough to be on screen in its entirety, which is what `ARENA_01`
-   * is authored for. The camera is then parked on the arena centre for the whole match: following a
-   * car could only scroll a picture that is already complete, and would jitter it every time
-   * reconciliation nudged the local pose. Larger arenas keep the follow camera and free roam.
-   */
-  private staticCamera = false;
   /**
    * The world camera's rotation for the local player, from the active mode's `camera().rotate`
    * (CB10–CB14) — 0 for `"none"`, the local team's spawn-facing angle for `"teamFacing"` (which is
@@ -1262,8 +1254,9 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * `[` / `]` and, once you are a wreck, Left / Right cycle who you are watching; `V` toggles free
-   * roam.
+   * `[` / `]` and, once you are a wreck, Left / Right cycle who you are watching. Free roam is no
+   * longer a toggle a spectator flips (CB21) — it is the mode's whole spectating rule
+   * (`camera().spectate.target === "free"`), so there is no key bound to it here.
    *
    * The arrows do double duty on purpose, and the modes are what keep that unambiguous: while you
    * are alive they steer, and only a spectator can cycle with them. In free roam they pan instead,
@@ -1276,7 +1269,6 @@ export class ArenaScene extends Phaser.Scene {
     return {
       prev: keyboard.addKey(Codes.OPEN_BRACKET),
       next: keyboard.addKey(Codes.CLOSED_BRACKET),
-      freeRoam: keyboard.addKey(Codes.V),
       panLeft: keyboard.addKey(Codes.A),
       panRight: keyboard.addKey(Codes.D),
       panUp: keyboard.addKey(Codes.W),
@@ -1389,14 +1381,10 @@ export class ArenaScene extends Phaser.Scene {
     this.vignetteFilter = cam.filters.internal.addVignette();
     this.applyEnvironment();
 
-    // `ARENA_VIEW_WIDTH`, never `VIEW_WIDTH`: how much world anyone can see is the camera's
-    // business, and widening the canvas for HUD must not quietly widen the view of the floor.
-    this.staticCamera = fitsViewport(
-      arena,
-      { width: ARENA_VIEW_WIDTH, height: VIEW_HEIGHT },
-      camera().zoom,
-    );
-    if (this.staticCamera) cam.centerOn(arena.width / 2, arena.height / 2);
+    // The camera always follows (CB2): `setBounds` above clamps it to the arena, so on a
+    // one-screen arena it cannot scroll at all — the old "static" camera, with no flag. Centred once
+    // here so the frames before the first pose arrives show the arena, not its top-left corner.
+    cam.centerOn(arena.width / 2, arena.height / 2);
   }
 
   /**
@@ -1809,7 +1797,7 @@ export class ArenaScene extends Phaser.Scene {
     // Dropping the references below is not enough. Every `addKey` above also installed a *global*
     // capture that Phaser's own plugin shutdown leaves behind, and a leftover capture calls
     // `preventDefault` on that key anywhere on the page — which is what left the join screen's name
-    // field unable to accept W / A / S / D / P / V / J / K / L / Space / brackets / arrows once
+    // field unable to accept W / A / S / D / P / J / K / L / Space / brackets / arrows once
     // anyone had been in the arena. See `releaseKeyboardCaptures`.
     releaseKeyboardCaptures(this.input.keyboard);
     this.cursors = undefined;
@@ -4295,11 +4283,11 @@ export class ArenaScene extends Phaser.Scene {
 
   // --- spectating --------------------------------------------------------------------------
 
-  /** Are you watching rather than playing? The rule itself lives in `spectate.ts`. */
+  /** Are you watching rather than playing? The rule itself lives in `camera/spectate.ts`. */
   private isSpectating(room: Room<ArenaState>): boolean {
     const local = room.state.players.get(this.drivenSid(room));
     if (!local) return false;
-    return isSpectating(room.state.phase, room.state.mode, local.status, local.alive);
+    return isSpectating(room.state.phase, local.status, local.alive, camera().spectate.target);
   }
 
   /**
@@ -4350,29 +4338,26 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
+    const target = camera().spectate.target;
+    // "free" is the mode's whole spectating rule, not a toggle (CB20, CB21).
+    this.freeRoam = target === "free";
     const keys = this.keys;
-    const ids = spectatableIds(this.spectateCandidates(room));
+    if (this.freeRoam) {
+      this.spectateTarget = "";
+      if (keys) this.panCamera(keys, delta);
+      return;
+    }
+
+    const local = room.state.players.get(this.drivenSid(room));
+    const viewer = { sessionId: this.drivenSid(room), team: local?.team ?? 0 };
+    const ids = spectatableIds(this.spectateCandidates(room), target, viewer);
     this.spectateTarget = resolveSpectateTarget(ids, this.spectateTarget);
     if (!keys) return;
 
-    // Free roam pans a camera that cannot scroll when the whole arena already fits, so the key is
-    // inert there rather than toggling a mode with no visible effect.
-    if (!this.staticCamera && Phaser.Input.Keyboard.JustDown(keys.freeRoam)) {
-      this.freeRoam = !this.freeRoam;
-      // Free roam starts wherever the camera already is, so toggling it does not teleport the view.
-      if (!this.freeRoam) this.camFocus = undefined;
-    }
-
-    const back = Phaser.Input.Keyboard.JustDown(keys.prev);
-    const forward = Phaser.Input.Keyboard.JustDown(keys.next);
-    // Arrows cycle only while following. In free roam they pan, so the bracket keys carry cycling.
-    const arrowBack = !this.freeRoam && this.justDown(this.cursors?.left);
-    const arrowForward = !this.freeRoam && this.justDown(this.cursors?.right);
-
-    if (back || arrowBack) this.spectateTarget = cycleSpectate(ids, this.spectateTarget, -1);
-    else if (forward || arrowForward) this.spectateTarget = cycleSpectate(ids, this.spectateTarget, 1);
-
-    if (this.freeRoam) this.panCamera(keys, delta);
+    const back = Phaser.Input.Keyboard.JustDown(keys.prev) || this.justDown(this.cursors?.left);
+    const forward = Phaser.Input.Keyboard.JustDown(keys.next) || this.justDown(this.cursors?.right);
+    if (back) this.spectateTarget = cycleSpectate(ids, this.spectateTarget, -1);
+    else if (forward) this.spectateTarget = cycleSpectate(ids, this.spectateTarget, 1);
   }
 
   /** WASD or the arrows, panning the free-look camera. */
@@ -4394,7 +4379,7 @@ export class ArenaScene extends Phaser.Scene {
   private spectateCandidates(room: Room<ArenaState>): SpectateCandidate[] {
     const candidates: SpectateCandidate[] = [];
     room.state.players.forEach((player, sessionId) => {
-      candidates.push({ sessionId, status: player.status, alive: player.alive });
+      candidates.push({ sessionId, status: player.status, alive: player.alive, team: player.team });
     });
     return candidates;
   }
@@ -4404,16 +4389,19 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * Soft follow. `centerOn` each frame with the focus eased by `camera().camLerp` keeps a
-   * reconciliation snap from throwing the whole view; the first frame seeds the focus outright so
-   * the match does not open with the camera flying in from the arena origin.
+   * Soft follow, always on (CB2) — there is no static-camera flag any more. `setBounds` clamps the
+   * camera to the arena, so on a one-screen arena following still cannot scroll it; this just means
+   * a bigger arena needs no separate code path to gain the follow behaviour.
+   *
+   * `centerOn` each frame with the focus eased by `camera().camLerp` keeps a reconciliation snap
+   * from throwing the whole view; the first frame seeds the focus outright so the match does not
+   * open with the camera flying in from the arena origin.
    *
    * `smoothFollow` rather than `Phaser.Math.Linear` so the easing is per elapsed millisecond rather
    * than per frame — see its docstring for why a flat per-frame fraction frames the same car
    * differently on a 60 Hz and a 144 Hz display.
    */
   private followCamera(pose: SimBody, delta: number): void {
-    if (this.staticCamera) return;
     if (!this.camFocus) {
       this.camFocus = { x: pose.x, y: pose.y };
     } else {
@@ -4657,16 +4645,13 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    if (this.freeRoam) {
-      text.setText("Free roam — WASD/arrows to pan, V to follow, [ ] to switch car");
-    } else {
-      const name = room.state.players.get(this.spectateTarget)?.name ?? "";
-      text.setText(
-        name === ""
-          ? "Wrecked — no one left to watch"
-          : `Spectating ${name} — [ ] or Left/Right to switch, V for free roam`,
-      );
+    const name = room.state.players.get(this.spectateTarget)?.name ?? "";
+    const banner = spectateBanner(camera().spectate.target, name);
+    if (banner === undefined) {
+      text.setVisible(false);
+      return;
     }
+    text.setText(banner);
     text.setVisible(true);
   }
 }

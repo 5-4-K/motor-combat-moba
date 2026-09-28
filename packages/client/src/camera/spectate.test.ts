@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GameMode, PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
+import { PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
 import {
   cycleSpectate,
   isSpectating,
@@ -7,41 +7,52 @@ import {
   resolveSpectateTarget,
   smoothFollow,
   spectatableIds,
+  spectateBanner,
   type SpectateCandidate,
 } from "./spectate.js";
 
+const VIEWER = { sessionId: "me", team: 0 };
+
 function candidate(sessionId: string, over: Partial<SpectateCandidate> = {}): SpectateCandidate {
-  return { sessionId, status: PlayerStatus.IN_MATCH, alive: true, ...over };
+  return { sessionId, status: PlayerStatus.IN_MATCH, alive: true, team: 0, ...over };
 }
 
 describe("spectatableIds", () => {
   it("lists the living players in the match", () => {
-    expect(spectatableIds([candidate("a"), candidate("b")])).toEqual(["a", "b"]);
+    expect(spectatableIds([candidate("a"), candidate("b")], "anyone", VIEWER)).toEqual(["a", "b"]);
   });
 
   it("leaves out wrecks", () => {
-    expect(spectatableIds([candidate("a", { alive: false }), candidate("b")])).toEqual(["b"]);
+    expect(
+      spectatableIds([candidate("a", { alive: false }), candidate("b")], "anyone", VIEWER),
+    ).toEqual(["b"]);
   });
 
   it("leaves out players who are not in the match", () => {
     expect(
-      spectatableIds([candidate("a", { status: PlayerStatus.READY }), candidate("b")]),
+      spectatableIds(
+        [candidate("a", { status: PlayerStatus.READY }), candidate("b")],
+        "anyone",
+        VIEWER,
+      ),
     ).toEqual(["b"]);
     expect(
-      spectatableIds([candidate("a", { status: PlayerStatus.POST_MATCH }), candidate("b")]),
+      spectatableIds(
+        [candidate("a", { status: PlayerStatus.POST_MATCH }), candidate("b")],
+        "anyone",
+        VIEWER,
+      ),
     ).toEqual(["b"]);
   });
 
   it("sorts, so the cycle order does not depend on join order", () => {
-    expect(spectatableIds([candidate("z"), candidate("a"), candidate("m")])).toEqual([
-      "a",
-      "m",
-      "z",
-    ]);
+    expect(
+      spectatableIds([candidate("z"), candidate("a"), candidate("m")], "anyone", VIEWER),
+    ).toEqual(["a", "m", "z"]);
   });
 
   it("is empty when nobody is left alive", () => {
-    expect(spectatableIds([candidate("a", { alive: false })])).toEqual([]);
+    expect(spectatableIds([candidate("a", { alive: false })], "anyone", VIEWER)).toEqual([]);
   });
 });
 
@@ -119,60 +130,66 @@ describe("panFreeCam", () => {
   });
 });
 
-describe("isSpectating", () => {
-  const LAST_STANDING = GameMode.FFA_LAST_STANDING;
-
-  it("is true for a wreck in a live match it cannot come back from", () => {
-    expect(isSpectating(RoomPhase.MATCH, LAST_STANDING, PlayerStatus.IN_MATCH, false)).toBe(true);
+describe("isSpectating (CB18)", () => {
+  it.each(["anyone", "teammates", "free"] as const)("is true for a wreck in a live match (%s)", (t) => {
+    expect(isSpectating(RoomPhase.MATCH, PlayerStatus.IN_MATCH, false, t)).toBe(true);
   });
-
+  it('is false when the mode lets you watch nobody ("none")', () => {
+    expect(isSpectating(RoomPhase.MATCH, PlayerStatus.IN_MATCH, false, "none")).toBe(false);
+  });
   it("is false while still alive", () => {
-    expect(isSpectating(RoomPhase.MATCH, LAST_STANDING, PlayerStatus.IN_MATCH, true)).toBe(false);
+    expect(isSpectating(RoomPhase.MATCH, PlayerStatus.IN_MATCH, true, "anyone")).toBe(false);
   });
-
   it("is false during the countdown, even though the car cannot move yet", () => {
-    // The bug this pins: gating the camera on "cannot drive" instead of "is dead" made the 3-2-1
-    // follow whichever car sorted first by session id rather than the player's own.
-    expect(isSpectating(RoomPhase.COUNTDOWN, LAST_STANDING, PlayerStatus.IN_MATCH, true)).toBe(
-      false,
-    );
-    expect(isSpectating(RoomPhase.COUNTDOWN, LAST_STANDING, PlayerStatus.IN_MATCH, false)).toBe(
-      false,
-    );
+    expect(isSpectating(RoomPhase.COUNTDOWN, PlayerStatus.IN_MATCH, true, "anyone")).toBe(false);
+    expect(isSpectating(RoomPhase.COUNTDOWN, PlayerStatus.IN_MATCH, false, "anyone")).toBe(false);
   });
-
   it("is false in the lobby and car select", () => {
-    expect(isSpectating(RoomPhase.LOBBY, LAST_STANDING, PlayerStatus.IN_MATCH, false)).toBe(false);
-    expect(isSpectating(RoomPhase.CAR_SELECT, LAST_STANDING, PlayerStatus.IN_MATCH, false)).toBe(
-      false,
-    );
+    expect(isSpectating(RoomPhase.LOBBY, PlayerStatus.IN_MATCH, false, "anyone")).toBe(false);
+    expect(isSpectating(RoomPhase.CAR_SELECT, PlayerStatus.IN_MATCH, false, "anyone")).toBe(false);
   });
-
   it("is false for someone who is not in the match at all", () => {
-    expect(isSpectating(RoomPhase.MATCH, LAST_STANDING, PlayerStatus.READY, false)).toBe(false);
-    expect(isSpectating(RoomPhase.MATCH, LAST_STANDING, PlayerStatus.POST_MATCH, false)).toBe(
-      false,
-    );
+    expect(isSpectating(RoomPhase.MATCH, PlayerStatus.READY, false, "anyone")).toBe(false);
+    expect(isSpectating(RoomPhase.MATCH, PlayerStatus.POST_MATCH, false, "anyone")).toBe(false);
   });
+});
 
-  // The whole of the change: a respawning death is five seconds long, so the camera stays on the
-  // player's own seat and the weapon bar keeps showing their own kit. Every other input to this
-  // function is the exact one that answers `true` above. Deathmatch and Conquer (CQ15) both respawn,
-  // so one case per respawns VALUE covers both rather than one case per mode (GM30b/d) — dedupe note:
-  // the former per-mode "is false for a deathmatch wreck" / "is false for a Conquer wreck" tests
-  // asserted the exact same behaviour through the same entry point with equivalent fixtures.
-  it.each([GameMode.FFA_DEATHMATCH, GameMode.CONQUER])(
-    "is false for a wreck in a respawning mode (%i) — the mode gives the car back",
-    (mode) => {
-      expect(isSpectating(RoomPhase.MATCH, mode, PlayerStatus.IN_MATCH, false)).toBe(false);
-    },
-  );
+describe("spectatableIds by target (CB19, CB20)", () => {
+  const me = { sessionId: "me", team: 0 };
+  const players = [
+    { sessionId: "me", status: PlayerStatus.IN_MATCH, alive: false, team: 0 },
+    { sessionId: "ally", status: PlayerStatus.IN_MATCH, alive: true, team: 0 },
+    { sessionId: "foe", status: PlayerStatus.IN_MATCH, alive: true, team: 1 },
+  ];
+  it('"anyone" lists every living car', () => {
+    expect(spectatableIds(players, "anyone", me)).toEqual(["ally", "foe"]);
+  });
+  it('"teammates" lists living teammates only, never yourself', () => {
+    expect(spectatableIds(players, "teammates", me)).toEqual(["ally"]);
+  });
+  it('"teammates" is empty once every teammate is dead (Review Focus 3)', () => {
+    const wiped = players.map((p) => (p.sessionId === "ally" ? { ...p, alive: false } : p));
+    expect(spectatableIds(wiped, "teammates", me)).toEqual([]);
+  });
+  it.each(["none", "free"] as const)('"%s" lists nobody', (t) => {
+    expect(spectatableIds(players, t, me)).toEqual([]);
+  });
+});
 
-  // The playground respawns forever while running Last Standing, which is the one place "is this
-  // deathmatch" and "do I come back" disagree. Keyed on the mode, so the sandbox keeps its camera.
-  it("still spectates in Last Standing, which is what the rule is keyed on", () => {
-    expect(isSpectating(RoomPhase.MATCH, GameMode.FFA_LAST_STANDING, PlayerStatus.IN_MATCH, false))
-      .toBe(true);
+describe("spectateBanner (CB24)", () => {
+  it("names who you watch", () => {
+    expect(spectateBanner("anyone", "Ann")).toBe("Spectating Ann — [ ] or Left/Right to switch");
+    expect(spectateBanner("teammates", "Ann")).toBe("Spectating Ann — [ ] or Left/Right to switch");
+  });
+  it("says so when nobody is left", () => {
+    expect(spectateBanner("anyone", "")).toBe("Wrecked — no one left to watch");
+    expect(spectateBanner("teammates", "")).toBe("Wrecked — no one left to watch");
+  });
+  it("free roam explains the keys", () => {
+    expect(spectateBanner("free", "")).toBe("Free roam — WASD/arrows to pan");
+  });
+  it('"none" shows no banner', () => {
+    expect(spectateBanner("none", "")).toBeUndefined();
   });
 });
 

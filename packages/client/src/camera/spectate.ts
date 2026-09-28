@@ -1,39 +1,24 @@
-import { PlayerStatus, rulesOf, RoomPhase, type GameMode } from "@motor-combat-moba/shared";
+import { PlayerStatus, RoomPhase, type SpectateTarget } from "@motor-combat-moba/shared";
 
 /**
- * Is this player watching rather than playing? True only for a wreck in a live match that is not
- * going to give them their car back.
+ * Is this player watching rather than playing? True only for a wreck in a live match whose mode's
+ * camera config actually gives them somewhere to look — `camera().spectate.target` (CB18), not
+ * `rulesOf(mode).respawns`: whether a mode respawns and whether it spectates a wreck are two
+ * separate authoring choices now, and this reads only the second.
  *
  * Deliberately not "cannot drive right now". The drive gate is also false during the countdown, and
  * keying the camera off it meant the 3-2-1 was spent watching whichever car happened to sort first
  * by session id instead of your own. Being dead is what makes you a spectator; not being able to
  * move yet is not.
- *
- * **A respawning mode is never spectated** (CQ15). Spectating is what a game offers a player it has
- * taken out of the match for good — Last Standing's death is final, so the camera going to find
- * someone still fighting is the only thing left to show. A deathmatch death lasts five seconds and
- * hands the car straight back, and a Conquer death works the same way, so pointing the camera at a
- * stranger for those few seconds costs the player the one thing they actually want to look at: the
- * fight they were just in, and their own kit in the gutter. So the wreck keeps its own seat — the
- * camera holds where it died and the HUD keeps showing the player's own loadout, because
- * `cameraTarget` and `hudTargetPlayer` both fall back to the local session the moment this answers
- * false.
- *
- * Keyed on `rulesOf(mode).respawns` — the question every "does this room give the car back" gate
- * was really asking — rather than `rulesOf(mode).winRuleLabel`, since Conquer's win rule
- * ("conquer") and Deathmatch's ("deathmatch") differ but both respawn. The dev-only playground
- * respawns forever while running
- * `FFA_LAST_STANDING`, so it keeps the spectate camera; it is the one room where "does this mode
- * respawn" and "does this room respawn" come apart.
  */
 export function isSpectating(
   phase: number,
-  mode: GameMode,
   status: number,
   alive: boolean,
+  target: SpectateTarget,
 ): boolean {
   if (phase !== RoomPhase.MATCH) return false;
-  if (rulesOf(mode).respawns) return false;
+  if (target === "none") return false;
   return status === PlayerStatus.IN_MATCH && !alive;
 }
 
@@ -42,19 +27,30 @@ export interface SpectateCandidate {
   sessionId: string;
   status: number;
   alive: boolean;
+  team: number;
 }
 
 /**
- * Everyone still fighting, in sorted `sessionId` order.
+ * Who a wreck may cycle through (CB19, CB20). "none" and "free" watch nobody — "none" because the
+ * mode does not spectate at all, "free" because its whole spectating rule is an unattached camera
+ * rather than a cycle of cars.
  *
  * Sorted rather than in `MapSchema` order for the same reason the sim sorts: the cycle has to be
  * stable. In insertion order a player who joins mid-match would silently reshuffle the order under
  * a spectator's fingers, so pressing `]` twice would not land where pressing it once and once again
  * did.
  */
-export function spectatableIds(players: readonly SpectateCandidate[]): string[] {
+export function spectatableIds(
+  players: readonly SpectateCandidate[],
+  target: SpectateTarget,
+  viewer: { sessionId: string; team: number },
+): string[] {
+  if (target === "none" || target === "free") return [];
   return players
     .filter((p) => p.status === PlayerStatus.IN_MATCH && p.alive)
+    .filter(
+      (p) => target === "anyone" || (p.team === viewer.team && p.sessionId !== viewer.sessionId),
+    )
     .map((p) => p.sessionId)
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
@@ -82,6 +78,15 @@ export function cycleSpectate(ids: readonly string[], current: string, step: 1 |
 export function resolveSpectateTarget(ids: readonly string[], current: string): string {
   if (ids.includes(current)) return current;
   return ids[0] ?? "";
+}
+
+/** The spectator banner for a wreck (CB24); undefined means no banner. */
+export function spectateBanner(target: SpectateTarget, watchedName: string): string | undefined {
+  if (target === "none") return undefined;
+  if (target === "free") return "Free roam — WASD/arrows to pan";
+  return watchedName === ""
+    ? "Wrecked — no one left to watch"
+    : `Spectating ${watchedName} — [ ] or Left/Right to switch`;
 }
 
 /**
