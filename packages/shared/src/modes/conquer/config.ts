@@ -11,4 +11,10 @@ import type { ModeOverrides } from "../merge.js";
  */
 export const CONQUER_OVERRIDES: ModeOverrides = {
   arenas: ["arena-03"] as readonly ArenaId[],
+  camera: {
+    // Each team sees its own base at the bottom, from its spawn heading (CB10, was CQ46's flag).
+    rotate: "teamFacing",
+    // A wreck comes back, so it watches nobody and holds where it died.
+    spectate: { target: "none" },
+  },
 };

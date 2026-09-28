@@ -5,7 +5,24 @@
   ],
   "camera": {
     "camLerp": 0.18,
+    "fov": {
+      "angleDeg": 120,
+      "blockedByObstacles": true,
+      "enabled": false,
+      "offsetX": 0,
+      "offsetY": 0,
+      "outsideDim": 0.45,
+      "rangeX": 600,
+      "rangeY": 450,
+      "sharedVision": true
+    },
     "freeRoamSpeed": 340,
+    "rotate": "none",
+    "rotateLerp": 0.15,
+    "spectate": {
+      "noTargetVision": "pov",
+      "target": "none"
+    },
     "zoom": 1
   },
   "cars": {
