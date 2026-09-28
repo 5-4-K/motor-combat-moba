@@ -1,39 +1,24 @@
-import { PlayerStatus, rulesOf, RoomPhase, type GameMode } from "@motor-combat-moba/shared";
+import { PlayerStatus, RoomPhase, type SpectateTarget } from "@motor-combat-moba/shared";
 
 /**
- * Is this player watching rather than playing? True only for a wreck in a live match that is not
- * going to give them their car back.
+ * Is this player watching rather than playing? True only for a wreck in a live match whose mode's
+ * camera config actually gives them somewhere to look — `camera().spectate.target` (CB18), not
+ * `rulesOf(mode).respawns`: whether a mode respawns and whether it spectates a wreck are two
+ * separate authoring choices now, and this reads only the second.
  *
  * Deliberately not "cannot drive right now". The drive gate is also false during the countdown, and
  * keying the camera off it meant the 3-2-1 was spent watching whichever car happened to sort first
  * by session id instead of your own. Being dead is what makes you a spectator; not being able to
  * move yet is not.
- *
- * **A respawning mode is never spectated** (CQ15). Spectating is what a game offers a player it has
- * taken out of the match for good — Last Standing's death is final, so the camera going to find
- * someone still fighting is the only thing left to show. A deathmatch death lasts five seconds and
- * hands the car straight back, and a Conquer death works the same way, so pointing the camera at a
- * stranger for those few seconds costs the player the one thing they actually want to look at: the
- * fight they were just in, and their own kit in the gutter. So the wreck keeps its own seat — the
- * camera holds where it died and the HUD keeps showing the player's own loadout, because
- * `cameraTarget` and `hudTargetPlayer` both fall back to the local session the moment this answers
- * false.
- *
- * Keyed on `rulesOf(mode).respawns` — the question every "does this room give the car back" gate
- * was really asking — rather than `rulesOf(mode).winRuleLabel`, since Conquer's win rule
- * ("conquer") and Deathmatch's ("deathmatch") differ but both respawn. The dev-only playground
- * respawns forever while running
- * `FFA_LAST_STANDING`, so it keeps the spectate camera; it is the one room where "does this mode
- * respawn" and "does this room respawn" come apart.
  */
 export function isSpectating(
   phase: number,
-  mode: GameMode,
   status: number,
   alive: boolean,
+  target: SpectateTarget,
 ): boolean {
   if (phase !== RoomPhase.MATCH) return false;
-  if (rulesOf(mode).respawns) return false;
+  if (target === "none") return false;
   return status === PlayerStatus.IN_MATCH && !alive;
 }
 
@@ -42,19 +27,30 @@ export interface SpectateCandidate {
   sessionId: string;
   status: number;
   alive: boolean;
+  team: number;
 }
 
 /**
- * Everyone still fighting, in sorted `sessionId` order.
+ * Who a wreck may cycle through (CB19, CB20). "none" and "free" watch nobody — "none" because the
+ * mode does not spectate at all, "free" because its whole spectating rule is an unattached camera
+ * rather than a cycle of cars.
  *
  * Sorted rather than in `MapSchema` order for the same reason the sim sorts: the cycle has to be
  * stable. In insertion order a player who joins mid-match would silently reshuffle the order under
  * a spectator's fingers, so pressing `]` twice would not land where pressing it once and once again
  * did.
  */
-export function spectatableIds(players: readonly SpectateCandidate[]): string[] {
+export function spectatableIds(
+  players: readonly SpectateCandidate[],
+  target: SpectateTarget,
+  viewer: { sessionId: string; team: number },
+): string[] {
+  if (target === "none" || target === "free") return [];
   return players
     .filter((p) => p.status === PlayerStatus.IN_MATCH && p.alive)
+    .filter(
+      (p) => target === "anyone" || (p.team === viewer.team && p.sessionId !== viewer.sessionId),
+    )
     .map((p) => p.sessionId)
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
@@ -84,6 +80,15 @@ export function resolveSpectateTarget(ids: readonly string[], current: string): 
   return ids[0] ?? "";
 }
 
+/** The spectator banner for a wreck (CB24); undefined means no banner. */
+export function spectateBanner(target: SpectateTarget, watchedName: string): string | undefined {
+  if (target === "none") return undefined;
+  if (target === "free") return "Free roam — WASD/arrows to pan";
+  return watchedName === ""
+    ? "Wrecked — no one left to watch"
+    : `Spectating ${watchedName} — [ ] or Left/Right to switch`;
+}
+
 /**
  * Free-roam camera pan for one frame, in world units.
  *
@@ -100,6 +105,27 @@ export function panFreeCam(
 ): { x: number; y: number } {
   const step = (speed * deltaMs) / 1000;
   return { x: focus.x + axisX * step, y: focus.y + axisY * step };
+}
+
+/**
+ * Keeps a free-roam focus from wandering off the playable field (M3). `panCamera` accumulates
+ * `panFreeCam` every frame with nothing to stop it, so holding a pan key long enough drifts the
+ * focus arbitrarily far past the arena — invisible while the camera is bounds-clamped (Phaser's own
+ * scroll clamp hides it), but exactly what a `"heading"` mode's camera shows, since I2 makes that
+ * mode's camera drop its bounds altogether: the floor colour past the walls, with nothing to walk
+ * it back. Clamping to the arena rect keeps the SAME simple range in both cases, bounded or not —
+ * on a bounded camera it is a strictly tighter clamp than Phaser's own (which additionally holds
+ * the visible edge inside the rect, not just the centre), so it never fights that clamp, only backs
+ * it up for the mode that has none.
+ */
+export function clampFreeCamFocus(
+  focus: { x: number; y: number },
+  arena: { width: number; height: number },
+): { x: number; y: number } {
+  return {
+    x: Math.min(Math.max(focus.x, 0), arena.width),
+    y: Math.min(Math.max(focus.y, 0), arena.height),
+  };
 }
 
 /** The frame time `camera().camLerp` is expressed against, so 60 Hz behaviour is unchanged. */

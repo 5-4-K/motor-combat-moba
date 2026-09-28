@@ -22,12 +22,12 @@ describe("shakeFor", () => {
   });
 
   it("never shakes for a muzzle flash — the camera would tremble constantly", () => {
-    expect(shakeFor({ kind: "shotFired", weaponId: "pepperbox", x: 0, y: 0, angle: 0 })).toBeUndefined();
+    expect(shakeFor({ kind: "shotFired", weaponId: "pepperbox", x: 0, y: 0, angle: 0, instanceId: "s1" })).toBeUndefined();
   });
 
   it("never shakes for a shot ending, not even an explosion — only the damage it deals counts", () => {
-    expect(shakeFor({ kind: "shotEnded", weaponId: "magmablast", x: 0, y: 0, angle: 0 })).toBeUndefined();
-    expect(shakeFor({ kind: "shotEnded", weaponId: "lance", x: 0, y: 0, angle: 0 })).toBeUndefined();
+    expect(shakeFor({ kind: "shotEnded", weaponId: "magmablast", x: 0, y: 0, angle: 0, instanceId: "s1" })).toBeUndefined();
+    expect(shakeFor({ kind: "shotEnded", weaponId: "lance", x: 0, y: 0, angle: 0, instanceId: "s1" })).toBeUndefined();
   });
 
   // AS25's spike damage rides the same `damaged` FX event every other weapon uses (Task 9's damage
@@ -81,8 +81,8 @@ describe("isSelfImpact", () => {
   });
 
   it("ignores shots firing and ending, explosions included", () => {
-    expect(isSelfImpact({ kind: "shotFired", weaponId: "pepperbox", x: 0, y: 0, angle: 0 }, self)).toBe(false);
-    expect(isSelfImpact({ kind: "shotEnded", weaponId: "magmablast", x: 0, y: 0, angle: 0 }, self)).toBe(false);
+    expect(isSelfImpact({ kind: "shotFired", weaponId: "pepperbox", x: 0, y: 0, angle: 0, instanceId: "s1" }, self)).toBe(false);
+    expect(isSelfImpact({ kind: "shotEnded", weaponId: "magmablast", x: 0, y: 0, angle: 0, instanceId: "s1" }, self)).toBe(false);
   });
 
   it("ignores everything for a client driving no car", () => {

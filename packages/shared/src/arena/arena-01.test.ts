@@ -110,9 +110,10 @@ describe("ARENA_01 spike strips", () => {
 describe("ARENA_01 shape", () => {
   it("is 1280x720, the client's logical canvas", () => {
     // Not a taste call — at `CAMERA_CONFIG.zoom` of 1 the camera covers exactly this rect, so
-    // rescaling it without rescaling the zoom to match breaks `arena-camera.test.ts` on the client.
-    // The nearest surviving check before this restore, `fitsViewport`, is an inequality a *smaller*
-    // arena would also satisfy — this pins the actual number (Finding 3, 2026-09-11 review).
+    // rescaling it without rescaling the zoom to match would leave the always-follow camera (CB2)
+    // clamped to bounds that no longer fill the client's logical canvas. An inequality a *smaller*
+    // arena would also satisfy would not have caught that — this pins the actual number (Finding 3,
+    // 2026-09-11 review).
     expect(ARENA_01.width).toBe(1280);
     expect(ARENA_01.height).toBe(720);
   });

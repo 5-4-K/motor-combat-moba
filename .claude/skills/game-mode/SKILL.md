@@ -290,7 +290,9 @@ An unknown mode refuses the run naming the ones that exist. An inactive mode is 
 ## Path to add a mode
 
 1. Add the `GameMode` value at the next unused integer.
-2. Write `modes/<slug>/config.ts` (overrides, possibly empty) and `index.ts`.
+2. Write `modes/<slug>/config.ts` (overrides, possibly empty) and `index.ts`. Choose the mode's
+   camera in its `config.ts` — `camera.rotate`, `camera.fov`, `camera.spectate` (spec
+   2026-09-28 CB9, CB30–CB33 constrain them).
 3. Add the `MODE_TABLE` row (`isActive: false`).
 4. Write or reuse a `rules.ts`; add it to `MODE_RULES`. Write or reuse a server controller; add it
    to `MODE_CONTROLLERS`. Write a client `hud.ts`; add it to `MODE_HUDS`. The build will not compile

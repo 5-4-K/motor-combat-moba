@@ -52,9 +52,14 @@ export interface FxInstanceView {
    * lava layer could not tell a field on the ground from the shell that made it.
    */
   readonly isExplosion: boolean;
-  // Mirrors WeaponInstanceState.alive. The server flips this false on the tick a shot actually
-  // ends, and only deletes the row on a later tick — see deriveFxEvents for why shotEnded keys off
-  // this instead of the id disappearing from the map.
+  // Mirrors WeaponInstanceState.alive — which, as of this writing, is never actually false on a row
+  // the client can see: the server drops a dying instance from `combat.ts`'s `survivors` the same
+  // tick it dies and never writes it back to `state.weapons` at all (verified against
+  // `stepCombat`/`combat-bridge.ts`), so a client only ever observes a row go from present to
+  // absent, never from `alive: true` to `alive: false`. `deriveFxEvents` below still keys
+  // `shotEnded` off `alive` rather than the id vanishing, both because that is the same predicate
+  // `renderShots` already draws by and as a safety net should a future path ever leave a dead row
+  // behind for a tick — see its own comment for how that stays exactly-once either way.
   readonly alive: boolean;
 }
 
@@ -64,8 +69,8 @@ export interface FxWorldView {
 }
 
 export type FxEvent =
-  | { kind: "shotFired"; weaponId: string; x: number; y: number; angle: number }
-  | { kind: "shotEnded"; weaponId: string; x: number; y: number; angle: number }
+  | { kind: "shotFired"; weaponId: string; x: number; y: number; angle: number; instanceId: string }
+  | { kind: "shotEnded"; weaponId: string; x: number; y: number; angle: number; instanceId: string }
   | { kind: "damaged"; sessionId: string; x: number; y: number; amount: number }
   | { kind: "died"; sessionId: string; x: number; y: number };
 
@@ -98,6 +103,7 @@ export function deriveFxEvents(prev: FxWorldView | undefined, next: FxWorldView)
         x: instance.x,
         y: instance.y,
         angle: instance.angle,
+        instanceId: id,
       });
     }
   }
@@ -106,8 +112,10 @@ export function deriveFxEvents(prev: FxWorldView | undefined, next: FxWorldView)
     const after = nextInstances.get(id);
     // shotEnded fires the moment an instance that was alive goes away OR goes not-alive. Keying off
     // `alive` rather than the id vanishing from the map matches the client's own renderShots, which
-    // stops drawing at !instance.alive — the server flips `alive` on one tick and only deletes the
-    // row on a later tick, so waiting for deletion would detonate the effect ~1 tick late.
+    // stops drawing at !instance.alive. In practice the server deletes a dying instance from
+    // `state.weapons` the SAME tick it dies (see the `alive` field comment above) rather than
+    // flipping it false first and deleting it later, so today this branch fires almost entirely off
+    // `!after` — the `!after.alive` half is a safety net for a row that does arrive already dead.
     //
     // This check is stateless yet still fires exactly once: on the frame `alive` flips false, `prev`
     // has it alive and `next` has it dead (or gone), so the event fires. On the following frame
@@ -129,6 +137,7 @@ export function deriveFxEvents(prev: FxWorldView | undefined, next: FxWorldView)
         x: end.x,
         y: end.y,
         angle: instance.angle,
+        instanceId: id,
       });
     }
   }

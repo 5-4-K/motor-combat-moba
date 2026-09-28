@@ -9,7 +9,7 @@
  *
  * This is the number that decides how much arena anyone can see, so it is deliberately NOT the
  * canvas width: growing the canvas to make room for HUD must never quietly hand players a wider
- * view of the floor than the arena they are standing in. `fitsViewport` reads this one.
+ * view of the floor than the arena they are standing in.
  */
 export const ARENA_VIEW_WIDTH = 1280;
 

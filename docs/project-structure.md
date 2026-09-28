@@ -143,7 +143,8 @@ motor-combat-MOBA/
         ├── fx/
         │   ├── environment.ts     # ENVIRONMENT_FX: the arena's whole visual ground in one table — grade, vignette, shake, hit-stop, decals, occlusion, floor, markings, carBursts (EV6)
         │   ├── env-tuning.ts      # ENV_FIELDS + resolveEnvironment: the flat, section-based tuning model over EnvironmentFx (EV13–EV19)
-        │   └── env-store.ts       # the playground-only override map + version-cached liveEnvResolver (EV18, EV19, EV34)
+        │   ├── env-store.ts       # the playground-only override map + version-cached liveEnvResolver (EV18, EV19, EV34)
+        │   └── hidden.ts          # FxHidden, isHiddenFxEvent, carryHiddenInstances: what FOV (camera/vision.ts) hides from the fx layer (CB27, I1)
         ├── practice/
         │   └── storage.ts         # localStorage codec for PracticeSetup under "motor-combat.practice.v1" (PR21) — ships, not stripped
         ├── dev/                   # stripped from release builds, asserted by build-release.mjs
@@ -166,7 +167,6 @@ motor-combat-MOBA/
         │   ├── PracticeSetupScene.ts   # thin shell: joins "practice" with the chosen setup, launches ArenaScene (PR21)
         │   ├── PracticeSummaryScene.ts # thin shell over ui/screens/practice-summary.ts; reads a pre-leave kills/deaths snapshot, never a live Room (PR24)
         │   ├── controlled-car.ts # controlledCarOf/isSimPaused/isPracticeRoom: which car to drive, whether the sim is frozen, whether the pause-menu gate applies — resolves to the real match answer on a base ArenaState (PG7, PG9, PR22)
-        │   ├── arena-camera.ts   # whether the arena fits the view, so the camera need not scroll
         │   ├── arena-input.ts    # sim-clock input drain, axis folding
         │   ├── arena-mismatch.ts # builds the mismatch message string (pure, testable)
         │   ├── arena-visual.ts   # arena palette → Phaser colour ints; inset border rect
@@ -177,8 +177,11 @@ motor-combat-MOBA/
         │   ├── roster-panel.ts   # pure roster derivations: row order, panel layout, name truncation
         │   ├── status-hud.ts     # pure status badge derivations: order, drain, strip layout
         │   ├── match-hud.ts      # pure match-HUD derivations shared by last-standing, deathmatch and conquer: match clock, respawn countdown, killed-by banner
-        │   ├── spectate.ts       # spectate cycle, free-roam pan
         │   └── lobby-signature.ts
+        ├── camera/                  # per-mode camera logic, testable with no Phaser (2026-09-28)
+        │   ├── rotation.ts          # viewRotationForHeading, teamFacingRotation, resolveViewRotation, boundsAlignedFor (I2)
+        │   ├── spectate.ts          # isSpectating, spectatableIds, cycleSpectate, panFreeCam, smoothFollow, clampFreeCamFocus (M3)
+        │   └── vision.ts            # field-of-vision geometry: computeVision (ellipse cone, obstacle occlusion), pure and shared with the fx layer
         ├── ui/                      # also dom.ts, lobby-view.ts, car-select-view.ts, results-view.ts, reveal-view.ts, overlay.ts, organic.css — only chat-view.ts is called out below
         │   └── chat-view.ts         # chatView: a chat row -> {key, label, hex, text, at}; "You" for the local sessionId, colour from COLOR_TABLE (LC24)
         └── ui/screens/
@@ -190,9 +193,9 @@ motor-combat-MOBA/
 ```
 
 `ArenaScene` itself cannot be unit-tested without a browser, so its logic lives in the plain modules
-beside it (`arena-camera`, `arena-input`, `car-visual`, `combat-visual`, `countdown-arrow`, `weapon-hud`,
-`roster-panel`, `status-hud`, `spectate`) and the scene stays
-a thin shell
+beside it (`arena-input`, `car-visual`, `combat-visual`, `countdown-arrow`, `weapon-hud`,
+`roster-panel`, `status-hud`, and the `camera/` folder's `rotation`/`spectate`/`vision`) and the
+scene stays a thin shell
 over them. `assets/` is the same idea one directory over: the manifest parse, the key namespace, the
 hull fit, and the sprite-or-silhouette decision are all pure modules there, so the only thing left in
 a scene is handing them a Phaser object. Client tests run in the **node** environment and never

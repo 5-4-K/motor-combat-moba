@@ -8,10 +8,9 @@ function rot(x: number, y: number): { x: number; y: number } {
 }
 
 describe("arena-03 (Conquer, CQ37–CQ40)", () => {
-  it("is registered, 1280 x 2160, flips for team B, and has the centre zone", () => {
+  it("is registered, 1280 x 2160, and has the centre zone", () => {
     expect(getArena("arena-03")).toBe(ARENA_03);
     expect([ARENA_03.width, ARENA_03.height]).toStrictEqual([1280, 2160]);
-    expect(ARENA_03.flipForTeamB).toBe(true);
     expect(ARENA_03.zone).toStrictEqual({ x: 640, y: 1080, radius: 150 });
   });
 

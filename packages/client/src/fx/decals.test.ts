@@ -21,14 +21,14 @@ const TYRE_MARK_SPEED_FLOOR = ENVIRONMENT_FX.decals.tyreSpeedFloor;
 
 describe("decalStampsFor", () => {
   it("scorches the ground where a shot ended", () => {
-    const stamps = decalStampsFor({ kind: "shotEnded", weaponId: "magmablast", x: 40, y: 50, angle: 0 });
+    const stamps = decalStampsFor({ kind: "shotEnded", weaponId: "magmablast", x: 40, y: 50, angle: 0, instanceId: "s1" });
     expect(stamps).toHaveLength(1);
     expect(stamps[0]).toMatchObject({ kind: "scorch", x: 40, y: 50 });
   });
 
   it("scorches harder for an explosion than for a beam's far end", () => {
-    const blast = decalStampsFor({ kind: "shotEnded", weaponId: "magmablast", x: 0, y: 0, angle: 0 });
-    const beam = decalStampsFor({ kind: "shotEnded", weaponId: "lance", x: 0, y: 0, angle: 0 });
+    const blast = decalStampsFor({ kind: "shotEnded", weaponId: "magmablast", x: 0, y: 0, angle: 0, instanceId: "s1" });
+    const beam = decalStampsFor({ kind: "shotEnded", weaponId: "lance", x: 0, y: 0, angle: 0, instanceId: "s1" });
     expect(blast[0].scale).toBeGreaterThan(beam[0].scale);
   });
 
@@ -37,7 +37,7 @@ describe("decalStampsFor", () => {
   });
 
   it("leaves nothing for a muzzle flash or a scratch — the floor would fill with noise", () => {
-    expect(decalStampsFor({ kind: "shotFired", weaponId: "lance", x: 0, y: 0, angle: 0 })).toEqual([]);
+    expect(decalStampsFor({ kind: "shotFired", weaponId: "lance", x: 0, y: 0, angle: 0, instanceId: "s1" })).toEqual([]);
     expect(decalStampsFor({ kind: "damaged", sessionId: "a", x: 0, y: 0, amount: 9 })).toEqual([]);
   });
 });
@@ -202,9 +202,9 @@ describe("decals read the environment table", () => {
   });
 
   it("takes a scorch scale from the weapon row, falling back to the env default", () => {
-    expect(decalStampsFor({ kind: "shotEnded", weaponId: "magmablast", x: 0, y: 0, angle: 0 })[0]!.scale)
+    expect(decalStampsFor({ kind: "shotEnded", weaponId: "magmablast", x: 0, y: 0, angle: 0, instanceId: "s1" })[0]!.scale)
       .toBe(1.25);
-    expect(decalStampsFor({ kind: "shotEnded", weaponId: "lance", x: 0, y: 0, angle: 0 })[0]!.scale)
+    expect(decalStampsFor({ kind: "shotEnded", weaponId: "lance", x: 0, y: 0, angle: 0, instanceId: "s1" })[0]!.scale)
       .toBe(0.35);
   });
 

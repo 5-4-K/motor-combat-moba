@@ -303,6 +303,14 @@ export type { ActiveStatus, StatusPulseResult, StatusRow } from "./sim/status/st
 export { NEUTRAL_MODIFIERS, modifiersOf } from "./sim/status/modifiers.js";
 export type { Modifiers } from "./sim/status/modifiers.js";
 export { CAMERA_CONFIG, DRIVE_CONFIG, LOGICAL_CANVAS } from "./config/drive-config.js";
+export type {
+  CameraConfig,
+  CameraRotate,
+  FovConfig,
+  NoTargetVision,
+  SpectateConfig,
+  SpectateTarget,
+} from "./config/drive-config.js";
 export { FLOW_CONFIG } from "./config/flow-config.js";
 export { DEATHMATCH_CONFIG, DEATHMATCH_TICKS } from "./config/deathmatch-config.js";
 export { CONQUER_CONFIG, resolveConquerTicks } from "./config/conquer-config.js";

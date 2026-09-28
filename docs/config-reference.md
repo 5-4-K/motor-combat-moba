@@ -1082,6 +1082,54 @@ from `smoothFollow`'s steady-state formula (`speed / (fps × camLerp)`) is about
 at that speed, and was about 6.5% even at the old 449.5 — the "12%" this line once claimed was
 already wrong before the heavy-car pass touched it, not a figure any of these reworks moved.
 
+**As of 2026-09-28, `CAMERA_CONFIG` is per-mode too** — it is the base `CameraConfig` the mode
+folders merge over, read through the `camera()` accessor, never directly. The arena no longer
+decides any camera behaviour; it can only make a mode's choice illegal (caught by
+`modes/invariants.test.ts`, CB30–CB33). See
+[`docs/superpowers/specs/2026-09-28-camera-behaviors-design.md`](superpowers/specs/2026-09-28-camera-behaviors-design.md).
+
+| Field | Meaning | Base value | Clause |
+|---|---|---|---|
+| `rotate` | `"none"` \| `"teamFacing"` \| `"heading"` — world rotation the camera holds | `"none"` | CB10, CB12, CB14 |
+| `rotateLerp` | Per-60Hz-frame ease fraction, read only by `"heading"` | `0.15` | CB12 |
+| `fov.enabled` | Restricted field of vision: hide enemies out of sight, dim the view outside it | `false` | CB25–CB29 |
+| `fov.rangeX`/`rangeY`/`offsetX`/`offsetY`/`angleDeg`/`blockedByObstacles`/`outsideDim`/`sharedVision` | Vision-cone shape and rendering, inert while `fov.enabled` is `false` | `600`/`450`/`0`/`0`/`120`/`true`/`0.45`/`true` | CB25–CB29 |
+| `spectate.target` | `"anyone"` \| `"teammates"` \| `"none"` \| `"free"` — who a dead car may watch | `"anyone"` | CB18–CB22 |
+| `spectate.noTargetVision` | `"pov"` \| `"blind"` — FOV fallback with no spectate target | `"pov"` | CB26 |
+
+There is no fixed/follow setting any more (CB2): the camera always follows its target, clamped to
+the arena, so a one-screen arena simply has no room left to scroll — that reproduces today's
+"fixed" camera exactly, with no arena-side flag. `rotate: "heading"` and `fov.enabled` are both
+wired; no shipped mode turns either on yet.
+
+**What `fov.enabled` does (CB25–CB29).** Client-only and purely visual — the server, the sim and
+the bots still see the whole arena (CB5, CB33; the bot guard in `modes/invariants.test.ts` refuses
+FOV on the bundles Practice and the playground seat bots in). Each viewer car sees an ellipse
+(`rangeX` ahead, `rangeY` across, centred `offsetX`/`offsetY` off the car) cut to an `angleDeg`
+cone from that centre, and, with `blockedByObstacles`, not through any obstacle. The vision set is
+the perspective player's own car (or its death pose under `"pov"`), plus living teammates when
+`sharedVision` is on in a team mode. Out of that set, **enemy** things only are hidden (CB27): an
+enemy car and everything drawn for it (body, shadow, rim, turret, hp bar, maneuver marks, charge
+orb) unless its centre or a hull corner is seen; an enemy-owned shot unless one of its sample
+points is; and the fx events (`shotFired`, `shotEnded`, `damaged`, `died`) derived from a hidden
+enemy instance or at a hidden enemy car. Map features and your own and your teammates' things are
+never hidden. **Hiding is per object, not a stencil (CB28)**: a shot is drawn whole or not at all,
+so a beam half inside your vision draws in full. Everything outside the vision set is darkened by
+a black overlay at `outsideDim` alpha (CB29), over every world layer and under the HUD.
+
+Per-mode overrides today (CB9) — every shipped mode reproduces its pre-2026-09-28 behaviour exactly:
+
+| Mode | `rotate` | `fov.enabled` | `spectate.target` | `spectate.noTargetVision` |
+|---|---|---|---|---|
+| Brawl | none (base) | false (base) | anyone (base) | pov (base) |
+| Team brawl | none (base) | false (base) | anyone (base) | pov (base) |
+| Deathmatch | none (base) | false (base) | **none** | pov (base) |
+| Conquer | **teamFacing** | false (base) | **none** | pov (base) |
+
+Conquer's `"teamFacing"` rotation is derived once per match from each team's spawn heading
+(`teamASpawns`/`teamBSpawns` must all share one angle per side — CB30) rather than from an
+arena-authored flag; on `arena-03` that reproduces the old 180°-for-team-B view exactly (CB11).
+
 ## FLOW_CONFIG
 
 | Knob | Value |
@@ -1187,9 +1235,13 @@ in.
 
 `ArenaDef.zone` (an `ArenaZone` — `x`, `y`, `radius`) is the capture circle a car's centre must sit
 inside to count as present; it is required on any arena a `"conquer"`-win-rule mode plays
-(`modes/invariants.test.ts`). `ArenaDef.flipForTeamB` rotates team B's world camera 180° so each team
-sees its own base at the bottom (CQ46) — meaningful only on a layout that maps onto itself under that
-rotation, which `arena-03` (below) is built symmetric about both centre lines specifically to satisfy.
+(`modes/invariants.test.ts`). Team views (each team seeing its own base at the bottom, CQ46) now
+come from the mode's `camera.rotate: "teamFacing"`, derived from each team's spawn heading rather
+than an arena-authored flag — `ArenaDef.flipForTeamB` was deleted on 2026-09-28 (see
+[`CAMERA_CONFIG`](#camera_config) above and
+[`docs/superpowers/specs/2026-09-28-camera-behaviors-design.md`](superpowers/specs/2026-09-28-camera-behaviors-design.md)
+CB3). Meaningful only on a layout that maps onto itself under that rotation, which `arena-03`
+(below) is built symmetric about both centre lines specifically to satisfy.
 
 ## NET_CONFIG
 
@@ -1387,9 +1439,9 @@ half-planes and consumed by every boundary reader (`boundsOf(arena)` is the one 
 built from an arena). Absent means the plain rectangle `0,0 → width,height`. `arena-01`'s polygon is the wall band inset with
 50-unit 45° chamfers at the four corners, enclosing a **1132 × 612** playable area — about 25%
 smaller than the `1280 × 720` it replaces. `width`/`height` keep their old meaning throughout: the
-image frame and the camera bounds, unchanged, with the polygon inset *inside* them, so
-`CAMERA_CONFIG.zoom` of 1 still shows the whole arena and `arena-camera.test.ts` still passes
-untouched.
+image frame and the camera bounds, unchanged, with the polygon inset *inside* them, so at
+`CAMERA_CONFIG.zoom` of 1 the camera always follows its target clamped to the arena, and on a
+one-screen arena like this one that clamp leaves no room to scroll — it does not scroll (CB2).
 
 Its 14 obstacles are ordinary `Obstacle` rects with one addition: `kind: "spike"`, an optional field
 that marks wall-mounted geometry that also damages (see [`SPIKE_CONFIG`](#spike_config) above) and is
@@ -1414,9 +1466,10 @@ of 1.
 
 `arena-03` is Conquer's own arena (CQ37–CQ40): a tall pitch, one screen wide and three tall, with the
 capture zone (`zone: { x: 640, y: 1080, radius: 150 }`) at its centre and each team's base at an end.
-It authors `flipForTeamB: true`, and is built symmetric about both centre lines specifically so that
-holds — team B's world camera rotates 180° and still shows the same map with its own base at the
-bottom. It carries no arena art and renders procedurally, spikes and chamfer corners included; its
+Conquer's `camera.rotate: "teamFacing"` (CB9) is what turns team B's view 180° so it still sees the
+same map with its own base at the bottom; the arena itself is built symmetric about both centre
+lines specifically so that holds — team A spawns facing `-π/2` (rotation 0) and team B facing `+π/2`
+(rotation π), CB11. It carries no arena art and renders procedurally, spikes and chamfer corners included; its
 `boundary` is the frame itself with 100 u chamfers, since there is no painted wall band to inset. Of
 its 12 obstacles, 2 are `kind: "spike"` strips on the side walls level with the zone; the rest are
 plain lane pillars and zone-cover blocks. Its `teamASpawns`/`teamBSpawns` sit roughly 810 u from the

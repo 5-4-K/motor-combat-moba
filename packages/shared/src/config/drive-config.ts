@@ -348,10 +348,61 @@ export const DRIVE_CONFIG = {
  * the pan covers the same ground on a 60 Hz and a 144 Hz display. It is pitched a little above the
  * fastest car so a spectator can outrun the fight to see where it is going — see the coupling note
  * on `DRIVE_CONFIG`.
+ *
+ * As of 2026-09-28 the camera is per-mode (spec `2026-09-28-camera-behaviors-design.md`): how it
+ * turns, a wrecked player's spectate target, and a per-car field-of-vision cone are each authored
+ * per mode through `ModeTables.camera` and read through the `camera()` accessor, never off this
+ * raw global directly.
  */
-export type CameraConfig = typeof CAMERA_CONFIG;
+/** How the camera turns (CB10–CB14). */
+export type CameraRotate = "none" | "teamFacing" | "heading";
+/** Who a wrecked player may watch (CB18–CB24). */
+export type SpectateTarget = "anyone" | "teammates" | "none" | "free";
+/** What a wrecked player sees with nobody to watch (CB26). */
+export type NoTargetVision = "pov" | "blind";
 
-export const CAMERA_CONFIG = {
+/** A car's field of vision (CB25–CB29). Inert while `enabled` is false. */
+export interface FovConfig {
+  readonly enabled: boolean;
+  /** Semi-axis along the car's nose, world units. */
+  readonly rangeX: number;
+  /** Semi-axis across the car, world units. */
+  readonly rangeY: number;
+  /** Ellipse centre in the car's frame: + is forward. */
+  readonly offsetX: number;
+  /** Ellipse centre in the car's frame: + is the car's right (local +y). */
+  readonly offsetY: number;
+  /** Cone width in degrees, (0, 360]. The cone's apex is the ellipse centre. */
+  readonly angleDeg: number;
+  /** Every obstacle (spikes included) blocks sight. */
+  readonly blockedByObstacles: boolean;
+  /** Alpha of the dark overlay outside vision, [0, 1]. */
+  readonly outsideDim: number;
+  /** Team modes: living teammates' vision is yours. */
+  readonly sharedVision: boolean;
+}
+
+export interface SpectateConfig {
+  readonly target: SpectateTarget;
+  readonly noTargetVision: NoTargetVision;
+}
+
+/**
+ * Explicit rather than `typeof CAMERA_CONFIG`: an `as const` literal types every value as itself,
+ * and a mode override of any number here would then fail to typecheck.
+ */
+export interface CameraConfig {
+  readonly camLerp: number;
+  readonly zoom: number;
+  readonly freeRoamSpeed: number;
+  readonly rotate: CameraRotate;
+  /** Fraction of the remaining turn closed per 60 Hz frame, (0, 1]. Read only by "heading". */
+  readonly rotateLerp: number;
+  readonly fov: FovConfig;
+  readonly spectate: SpectateConfig;
+}
+
+export const CAMERA_CONFIG: CameraConfig = {
   camLerp: 0.18,
   zoom: 1,
   /**
@@ -361,7 +412,21 @@ export const CAMERA_CONFIG = {
    * unmoored; 340 keeps it a little above the new fastest car, per the coupling note above.
    */
   freeRoamSpeed: 340,
-} as const;
+  rotate: "none",
+  rotateLerp: 0.15,
+  fov: {
+    enabled: false,
+    rangeX: 600,
+    rangeY: 450,
+    offsetX: 0,
+    offsetY: 0,
+    angleDeg: 120,
+    blockedByObstacles: true,
+    outsideDim: 0.45,
+    sharedVision: true,
+  },
+  spectate: { target: "anyone", noTargetVision: "pov" },
+};
 
 /**
  * The client's logical canvas the arena camera renders into, before any HUD gutter or letterboxing

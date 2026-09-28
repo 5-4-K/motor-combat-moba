@@ -18,10 +18,11 @@
  *
  * **It takes no car angle, on purpose.** A marker that turned with the chassis would be saying
  * something about heading, and heading is the car's own job — the arrow's only sentence is "this
- * one" (D4). It does take the VIEW's rotation: on an arena that declares `flipForTeamB`, team B's
- * world camera is turned 180° (CQ46), so world-up is no longer screen-up for them, and the triangle
- * is turned by the same angle about the car to stay above it and pointing down on screen (CQ47).
- * Every other view passes 0 and gets the fixed `-y` apex it always had.
+ * one" (D4). It does take the VIEW's rotation: in a mode whose `camera().rotate` is `"teamFacing"`,
+ * team B's world camera is turned 180° (`camera/rotation.ts`, CB10), so world-up is no longer
+ * screen-up for them, and the triangle is turned by the same angle about the car to stay above it
+ * and pointing down on screen (CQ47). Every other view passes 0 and gets the fixed `-y` apex it
+ * always had.
  */
 
 /**
@@ -78,8 +79,9 @@ export const ARROW_GAP_PX = 47.5;
  * triangle rigidly — the shape never stretches, only travels — so the silhouette a player learns in
  * the first countdown is the one they see in every later one.
  *
- * `viewRotation` is the world camera's rotation (`viewRotationFor`); the whole triangle is turned by
- * it about `(x, y)`, which is what puts it "above" the car on a rotated screen. 0 leaves it untouched.
+ * `viewRotation` is the world camera's rotation (`camera/rotation.ts`); the whole triangle is turned
+ * by it about `(x, y)`, which is what puts it "above" the car on a rotated screen. 0 leaves it
+ * untouched.
  */
 export function countdownArrowPoints(
   x: number,

@@ -14,7 +14,7 @@
 // and `maneuver` (`ManeuverKind`, `sim/maneuver.ts`) are GLOBAL, not per-mode (MC36/MC32), so they
 // are asserted once below rather than inside the per-mode loop.
 import { describe, expect, it } from "vitest";
-import { MAX_PLAYERS } from "../constants.js";
+import { GameMode, MAX_PLAYERS } from "../constants.js";
 import { ABILITY_SLOT_CEILING } from "../config/weapon-slots.js";
 import { COLOR_TABLE } from "../config/color-config.js";
 import { ManeuverKind } from "../sim/maneuver.js";
@@ -23,7 +23,7 @@ import { isArenaId, getArena } from "../arena/registry.js";
 import { rulesOf } from "./rules-registry.js";
 import { activeCarIds } from "../config/car-config.js";
 import { withMode } from "./active.js";
-import { MODE_TABLE } from "./registry.js";
+import { MODE_TABLE, DEFAULT_GAME_MODE } from "./registry.js";
 
 const UINT8_MAX = 255;
 const UINT16_MAX = 65535;
@@ -90,6 +90,48 @@ for (const def of Object.values(MODE_TABLE)) {
       // an unregistered id does the same one tick later. Both must fail the suite, not the match.
       expect(def.config.arenas.length).toBeGreaterThan(0);
       for (const id of def.config.arenas) expect(isArenaId(id)).toBe(true);
+    });
+
+    // --- Camera (spec 2026-09-28-camera-behaviors-design.md, CB30–CB32) -------------------
+
+    it("puts teamFacing only on a team mode whose arenas give each team one spawn heading (CB30)", () => {
+      const cam = def.config.camera;
+      if (cam.rotate !== "teamFacing") return;
+      expect(rulesOf(def.id).sides, `${def.name}: teamFacing needs a team mode`).toBe("team");
+      for (const id of def.config.arenas) {
+        const arena = getArena(id);
+        for (const [label, spawns] of [
+          ["teamASpawns", arena.teamASpawns],
+          ["teamBSpawns", arena.teamBSpawns],
+        ] as const) {
+          const angles = new Set(spawns.map((s) => s.angle));
+          expect(
+            angles.size,
+            `${def.name}: ${id}.${label} faces ${[...angles].join(", ")} — teamFacing needs one angle per team`,
+          ).toBe(1);
+        }
+      }
+    });
+
+    it("lets a mode spectate teammates only when it has teams (CB31)", () => {
+      if (def.config.camera.spectate.target !== "teammates") return;
+      expect(rulesOf(def.id).sides, `${def.name}: spectate "teammates" needs a team mode`).toBe("team");
+    });
+
+    it("keeps camera numbers in range (CB32)", () => {
+      const { rotateLerp, fov } = def.config.camera;
+      const where = `${def.name}: camera`;
+      for (const [k, v] of Object.entries({ rotateLerp, ...fov })) {
+        if (typeof v === "number") expect(Number.isFinite(v), `${where}.${k} = ${v}`).toBe(true);
+      }
+      expect(rotateLerp, `${where}.rotateLerp`).toBeGreaterThan(0);
+      expect(rotateLerp, `${where}.rotateLerp`).toBeLessThanOrEqual(1);
+      expect(fov.rangeX, `${where}.fov.rangeX`).toBeGreaterThan(0);
+      expect(fov.rangeY, `${where}.fov.rangeY`).toBeGreaterThan(0);
+      expect(fov.angleDeg, `${where}.fov.angleDeg`).toBeGreaterThan(0);
+      expect(fov.angleDeg, `${where}.fov.angleDeg`).toBeLessThanOrEqual(360);
+      expect(fov.outsideDim, `${where}.fov.outsideDim`).toBeGreaterThanOrEqual(0);
+      expect(fov.outsideDim, `${where}.fov.outsideDim`).toBeLessThanOrEqual(1);
     });
 
     it("truncates an over-long kit silently, and only warns past the ceiling", () => {
@@ -180,5 +222,34 @@ describe("global wire-width bounds with no per-mode source (MC38)", () => {
       expect(value).toBeLessThanOrEqual(UINT8_MAX);
       expect(value).toBeGreaterThanOrEqual(0);
     }
+  });
+});
+
+describe("bots and FOV (CB33)", () => {
+  // Bots read the whole world (server/bot/view.ts); they are not taught FOV yet (CB5). Practice
+  // runs FFA_DEATHMATCH, the playground runs DEFAULT_GAME_MODE, and both seat bots.
+  it.each([GameMode.FFA_DEATHMATCH, DEFAULT_GAME_MODE])(
+    "keeps FOV off in mode %i, which a bot-seated room runs",
+    (mode) => {
+      expect(
+        MODE_TABLE[mode].config.camera.fov.enabled,
+        `${MODE_TABLE[mode].name}: bots cannot see through FOV yet — teach server/bot/view.ts first`,
+      ).toBe(false);
+    },
+  );
+});
+
+describe("shipped camera choices reproduce the pre-2026-09-28 camera (CB9)", () => {
+  it.each([
+    [GameMode.FFA_LAST_STANDING, "none", "anyone"],
+    [GameMode.TEAM, "none", "anyone"],
+    [GameMode.FFA_DEATHMATCH, "none", "none"],
+    [GameMode.CONQUER, "teamFacing", "none"],
+  ] as const)("mode %i: rotate %s, spectate %s, no fov", (mode, rotate, target) => {
+    const cam = MODE_TABLE[mode].config.camera;
+    expect(cam.rotate).toBe(rotate);
+    expect(cam.spectate.target).toBe(target);
+    expect(cam.spectate.noTargetVision).toBe("pov");
+    expect(cam.fov.enabled).toBe(false);
   });
 });
