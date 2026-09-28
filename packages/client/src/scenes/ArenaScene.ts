@@ -260,7 +260,7 @@ import {
   type VisionPlayer,
   type VisionShape,
 } from "../camera/vision.js";
-import { NOTHING_HIDDEN, type FxHidden } from "../fx/hidden.js";
+import { carryHiddenInstances, NOTHING_HIDDEN, type FxHidden } from "../fx/hidden.js";
 import type { GutterHost, ModeGutter } from "../modes/types.js";
 
 const ARENA_BORDER_PX = 4;
@@ -945,6 +945,13 @@ export class ArenaScene extends Phaser.Scene {
   };
   /** Enemy cars `renderCars` hid this frame — reused by the charge orbs and the fx filter (CB27). */
   private hiddenCars = new Set<string>();
+  /**
+   * Last frame's hidden-instance ids (CB27, I1), so `fxHidden` can carry one forward the tick the
+   * server deletes it — it deletes a dead instance the same tick it dies rather than writing
+   * `alive: false` first, so a hidden enemy's `shotEnded` would otherwise resolve unhidden the
+   * instant the id leaves `state.weapons`.
+   */
+  private lastHiddenInstances = new Set<string>();
   /** Per-frame memo of `instanceHidden`, so `renderShots` and `renderFx` test each instance once. */
   private hiddenInstanceMemo = new Map<string, boolean>();
   /** The local car's drawn pose on the frame it died, for `noTargetVision: "pov"` (CB26). */
@@ -1798,6 +1805,7 @@ export class ArenaScene extends Phaser.Scene {
     this.vision = { active: false, perspective: "", shapes: [] };
     this.hiddenCars.clear();
     this.hiddenInstanceMemo.clear();
+    this.lastHiddenInstances.clear();
     this.deathPose = undefined;
     this.floorTile?.destroy();
     this.floorTile = undefined;
@@ -3816,18 +3824,33 @@ export class ArenaScene extends Phaser.Scene {
 
   /**
    * What the fx layer may not show this frame (CB27): the enemy cars `renderCars` hid, and every
-   * enemy instance out of sight — dead ones included, since `shotEnded` fires off the `alive` flip.
-   * Events are still DERIVED from the full world inside `FxLayer.update`; this only filters them.
-   * `NOTHING_HIDDEN`, with nothing computed, whenever the mode has no FOV.
+   * enemy instance out of sight. Events are still DERIVED from the full world inside
+   * `FxLayer.update`; this only filters them. `NOTHING_HIDDEN`, with nothing computed, whenever the
+   * mode has no FOV.
+   *
+   * The server deletes a dead instance the same tick it dies rather than writing `alive: false`
+   * into a row a client still holds (verified against `stepCombat`/`combat-bridge.ts`: a dying
+   * instance is dropped from `survivors` and never reaches `state.weapons` with `alive: false`), so
+   * an id that was hidden last frame and is gone from `state.weapons` this frame is carried forward
+   * (I1) — otherwise a hidden enemy's `shotEnded` would resolve against an empty hidden set on the
+   * very frame the id vanishes, and its impact burst/scorch would show for a shot the player never
+   * saw fired.
    */
   private fxHidden(room: Room<ArenaState>): FxHidden {
-    if (!this.vision.active) return NOTHING_HIDDEN;
+    if (!this.vision.active) {
+      this.lastHiddenInstances = new Set();
+      return NOTHING_HIDDEN;
+    }
     const elapsedMs = this.lastPatchMs === 0 ? 0 : performance.now() - this.lastPatchMs;
+    const currentIds = new Set<string>();
     const instances = new Set<string>();
     room.state.weapons.forEach((instance, id) => {
+      currentIds.add(id);
       if (this.instanceHidden(room, id, instance, elapsedMs)) instances.add(id);
     });
-    return { cars: this.hiddenCars, instances };
+    const carried = carryHiddenInstances(this.lastHiddenInstances, currentIds, instances);
+    this.lastHiddenInstances = carried;
+    return { cars: this.hiddenCars, instances: carried };
   }
 
   /**
