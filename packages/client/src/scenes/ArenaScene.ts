@@ -219,7 +219,7 @@ import {
   statusStripLayout,
 } from "./status-hud.js";
 import { arrowBlinkOn, arrowBobOffset, countdownArrowPoints } from "./countdown-arrow.js";
-import { resolveViewRotation } from "../camera/rotation.js";
+import { isAxisAligned, resolveViewRotation } from "../camera/rotation.js";
 import {
   ACTION_LABEL,
   MOVEMENT_ARROWS,
@@ -902,6 +902,17 @@ export class ArenaScene extends Phaser.Scene {
    * (CQ48). The HUD camera is never rotated.
    */
   private viewRotation = 0;
+  /** Snap the next rotation instead of easing it: first frame, and the respawn cut (CB12). */
+  private snapRotation = true;
+  /** Whether the world camera is currently clamped to the arena (CB15). */
+  private cameraBounded = true;
+  /**
+   * Each car's drawn pose as of last frame, keyed by session id — the same pose `renderCars` hands
+   * `followCamera`: predicted for the local car, interpolated for a remote, raw for a wreck. Read one
+   * frame later by `syncViewRotation` for `"heading"`'s followed angle, so the camera turns off what
+   * was actually on screen last frame rather than a value that has not been drawn yet.
+   */
+  private lastDrawnPose = new Map<string, { x: number; y: number; angle: number }>();
   /**
    * When the last state patch landed, for drawing shots between patches. `performance.now()` rather
    * than Phaser's clock, for the reason spelled out in `pushRemoteSnapshots`.
@@ -1361,6 +1372,8 @@ export class ArenaScene extends Phaser.Scene {
     cam.setZoom(camera().zoom);
     // Stops the soft follow from panning past the arena edge into empty space.
     cam.setBounds(0, 0, arena.width, arena.height);
+    this.cameraBounded = true;
+    this.snapRotation = true;
     // Team B's 180° view on a flip arena (CQ46), set here so the first frame is already turned, and
     // re-checked every frame by `update` in case the local player's team arrives or changes later.
     // Forced, so the camera and the field agree on every create, whatever an earlier match left in
@@ -1714,6 +1727,7 @@ export class ArenaScene extends Phaser.Scene {
     this.unbindAll();
     for (const gfx of this.cars.values()) gfx.destroy();
     this.cars.clear();
+    this.lastDrawnPose.clear();
     this.visualKeys.clear();
     this.turretShown.clear();
     this.interps.clear();
@@ -1814,6 +1828,9 @@ export class ArenaScene extends Phaser.Scene {
     this.spectateTarget = "";
     this.freeRoam = false;
     this.localAlive = true;
+    this.snapRotation = true;
+    this.cameraBounded = true;
+    this.lastDrawnPose.clear();
     this.lastPatchMs = 0;
     this.mismatchOverlay?.destroy();
     this.mismatchOverlay = undefined;
@@ -1862,7 +1879,7 @@ export class ArenaScene extends Phaser.Scene {
     // before the cut lands.
     this.syncRespawnCamera(room);
     // Before `renderCars`, which lights the cars and draws the self-arrow against this angle.
-    this.syncViewRotation(this.arena);
+    this.syncViewRotation(this.arena, false, delta);
     this.renderZone(room, this.arena);
     this.renderCars(room, delta);
     this.syncCrosshair(room);
@@ -1887,25 +1904,43 @@ export class ArenaScene extends Phaser.Scene {
    * floor — and applied only when it changes (or when `force`d, from `drawArena`, whose camera may
    * be a fresh one). The HUD camera is left alone: it is screen space and never rotates.
    *
-   * `followHeading` is left `undefined` here — `"heading"` is wired in stage 2 (CB38 keeps it off
-   * until then) — so this always snaps rather than easing.
+   * `followHeading` is the camera target's DRAWN heading, one frame behind — the same pose
+   * `renderCars` hands `followCamera` — so `"heading"` turns off what is actually on screen. Eased
+   * through `rotateLerp` unless `force`d or `snapRotation` is set (the first frame after `drawArena`
+   * or a respawn cut, CB12). Also keeps the camera's scroll bounds in sync (CB15): Phaser's clamp is
+   * only correct while the view is axis-aligned, so a turned view runs unclamped.
    */
-  private syncViewRotation(arena: ArenaDef, force = false): void {
+  private syncViewRotation(arena: ArenaDef, force = false, deltaMs = 0): void {
     const room = this.room;
     const local = room ? room.state.players.get(this.drivenSid(room)) : undefined;
+    const followed = room && !this.freeRoam ? room.state.players.get(this.cameraTarget(room)) : undefined;
+    // The followed car's DRAWN heading: predicted for your own car, interpolated for a remote —
+    // the same pose `renderCars` hands `followCamera`, read one frame earlier.
+    const followHeading =
+      followed && followed.alive ? this.lastDrawnPose.get(this.cameraTarget(room!))?.angle : undefined;
     const rotation = resolveViewRotation({
       rotate: camera().rotate,
       arena,
       localTeam: local?.team,
-      followHeading: undefined, // "heading" is wired in stage 2 (CB38 keeps it off until then)
+      followHeading,
       current: this.viewRotation,
       lerp: camera().rotateLerp,
-      deltaMs: 0,
-      snap: true,
+      deltaMs,
+      snap: force || this.snapRotation,
     });
+    if (followHeading !== undefined) this.snapRotation = false;
+    this.applyCameraBounds(arena, isAxisAligned(rotation));
     if (!force && rotation === this.viewRotation) return;
     this.viewRotation = rotation;
     this.cameras.main.setRotation(rotation);
+  }
+
+  /** Clamp to the arena only while the view is axis-aligned (CB15); a turned view follows freely. */
+  private applyCameraBounds(arena: ArenaDef, aligned: boolean): void {
+    if (aligned === this.cameraBounded) return;
+    this.cameraBounded = aligned;
+    if (aligned) this.cameras.main.setBounds(0, 0, arena.width, arena.height);
+    else this.cameras.main.removeBounds();
   }
 
   /**
@@ -2557,6 +2592,7 @@ export class ArenaScene extends Phaser.Scene {
         this.dropCarShadow(sessionId);
         this.visualKeys.delete(sessionId);
         this.turretShown.delete(sessionId);
+        this.lastDrawnPose.delete(sessionId);
         return;
       }
 
@@ -2577,6 +2613,7 @@ export class ArenaScene extends Phaser.Scene {
       this.drawCarLook(sessionId, player.carId, player.colorId, pose, alpha);
       this.syncTurret(sessionId, player, pose, delta);
       poses.set(sessionId, pose);
+      this.lastDrawnPose.set(sessionId, { x: pose.x, y: pose.y, angle: pose.angle });
       const mods = modifiersFromRows(player.statuses, room.state.tick);
       // **NOT `pose.vx`/`pose.vy`.** `RamCar`'s own doc requires the PRE-COLLISION velocity — the
       // one the car carried INTO the tick — and says why: collision resolution runs before ram, so
@@ -4310,7 +4347,10 @@ export class ArenaScene extends Phaser.Scene {
   private syncRespawnCamera(room: Room<ArenaState>): void {
     const local = room.state.players.get(this.drivenSid(room));
     if (!local) return;
-    if (local.alive && !this.localAlive) this.camFocus = undefined;
+    if (local.alive && !this.localAlive) {
+      this.camFocus = undefined;
+      this.snapRotation = true;
+    }
     this.localAlive = local.alive;
   }
 

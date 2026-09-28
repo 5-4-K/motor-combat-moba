@@ -136,7 +136,6 @@ for (const def of Object.values(MODE_TABLE)) {
 
     // TEMPORARY (CB38): removed by the stage that wires each behaviour into ArenaScene.
     it("does not turn on a camera behaviour that is not wired yet (CB38)", () => {
-      expect(def.config.camera.rotate, `${def.name}: "heading" is wired in stage 2`).not.toBe("heading");
       expect(def.config.camera.fov.enabled, `${def.name}: fov is wired in stage 3`).toBe(false);
     });
 
