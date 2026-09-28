@@ -49,6 +49,14 @@ describe("visionShapeOf / inShape (CB25)", () => {
     expect(inShape({ x: 0, y: 199 }, round)).toBe(true);
     expect(inShape({ x: 0, y: 201 }, round)).toBe(false);
   });
+  it("offsetY moves the ellipse to the car's right: world +y at heading 0, screen y-down", () => {
+    const s = visionShapeOf(EAST, { ...FOV, offsetY: 50 });
+    expect(s.cx).toBeCloseTo(0);
+    expect(s.cy).toBeCloseTo(50);
+    const north = visionShapeOf({ x: 0, y: 0, angle: -Math.PI / 2 }, { ...FOV, offsetY: 50 });
+    expect(north.cx).toBeCloseTo(50); // facing up the screen, the right is +x
+    expect(north.cy).toBeCloseTo(0);
+  });
 });
 
 describe("segmentHitsRect", () => {

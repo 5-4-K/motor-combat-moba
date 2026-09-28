@@ -34,6 +34,9 @@ export function visionShapeOf(pose: Pose, fov: FovConfig): VisionShape {
   const cos = Math.cos(pose.angle);
   const sin = Math.sin(pose.angle);
   return {
+    // +offsetX is ahead (nose), +offsetY is the car's RIGHT on screen (the arena is y-down: at
+    // heading 0 it is world +y, clockwise from the nose). sim/velocity.ts's prose calls this
+    // same local +y side 'left' — a y-up label for the same axis; the maths agree.
     cx: pose.x + fov.offsetX * cos - fov.offsetY * sin,
     cy: pose.y + fov.offsetX * sin + fov.offsetY * cos,
     heading: pose.angle,
