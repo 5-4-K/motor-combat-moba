@@ -32,8 +32,9 @@ behaviours on.
 - **CB2** There is no fixed/follow setting. The camera **always follows** its target, clamped to
   the arena by `cam.setBounds(0, 0, arena.width, arena.height)`. On a one-screen arena the clamp
   leaves no room to scroll, which reproduces today's "fixed" camera exactly; on `arena-03` it
-  scrolls exactly as today. `fitsViewport` survives only as a derived fact (e.g. whether there is
-  anything to pan), never as a camera mode.
+  scrolls exactly as today. (Phaser's `clampX`/`clampY` pin the scroll to 0 when the bounds are
+  exactly the view size — verified against Phaser 4.2.1's `BaseCamera.clampX`.) `fitsViewport` has
+  no reader left once the `V` toggle goes (CB21), so it and `scenes/arena-camera.ts` are deleted.
 - **CB3** `flipForTeamB` is **deleted** from `ArenaDef` and every arena. The team view angle is
   derived from spawn angles (CB10).
 - **CB4** Config values are **flat** (string unions and an always-present `fov` block with an
@@ -172,7 +173,8 @@ Only when the mode's `fov.enabled` is true. Every other mode renders exactly as 
   it. The cone's apex is `c` and its axis is θ; a point `p` is in the cone when the angle between
   `p − c` and θ is at most `angleDeg / 2` (or `angleDeg ≥ 360`). `p` is **in vision** when it is
   inside the ellipse AND inside the cone AND, if `blockedByObstacles`, the segment `c → p` crosses
-  no obstacle rectangle. **Every** obstacle blocks, spikes included (spike strips sit flush
+  no obstacle rectangle (an obstacle that contains the apex itself is ignored, so a large forward
+  offset cannot blank the whole vision). **Every** obstacle blocks, spikes included (spike strips sit flush
   against the boundary, so their shadow falls on nothing a car can occupy).
 - **CB26** **Viewers.** The vision set is the union of the shapes of: the local car while alive;
   plus every living teammate when `sharedVision` is true and the mode has teams (`rulesOf(mode)
@@ -233,12 +235,12 @@ Only when the mode's `fov.enabled` is true. Every other mode renders exactly as 
     `visionViewers(...)` implementing CB26.
   - `index.ts` — re-exports.
 - **CB35** `scenes/view-rotation.ts` and its test are deleted (replaced by `camera/rotation.ts`).
-  `scenes/arena-camera.ts` (`fitsViewport`, `viewportWorldSize`) moves to `camera/viewport.ts`.
-  `scenes/spectate.ts` moves to `camera/spectate.ts`; its test moves with it.
+  `scenes/arena-camera.ts` and its test are deleted (CB2). `scenes/spectate.ts` moves to
+  `camera/spectate.ts`; its test moves with it.
 - **CB36** `ArenaScene` keeps only the Phaser side: it reads `camera()`, calls the pure functions,
   and applies results (`centerOn`, `setRotation`, `setBounds`/`removeBounds`, visibility flags,
-  the dim overlay). `staticCamera` is replaced by the derived `canPan` (CB2) where it still has a
-  reader; `followCamera`'s `staticCamera` early-return is removed because the clamp does that job.
+  the dim overlay). `staticCamera` is deleted; `followCamera`'s early-return on it is removed because
+  the clamp does that job.
 - **CB37** Stage-1 code must leave every shipped mode pixel-identical in play except the CB21
   banner text. No new behaviour is reachable from a shipped mode.
 
