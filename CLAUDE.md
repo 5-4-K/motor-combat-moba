@@ -27,6 +27,12 @@ fields have no accessor because nothing reads them per-tick — `arenas` (which 
 plays; see [`docs/config-reference.md`](docs/config-reference.md#arena-selection)) and `maxPlayers`
 (the mode's own seat count, bounded above by the global `MAX_PLAYERS`).
 
+**The camera is per mode too** (2026-09-28): `camera()` carries `rotate` (`"none"`,
+`"teamFacing"`, `"heading"`), `fov` (a restricted field of vision, off in every shipped mode)
+and `spectate` (who a wreck may watch), besides `camLerp`/`zoom`/`freeRoamSpeed`. The arena no
+longer decides anything about the camera — see
+[`docs/superpowers/specs/2026-09-28-camera-behaviors-design.md`](docs/superpowers/specs/2026-09-28-camera-behaviors-design.md).
+
 **Conquer is the third mode, and the first team mode that ships active.** `GameMode.CONQUER = 3`
 (never renumber — invariant 7), published (`isActive: true`) as of 2026-09-24 — `GameMode` now
 carries **three win rules**, read through `rulesOf(mode).winRuleLabel` (a field on the mode's own

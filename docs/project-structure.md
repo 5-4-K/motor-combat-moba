@@ -166,7 +166,6 @@ motor-combat-MOBA/
         │   ├── PracticeSetupScene.ts   # thin shell: joins "practice" with the chosen setup, launches ArenaScene (PR21)
         │   ├── PracticeSummaryScene.ts # thin shell over ui/screens/practice-summary.ts; reads a pre-leave kills/deaths snapshot, never a live Room (PR24)
         │   ├── controlled-car.ts # controlledCarOf/isSimPaused/isPracticeRoom: which car to drive, whether the sim is frozen, whether the pause-menu gate applies — resolves to the real match answer on a base ArenaState (PG7, PG9, PR22)
-        │   ├── arena-camera.ts   # whether the arena fits the view, so the camera need not scroll
         │   ├── arena-input.ts    # sim-clock input drain, axis folding
         │   ├── arena-mismatch.ts # builds the mismatch message string (pure, testable)
         │   ├── arena-visual.ts   # arena palette → Phaser colour ints; inset border rect
@@ -177,8 +176,10 @@ motor-combat-MOBA/
         │   ├── roster-panel.ts   # pure roster derivations: row order, panel layout, name truncation
         │   ├── status-hud.ts     # pure status badge derivations: order, drain, strip layout
         │   ├── match-hud.ts      # pure match-HUD derivations shared by last-standing, deathmatch and conquer: match clock, respawn countdown, killed-by banner
-        │   ├── spectate.ts       # spectate cycle, free-roam pan
         │   └── lobby-signature.ts
+        ├── camera/                  # per-mode camera logic, testable with no Phaser (2026-09-28)
+        │   ├── rotation.ts          # viewRotationForHeading, teamFacingRotation, resolveViewRotation
+        │   └── spectate.ts          # isSpectating, spectatableIds, cycleSpectate, panFreeCam, smoothFollow
         ├── ui/                      # also dom.ts, lobby-view.ts, car-select-view.ts, results-view.ts, reveal-view.ts, overlay.ts, organic.css — only chat-view.ts is called out below
         │   └── chat-view.ts         # chatView: a chat row -> {key, label, hex, text, at}; "You" for the local sessionId, colour from COLOR_TABLE (LC24)
         └── ui/screens/
@@ -190,8 +191,8 @@ motor-combat-MOBA/
 ```
 
 `ArenaScene` itself cannot be unit-tested without a browser, so its logic lives in the plain modules
-beside it (`arena-camera`, `arena-input`, `car-visual`, `combat-visual`, `countdown-arrow`, `weapon-hud`,
-`roster-panel`, `status-hud`, `spectate`) and the scene stays
+beside it (`arena-input`, `car-visual`, `combat-visual`, `countdown-arrow`, `weapon-hud`,
+`roster-panel`, `status-hud`, and the `camera/` folder's `rotation`/`spectate`) and the scene stays
 a thin shell
 over them. `assets/` is the same idea one directory over: the manifest parse, the key namespace, the
 hull fit, and the sprite-or-silhouette decision are all pure modules there, so the only thing left in
