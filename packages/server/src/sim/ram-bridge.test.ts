@@ -16,6 +16,7 @@ import {
   WEAPON_TABLE,
   WEAPON_TICKS,
   applyStatus,
+  msToTicks,
   forwardMaxSpeedOf,
   forwardOf,
   hasStatus,
@@ -763,8 +764,9 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     );
     const first = readStatuses(victim).find((s) => s.statusId === "reeling")!.endsTick - 10;
 
-    // The second ram lands at tick 45: AFTER the first `reeling` has lapsed (it ends at tick 40)
-    // but well inside the falloff window (`ramTicks().drWindow` runs to tick 70), which is the
+    // The second ram lands at `SECOND`, a sixth of a second AFTER the first `reeling` has lapsed
+    // (tick 45 at 30 Hz, 80 at 60 Hz, against a `reeling` ending at 40 / 70) but well inside the
+    // falloff window (`ramTicks().drWindow` runs to tick 70 / 130), which is the
     // window duration falloff is actually observable in. That is not incidental to the setup — a
     // re-ram while the first `reeling` is still running cannot shorten anything, because `reeling`
     // is `reapply: "ignore"` and a second application writes nothing at all while one is standing.
@@ -780,6 +782,7 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     // "fresh touch" edge-trigger off `memory.contacts`, so clearing it is the direct way to
     // simulate re-approach. The attacker must also be RE-ARMED: under Unity's rule a ram leaves it
     // stopped dead, and a car at rest is below `minRamSpeed` and no longer qualifies to throw one.
+    const SECOND = 10 + ramTicks().uncontrol + msToTicks(166);
     memory.contacts = new Set();
     attacker.vx = 540;
     attacker.vy = 0;
@@ -787,9 +790,9 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     victim.vy = 0;
     contactTick(
       state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS,
-      approachVelocities(state), NO_MANEUVER_WEAPONS, 45,
+      approachVelocities(state), NO_MANEUVER_WEAPONS, SECOND,
     );
-    const second = readStatuses(victim).find((s) => s.statusId === "reeling")!.endsTick - 45;
+    const second = readStatuses(victim).find((s) => s.statusId === "reeling")!.endsTick - SECOND;
 
     expect(first).toBe(ramTicks().uncontrol);
     // Pin the SCALED duration itself, not merely `second < first`. This is the number
@@ -914,23 +917,24 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     // fresh contact episode on the SAME memory — and so the same falloff stack — the way the ram
     // falloff tests above do.
     //
-    // Tick 55, not 11, and for the same reason the ram DR test above lands its second ram late:
+    // `SECOND` (tick 55 at 30 Hz, 100 at 60 Hz), not 11, and for the same reason the ram DR test above lands its second ram late:
     // `reeling` is `reapply: "ignore"` since the Unity port's status overhaul, so a second slam
     // arriving while the first `reeling` still runs writes no status at all and the duration half of
     // this claim would be measuring the FIRST slam's window counted from the wrong tick. The slam's
-    // window is the weapon's own — 42 ticks, ending at 52 — and tick 55 is clear of it while still
-    // inside `ramTicks().drWindow` (which runs to tick 70), the window a second RAM would be
-    // diminished in.
+    // window is the weapon's own — 1400 ms, ending at 52 (30 Hz) / 94 (60 Hz) — and `SECOND` is
+    // 100 ms clear of it while still inside `ramTicks().drWindow` (which runs to tick 70 / 130), the
+    // window a second RAM would be diminished in.
+    const SECOND = 10 + SLAM_IMPULSE_TICKS.applies[0]!.durationTicks + msToTicks(100);
     victim.x = 58.75; victim.y = 400; victim.vx = 0; victim.vy = 0;
     attacker.x = 0; attacker.y = 400; attacker.vx = 300; attacker.vy = 0;
     attacker.maneuver = ManeuverKind.CHARGE;
     attacker.maneuverTicksLeft = 200;
     memory.contacts = new Set();
     memory.pushed.delete("b"); // clear the re-slam immunity the first slam opened (O18)
-    contactTick(state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS, approach, CHARGING_WILDCHARGE, 55);
+    contactTick(state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS, approach, CHARGING_WILDCHARGE, SECOND);
 
     expect(Math.hypot(victim.vx, victim.vy)).toBeCloseTo(firstKnock, 6);
-    expect(readStatuses(victim).find((s) => s.statusId === "reeling")!.endsTick - 55).toBe(firstReeling);
+    expect(readStatuses(victim).find((s) => s.statusId === "reeling")!.endsTick - SECOND).toBe(firstReeling);
     expect(memory.falloff.size).toBe(0);
   });
 
@@ -1313,11 +1317,11 @@ describe("contactTick (diminishing returns, spec §7.3)", () => {
     // scales BOTH, which a dead-on fixture (spin exactly 0 either way) could never prove.
     const fixture = ramScenario({ offsetY: 20 });
     const first = chainedRam(fixture, 10);
-    // Tick 45 is after the first `reeling` lapses but well inside `ramTicks().drWindow`, which is the
+    // A sixth of a second after the first `reeling` lapses (tick 45 at 30 Hz, 80 at 60 Hz) is well inside `ramTicks().drWindow`, which is the
     // only window a shortened duration is observable in: `reeling` is `reapply: "ignore"`, so a
     // second application writes nothing at all while one is standing, and a re-ram before the first
     // window lapses cannot claw it back.
-    const second = chainedRam(fixture, 45);
+    const second = chainedRam(fixture, 10 + ramTicks().uncontrol + msToTicks(166));
 
     expect(second.shove).toBeCloseTo(first.shove * RAM_CONFIG.impulseDrScale, 6);
     expect(second.spin).toBeCloseTo(first.spin * RAM_CONFIG.impulseDrScale, 6);

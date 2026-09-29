@@ -226,7 +226,8 @@ describe("a car that is SLIDING, not driving (car-physics merge, 2026-09-07)", (
   // vector velocity arrived on `feature/car-physics-rework`. Neither branch could test this — one
   // had the predictor without the velocity, the other the velocity without the predictor. This is
   // the test that says the merge actually joined them.
-  const HORIZON = 45;
+  // 1.5 s of ticks (a literal 45 until the 60 Hz flip).
+  const HORIZON = 1.5 * TICK_RATE_HZ;
 
   /** Nose along +x, but travelling mostly sideways: 60 u/s forward, 200 u/s to the car's left. */
   const sliding: SimBody = {
@@ -257,7 +258,7 @@ describe("a car that is SLIDING, not driving (car-physics merge, 2026-09-07)", (
     expect(Math.hypot(guess.x - end.x, guess.y - end.y)).toBeLessThan(1e-3);
   });
 
-  it("and the pre-rework scalar read would have been 62.68 units wrong — more than a car length", () => {
+  it("and the pre-rework scalar read would have been 64.29 units wrong — more than a car length", () => {
     // What `cos(angle) * speed` would have produced: the forward component kept, the 200 u/s of
     // lateral motion silently discarded. Pinned as a REGRESSION GUARD -- if someone reintroduces a
     // scalar reconstruction anywhere on this path, this is the assertion that fails and names why.
@@ -269,6 +270,10 @@ describe("a car that is SLIDING, not driving (car-physics merge, 2026-09-07)", (
     // property this guard exists to catch — a scalar reconstruction discarding lateral motion reads
     // meaningfully wrong, more than a car length (`DRIVE_CONFIG.carHeight`, 40) — still holds, at a
     // re-measured 62.6846927874405.
+    //
+    // RE-PINNED, 60 Hz FLIP (NR15): 62.6846927874405 -> 64.29164925004403, dt 1/30 -> 1/60, with
+    // the horizon kept at the same 1.5 s (45 -> 90 ticks). Both paths are the real `stepDrive`, so
+    // the figure moves only with the integration step, and the property still holds.
     const end = truth();
     const forward = forwardOf(sliding.vx, sliding.vy, sliding.angle);
     const asScalarWould = viewOf({
@@ -277,20 +282,22 @@ describe("a car that is SLIDING, not driving (car-physics merge, 2026-09-07)", (
     const guess = physicsPredictor(asScalarWould, 0, HORIZON, 0, makeRng(1))(HORIZON);
     const error = Math.hypot(guess.x - end.x, guess.y - end.y);
     expect(error).toBeGreaterThan(DRIVE_CONFIG.carHeight);
-    expect(error).toBeCloseTo(62.6846927874405, 1);
+    expect(error).toBeCloseTo(64.29164925004403, 1);
   });
 });
 
 describe("physicsPredictor", () => {
   it("beats a straight line for a turning car", () => {
     const turning = carAt({ speed: 400 });
-    const predictor = physicsPredictor(turning, 4, 20, 0, makeRng(1));
-    const predicted = predictor(20);
+    // Two thirds of a second of ticks (a literal 20 until the 60 Hz flip).
+    const ticks = (2 * TICK_RATE_HZ) / 3;
+    const predictor = physicsPredictor(turning, 4, ticks, 0, makeRng(1));
+    const predicted = predictor(ticks);
     const straight = {
-      x: turning.x + turning.vx * (20 / TICK_RATE_HZ),
-      y: turning.y + turning.vy * (20 / TICK_RATE_HZ),
+      x: turning.x + turning.vx * (ticks / TICK_RATE_HZ),
+      y: turning.y + turning.vy * (ticks / TICK_RATE_HZ),
     };
-    // A car turning at 4 rad/s is nowhere near the straight-line point 20 ticks out.
+    // A car turning at 4 rad/s is nowhere near the straight-line point 2/3 s out.
     expect(Math.hypot(predicted.x - straight.x, predicted.y - straight.y)).toBeGreaterThan(50);
   });
 
@@ -385,7 +392,9 @@ describe("predicting an observed car, against an independent ground truth", () =
   // documented equations rather than from each other) to agree with the real `stepDrive` to
   // ~1e-14 across every scene and horizon below, which is what makes it trustworthy as ground truth
   // rather than a second copy of the thing under test.
-  const HORIZONS = [10, 20, 45, 90] as const;
+  // A third, two thirds, one and a half and three seconds of ticks — literal [10, 20, 45, 90] until
+  // the 60 Hz flip, which made each of them half the wall-clock span it was written about.
+  const HORIZONS = [1 / 3, 2 / 3, 1.5, 3].map((s) => Math.round(s * TICK_RATE_HZ));
   const LONGEST = Math.max(...HORIZONS);
   const dt = 1 / TICK_RATE_HZ;
 
@@ -561,7 +570,8 @@ describe("predicting an observed car, against an independent ground truth", () =
       // exactly the accidental reason the cap row is excluded for. Written against the cap, the
       // guard keeps meaning what it says through the next speed retune as well.
       if (scene.speed < MIRAGE.maxSpeed * 0.9) {
-        expect(errorAt(truth, engineOn[44]!, 45), `${scene.label} @45`).toBeGreaterThan(10);
+        const h = HORIZONS[2]!; // 1.5 s
+        expect(errorAt(truth, engineOn[h - 1]!, h), `${scene.label} @${h}`).toBeGreaterThan(10);
       }
     }
   });
@@ -630,7 +640,7 @@ describe("predicting an observed car, against an independent ground truth", () =
         // `!== 0`, not `> 0`: a car reversing round a corner leaves a straight line just as fast as
         // one driving round it, and the reversing rows would otherwise assert nothing here.
         if (scene.steer !== 0 && scene.speed !== 0) {
-          const floor = ticks <= 10 ? 2 : 10;
+          const floor = ticks <= HORIZONS[0]! ? 2 : 10;
           expect(straightError, `${scene.label} @${ticks}`).toBeGreaterThan(floor);
         }
       }
@@ -653,15 +663,16 @@ describe("predicting an observed car, against an independent ground truth", () =
     // still the right set. But the margin it wins by shrank roughly four-fold, which is a fact
     // about `OBSERVATION_MODIFIERS`'s justification that its own doc comment now overstates.
     const car = carAt({ speed: 400 });
+    const h = HORIZONS[1]!; // 2/3 s
     const braking = rollForward(
-      bodyFromObservation(car, 0), "mirage", { steer: 0, throttle: 0 }, 20, NEUTRAL_MODIFIERS,
+      bodyFromObservation(car, 0), "mirage", { steer: 0, throttle: 0 }, h, NEUTRAL_MODIFIERS,
     );
     const end = forwardOf(braking.at(-1)!.vx, braking.at(-1)!.vy, braking.at(-1)!.angle);
     expect(end).toBeLessThan(400);
     expect(end).toBeGreaterThan(0);
     // Short of the 266 units a held 400 u/s covers, and short of the truth by a real margin.
     expect(Math.hypot(braking.at(-1)!.x - car.x, braking.at(-1)!.y - car.y)).toBeLessThan(266);
-    expect(errorAt(truthPath(400, 0, "mirage", 20), braking[19]!, 20)).toBeGreaterThan(30);
+    expect(errorAt(truthPath(400, 0, "mirage", h), braking[h - 1]!, h)).toBeGreaterThan(30);
   });
 });
 
@@ -746,12 +757,17 @@ describe("interceptTicks", () => {
 });
 
 describe("state estimation noise (P20)", () => {
+  // Two thirds of a second of ticks: the horizon these cases were written at as a literal 20 ticks
+  // at 30 Hz. At 60 Hz a literal 20 is a third of a second, too short for a sub-threshold read's
+  // spin to decay as far as the "collapses to a decaying spin" ratios below measure.
+  const H = (2 * TICK_RATE_HZ) / 3;
+
   it("perturbs the SPEED read, and a tighter sigma perturbs it less", () => {
     // `angVel: 0`, so this is the speed half of the knob alone; the two tests below are the turn
     // half, which had no coverage here at all until the final review's finding 1.
     const car = carAt({ speed: 400 });
-    const at = (sigma: number) => physicsPredictor(car, 0, 20, sigma, makeRng(9))(20);
-    const truth = physicsPredictor(car, 0, 20, 0, makeRng(9))(20);
+    const at = (sigma: number) => physicsPredictor(car, 0, H, sigma, makeRng(9))(H);
+    const truth = physicsPredictor(car, 0, H, 0, makeRng(9))(H);
     const sloppy = at(0.25);
     const sharp = at(0.03);
     const err = (p: { x: number; y: number }) => Math.hypot(p.x - truth.x, p.y - truth.y);
@@ -768,9 +784,9 @@ describe("state estimation noise (P20)", () => {
     // at all and the noise acts only by moving the read ACROSS the threshold — the test below.
     const car = carAt({ speed: 400 });
     const spin = 3; // rad/s, under Mirage's 4.095 threshold: a ram's residual, not a held wheel
-    const truth = physicsPredictor(car, spin, 20, 0, rngGiving(-1))(20);
+    const truth = physicsPredictor(car, spin, H, 0, rngGiving(-1))(H);
     const err = (sigma: number) => {
-      const guess = physicsPredictor(car, spin, 20, sigma, rngGiving(-1))(20);
+      const guess = physicsPredictor(car, spin, H, sigma, rngGiving(-1))(H);
       return Math.hypot(guess.x - truth.x, guess.y - truth.y);
     };
     // Measured: 8.80 world units at hard's sigma, 71.70 at easy's.
@@ -790,10 +806,10 @@ describe("state estimation noise (P20)", () => {
     // `rngGiving(-1)` makes the turn estimate `full * (1 - sigma)`, so sigma is exactly how far the
     // read falls short. The steering threshold is half of full lock.
     const turnedBy = (sigma: number) =>
-      physicsPredictor(car, full, 20, sigma, rngGiving(-1))(20).angle - car.angle;
+      physicsPredictor(car, full, H, sigma, rngGiving(-1))(H).angle - car.angle;
 
-    // A sharp read holds the wheel over for the whole horizon: 5.46 rad in 20 ticks.
-    expect(turnedBy(0.03)).toBeCloseTo(full * (20 / TICK_RATE_HZ), 6);
+    // A sharp read holds the wheel over for the whole horizon: 5.46 rad in 2/3 s.
+    expect(turnedBy(0.03)).toBeCloseTo(full * (H / TICK_RATE_HZ), 6);
     // A read 60% low lands at 0.4 of full lock, under the threshold, so the arc collapses to a
     // decaying spin — measured 1.25 rad against the sharp read's 5.46.
     expect(turnedBy(0.6)).toBeGreaterThan(0);
@@ -811,9 +827,9 @@ describe("state estimation noise (P20)", () => {
     const full = turnRateOf("mirage");
     const car = carAt({ speed: 400 });
     const turnedBy = (sigma: number) =>
-      physicsPredictor(car, full, 20, sigma, rngGiving(-1))(20).angle - car.angle;
+      physicsPredictor(car, full, H, sigma, rngGiving(-1))(H).angle - car.angle;
     // 0.51 of full lock — just OVER the bar, so it reads as a held wheel and arcs the full amount.
-    expect(turnedBy(0.49)).toBeCloseTo(full * (20 / TICK_RATE_HZ), 6);
+    expect(turnedBy(0.49)).toBeCloseTo(full * (H / TICK_RATE_HZ), 6);
     // 0.49 of full lock — just UNDER, so it reads as a spin and decays instead. Measured 1.53 rad.
     expect(turnedBy(0.51)).toBeGreaterThan(0);
     expect(turnedBy(0.51)).toBeLessThan(turnedBy(0.49) / 3);

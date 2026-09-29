@@ -14,6 +14,7 @@ import {
   stepSim,
   type CarId,
   type SimBody,
+  forwardMaxSpeedOf,
 } from "@motor-combat-moba/shared";
 import { freshImpacts, newImpactTracker, type ImpactPose } from "./impact-feedback.js";
 
@@ -253,11 +254,17 @@ describe("freshImpacts", () => {
     // Sweeps the sub-tick phase, because a single placement measures one arbitrary point on the tick
     // grid — the same rule the playtest probes are built on. `resolveWorld` only zeroes the drive-in
     // on the phases where the hulls actually overlapped, so one offset can pass by luck.
-    const phases = Array.from({ length: 40 }, (_, i) => 600 + i * 0.25);
+    // Forty phases across ONE tick of Mirage's top-speed travel (a fixed 0.25 u step — 10 u, about a
+    // tick at 30 Hz — until the 60 Hz flip halved a tick's travel and left that sweep covering two).
+    // A function, not a constant: it reads the mode bundle, which is only installed per test.
+    const phases = (): number[] => Array.from(
+      { length: 40 },
+      (_, i) => 600 + (i * forwardMaxSpeedOf("mirage" as CarId)) / TICK_RATE_HZ / 40,
+    );
 
-    it("loses most rams when given the rendered, post-collision velocity", () => {
+    it("loses a large share of rams when given the rendered, post-collision velocity", () => {
       let sparked = 0;
-      for (const parkedX of phases) {
+      for (const parkedX of phases()) {
         const { stepped } = driveIntoContact(parkedX);
         const tracker = newImpactTracker();
         const hits = freshImpacts(
@@ -272,13 +279,19 @@ describe("freshImpacts", () => {
       // is a function of drive tuning nobody should have to re-derive on a balance edit. What must
       // stay true is that it is badly lossy and strictly worse than the case below.
       expect(sparked).toBeGreaterThan(0);
-      expect(sparked).toBeLessThan(phases.length / 2);
+      //
+      // RE-PINNED at the 60 Hz flip (NR15): the bound was "under half" (< 20 of 40) at dt 1/30, and
+      // dt 1/60 measures 23 of 40 — a smaller step penetrates less per tick, so fewer phases end
+      // the tick overlapped and zeroed. Still losing over two rams in five, and still strictly
+      // worse than the tick-entry case below, which sparks on all forty; the bound is now "loses at
+      // least a quarter", which fails the day this stops being a real defect.
+      expect(sparked).toBeLessThanOrEqual(phases().length * 0.75);
     });
 
     it("sparks on every sub-tick phase when given the tick-entry velocity, as `RamCar` requires", () => {
       // `ArenaScene` feeds `predictedPrev` — the body `predict` stepped FROM — for exactly this
       // reason. It is the client's analogue of `serverTick`'s `approachVelocities`.
-      for (const parkedX of phases) {
+      for (const parkedX of phases()) {
         const { entry, stepped } = driveIntoContact(parkedX);
         const tracker = newImpactTracker();
         const hits = freshImpacts(

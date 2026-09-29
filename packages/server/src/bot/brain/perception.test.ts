@@ -34,14 +34,15 @@ function view(overrides: Partial<BotView> = {}): BotView {
 
 describe("perceive", () => {
   it("does not know a car until its acquire delay has passed", () => {
-    const profile = RESOLVED_BOT_PROFILES.hard; // acquireTicks 5
+    const profile = RESOLVED_BOT_PROFILES.hard;
+    const acquire = profile.acquireTicks; // resolved from its authored ms at this tick rate
     let state = newPerception();
     state = perceive(state, view({ tick: 0, others: [car()] }), profile);
     expect(knownCars(state, 0)).toHaveLength(0);
-    for (let tick = 1; tick <= 5; tick++) {
+    for (let tick = 1; tick <= acquire; tick++) {
       state = perceive(state, view({ tick, others: [car()] }), profile);
     }
-    expect(knownCars(state, 5)).toHaveLength(1);
+    expect(knownCars(state, acquire)).toHaveLength(1);
   });
 
   it("never notices a car beyond the awareness radius", () => {
@@ -64,16 +65,20 @@ describe("perceive", () => {
   });
 
   it("forgets a car once it has been out of sight for memoryTicks", () => {
-    const profile = RESOLVED_BOT_PROFILES.easy; // memoryTicks 15
+    const profile = RESOLVED_BOT_PROFILES.easy;
+    // Seen long enough to be acquired, then unseen past `memoryTicks` — both resolved from their
+    // authored ms at this tick rate, so the case is the same wall-clock story at any rate.
+    const seenUntil = profile.acquireTicks + 5;
+    const goneBy = seenUntil + profile.memoryTicks + 5;
     let state = newPerception();
-    for (let tick = 0; tick <= 20; tick++) {
+    for (let tick = 0; tick <= seenUntil; tick++) {
       state = perceive(state, view({ tick, others: [car({ x: 300 })] }), profile);
     }
-    expect(knownCars(state, 20)).toHaveLength(1);
-    for (let tick = 21; tick <= 40; tick++) {
+    expect(knownCars(state, seenUntil)).toHaveLength(1);
+    for (let tick = seenUntil + 1; tick <= goneBy; tick++) {
       state = perceive(state, view({ tick, others: [] }), profile);
     }
-    expect(knownCars(state, 40)).toHaveLength(0);
+    expect(knownCars(state, goneBy)).toHaveLength(0);
   });
 
   it("caps the tracked threat list at the tier's limit", () => {
@@ -236,8 +241,8 @@ describe("observedAngVelOf", () => {
       view({ tick: 1, others: [car({ x: 100, y: 100, angle: -Math.PI + 0.05 })] }),
       RESOLVED_BOT_PROFILES.hard,
     );
-    // 0.1 rad across the seam, not 2*pi - 0.1.
-    expect(Math.abs(observedAngVelOf(state, "them"))).toBeCloseTo(3, 3);
+    // 0.1 rad across the seam in one tick, not 2*pi - 0.1.
+    expect(Math.abs(observedAngVelOf(state, "them"))).toBeCloseTo(0.1 * TICK_RATE_HZ, 3);
   });
 });
 

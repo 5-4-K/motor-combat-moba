@@ -201,6 +201,63 @@ describe("golden: stepDrive against the Unity drive-model port", () => {
   });
 });
 
+/**
+ * The same seven scenarios at the SHIPPED tick rate, dt 1/60 (NR15, Phase C of the online-netcode
+ * redesign). The block above stays pinned at its own fixed dt 1/30 — it never read `TICK_RATE_HZ`
+ * and is the rate-independent pin of the integrator itself; this one pins the trajectory the game
+ * actually runs. Each case covers the SAME wall-clock span as its 1/30 twin (twice the ticks at
+ * half the dt), with the chassis's per-tick factors matched to dt 1/60.
+ *
+ * Recorded from the code at the 60 Hz flip, not hand-derived. What they show is the drive model's
+ * shape at the two step sizes: every velocity figure is IDENTICAL to its 1/30 twin (drag and the
+ * command are integrated in closed form, `commandFactorOf`, so velocity at a given wall-clock time
+ * does not depend on dt), while positions differ by a fraction of a unit (position is advanced
+ * explicitly by each tick's velocity), and the steered cases' lateral slip differs by ~1 u/s (grip
+ * and the heading change are applied per tick). If one of these moves without a deliberate change
+ * to the integration, the integration broke — do not re-record them.
+ */
+describe("golden: stepDrive at the shipped rate, dt 1/60", () => {
+  const DT_60 = 1 / 60;
+  const CHASSIS_60: ChassisDrive = Object.freeze({
+    ...GOLDEN_CHASSIS,
+    dragPerTick: Math.exp(-1 / 60),
+    gripPerTick: Math.exp(-7 / 60),
+  });
+  function drive60(start: SimBody, msg: InputMessage, ticks: number): SimBody {
+    let next = start;
+    for (let i = 0; i < ticks; i++) next = stepDrive(next, msg, DT_60, CHASSIS_60, NEUTRAL_MODIFIERS);
+    return next;
+  }
+
+  it("accelerates straight for 20 ticks", () => {
+    expectPose(drive60(body(), input(0, 1), 20), 10.4440642482, 0, 0, 56.6937378852);
+  });
+
+  it("accelerates while turning right for 20 ticks", () => {
+    expectPose(drive60(body(), input(1, 1), 20), 9.7571319073, 3.0047652231, 0.6666666667, 54.1979731736, -10.2079281303);
+  });
+
+  it("turns left under throttle for 50 ticks", () => {
+    expectPose(drive60(body(), input(-1, 1), 50), 30.8435606133, -36.2518500092, -1.6666666667, 97.8266229006, 24.0058283656);
+  });
+
+  it("decays via drag from 300 for 16 ticks", () => {
+    expectPose(drive60(bodyAt(0, 0, 0, 300), input(0, 0), 16), 69.6379448266, 0, 0, 229.7785015094);
+  });
+
+  it("brakes from 300 toward rest over 12 ticks", () => {
+    expectPose(drive60(bodyAt(0, 0, 0, 300), input(0, -1), 12), 43.8102927138, 0, 0, 154.9846024624);
+  });
+
+  it("reverses from rest immediately, with no hold delay", () => {
+    expectPose(drive60(body(), input(0, -1), 24), -5.8447798032, 0, 0, -26.3743963171);
+  });
+
+  it("accelerates and turns from a non-zero heading", () => {
+    expectPose(drive60(body({ angle: 0.7 }), input(1, 1), 30), 7.8898816869, 19.3135449966, 1.7, 72.7456019008, -15.8591778999);
+  });
+});
+
 describe("golden: resolveWorld against the vector-drive rework", () => {
   const bounds = { width: 1000, height: 800 };
   // Filler for every case below that resolves against bounds/obstacles only, or where the

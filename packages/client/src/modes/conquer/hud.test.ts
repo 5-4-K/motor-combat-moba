@@ -75,10 +75,15 @@ it("carries no kills column", () => {
 
 // CQ33: the results screen's Conquer-only control line, built off the room's raw control ticks.
 describe("CONQUER_HUD.resultsLine (CQ33)", () => {
+  // 42.5% and 18.05…% of the control bar, as fractions of the target rather than tick literals
+  // (765 / 325 of a 1800-tick bar at 30 Hz; 1530 / 650 of 3600 at 60 Hz).
+  const target = modeConfigOf(GameMode.CONQUER).derived.conquerTicks.controlTarget;
+  const CONTROL_TICKS = { controlTicksA: (target * 17) / 40, controlTicksB: (target * 13) / 72 };
+
   it("reports both teams' control percentage", () => {
     withConquerMode(() => {
       const line = CONQUER_HUD.resultsLine(
-        resultsState({ controlTicksA: 765, controlTicksB: 325 }),
+        resultsState(CONTROL_TICKS),
         "p1",
       );
       expect(line).toBe("Control — You 42.50% · Them 18.05%");
@@ -88,7 +93,7 @@ describe("CONQUER_HUD.resultsLine (CQ33)", () => {
   it("is viewer-relative: team B reads its own bar first", () => {
     withConquerMode(() => {
       const line = CONQUER_HUD.resultsLine(
-        resultsState({ controlTicksA: 765, controlTicksB: 325 }),
+        resultsState(CONTROL_TICKS),
         "p2",
       );
       expect(line).toBe("Control — You 18.05% · Them 42.50%");

@@ -5,7 +5,6 @@ import {
   INPUT_MESSAGE,
   MAX_PLAYERS,
   ROOM_NAME,
-  DEFAULT_PATCH_RATE_HZ,
   TICK_RATE_HZ,
   flow,
   GameMode,
@@ -90,6 +89,7 @@ import type { ModeRoomView } from "../modes/types.js";
 import { selectNextHost } from "./select-next-host.js";
 import { ROOM_FULL_ERROR, shouldRejectSecondArena } from "./singleton-arena.js";
 import { canSendChat, formatClockTime, pushChatMessage } from "./chat.js";
+import { isSnapshotTick } from "./snapshot-cadence.js";
 import { scoped } from "./mode-scope.js";
 
 export class ArenaRoom extends Room<{ state: ArenaState }> {
@@ -154,7 +154,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.state.arenaId = this.modeConfig.arenas[0];
 
     scoped(this.modeConfig, () => {
-      this.setPatchRate(1000 / DEFAULT_PATCH_RATE_HZ);
+      // No patch timer (NR12): `tick()` broadcasts at the end of every snapshot tick itself, so a
+      // snapshot is always the state of exactly one tick and carries that tick.
+      this.patchRate = null;
       const hz = getTickRateHz(TICK_RATE_HZ);
       this.setSimulationInterval(() => scoped(this.modeConfig, () => this.tick()), 1000 / hz);
 
@@ -412,7 +414,13 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     });
   }
 
+  /** One sim tick, then the snapshot of it when this is a snapshot tick (NR12). */
   private tick(): void {
+    this.step();
+    if (isSnapshotTick(this.state.tick)) this.broadcastPatch();
+  }
+
+  private step(): void {
     this.state.tick += 1;
     if (
       this.state.phase === RoomPhase.MATCH &&

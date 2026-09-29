@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { installMode } from "../modes/active.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
-import { TICK_RATE_HZ } from "../constants.js";
+import { MS_PER_TICK, TICK_RATE_HZ } from "../constants.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
 import type { WeaponId } from "./weapon-types.js";
 import { WEAPON_TICKS, msToTicks, weaponTicksOf } from "./weapon-ticks.js";
@@ -11,10 +11,12 @@ beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 describe("msToTicks", () => {
   it("rounds up, so a duration is never shorter than authored", () => {
     expect(msToTicks(0)).toBe(0);
-    expect(msToTicks(1)).toBe(1); // 0.03 ticks still costs a whole tick
+    expect(msToTicks(1)).toBe(1); // a fraction of a tick still costs a whole tick
     expect(msToTicks(1000)).toBe(TICK_RATE_HZ);
-    expect(msToTicks(500)).toBe(15);
-    expect(msToTicks(250)).toBe(8); // 7.5 -> 8, i.e. 266ms at 30Hz
+    expect(msToTicks(500)).toBe(TICK_RATE_HZ / 2);
+    // Derived from the tick length rather than a literal ms (was `msToTicks(250)` -> 8, which is
+    // 7.5 ticks at 30 Hz but a whole 15 at 60 Hz, so it stopped exercising the round-up).
+    expect(msToTicks(MS_PER_TICK * 7.5)).toBe(8); // 7.5 -> 8
   });
 
   it("treats a negative duration as zero rather than a negative tick count", () => {
@@ -25,16 +27,16 @@ describe("msToTicks", () => {
 describe("WEAPON_TICKS", () => {
   it("derives magmablast's clocks from its milliseconds", () => {
     const ticks = weaponTicksOf("magmablast");
-    // 1600ms at 30Hz is exactly 48 ticks.
-    expect(ticks.cooldown).toBe(48);
+    // 1600ms is exactly 1.6 s of ticks (48 at 30 Hz, 96 at 60 Hz).
+    expect(ticks.cooldown).toBe((1600 * TICK_RATE_HZ) / 1000);
     expect(ticks.startUp).toBe(0);
     expect(ticks.recovery).toBe(0);
     expect(ticks.refireDelay).toBe(0); // no stock block
   });
 
   it("derives flight ticks from range and speed", () => {
-    // 900 units at 600 u/s = 1.5s = 45 ticks.
-    expect(weaponTicksOf("magmablast").flight).toBe(45);
+    // 900 units at 600 u/s = 1.5 s of ticks.
+    expect(weaponTicksOf("magmablast").flight).toBe(1.5 * TICK_RATE_HZ);
   });
 
   it("maps damageFrequencyMs 0 to Infinity, meaning one hit per target ever", () => {
@@ -42,9 +44,9 @@ describe("WEAPON_TICKS", () => {
   });
 
   it("derives the roster's new-mechanic clocks for the rows that carry them (spec 2026-09-01)", () => {
-    expect(weaponTicksOf("thumper").projectileLifetime).toBe(87); // 2900ms at 30Hz
-    expect(weaponTicksOf("wildcharge").maneuverDuration).toBe(300); // 10000ms at 30Hz
-    expect(weaponTicksOf("predator").homingDuration).toBe(60); // 2000ms at 30Hz
+    expect(weaponTicksOf("thumper").projectileLifetime).toBe((2900 * TICK_RATE_HZ) / 1000);
+    expect(weaponTicksOf("wildcharge").maneuverDuration).toBe((10000 * TICK_RATE_HZ) / 1000);
+    expect(weaponTicksOf("predator").homingDuration).toBe((2000 * TICK_RATE_HZ) / 1000);
   });
 
   it("covers every weapon in the table and is frozen", () => {

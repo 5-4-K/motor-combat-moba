@@ -168,12 +168,22 @@ describe("plan", () => {
     // a `wallPenalty` term worth 0.23 against a `myEv` of 300. `boundsPenalty` squares its per-plane
     // overrun precisely so a corner dominates an edge, so the corner is the scene that actually
     // states "jammed against a wall" — and it is the pose the comment above always described.
+    //
+    // BOTH jammed scenes since the 60 Hz flip (NR15): the one tick a K=0 plan rolls is half as long
+    // there, and which of the two jammed poses comes out differing from the open field flipped with
+    // it — at dt 1/30 the corner differs and the edge ties, at dt 1/60 the edge differs and the
+    // corner ties (all three read {-1,-1} except the one that differs). The claim is "moving the
+    // scene changes the answer", so the assertion is that SOME jammed scene does, and that none of
+    // them is the bare tie-break.
     const openField = plan({ ...base, self: selfAt(300, 360, Math.PI), horizonTicks: 0 });
-    const cornered = plan({ ...base, self: selfAt(30, 30, Math.PI), horizonTicks: 0 });
-    expect(cornered.action).not.toEqual(openField.action);
+    const jammed = [
+      plan({ ...base, self: selfAt(30, 30, Math.PI), horizonTicks: 0 }),
+      plan({ ...base, self: selfAt(30, 360, Math.PI), horizonTicks: 0 }),
+    ];
+    expect(jammed.some((j) => JSON.stringify(j.action) !== JSON.stringify(openField.action))).toBe(true);
     // And neither is the bare tie-break, which is what a rolled-nothing K=0 would hand back for both.
     expect(openField.action).not.toEqual(ALL_ACTIONS[0]);
-    expect(cornered.action).not.toEqual(ALL_ACTIONS[0]);
+    for (const j of jammed) expect(j.action).not.toEqual(ALL_ACTIONS[0]);
   });
 
   it("does not steer into a wall it is about to hit, even at horizon 0 (P29, R-P6)", () => {
@@ -495,9 +505,18 @@ describe("plan", () => {
     it("is arithmetically unchanged at the depth every profile ships (depth 1)", () => {
       // The division by `depth` must be a no-op at depth 1, or the fix moves behaviour the
       // seven-seed sweep already settled. Hard, medium, and easy's K=0 floor.
-      expect(commitWindowOf(RESOLVED_BOT_PROFILES.hard.planHorizonTicks, 1)).toEqual({ commit: 12, tail: 10 });
-      expect(commitWindowOf(RESOLVED_BOT_PROFILES.medium.planHorizonTicks, 1)).toEqual({ commit: 5, tail: 3 });
-      expect(commitWindowOf(RESOLVED_BOT_PROFILES.easy.planHorizonTicks, 1)).toEqual({ commit: 1, tail: 0 });
+      //
+      // Pinned at the horizons those three profiles resolved to at 30 Hz (22, 8, 0 ticks) — the
+      // arithmetic this test is about is a property of the formula, not of a tick rate — and then
+      // checked at whatever this build's profiles resolve to, which at 60 Hz is 44 / 16 / 0.
+      expect(commitWindowOf(22, 1)).toEqual({ commit: 12, tail: 10 });
+      expect(commitWindowOf(8, 1)).toEqual({ commit: 5, tail: 3 });
+      expect(commitWindowOf(0, 1)).toEqual({ commit: 1, tail: 0 });
+      for (const tier of ["hard", "medium", "easy"] as const) {
+        const k = RESOLVED_BOT_PROFILES[tier].planHorizonTicks;
+        const { commit, tail } = commitWindowOf(k, 1);
+        expect(commit + tail, tier).toBe(Math.max(k, 1));
+      }
     });
 
     it("never rolls a zero-tick window, at either depth (R-P6)", () => {

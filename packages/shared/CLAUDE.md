@@ -4,7 +4,7 @@ Lockstep constants, Colyseus schema, input types, and `stepSim`. Server and clie
 
 **Local invariant:** only this package owns sim math. Do not duplicate `stepSim` or tick constants in server/client.
 
-P0: `TICK_RATE_HZ` / `MS_PER_TICK` / `DEFAULT_PATCH_RATE_HZ` / `MAX_PLAYERS` / `ROOM_NAME`, enums (`RoomPhase`, `GameMode`, `PlayerStatus`), `PlayerState` / `ArenaState`, `INPUT_MESSAGE` + `InputMessage`, identity `stepSim`.
+P0: `TICK_RATE_HZ` / `MS_PER_TICK` / `SNAPSHOT_RATE_HZ` / `MAX_PLAYERS` / `ROOM_NAME`, enums (`RoomPhase`, `GameMode`, `PlayerStatus`), `PlayerState` / `ArenaState`, `INPUT_MESSAGE` + `InputMessage`, identity `stepSim`.
 
 **`modes/` owns configuration; `config/` owns its TYPES and its BASE values.** `modes/base.ts`
 assembles `BASE_TABLES` straight from the `config/` globals (hull stripped from `drive`) — these are
@@ -153,7 +153,7 @@ always-on drag rate sets top speed, wind-up and roll together in place of a sepa
 
 **`spinPerTick` is a real decay, and ram spin reaches the car through `spinFree` alone.** The Unity
 ram port's stage 3 set `RAM_CONFIG.reelingSpinDecayRate` to 2.0/s and `spinPerTick` to
-`reelingSpinPerTick()` — `perTickDecay(2.0)` ≈ 0.9355 per tick at 30 Hz — replacing stage 1's
+`reelingSpinPerTick()` — `perTickDecay(2.0)` ≈ 0.9672 per tick at 60 Hz (0.9355 at the old 30 Hz) — replacing stage 1's
 identity placeholder, and put `spinFree` on `reeling`'s flags. Steering SETS `angVel` every tick
 (U16), so an injected spin survives only while a status carries `spinFree` (`reeling`, for
 `RAM_CONFIG.ramUncontrolMs`) or the car is in a HOLD; outside that window the next ordinary tick

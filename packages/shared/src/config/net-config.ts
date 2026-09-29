@@ -37,4 +37,15 @@ export const NET_CONFIG = {
   reconcileSnapAngle: 0.6,
   reconcileEaseRate: 0.25,
   interpolationDelayMs: 50,
+  /**
+   * How far past its last snapshot the client may extrapolate a live weapon instance before it
+   * freezes it in place, so a stalled connection cannot fling a stale shot across the arena while
+   * the client waits for the delete that already happened.
+   *
+   * It was "one patch interval" (`1000 / DEFAULT_PATCH_RATE_HZ`, 50 ms) until NR12 deleted the patch
+   * rate and made snapshots one per tick. It keeps its old wall-clock value rather than shrinking to
+   * one snapshot interval (16.7 ms at 60 Hz): at that cap an ordinary jittered gap between two
+   * snapshots would stall a shot on screen, which is the opposite of the cap's purpose.
+   */
+  shotExtrapolationCapMs: 50,
 } as const;

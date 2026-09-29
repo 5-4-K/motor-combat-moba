@@ -12,10 +12,10 @@
  * and reports the correction the local player actually eats.
  */
 import {
-  DEFAULT_PATCH_RATE_HZ,
   DRIVE_CONFIG,
   MS_PER_TICK,
   NEUTRAL_MODIFIERS,
+  SNAPSHOT_RATE_HZ,
   TICK_RATE_HZ,
   boundsOf,
   forwardMaxSpeedOf,
@@ -54,8 +54,9 @@ interface Snapshot {
 }
 
 /**
- * One trial. `latencyTicks` models one-way delay in each direction; patches arrive at
- * `DEFAULT_PATCH_RATE_HZ` rather than every tick, exactly as Colyseus sends them.
+ * One trial. `latencyTicks` models one-way delay in each direction; snapshots arrive at
+ * `SNAPSHOT_RATE_HZ` — every `TICK_RATE_HZ / SNAPSHOT_RATE_HZ` ticks — exactly as the rooms
+ * broadcast them (NR12).
  */
 function trial(opts: {
   latencyMs: number;
@@ -63,7 +64,7 @@ function trial(opts: {
   ticks?: number;
 }): { peak: number; mean: number; peakDuringContact: number; contactTicks: number } {
   const latencyTicks = Math.max(0, Math.round((opts.latencyMs / 1000) * TICK_RATE_HZ));
-  const patchEvery = Math.round(TICK_RATE_HZ / DEFAULT_PATCH_RATE_HZ);
+  const patchEvery = Math.round(TICK_RATE_HZ / SNAPSHOT_RATE_HZ);
 
   // "me" drives right; "them" drives left into me when colliding, or parallel when not.
   const world = new PlaytestWorld([
@@ -226,7 +227,7 @@ const reporter = new Reporter(
     "P1. Reconciliation correction, free driving vs a head-on collision",
     // A correction past a car length is a snap the player sees; free driving must stay at zero.
     worstCollision > DRIVE_CONFIG.carWidth || worstFree > 1 ? "FINDING" : "OK",
-    `sim ${TICK_RATE_HZ} Hz, patches ${DEFAULT_PATCH_RATE_HZ} Hz. "correction" is how far one\n` +
+    `sim ${TICK_RATE_HZ} Hz, snapshots ${SNAPSHOT_RATE_HZ} Hz. "correction" is how far one\n` +
       `reconcile moves the local car — what the player sees as a snap. A mirage covers ` +
       `${(forwardMaxSpeedOf("mirage") / TICK_RATE_HZ).toFixed(1)} u/tick\n` +
       `and its hull is ${DRIVE_CONFIG.carWidth} x ${DRIVE_CONFIG.carHeight}.\n` +
@@ -239,7 +240,7 @@ const reporter = new Reporter(
 /* -------------------------------------- P2. where the error comes from: remote pose staleness */
 {
   const rows: string[] = [];
-  const patchEvery = Math.round(TICK_RATE_HZ / DEFAULT_PATCH_RATE_HZ);
+  const patchEvery = Math.round(TICK_RATE_HZ / SNAPSHOT_RATE_HZ);
   // Stale comment left as a historical marker, not corrected: mirage's top speed is 267 u/s as of
   // the 2026-09-06 heavy-car cut, not the 576 this predates. `forwardMaxSpeedOf` below is always
   // live regardless of what this comment says.

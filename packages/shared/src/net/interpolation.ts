@@ -48,10 +48,10 @@ export function blendPose(from: SimBody, to: SimBody, alpha: number): SimBody {
 }
 
 /**
- * Remote-car smoothing. Server patches arrive at `DEFAULT_PATCH_RATE_HZ`, well under the render
- * rate, so drawing each patch as it lands makes remotes visibly step. This holds a short history and
- * renders them `NET_CONFIG.interpolationDelayMs` in the past, which buys enough buffer to always
- * have a snapshot on both sides of the render time.
+ * Remote-car smoothing. Server snapshots arrive at `SNAPSHOT_RATE_HZ`, jittered by the link and
+ * out of phase with the render clock, so drawing each one as it lands makes remotes visibly step.
+ * This holds a short history and renders them `NET_CONFIG.interpolationDelayMs` in the past,
+ * which buys enough buffer to always have a snapshot on both sides of the render time.
  *
  * Local prediction is deliberately not built on this: the local car must respond on the frame the
  * key is pressed, so it runs ahead through `PredictionBuffer` while remotes lag behind.

@@ -1,5 +1,11 @@
-export const TICK_RATE_HZ = 30;
+export const TICK_RATE_HZ = 60;
 export const MS_PER_TICK = 1000 / TICK_RATE_HZ;
+/**
+ * How often the server broadcasts a snapshot (NR12). Must divide `TICK_RATE_HZ`. A snapshot is the
+ * state of exactly one tick and carries that tick; no client code may assume one per tick (hard
+ * invariant 5).
+ */
+export const SNAPSHOT_RATE_HZ = 60;
 export const MAX_PLAYERS = 6;
 /**
  * The most players one team may hold. Deliberately above half of `MAX_PLAYERS`: the spare seats are
@@ -7,7 +13,6 @@ export const MAX_PLAYERS = 6;
  * still refuses unequal teams, so team mode tops out at 3v3.
  */
 export const MAX_TEAM_SIZE = 4;
-export const DEFAULT_PATCH_RATE_HZ = 20;
 export const ROOM_NAME = "arena";
 
 export enum RoomPhase {

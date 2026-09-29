@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { TICK_RATE_HZ } from "../constants.js";
 import { installMode } from "../modes/active.js";
 import { applyOverrides } from "../modes/overlay.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
@@ -332,9 +333,9 @@ describe("WEAPON_TABLE", () => {
   });
 
   it("keeps the field alive long enough to be driven into and out of (LZ17)", () => {
-    // 2000 ms at 30 Hz. The old 150 ms was 40 units of travel at Mirage's top speed — under one
+    // 2000 ms of ticks. The old 150 ms was 40 units of travel at Mirage's top speed — under one
     // car length — so nothing could enter a field that was not already standing in it.
-    expect(weaponTicksOf("magmablast").explosion!.lifetime).toBe(60);
+    expect(weaponTicksOf("magmablast").explosion!.lifetime).toBe((2000 * TICK_RATE_HZ) / 1000);
   });
 
   it("keeps Bullseye's straight-line reach further than anything Bastion carries", () => {

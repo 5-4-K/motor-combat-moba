@@ -10,7 +10,7 @@ import { TICK_RATE_HZ, type BotDifficulty } from "@motor-combat-moba/shared";
  */
 export interface BotProfile {
   // --- Perception ---------------------------------------------------------------------------
-  /** The world other cars are drawn from is this many ticks old: 20 Hz patch rate plus ping. */
+  /** The world other cars are drawn from is this many ticks old: snapshot interval plus ping. */
   readonly viewStalenessTicks: number;
   /** The gap between seeing and the hands moving. With staleness this is the perceived latency. */
   readonly reactionDelayTicks: number;

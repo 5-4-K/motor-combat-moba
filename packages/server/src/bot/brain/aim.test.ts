@@ -13,12 +13,13 @@ describe("signedDelta", () => {
 describe("stepAimError", () => {
   it("holds its offset between resamples, so error drifts rather than jitters", () => {
     const rng = makeRng(5);
-    const profile = RESOLVED_BOT_PROFILES.easy; // driftTicks 20
+    const profile = RESOLVED_BOT_PROFILES.easy;
+    const drift = profile.aimErrorDriftTicks; // resolved from its authored ms at this tick rate
     let state = stepAimError(newAimErrorState(), 0, profile, rng);
     const first = state.offsetRad;
-    for (let tick = 1; tick < 20; tick++) state = stepAimError(state, tick, profile, rng);
+    for (let tick = 1; tick < drift; tick++) state = stepAimError(state, tick, profile, rng);
     expect(state.offsetRad).toBe(first);
-    state = stepAimError(state, 20, profile, rng);
+    state = stepAimError(state, drift, profile, rng);
     expect(state.offsetRad).not.toBe(first);
   });
 

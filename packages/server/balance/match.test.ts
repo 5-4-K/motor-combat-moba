@@ -441,7 +441,21 @@ describe("runMatch", () => {
     // deaths tiebreak that has repeatedly killed this fixture — and 9, the lowest decisive seed, is
     // a 1-0 with no pedigree at all. No existing history comment was deleted, reworded or reordered.
     //
-    const out = runMatch({ ...SETUP, seed: 22, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    // `seed: 3`, not 22: the sim moved from 30 Hz to 60 Hz (online-netcode Phase C, NR11/NR15). The
+    // integration step halved and every bot timing knob re-resolved to twice the ticks at the same
+    // wall clock, so every seed plays a different match. Seed 22 is now `a: 1/1, b: 1/1`,
+    // `hitClock: false` — the same 1-1 RANKING TIE this history keeps describing, not the clock
+    // defect. Swept 1-60 against this build: 43 of 60 seeds are decisive inside the 30 s window, up
+    // from the previous entry's 17 of 60 — a regime move, reported rather than smoothed over. The
+    // non-decisive seeds are fifteen 1-1 ties and two 0-0 windows (17, 42).
+    // Non-decisive seeds in 1-60: 2, 11, 12, 17, 20, 22, 23, 27, 28, 37, 40, 42, 44, 46, 52, 53, 57.
+    //
+    // 3 by the durability rule: a prior pick of this very pin (see the facing-term and seed-98
+    // entries above), decisive here at `a: 1 kill / 0 deaths, b: 0 / 1` — on KILLS ALONE, so it
+    // does not rest on the deaths tiebreak. No existing history comment was deleted, reworded or
+    // reordered.
+    //
+    const out = runMatch({ ...SETUP, seed: 3, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);

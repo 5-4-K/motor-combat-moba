@@ -1,6 +1,5 @@
 import { Room, ServerError, matchMaker, type Client } from "@colyseus/core";
 import {
-  DEFAULT_PATCH_RATE_HZ,
   INPUT_MESSAGE,
   MSG_PLAYGROUND_BOT_DEBUG,
   MSG_PLAYGROUND_PAUSE,
@@ -49,6 +48,7 @@ import {
 } from "../bot/index.js";
 import { shouldRejectSecondArena } from "./singleton-arena.js";
 import { beginCountdown, countdownSweep } from "./countdown.js";
+import { isSnapshotTick } from "./snapshot-cadence.js";
 import {
   respawnPlayer,
   respawnSweep,
@@ -248,7 +248,9 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
       // is what keeps the room from running live ticks between creation and the player's arrival —
       // `onJoin` re-stamps it once the cars are placed, and `countdownSweep` opens the match.
       beginCountdown(this.state);
-      this.setPatchRate(1000 / DEFAULT_PATCH_RATE_HZ);
+      // No patch timer (NR12): `tick()` broadcasts at the end of every snapshot tick itself, so a
+      // snapshot is always the state of exactly one tick and carries that tick.
+      this.patchRate = null;
       this.setSimulationInterval(
         () => scoped(this.modeConfig, () => this.tick()),
         1000 / getTickRateHz(TICK_RATE_HZ),
@@ -458,7 +460,18 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
     return player;
   }
 
+  /**
+   * One sim tick, then the snapshot of it when this is a snapshot tick (NR12). A paused tick still
+   * broadcasts — `state.tick` is frozen then, and the pause flag and every settings edit made while
+   * paused would otherwise never reach the client; `broadcastPatch` sends nothing when nothing
+   * changed.
+   */
   private tick(): void {
+    this.step();
+    if (this.state.paused || isSnapshotTick(this.state.tick)) this.broadcastPatch();
+  }
+
+  private step(): void {
     // Before the increment, so a paused sim freezes coherently (PG7): cooldowns, statuses, respawn
     // timers and shot lifetimes all key off this counter, and none of them may advance alone.
     if (this.state.paused) return;
@@ -472,10 +485,10 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
     this.botRing.push(snapshotWorld(this.state, this.combat));
     this.enqueueAiInputs();
 
-    // Every 6 ticks (5 Hz): a debug read-out that updates 30 times a second is unreadable, and this
-    // is a dev-only room, so the bandwidth is not the reason for the throttle.
+    // At 5 Hz (every `TICK_RATE_HZ / 5` ticks): a debug read-out that updates every tick is
+    // unreadable, and this is a dev-only room, so the bandwidth is not the reason for the throttle.
     const debug = this.debugBot()?.debug();
-    if (debug && this.state.tick % 6 === 0) {
+    if (debug && this.state.tick % (TICK_RATE_HZ / 5) === 0) {
       this.broadcast(MSG_PLAYGROUND_BOT_DEBUG, {
         tick: debug.tick,
         situation: debug.situation,

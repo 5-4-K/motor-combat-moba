@@ -6,7 +6,7 @@ import { hpOf } from "../../config/car-config.js";
 import { STATUS_TABLE, statusDefOf } from "../../config/status-config.js";
 import { statusPulseTicksOf } from "../../config/status-ticks.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
-import { MS_PER_TICK } from "../../constants.js";
+import { MS_PER_TICK, TICK_RATE_HZ } from "../../constants.js";
 import {
   runCombat,
   type CombatPlayer,
@@ -353,7 +353,8 @@ describe("weapons apply statuses", () => {
     expect(find(pressed.players, "aaa").fireState.pending).not.toBeNull();
 
     let state = pressed;
-    for (let tick = 101; tick < 130 && state.instances.length === 0; tick++) {
+    // Up to one second of ticks: longer than the 700 ms wind-up at any tick rate.
+    for (let tick = 101; tick < 100 + TICK_RATE_HZ && state.instances.length === 0; tick++) {
       state = runCombat({
         world: world({ tick }),
         players: state.players.map((p) => ({ ...p, fireMask: 0, statuses: live("stunned", 99, 400) })),

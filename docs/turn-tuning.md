@@ -177,8 +177,8 @@ push", "Time to 90% of top speed", "Roll distance from top speed" and "Slip angl
 since it is the one rate the Unity drive-model port uses to set top speed, wind-up and roll together.
 
 **"Spin kept per tick while reeling" is `ChassisDrive.spinPerTick`**, the last member of that struct
-to get a row here. It is `reelingSpinDecayRate` (2.0/s) put through `perTickDecay` — `exp(−2/30)` at
-30 Hz — and it is the same for every chassis because the rate is global to the mode, like `grip`. It
+to get a row here. It is `reelingSpinDecayRate` (2.0/s) put through `perTickDecay` — `exp(−2/60)` at
+60 Hz — and it is the same for every chassis because the rate is global to the mode, like `grip`. It
 reaches a car only while a status grants `spinFree` (`reeling` is the one row that does) or the car
 is in a HOLD: under U16 ordinary steering SETS `angVel` every tick, so an ungated injected spin is
 overwritten rather than decayed. It is a drive-model number with no other page, and a spin-decay
@@ -227,9 +227,10 @@ than a simulated fixed point.
 **Stage 5 Task 5 (2026-09-19) raised Mirage's continuous figure to 36.4°** (`atan(3.15525 /
 (1.2848 + 3.0))`), from the settled 1.5x turn-rate raise landing on a `lateralGripRate` (3.0) the
 pass deliberately left untouched — this is the whole content of the raise: more turn rate divided by
-the same grip is more drift. The discrete steady-state figure (the 28.2° above) has not been
-re-measured at these anchors; expect it to sit a few degrees above 36.4° by the same gap the old pair
-showed, not to have closed. **This was shown to the project owner and kept, not fixed**: they want
+the same grip is more drift. The discrete steady-state figure was re-measured at these anchors
+when the sim moved to 60 Hz (2026-09-29, NR15): 20 s of full lock settles Mirage at 39.5° at dt 1/30
+and 37.9° at dt 1/60 — the discretization gap above the closed form roughly halves with the step,
+as it should, while the circle itself does not move (39.7 u at a settled 125 u/s at both rates). **This was shown to the project owner and kept, not fixed**: they want
 player feedback on the raised turn rate before deciding whether `lateralGripRate` needs to follow it
 up. Do not raise `lateralGripRate` to bring this back down without that feedback — see
 `DRIVE_CONFIG.lateralGripRate`'s own doc comment for the same note.
@@ -298,8 +299,8 @@ The `FFA_LAST_STANDING` bundle, assembled from `packages/shared/src/modes/brawl/
 |---|---|---|---|---|---|---|---|---|---|---|
 | **Turn rate** | `baseTurnRate + handling × turnRatePerRating` | 2.648 rad/s | **3.155 rad/s** | 2.268 rad/s | 2.268 rad/s | 2.268 rad/s | 3.155 rad/s | 3.155 rad/s | 2.648 rad/s | 2.268 rad/s |
 | — in degrees | × 180/π | 151.7°/s | 180.8°/s | 129.9°/s | 129.9°/s | 129.9°/s | 180.8°/s | 180.8°/s | 151.7°/s | 129.9°/s |
-| — per tick | ÷ `TICK_RATE_HZ` (30) | 0.0883 rad | 0.1052 rad | 0.0756 rad | 0.0756 rad | 0.0756 rad | 0.1052 rad | 0.1052 rad | 0.0883 rad | 0.0756 rad |
-| — degrees per tick | ″ | 5.06° | 6.03° | 4.33° | 4.33° | 4.33° | 6.03° | 6.03° | 5.06° | 4.33° |
+| — per tick | ÷ `TICK_RATE_HZ` (60) | 0.0441 rad | 0.0526 rad | 0.0378 rad | 0.0378 rad | 0.0378 rad | 0.0526 rad | 0.0526 rad | 0.0441 rad | 0.0378 rad |
+| — degrees per tick | ″ | 2.53° | 3.01° | 2.17° | 2.17° | 2.17° | 3.01° | 3.01° | 2.53° | 2.17° |
 | **Engine push** | `topSpeed × dragRate` | 247.91 u/s² | **364.30 u/s²** | 181.34 u/s² | 181.34 u/s² | 181.34 u/s² | 364.30 u/s² | 364.30 u/s² | 247.91 u/s² | 181.34 u/s² |
 | Time to 90% of top speed | `ln(10) / dragRate` | 2.21 s | 1.79 s | 2.59 s | 2.59 s | 2.59 s | 1.79 s | 1.79 s | 2.21 s | 2.59 s |
 | Top speed | `baseMaxSpeed + speed × speedPerRating` | 238 u/s | **283.55 u/s** | 203.85 u/s | 203.85 u/s | 203.85 u/s | 283.55 u/s | 283.55 u/s | 238 u/s | 203.85 u/s |
@@ -311,7 +312,7 @@ The `FFA_LAST_STANDING` bundle, assembled from `packages/shared/src/modes/brawl/
 | 180° while moving | `π / turnRate` | 1.19 s | 1.00 s | 1.39 s | 1.39 s | 1.39 s | 1.00 s | 1.00 s | 1.19 s | 1.39 s |
 | 360° while moving | `2π / turnRate` | 2.37 s | 1.99 s | 2.77 s | 2.77 s | 2.77 s | 1.99 s | 1.99 s | 2.37 s | 2.77 s |
 | Grip while reeling | `lateralGripRate × STATUS_TABLE.reeling.grip` | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s |
-| Spin kept per tick while reeling | `exp(−reelingSpinDecayRate / TICK_RATE_HZ)` | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 |
+| Spin kept per tick while reeling | `exp(−reelingSpinDecayRate / TICK_RATE_HZ)` | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 |
 
 ## Deathmatch
 
@@ -353,8 +354,8 @@ The `FFA_DEATHMATCH` bundle, assembled from `packages/shared/src/modes/deathmatc
 |---|---|---|---|---|---|---|---|---|---|---|
 | **Turn rate** | `baseTurnRate + handling × turnRatePerRating` | 2.648 rad/s | **3.155 rad/s** | 2.268 rad/s | 2.268 rad/s | 2.268 rad/s | 3.155 rad/s | 3.155 rad/s | 2.648 rad/s | 2.268 rad/s |
 | — in degrees | × 180/π | 151.7°/s | 180.8°/s | 129.9°/s | 129.9°/s | 129.9°/s | 180.8°/s | 180.8°/s | 151.7°/s | 129.9°/s |
-| — per tick | ÷ `TICK_RATE_HZ` (30) | 0.0883 rad | 0.1052 rad | 0.0756 rad | 0.0756 rad | 0.0756 rad | 0.1052 rad | 0.1052 rad | 0.0883 rad | 0.0756 rad |
-| — degrees per tick | ″ | 5.06° | 6.03° | 4.33° | 4.33° | 4.33° | 6.03° | 6.03° | 5.06° | 4.33° |
+| — per tick | ÷ `TICK_RATE_HZ` (60) | 0.0441 rad | 0.0526 rad | 0.0378 rad | 0.0378 rad | 0.0378 rad | 0.0526 rad | 0.0526 rad | 0.0441 rad | 0.0378 rad |
+| — degrees per tick | ″ | 2.53° | 3.01° | 2.17° | 2.17° | 2.17° | 3.01° | 3.01° | 2.53° | 2.17° |
 | **Engine push** | `topSpeed × dragRate` | 247.91 u/s² | **364.30 u/s²** | 181.34 u/s² | 181.34 u/s² | 181.34 u/s² | 364.30 u/s² | 364.30 u/s² | 247.91 u/s² | 181.34 u/s² |
 | Time to 90% of top speed | `ln(10) / dragRate` | 2.21 s | 1.79 s | 2.59 s | 2.59 s | 2.59 s | 1.79 s | 1.79 s | 2.21 s | 2.59 s |
 | Top speed | `baseMaxSpeed + speed × speedPerRating` | 238 u/s | **283.55 u/s** | 203.85 u/s | 203.85 u/s | 203.85 u/s | 283.55 u/s | 283.55 u/s | 238 u/s | 203.85 u/s |
@@ -366,7 +367,7 @@ The `FFA_DEATHMATCH` bundle, assembled from `packages/shared/src/modes/deathmatc
 | 180° while moving | `π / turnRate` | 1.19 s | 1.00 s | 1.39 s | 1.39 s | 1.39 s | 1.00 s | 1.00 s | 1.19 s | 1.39 s |
 | 360° while moving | `2π / turnRate` | 2.37 s | 1.99 s | 2.77 s | 2.77 s | 2.77 s | 1.99 s | 1.99 s | 2.37 s | 2.77 s |
 | Grip while reeling | `lateralGripRate × STATUS_TABLE.reeling.grip` | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s |
-| Spin kept per tick while reeling | `exp(−reelingSpinDecayRate / TICK_RATE_HZ)` | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 |
+| Spin kept per tick while reeling | `exp(−reelingSpinDecayRate / TICK_RATE_HZ)` | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 |
 
 ## Conquer
 
@@ -412,8 +413,8 @@ them yet.
 |---|---|---|---|---|---|---|---|---|---|---|
 | **Turn rate** | `baseTurnRate + handling × turnRatePerRating` | 2.648 rad/s | **3.155 rad/s** | 2.268 rad/s | 2.268 rad/s | 2.268 rad/s | 3.155 rad/s | 3.155 rad/s | 2.648 rad/s | 2.268 rad/s |
 | — in degrees | × 180/π | 151.7°/s | 180.8°/s | 129.9°/s | 129.9°/s | 129.9°/s | 180.8°/s | 180.8°/s | 151.7°/s | 129.9°/s |
-| — per tick | ÷ `TICK_RATE_HZ` (30) | 0.0883 rad | 0.1052 rad | 0.0756 rad | 0.0756 rad | 0.0756 rad | 0.1052 rad | 0.1052 rad | 0.0883 rad | 0.0756 rad |
-| — degrees per tick | ″ | 5.06° | 6.03° | 4.33° | 4.33° | 4.33° | 6.03° | 6.03° | 5.06° | 4.33° |
+| — per tick | ÷ `TICK_RATE_HZ` (60) | 0.0441 rad | 0.0526 rad | 0.0378 rad | 0.0378 rad | 0.0378 rad | 0.0526 rad | 0.0526 rad | 0.0441 rad | 0.0378 rad |
+| — degrees per tick | ″ | 2.53° | 3.01° | 2.17° | 2.17° | 2.17° | 3.01° | 3.01° | 2.53° | 2.17° |
 | **Engine push** | `topSpeed × dragRate` | 247.91 u/s² | **364.30 u/s²** | 181.34 u/s² | 181.34 u/s² | 181.34 u/s² | 364.30 u/s² | 364.30 u/s² | 247.91 u/s² | 181.34 u/s² |
 | Time to 90% of top speed | `ln(10) / dragRate` | 2.21 s | 1.79 s | 2.59 s | 2.59 s | 2.59 s | 1.79 s | 1.79 s | 2.21 s | 2.59 s |
 | Top speed | `baseMaxSpeed + speed × speedPerRating` | 238 u/s | **283.55 u/s** | 203.85 u/s | 203.85 u/s | 203.85 u/s | 283.55 u/s | 283.55 u/s | 238 u/s | 203.85 u/s |
@@ -425,7 +426,7 @@ them yet.
 | 180° while moving | `π / turnRate` | 1.19 s | 1.00 s | 1.39 s | 1.39 s | 1.39 s | 1.00 s | 1.00 s | 1.19 s | 1.39 s |
 | 360° while moving | `2π / turnRate` | 2.37 s | 1.99 s | 2.77 s | 2.77 s | 2.77 s | 1.99 s | 1.99 s | 2.37 s | 2.77 s |
 | Grip while reeling | `lateralGripRate × STATUS_TABLE.reeling.grip` | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s |
-| Spin kept per tick while reeling | `exp(−reelingSpinDecayRate / TICK_RATE_HZ)` | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 | 0.9355 |
+| Spin kept per tick while reeling | `exp(−reelingSpinDecayRate / TICK_RATE_HZ)` | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 |
 
 ## What to reach for, by outcome
 

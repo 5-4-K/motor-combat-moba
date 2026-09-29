@@ -1,6 +1,5 @@
 import {
   basicAttackIds,
-  DEFAULT_PATCH_RATE_HZ,
   DEFAULT_CAR_ID,
   drive,
   beamShapeAt,
@@ -19,6 +18,7 @@ import {
   type WeaponDef,
   type WeaponId,
   type WorldShape,
+  NET_CONFIG,
 } from "@motor-combat-moba/shared";
 import { memoOnBundle } from "../net/mode-memo.js";
 
@@ -159,14 +159,14 @@ export function hpBarPoints(
 /**
  * How far a shot has travelled since the patch that reported it, for drawing only.
  *
- * Shots arrive at the patch rate (20 Hz) but move at 900 u/s, so a raw draw steps them 45 units at
- * a time. Advancing along the shot's own constant velocity is exact rather than a guess — the
+ * Shots arrive at the snapshot rate (`SNAPSHOT_RATE_HZ`, jittered by the link) but move at up to
+ * 900 u/s, so a raw draw steps them 15 units at a time at best, and far more across a late snapshot. Advancing along the shot's own constant velocity is exact rather than a guess — the
  * server integrates the identical straight line — so this smooths the picture without inventing
  * motion. It is still *only* the picture: hits are decided on the server against the server's
  * positions, and nothing here feeds back into state.
  *
- * Capped at one patch interval so a stalled connection cannot fling a stale shot across the arena
- * while the client waits for the delete that already happened.
+ * Capped at `NET_CONFIG.shotExtrapolationCapMs` so a stalled connection cannot fling a stale shot
+ * across the arena while the client waits for the delete that already happened.
  */
 export function extrapolateShot(
   x: number,
@@ -175,7 +175,7 @@ export function extrapolateShot(
   speed: number,
   elapsedMs: number,
 ): { x: number; y: number } {
-  const maxMs = 1000 / DEFAULT_PATCH_RATE_HZ;
+  const maxMs = NET_CONFIG.shotExtrapolationCapMs;
   const dt = Math.min(Math.max(elapsedMs, 0), maxMs) / 1000;
   return { x: x + Math.cos(angle) * speed * dt, y: y + Math.sin(angle) * speed * dt };
 }
@@ -2845,11 +2845,11 @@ function hexToFill(hex: string): number {
 
 
 /**
- * Extrapolation is capped at one patch interval, so a stalled connection cannot fling a stale
- * instance across the arena while the client waits for the delete that already happened.
+ * Extrapolation is capped at `NET_CONFIG.shotExtrapolationCapMs`, so a stalled connection cannot
+ * fling a stale instance across the arena while the client waits for the delete that already happened.
  */
 function capMs(elapsedMs: number): number {
-  return Math.min(Math.max(elapsedMs, 0), 1000 / DEFAULT_PATCH_RATE_HZ);
+  return Math.min(Math.max(elapsedMs, 0), NET_CONFIG.shotExtrapolationCapMs);
 }
 
 /**

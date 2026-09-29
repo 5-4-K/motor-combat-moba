@@ -4,6 +4,7 @@ import { basicAttackOf } from "../../config/car-config.js";
 import { DEFAULT_GAME_MODE } from "../../modes/registry.js";
 import { WEAPON_SLOT_CONFIG } from "../../config/weapon-slots.js";
 import type { WeaponId } from "../../config/weapon-types.js";
+import { msToTicks } from "../../config/weapon-ticks.js";
 import { installMode } from "../../modes/active.js";
 import { assembleModeConfig } from "../../modes/build.js";
 import { BRAWL_TABLES } from "../../modes/brawl/index.js";
@@ -377,7 +378,7 @@ describe("the two lockouts", () => {
 
   /**
    * The roster splits the two clocks across two weapons, so the fixture carries both. `lance` in
-   * slot 2 owns the recovery (1000ms == 30 ticks) — it is the only row with a substantial one, and
+   * slot 2 owns the recovery (1000ms == one second of ticks) — it is the only row with a substantial one, and
    * most other rows' is 0, so a zero-recovery fixture can only prove the gate by hand-setting
    * `switchLockUntilTick`, never that `releaseShots` WRITES it. Slot 1 below carries `magmablast`
    * (`recoveryMs: 0`), which is itself worth asserting: a go-to must never gate another slot. It was
@@ -386,8 +387,9 @@ describe("the two lockouts", () => {
    *
    * BOTH clocks are written by `releaseShots` at the tick the shot EXITS — never by `beginFire` at
    * press time (`fire.ts:165,174`). `repeater` hid that distinction because its `startUpMs` was 0,
-   * so press and release fell on the same tick. `lance` winds up for 700ms == 21 ticks, so a press
-   * at 200 does not release, and does not write the switch lock, until 221. `fireAt` drives that.
+   * so press and release fell on the same tick. `lance` winds up for 700ms (21 ticks at 30 Hz, 42
+   * at 60 Hz), so a press at 200 does not release, and does not write the switch lock, until
+   * `LANCE_EXIT`. `fireAt` drives that.
    */
   const twoSlots = (): FireState => ({
     slots: [
@@ -408,18 +410,19 @@ describe("the two lockouts", () => {
     return next;
   }
 
-  const LANCE_EXIT = 221; // pressed at 200; nextShotTick == tick + startUp == 200 + 21
+  const LANCE_EXIT = 200 + msToTicks(700); // pressed at 200; nextShotTick == tick + startUp
 
   it("writes the recovery lockout from the weapon that fired, at the tick the shot exits", () => {
     const fired = fireAt(twoSlots(), SLOT_2, 200, LANCE_EXIT);
     expect(fired.pending).toBeNull(); // the wind-up has run out and the beam is away
-    expect(fired.switchLockUntilTick).toBe(221 + TICK_RATE_HZ); // 221 + one second of ticks == lance's 1000ms recovery
+    expect(fired.switchLockUntilTick).toBe(LANCE_EXIT + TICK_RATE_HZ); // exit + one second of ticks == lance's 1000ms recovery
   });
 
   it("blocks a different slot for the firing weapon's recovery", () => {
     const fired = fireAt(twoSlots(), SLOT_2, 200, LANCE_EXIT);
-    expect(beginFire("p1", fired, SLOT_1, 250).pending).toBeNull();
-    expect(beginFire("p1", fired, SLOT_1, 251).pending).not.toBeNull();
+    const lockEnds = LANCE_EXIT + TICK_RATE_HZ;
+    expect(beginFire("p1", fired, SLOT_1, lockEnds - 1).pending).toBeNull();
+    expect(beginFire("p1", fired, SLOT_1, lockEnds).pending).not.toBeNull();
   });
 
   // SKIPPED with the stock suites above: the refire-delay half of this needs a stocked weapon.
@@ -448,8 +451,9 @@ describe("the two lockouts", () => {
     };
     const fired = fireAt(duplicate, SLOT_1, 200, LANCE_EXIT);
     expect(fired.lastFiredSlot).toBe(0);
-    expect(beginFire("p1", fired, SLOT_2, 250).pending).toBeNull(); // a different SLOT, so the switch lock
-    expect(beginFire("p1", fired, SLOT_2, 251).pending).not.toBeNull();
+    const lockEnds = LANCE_EXIT + TICK_RATE_HZ;
+    expect(beginFire("p1", fired, SLOT_2, lockEnds - 1).pending).toBeNull(); // a different SLOT, so the switch lock
+    expect(beginFire("p1", fired, SLOT_2, lockEnds).pending).not.toBeNull();
   });
 });
 

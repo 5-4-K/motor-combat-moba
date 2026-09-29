@@ -1,4 +1,5 @@
-import { DEFAULT_PATCH_RATE_HZ, MS_PER_TICK, getArena, withMode, type InputMessage } from "@motor-combat-moba/shared";
+import { MS_PER_TICK, getArena, withMode, type InputMessage } from "@motor-combat-moba/shared";
+import { isSnapshotTick } from "../rooms/snapshot-cadence.js";
 import { makeDriver } from "./drivers.js";
 import { LegacyClient } from "./legacy-client.js";
 import { Link, type LinkProfile } from "./link.js";
@@ -74,7 +75,6 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
   const nextSeed = (): number => Math.floor(master() * 0x1_0000_0000);
   const arena = getArena(NETSIM_ARENA_ID);
   const frameMs = 1000 / FRAME_HZ;
-  const patchMs = 1000 / DEFAULT_PATCH_RATE_HZ;
 
   const clients = world.ids.map((id, i) => {
     // Drawn in a fixed order per client, so each stream is a pure function of (seed, index).
@@ -101,10 +101,10 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
 
   const endMs = opts.seconds * 1000;
   let nextTickAt = MS_PER_TICK;
-  let nextPatchAt = patchMs;
 
   for (let now = 0; now <= endMs; now++) {
-    // 1. Server: every tick due by now, then any patch due (a patch carries the last completed tick).
+    // 1. Server: every tick due by now, each followed by its snapshot when it is a snapshot tick —
+    // exactly as the rooms broadcast (NR12), so a snapshot is always the state of one tick.
     while (now >= nextTickAt) {
       world.tick();
       stepsPerTickMax = Math.max(stepsPerTickMax, world.lastTickMaxSteps);
@@ -113,12 +113,11 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
         if (wasAlive.get(id) && !alive) deaths++;
         wasAlive.set(id, alive);
       }
+      if (isSnapshotTick(world.state.tick)) {
+        const snap = world.snapshot();
+        for (const c of clients) c.down.send(now, snap);
+      }
       nextTickAt += MS_PER_TICK;
-    }
-    if (now >= nextPatchAt) {
-      const snap = world.snapshot();
-      for (const c of clients) c.down.send(now, snap);
-      while (nextPatchAt <= now) nextPatchAt += patchMs;
     }
 
     // 2. Deliver what the links hand over by now.

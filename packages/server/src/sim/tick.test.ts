@@ -5,6 +5,7 @@ import {
   DRIVE_CONFIG,
   ManeuverKind,
   MS_PER_TICK,
+  TICK_RATE_HZ,
   NEUTRAL_MODIFIERS,
   NET_CONFIG,
   PlayerState,
@@ -343,9 +344,10 @@ describe("serverTick", () => {
      * the 2026-09-06 vector-drive rework's heavy-car pass cut mirage's accel/top speed (420/7.2 base
      * pair -> 60/1.4, 135/3.7 -> 80/2.2), so 40 ticks (1.33 s) no longer covers the 200 u to the
      * blocker at x=500 — mirage needs ~1.5 s just to reach its new 267 u/s top speed. 60 ticks (2 s)
-     * clears 500 with room to spare while still resolving well short of the arena wall.
+     * clears 500 with room to spare while still resolving well short of the arena wall. Authored as
+     * 2 s of ticks since the 60 Hz flip (a literal 60 was only 1 s there).
      */
-    const TICKS = 60;
+    const TICKS = 2 * TICK_RATE_HZ;
 
     function driveIntoBlocker(
       blockerStatus: PlayerStatus,
@@ -494,7 +496,9 @@ describe("serverTick", () => {
     // "bbb", and shove it clear of the stale pose instead.
     const LEADER_X = 400;
     const FOLLOWER_X = 450; // < LEADER_X + carWidth, so the two start overlapping
-    const CLEARING_SPEED = 375; // enough to open a gap in a single tick
+    // Enough to open a gap in a single tick: 12.5 u of travel per tick (375 u/s at 30 Hz, 750 at
+    // 60 Hz), against the 10 u the two start overlapping by.
+    const CLEARING_SPEED = 12.5 * TICK_RATE_HZ;
 
     const leader = makePlayer("aaa", LEADER_X, CORRIDOR_Y, Math.PI);
     Object.assign(leader, toWorld(Math.PI, CLEARING_SPEED, 0));
@@ -557,10 +561,11 @@ describe("serverTick", () => {
       // vx/vy: round-trip through drag (and, for the lateral half, grip) exactly as before. `vx` is
       // unaffected by `reeling`'s `grip` channel (it only scales the LATERAL bleed, and `immobilised`
       // costs nothing here since `coasts(1)` already sends `throttle: 0`), so it lands on the same
-      // traced figure as the neutral case: 120 -> 114.969. `vy`'s decay is slower than the neutral
+      // figure as the neutral case: one tick of mirage's drag, 120 * dragPerTick (114.969 at 30 Hz,
+      // 117.458 at 60 Hz — a traced 114.969 literal until the 60 Hz flip). `vy`'s decay is slower than the neutral
       // case (grip: 0.6 loosens the lateral bleed, per spec §5 — that is the whole point of the
       // channel), but the loose bounds below hold either way.
-      expect(player.vx).toBeCloseTo(114.969, 3);
+      expect(player.vx).toBeCloseTo(120 * chassis.dragPerTick, 3);
       expect(player.vy).toBeLessThan(0);
       expect(player.vy).toBeGreaterThan(-60);
     });

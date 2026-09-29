@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { installMode } from "../modes/active.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
-import { MS_PER_TICK } from "../constants.js";
+import { MS_PER_TICK, TICK_RATE_HZ } from "../constants.js";
 import { ramDefenceOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { RAM_CONFIG } from "../config/ram-config.js";
@@ -77,12 +77,12 @@ describe("stepSim", () => {
       angVel: 0,
     };
 
-    // 90 ticks (3 s), not 60: the point of the case is that the UNOBSTRUCTED run ends up past the
+    // 3 s of ticks, not 2: the point of the case is that the UNOBSTRUCTED run ends up past the
     // obstacle, and how far a car gets in a fixed time is a balance number. The 2026-09-16 speed cut
     // left Mirage 281 u short of the 300 it needs over 2 s, so the run was lengthened rather than the
     // 400 u obstacle moved — the obstacle's position is what the blocked assertion measures against.
-    const unobstructed = drive(start, EMPTY_ARENA, 90);
-    const blocked = drive(start, { ...EMPTY_ARENA, obstacles: [obstacle] }, 90);
+    const unobstructed = drive(start, EMPTY_ARENA, 3 * TICK_RATE_HZ);
+    const blocked = drive(start, { ...EMPTY_ARENA, obstacles: [obstacle] }, 3 * TICK_RATE_HZ);
 
     // Without the obstacle the car is well past it; with it, the hull never crosses the near face.
     expect(unobstructed.x).toBeGreaterThan(obstacle.x);

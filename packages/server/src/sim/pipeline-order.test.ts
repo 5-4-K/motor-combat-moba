@@ -1,4 +1,4 @@
-import { TICK_RATE_HZ } from "@motor-combat-moba/shared";
+import { DRIVE_CONFIG, TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
@@ -89,11 +89,16 @@ function currentVelocities(state: ArenaState): Map<string, { vx: number; vy: num
  * cars facing +x, attacker behind, so the victim is struck on the REAR with the two headings
  * agreeing, and the attacker meets it nose-first.
  */
+const ATTACKER_START_X = 1000 - DRIVE_CONFIG.carWidth - 1;
+
 function runTick(driveIn: "carried-in" | "post-resolution") {
   const state = arena();
   const topSpeed = forwardMaxSpeedOf("bastion");
-  // Close enough that this ONE tick's drive translation both overlaps the hulls and rams.
-  const attacker = addPlayer(state, "a", { x: 952, y: 400, angle: 0, carId: "bastion", vx: topSpeed, vy: 0 });
+  // Close enough that this ONE tick's drive translation both overlaps the hulls and rams: one unit
+  // short of flush, so any tick rate's translation (6.8 u at 30 Hz, 3.4 u at 60 Hz) closes it. It
+  // was x = 952 — flush for the pre-2026-09-16 48 u hull, 12 u INSIDE the 60 u one — which only
+  // cleared its own start pose at 30 Hz because that tick's translation outran the push-out.
+  const attacker = addPlayer(state, "a", { x: ATTACKER_START_X, y: 400, angle: 0, carId: "bastion", vx: topSpeed, vy: 0 });
   const victim = addPlayer(state, "b", { x: 1000, y: 400, angle: 0, carId: "bullseye" });
 
   const queues = new Map([
@@ -153,7 +158,7 @@ describe("the real serverTick -> contactTick order", () => {
     // where the cars ENDED the tick rather than where they began it. A contact pass hoisted above
     // driving would classify last tick's geometry.
     const real = runTick("carried-in");
-    expect(real.attacker.x).toBeGreaterThan(952);
+    expect(real.attacker.x).toBeGreaterThan(ATTACKER_START_X);
     // …and the attacker ends the tick stopped, not travelling backwards. Under the deleted contest
     // it ended every dead-on ram moving in reverse — an exit criterion the rework could not meet and
     // the Unity rule closes by construction. Kept as a sign, not a number.

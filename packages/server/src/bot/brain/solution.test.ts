@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
-  TICK_RATE_HZ, TURRET_TICKS, boundsOf, carHullOf, instanceExpired, resolveInstanceHits,
+  TICK_RATE_HZ, TURRET_TICKS, boundsOf, msToTicks, carHullOf, instanceExpired, resolveInstanceHits,
   spawnInstances, stepInstance, turretPivotOf, weaponDefOf, wrapAngle, type PoseSnapshot,
 } from "@motor-combat-moba/shared";
 import type { BotArenaView, BotCarView, BotSlotView } from "../types.js";
@@ -340,8 +340,9 @@ describe("solve — turret (TR26)", () => {
     expect(firesAndConnects(TURRET_ROW, shooter, target, predictor, { bearing, delayTicks: turnTicks }))
       .toBe(true);
     // And the turn is not decoration: the same bearing, read against a target that had NOT moved
-    // on during the turn, is not the solution.
-    expect(firesAndConnects(TURRET_ROW, shooter, target, predictor, { bearing, delayTicks: turnTicks + 12 }))
+    // on during the turn, is not the solution. 400 ms late (a literal 12 ticks until the 60 Hz flip,
+    // where 12 ticks is only 200 ms and the target has not yet moved off the shot's path).
+    expect(firesAndConnects(TURRET_ROW, shooter, target, predictor, { bearing, delayTicks: turnTicks + msToTicks(400) }))
       .toBe(false);
   });
 

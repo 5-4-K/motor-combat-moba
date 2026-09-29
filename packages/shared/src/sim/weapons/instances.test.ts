@@ -467,9 +467,10 @@ describe("bounce", () => {
     const order = { weaponId: "thumper", slot: 0, finalVolley: true } as const;
     const { instances } = spawnInstances(order, owner, 100, 0, 1, "", bouncer);
     const shot = instances[0]!;
-    expect(shot.expiresAtTick).toBe(100 + 87); // msToTicks(2900) at 30 Hz
-    expect(instanceExpired({ ...shot, distance: 99999 }, 150, bouncer)).toBe(false); // range ignored
-    expect(instanceExpired(shot, 187, bouncer)).toBe(true);
+    const life = (2900 * TICK_RATE_HZ) / 1000; // msToTicks(2900): 87 at 30 Hz, 174 at 60 Hz
+    expect(shot.expiresAtTick).toBe(100 + life);
+    expect(instanceExpired({ ...shot, distance: 99999 }, 100 + life - 1, bouncer)).toBe(false); // range ignored
+    expect(instanceExpired(shot, 100 + life, bouncer)).toBe(true);
   });
 
   it("reflects a bouncing projectile about a diagonal plane", () => {

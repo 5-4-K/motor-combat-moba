@@ -114,8 +114,9 @@ function commandFactorAt(accelMod: number): number {
 
 describe("topSpeed reaches the drive cap", () => {
   it("caps forward speed at the scaled maximum", () => {
+    // 34 s of ticks (a literal 1000 ticks until 60 Hz, where it is only 16.7 s — short of 6 digits).
     let out = body();
-    for (let i = 0; i < 1000; i++) out = stepDrive(out, input(0, 1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 }));
+    for (let i = 0; i < 34 * TICK_RATE_HZ; i++) out = stepDrive(out, input(0, 1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 }));
     expect(fwd(out)).toBeCloseTo(GOLDEN_CHASSIS.maxSpeed * 0.5, 6);
   });
 
@@ -125,7 +126,7 @@ describe("topSpeed reaches the drive cap", () => {
     // forward's `maxSpeed`. The reverse-hold ceremony is gone from `stepDrive`, and `reverseHold`
     // itself is gone from `SimBody` — there is no field left for the initial body to carry.
     let out = body({ vx: -10 });
-    for (let i = 0; i < 1000; i++) out = stepDrive(out, input(0, -1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 }));
+    for (let i = 0; i < 34 * TICK_RATE_HZ; i++) out = stepDrive(out, input(0, -1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 }));
     expect(fwd(out)).toBeCloseTo(-(GOLDEN_CHASSIS.reverseAccel / GOLDEN_CHASSIS.dragRate) * 0.5, 6);
   });
 

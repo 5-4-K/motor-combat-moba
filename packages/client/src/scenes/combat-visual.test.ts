@@ -6,12 +6,12 @@ import {
   CAR_TABLE,
   cfg,
   COLOR_TABLE,
-  DEFAULT_PATCH_RATE_HZ,
   DRIVE_CONFIG,
   WEAPON_TABLE,
   WeaponKind,
   withMode,
   hpOf,
+  NET_CONFIG,
   msToTicks,
   weaponTicksOf,
   type CarId,
@@ -196,8 +196,8 @@ describe("extrapolateShot", () => {
     expect(moved.y).toBeCloseTo(100 + SPEED * 0.01, 6);
   });
 
-  it("caps at one patch interval, so a stall cannot fling a stale shot away", () => {
-    const patchMs = 1000 / DEFAULT_PATCH_RATE_HZ;
+  it("caps at NET_CONFIG.shotExtrapolationCapMs, so a stall cannot fling a stale shot away", () => {
+    const patchMs = NET_CONFIG.shotExtrapolationCapMs;
     const capped = extrapolateShot(100, 100, 0, SPEED, 5000);
     expect(capped).toEqual(extrapolateShot(100, 100, 0, SPEED, patchMs));
   });
@@ -793,8 +793,9 @@ describe("beamDrawLayers", () => {
 });
 
 describe("chargeOrbBands", () => {
-  // lance winds up for 700ms == 21 ticks at 30Hz. Pressed at tick 100, the shot exits at 121.
-  const WINDUP = 21;
+  // lance winds up for 700ms — msToTicks(700), 21 ticks at 30 Hz and 42 at 60 Hz. Pressed at tick
+  // 100, the shot exits WINDUP ticks later.
+  const WINDUP = msToTicks(700);
   const PRESS = 100;
   const EXIT = PRESS + WINDUP;
   const CHARGE = WEAPON_BEAM_STYLES.lance!.charge!;

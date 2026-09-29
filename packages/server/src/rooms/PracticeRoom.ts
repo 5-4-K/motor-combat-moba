@@ -1,7 +1,6 @@
 import { Room, ServerError, matchMaker, type Client } from "@colyseus/core";
 import {
   BOT_SESSION_ID,
-  DEFAULT_PATCH_RATE_HZ,
   GameMode,
   INPUT_MESSAGE,
   MSG_PRACTICE_IDLE_WARNING,
@@ -62,6 +61,7 @@ import {
   shouldRefusePracticeForPlayground,
 } from "./practice-rules.js";
 import { beginCountdown, countdownSweep } from "./countdown.js";
+import { isSnapshotTick } from "./snapshot-cadence.js";
 import {
   respawnPlayer,
   respawnSweep,
@@ -234,7 +234,9 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
     // above — so it runs as one `scoped` stretch, the same shape `ArenaRoom.onCreate` uses (MC15).
     scoped(this.modeConfig, () => {
       this.setState(newPracticeState());
-      this.setPatchRate(1000 / DEFAULT_PATCH_RATE_HZ);
+      // No patch timer (NR12): `tick()` broadcasts at the end of every snapshot tick itself, so a
+      // snapshot is always the state of exactly one tick and carries that tick.
+      this.patchRate = null;
       this.setSimulationInterval(
         () => scoped(this.modeConfig, () => this.tick()),
         1000 / getTickRateHz(TICK_RATE_HZ),
@@ -400,14 +402,25 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
     return player;
   }
 
+  /**
+   * One sim tick, then the snapshot of it when this is a snapshot tick (NR12). A paused tick still
+   * broadcasts — `state.tick` is frozen then, and the pause flag and anything a message wrote while
+   * paused would otherwise never reach the client; `broadcastPatch` sends nothing when nothing
+   * changed. A closing room broadcasts nothing.
+   */
   private tick(): void {
+    if (this.step() === "closing") return;
+    if (this.state.paused || isSnapshotTick(this.state.tick)) this.broadcastPatch();
+  }
+
+  private step(): "closing" | "ran" {
     // ABOVE the pause return, and on wall clock (PR27). Both halves matter: a tick-based counter
     // would never advance while paused, and a check below the return would never run while paused —
     // and a player who walked away with the menu open is exactly the room worth reaping.
-    if (this.sweepIdle()) return;
+    if (this.sweepIdle()) return "closing";
     // Before the increment, so a paused sim freezes coherently (PR13): cooldowns, statuses, respawn
     // timers and shot lifetimes all key off this counter, and none of them may advance alone.
-    if (this.state.paused) return;
+    if (this.state.paused) return "ran";
     this.state.tick += 1;
     // Top of the tick, before anything reads the phase. Below the pause return on purpose: pausing
     // during the 3-2-1 has to freeze the 3-2-1 too, and the countdown keys off `state.tick` like
@@ -426,6 +439,7 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
     this.botEvents.fired.length = 0;
     this.botEvents.damaged.length = 0;
     this.botEvents.killed.length = 0;
+    return "ran";
   }
 
   /** Warns once, then closes. Returns true when the room is going away and the tick must stop. */

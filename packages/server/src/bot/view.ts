@@ -25,7 +25,7 @@ export function buildBotView(args: {
   observedFires?: readonly FiredEvent[];
   /**
    * View staleness (B19): how many ticks old the world OTHER cars and instances are drawn from is —
-   * models the 20 Hz patch rate plus ping. 0 (the default, and every profile's value in this work)
+   * models the snapshot interval plus ping. 0 (the default, and every profile's value in this work)
    * takes the EXACT path this function had before the knob existed: `liveCars`/`liveInstances`
    * straight off `state`/`combat`, no ring lookup, no ring required at all.
    */

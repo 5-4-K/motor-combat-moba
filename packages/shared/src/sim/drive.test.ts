@@ -3,7 +3,7 @@ import { installMode } from "../modes/active.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import type { ChassisDrive } from "../config/car-config.js";
 import { DRIVE_CONFIG, perTickDecay } from "../config/drive-config.js";
-import { MS_PER_TICK } from "../constants.js";
+import { MS_PER_TICK, TICK_RATE_HZ } from "../constants.js";
 import type { InputMessage } from "../net/input.js";
 import { dashSubstepCount, dashTranslation, isDashing, stepDrive } from "./drive.js";
 import { ManeuverKind } from "./maneuver.js";
@@ -101,7 +101,9 @@ describe("stepDrive", () => {
     // the exact closed form for `dv/dt = a - k*v` — its fixed point is exactly the CONTINUOUS
     // equilibrium `engineAccel / dragRate` (`chassis.maxSpeed`), not a discretization-biased number
     // above it, and that holds at any tick rate (U7).
-    const out = drive(rest(), input(0, 1), 1000);
+    // 34 s of ticks (was a literal 1000 ticks, which is only 16.7 s at 60 Hz — too short to land
+    // within 6 digits of an asymptote whose time constant is 1 s).
+    const out = drive(rest(), input(0, 1), 34 * TICK_RATE_HZ);
     expect(fwd(out)).toBeCloseTo(GOLDEN_CHASSIS.maxSpeed, 6);
   });
 
@@ -142,7 +144,7 @@ describe("stepDrive", () => {
     const down = input(0, -1);
     let body: SimBody = { ...rest(), vx: GOLDEN_CHASSIS.maxSpeed, vy: 0 };
     let prev = fwd(body);
-    for (let tick = 0; tick < 25 && prev > 0; tick++) {
+    for (let tick = 0; tick < TICK_RATE_HZ && prev > 0; tick++) {
       body = stepDrive(body, down, DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
       const speed = fwd(body);
       expect(speed).toBeLessThan(prev);
@@ -150,9 +152,9 @@ describe("stepDrive", () => {
     }
     expect(fwd(body)).toBeLessThan(0);
 
-    const pinned = drive(body, down, 500);
+    const pinned = drive(body, down, 17 * TICK_RATE_HZ);
     // The exact integrator's fixed point is the CONTINUOUS equilibrium, `reverseAccel / dragRate`
-    // — 500 ticks lands within ~5e-5 of it (measured), not closer, since `atRest` never fires while
+    // — 17 s of ticks lands within ~5e-5 of it (measured at 30 Hz), not closer, since `atRest` never fires while
     // throttle is held and the approach stays asymptotic rather than snapping.
     expect(fwd(pinned)).toBeCloseTo(-GOLDEN_CHASSIS.reverseAccel / GOLDEN_CHASSIS.dragRate, 3);
   });
@@ -161,7 +163,8 @@ describe("stepDrive", () => {
     const up = input(0, 1);
     const reverseEquilibrium = -GOLDEN_CHASSIS.reverseAccel / GOLDEN_CHASSIS.dragRate;
     let body: SimBody = { ...rest(), vx: reverseEquilibrium, vy: 0 };
-    for (let tick = 0; tick < 15; tick++) body = stepDrive(body, up, DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
+    // Half a second of ticks.
+    for (let tick = 0; tick < TICK_RATE_HZ / 2; tick++) body = stepDrive(body, up, DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(fwd(body)).toBeGreaterThan(0);
   });
 
@@ -423,10 +426,14 @@ describe("dash substep helpers (spec C3 / C6)", () => {
   });
 
   it("derives the substep count from distance, so it survives a retune of speed or tick rate", () => {
-    // thunderclap: 1600 u/s at 30Hz = 53.3u per tick against a 16u bound -> 4 substeps.
-    expect(dashSubstepCount(dashing, DT)).toBe(4);
-    // Derived, not hardcoded: halving the speed halves the travel and needs half the substeps.
-    expect(dashSubstepCount({ ...dashing, maneuverSpeed: 800 }, DT)).toBe(2);
+    // thunderclap: 1600 u/s is 1600 / TICK_RATE_HZ u per tick against a 16u bound — 53.3u -> 4
+    // substeps at 30 Hz, 26.7u -> 2 at 60 Hz.
+    const bound = DRIVE_CONFIG.dashSubstepMaxUnits;
+    expect(dashSubstepCount(dashing, DT)).toBe(Math.ceil((1600 / TICK_RATE_HZ) / bound));
+    // Derived, not hardcoded: a dash covering exactly four bounds a tick needs four substeps, and
+    // halving its speed halves the travel and needs half the substeps.
+    expect(dashSubstepCount({ ...dashing, maneuverSpeed: (4 * bound) / DT }, DT)).toBe(4);
+    expect(dashSubstepCount({ ...dashing, maneuverSpeed: (2 * bound) / DT }, DT)).toBe(2);
     // Exactly on the bound is one substep, not two — `ceil` of exactly 1.
     expect(dashSubstepCount({ ...dashing, maneuverSpeed: DRIVE_CONFIG.dashSubstepMaxUnits / DT }, DT)).toBe(1);
   });

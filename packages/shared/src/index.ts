@@ -1,9 +1,9 @@
 export {
   TICK_RATE_HZ,
   MS_PER_TICK,
+  SNAPSHOT_RATE_HZ,
   MAX_PLAYERS,
   MAX_TEAM_SIZE,
-  DEFAULT_PATCH_RATE_HZ,
   ROOM_NAME,
   RoomPhase,
   GameMode,

@@ -21,9 +21,9 @@ describe("applyHumanize", () => {
   it("coasts until the delay line has filled", () => {
     const state = newHumanizeState();
     const rng = makeRng(1);
-    const profile = RESOLVED_BOT_PROFILES.hard; // reactionDelayTicks 4
+    const profile = RESOLVED_BOT_PROFILES.hard;
     const out = [];
-    for (let tick = 0; tick < 4; tick++) {
+    for (let tick = 0; tick < profile.reactionDelayTicks; tick++) {
       out.push(applyHumanize(state, drive, tick, profile, rng, false, true));
     }
     expect(out.every((i) => i.steer === 0 && i.throttle === 0)).toBe(true);
@@ -33,10 +33,11 @@ describe("applyHumanize", () => {
     const state = newHumanizeState();
     const rng = makeRng(1);
     const profile = { ...RESOLVED_BOT_PROFILES.hard, blunderChance: 0, idleFidgetChance: 0 };
-    for (let tick = 0; tick < 4; tick++) {
+    const delay = profile.reactionDelayTicks;
+    for (let tick = 0; tick < delay; tick++) {
       applyHumanize(state, drive, tick, profile, rng, false, true);
     }
-    const out = applyHumanize(state, { steer: -1, throttle: -1, fireSlots: 0 }, 4, profile, rng, false, true);
+    const out = applyHumanize(state, { steer: -1, throttle: -1, fireSlots: 0 }, delay, profile, rng, false, true);
     expect(out).toEqual(drive);
   });
 

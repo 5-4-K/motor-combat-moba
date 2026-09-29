@@ -86,9 +86,12 @@ describe("shotEndPoint — a projectile ends on the hull it struck", () => {
   });
 
   it("pulls a shot that OVERSHOT the car back to the entry face", () => {
-    // The headline bug. A predator dart covers 30 u per tick against a 48 u hull, so the pose the
-    // client observes routinely sits a car-length past the car — and the burst went with it.
-    const past = FAR_FACE + 26;
+    // The headline bug. A predator dart covers a large fraction of a hull length per tick (30 u at
+    // 30 Hz, 15 u at 60 Hz, against a 60 u hull), so the pose the client observes routinely sits
+    // well past the car — and the burst went with it. Most of one tick's travel past the far face
+    // (a literal 26 until the 60 Hz flip halved a tick's travel, which put 26 outside the one-tick
+    // window `shotEndPoint` searches, correctly: a dart can no longer be seen that far past).
+    const past = FAR_FACE + travelPerTick("predator") * 0.85;
     const dart = shot({ weaponId: "predator", x: past, y: CAR_Y, angle: 0 });
     expect(shotEndPoint(dart, [car()])).toEqual({ x: NEAR_FACE, y: CAR_Y });
   });
