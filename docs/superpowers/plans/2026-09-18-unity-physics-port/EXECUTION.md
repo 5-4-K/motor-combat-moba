@@ -615,8 +615,7 @@ command as well as the figure.
   the status gate is evaluated against a tick where the attacker is already locked.
   Cosmetic only — nothing here reaches `stepSim`, the schema or the server. **Owner: stage 5.** A
   real fix needs a client-side pre-contact history per remote (velocity AND statuses, sampled before
-  the patch that resolved the ram), which is a netcode-shaped change and is the same territory as
-  `docs/superpowers/specs/2026-09-04-online-netcode-and-client-architecture-design.md` §9.1; it is
+  the patch that resolved the ram), which is a netcode-shaped change; it is
   not a `resolveRam` question. The divergence is written down at both ends —
   `ArenaScene`'s `approach` comment and `ImpactPose`'s doc — so the next reader meets it before the
   code.
@@ -845,10 +844,6 @@ command as well as the figure.
   player who nudges into someone and then floors it gets nothing until they back off and re-approach.
   A feel/tuning question, not a defect: the edge trigger is the intended anti-stunlock rule and the
   knob is `contactPad`, not restitution.
-- **The netcode rewrite's phase 1 plan is stale** — its fixtures still name `speed`, `shoveX`,
-  `shoveY` and `authority`, deleted by the car-physics rework's stage 1. Not this work's to fix, but
-  whoever starts that rewrite must refresh it against the model this port leaves behind.
-
 - **The weapon module and the ram module are coupled at seven sites. The owner reviewed the audit on
   2026-09-19 and chose NOT to decouple them.** Recorded here so the next reader finds a decision
   rather than re-running the audit. The weapon *pipeline* is clean — `sim/weapons/*`, `combat.ts` and

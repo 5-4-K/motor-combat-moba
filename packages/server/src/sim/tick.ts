@@ -283,7 +283,7 @@ const COAST_INPUT: InputMessage = { seq: 0, steer: 0, throttle: 0, fireSlots: 0 
  * packet is late.
  *
  * Derived from this room's own `dt` rather than from `TICK_RATE_HZ`, so a room running at a
- * non-default rate (and the 60 Hz the netcode rewrite's phase 1 brings) gets the same wall-clock
+ * non-default rate (or a future change to `TICK_RATE_HZ`) gets the same wall-clock
  * grace rather than the same tick count. See `NET_CONFIG.silentCoastGraceMs` for why the threshold
  * is a duration at all.
  */

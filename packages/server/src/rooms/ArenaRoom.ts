@@ -112,8 +112,8 @@ export class ArenaRoom extends Room<ArenaState> {
   private phaseCaps = new Map<string, number>();
   /**
    * When each player last sent a chat message, in wall-clock ms (LC20). Not ticks: this is an
-   * anti-spam guard with no relationship to the sim, and a tick-based one would silently halve when
-   * netcode phase 1 takes TICK_RATE_HZ from 30 to 60.
+   * anti-spam guard with no relationship to the sim, and a tick-based one would silently change
+   * length if TICK_RATE_HZ ever moved.
    */
   private chatLastSentAt = new Map<string, number>();
   private postMatchIds = new Set<string>();

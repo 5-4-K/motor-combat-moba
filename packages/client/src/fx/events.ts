@@ -3,12 +3,12 @@
  *
  * **Nothing here goes on the wire (VFX9–VFX12).** Every event is recovered from state a client
  * already has, which keeps hard invariant 8 intact — `stepSim` reads none of it — and, the reason
- * that actually decides the design, means netcode phase 2 replacing the Colyseus schema with a
- * hand-packed binary snapshot cannot throw this work away. A schema field added here would be.
+ * that actually decides the design, means replacing the Colyseus schema with a different wire
+ * format later cannot throw this work away. A schema field added here would be.
  *
  * The views are **structural**, not schema classes. `ArenaScene` adapts whatever it is holding into
  * `FxWorldView`, so this module is testable with plain objects and the adapter is the only thing
- * phase 2 touches.
+ * such a change touches.
  */
 
 import { damagePoint, shotGeometriesOf, shotEndPoint, type ShotGeometry } from "./contact.js";

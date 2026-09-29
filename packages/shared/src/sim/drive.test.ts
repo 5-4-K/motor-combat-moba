@@ -16,7 +16,7 @@ beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 /**
  * DERIVED, never typed. This file's own fixture builds its per-tick factors with `perTickDecay`,
  * which divides by `TICK_RATE_HZ`; a hardcoded `1 / 30` beside them made this the one fixture in the
- * suite mixing the two, and the netcode rewrite's phase 1 moves `TICK_RATE_HZ` to 60.
+ * suite mixing the two, and would break the day `TICK_RATE_HZ` changes.
  */
 const DT = MS_PER_TICK / 1000;
 

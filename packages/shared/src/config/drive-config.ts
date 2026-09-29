@@ -233,7 +233,7 @@ export const DRIVE_CONFIG = {
    * extra collision checks — see
    * `docs/superpowers/plans/2026-09-06-car-physics/05-tune-and-reconcile.md`. Left at 16 for now;
    * this comment exists so the trade is not re-derived from scratch. A future `TICK_RATE_HZ` bump
-   * (netcode phase 1 raises it to 60) does **not** shrink the gap on its own: this knob is denominated
+   * does **not** shrink the gap on its own: this knob is denominated
    * in world units, not ticks, so `thunderclap`'s 13.3u-per-substep arrival depth is unchanged by
    * tick rate alone.
    */

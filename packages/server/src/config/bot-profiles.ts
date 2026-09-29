@@ -473,7 +473,7 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * landing.
    *
    * A `TICK_RATE_HZ` change does NOT rescale this: it is a tick count, and thumper's 87 becomes 174
-   * at 60 Hz. Re-derive it if the netcode rewrite's phase 1 lands.
+   * at 60 Hz. Re-derive it if the tick rate ever changes.
    */
   predictionHorizonTicks: 90,
   // `closeLeadHorizonFraction` was deleted in spec phase D (R-K2, 2026-09-07). Its only reader was

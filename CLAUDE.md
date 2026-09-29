@@ -624,7 +624,6 @@ contract tests, snapshots, and the pre-existing G12 failures.
 | Terms | [`docs/glossary.md`](docs/glossary.md) |
 | Package local rules | `packages/shared/CLAUDE.md`, `packages/server/CLAUDE.md`, `packages/client/CLAUDE.md` |
 | Spec + tracker | [`docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`](docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md), [`docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md`](docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md) |
-| **Online netcode and client rendering — the fourteen-phase rewrite in progress** | **start at [`docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md`](docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md)** — see below |
 | **Car physics rework — stages 1-4 landed, spec now on revision 2** | **start at [`docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md`](docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md)** — see below |
 | **Unity physics port — stages 1-4 landed (drive model, walls/bumps, rams, slam/effects), stage 5 (tune-and-reconcile) in progress; supersedes the car-physics rework's contest model** | **start at [`docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md`](docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md)** |
 | Weapon system decisions (D1–D22), online-play review, future work — plus the **retired** aim assist and target lock (A1–A14), removed 2026-09-17 and kept only as a record | [`docs/superpowers/specs/2026-08-27-weapon-system-design.md`](docs/superpowers/specs/2026-08-27-weapon-system-design.md), [`docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md), [`docs/superpowers/plans/2026-08-27-weapon-system.md`](docs/superpowers/plans/2026-08-27-weapon-system.md) |
@@ -640,43 +639,6 @@ contract tests, snapshots, and the pre-existing G12 failures.
 | Practice mode: the shipped 1v1-vs-bot room, its settings page, session limits (PR1–PR31) | [`docs/superpowers/specs/2026-09-03-practice-mode-design.md`](docs/superpowers/specs/2026-09-03-practice-mode-design.md) |
 | Conquer: the third win condition and first shipped team mode, the capture zone and control bar, car claims (`lockedCarId`), the respawn-on-death flow it shares with Deathmatch, `arena-03` (CQ1–CQ62) | [`docs/superpowers/specs/2026-09-24-conquer-mode-design.md`](docs/superpowers/specs/2026-09-24-conquer-mode-design.md) |
 | The user's own idea / invariant notes | `docs/ideas/`, `docs/invariants/` — **off limits unless the user names them**, see below |
-
-## The netcode and rendering rewrite: fourteen phases, planned, not yet started
-
-Two approved specs from 2026-09-04 — [online netcode and client
-architecture](docs/superpowers/specs/2026-09-04-online-netcode-and-client-architecture-design.md) and
-[client rendering
-architecture](docs/superpowers/specs/2026-09-04-client-rendering-architecture-design.md) — are landed
-as **fourteen phase plans** in
-[`docs/superpowers/plans/2026-09-04-netcode-and-rendering/`](docs/superpowers/plans/2026-09-04-netcode-and-rendering/).
-All fourteen were written by 2026-09-05. **None has been executed**: no code has changed, and the
-plans describe a client and server that do not exist yet.
-
-**Before touching that work in any session, read
-[`EXECUTION.md`](docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md)** — the state
-file. It names the phase in flight, its branch and worktree, the last completed task and the next
-one, and what every finished phase measured. **It is updated in the same commit as the work it
-describes**, so a session can stop anywhere and the next one resumes exactly. Then
-[`00-execution-guide.md`](docs/superpowers/plans/2026-09-04-netcode-and-rendering/00-execution-guide.md)
-for how to run a phase, and
-[`interfaces.md`](docs/superpowers/plans/2026-09-04-netcode-and-rendering/interfaces.md) — the ledger
-of every name the plans share, which outranks any plan and is outranked by the specs.
-`PROGRESS.md` beside them is about the *writing* of the plans and says nothing about executing them.
-
-What it changes, when it runs, and why it matters to work that touches the sim meanwhile:
-
-- **`TICK_RATE_HZ` becomes 60** in netcode phase 1, with three hand retunes and every fixture
-  re-pinned. Balance and turn numbers tuned before then are measured on a 30 Hz sim.
-- **Sim fields leave the Colyseus schema** in phase 2 for a hand-packed binary snapshot; hard
-  invariant 8 is reworded to "if `stepWorld` reads it, it is a snapshot field".
-- **`stepWorld` becomes the lockstep** in phase 3, wrapping `stepSim` unchanged; `ArenaScene.ts`
-  splits into a headless `match/` half and a `render/` half.
-- **Phase 6 is not scheduled.** Its five tasks each wait on a measured gate, and four of the five are
-  expected to read "not needed" on a healthy link. One of them is a `WEAPON_TABLE` edit
-  (`thunderclap`'s wind-up) and carries every obligation this file's balance rules impose.
-
-A change to `sim/`, the tables or `ArenaScene.ts` made before this work starts is not wasted, but it
-will be moved by it — check the phase that owns the file before a large refactor there.
 
 ## The car-physics rework: stages 1-4 landed, spec on revision 2
 

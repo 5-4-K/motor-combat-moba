@@ -1290,8 +1290,8 @@ session most worth reaping.
 | `sendCooldownMs` | 500 | Minimum gap between one sender's messages |
 
 `sendCooldownMs` is wall-clock, not ticks, deliberately: it is an anti-spam guard with no
-relationship to the sim, and a tick-based cooldown would silently halve when the planned netcode work
-takes `TICK_RATE_HZ` from 30 to 60 (see root `CLAUDE.md`). At 500 ms no real player notices it; a
+relationship to the sim, and a tick-based cooldown would silently change length if `TICK_RATE_HZ` ever
+moved. At 500 ms no real player notices it; a
 held Enter key or a scripted client cannot flush the visible history in a second.
 
 ## Runtime tuning (dev-only)

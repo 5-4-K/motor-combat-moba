@@ -15,8 +15,8 @@ import type { BotArenaView } from "../types.js";
  * predicate the `unpin` situation is classified from. The FILE KEEPS ITS NAME on purpose. It still
  * answers exactly one question and that question is a movement question — may the car go this way —
  * and the name is what the R-O2 provenance comments in `controller.ts` and `bot-profiles.ts` point
- * at. Renaming it to `walls.ts` would buy accuracy today and cost that thread, on a seam the
- * netcode/rendering rewrite is expected to add movement helpers back to.
+ * at. Renaming it to `walls.ts` would buy accuracy today and cost that thread, on a seam future
+ * movement helpers are expected to land on.
  */
 
 /**

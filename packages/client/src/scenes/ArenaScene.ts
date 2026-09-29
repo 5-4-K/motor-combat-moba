@@ -3795,8 +3795,8 @@ export class ArenaScene extends Phaser.Scene {
 
   /**
    * One FX frame. Adapts whatever the room is holding into the structural `FxWorldView` that `fx/`
-   * consumes, so nothing in `fx/` imports a schema class — which is what lets netcode phase 2 swap
-   * the schema for a binary snapshot by changing this method and nothing else (VFX11).
+   * consumes, so nothing in `fx/` imports a schema class — which is what lets a future wire format
+   * replace the schema by changing this method and nothing else (VFX11).
    *
    * Both views are copied out whole rather than passed as schema references: `deriveFxEvents` diffs
    * this frame against the one it kept from last frame, and a live schema object would have mutated
@@ -3852,7 +3852,7 @@ export class ArenaScene extends Phaser.Scene {
       // beam's reach (so its impact lands at the tip rather than on the shooter's nose) and whether
       // this row is its weapon's explosion (so `instanceDefOf` resolves the blast's disc rather than
       // the shell's dart). Both are already networked — no new schema field, and nothing here that
-      // netcode phase 2's binary snapshot would have to throw away. The lava stamps also read them:
+      // a future replacement of the schema would have to throw away. The lava stamps also read them:
       // a burst carries its shell's `weaponId`, so without `isExplosion`/`extent` the layer cannot
       // tell a 60-unit field on the ground from the 12-unit shell that made it.
       extent: instance.extent,
