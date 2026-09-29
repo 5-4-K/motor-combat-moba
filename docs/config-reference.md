@@ -38,6 +38,7 @@ tables.
 | `SIM_LATENCY_MS` | latency injector | `0` |
 | `SIM_JITTER_MS` | latency injector | `0` |
 | `CLIENT_ORIGIN` | server CORS (Vite) | unset; `npm run dev` sets `http://localhost:5173` |
+| `MONITOR_PASSWORD` | server `monitor.ts` | unset; without it (and without `DEV_TOOLS=1`) `/colyseus` is not mounted |
 | `MAX_PRACTICE_ROOMS` | server `mode.ts` (`getMaxPracticeRooms`) | `PRACTICE_CONFIG.maxConcurrentRooms` (`6`) |
 
 Canonical sim rate is `TICK_RATE_HZ` in `@motor-combat-moba/shared`. Patch rate is `DEFAULT_PATCH_RATE_HZ` (20), not an env knob.

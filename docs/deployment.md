@@ -1,6 +1,8 @@
 # Deployment (LAN)
 
-Requires **Node.js 20+**.
+Requires **Node.js 22+**.
+
+**Monitor.** The Colyseus monitor at `/colyseus` is mounted only with `DEV_TOOLS=1`, or with `MONITOR_PASSWORD` set (HTTP basic auth, any user name); otherwise it answers 404.
 
 ```bash
 npm run build:release

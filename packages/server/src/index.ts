@@ -9,7 +9,7 @@ import { WebSocketTransport } from "@colyseus/ws-transport";
 import { PLAYGROUND_ROOM_NAME, PRACTICE_ROOM_NAME, ROOM_NAME } from "@motor-combat-moba/shared";
 import { getDeployMode, getPort, isDevToolsEnabled } from "./mode.js";
 import { mountHealth } from "./health.js";
-import { mountMonitor } from "./monitor.js";
+import { monitorGate, mountMonitor } from "./monitor.js";
 import { ArenaRoom } from "./rooms/ArenaRoom.js";
 import { PlaygroundRoom } from "./rooms/PlaygroundRoom.js";
 import { PracticeRoom } from "./rooms/PracticeRoom.js";
@@ -26,7 +26,7 @@ if (clientOrigin || mode === "cloud") {
 }
 app.use(express.json());
 mountHealth(app);
-mountMonitor(app);
+mountMonitor(app, { devTools: isDevToolsEnabled(), password: process.env.MONITOR_PASSWORD });
 
 if (mode === "lan") {
   app.use(express.static(path.resolve(__dirname, "../../client/dist")));
@@ -48,6 +48,6 @@ if (isDevToolsEnabled()) {
 
 await gameServer.listen(port);
 console.log(
-  `[server] mode=${mode} port=${port} monitor=/colyseus health=/health` +
+  `[server] mode=${mode} port=${port} monitor=${monitorGate({ devTools: isDevToolsEnabled(), password: process.env.MONITOR_PASSWORD })} health=/health` +
     (isDevToolsEnabled() ? ` playground=${PLAYGROUND_ROOM_NAME}` : ""),
 );
