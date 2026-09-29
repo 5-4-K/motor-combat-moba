@@ -5,6 +5,7 @@ import {
   INPUT_MESSAGE,
   MAX_PLAYERS,
   ROOM_NAME,
+  MS_PER_TICK,
   TICK_RATE_HZ,
   flow,
   GameMode,
@@ -50,7 +51,6 @@ import {
   type StartRulePlayer,
 } from "@motor-combat-moba/shared";
 import {
-  getTickRateHz,
   getSimulatedLatency,
   getCarSelectSeconds,
   getRevealSeconds,
@@ -91,6 +91,7 @@ import { ROOM_FULL_ERROR, shouldRejectSecondArena } from "./singleton-arena.js";
 import { canSendChat, formatClockTime, pushChatMessage } from "./chat.js";
 import { isSnapshotTick } from "./snapshot-cadence.js";
 import { scoped } from "./mode-scope.js";
+import { newRoomStepper } from "./fixed-step.js";
 
 export class ArenaRoom extends Room<{ state: ArenaState }> {
   maxClients = MAX_PLAYERS;
@@ -136,6 +137,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * bundle another room last happened to install (MC11, MC15, MC21).
    */
   private modeConfig: ModeConfig = modeConfigOrDefault(DEFAULT_GAME_MODE);
+  /** Turns interval frames into whole ticks at exactly `TICK_RATE_HZ` (Phase C I1). */
+  private readonly stepper = newRoomStepper();
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -154,8 +157,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.state.arenaId = this.modeConfig.arenas[0];
 
     scoped(this.modeConfig, () => {
-      const hz = getTickRateHz(TICK_RATE_HZ);
-      this.setSimulationInterval(() => scoped(this.modeConfig, () => this.tick()), 1000 / hz);
+      this.setSimulationInterval((deltaMs) => this.onFrame(deltaMs), MS_PER_TICK);
       // No patch timer (NR12): `tick()` broadcasts at the end of every snapshot tick itself, so a
       // snapshot is always the state of exactly one tick and carries that tick. Assigned AFTER
       // `setSimulationInterval`: Colyseus 0.18's `patchRate` setter otherwise arms a stray clock
@@ -416,6 +418,16 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     });
   }
 
+  /**
+   * One wall-clock frame of the simulation interval (Phase C I1). Colyseus hands the MEASURED delta
+   * since the last frame; the stepper runs `tick()` once per whole `MS_PER_TICK` of it, so the room
+   * ticks at exactly `TICK_RATE_HZ` though Node truncates the 16.67 ms interval to 16 ms, and a
+   * stall runs a bounded catch-up rather than a spiral.
+   */
+  private onFrame(deltaMs: number): void {
+    this.stepper.advance(deltaMs, () => scoped(this.modeConfig, () => this.tick()));
+  }
+
   /** One sim tick, then the snapshot of it when this is a snapshot tick (NR12). */
   private tick(): void {
     this.step();
@@ -484,7 +496,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       phaseCaps: this.phaseCaps,
       combat: this.combat,
       ram: this.ram,
-      hz: getTickRateHz(TICK_RATE_HZ),
+      hz: TICK_RATE_HZ,
       runPhaseSweep: rulesOf(this.state.mode).respawns,
     };
   }

@@ -21,11 +21,6 @@ export function getPort(): number {
   return Number.isFinite(n) && n > 0 ? n : 2567;
 }
 
-export function getTickRateHz(fallback: number): number {
-  const n = Number(process.env.TICK_RATE_HZ);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
 export function parseCarSelectSeconds(raw: string | undefined, fallback: number): number {
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : fallback;

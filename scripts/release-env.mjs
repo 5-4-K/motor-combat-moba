@@ -73,8 +73,8 @@ DEPLOY_MODE=lan
 # reach the game by name alone (http://gamepc) but is privileged on macOS and Linux.
 PORT=${port}
 
-# Blank means "use the built-in default".
-TICK_RATE_HZ=
+# Blank means "use the built-in default". The tick rate is not here: it is compiled in
+# (TICK_RATE_HZ in shared), since server and client must agree on it.
 SIM_LATENCY_MS=
 SIM_JITTER_MS=
 `;

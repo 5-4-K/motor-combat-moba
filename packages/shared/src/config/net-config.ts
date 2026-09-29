@@ -10,8 +10,21 @@ export const NET_CONFIG = {
    * per-tick cap, and a cap of 1 would strand honest clients after every network stall. Raising this
    * buys stall headroom and raises the flood ceiling by the same factor.
    */
-  // Doubled with the 60 Hz flip (5 -> 10) to keep the same wall-clock coverage; Phase D deletes this.
+  // Doubled with the 60 Hz flip (5 -> 10). Catch-up coverage in wall-clock ms is unchanged by the
+  // doubling (10 ticks of 16.7 ms = 5 ticks of 33.3 ms), but the per-SECOND flood ceiling is not: a
+  // flooder now applies up to 10x an honest car's steps per second where it was 5x, because the
+  // cap is per tick and there are twice as many ticks. Accepted because the game is LAN-only, and
+  // Phase D deletes this knob outright.
   maxInputsPerTick: 10,
+  /**
+   * Most fixed sim steps a room runs in one wall-clock frame of its simulation interval
+   * (`rooms/fixed-step.ts`). The rooms bank the measured frame time and run one tick per whole
+   * `MS_PER_TICK` banked, so the long-run rate is exactly `TICK_RATE_HZ` even though Node truncates
+   * the 16.67 ms interval to 16 ms. After a stall (GC, a blocked event loop) a frame runs at most
+   * this many catch-up ticks and drops the rest of the backlog instead of spiralling; 5 ticks is
+   * ~83 ms of catch-up at 60 Hz, which covers an ordinary hitch without a visible burst.
+   */
+  maxCatchUpTicks: 5,
   /**
    * How long a player's input queue must stay empty before the server concludes their CLIENT has
    * stopped stepping, and starts integrating their car without them (`serverTick`'s silent-coast

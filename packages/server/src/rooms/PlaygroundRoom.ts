@@ -13,6 +13,7 @@ import {
   PlayerStatus,
   PlaygroundState,
   ROOM_NAME,
+  MS_PER_TICK,
   TICK_RATE_HZ,
   defaultPlaygroundSetup,
   isBotDifficulty,
@@ -29,7 +30,6 @@ import {
   type PlaygroundCarSetup,
   type PlaygroundSetup,
 } from "@motor-combat-moba/shared";
-import { getTickRateHz } from "../mode.js";
 import { isInputMessage } from "../net/input-message.js";
 import { forgetCombatPlayer, newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { forgetContactPlayer, newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
@@ -56,6 +56,7 @@ import {
   type PipelineCtx,
 } from "./tick-pipeline.js";
 import { scoped } from "./mode-scope.js";
+import { newRoomStepper } from "./fixed-step.js";
 
 /**
  * The level every playground car is held at. Every `unlocksAt` in `weapons()` is at or below it,
@@ -217,6 +218,8 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
    * see `PlaygroundRoom.test.ts` for the regression test.
    */
   private modeConfig: ModeConfig = modeConfigOrDefault(DEFAULT_GAME_MODE);
+  /** Turns interval frames into whole ticks at exactly `TICK_RATE_HZ` (Phase C I1). */
+  private readonly stepper = newRoomStepper();
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -248,10 +251,7 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
       // is what keeps the room from running live ticks between creation and the player's arrival —
       // `onJoin` re-stamps it once the cars are placed, and `countdownSweep` opens the match.
       beginCountdown(this.state);
-      this.setSimulationInterval(
-        () => scoped(this.modeConfig, () => this.tick()),
-        1000 / getTickRateHz(TICK_RATE_HZ),
-      );
+      this.setSimulationInterval((deltaMs) => this.onFrame(deltaMs), MS_PER_TICK);
       // No patch timer (NR12): `tick()` broadcasts at the end of every snapshot tick itself, so a
       // snapshot is always the state of exactly one tick and carries that tick. Assigned AFTER
       // `setSimulationInterval`: Colyseus 0.18's `patchRate` setter otherwise arms a stray clock
@@ -463,6 +463,16 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
   }
 
   /**
+   * One wall-clock frame of the simulation interval (Phase C I1). Colyseus hands the MEASURED delta
+   * since the last frame; the stepper runs `tick()` once per whole `MS_PER_TICK` of it, so the room
+   * ticks at exactly `TICK_RATE_HZ` though Node truncates the 16.67 ms interval to 16 ms, and a
+   * stall runs a bounded catch-up rather than a spiral.
+   */
+  private onFrame(deltaMs: number): void {
+    this.stepper.advance(deltaMs, () => scoped(this.modeConfig, () => this.tick()));
+  }
+
+  /**
    * One sim tick, then the snapshot of it when this is a snapshot tick (NR12). A paused tick still
    * broadcasts — `state.tick` is frozen then, and the pause flag and every settings edit made while
    * paused would otherwise never reach the client; `broadcastPatch` sends nothing when nothing
@@ -632,7 +642,7 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
       phaseCaps: this.phaseCaps,
       combat: this.combat,
       ram: this.ram,
-      hz: getTickRateHz(TICK_RATE_HZ),
+      hz: TICK_RATE_HZ,
       // True regardless of the mode, which stays FFA_LAST_STANDING: the phased spawn-protection
       // lifecycle has to end and refresh here exactly as it does in a deathmatch, and faking the
       // mode would drag the match clock and the deathmatch HUD along with it.

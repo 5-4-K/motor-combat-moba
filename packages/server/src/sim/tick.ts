@@ -84,7 +84,7 @@ export interface TickResult {
 
 /**
  * Advance every player by their queued inputs. `dt` is seconds and must match the room simulation
- * interval (1 / getTickRateHz(TICK_RATE_HZ)).
+ * tick (`MS_PER_TICK / 1000`; the room's `FixedStepper` runs one tick per `MS_PER_TICK` of wall clock).
  *
  * **One player is advanced without any input: one whose client has gone quiet for long enough that
  * it is no longer predicting either.** A ram writes motion onto its victim from outside, and that

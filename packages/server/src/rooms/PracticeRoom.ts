@@ -19,6 +19,7 @@ import {
   PlayerState,
   PlayerStatus,
   PracticeState,
+  MS_PER_TICK,
   TICK_RATE_HZ,
   assignSpawns,
   getArena,
@@ -34,7 +35,7 @@ import {
   type ModeConfig,
   type PracticeSetup,
 } from "@motor-combat-moba/shared";
-import { getMaxPracticeRooms, getSimulatedLatency, getTickRateHz } from "../mode.js";
+import { getMaxPracticeRooms, getSimulatedLatency } from "../mode.js";
 import { isInputMessage } from "../net/input-message.js";
 import { withSimulatedLatency } from "../net/latency-injector.js";
 import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
@@ -69,6 +70,7 @@ import {
   type PipelineCtx,
 } from "./tick-pipeline.js";
 import { scoped } from "./mode-scope.js";
+import { newRoomStepper } from "./fixed-step.js";
 
 /**
  * The room's opening state, exported so the two decisions in it are pinned by a test rather than by
@@ -178,6 +180,8 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
    * install (MC15, MC21).
    */
   private readonly modeConfig: ModeConfig = modeConfigOrDefault(GameMode.FFA_DEATHMATCH);
+  /** Turns interval frames into whole ticks at exactly `TICK_RATE_HZ` (Phase C I1). */
+  private readonly stepper = newRoomStepper();
   /**
    * Latched at the first close, because `disconnect()` is asynchronous and the simulation interval
    * can fire again before the room is gone — without this the idle sweep would keep kicking clients
@@ -234,10 +238,7 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
     // above — so it runs as one `scoped` stretch, the same shape `ArenaRoom.onCreate` uses (MC15).
     scoped(this.modeConfig, () => {
       this.setState(newPracticeState());
-      this.setSimulationInterval(
-        () => scoped(this.modeConfig, () => this.tick()),
-        1000 / getTickRateHz(TICK_RATE_HZ),
-      );
+      this.setSimulationInterval((deltaMs) => this.onFrame(deltaMs), MS_PER_TICK);
       // No patch timer (NR12): `tick()` broadcasts at the end of every snapshot tick itself, so a
       // snapshot is always the state of exactly one tick and carries that tick. Assigned AFTER
       // `setSimulationInterval`: Colyseus 0.18's `patchRate` setter otherwise arms a stray clock
@@ -358,7 +359,7 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
 
   /**
    * `allowReconnection` is deliberately never called (PR30): a closed tab disposes the room
-   * immediately rather than holding a 30 Hz sim through a grace window nobody is watching.
+   * immediately rather than holding a 60 Hz sim through a grace window nobody is watching.
    */
   onLeave(): void {
     scoped(this.modeConfig, () => {
@@ -402,6 +403,16 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
     this.silentTicks.set(sessionId, 0);
     this.matchRoster.add(sessionId);
     return player;
+  }
+
+  /**
+   * One wall-clock frame of the simulation interval (Phase C I1). Colyseus hands the MEASURED delta
+   * since the last frame; the stepper runs `tick()` once per whole `MS_PER_TICK` of it, so the room
+   * ticks at exactly `TICK_RATE_HZ` though Node truncates the 16.67 ms interval to 16 ms, and a
+   * stall runs a bounded catch-up rather than a spiral.
+   */
+  private onFrame(deltaMs: number): void {
+    this.stepper.advance(deltaMs, () => scoped(this.modeConfig, () => this.tick()));
   }
 
   /**
@@ -516,7 +527,7 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
       phaseCaps: this.phaseCaps,
       combat: this.combat,
       ram: this.ram,
-      hz: getTickRateHz(TICK_RATE_HZ),
+      hz: TICK_RATE_HZ,
       // The phased spawn-protection lifecycle has to end and refresh here exactly as it does in a
       // real deathmatch, and `runPipeline` will not infer that from the mode.
       runPhaseSweep: true,

@@ -99,15 +99,18 @@ describe("releaseEnvFile", () => {
   it("keeps DEPLOY_MODE=lan and documents the other knobs", () => {
     const env = releaseEnvFile(2567);
     assert.match(env, /^DEPLOY_MODE=lan$/m);
-    assert.match(env, /^TICK_RATE_HZ=$/m);
+    assert.match(env, /^SIM_LATENCY_MS=$/m);
+    // The tick rate is compiled in, not an env knob (Phase C minor 5): the client predicts at its own
+    // built TICK_RATE_HZ, so a server overriding it would silently desync every prediction.
+    assert.doesNotMatch(env, /^TICK_RATE_HZ=/m);
     assert.ok(env.startsWith("#"));
   });
 });
 
 describe("setEnvPort", () => {
   it("rewrites PORT in place, keeping every other key and its comments", () => {
-    const before = "# why this port\nPORT=2567\n\n# tuning\nTICK_RATE_HZ=60\n";
-    assert.equal(setEnvPort(before, 80), "# why this port\nPORT=80\n\n# tuning\nTICK_RATE_HZ=60\n");
+    const before = "# why this port\nPORT=2567\n\n# tuning\nSIM_LATENCY_MS=60\n";
+    assert.equal(setEnvPort(before, 80), "# why this port\nPORT=80\n\n# tuning\nSIM_LATENCY_MS=60\n");
   });
 
   it("appends PORT to a file that has none rather than silently doing nothing", () => {
