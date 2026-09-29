@@ -27,7 +27,7 @@
 
 ---
 
-### Task E1: `lastSteer`/`lastThrottle` and the `RemoteReckoner`
+### Task 1 (E1): `lastSteer`/`lastThrottle` and the `RemoteReckoner`
 
 **Files:**
 - Modify: `packages/shared/src/schema/PlayerState.ts` (`@type("int8") lastSteer = 0; @type("int8") lastThrottle = 0;`)
@@ -145,7 +145,7 @@ git commit -m "feat(net): remote dead reckoning with the shared stepSim (NR31-NR
 
 ---
 
-### Task E2: `TickInterpolation` with adaptive delay and capped extrapolation
+### Task 2 (E2): `TickInterpolation` with adaptive delay and capped extrapolation
 
 **Files:**
 - Create: `packages/shared/src/net/tick-interpolation.ts` (+ test); export it
@@ -249,7 +249,7 @@ git commit -m "feat(net): tick-keyed interpolation, adaptive delay, capped extra
 
 ---
 
-### Task E3: Remotes at their reckoned pose in local prediction
+### Task 3 (E3): Remotes at their reckoned pose in local prediction
 
 **Files:**
 - Modify: `packages/shared/src/net/step-context.ts` (`buildStepContext` gains `poseOf?: (sessionId: string) => { x: number; y: number; angle: number } | undefined`, used for every entry except `self`)
@@ -270,7 +270,7 @@ git commit -m "feat(net): predict against remotes where they will be (NR32)"
 
 ---
 
-### Task E4: Contact blend
+### Task 4 (E4): Contact blend
 
 **Files:**
 - Create: `packages/shared/src/net/contact-blend.ts` (+ test)
@@ -289,7 +289,7 @@ git commit -m "feat(net): draw nearby remotes where you can hit them (NR34)"
 
 ---
 
-### Task E5: Measure and document
+### Task 5 (E5): Measure and document
 
 - [ ] **Step 1:** `NETSIM_REPORT=1 npx vitest run --root packages/server src/netsim`; fill the "after E" column. Targets: path error p95 ≤ 12 u, hold ≤ 1 %, LAN display delay ≤ 50 ms. Misses are recorded as deviations with the tuning tried.
 - [ ] **Step 2:** `docs/networking.md` — rewrite "Interpolation" and "Prediction context" for NR29–NR34; `docs/config-reference.md` NET_CONFIG rows; `docs/schema-reference.md` `lastSteer`/`lastThrottle`.

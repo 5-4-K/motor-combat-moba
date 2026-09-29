@@ -27,7 +27,7 @@
 
 ---
 
-### Task F1: `viewTick` and the server's compensation budget
+### Task 1 (F1): `viewTick` and the server's compensation budget
 
 **Files:**
 - Modify: `packages/client/src/scenes/ArenaScene.ts` (`sendInputTick` sets `frame.viewTick = this.lastRenderTick`)
@@ -79,7 +79,7 @@ describe("shotCompTicks (NR36)", () => {
 
 ---
 
-### Task F2: Fast-forward inside `runCombat`
+### Task 2 (F2): Fast-forward inside `runCombat`
 
 **Files:**
 - Modify: `packages/shared/src/sim/combat.ts` (`CombatInput.fastForward?: ReadonlyMap<string, number>`)
@@ -116,7 +116,7 @@ Build these worlds with the helpers `combat.test.ts` already uses for its projec
 
 ---
 
-### Task F3: `ShotView` — enemy shots drawn at present
+### Task 3 (F3): `ShotView` — enemy shots drawn at present
 
 **Files:**
 - Create: `packages/shared/src/net/shot-view.ts` (+ test)
@@ -141,7 +141,7 @@ export class ShotView {
 
 ---
 
-### Task F4: Provisional own shots
+### Task 4 (F4): Provisional own shots
 
 **Files:**
 - Create: `packages/shared/src/net/provisional-shots.ts` (+ test)
@@ -167,7 +167,7 @@ export class ProvisionalShots {
 
 ---
 
-### Task F5: Measure and document
+### Task 5 (F5): Measure and document
 
 - [ ] **Step 1:** Extend the netsim drivers with occasional fire presses (fixed seed) and add two metrics: `ownShotDelayMs` (press → first drawn frame of the shooter's shot, provisional or confirmed) and `shotConfirmJumpP95` (distance between a provisional and its confirming instance at hand-over). Record in EXECUTION.md.
 - [ ] **Step 2:** `docs/networking.md` "Client — combat" rewritten for NR35–NR41 (the "v1 hit detection is current-tick" paragraph is replaced by the fast-forward rule and its cap); `docs/combat-model.md` gets a short "Latency" section pointing at it.

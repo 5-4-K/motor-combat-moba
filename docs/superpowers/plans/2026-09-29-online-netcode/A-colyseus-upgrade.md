@@ -28,7 +28,7 @@
 
 ---
 
-### Task A1: Shared and server on schema 5 and Colyseus core 0.18
+### Task 1 (A1): Shared and server on schema 5 and Colyseus core 0.18
 
 **Files:**
 - Modify: `package.json` (root `engines.node` → `">=22"`)
@@ -106,7 +106,7 @@ git commit -m "chore(deps): shared and server on @colyseus/schema 5 and Colyseus
 
 ---
 
-### Task A2: Client on `@colyseus/sdk` 0.18
+### Task 2 (A2): Client on `@colyseus/sdk` 0.18
 
 **Files:**
 - Modify: `packages/client/package.json` (remove `colyseus.js`; add `@colyseus/sdk` `^0.18.4`)
@@ -176,7 +176,7 @@ git commit -m "chore(deps): client on @colyseus/sdk 0.18"
 
 ---
 
-### Task A3: Monitor gate and Node 22 docs
+### Task 3 (A3): Monitor gate and Node 22 docs
 
 **Files:**
 - Modify: `packages/server/src/monitor.ts`

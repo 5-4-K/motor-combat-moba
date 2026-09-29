@@ -27,7 +27,7 @@
 
 ---
 
-### Task D1: `InputFrame`, packet validation and `TickInputBuffer`
+### Task 1 (D1): `InputFrame`, packet validation and `TickInputBuffer`
 
 **Files:**
 - Create: `packages/shared/src/net/tick-input.ts`, `packages/shared/src/net/tick-input.test.ts`
@@ -272,7 +272,7 @@ git commit -m "feat(net): tick-stamped input frames and the one-per-tick input b
 
 ---
 
-### Task D2: `ClockSync`, `InputScheduler`, tick-keyed prediction
+### Task 2 (D2): `ClockSync`, `InputScheduler`, tick-keyed prediction
 
 **Files:**
 - Create: `packages/shared/src/net/clock-sync.ts` (+ test), `packages/shared/src/net/input-scheduler.ts` (+ test)
@@ -553,7 +553,7 @@ git commit -m "feat(net): clock sync, input scheduler and tick-keyed prediction 
 
 ---
 
-### Task D3: Time-sync messages on every room (additive)
+### Task 3 (D3): Time-sync messages on every room (additive)
 
 **Files:**
 - Modify: `packages/shared/src/net/tick-input.ts` — add message names: `export const MSG_TIME = "time"; export const MSG_PING = "ping";` plus `isTimeRequest(msg): msg is { c: number }` and `isPingEcho(msg): msg is { s: number }` (finite numbers)
@@ -627,7 +627,7 @@ git commit -m "feat(net): time sync and server-measured RTT on every room (NR18,
 
 ---
 
-### Task D4: The switch — one input per tick, everywhere
+### Task 4 (D4): The switch — one input per tick, everywhere
 
 This is the atomic wire change: server, every in-process input producer, and the client move together so `development/main` is never unplayable.
 
@@ -767,7 +767,7 @@ git commit -m "feat(net): one input per car per tick, clock-synced client lead (
 
 ---
 
-### Task D5: Hardening — rate limits, payload cap, protocol version, two-way latency
+### Task 5 (D5): Hardening — rate limits, payload cap, protocol version, two-way latency
 
 **Files:**
 - Create: `packages/server/src/net/rate-limit.ts` (+ test)
@@ -830,7 +830,7 @@ git commit -m "feat(net): rate limits, payload cap, protocol version, two-way la
 
 ---
 
-### Task D6: Measure and document
+### Task 6 (D6): Measure and document
 
 **Files:**
 - Modify: `docs/networking.md` (rewrite "Client — movement" and "Server" for NR17–NR28), `docs/config-reference.md` (`NET_CONFIG` table), `docs/schema-reference.md` (`ackRepeated`, `inputSlack`; `lastProcessedInputSeq` gone), `EXECUTION.md`

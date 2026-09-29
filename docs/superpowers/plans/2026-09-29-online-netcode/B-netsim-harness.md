@@ -27,7 +27,7 @@
 
 ---
 
-### Task B1: Move the client's pure net modules into shared
+### Task 1 (B1): Move the client's pure net modules into shared
 
 **Files:**
 - Move: `packages/client/src/net/prediction.ts` → `packages/shared/src/net/prediction.ts` (and its test)
@@ -86,7 +86,7 @@ git commit -m "refactor(net): move prediction, interpolation and step context in
 
 ---
 
-### Task B2: The `Link` model
+### Task 2 (B2): The `Link` model
 
 **Files:**
 - Create: `packages/server/src/netsim/rng.ts`
@@ -227,7 +227,7 @@ git commit -m "test(netsim): seeded link model with jitter and head-of-line loss
 
 ---
 
-### Task B3: Runner, legacy client model, metrics and the baseline
+### Task 3 (B3): Runner, legacy client model, metrics and the baseline
 
 **Files:**
 - Create: `packages/server/src/netsim/metrics.ts`

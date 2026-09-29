@@ -28,7 +28,7 @@
 
 ---
 
-### Task G1: Vision functions move to shared
+### Task 1 (G1): Vision functions move to shared
 
 **Files:**
 - Move: `packages/client/src/camera/vision.ts` → `packages/shared/src/vision/vision.ts` (+ test); export from shared index
@@ -40,7 +40,7 @@
 
 ---
 
-### Task G2: Tag the schema
+### Task 2 (G2): Tag the schema
 
 **Files:**
 - Modify: `packages/shared/src/schema/{PlayerState,WeaponSlotState,ArenaState}.ts`
@@ -91,7 +91,7 @@ it("slot timers reach only the owner tag", () => {
 
 ---
 
-### Task G3: `ViewManager`
+### Task 3 (G3): `ViewManager`
 
 **Files:**
 - Create: `packages/server/src/net/view-manager.ts` (+ test)
@@ -123,7 +123,7 @@ Rules (NR44–NR47), per viewer:
 
 ---
 
-### Task G4: The client copes with hidden cars
+### Task 4 (G4): The client copes with hidden cars
 
 **Files:**
 - Modify: `packages/client/src/scenes/ArenaScene.ts` (draw only `inView === true` cars; on a car turning hidden: hide sprites, `interp.reset()`, `reckoner.forget`, `shotView.forget` for its instances), HUD readers of remote `hp`/statuses, the roster panels (`packages/client/src/modes/*/gutter.ts` and the last-standing/deathmatch equivalents): HP shows `?` when `inView !== true` (NR48)
@@ -136,7 +136,7 @@ Rules (NR44–NR47), per viewer:
 
 ---
 
-### Task G5: Leak test through a real room
+### Task 5 (G5): Leak test through a real room
 
 **Files:**
 - Create: `packages/server/src/rooms/view-leak.test.ts`
@@ -147,7 +147,7 @@ Rules (NR44–NR47), per viewer:
 
 ---
 
-### Task G6: Docs close-out
+### Task 6 (G6): Docs close-out
 
 **Files:**
 - Modify: `docs/networking.md` (new "What a client may know" section), `docs/schema-reference.md` (tags per field), `docs/config-reference.md` (every new `NET_CONFIG` knob, `SNAPSHOT_RATE_HZ`, `PROTOCOL_VERSION`), `docs/deployment.md` (dedicated-server notes: `MONITOR_PASSWORD`, Node 22), `docs/superpowers/specs/2026-09-28-camera-behaviors-design.md` (one line under CB6 pointing to NR44 — the spec's record is not rewritten), `CLAUDE.md` (a short "Online netcode" paragraph pointing at the spec and this EXECUTION.md; hard invariant 8 gains "…and a field a client may not always see carries a `@view` tag")

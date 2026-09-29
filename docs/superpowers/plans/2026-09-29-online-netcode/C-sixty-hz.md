@@ -27,7 +27,7 @@
 
 ---
 
-### Task C1: Bot timing knobs authored in milliseconds
+### Task 1 (C1): Bot timing knobs authored in milliseconds
 
 **Files:**
 - Modify: `packages/server/src/config/bot-profiles.ts` (authored table, `BOT_BRAIN_VERSION`)
@@ -125,7 +125,7 @@ git commit -m "refactor(bot): author bot timing in ms, resolve to ticks (NR14)"
 
 ---
 
-### Task C2: Tests derive their rate from `TICK_RATE_HZ`
+### Task 2 (C2): Tests derive their rate from `TICK_RATE_HZ`
 
 **Files:**
 - Modify: tests that hardcode 30 Hz. Find them with
@@ -156,7 +156,7 @@ git commit -m "test: derive tick-rate literals from TICK_RATE_HZ (NR15 prep)"
 
 ---
 
-### Task C3: Flip to 60 Hz and broadcast one snapshot per tick
+### Task 3 (C3): Flip to 60 Hz and broadcast one snapshot per tick
 
 **Files:**
 - Modify: `packages/shared/src/constants.ts` (`TICK_RATE_HZ = 60`; add `SNAPSHOT_RATE_HZ = 60`; delete `DEFAULT_PATCH_RATE_HZ` once nothing reads it)
