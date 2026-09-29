@@ -131,7 +131,7 @@ export function releaseReadme(port) {
   const privileged = port < 1024;
   return `# Motor Combat MOBA (LAN)
 
-Requires Node.js 20 or newer.
+Requires Node.js 22 or newer.
 
 1. Double-click \`start.bat\` (Windows) or run \`./start.sh\` (macOS/Linux).
 2. The first launch installs dependencies, then starts the server.

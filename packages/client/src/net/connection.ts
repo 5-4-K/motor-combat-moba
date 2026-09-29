@@ -10,9 +10,20 @@ import {
 } from "@motor-combat-moba/shared";
 import { detectServerEndpoint } from "../config/client-mode.js";
 
+/**
+ * @colyseus/sdk 0.18 retries a dropped socket by default, but the server never calls
+ * `allowReconnection`, so a retry could only hang and `onLeave` would never fire. Reconnection is
+ * a future designed feature; until then a lost connection must leave the room immediately.
+ */
+async function noReconnect<T extends Room>(joining: Promise<T>): Promise<T> {
+  const room = await joining;
+  room.reconnection.enabled = false;
+  return room;
+}
+
 export async function joinArena(name: string): Promise<Room<ArenaState>> {
   const client = new Client(detectServerEndpoint());
-  return client.joinOrCreate<ArenaState>(ROOM_NAME, { name });
+  return noReconnect(client.joinOrCreate<ArenaState>(ROOM_NAME, { name }));
 }
 
 /**
@@ -23,7 +34,7 @@ export async function joinArena(name: string): Promise<Room<ArenaState>> {
  */
 export async function joinPlayground(): Promise<Room<PlaygroundState>> {
   const client = new Client(detectServerEndpoint());
-  return client.joinOrCreate<PlaygroundState>(PLAYGROUND_ROOM_NAME, { name: "Dev" });
+  return noReconnect(client.joinOrCreate<PlaygroundState>(PLAYGROUND_ROOM_NAME, { name: "Dev" }));
 }
 
 /**
@@ -36,5 +47,5 @@ export async function joinPlayground(): Promise<Room<PlaygroundState>> {
  */
 export async function joinPractice(setup: PracticeSetup): Promise<Room<PracticeState>> {
   const client = new Client(detectServerEndpoint());
-  return client.joinOrCreate<PracticeState>(PRACTICE_ROOM_NAME, setup);
+  return noReconnect(client.joinOrCreate<PracticeState>(PRACTICE_ROOM_NAME, setup));
 }

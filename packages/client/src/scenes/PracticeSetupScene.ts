@@ -23,15 +23,15 @@ const ARENA_STATE_SYNC_TIMEOUT_MS = 5000;
 /**
  * Resolves once `room.state` has decoded far enough to know its arena — immediately if it already
  * does. `joinPractice` resolves on the JOIN_ROOM handshake alone, which lands before the room's first
- * full state patch (colyseus.js's `Room.onMessageCallback` sets `hasJoined` and invokes `onJoin` off
- * the handshake byte, with no wait on a patch); everywhere else in the game that gap is invisible
+ * full state patch (@colyseus/sdk reports the room as joined off the handshake alone, without
+ * waiting for a state patch); everywhere else in the game that gap is invisible
  * (Lobby just renders an empty roster for one frame), but this is the one path that jumps straight
  * from a settings screen into `ArenaScene`, whose `create()` reads `state.arenaId` synchronously and
  * would otherwise show a false "arena mismatch" screen for what is really just an unsynced state.
  *
  * Also races the room's own `onError` and `onLeave` and a timeout, and rejects on whichever comes
  * first. `joinOrCreate`'s own `onError` listener is torn down the instant `onJoin` fires — i.e. the
- * instant `joinPractice` resolves (`colyseus.js`'s `Client.js`) — so nothing else is watching for a
+ * instant `joinPractice` resolves — so nothing else is watching for a
  * server crash or dropped connection between the handshake and the first patch; without this, that
  * gap would await forever with Start stuck disabled and no way out but a reload.
  *

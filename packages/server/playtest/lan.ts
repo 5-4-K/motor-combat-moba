@@ -1,5 +1,5 @@
 /**
- * A real LAN playtest: the built server on a real port, real `colyseus.js` clients over real
+ * A real LAN playtest: the built server on a real port, real `@colyseus/sdk` clients over real
  * WebSockets, driven through the real lobby -> car select -> reveal -> countdown -> match flow.
  *
  * The deterministic probes prove what the sim does. This proves the same thing survives the wire:
@@ -23,6 +23,8 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 async function join(name: string): Promise<Bot> {
   const client = new Client(ENDPOINT);
   const room = await client.joinOrCreate("arena", { name });
+  // The server never allows reconnection; the SDK default would hang on a dropped socket.
+  room.reconnection.enabled = false;
   return { name, room, seq: 0 };
 }
 

@@ -26,7 +26,7 @@ if not exist node_modules (
   echo Installing dependencies...
   call npm install
   if errorlevel 1 (
-    echo npm install failed. Install Node.js 20+ and try again.
+    echo npm install failed. Install Node.js 22+ and try again.
     pause
     exit /b 1
   )
@@ -57,6 +57,7 @@ export function releasePackageJson(serverDependencies) {
     scripts: {
       start: "node packages/server/dist/index.js",
     },
+    engines: { node: ">=22" },
     dependencies,
   };
 }

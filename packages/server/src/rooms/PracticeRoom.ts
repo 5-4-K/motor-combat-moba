@@ -209,10 +209,9 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
     }
 
     const listings = await matchMaker.query({ name: PRACTICE_ROOM_NAME });
-    // Defensive, not currently load-bearing: in the installed @colyseus/core (0.15.57),
-    // `listing.save()` runs AFTER `onCreate`, so this room is never in `listings` yet and the filter
-    // below removes nothing today. Kept anyway so a future Colyseus that lists earlier cannot make
-    // this room count itself toward its own cap.
+    // Defensive, not currently load-bearing: the room may or may not already be in
+    // `listings` depending on when Colyseus saves the listing relative to `onCreate`. The filter is
+    // safe either way, and keeps this room from counting itself toward its own cap.
     const others = listings.filter((entry) => entry.roomId !== this.roomId);
     if (shouldRefusePractice(others, getMaxPracticeRooms(PRACTICE_CONFIG.maxConcurrentRooms))) {
       throw new ServerError(PRACTICE_FULL_CLOSE_CODE, PRACTICE_FULL_ERROR);

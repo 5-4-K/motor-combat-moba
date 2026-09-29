@@ -150,7 +150,7 @@ not a failure; surfacing them is the entire point, and a run that reports six of
 ## Step by step: running the LAN playtest
 
 This one needs a built server actually listening on a port, and drives it with two real
-`colyseus.js` clients over WebSockets. Use it to confirm a finding survives the wire — schema
+`@colyseus/sdk` clients over WebSockets. Use it to confirm a finding survives the wire — schema
 encoding, the 20 Hz patch rate against the 30 Hz sim, and latency. It is slower and noisier than the
 offline probes, so explore offline and confirm here.
 
@@ -202,7 +202,7 @@ room, no sockets and no wall clock. It lets a scenario be *placed*: cars at exac
 speeds, on an exact tick. Driving a car into a corner case through the lobby and three seconds of
 countdown is not a test, it is a coincidence waiting to not happen.
 
-**`lan.ts` — over the wire.** Two real `colyseus.js` clients against the built server, through the
+**`lan.ts` — over the wire.** Two real `@colyseus/sdk` clients against the built server, through the
 real lobby → car select → reveal → countdown → match flow.
 
 **`reporter.ts`** (`common/reporter.ts`) owns the run folder and the Markdown. **`run-all.ts`** spawns

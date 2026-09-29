@@ -1,3 +1,14 @@
+import { nodeMajorOk } from "./node-version.js";
+
+// Clear message on old Node. ES imports are hoisted, so this runs after the imports below have
+// evaluated; that is fine, it exists to say what is wrong rather than to prevent loading.
+if (!nodeMajorOk(process.versions.node)) {
+  console.error(
+    `Motor Combat needs Node.js 22 or newer; this is ${process.versions.node}. Install it from https://nodejs.org`,
+  );
+  process.exit(1);
+}
+
 import "dotenv/config";
 import { createServer } from "node:http";
 import path from "node:path";

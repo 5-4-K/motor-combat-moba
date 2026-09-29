@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { monitor } from "@colyseus/monitor";
 import type { Express, NextFunction, Request, Response } from "express";
 
@@ -13,9 +13,34 @@ export function monitorGate(env: { devTools: boolean; password: string | undefin
 }
 
 function sameSecret(a: string, b: string): boolean {
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  return left.length === right.length && timingSafeEqual(left, right);
+  // Digests are fixed length, so the comparison does not leak the secret's length.
+  const digest = (v: string): Buffer => createHash("sha256").update(v).digest();
+  return timingSafeEqual(digest(a), digest(b));
+}
+
+/**
+ * Colyseus core 0.18 answers every HTTP request ahead of Express with the caller's Origin echoed
+ * into `Access-Control-Allow-Origin` plus `Allow-Credentials: true`, so any page the operator visits
+ * could read the monitor with cached credentials, and its GET endpoints act on rooms. Refuse
+ * cross-site requests outright and strip the reflected CORS headers from the rest.
+ */
+function sameSiteOnly(req: Request, res: Response, next: NextFunction): void {
+  const origin = req.headers.origin;
+  let foreign = req.headers["sec-fetch-site"] === "cross-site";
+  if (!foreign && origin !== undefined) {
+    try {
+      foreign = new URL(origin).host !== req.headers.host;
+    } catch {
+      foreign = true;
+    }
+  }
+  if (foreign) {
+    res.status(403).end();
+    return;
+  }
+  res.removeHeader("Access-Control-Allow-Origin");
+  res.removeHeader("Access-Control-Allow-Credentials");
+  next();
 }
 
 function basicAuth(password: string) {
@@ -32,6 +57,6 @@ function basicAuth(password: string) {
 export function mountMonitor(app: Express, env: { devTools: boolean; password: string | undefined }): void {
   const gate = monitorGate(env);
   if (gate === "off") return;
-  if (gate === "password") app.use("/colyseus", basicAuth(env.password as string), monitor());
-  else app.use("/colyseus", monitor());
+  if (gate === "password") app.use("/colyseus", sameSiteOnly, basicAuth(env.password as string), monitor());
+  else app.use("/colyseus", sameSiteOnly, monitor());
 }

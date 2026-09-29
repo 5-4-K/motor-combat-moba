@@ -17,6 +17,7 @@ describe("startBat", () => {
   it("installs npm deps then starts the bundled server", () => {
     const bat = startBat();
     assert.match(bat, /npm install/);
+    assert.match(bat, /Node\.js 22\+/);
     assert.match(bat, /node packages\\server\\dist\\index\.js/);
   });
 
@@ -53,6 +54,7 @@ describe("releasePackageJson", () => {
     assert.ok(!Object.hasOwn(pkg.dependencies, "@motor-combat-moba/shared"));
     assert.equal(pkg.dependencies.express, "^4.19.0");
     assert.equal(pkg.dependencies.colyseus, "^0.15.0");
+    assert.deepEqual(pkg.engines, { node: ">=22" });
   });
 });
 
