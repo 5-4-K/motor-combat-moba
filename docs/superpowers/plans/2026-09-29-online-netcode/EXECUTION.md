@@ -18,7 +18,7 @@ phase's own acceptance lines.
 
 | Phase | File | Spec | Status | Measured / notes |
 |---|---|---|---|---|
-| A — Colyseus 0.18, schema 5, Node 22, monitor gate | [`A-colyseus-upgrade.md`](A-colyseus-upgrade.md) | NR50, NR53 | Not started | |
+| A — Colyseus 0.18, schema 5, Node 22, monitor gate | [`A-colyseus-upgrade.md`](A-colyseus-upgrade.md) | NR50, NR53 | In progress | |
 | B — netsim harness and today's baseline | [`B-netsim-harness.md`](B-netsim-harness.md) | NR57–NR59 | Not started | |
 | C — 60 Hz and per-tick snapshots | [`C-sixty-hz.md`](C-sixty-hz.md) | NR11–NR16 | Not started | |
 | D — time and inputs | [`D-time-and-inputs.md`](D-time-and-inputs.md) | NR17–NR28, NR54–NR56 | Not started | |
@@ -28,28 +28,24 @@ phase's own acceptance lines.
 
 ## In flight
 
-**Paused before any implementation — waiting for the user's explicit go-ahead** (asked
-2026-09-29). Spec (`d6f2f1a`) and plan (`b632b4c`, `b907659`) are committed; no code has changed.
-A first dispatch of Task A1 was cancelled before it wrote anything. When the user says go:
-Phase A, Task 1 (A1), via superpowers:subagent-driven-development, one implementer + one reviewer
-per task, committing and pushing each task to `development/main`.
-
-Decisions the user was asked to check before approving (unanswered at pause):
-- Server FOV filtering uses `@view()` field tags on `PlayerState`, not a schema split (NR42,
-  verified against `@colyseus/schema` 5.0.34 in a scratch test).
+**Phase A, Task 1 (A1)** — started 2026-09-29 after the user's go-ahead ("start implementation
+with sdd"). The six decisions listed at the pause were accepted as written:
+- Server FOV filtering uses `@view()` field tags on `PlayerState`, not a schema split (NR42).
 - Hard invariant 5 reworded (NR13); invariant 8 gains a `@view` clause (G6).
-- Bot timing authored in ms, identical at 30 Hz, doubles in ticks at 60 Hz; `BOT_BRAIN_VERSION`
-  6.3.0 (C1).
-- 60 Hz moves handling slightly through the integration step only; measured and reported in C3.
-- D4 is one atomic commit (server, bots, harnesses, client).
+- Bot timing authored in ms; `BOT_BRAIN_VERSION` 6.3.0 (C1).
+- 60 Hz handling drift measured and reported in C3.
+- D4 is one atomic commit.
 - All work lands directly on `development/main`.
+
+Known gap until Phase D's `PROTOCOL_VERSION`: a client built on schema 2 joining a schema-5 server
+is not refused cleanly.
 
 Tooling notes for the executor:
 - Plan task headings are numeric (`### Task 1 (A1): …`) so `task-brief PLAN_FILE N` finds them;
   each phase file is its own SDD plan with its own workspace under `.superpowers/sdd/<phase>/`.
 - Phase A pre-flight ruling: if `npm run playtest:lan` (A2 Step 6 smoke) does not exit on its own,
-  the implementer judges pass from its log (both clients joined and received state). Cost if
-  wrong: a smoke that passed without a full match.
+  the implementer judges pass from its log (both clients joined and received state).
+- Between A1 and A2 the client suite may be red (colyseus.js on schema 2 against shared on schema 5).
 - Two failures in `packages/server/src/bot/brain/controller.test.ts` (G12) are pre-existing.
 
 ## Rules that bite mid-execution
