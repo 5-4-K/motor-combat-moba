@@ -72,4 +72,22 @@ export const NET_CONFIG = {
    * snapshots would stall a shot on screen, which is the opposite of the cap's purpose.
    */
   shotExtrapolationCapMs: 50,
+  /** Where the client's slack feedback steers the mean input lead, in ticks (NR21). */
+  targetSlackTicks: 1.5,
+  /** Most the client's tick clock may run faster or slower than nominal while steering slack (NR21). */
+  maxDilation: 0.04,
+  /** How long a missing input repeats the last real one before the car goes neutral (NR22). */
+  inputRepeatMs: 250,
+  /** Inputs stamped further ahead than this past the next tick are dropped, not buffered (NR22). */
+  maxInputLeadMs: 250,
+  /** Previous frames each input packet repeats alongside the newest, so a lost packet costs nothing (NR24). */
+  inputRedundancy: 3,
+  /** Most ticks the CLIENT scheduler runs in one frame after a stall before it resyncs and skips (NR20). */
+  clientMaxCatchUpTicks: 8,
+  /** Steady-state interval between MSG_TIME clock-sync pings (NR18). */
+  timeSyncIntervalMs: 500,
+  /** Ping interval during the join burst (NR18). */
+  timeSyncBurstMs: 100,
+  /** How long after joining the burst interval applies (NR18). */
+  timeSyncBurstWindowMs: 1000,
 } as const;
