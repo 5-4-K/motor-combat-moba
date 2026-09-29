@@ -76,7 +76,28 @@ size moved, measured:
   facing +x) whose pick {+1,-1} leads the corner's {-1,-1} by 4.25 (30 Hz) / 3.47 (60 Hz); the
   test passes at both rates.
 - **Input-count knobs.** `NET_CONFIG.maxInputsPerTick` 5 -> 10 and `pendingInputCap` 24 -> 48, so
-  they cover the same wall-clock time as at 30 Hz (Phase D deletes both).
+  they cover the same wall-clock time as at 30 Hz (Phase D deletes both). Corrected premise (final
+  review): catch-up coverage in ms is indeed unchanged, but `maxInputsPerTick` is a per-TICK cap and
+  there are now twice as many ticks, so the per-second flood ceiling doubled — a flooder can apply up
+  to 10x an honest car's steps per second where it was 5x. Accepted because the game is LAN-only and
+  Phase D deletes the knob.
+- **Server tick rate held exactly (final review I1).** `setSimulationInterval(cb, 1000 / 60)` ran
+  ~3 % fast (measured 61.73 ticks/s): Node truncates the 16.67 ms delay to 16 ms. Every room now
+  drives its tick through `rooms/fixed-step.ts`'s `FixedStepper`, which banks Colyseus's measured
+  frame delta and runs one tick per whole `MS_PER_TICK`, at most `NET_CONFIG.maxCatchUpTicks` (5) per
+  frame, dropping a larger backlog rather than spiralling. Phase D (NR17–NR28) assumes the server
+  ticks at exactly `TICK_RATE_HZ`; this is what makes that true. The `TICK_RATE_HZ` env override
+  (`getTickRateHz`, the release `.env` line) is removed — a client predicts at its own built rate, so
+  the override could only ever desync.
+- **Reconcile ease rescaled (final review I2).** `reconcileEaseRate` 0.25 is now authored per
+  `reconcileEaseReferenceMs` (50 ms, one 20 Hz snapshot) and applied per snapshot through
+  `reconcileEasePerSnapshot()` = `1 - 0.75 ** (16.67 / 50)` ≈ 0.0914, so three 60 Hz snapshots ease
+  exactly what one 20 Hz snapshot did; unscaled, corrections had landed three times as fast.
+- **Bot timing notes (final review, not acted on).** The humanize layer's idle fidget is rolled per
+  tick (`humanize.ts`), so at 60 Hz flicks are twice as frequent and half as long — a `bot-tuner`
+  question. NR16's measurement covers the planner only: `solve()`'s march, the physics predictor's
+  horizon, `perceive` and `stepAimError` also run roughly twice as often per simulated second, and
+  their CPU cost is unmeasured.
 - **Netsim, legacy client at 60 Hz** — see the note under the baseline table below.
 
 **Every playtest probe now measures a 60 Hz sim; run `npm run playtest -- --scope=all`.** Several
@@ -97,7 +118,9 @@ client, and the baseline is recorded below. Phase A landed 2026-09-29 (started a
 - All work lands directly on `development/main`.
 
 Known gap until Phase D's `PROTOCOL_VERSION`: a client built on schema 2 joining a schema-5 server
-is not refused cleanly.
+is not refused cleanly. Likewise, a client built at 30 Hz joining a 60 Hz server (or the reverse) is
+not refused at all — it predicts at its own built `TICK_RATE_HZ` against a server stepping at another,
+and nothing checks the two agree until `PROTOCOL_VERSION` lands in Phase D.
 
 Tooling notes for the executor:
 - Plan task headings are numeric (`### Task 1 (A1): …`) so `task-brief PLAN_FILE N` finds them;
@@ -153,22 +176,32 @@ the 30 Hz record.
 |---|---|---|---|
 | Server steps per car per tick (max) | 1 (1–1) | 7 (7–7) | 10 (10–10) |
 | Remote path error p95 (u) | 0.00 | 0.00 | 0.00 |
-| Remote hold frames | 0.018 % (0.007–0.026 %) | 5.65 % (5.33–6.11 %) | 10.88 % (10.47–11.48 %) |
-| Local reconcile correction p95 (u) | 0.01 (0.00–0.02) | 0.30 (0.04–0.44) | 0.68 (0.34–1.01) |
-| Input-to-server delay (ms) | 9.3 (9.3–9.4) | 51.3 (51.3–51.4) | 92.0 (91.9–92.2) |
-| Remote display delay (ms) | 50.5 (50.5–50.6) | 87.8 (87.0–88.9) | 121.3 (120.2–122.5) |
+| Remote hold frames | 0.008 % (0.003–0.011 %) | 6.40 % (5.93–6.93 %) | 12.00 % (11.58–12.82 %) |
+| Local reconcile correction p95 (u) | 0.03 (0.01–0.06) | 0.49 (0.20–0.90) | 1.63 (0.90–2.63) |
+| Input-to-server delay (ms) | 9.2 (9.2–9.3) | 51.3 (51.3–51.4) | 92.0 (91.8–92.2) |
+| Remote display delay (ms) | 50.1 (49.0–50.7) | 88.3 (87.9–88.9) | 121.5 (120.7–122.7) |
 
 Recorded with `maxInputsPerTick` 10 and `pendingInputCap` 48 (doubled with the flip, see In
-flight). Dropped inputs per run: lan 1–2, net80 22–28 (30 Hz: 14–15), net150 82–124 (30 Hz: 77–85)
-— back near the 30 Hz level; with the old caps of 5/24 they had risen to 172–202 and 975–1029, and
-the steps-per-tick maximum rises with the cap (a catch-up burst now drains up to 10 inputs).
+flight), and — **re-recorded after the final review** — with two changes the first 60 Hz table did
+not have: the netsim's scripted driver now holds each set of keys for a wall-clock span
+(333–1667 ms, the 10–50-tick span at 30 Hz, converted with `TICK_RATE_HZ`) instead of a tick count
+that had halved every hold at 60 Hz, and the reconcile ease is rescaled per snapshot (I2 above).
+Attribution, measured by running the new driver with the old unscaled ease: hold frames move with
+the driver alone (net80 6.40 %, net150 12.00 % either way), while the reconcile p95 rise is the
+ease — new driver with the unscaled ease reads lan 0.01, net80 0.07, net150 0.52; with the rescaled
+ease 0.03 / 0.49 / 1.63. That is the ease doing what it was fixed to do: a correction now takes the
+same wall-clock time as at 20 Hz snapshots, so more of each correction is still outstanding at any
+one reconcile sample. Dropped inputs per run: lan 1–2, net80 21–26 (30 Hz: 14–15), net150 83–103
+(30 Hz: 77–85); deaths lan 4/4/5, net80 5/4/6, net150 6/3/5 for seeds 1/2/3. With the old caps of
+5/24 dropped inputs had risen to 172–202 and 975–1029, and the steps-per-tick maximum rises with
+the cap (a catch-up burst now drains up to 10 inputs).
 
 Read two rows with care: **reconcile p95 (one sample per reconcile) and hold frames (head-of-line
 stalls, per message) shift with the message rate alone** — three times as many snapshots per second
 means three times as many reconciles and three times as many losses to stall the stream behind — so
-a move in those rows is not by itself a netcode change. Hold frames rose (net80 3.62 → 5.65 %,
-net150 7.09 → 10.88 %) for exactly that reason. Input-to-server and display delay fell with the tick
-quantum (lan 21.7 → 9.3 ms and 67.4 → 50.5 ms). Path error fell to float noise: a snapshot every
+a move in those rows is not by itself a netcode change. Hold frames rose (net80 3.62 → 6.40 %,
+net150 7.09 → 12.00 %) for exactly that reason. Input-to-server and display delay fell with the tick
+quantum (lan 21.7 → 9.2 ms and 67.4 → 50.1 ms). Path error fell to float noise: a snapshot every
 tick leaves no chord between patches to cut.
 
 The remote display delay row is the TOTAL delay the harness measures — interpolation delay plus

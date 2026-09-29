@@ -34,14 +34,13 @@ tables.
 |---|---|---|
 | `DEPLOY_MODE` | server `mode.ts` | `lan` (`cloud` is CORS-only; no hosting) |
 | `PORT` | server `mode.ts` | `2567` |
-| `TICK_RATE_HZ` | env override of shared constant | shared `30` |
 | `SIM_LATENCY_MS` | latency injector | `0` |
 | `SIM_JITTER_MS` | latency injector | `0` |
 | `CLIENT_ORIGIN` | server CORS (Vite) | unset; `npm run dev` sets `http://localhost:5173` |
 | `MONITOR_PASSWORD` | server `monitor.ts` | unset; without it (and without `DEV_TOOLS=1`) `/colyseus` is not mounted |
 | `MAX_PRACTICE_ROOMS` | server `mode.ts` (`getMaxPracticeRooms`) | `PRACTICE_CONFIG.maxConcurrentRooms` (`6`) |
 
-Canonical sim rate is `TICK_RATE_HZ` (60) in `@motor-combat-moba/shared`. Snapshot rate is `SNAPSHOT_RATE_HZ` (60), not an env knob; it must divide `TICK_RATE_HZ`, and the rooms broadcast one snapshot at the end of every tick `isSnapshotTick` names (NR12). `DEFAULT_PATCH_RATE_HZ` (20) is deleted.
+Canonical sim rate is `TICK_RATE_HZ` (60) in `@motor-combat-moba/shared`. It is compiled in, not an env knob — the `TICK_RATE_HZ` env override was removed in Phase C, since a client predicts at its own built rate and a server overriding it would desync every prediction. The rooms hold that rate exactly through `rooms/fixed-step.ts`'s `FixedStepper` (one tick per `MS_PER_TICK` of measured wall clock, at most `NET_CONFIG.maxCatchUpTicks` per frame), not by trusting `setInterval`, which truncates 16.67 ms to 16. Snapshot rate is `SNAPSHOT_RATE_HZ` (60), not an env knob; it must divide `TICK_RATE_HZ`, and the rooms broadcast one snapshot at the end of every tick `isSnapshotTick` names (NR12). `DEFAULT_PATCH_RATE_HZ` (20) is deleted.
 
 The defaults above are what the process falls back to with no env file. Which file supplies them
 depends on how the server was started, because `dotenv/config` reads `.env` from **cwd**:
@@ -1252,7 +1251,10 @@ CB3). Meaningful only on a layout that maps onto itself under that rotation, whi
 | `pendingInputCap` | 48 (doubled from 24 with the 60 Hz flip; Phase D deletes it) |
 | `reconcileSnapPos` | 24 |
 | `reconcileSnapAngle` | 0.6 |
-| `reconcileEaseRate` | 0.25 |
+| `reconcileEaseRate` | 0.25 — fraction of the reconcile error eased per `reconcileEaseReferenceMs` (one 20 Hz snapshot, the rate it was tuned at). Applied per snapshot through `reconcileEasePerSnapshot()` (`net/prediction.ts`) as `1 - (1 - rate) ** ((1000 / SNAPSHOT_RATE_HZ) / reconcileEaseReferenceMs)` — ~0.0914 per snapshot at 60 Hz, three of which ease exactly 0.25 — so the wall-clock correction speed does not move with the snapshot rate |
+| `reconcileEaseReferenceMs` | 50 — the span `reconcileEaseRate` is authored over |
+| `maxInputsPerTick` | 10 (doubled from 5 with the 60 Hz flip). Catch-up coverage in ms is unchanged, but the per-second flood ceiling doubled (5x → 10x an honest car's steps); accepted because LAN-only, and Phase D deletes it |
+| `maxCatchUpTicks` | 5 — most ticks a room runs in one wall-clock frame of its simulation interval; a stall past that drops the backlog rather than spiralling (`rooms/fixed-step.ts`) |
 | `interpolationDelayMs` | 50 |
 | `shotExtrapolationCapMs` | 50 — how far past its last snapshot the client extrapolates a live shot before freezing it; one patch interval until NR12 deleted the patch rate, kept at its old wall-clock value |
 
