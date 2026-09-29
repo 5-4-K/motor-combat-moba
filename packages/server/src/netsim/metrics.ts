@@ -11,7 +11,9 @@
  * - `remoteDisplayDelayMs` — mean of (now − the truth time of that nearest point).
  * - `remoteHoldRate` — share of those samples where the drawn position equals the previous frame's
  *   drawn position (distance < 0.01 u) while the true car moved more than 1 u since the previous
- *   frame (`isHold`). A remote that is standing still is never a hold.
+ *   frame (`isHold`). A remote that is standing still is never a hold. "The true car" is the
+ *   tick-sampled truth interpolated to each frame's time (`truthAt`), so the rate does not depend
+ *   on the tick rate.
  * - `reconcileErrorP95` — at each snapshot the client reconciles, distance between its current
  *   predicted position and the replayed target, p95.
  * - `inputToServerMs` — mean of (the server time a car's input was simulated − the client time it
@@ -65,9 +67,46 @@ export function nearestOnPath(
     const px = a.x + dx * u;
     const py = a.y + dy * u;
     const d = Math.hypot(x - px, y - py);
-    if (d < best.distance) best = { distance: d, t: a.t + (b.t - a.t) * u };
+    // `<=`: on a tie the NEWER point wins, so a stationary car (every point equidistant) resolves to
+    // the newest sample in the window rather than the oldest, which would inflate display delay.
+    if (d <= best.distance) best = { distance: d, t: a.t + (b.t - a.t) * u };
   }
   return best;
+}
+
+/** First index in `path` (sorted by t) whose t is >= `t`. */
+export function lowerBound(path: readonly PathPoint[], t: number): number {
+  let lo = 0;
+  let hi = path.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (path[mid]!.t < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/**
+ * The true pose at time `t`, linearly interpolated between the two tick samples that bracket it, so
+ * the answer does not depend on the tick rate. Clamped to the first and last sample outside them.
+ */
+export function truthAt(path: readonly PathPoint[], t: number): PathPoint {
+  const i = lowerBound(path, t);
+  if (i === 0) return { ...path[0]!, t };
+  if (i >= path.length) return { ...path[path.length - 1]!, t };
+  const a = path[i - 1]!;
+  const b = path[i]!;
+  const u = b.t === a.t ? 1 : (t - a.t) / (b.t - a.t);
+  return { t, x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u };
+}
+
+/**
+ * The true trajectory over `[from, to]`: the tick samples strictly inside, with interpolated
+ * endpoints at both ends (`truthAt`), so the window is exactly that span whatever the tick rate.
+ */
+export function truthWindow(path: readonly PathPoint[], from: number, to: number): PathPoint[] {
+  const inner = path.slice(lowerBound(path, from), lowerBound(path, to)).filter((p) => p.t > from);
+  return [truthAt(path, from), ...inner, truthAt(path, to)];
 }
 
 interface Point {

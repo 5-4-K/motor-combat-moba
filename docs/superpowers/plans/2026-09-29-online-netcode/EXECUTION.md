@@ -72,16 +72,16 @@ Filled in by Phase B and after each later phase. Link profile names: `lan` (1 ms
 | Server steps per car per tick (max) | 1 | 4 (net80; lan 1) | | | | |
 | Repeated-input ticks, net80 | ≤ 2 % | n/a | | | | |
 | Remote path error p95, net80 (u) | ≤ 12 | 0.13 | | | | |
-| Remote hold frames, net80 | ≤ 1 % | 2.81 % | | | | |
+| Remote hold frames, net80 | ≤ 1 % | 5.17 % | | | | |
 | Local reconcile correction p95, net80 (u) | ≤ 4 | 0.78 | | | | |
 | Input-to-server delay, lan (ms) | ≤ 34 | 23.3 | | | | |
-| Remote display delay, lan (ms) | ≤ 50 | 71.0 | | | | |
+| Remote display delay, lan (ms) | ≤ 50 | 69.4 | | | | |
 | Hidden enemy present in decoded state | never | n/a | n/a | n/a | n/a | |
 
 Baseline at net150 (same run shape): steps per tick max 5, remote path error p95 0.13 u, remote
-hold frames 4.61 %, local reconcile correction p95 1.01 u, input-to-server delay 96.0 ms, remote
-display delay 155.7 ms. (For reference, net80's input-to-server delay is 56.1 ms and display delay
-115.4 ms; lan's hold rate is 0 %, its reconcile p95 0.13 u.)
+hold frames 8.29 %, local reconcile correction p95 1.01 u, input-to-server delay 96.0 ms, remote
+display delay 141.2 ms. (For reference, net80's input-to-server delay is 56.1 ms and display delay
+107.9 ms; lan's hold rate is 0 %, its reconcile p95 0.13 u.)
 
 Link model: single retransmit at +1 RTT on loss (optimistic vs real TCP RTO) — the netsim's loss
 numbers are a floor, not a forecast. Reproduce with
@@ -91,6 +91,13 @@ Remote path error measures distance to the true trajectory, not lag: today's int
 ever draws poses the car really passed through, so its baseline is near zero by construction (the
 residual is the chord between patches on a curve) and its delay shows up in the display-delay row
 instead. The metric exists to bound later phases' extrapolation.
+
+Truth is the per-tick server pose linearly interpolated to each frame's time (and the 400 ms window
+has interpolated endpoints), so the path, delay and hold metrics do not move with the tick rate
+when Phase C goes to 60 Hz. A respawn teleport is scored as if the car travelled the straight
+segment between its death and spawn poses; it happens about once per car per run, so its effect is
+negligible. Server times are stamped at exact tick times (`tick × MS_PER_TICK`) while the harness
+runs on integer milliseconds, a ≤ 1 ms bias that is the same in every phase.
 
 ## Deviations from the plan
 

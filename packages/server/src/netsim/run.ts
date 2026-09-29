@@ -8,8 +8,9 @@ import {
   mean,
   nearestOnPath,
   percentile,
+  truthAt,
+  truthWindow,
   type NetsimMetrics,
-  type PathPoint,
 } from "./metrics.js";
 import { mulberry32 } from "./rng.js";
 import { NETSIM_ARENA_ID, ServerWorld, type Snapshot } from "./server-world.js";
@@ -30,22 +31,13 @@ const FRAME_HZ = 60;
 const FRAME_PHASE_MS = 2.7;
 const DEFAULT_CARS = 6;
 
-/** First index in `path` (sorted by t) whose t is >= `t`. */
-function lowerBound(path: readonly PathPoint[], t: number): number {
-  let lo = 0;
-  let hi = path.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (path[mid]!.t < t) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
-}
-
-/** The truth the server holds at `nowMs`: the pose after the last tick completed by then. */
-function truthAt(path: readonly PathPoint[], nowMs: number): PathPoint {
-  const i = lowerBound(path, nowMs + 1e-9);
-  return path[Math.max(0, i - 1)]!;
+/** One remote car as one client drew it on one frame. */
+interface RemoteSample {
+  otherId: string;
+  now: number;
+  x: number;
+  y: number;
+  prev: RemoteSample | undefined;
 }
 
 /**
@@ -54,6 +46,7 @@ function truthAt(path: readonly PathPoint[], nowMs: number): PathPoint {
  * Every piece of randomness comes from `mulberry32` streams seeded off `seed`.
  */
 export function runNetsim(opts: NetsimOptions): NetsimMetrics {
+  if (opts.model !== "legacy") throw new Error(`unknown netsim client model: ${String(opts.model)}`);
   const world = new ServerWorld(opts.cars ?? DEFAULT_CARS);
   return withMode(world.modeConfig, () => runIn(world, opts));
 }
@@ -70,22 +63,20 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimMetrics {
     const driverRng = mulberry32(nextSeed());
     const upRng = mulberry32(nextSeed());
     const downRng = mulberry32(nextSeed());
-    if (opts.model !== "legacy") throw new Error(`unknown netsim client model: ${String(opts.model)}`);
     return {
       id,
       client: new LegacyClient(id, makeDriver(driverRng), arena),
       up: new Link<InputMessage>(opts.link, upRng),
       down: new Link<Snapshot>(opts.link, downRng),
       nextFrameAt: i * FRAME_PHASE_MS,
-      prevDrawn: new Map<string, { x: number; y: number }>(),
-      prevTruth: new Map<string, { x: number; y: number }>(),
+      /** Per remote, the previous frame's sample (dropped while that remote is dead). */
+      prev: new Map<string, RemoteSample>(),
     };
   });
 
-  const pathErrors: number[] = [];
-  const displayDelays: number[] = [];
-  let holds = 0;
-  let samples = 0;
+  // Scored after the loop: truth at a frame's own time is interpolated between the tick before and
+  // the tick after it, and the tick after has not run yet when the frame is drawn.
+  const samples: RemoteSample[] = [];
   let stepsPerTickMax = 0;
 
   const endMs = opts.seconds * 1000;
@@ -122,29 +113,27 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimMetrics {
       for (const otherId of world.ids) {
         if (otherId === c.id) continue;
         if (!world.state.players.get(otherId)!.alive) {
-          c.prevDrawn.delete(otherId);
-          c.prevTruth.delete(otherId);
+          c.prev.delete(otherId);
           continue;
         }
         const drawn = c.client.drawnRemote(otherId, now);
         if (!drawn) continue;
-        const path = world.truth.get(otherId)!;
-        const from = lowerBound(path, now - TRUTH_WINDOW_MS);
-        const to = lowerBound(path, now + 1e-9);
-        const window = path.slice(from, Math.max(to, from + 1));
-        const hit = nearestOnPath(window, drawn.x, drawn.y);
-        pathErrors.push(hit.distance);
-        displayDelays.push(now - hit.t);
-        samples++;
-
-        const truth = truthAt(path, now);
-        const prevDrawn = c.prevDrawn.get(otherId);
-        const prevTruth = c.prevTruth.get(otherId);
-        if (prevDrawn && prevTruth && isHold(prevDrawn, drawn, prevTruth, truth)) holds++;
-        c.prevDrawn.set(otherId, drawn);
-        c.prevTruth.set(otherId, { x: truth.x, y: truth.y });
+        const sample: RemoteSample = { otherId, now, x: drawn.x, y: drawn.y, prev: c.prev.get(otherId) };
+        samples.push(sample);
+        c.prev.set(otherId, { ...sample, prev: undefined });
       }
     }
+  }
+
+  const pathErrors: number[] = [];
+  const displayDelays: number[] = [];
+  let holds = 0;
+  for (const s of samples) {
+    const path = world.truth.get(s.otherId)!;
+    const hit = nearestOnPath(truthWindow(path, s.now - TRUTH_WINDOW_MS, s.now), s.x, s.y);
+    pathErrors.push(hit.distance);
+    displayDelays.push(s.now - hit.t);
+    if (s.prev && isHold(s.prev, s, truthAt(path, s.prev.now), truthAt(path, s.now))) holds++;
   }
 
   const inputDelays: number[] = [];
@@ -161,7 +150,7 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimMetrics {
     repeatedInputRate: null,
     remotePathErrorP95: percentile(pathErrors, 95),
     remoteDisplayDelayMs: mean(displayDelays),
-    remoteHoldRate: samples === 0 ? 0 : holds / samples,
+    remoteHoldRate: samples.length === 0 ? 0 : holds / samples.length,
     reconcileErrorP95: percentile(clients.flatMap((c) => c.client.reconcileErrors), 95),
     inputToServerMs: mean(inputDelays),
   };
