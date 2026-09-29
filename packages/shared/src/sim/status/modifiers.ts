@@ -90,9 +90,9 @@ const CHANNELS = Object.keys(STATUS_LIMITS) as StatusChannel[];
  * only stacking the system has.
  *
  * **Expired entries are skipped rather than trusted.** The authoritative expiry pass runs once a
- * tick on the server, but the client reads this same list off a schema patch that can be up to a
- * patch behind (20 Hz patches against a 30 Hz sim), so a client would otherwise predict one or two
- * ticks of a status the server has already dropped. Filtering here means the two sides agree on the
+ * tick on the server, but the client reads this same list off a snapshot, and predicts ahead of
+ * the last one it received, so a client would otherwise predict ticks of a status the server has
+ * already dropped. Filtering here means the two sides agree on the
  * tick, not on the patch — the same reason the HUD reads `tick < pendingUntilTick` rather than a
  * boolean.
  *

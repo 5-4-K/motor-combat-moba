@@ -73,7 +73,7 @@ export function newPerception(): PerceptionState {
 
 /**
  * One tick of taking the world in. Mutates and returns `state` — perception is the bot's memory, and
- * copying it every tick for six bots at 30 Hz buys nothing.
+ * copying it every tick for six bots at 60 Hz buys nothing.
  *
  * Draws no random numbers except the ONE `dodgeChance` roll per newly-noticed threat, which is drawn
  * unconditionally for stream alignment (H21) and discarded when the threat is already known.

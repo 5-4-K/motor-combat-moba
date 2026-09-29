@@ -534,9 +534,9 @@ export const WEAPON_TABLE = {
    *
    * Geometry and cadence are bulwark's exactly (60° detached cone, 492/492 so the zone grows out
    * over one full second, 2.875 s linger, 15 s cooldown). The damage is re-solved for a round
-   * total: total life is `msToTicks(1000) + msToTicks(2875)` == 30 + 87 == 117 ticks against a
-   * 12-tick interval, and `resolveInstanceHits` damages on the first covered tick before arming
-   * the clock, so the count is `floor(116 / 12) + 1` == 10 ticks — **25 × 10 == 250 base on a
+   * total: total life is `msToTicks(1000) + msToTicks(2875)` == 60 + 173 == 233 ticks against a
+   * 24-tick interval, and `resolveInstanceHits` damages on the first covered tick before arming
+   * the clock, so the count is `floor(232 / 24) + 1` == 10 ticks — **25 × 10 == 250 base on a
    * full connect**, the authored design figure.
    *
    * Both riders are PRESENCE effects — on while you are in the zone, gone moments after you leave:

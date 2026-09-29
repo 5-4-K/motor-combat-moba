@@ -26,7 +26,7 @@ function lerpAngle(from: number, to: number, alpha: number): number {
 /**
  * A render pose part-way between two sim poses. Position and angle blend (angle the short way);
  * `vx`/`vy` come from `to` un-blended: a half-blended velocity must never flow back into a step.
- * Used to draw the local car between predicted ticks: prediction advances on the 30 Hz sim clock
+ * Used to draw the local car between predicted ticks: prediction advances on the 60 Hz sim clock
  * while frames come at the display rate, so without this the local car holds for a frame and jumps a
  * whole tick while the camera and remotes glide — which the eye reads as a doubled, smeared sprite.
  *

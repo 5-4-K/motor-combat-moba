@@ -1653,7 +1653,7 @@ export const WEAPON_PROJECTILE_STYLES: Partial<Record<WeaponId, ProjectileStyle>
  *
  * `nowMs` is a free-running clock (`performance.now()`), not the patch-relative `elapsedMs` the
  * position extrapolation uses: that one saws back to zero every patch, which would turn a smooth
- * flicker into a 20 Hz stutter locked to the network rather than to the fire.
+ * flicker into a snapshot-rate (60 Hz) stutter locked to the network rather than to the fire.
  *
  * Pure, and pure on purpose — `ArenaScene` cannot be unit tested without a browser, so everything
  * that decides what a shot looks like has to be decidable here.
@@ -2902,7 +2902,7 @@ export function instanceDrawShape(instance: DrawableInstance, elapsedMs: number)
  * opacity until the last `BEAM_FADE_OUT_MS` and then snaps off.
  *
  * `lifetimeMs` is deliberately untouched by all of this: the damage window does not move, so no TTK
- * number changes and the manual's balance fingerprint never sees it. 100 ms is three ticks at 30 Hz
+ * number changes and the manual's balance fingerprint never sees it. 100 ms is six ticks at 60 Hz
  * — enough to read as a snap rather than a dropped frame; 0 would give a hard cut with no ramp at
  * all, which is a legal value here and is what the clamp below degrades to.
  */

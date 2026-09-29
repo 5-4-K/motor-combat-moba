@@ -1190,7 +1190,7 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    // Hoisted out of the 30 Hz prediction path: `getArena` is a lookup that throws, and the arena
+    // Hoisted out of the 60 Hz prediction path: `getArena` is a lookup that throws, and the arena
     // cannot change while the scene is alive.
     this.arena = getArena(arenaId);
 
@@ -4294,7 +4294,7 @@ export class ArenaScene extends Phaser.Scene {
    * stays server-only — the same rule that keeps `damageClock`/`pierceLeft` off it — but the two
    * facts the HUD cannot derive from slot rows do not: `PlayerState.pendingUntilTick` (the tick a
    * committed press next fires, so `tick < pendingUntilTick` is "mid wind-up or mid volley", and
-   * stays right between two patches at 20 Hz) and `PlayerState.lastFiredSlot` (which slot owns the
+   * stays right between two snapshots) and `PlayerState.lastFiredSlot` (which slot owns the
    * recovery every OTHER slot is dimmed by).
    *
    * Most of these paths are exercised by a carried weapon today: `lance` (Bullseye's slot 3) carries

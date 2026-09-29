@@ -24,8 +24,8 @@ export class StatusState extends Schema {
   @type("uint32") startTick = 0;
   /**
    * The tick it stops applying. Active while `tick < endsTick`, exactly as the HUD reads
-   * `tick < pendingUntilTick` — a tick, not a countdown, so it stays right between two patches at
-   * 20 Hz against a 30 Hz sim.
+   * `tick < pendingUntilTick` — a tick, not a countdown, so it stays right between two snapshots
+   * whatever the snapshot rate.
    */
   @type("uint32") endsTick = 0;
   /** Who applied it, or `""`. The sim never reads it; see `ActiveStatus.sourceSessionId`. */

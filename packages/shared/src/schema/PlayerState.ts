@@ -80,7 +80,7 @@ export class PlayerState extends Schema {
   /**
    * Tick the car's committed press next puts a shot out — a wind-up or the next volley of a burst.
    * `0` means nothing is pending, and so does any tick already passed: the HUD reads "this car is
-   * mid-press" as `tick < pendingUntilTick`, which stays right between two patches at 20 Hz.
+   * mid-press" as `tick < pendingUntilTick`, which stays right between two snapshots.
    */
   @type("uint32") pendingUntilTick = 0;
   /**
