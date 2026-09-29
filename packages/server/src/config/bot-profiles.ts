@@ -1,4 +1,4 @@
-import type { BotDifficulty } from "@motor-combat-moba/shared";
+import { TICK_RATE_HZ, type BotDifficulty } from "@motor-combat-moba/shared";
 
 /**
  * One difficulty's knobs (H44). Thirty-nine of them, grouped: perception, aim, fire
@@ -472,10 +472,10 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * 45). 90 covers it with a little margin, and no firing solution needs to see past its own shot
    * landing.
    *
-   * A `TICK_RATE_HZ` change does NOT rescale this: it is a tick count, and thumper's 87 becomes 174
-   * at 60 Hz. Re-derive it if the tick rate ever changes.
+   * Authored in ms (NR14), so a `TICK_RATE_HZ` change rescales it; `resolveBrainConstants()` turns it
+   * into `predictionHorizonTicks`. 3000 ms is 90 ticks at 30 Hz.
    */
-  predictionHorizonTicks: 90,
+  predictionHorizonMs: 3000,
   // `closeLeadHorizonFraction` was deleted in spec phase D (R-K2, 2026-09-07). Its only reader was
   // the `close` case of the deleted eight-case heading switch, which aimed the BODY at a lead point;
   // `preferredRangeFor` answers `close` with `minEngageUnits` and the planner drives to it.
@@ -806,7 +806,8 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // A turret weapon's firing solution no longer needs the hull to face the target, and the bot puts
 // its lead bearing (plus its realized aim error) on the wire as `aimAngle` (TR25). `BOT_PROFILES`
 // did not move. Balance and playtest reports across this line are not comparable (TR28).
-export const BOT_BRAIN_VERSION = "6.2.0";
+// 6.3.0 (2026-09-29): bot timing authored in ms (NR14); identical at 30 Hz, doubles in ticks at 60 Hz.
+export const BOT_BRAIN_VERSION = "6.3.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency
@@ -815,14 +816,52 @@ export const BOT_BRAIN_VERSION = "6.2.0";
  * TF2's recognition time and aim-tracking interval; `ultDisciplineChance` reproduces TF2's airblast
  * gating (0% / 50% / 90%). The rest is first pass and expected to move under playtesting.
  */
-export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.freeze({
+const TIMING_KEYS = [
+  "viewStaleness", "reactionDelay", "recompute", "acquire", "memory", "aimErrorDrift", "burstGap",
+  "targetCommit", "dodgeReaction", "dodgeHorizon", "blunder", "situationCommit", "slotStick", "planHorizon",
+] as const;
+
+/** A tier as authored: every tick-valued knob of `BotProfile` is a `…Ms` duration instead (NR14). */
+export type AuthoredBotProfile = Omit<BotProfile, `${(typeof TIMING_KEYS)[number]}Ticks`> & {
+  [K in (typeof TIMING_KEYS)[number] as `${K}Ms`]: number;
+};
+
+const toTicks = (ms: number): number => Math.round((ms * TICK_RATE_HZ) / 1000);
+
+/** Authored ms -> the `BotProfile` in ticks that every brain module reads. */
+export function resolveBotProfile(authored: AuthoredBotProfile): BotProfile {
+  const out: Record<string, unknown> = { ...authored };
+  for (const key of TIMING_KEYS) {
+    out[`${key}Ticks`] = toTicks(authored[`${key}Ms`]);
+    delete out[`${key}Ms`];
+  }
+  return out as unknown as BotProfile;
+}
+
+/** `BRAIN_CONSTANTS` with the authored ms horizon replaced by its tick count. */
+export type ResolvedBrainConstants = Omit<typeof BRAIN_CONSTANTS, "predictionHorizonMs"> & {
+  readonly predictionHorizonTicks: number;
+};
+let resolvedBrain: ResolvedBrainConstants | undefined;
+
+/** `BRAIN_CONSTANTS` with its authored ms horizon resolved to ticks at the current tick rate. */
+export function resolveBrainConstants(): ResolvedBrainConstants {
+  // Memoised: the planner reads this per candidate, and `TICK_RATE_HZ` is a build constant.
+  resolvedBrain ??= (() => {
+    const { predictionHorizonMs, ...rest } = BRAIN_CONSTANTS;
+    return Object.freeze({ ...rest, predictionHorizonTicks: toTicks(predictionHorizonMs) });
+  })();
+  return resolvedBrain;
+}
+
+export const BOT_PROFILES: Readonly<Record<BotDifficulty, AuthoredBotProfile>> = Object.freeze({
   easy: Object.freeze({
-    viewStalenessTicks: 4, reactionDelayTicks: 9, recomputeTicks: 12, acquireTicks: 15,
+    viewStalenessMs: 133, reactionDelayMs: 300, recomputeMs: 400, acquireMs: 500,
     // R-P14 (residuals round, 2026-09-07): 520 -> 600. AN EASY BOT MUST BE ABLE TO SEE THE RANGE
     // THE GAME IS FOUGHT AT. At 520 it could not: the closed-loop duel opens with 553 units between
     // the cars, and hard's duels settle in a 464-597 band (R-P12's seven-seed measurement), so an
     // easy bot began every engagement BLIND. It then never recovered, because at
-    // `planHorizonTicks: 0` the planner rolls a single tick and no candidate expresses a manoeuvre
+    // `planHorizonMs: 0` the planner rolls a single tick and no candidate expresses a manoeuvre
     // — it cannot turn around or drive to a hunt waypoint, only drift. Traced: `target` was
     // `undefined` on 49 of the 50 recompute ticks in a 600-tick easy/Bastion duel.
     //
@@ -838,53 +877,60 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     //
     // 600 rather than 560 because 560 sits seven units off the cliff, so any spawn or arena change
     // re-breaks it; 600 is mid-plateau and still 100 short of medium's 700, which keeps the ladder
-    // and the tier's short-sightedness both visible. Raising `planHorizonTicks` was measured as the
+    // and the tier's short-sightedness both visible. Raising `planHorizonMs` was measured as the
     // alternative and rejected: it is a real second link (K=6 takes 11 mute cells to 2) but no value
     // below medium's 8 clears them all, and 8 would flatten the ladder.
-    awarenessRadiusUnits: 600, rearBlindHalfAngleRad: 1.05, trackedThreatLimit: 1, memoryTicks: 15,
+    awarenessRadiusUnits: 600, rearBlindHalfAngleRad: 1.05, trackedThreatLimit: 1, memoryMs: 500,
     stateEstimationSigma: 0.25,
-    aimErrorSigmaRad: 0.18, aimErrorDriftTicks: 20,
-    burstGapTicks: 14, minShotValueFraction: 0.01, ultDisciplineChance: 0, ultWindowHpFraction: 0.4,
-    targetCommitTicks: 150, woundedBias: 0.1, vengefulness: 0.8,
+    aimErrorSigmaRad: 0.18, aimErrorDriftMs: 667,
+    burstGapMs: 467, minShotValueFraction: 0.01, ultDisciplineChance: 0, ultWindowHpFraction: 0.4,
+    targetCommitMs: 5000, woundedBias: 0.1, vengefulness: 0.8,
     wallLookaheadUnits: 40,
     retreatHpFraction: 0, ramIntentChance: 0.15,
-    dodgeChance: 0.05, dodgeReactionTicks: 12, dodgeHorizonTicks: 12,
-    blunderChance: 0.12, blunderTicks: 10, idleFidgetChance: 0.1, scoreNoiseSigma: 0.3,
+    dodgeChance: 0.05, dodgeReactionMs: 400, dodgeHorizonMs: 400,
+    blunderChance: 0.12, blunderMs: 333, idleFidgetChance: 0.1, scoreNoiseSigma: 0.3,
     hearChance: 0.15,
     deadRespect: 0.25, opponentRangeRespect: 0, cornerRespect: 0.35, incomingCarChance: 0.1,
-    situationCommitTicks: 20, slotStickTicks: 4,
-    planHorizonTicks: 0, planDepth: 1, targetBranches: 1, commitPenalty: 0.072,
+    situationCommitMs: 667, slotStickMs: 133,
+    planHorizonMs: 0, planDepth: 1, targetBranches: 1, commitPenalty: 0.072,
   }),
   medium: Object.freeze({
-    viewStalenessTicks: 3, reactionDelayTicks: 6, recomputeTicks: 6, acquireTicks: 9,
-    awarenessRadiusUnits: 700, rearBlindHalfAngleRad: 0.6, trackedThreatLimit: 2, memoryTicks: 45,
+    viewStalenessMs: 100, reactionDelayMs: 200, recomputeMs: 200, acquireMs: 300,
+    awarenessRadiusUnits: 700, rearBlindHalfAngleRad: 0.6, trackedThreatLimit: 2, memoryMs: 1500,
     stateEstimationSigma: 0.1,
-    aimErrorSigmaRad: 0.09, aimErrorDriftTicks: 14,
-    burstGapTicks: 7, minShotValueFraction: 0.05, ultDisciplineChance: 0.5, ultWindowHpFraction: 0.4,
-    targetCommitTicks: 60, woundedBias: 0.5, vengefulness: 0.5,
+    aimErrorSigmaRad: 0.09, aimErrorDriftMs: 467,
+    burstGapMs: 233, minShotValueFraction: 0.05, ultDisciplineChance: 0.5, ultWindowHpFraction: 0.4,
+    targetCommitMs: 2000, woundedBias: 0.5, vengefulness: 0.5,
     wallLookaheadUnits: 90,
     retreatHpFraction: 0.3, ramIntentChance: 0.3,
-    dodgeChance: 0.55, dodgeReactionTicks: 8, dodgeHorizonTicks: 18,
-    blunderChance: 0.05, blunderTicks: 10, idleFidgetChance: 0.05, scoreNoiseSigma: 0.15,
+    dodgeChance: 0.55, dodgeReactionMs: 267, dodgeHorizonMs: 600,
+    blunderChance: 0.05, blunderMs: 333, idleFidgetChance: 0.05, scoreNoiseSigma: 0.15,
     hearChance: 0.55,
     deadRespect: 0.75, opponentRangeRespect: 0.45, cornerRespect: 0.75, incomingCarChance: 0.55,
-    situationCommitTicks: 12, slotStickTicks: 8,
-    planHorizonTicks: 8, planDepth: 1, targetBranches: 1, commitPenalty: 0.126,
+    situationCommitMs: 400, slotStickMs: 267,
+    planHorizonMs: 267, planDepth: 1, targetBranches: 1, commitPenalty: 0.126,
   }),
   hard: Object.freeze({
-    viewStalenessTicks: 2, reactionDelayTicks: 4, recomputeTicks: 2, acquireTicks: 5,
-    awarenessRadiusUnits: 900, rearBlindHalfAngleRad: 0, trackedThreatLimit: 4, memoryTicks: 90,
+    viewStalenessMs: 67, reactionDelayMs: 133, recomputeMs: 67, acquireMs: 167,
+    awarenessRadiusUnits: 900, rearBlindHalfAngleRad: 0, trackedThreatLimit: 4, memoryMs: 3000,
     stateEstimationSigma: 0.03,
-    aimErrorSigmaRad: 0.035, aimErrorDriftTicks: 9,
-    burstGapTicks: 3, minShotValueFraction: 0.3, ultDisciplineChance: 0.9, ultWindowHpFraction: 0.4,
-    targetCommitTicks: 25, woundedBias: 0.9, vengefulness: 0.25,
+    aimErrorSigmaRad: 0.035, aimErrorDriftMs: 300,
+    burstGapMs: 100, minShotValueFraction: 0.3, ultDisciplineChance: 0.9, ultWindowHpFraction: 0.4,
+    targetCommitMs: 833, woundedBias: 0.9, vengefulness: 0.25,
     wallLookaheadUnits: 150,
     retreatHpFraction: 0.35, ramIntentChance: 0.5,
-    dodgeChance: 0.95, dodgeReactionTicks: 2, dodgeHorizonTicks: 24,
-    blunderChance: 0.015, blunderTicks: 10, idleFidgetChance: 0.02, scoreNoiseSigma: 0.05,
+    dodgeChance: 0.95, dodgeReactionMs: 67, dodgeHorizonMs: 800,
+    blunderChance: 0.015, blunderMs: 333, idleFidgetChance: 0.02, scoreNoiseSigma: 0.05,
     hearChance: 1,
     deadRespect: 1, opponentRangeRespect: 0.9, cornerRespect: 1, incomingCarChance: 0.95,
-    situationCommitTicks: 6, slotStickTicks: 12,
-    planHorizonTicks: 22, planDepth: 1, targetBranches: 3, commitPenalty: 0.18,
+    situationCommitMs: 200, slotStickMs: 400,
+    planHorizonMs: 733, planDepth: 1, targetBranches: 3, commitPenalty: 0.18,
   }),
+});
+
+/** `BOT_PROFILES` resolved to ticks at the current tick rate: what brain modules and tests read. */
+export const RESOLVED_BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.freeze({
+  easy: Object.freeze(resolveBotProfile(BOT_PROFILES.easy)),
+  medium: Object.freeze(resolveBotProfile(BOT_PROFILES.medium)),
+  hard: Object.freeze(resolveBotProfile(BOT_PROFILES.hard)),
 });

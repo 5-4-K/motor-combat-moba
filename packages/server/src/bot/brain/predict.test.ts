@@ -4,7 +4,7 @@ import {
   DRIVE_CONFIG, ManeuverKind, NEUTRAL_MODIFIERS, TICK_RATE_HZ, driveOf, forwardOf, speedOf, stepDrive,
   turnRateOf, type SimBody,
 } from "@motor-combat-moba/shared";
-import { BOT_PROFILES, BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
+import { RESOLVED_BOT_PROFILES, BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotCarView, BotSelfView, BotView } from "../types.js";
 import { newPerception, observedAngVelOf, perceive } from "./perception.js";
@@ -670,7 +670,7 @@ describe("reading a turn off two observed poses, end to end", () => {
   // `perceive` -> `observedAngVelOf` -> `steerFromObservedTurn` chain rather than by handing
   // `turnRateOf("mirage")` in as a given. Two consecutive poses off a rolled path are all a bot
   // ever gets, and this is the only place that claim is tested end to end.
-  const profile = BOT_PROFILES.hard;
+  const profile = RESOLVED_BOT_PROFILES.hard;
 
   function observedTurnOf(steer: -1 | 0 | 1): number {
     const path = rollForward(

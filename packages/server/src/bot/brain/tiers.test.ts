@@ -8,7 +8,7 @@ import {
   weaponDefOf,
 } from "@motor-combat-moba/shared";
 import { makeRng } from "../rng.js";
-import { BOT_PROFILES } from "../../config/bot-profiles.js";
+import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
 import type { BotCarView, BotSlotView, BotView } from "../types.js";
 import { HumanController } from "./controller.js";
 import { bestSustainedDpsOf, pressCeilingOf, runDuel } from "./duel.fixture.js";
@@ -173,7 +173,7 @@ describe("tier characterisation", () => {
     ];
     const intents = (tier: "easy" | "hard", dodgeChance: number) => {
       const profile = {
-        ...BOT_PROFILES[tier],
+        ...RESOLVED_BOT_PROFILES[tier],
         dodgeChance,
         incomingCarChance: 0,
         blunderChance: 0,
@@ -541,7 +541,7 @@ describe("tier characterisation", () => {
     ];
     const runDodge = (dodgeChance: number) => {
       const profile = {
-        ...BOT_PROFILES.hard,
+        ...RESOLVED_BOT_PROFILES.hard,
         dodgeChance,
         incomingCarChance: 0,
         blunderChance: 0,
@@ -730,7 +730,7 @@ describe("the reported symptoms stay fixed (P49)", () => {
     const { fires } = duelAgainstDummy("hard", 300, true);
     expect(fires).toBeGreaterThan(0);
     expect(fires).toBeGreaterThan(
-      pressCeilingOf("bullseye", 300, BOT_PROFILES.hard.burstGapTicks) / 4,
+      pressCeilingOf("bullseye", 300, RESOLVED_BOT_PROFILES.hard.burstGapTicks) / 4,
     );
   });
 });

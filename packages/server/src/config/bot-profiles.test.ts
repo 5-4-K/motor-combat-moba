@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import { DEFAULT_GAME_MODE, TICK_RATE_HZ, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { makeRng } from "../bot/rng.js";
 import { rollPersonality } from "../bot/brain/personality.js";
-import { BOT_PROFILES, BRAIN_CONSTANTS, BOT_BRAIN_VERSION, type BotProfile } from "./bot-profiles.js";
+import { BOT_PROFILES, RESOLVED_BOT_PROFILES, BRAIN_CONSTANTS, BOT_BRAIN_VERSION, resolveBotProfile, resolveBrainConstants, type BotProfile } from "./bot-profiles.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
@@ -111,33 +111,33 @@ const PROBABILITY_FIELDS = [
 
 describe("BOT_PROFILES", () => {
   it("carries every tier", () => {
-    for (const tier of TIERS) expect(BOT_PROFILES[tier]).toBeDefined();
+    for (const tier of TIERS) expect(RESOLVED_BOT_PROFILES[tier]).toBeDefined();
   });
 
   it("orders perceived latency easy > medium > hard", () => {
     const total = (t: (typeof TIERS)[number]) =>
-      BOT_PROFILES[t].viewStalenessTicks + BOT_PROFILES[t].reactionDelayTicks;
+      RESOLVED_BOT_PROFILES[t].viewStalenessTicks + RESOLVED_BOT_PROFILES[t].reactionDelayTicks;
     expect(total("easy")).toBeGreaterThan(total("medium"));
     expect(total("medium")).toBeGreaterThan(total("hard"));
   });
 
   it("gives every tier a non-zero view staleness and reaction delay (H48)", () => {
     for (const tier of TIERS) {
-      expect(BOT_PROFILES[tier].viewStalenessTicks).toBeGreaterThan(0);
-      expect(BOT_PROFILES[tier].reactionDelayTicks).toBeGreaterThan(0);
+      expect(RESOLVED_BOT_PROFILES[tier].viewStalenessTicks).toBeGreaterThan(0);
+      expect(RESOLVED_BOT_PROFILES[tier].reactionDelayTicks).toBeGreaterThan(0);
     }
   });
 
   it("runs vengefulness backwards up the ladder (H33)", () => {
-    expect(BOT_PROFILES.easy.vengefulness).toBeGreaterThan(BOT_PROFILES.medium.vengefulness);
-    expect(BOT_PROFILES.medium.vengefulness).toBeGreaterThan(BOT_PROFILES.hard.vengefulness);
+    expect(RESOLVED_BOT_PROFILES.easy.vengefulness).toBeGreaterThan(RESOLVED_BOT_PROFILES.medium.vengefulness);
+    expect(RESOLVED_BOT_PROFILES.medium.vengefulness).toBeGreaterThan(RESOLVED_BOT_PROFILES.hard.vengefulness);
   });
 
   it("keeps every probability in [0, 1]", () => {
     for (const tier of TIERS) {
       for (const key of PROBABILITY_FIELDS) {
-        expect(BOT_PROFILES[tier][key]).toBeGreaterThanOrEqual(0);
-        expect(BOT_PROFILES[tier][key]).toBeLessThanOrEqual(1);
+        expect(RESOLVED_BOT_PROFILES[tier][key]).toBeGreaterThanOrEqual(0);
+        expect(RESOLVED_BOT_PROFILES[tier][key]).toBeLessThanOrEqual(1);
       }
     }
   });
@@ -167,7 +167,7 @@ describe("BOT_PROFILES", () => {
     // rung, rather than surviving until someone notices the tiers play alike.
     for (const key of Object.keys(LADDER) as (keyof BotProfile)[]) {
       const [easy, medium, hard] = [
-        BOT_PROFILES.easy[key], BOT_PROFILES.medium[key], BOT_PROFILES.hard[key],
+        RESOLVED_BOT_PROFILES.easy[key], RESOLVED_BOT_PROFILES.medium[key], RESOLVED_BOT_PROFILES.hard[key],
       ];
       const label = (from: string, to: string) => `${key}: ${from} -> ${to}`;
       switch (LADDER[key]) {
@@ -206,5 +206,30 @@ describe("BOT_PROFILES", () => {
     expect(BRAIN_CONSTANTS.punishRangeFraction).toBe(0.5);
     expect(BRAIN_CONSTANTS.resetRangeMultiplier).toBe(1.15);
     expect(BOT_BRAIN_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
+/** Today's table, in ticks at 30 Hz, copied verbatim before the ms conversion (NR14). */
+const AT_30HZ = {
+  easy: { viewStalenessTicks: 4, reactionDelayTicks: 9, recomputeTicks: 12, acquireTicks: 15, memoryTicks: 15, aimErrorDriftTicks: 20, burstGapTicks: 14, targetCommitTicks: 150, dodgeReactionTicks: 12, dodgeHorizonTicks: 12, blunderTicks: 10, situationCommitTicks: 20, slotStickTicks: 4, planHorizonTicks: 0 },
+  medium: { viewStalenessTicks: 3, reactionDelayTicks: 6, recomputeTicks: 6, acquireTicks: 9, memoryTicks: 45, aimErrorDriftTicks: 14, burstGapTicks: 7, targetCommitTicks: 60, dodgeReactionTicks: 8, dodgeHorizonTicks: 18, blunderTicks: 10, situationCommitTicks: 12, slotStickTicks: 8, planHorizonTicks: 8 },
+  hard: { viewStalenessTicks: 2, reactionDelayTicks: 4, recomputeTicks: 2, acquireTicks: 5, memoryTicks: 90, aimErrorDriftTicks: 9, burstGapTicks: 3, targetCommitTicks: 25, dodgeReactionTicks: 2, dodgeHorizonTicks: 24, blunderTicks: 10, situationCommitTicks: 6, slotStickTicks: 12, planHorizonTicks: 22 },
+} as const;
+
+describe("bot timing is authored in ms (NR14)", () => {
+  it.runIf(TICK_RATE_HZ === 30)("resolves to exactly today's ticks at 30 Hz", () => {
+    for (const tier of TIERS) {
+      expect(resolveBotProfile(BOT_PROFILES[tier])).toMatchObject(AT_30HZ[tier]);
+    }
+    expect(resolveBrainConstants().predictionHorizonTicks).toBe(90);
+  });
+
+  it("scales with the tick rate", () => {
+    const hard = resolveBotProfile(BOT_PROFILES.hard);
+    expect(hard.targetCommitTicks).toBe(Math.round((BOT_PROFILES.hard.targetCommitMs * TICK_RATE_HZ) / 1000));
+  });
+
+  it("leaves no *Ms key on the resolved profile", () => {
+    expect(Object.keys(RESOLVED_BOT_PROFILES.hard).filter((k) => k.endsWith("Ms"))).toEqual([]);
   });
 });

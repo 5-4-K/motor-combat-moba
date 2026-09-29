@@ -27,7 +27,7 @@ import {
   type ModeConfig,
   type PlaygroundSetup,
 } from "@motor-combat-moba/shared";
-import { BOT_PROFILES } from "../config/bot-profiles.js";
+import { RESOLVED_BOT_PROFILES } from "../config/bot-profiles.js";
 import { HumanController, ViewRing, type BotView } from "../bot/index.js";
 import {
   ARENA_BUSY_ERROR,
@@ -266,7 +266,7 @@ describe("Task 8: the view ring and the fired sink actually run outside the harn
 
   it("serves the bot a genuinely stale world once the ring has filled (B19)", () => {
     const room = readyPlaygroundRoom("easy"); // viewStalenessTicks = 4, ring capacity 5
-    const staleness = BOT_PROFILES.easy.viewStalenessTicks;
+    const staleness = RESOLVED_BOT_PROFILES.easy.viewStalenessTicks;
     const seenViews: BotView[] = [];
 
     // Mocked to a neutral hold, same reasoning as the practice-room version of this test: the bot's

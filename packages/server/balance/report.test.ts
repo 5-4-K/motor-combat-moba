@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { GameMode, type CarId, type WeaponId } from "@motor-combat-moba/shared";
-import { BOT_PROFILES } from "../src/config/bot-profiles.js";
+import { RESOLVED_BOT_PROFILES } from "../src/config/bot-profiles.js";
 import { configFingerprint, botFingerprint } from "./fingerprint.js";
 import type { MatchOutcome } from "./match.js";
 import { writeReport, type RunRecord } from "./report.js";
@@ -219,7 +219,7 @@ describe("writeReport (B38, B39, B40)", () => {
     // it ran with, not any one field's name — asserting against the live table keeps that true
     // through the next profile reshape too.
     const md = readSummary();
-    for (const key of Object.keys(BOT_PROFILES.hard)) expect(md).toContain(key);
+    for (const key of Object.keys(RESOLVED_BOT_PROFILES.hard)) expect(md).toContain(key);
   });
 
   it("states its limitations in its own body (B40)", () => {

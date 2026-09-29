@@ -1,11 +1,14 @@
 import { GameMode, type BotDifficulty } from "@motor-combat-moba/shared";
-import { BOT_PROFILES, BRAIN_CONSTANTS, BOT_BRAIN_VERSION, type BotProfile } from "./bot-profiles.js";
+import {
+  RESOLVED_BOT_PROFILES, BOT_BRAIN_VERSION, resolveBrainConstants,
+  type BotProfile, type ResolvedBrainConstants,
+} from "./bot-profiles.js";
 
 /**
  * `BRAIN_CONSTANTS` has no named type of its own — it has only ever been read as the frozen object
  * literal it is. Derived here rather than invented, so this can never drift from the real shape.
  */
-export type BrainConstants = typeof BRAIN_CONSTANTS;
+export type BrainConstants = ResolvedBrainConstants;
 
 /**
  * One `GameMode`'s bot tuning (MC29). Deliberately parallel to `ModeConfig` in shared rather than a
@@ -28,8 +31,9 @@ export interface BotModeConfig {
  * is exactly one bot brain today, so there is exactly one config object, pointed at from every mode.
  */
 const SHARED_BOT_CONFIG: BotModeConfig = Object.freeze({
-  profiles: BOT_PROFILES,
-  brainConstants: BRAIN_CONSTANTS,
+  // Authored in ms (NR14); every brain module reads the resolved tick form.
+  profiles: RESOLVED_BOT_PROFILES,
+  brainConstants: resolveBrainConstants(),
   brainVersion: BOT_BRAIN_VERSION,
 });
 

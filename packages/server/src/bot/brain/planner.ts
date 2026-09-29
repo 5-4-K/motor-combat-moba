@@ -3,7 +3,7 @@ import {
   weaponDefOf,
   type BoundaryPlane, type SimBody, type WeaponDef, type WeaponId,
 } from "@motor-combat-moba/shared";
-import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
+import { BRAIN_CONSTANTS, resolveBrainConstants } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSelfView, BotSlotView } from "../types.js";
 import { signedDelta } from "./aim.js";
 import { slotIsReady } from "./firing.js";
@@ -813,7 +813,7 @@ function scoreCandidate(
        * the bot any more, so every slot leads its own shot.
        */
       const lead = interceptTicks(
-        body, sample.fromArrival, projectileSpeedOf(def), BRAIN_CONSTANTS.predictionHorizonTicks,
+        body, sample.fromArrival, projectileSpeedOf(def), resolveBrainConstants().predictionHorizonTicks,
       );
       const led = sample.fromArrival(lead);
       const value = proxyValue({

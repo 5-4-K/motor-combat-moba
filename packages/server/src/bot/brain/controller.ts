@@ -3,7 +3,7 @@ import {
   hasStatus, rectPlanes, TICK_RATE_HZ, weaponDefOf, weapons, wrapAngle,
   type BotDifficulty, type WeaponId,
 } from "@motor-combat-moba/shared";
-import { BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
+import { BRAIN_CONSTANTS, resolveBrainConstants, type BotProfile } from "../../config/bot-profiles.js";
 import { botConfigOf, type BotModeConfig } from "../../config/mode-bot.js";
 import type {
   BotCarView, BotController, BotDebug, BotIntent, BotPersonality, BotView, SituationId,
@@ -323,7 +323,7 @@ export class HumanController implements BotController {
           // smaller margin.) Either way the answer is the danger of a pose we
           // never hold. The bot is driving, at the speed it is driving at.
           meAt: selfPredictor(
-            self, { steer: 0, throttle: 1 }, BRAIN_CONSTANTS.predictionHorizonTicks,
+            self, { steer: 0, throttle: 1 }, resolveBrainConstants().predictionHorizonTicks,
           ),
           readiness: (weaponId) =>
             readinessOf(this.perception, target.sessionId, weaponId, tick, profile),
@@ -356,7 +356,7 @@ export class HumanController implements BotController {
     const targetPredictor = physicsPredictor(
       predictTarget,
       observedAngVelOf(this.perception, predictTarget.sessionId),
-      target ? BRAIN_CONSTANTS.predictionHorizonTicks : 0,
+      target ? resolveBrainConstants().predictionHorizonTicks : 0,
       profile.stateEstimationSigma,
       view.rng,
     );

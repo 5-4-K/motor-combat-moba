@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
-import { BOT_PROFILES } from "../../config/bot-profiles.js";
+import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotCarView, BotView } from "../types.js";
 import { activeThreats, acquiringUnnoticed, knownCars, lastKnownAnchor, nearestHeardShot, newPerception, observedAngVelOf, perceive, predictedPose, readinessOf, searchWaypoint, ultIsSpent } from "./perception.js";
@@ -33,7 +33,7 @@ function view(overrides: Partial<BotView> = {}): BotView {
 
 describe("perceive", () => {
   it("does not know a car until its acquire delay has passed", () => {
-    const profile = BOT_PROFILES.hard; // acquireTicks 5
+    const profile = RESOLVED_BOT_PROFILES.hard; // acquireTicks 5
     let state = newPerception();
     state = perceive(state, view({ tick: 0, others: [car()] }), profile);
     expect(knownCars(state, 0)).toHaveLength(0);
@@ -44,7 +44,7 @@ describe("perceive", () => {
   });
 
   it("never notices a car beyond the awareness radius", () => {
-    const profile = BOT_PROFILES.easy; // 520 units
+    const profile = RESOLVED_BOT_PROFILES.easy; // 520 units
     let state = newPerception();
     for (let tick = 0; tick < 40; tick++) {
       state = perceive(state, view({ tick, others: [car({ x: 1000 })] }), profile);
@@ -53,7 +53,7 @@ describe("perceive", () => {
   });
 
   it("never notices a car inside the rear blind arc", () => {
-    const profile = BOT_PROFILES.easy; // rearBlindHalfAngleRad 1.05
+    const profile = RESOLVED_BOT_PROFILES.easy; // rearBlindHalfAngleRad 1.05
     let state = newPerception();
     // Self faces +x at the origin-ish; a car directly behind is at a bearing of pi.
     for (let tick = 0; tick < 40; tick++) {
@@ -63,7 +63,7 @@ describe("perceive", () => {
   });
 
   it("forgets a car once it has been out of sight for memoryTicks", () => {
-    const profile = BOT_PROFILES.easy; // memoryTicks 15
+    const profile = RESOLVED_BOT_PROFILES.easy; // memoryTicks 15
     let state = newPerception();
     for (let tick = 0; tick <= 20; tick++) {
       state = perceive(state, view({ tick, others: [car({ x: 300 })] }), profile);
@@ -76,7 +76,7 @@ describe("perceive", () => {
   });
 
   it("caps the tracked threat list at the tier's limit", () => {
-    const profile = BOT_PROFILES.easy; // trackedThreatLimit 1
+    const profile = RESOLVED_BOT_PROFILES.easy; // trackedThreatLimit 1
     const instances = [0, 1, 2].map((i) => ({
       id: `i${i}`, ownerSessionId: "them", weaponId: "predator" as const,
       x: 400 + i * 10, y: 100, angle: Math.PI,
@@ -99,14 +99,14 @@ describe("perceive", () => {
           weaponId: "lance", slot: 2, pressId: "them#10#2",
         }],
       }),
-      BOT_PROFILES.hard,
+      RESOLVED_BOT_PROFILES.hard,
     );
     expect(ultIsSpent(state, "them", "lance", 40, 480)).toBe(true);
     expect(ultIsSpent(state, "them", "lance", 600, 480)).toBe(false);
   });
 
   it("marks a shot on a collision course as a threat", () => {
-    const profile = BOT_PROFILES.hard;
+    const profile = RESOLVED_BOT_PROFILES.hard;
     let state = newPerception();
     // A predator at (400,100) heading -x, straight at self at (100,100).
     const instances = [{
@@ -120,7 +120,7 @@ describe("perceive", () => {
   });
 
   it("ignores a shot that will pass well wide", () => {
-    const profile = BOT_PROFILES.hard;
+    const profile = RESOLVED_BOT_PROFILES.hard;
     let state = newPerception();
     const instances = [{
       id: "wide", ownerSessionId: "them", weaponId: "predator" as const,
@@ -133,7 +133,7 @@ describe("perceive", () => {
   });
 
   it("treats an attached beam aimed at the bot as a threat (G17)", () => {
-    const profile = BOT_PROFILES.hard;
+    const profile = RESOLVED_BOT_PROFILES.hard;
     let state = newPerception();
     const instances = [{
       id: "beam", ownerSessionId: "them", weaponId: "afterburner" as const,
@@ -149,7 +149,7 @@ describe("perceive", () => {
 describe("hunt cues (G12, G13)", () => {
   it("predicts last-known along last seen velocity, not the frozen spot", () => {
     let state = newPerception();
-    const profile = { ...BOT_PROFILES.hard, acquireTicks: 0 };
+    const profile = { ...RESOLVED_BOT_PROFILES.hard, acquireTicks: 0 };
     const moving = car({ x: 300, y: 100, angle: 0, vx: 300, vy: 0 });
     state = perceive(state, view({ tick: 0, others: [moving] }), profile);
     const known = [...state.cars.values()][0]!;
@@ -159,7 +159,7 @@ describe("hunt cues (G12, G13)", () => {
   });
 
   it("does not treat an unnoticed car as last-known (G13)", () => {
-    const profile = BOT_PROFILES.hard; // acquireTicks 5
+    const profile = RESOLVED_BOT_PROFILES.hard; // acquireTicks 5
     let state = newPerception();
     state = perceive(state, view({ tick: 0, others: [car()] }), profile);
     expect(acquiringUnnoticed(state, 0)).toBe(true);
@@ -167,7 +167,7 @@ describe("hunt cues (G12, G13)", () => {
   });
 
   it("anchors on a noticed car that has left awareness", () => {
-    const profile = { ...BOT_PROFILES.hard, acquireTicks: 0, memoryTicks: 90 };
+    const profile = { ...RESOLVED_BOT_PROFILES.hard, acquireTicks: 0, memoryTicks: 90 };
     let state = newPerception();
     state = perceive(state, view({ tick: 0, others: [car({ x: 400, y: 200 })] }), profile);
     state = perceive(state, view({ tick: 1, others: [] }), profile);
@@ -199,7 +199,7 @@ describe("hunt cues (G12, G13)", () => {
   });
 
   it("refreshes a known car when it dies so memory cannot stay alive (S12)", () => {
-    const profile = { ...BOT_PROFILES.hard, acquireTicks: 0 };
+    const profile = { ...RESOLVED_BOT_PROFILES.hard, acquireTicks: 0 };
     let state = newPerception();
     state = perceive(state, view({ tick: 0, others: [car({ alive: true })] }), profile);
     expect(knownCars(state, 0)[0]?.alive).toBe(true);
@@ -211,14 +211,14 @@ describe("hunt cues (G12, G13)", () => {
 describe("observedAngVelOf", () => {
   it("is 0 for a car seen only once", () => {
     let state = newPerception();
-    state = perceive(state, view({ tick: 0, others: [car({ x: 100, y: 100, angle: 0 })] }), BOT_PROFILES.hard);
+    state = perceive(state, view({ tick: 0, others: [car({ x: 100, y: 100, angle: 0 })] }), RESOLVED_BOT_PROFILES.hard);
     expect(observedAngVelOf(state, "them")).toBe(0);
   });
 
   it("measures a turn from two observed poses", () => {
     let state = newPerception();
-    state = perceive(state, view({ tick: 0, others: [car({ x: 100, y: 100, angle: 0 })] }), BOT_PROFILES.hard);
-    state = perceive(state, view({ tick: 1, others: [car({ x: 100, y: 100, angle: 0.2 })] }), BOT_PROFILES.hard);
+    state = perceive(state, view({ tick: 0, others: [car({ x: 100, y: 100, angle: 0 })] }), RESOLVED_BOT_PROFILES.hard);
+    state = perceive(state, view({ tick: 1, others: [car({ x: 100, y: 100, angle: 0.2 })] }), RESOLVED_BOT_PROFILES.hard);
     // 0.2 rad in one tick at 30 Hz == 6 rad/s.
     expect(observedAngVelOf(state, "them")).toBeCloseTo(6, 3);
   });
@@ -228,12 +228,12 @@ describe("observedAngVelOf", () => {
     state = perceive(
       state,
       view({ tick: 0, others: [car({ x: 100, y: 100, angle: Math.PI - 0.05 })] }),
-      BOT_PROFILES.hard,
+      RESOLVED_BOT_PROFILES.hard,
     );
     state = perceive(
       state,
       view({ tick: 1, others: [car({ x: 100, y: 100, angle: -Math.PI + 0.05 })] }),
-      BOT_PROFILES.hard,
+      RESOLVED_BOT_PROFILES.hard,
     );
     // 0.1 rad across the seam, not 2*pi - 0.1.
     expect(Math.abs(observedAngVelOf(state, "them"))).toBeCloseTo(3, 3);
@@ -243,29 +243,29 @@ describe("observedAngVelOf", () => {
 describe("readinessOf", () => {
   it("assumes a weapon never seen fired is loaded", () => {
     const state = newPerception();
-    expect(readinessOf(state, "them", "predator", 100, BOT_PROFILES.hard)).toBe(1);
+    expect(readinessOf(state, "them", "predator", 100, RESOLVED_BOT_PROFILES.hard)).toBe(1);
   });
 
   it("treats a weapon seen fired one tick ago as spent", () => {
     const state = newPerception();
     state.firedSeenTick.set("them:lance", 100);
-    expect(readinessOf(state, "them", "lance", 101, BOT_PROFILES.hard)).toBeLessThan(0.1);
+    expect(readinessOf(state, "them", "lance", 101, RESOLVED_BOT_PROFILES.hard)).toBeLessThan(0.1);
   });
 
   it("recovers to loaded once the cooldown has elapsed", () => {
     const state = newPerception();
     state.firedSeenTick.set("them:predator", 100);
     // predator: 1000 ms == 30 ticks at 30 Hz.
-    expect(readinessOf(state, "them", "predator", 131, BOT_PROFILES.hard)).toBe(1);
+    expect(readinessOf(state, "them", "predator", 131, RESOLVED_BOT_PROFILES.hard)).toBe(1);
   });
 
   it("forgets a sighting older than memoryTicks, so a casual loses track", () => {
     const state = newPerception();
     state.firedSeenTick.set("them:lance", 0);
-    const easy = readinessOf(state, "them", "lance", 60, BOT_PROFILES.easy);
+    const easy = readinessOf(state, "them", "lance", 60, RESOLVED_BOT_PROFILES.easy);
     // lance is a 16 s gun: 60 ticks in it is genuinely still recharging, but easy's 15-tick memory
     // has dropped the sighting, so easy believes it is loaded. That gap IS the tier difference.
     expect(easy).toBe(1);
-    expect(readinessOf(state, "them", "lance", 60, BOT_PROFILES.hard)).toBeLessThan(1);
+    expect(readinessOf(state, "them", "lance", 60, RESOLVED_BOT_PROFILES.hard)).toBeLessThan(1);
   });
 });

@@ -6,7 +6,7 @@ import {
   slotsOf,
   weaponDefOf,
 } from "@motor-combat-moba/shared";
-import { BOT_PROFILES, BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
+import { RESOLVED_BOT_PROFILES, BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotCarView, BotSelfView, BotSlotView } from "../types.js";
 import {
@@ -120,17 +120,17 @@ describe("preferredRangeOf", () => {
   it("never asks to fight further away than the bot can perceive", () => {
     const range = preferredRangeOf(
       self("bullseye"),
-      BOT_PROFILES.hard,
+      RESOLVED_BOT_PROFILES.hard,
       ones,
       0,
     );
-    expect(range).toBeLessThanOrEqual(BOT_PROFILES.hard.awarenessRadiusUnits);
+    expect(range).toBeLessThanOrEqual(RESOLVED_BOT_PROFILES.hard.awarenessRadiusUnits);
   });
 
   it("never collapses below the close-quarters floor", () => {
     const range = preferredRangeOf(
       { ...self("bastion"), slots: [] },
-      BOT_PROFILES.easy,
+      RESOLVED_BOT_PROFILES.easy,
       [],
       0,
     );
@@ -139,9 +139,9 @@ describe("preferredRangeOf", () => {
 
   it("holds a longer range for a more disciplined tier", () => {
     expect(
-      preferredRangeOf(self("mirage"), BOT_PROFILES.hard, ones, 0),
+      preferredRangeOf(self("mirage"), RESOLVED_BOT_PROFILES.hard, ones, 0),
     ).toBeGreaterThan(
-      preferredRangeOf(self("mirage"), BOT_PROFILES.easy, ones, 0),
+      preferredRangeOf(self("mirage"), RESOLVED_BOT_PROFILES.easy, ones, 0),
     );
   });
 
@@ -152,7 +152,7 @@ describe("preferredRangeOf", () => {
     // while this holds of every tier. Pinned here rather than re-clamped there so a tier row that
     // ever broke it fails naming the tier, instead of being silently absorbed by a `Math.max`.
     for (const tier of ["easy", "medium", "hard"] as const) {
-      expect(BOT_PROFILES[tier].awarenessRadiusUnits, tier).toBeGreaterThan(
+      expect(RESOLVED_BOT_PROFILES[tier].awarenessRadiusUnits, tier).toBeGreaterThan(
         BRAIN_CONSTANTS.minEngageUnits,
       );
     }
@@ -166,7 +166,7 @@ describe("preferredRangeOf", () => {
     // solver-derived range would be a no-op with an expensive loop in front of it. Bullseye at hard
     // is the loudest case: 570 units at the 60x40 hull (470 at 48x32), over eight times the floor.
     expect(
-      preferredRangeOf(self("bullseye"), BOT_PROFILES.hard, ones, 0),
+      preferredRangeOf(self("bullseye"), RESOLVED_BOT_PROFILES.hard, ones, 0),
     ).toBeGreaterThan(300);
   });
 
@@ -186,13 +186,13 @@ describe("preferredRangeOf", () => {
     // Both vectors are inside `rollPersonality`'s own 0.5-1.5 draw.
     const longGunHeavy = preferredRangeOf(
       self("mirage"),
-      BOT_PROFILES.hard,
+      RESOLVED_BOT_PROFILES.hard,
       [1.5, 1.5, 0.5],
       0,
     );
     const afterburnerHeavy = preferredRangeOf(
       self("mirage"),
-      BOT_PROFILES.hard,
+      RESOLVED_BOT_PROFILES.hard,
       [0.5, 0.5, 1.5],
       0,
     );
@@ -231,7 +231,7 @@ describe("preferredRangeOf", () => {
           for (const b of grid)
             for (const c of grid) {
               seen.add(
-                preferredRangeOf(self(carId), BOT_PROFILES[tier], [a, b, c], 0),
+                preferredRangeOf(self(carId), RESOLVED_BOT_PROFILES[tier], [a, b, c], 0),
               );
             }
         if (seen.size > 1) live.push(`${carId}/${tier}`);
@@ -245,13 +245,13 @@ describe("preferredRangeOf", () => {
     // slot weights, Bullseye's long kit wants a longer stand-off than Bastion's short one.
     const bullseye = preferredRangeOf(
       self("bullseye"),
-      BOT_PROFILES.hard,
+      RESOLVED_BOT_PROFILES.hard,
       ones,
       0,
     );
     const bastion = preferredRangeOf(
       self("bastion"),
-      BOT_PROFILES.hard,
+      RESOLVED_BOT_PROFILES.hard,
       ones,
       0,
     );
@@ -287,9 +287,9 @@ describe("preferredRangeOf", () => {
         // it would get with everything loaded — the range is a property of the kit, not of the
         // cooldown clocks.
         expect(
-          preferredRangeOf(spent, BOT_PROFILES[tier], ones, 0),
+          preferredRangeOf(spent, RESOLVED_BOT_PROFILES[tier], ones, 0),
           `${carId}/${tier} while reloading`,
-        ).toBe(preferredRangeOf(loaded, BOT_PROFILES[tier], ones, 0));
+        ).toBe(preferredRangeOf(loaded, RESOLVED_BOT_PROFILES[tier], ones, 0));
       }
     }
 
@@ -304,8 +304,8 @@ describe("preferredRangeOf", () => {
         refireLockUntilTick: 500,
       })),
     };
-    expect(preferredRangeOf(spent, BOT_PROFILES.hard, ones, 0)).toBeLessThan(
-      BOT_PROFILES.hard.awarenessRadiusUnits,
+    expect(preferredRangeOf(spent, RESOLVED_BOT_PROFILES.hard, ones, 0)).toBeLessThan(
+      RESOLVED_BOT_PROFILES.hard.awarenessRadiusUnits,
     );
   });
 });
@@ -340,7 +340,7 @@ describe("chooseSlot", () => {
     const out = chooseSlot({
       ...base,
       self: self("bullseye"),
-      profile: BOT_PROFILES.hard,
+      profile: RESOLVED_BOT_PROFILES.hard,
       tick: 1,
       lastPressTick: 0,
       rng: makeRng(1),
@@ -358,7 +358,7 @@ describe("chooseSlot", () => {
     const out = chooseSlot({
       ...base,
       self: self("bullseye"),
-      profile: BOT_PROFILES.hard,
+      profile: RESOLVED_BOT_PROFILES.hard,
       rng: makeRng(1),
       ultHold: new Map(),
       solutions: solutionsFor([
@@ -397,7 +397,7 @@ describe("chooseSlot", () => {
       const out = chooseSlot({
         ...base,
         self: ultOnly("bullseye"),
-        profile: BOT_PROFILES.hard,
+        profile: RESOLVED_BOT_PROFILES.hard,
         rng: makeRng(seed),
         ultHold: new Map(),
         solutions: solutionsFor([[2, 30]]),
@@ -415,7 +415,7 @@ describe("chooseSlot", () => {
       const out = chooseSlot({
         ...base,
         self: ultOnly("bullseye"),
-        profile: BOT_PROFILES.easy,
+        profile: RESOLVED_BOT_PROFILES.easy,
         rng: makeRng(seed),
         ultHold: new Map(),
         solutions: solutionsFor([[2, 10]]),
@@ -445,7 +445,7 @@ describe("chooseSlot", () => {
       const out = chooseSlot({
         ...base,
         self: ultOnly("bullseye"),
-        profile: BOT_PROFILES.hard,
+        profile: RESOLVED_BOT_PROFILES.hard,
         tick,
         lastPressTick: -999,
         rng: persistentRng,
@@ -463,7 +463,7 @@ describe("chooseSlot", () => {
       const out = chooseSlot({
         ...base,
         self: ultOnly("bullseye"),
-        profile: BOT_PROFILES.hard,
+        profile: RESOLVED_BOT_PROFILES.hard,
         tick,
         lastPressTick: -999,
         rng: rerolledRng,
@@ -485,7 +485,7 @@ describe("chooseSlot", () => {
     const out = chooseSlot({
       ...base,
       self: self("bullseye"),
-      profile: BOT_PROFILES.hard,
+      profile: RESOLVED_BOT_PROFILES.hard,
       target: { ...target, hp: 5 },
       rng: makeRng(1),
       ultHold: new Map(),
@@ -503,7 +503,7 @@ describe("chooseSlot", () => {
     const out = chooseSlot({
       ...base,
       self: locked,
-      profile: BOT_PROFILES.hard,
+      profile: RESOLVED_BOT_PROFILES.hard,
       tick: 10,
       rng: makeRng(1),
       ultHold: new Map(),
@@ -526,7 +526,7 @@ describe("chooseSlot", () => {
     const out = chooseSlot({
       ...base,
       self: chargeOnly,
-      profile: BOT_PROFILES.easy,
+      profile: RESOLVED_BOT_PROFILES.easy,
       target: { ...target, x: 100, hp: 10 },
       rng: makeRng(1),
       ultHold: new Map(),
@@ -548,7 +548,7 @@ describe("chooseSlot", () => {
     const out = chooseSlot({
       ...base,
       self: chargeOnly,
-      profile: BOT_PROFILES.easy,
+      profile: RESOLVED_BOT_PROFILES.easy,
       rng: makeRng(1),
       ultHold: new Map(),
       solutions: solutionsFor([[2, 0]]),
@@ -569,7 +569,7 @@ describe("chooseSlot", () => {
       const out = chooseSlot({
         ...base,
         self: predatorOnly,
-        profile: BOT_PROFILES.hard,
+        profile: RESOLVED_BOT_PROFILES.hard,
         rng: makeRng(1),
         ultHold: new Map(),
         solutions: solutionsFor([[0, 40]]),
@@ -589,7 +589,7 @@ describe("chooseSlot", () => {
         const out = chooseSlot({
           ...base,
           self: predatorOnly,
-          profile: BOT_PROFILES.easy,
+          profile: RESOLVED_BOT_PROFILES.easy,
           rng: makeRng(seed),
           ultHold: new Map(),
           solutions: solutionsFor([[0, 10]]),
@@ -608,7 +608,7 @@ describe("chooseSlot — expected value gate (P14, R20)", () => {
     const decision = chooseSlot({
       self: self("bullseye"),
       target,
-      profile: { ...BOT_PROFILES.hard, minShotValueFraction: 0.3 },
+      profile: { ...RESOLVED_BOT_PROFILES.hard, minShotValueFraction: 0.3 },
       weights: ones,
       tick: 100,
       lastPressTick: 0,
@@ -627,7 +627,7 @@ describe("chooseSlot — expected value gate (P14, R20)", () => {
     const decision = chooseSlot({
       self: self("bullseye"),
       target,
-      profile: { ...BOT_PROFILES.hard, minShotValueFraction: 0.3 },
+      profile: { ...RESOLVED_BOT_PROFILES.hard, minShotValueFraction: 0.3 },
       weights: ones,
       tick: 100,
       lastPressTick: 0,
@@ -657,7 +657,7 @@ describe("chooseSlot — expected value gate (P14, R20)", () => {
         chooseSlot({
           self: self("bullseye"),
           target,
-          profile: { ...BOT_PROFILES.easy, minShotValueFraction },
+          profile: { ...RESOLVED_BOT_PROFILES.easy, minShotValueFraction },
           weights: ones,
           tick: 100,
           lastPressTick: 0,
@@ -701,7 +701,7 @@ describe("chooseSlot — the basic-attack toggle (slots().basicAttackEnabled)", 
     const decision = chooseSlot({
       self: selfWithBasicAttack("bastion"),
       target,
-      profile: BOT_PROFILES.hard,
+      profile: RESOLVED_BOT_PROFILES.hard,
       weights: [1, 1, 1, 1],
       tick: 100,
       lastPressTick: 0,
@@ -722,7 +722,7 @@ describe("chooseSlot — the basic-attack toggle (slots().basicAttackEnabled)", 
     const decision = chooseSlot({
       self: selfWithBasicAttack("bastion"),
       target,
-      profile: BOT_PROFILES.hard,
+      profile: RESOLVED_BOT_PROFILES.hard,
       weights: [1, 1, 1, 1],
       tick: 100,
       lastPressTick: 0,

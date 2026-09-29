@@ -4,7 +4,7 @@ import {
   ARENA_01, boundsOf, driveOf, NEUTRAL_MODIFIERS, slotsOf, stepDrive, TICK_RATE_HZ, turretPivotOf,
   weaponDefOf, wrapAngle, type SimBody,
 } from "@motor-combat-moba/shared";
-import { BOT_PROFILES } from "../../config/bot-profiles.js";
+import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotView } from "../types.js";
 import { HumanController, inCorner } from "./controller.js";
@@ -168,7 +168,7 @@ describe("HumanController", () => {
     // Task 7's humanize layer coasts for `reactionDelayTicks` (hard: 4) before a decision reaches
     // the output, so this loops past that window.
     const bot = new HumanController("hard", {
-      profile: { ...BOT_PROFILES.hard, blunderChance: 0, idleFidgetChance: 0, aimErrorSigmaRad: 0 },
+      profile: { ...RESOLVED_BOT_PROFILES.hard, blunderChance: 0, idleFidgetChance: 0, aimErrorSigmaRad: 0 },
     });
     const selfAtCentre = { ...view().self, x: 640, y: 360, angle: 0 };
     let out = { steer: 0, throttle: 0, fireSlots: 0 };
@@ -186,7 +186,7 @@ describe("HumanController", () => {
     // is on screen (Deathmatch respawn) but is not a target — hunt must drive at that visible
     // pose, which is a 180° heading, so steer is visibly non-zero.
     const profile = {
-      ...BOT_PROFILES.hard,
+      ...RESOLVED_BOT_PROFILES.hard,
       blunderChance: 0, idleFidgetChance: 0, aimErrorSigmaRad: 0, acquireTicks: 2,
     };
     const bot = new HumanController("hard", { profile });
@@ -210,7 +210,7 @@ describe("HumanController", () => {
     // A living car is on screen but not yet noticed. Centre-seeking from (100, 100) facing +x
     // would steer toward (640, 360). Continuing the previous heading keeps steer 0.
     const profile = {
-      ...BOT_PROFILES.hard,
+      ...RESOLVED_BOT_PROFILES.hard,
       blunderChance: 0, idleFidgetChance: 0, aimErrorSigmaRad: 0, acquireTicks: 20,
     };
     const bot = new HumanController("hard", { profile });
@@ -269,7 +269,7 @@ describe("HumanController", () => {
       weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
       range: weaponDefOf(weaponId).range,
     }));
-    const profile = { ...BOT_PROFILES.hard, memoryTicks: 0 };
+    const profile = { ...RESOLVED_BOT_PROFILES.hard, memoryTicks: 0 };
     const bot = new HumanController("hard", { profile });
     const selfView = {
       sessionId: "me", carId: "bullseye" as const, team: 0 as const,
@@ -481,7 +481,7 @@ describe("HumanController", () => {
       firedWhileDodging = true;
       const settledFrom = evadeStartTick === undefined
         ? Infinity
-        : evadeStartTick + BOT_PROFILES.hard.reactionDelayTicks + BOT_PROFILES.hard.recomputeTicks;
+        : evadeStartTick + RESOLVED_BOT_PROFILES.hard.reactionDelayTicks + RESOLVED_BOT_PROFILES.hard.recomputeTicks;
       if (tick >= settledFrom) {
         // The planner frame, read LOUDLY: an absent `debug()` or `plan` would make every press
         // read as "no turn planned" and could quietly satisfy the emitted half alone, so a missing
@@ -531,7 +531,7 @@ describe("HumanController", () => {
     // Seed 17 rolls the `grudge` archetype, which shifts none of these four fields — `brawler` and
     // `kiter` both shift `ramIntentChance` and would silently discard the override.
     const profile = {
-      ...BOT_PROFILES.hard,
+      ...RESOLVED_BOT_PROFILES.hard,
       ramIntentChance: 1, memoryTicks: 4, acquireTicks: 2, situationCommitTicks: 2,
     };
     const bot = new HumanController("hard", { profile });
@@ -620,7 +620,7 @@ describe("HumanController", () => {
       range: weaponDefOf(weaponId).range,
     }));
     const profile = {
-      ...BOT_PROFILES.hard,
+      ...RESOLVED_BOT_PROFILES.hard,
       blunderChance: 0, idleFidgetChance: 0, acquireTicks: 0, recomputeTicks: 1,
       reactionDelayTicks: 0, deadRespect: 1,
     };
@@ -651,7 +651,7 @@ describe("HumanController", () => {
       range: weaponDefOf(weaponId).range,
     }));
     const profile = {
-      ...BOT_PROFILES.hard,
+      ...RESOLVED_BOT_PROFILES.hard,
       blunderChance: 0, idleFidgetChance: 0, acquireTicks: 0, recomputeTicks: 1,
       reactionDelayTicks: 0, cornerRespect: 1, aimErrorSigmaRad: 0,
     };
@@ -678,7 +678,7 @@ describe("HumanController", () => {
       range: weaponDefOf(weaponId).range,
     }));
     const profile = {
-      ...BOT_PROFILES.hard,
+      ...RESOLVED_BOT_PROFILES.hard,
       blunderChance: 0, idleFidgetChance: 0, acquireTicks: 0, recomputeTicks: 1,
       reactionDelayTicks: 0, burstGapTicks: 0, aimErrorSigmaRad: 0,
     };
@@ -721,7 +721,7 @@ describe("HumanController", () => {
     };
     const selfView = { ...view().self, slots: predatorKit, x: 400, y: 200, angle: 0 };
     const quiet = {
-      ...BOT_PROFILES.hard,
+      ...RESOLVED_BOT_PROFILES.hard,
       blunderChance: 0, idleFidgetChance: 0, acquireTicks: 0, recomputeTicks: 1,
       reactionDelayTicks: 0, burstGapTicks: 0, stateEstimationSigma: 0,
     };
@@ -843,7 +843,7 @@ describe("HumanController", () => {
       weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
       range: weaponDefOf(weaponId).range,
     }));
-    const profile = { ...BOT_PROFILES.hard, acquireTicks: 0 };
+    const profile = { ...RESOLVED_BOT_PROFILES.hard, acquireTicks: 0 };
     const selfView = { ...view().self, slots, x: 200, y: 360, angle: 0 };
     const target = {
       sessionId: "them", carId: "mirage" as const, team: 1 as const,

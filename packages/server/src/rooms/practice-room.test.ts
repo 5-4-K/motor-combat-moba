@@ -24,7 +24,7 @@ import {
   type FiredEvent,
   type InputMessage,
 } from "@motor-combat-moba/shared";
-import { BOT_PROFILES } from "../config/bot-profiles.js";
+import { RESOLVED_BOT_PROFILES } from "../config/bot-profiles.js";
 import { HumanController, ViewRing, type BotView } from "../bot/index.js";
 import { PracticeRoom, newPracticeState } from "./PracticeRoom.js";
 import { countdownTicks } from "./countdown.js";
@@ -136,7 +136,7 @@ describe("practice room rules", () => {
 
   it("ships a profile for every difficulty the setup guard accepts", () => {
     for (const difficulty of ["easy", "medium", "hard"] as const) {
-      expect(BOT_PROFILES[difficulty]).toBeDefined();
+      expect(RESOLVED_BOT_PROFILES[difficulty]).toBeDefined();
     }
   });
 });
@@ -256,7 +256,7 @@ describe("Task 8: the view ring and the fired sink actually run outside the harn
 
   it("serves the bot a genuinely stale world once the ring has filled (B19)", () => {
     const room = readyPracticeRoom("easy"); // viewStalenessTicks = 4, ring capacity 5
-    const staleness = BOT_PROFILES.easy.viewStalenessTicks;
+    const staleness = RESOLVED_BOT_PROFILES.easy.viewStalenessTicks;
     const seenViews: BotView[] = [];
 
     // The bot's own decision is irrelevant to this test and, if left real, could drive it into the

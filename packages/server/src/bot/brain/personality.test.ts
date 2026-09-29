@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
-import { BOT_PROFILES, BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
+import { RESOLVED_BOT_PROFILES, BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import { rollPersonality } from "./personality.js";
 
@@ -23,7 +23,7 @@ describe("rollPersonality", () => {
     const jitter = BRAIN_CONSTANTS.personalityJitter;
     for (let seed = 0; seed < 100; seed++) {
       const { profile } = rollPersonality(makeRng(seed), "hard");
-      const base = BOT_PROFILES.hard;
+      const base = RESOLVED_BOT_PROFILES.hard;
       // `opponentRangeRespect` replaced `standoffFraction` here when P35 deleted that field
       // (R-M1): it is the danger-distance axis `brawler` and `kiter` shift now, so it is the one
       // this test needs to see clamped into the band.
@@ -39,7 +39,7 @@ describe("rollPersonality", () => {
   it("never lets a hard bot become as undisciplined as a medium one (H47)", () => {
     for (let seed = 0; seed < 100; seed++) {
       const { profile } = rollPersonality(makeRng(seed), "hard");
-      expect(profile.ultDisciplineChance).toBeGreaterThanOrEqual(BOT_PROFILES.medium.ultDisciplineChance);
+      expect(profile.ultDisciplineChance).toBeGreaterThanOrEqual(RESOLVED_BOT_PROFILES.medium.ultDisciplineChance);
     }
   });
 

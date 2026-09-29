@@ -24,7 +24,7 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { GameMode, modeLabelOf, rulesOf, type CarId, type WeaponId } from "@motor-combat-moba/shared";
-import { BOT_PROFILES, type BotProfile } from "../src/config/bot-profiles.js";
+import { BOT_PROFILES, resolveBotProfile, type BotProfile } from "../src/config/bot-profiles.js";
 import { deriveSeed } from "../src/bot/rng.js";
 import type { MatchOutcome } from "./match.js";
 import type { RunConfig } from "./runner.js";
@@ -111,7 +111,7 @@ function renderHeader(record: RunRecord): string {
     record.gitCommit === "unknown"
       ? "**Git commit:** unknown (`git rev-parse` failed or was unavailable in this environment)"
       : `**Git commit:** \`${record.gitCommit}\``;
-  const profile = BOT_PROFILES[record.config.difficulty];
+  const profile = resolveBotProfile(BOT_PROFILES[record.config.difficulty]);
 
   return [
     "# Balance report",

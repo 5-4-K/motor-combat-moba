@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BOT_PROFILES } from "../../config/bot-profiles.js";
+import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotCarView, BotSelfView } from "../types.js";
 import { newPerception, type PerceptionState } from "./perception.js";
@@ -34,7 +34,7 @@ describe("scoreTargets", () => {
     const out = scoreTargets({
       ...targetBase,
       candidates: [car("dead", { alive: false }), car("ghost", { phased: true })],
-      profile: BOT_PROFILES.hard, rng: makeRng(1),
+      profile: RESOLVED_BOT_PROFILES.hard, rng: makeRng(1),
     });
     expect(out.targetSessionId).toBeUndefined();
   });
@@ -43,7 +43,7 @@ describe("scoreTargets", () => {
     const out = scoreTargets({
       ...targetBase,
       candidates: [car("hurt", { hp: 8, x: 250 }), car("full", { hp: 70, x: 200 })],
-      profile: BOT_PROFILES.hard, rng: makeRng(1),
+      profile: RESOLVED_BOT_PROFILES.hard, rng: makeRng(1),
     });
     expect(out.targetSessionId).toBe("hurt");
   });
@@ -53,7 +53,7 @@ describe("scoreTargets", () => {
       ...targetBase,
       perception: blaming("shooter", 100),
       candidates: [car("hurt", { hp: 8, x: 250 }), car("shooter", { hp: 70, x: 490 })],
-      profile: BOT_PROFILES.easy, rng: makeRng(1),
+      profile: RESOLVED_BOT_PROFILES.easy, rng: makeRng(1),
     });
     expect(out.targetSessionId).toBe("shooter");
   });

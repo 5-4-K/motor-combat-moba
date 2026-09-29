@@ -1,34 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { BOT_PROFILES } from "../../config/bot-profiles.js";
+import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
 import { ALL_SITUATIONS } from "./situation.js";
 import { weightsFor } from "./objectives.js";
 
 describe("weightsFor", () => {
   it("covers every situation", () => {
     for (const id of ALL_SITUATIONS) {
-      expect(() => weightsFor(id, BOT_PROFILES.hard)).not.toThrow();
+      expect(() => weightsFor(id, RESOLVED_BOT_PROFILES.hard)).not.toThrow();
     }
   });
 
   it("weights my own value highest in a fight", () => {
-    const fight = weightsFor("fight", BOT_PROFILES.hard);
+    const fight = weightsFor("fight", RESOLVED_BOT_PROFILES.hard);
     expect(fight.myEv).toBeGreaterThan(fight.theirEv);
   });
 
   it("weights danger over damage when resetting", () => {
-    const reset = weightsFor("reset", BOT_PROFILES.hard);
+    const reset = weightsFor("reset", RESOLVED_BOT_PROFILES.hard);
     expect(reset.theirEv).toBeGreaterThan(reset.myEv);
   });
 
   it("makes leaving a wall dominate everything when unpinning", () => {
-    const unpin = weightsFor("unpin", BOT_PROFILES.hard);
-    const fight = weightsFor("fight", BOT_PROFILES.hard);
+    const unpin = weightsFor("unpin", RESOLVED_BOT_PROFILES.hard);
+    const fight = weightsFor("fight", RESOLVED_BOT_PROFILES.hard);
     expect(unpin.wallPenalty).toBeGreaterThan(fight.wallPenalty);
   });
 
   it("scales the danger term by opponentRangeRespect, so easy ignores it (P38)", () => {
-    expect(weightsFor("fight", BOT_PROFILES.easy).theirEv).toBe(0);
-    expect(weightsFor("fight", BOT_PROFILES.hard).theirEv).toBeGreaterThan(0);
+    expect(weightsFor("fight", RESOLVED_BOT_PROFILES.easy).theirEv).toBe(0);
+    expect(weightsFor("fight", RESOLVED_BOT_PROFILES.hard).theirEv).toBeGreaterThan(0);
   });
 
   it("scales ONLY the danger term by the profile, so a tier cannot change what a play is FOR (P38)", () => {
@@ -36,8 +36,8 @@ describe("weightsFor", () => {
     // strongly; it is not allowed to turn `punish` into `reset`. Every term except `theirEv` must
     // therefore read identically at every tier.
     for (const id of ALL_SITUATIONS) {
-      const easy = weightsFor(id, BOT_PROFILES.easy);
-      const hard = weightsFor(id, BOT_PROFILES.hard);
+      const easy = weightsFor(id, RESOLVED_BOT_PROFILES.easy);
+      const hard = weightsFor(id, RESOLVED_BOT_PROFILES.hard);
       expect(easy.myEv, id).toBe(hard.myEv);
       expect(easy.rangeError, id).toBe(hard.rangeError);
       expect(easy.wallPenalty, id).toBe(hard.wallPenalty);
@@ -48,7 +48,7 @@ describe("weightsFor", () => {
   it("never returns a negative weight — every term is a magnitude, the sign lives in rawScore", () => {
     for (const id of ALL_SITUATIONS) {
       for (const tier of ["easy", "medium", "hard"] as const) {
-        const w = weightsFor(id, BOT_PROFILES[tier]);
+        const w = weightsFor(id, RESOLVED_BOT_PROFILES[tier]);
         for (const [term, value] of Object.entries(w)) {
           expect(value, `${tier}/${id}/${term}`).toBeGreaterThanOrEqual(0);
         }
@@ -62,11 +62,11 @@ describe("weightsFor", () => {
     // situation a shot in the air PUTS the bot in. Any other play weighting it would have the bot
     // abandoning a fight, a corner or a hunt to sidestep something it has already decided not to
     // treat as an emergency.
-    const evade = weightsFor("evade", BOT_PROFILES.hard);
+    const evade = weightsFor("evade", RESOLVED_BOT_PROFILES.hard);
     expect(evade.threatAvoid).toBeGreaterThan(0);
     for (const id of ALL_SITUATIONS) {
       if (id === "evade") continue;
-      expect(weightsFor(id, BOT_PROFILES.hard).threatAvoid, id).toBe(0);
+      expect(weightsFor(id, RESOLVED_BOT_PROFILES.hard).threatAvoid, id).toBe(0);
     }
   });
 
@@ -88,21 +88,21 @@ describe("weightsFor", () => {
     // (0.6 x 100 = 60 against 0.3 x 75 = 22.5) — it compares the two terms' PER-UNIT rates, which
     // is the comparison that matters and is scale-free in the displacement. Do not read the 100 as
     // a claim about how far the car can move in one plan; see `objectives.ts`'s table note.
-    const evade = weightsFor("evade", BOT_PROFILES.hard);
+    const evade = weightsFor("evade", RESOLVED_BOT_PROFILES.hard);
     expect(evade.threatAvoid * 100).toBeGreaterThan(evade.myEv * 75);
   });
 
   it("hands back a fresh object, so a caller cannot poison the shared table", () => {
-    const a = weightsFor("fight", BOT_PROFILES.hard);
+    const a = weightsFor("fight", RESOLVED_BOT_PROFILES.hard);
     a.myEv = -999;
-    expect(weightsFor("fight", BOT_PROFILES.hard).myEv).toBe(2);
+    expect(weightsFor("fight", RESOLVED_BOT_PROFILES.hard).myEv).toBe(2);
   });
 });
 
 describe("facingError weights", () => {
   it("is present on every situation, so the planner never reads undefined", () => {
     for (const id of ALL_SITUATIONS) {
-      const w = weightsFor(id, BOT_PROFILES.hard);
+      const w = weightsFor(id, RESOLVED_BOT_PROFILES.hard);
       expect(typeof w.facingError, `${id} has no facingError weight`).toBe("number");
       expect(Number.isFinite(w.facingError), `${id} facingError is not finite`).toBe(true);
     }
@@ -110,16 +110,16 @@ describe("facingError weights", () => {
 
   it("never returns a negative facing weight — the sign lives in rawScore", () => {
     for (const id of ALL_SITUATIONS) {
-      expect(weightsFor(id, BOT_PROFILES.hard).facingError).toBeGreaterThanOrEqual(0);
+      expect(weightsFor(id, RESOLVED_BOT_PROFILES.hard).facingError).toBeGreaterThanOrEqual(0);
     }
   });
 
   it("weights hunting highest, because facing your travel IS the play there (F13)", () => {
-    const waitOut = weightsFor("waitOut", BOT_PROFILES.hard).facingError;
+    const waitOut = weightsFor("waitOut", RESOLVED_BOT_PROFILES.hard).facingError;
     for (const id of ALL_SITUATIONS) {
       if (id === "waitOut") continue;
       expect(
-        weightsFor(id, BOT_PROFILES.hard).facingError,
+        weightsFor(id, RESOLVED_BOT_PROFILES.hard).facingError,
         `${id} outweighs waitOut on facing`,
       ).toBeLessThan(waitOut);
     }
@@ -127,21 +127,21 @@ describe("facingError weights", () => {
 
   it("keeps the kiting plays below the committed ones, so backing off stays legal (F12)", () => {
     const w = (id: Parameters<typeof weightsFor>[0]) =>
-      weightsFor(id, BOT_PROFILES.hard).facingError;
+      weightsFor(id, RESOLVED_BOT_PROFILES.hard).facingError;
     expect(w("reset")).toBeLessThan(w("fight"));
     expect(w("fight")).toBeLessThan(w("punish"));
     expect(w("fight")).toBeLessThan(w("close"));
   });
 
   it("asks nothing of a car that is dead or phased (F8)", () => {
-    expect(weightsFor("recover", BOT_PROFILES.hard).facingError).toBe(0);
+    expect(weightsFor("recover", RESOLVED_BOT_PROFILES.hard).facingError).toBe(0);
   });
 
   it("is identical at every tier — facing is what a play is FOR, not how hard a tier feels it (P38)", () => {
     for (const id of ALL_SITUATIONS) {
-      const easy = weightsFor(id, BOT_PROFILES.easy).facingError;
-      const medium = weightsFor(id, BOT_PROFILES.medium).facingError;
-      const hard = weightsFor(id, BOT_PROFILES.hard).facingError;
+      const easy = weightsFor(id, RESOLVED_BOT_PROFILES.easy).facingError;
+      const medium = weightsFor(id, RESOLVED_BOT_PROFILES.medium).facingError;
+      const hard = weightsFor(id, RESOLVED_BOT_PROFILES.hard).facingError;
       expect(medium, `${id} facing differs across tiers`).toBe(easy);
       expect(hard, `${id} facing differs across tiers`).toBe(easy);
     }

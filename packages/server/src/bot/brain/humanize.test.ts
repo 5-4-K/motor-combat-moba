@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BOT_PROFILES } from "../../config/bot-profiles.js";
+import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotIntent } from "../types.js";
 import { applyBlunder, applyHumanize, BLUNDERS, newHumanizeState } from "./humanize.js";
@@ -21,7 +21,7 @@ describe("applyHumanize", () => {
   it("coasts until the delay line has filled", () => {
     const state = newHumanizeState();
     const rng = makeRng(1);
-    const profile = BOT_PROFILES.hard; // reactionDelayTicks 4
+    const profile = RESOLVED_BOT_PROFILES.hard; // reactionDelayTicks 4
     const out = [];
     for (let tick = 0; tick < 4; tick++) {
       out.push(applyHumanize(state, drive, tick, profile, rng, false, true));
@@ -32,7 +32,7 @@ describe("applyHumanize", () => {
   it("emits the intent decided reactionDelayTicks ago", () => {
     const state = newHumanizeState();
     const rng = makeRng(1);
-    const profile = { ...BOT_PROFILES.hard, blunderChance: 0, idleFidgetChance: 0 };
+    const profile = { ...RESOLVED_BOT_PROFILES.hard, blunderChance: 0, idleFidgetChance: 0 };
     for (let tick = 0; tick < 4; tick++) {
       applyHumanize(state, drive, tick, profile, rng, false, true);
     }
@@ -43,7 +43,7 @@ describe("applyHumanize", () => {
   it("never blunders at blunderChance 0", () => {
     const state = newHumanizeState();
     const rng = makeRng(7);
-    const profile = { ...BOT_PROFILES.hard, blunderChance: 0, idleFidgetChance: 0, reactionDelayTicks: 0 };
+    const profile = { ...RESOLVED_BOT_PROFILES.hard, blunderChance: 0, idleFidgetChance: 0, reactionDelayTicks: 0 };
     for (let tick = 0; tick < 200; tick++) {
       expect(applyHumanize(state, drive, tick, profile, rng, false, true)).toEqual(drive);
     }
@@ -52,7 +52,7 @@ describe("applyHumanize", () => {
   it("blunders sometimes at a high blunder chance, and commits for a window", () => {
     const state = newHumanizeState();
     const rng = makeRng(7);
-    const profile = { ...BOT_PROFILES.easy, blunderChance: 1, blunderTicks: 10, idleFidgetChance: 0, reactionDelayTicks: 0 };
+    const profile = { ...RESOLVED_BOT_PROFILES.easy, blunderChance: 1, blunderTicks: 10, idleFidgetChance: 0, reactionDelayTicks: 0 };
     // `backingUp`, not `drive`: since P41 reshaped the kinds, `late-brake` is a no-op against an
     // intent that already reads `throttle: 1`, so asserting on `drive` would make this test's
     // outcome depend on which kind the seed happens to draw.
@@ -64,7 +64,7 @@ describe("applyHumanize", () => {
   it("fidgets only when idle", () => {
     const state = newHumanizeState();
     const rng = makeRng(9);
-    const profile = { ...BOT_PROFILES.easy, blunderChance: 0, idleFidgetChance: 1, reactionDelayTicks: 0 };
+    const profile = { ...RESOLVED_BOT_PROFILES.easy, blunderChance: 0, idleFidgetChance: 1, reactionDelayTicks: 0 };
     const still: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
     expect(applyHumanize(state, still, 0, profile, rng, true, true).steer).not.toBe(0);
     expect(applyHumanize(state, still, 1, profile, rng, false, true).steer).toBe(0);
@@ -78,7 +78,7 @@ describe("applyHumanize", () => {
       let calls = 0;
       const inner = makeRng(5);
       const rng = () => { calls++; return inner(); };
-      applyHumanize(newHumanizeState(), drive, 0, BOT_PROFILES.easy, rng, false, decisionWindow);
+      applyHumanize(newHumanizeState(), drive, 0, RESOLVED_BOT_PROFILES.easy, rng, false, decisionWindow);
       return calls;
     };
     expect(count(true)).toBe(3);
@@ -106,7 +106,7 @@ describe("applyHumanize", () => {
     // Verified to go red under a permutation: swapping the `blunderRoll`/`fidgetRoll` draw order in
     // `applyHumanize` changes this string.
     const profile = {
-      ...BOT_PROFILES.easy,
+      ...RESOLVED_BOT_PROFILES.easy,
       blunderChance: 0.4, blunderTicks: 3, idleFidgetChance: 0.4, reactionDelayTicks: 0,
     };
     const state = newHumanizeState();
@@ -138,7 +138,7 @@ describe("applyHumanize", () => {
     // per-tick rolling (which lands 4x to 6x above it).
     const TICKS = 200_000;
     const duty = (tier: "easy" | "medium" | "hard") => {
-      const profile = BOT_PROFILES[tier];
+      const profile = RESOLVED_BOT_PROFILES[tier];
       const state = newHumanizeState();
       const rng = makeRng(99);
       let blundering = 0;
@@ -149,7 +149,7 @@ describe("applyHumanize", () => {
       return (blundering / TICKS) * 100;
     };
     const expected = (tier: "easy" | "medium" | "hard") => {
-      const p = BOT_PROFILES[tier];
+      const p = RESOLVED_BOT_PROFILES[tier];
       return (p.blunderTicks / (p.blunderTicks + p.recomputeTicks / p.blunderChance)) * 100;
     };
 
@@ -209,7 +209,7 @@ describe("applyHumanize", () => {
         const state = newHumanizeState();
         const rng = makeRng(11);
         const profile = {
-          ...BOT_PROFILES.easy, blunderChance, blunderTicks: 10,
+          ...RESOLVED_BOT_PROFILES.easy, blunderChance, blunderTicks: 10,
           idleFidgetChance: 0, reactionDelayTicks: 0,
         };
         const out: BotIntent[] = [];
@@ -232,7 +232,7 @@ describe("applyHumanize", () => {
         let calls = 0;
         const inner = makeRng(5);
         const rng = () => { calls++; return inner(); };
-        applyHumanize(newHumanizeState(), drive, 0, BOT_PROFILES.easy, rng, false, true, rider);
+        applyHumanize(newHumanizeState(), drive, 0, RESOLVED_BOT_PROFILES.easy, rng, false, true, rider);
         return calls;
       };
       expect(count(runnerUp)).toBe(3);
@@ -252,7 +252,7 @@ describe("applyHumanize", () => {
       // medium-to-hard rung to a tie. This test exists so the next reader finds the decision instead
       // of rediscovering it.
       const profile = {
-        ...BOT_PROFILES.easy, blunderChance: 1, blunderTicks: 6,
+        ...RESOLVED_BOT_PROFILES.easy, blunderChance: 1, blunderTicks: 6,
         idleFidgetChance: 0, reactionDelayTicks: 0,
       };
       const state = newHumanizeState();
@@ -277,7 +277,7 @@ describe("applyHumanize", () => {
       const rng = makeRng(4);
       const out = [];
       for (let tick = 0; tick < 60; tick++) {
-        out.push(applyHumanize(state, drive, tick, BOT_PROFILES.easy, rng, tick % 3 === 0, true));
+        out.push(applyHumanize(state, drive, tick, RESOLVED_BOT_PROFILES.easy, rng, tick % 3 === 0, true));
       }
       return JSON.stringify(out);
     };

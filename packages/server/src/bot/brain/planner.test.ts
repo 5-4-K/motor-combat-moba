@@ -3,7 +3,7 @@ import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba
 import {
   ARENA_01, boundsOf, DRIVE_CONFIG, slotsOf, weaponDefOf, type SimBody,
 } from "@motor-combat-moba/shared";
-import { BOT_PROFILES } from "../../config/bot-profiles.js";
+import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSelfView, BotSlotView } from "../types.js";
 import type { PosePredictor } from "./solution.js";
 import {
@@ -445,7 +445,7 @@ describe("plan", () => {
     expect(clearlyWorse).not.toEqual(neutral.action);
 
     const sticky = plan({
-      ...scene, self, commitPenalty: BOT_PROFILES.hard.commitPenalty, lastAction: clearlyWorse,
+      ...scene, self, commitPenalty: RESOLVED_BOT_PROFILES.hard.commitPenalty, lastAction: clearlyWorse,
     });
     expect(sticky.action).not.toEqual(clearlyWorse);
     expect(sticky.action).toEqual(neutral.action);
@@ -494,9 +494,9 @@ describe("plan", () => {
     it("is arithmetically unchanged at the depth every profile ships (depth 1)", () => {
       // The division by `depth` must be a no-op at depth 1, or the fix moves behaviour the
       // seven-seed sweep already settled. Hard, medium, and easy's K=0 floor.
-      expect(commitWindowOf(BOT_PROFILES.hard.planHorizonTicks, 1)).toEqual({ commit: 12, tail: 10 });
-      expect(commitWindowOf(BOT_PROFILES.medium.planHorizonTicks, 1)).toEqual({ commit: 5, tail: 3 });
-      expect(commitWindowOf(BOT_PROFILES.easy.planHorizonTicks, 1)).toEqual({ commit: 1, tail: 0 });
+      expect(commitWindowOf(RESOLVED_BOT_PROFILES.hard.planHorizonTicks, 1)).toEqual({ commit: 12, tail: 10 });
+      expect(commitWindowOf(RESOLVED_BOT_PROFILES.medium.planHorizonTicks, 1)).toEqual({ commit: 5, tail: 3 });
+      expect(commitWindowOf(RESOLVED_BOT_PROFILES.easy.planHorizonTicks, 1)).toEqual({ commit: 1, tail: 0 });
     });
 
     it("never rolls a zero-tick window, at either depth (R-P6)", () => {

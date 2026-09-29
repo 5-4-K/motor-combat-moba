@@ -11,7 +11,7 @@ export * from "./rng.js";
 export * from "./types.js";
 export * from "./view.js";
 export * from "./view-ring.js";
-export { BOT_PROFILES, BRAIN_CONSTANTS, BOT_BRAIN_VERSION } from "../config/bot-profiles.js";
+export { BOT_PROFILES, BRAIN_CONSTANTS, BOT_BRAIN_VERSION, resolveBotProfile, resolveBrainConstants } from "../config/bot-profiles.js";
 export type { BotProfile } from "../config/bot-profiles.js";
 export { MODE_BOT_CONFIG, botConfigOf } from "../config/mode-bot.js";
 export type { BotModeConfig, BrainConstants } from "../config/mode-bot.js";

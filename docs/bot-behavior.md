@@ -44,20 +44,20 @@ much) and the winning plan's per-term breakdown (what it thought it was doing in
 | "Hard isn't attacking / holds fire" | Read `ev best/threshold` on the overlay. Below 1, the bot is *correctly* declining the shot and `minShotValueFraction` down is the tune; at or above 1 with `slot -`, that is a bug in `chooseSlot` / `solve()`, not a knob |
 | "Shots are all over the place" | **Not a knob any more.** The solver decides hit chance and value; if it is firing shots that miss, that is a solver bug to investigate (`bot/brain/solution.ts`), not a value to tune |
 | "It misses me when I turn" / "it shoots where I was" | `stateEstimationSigma` down on that tier — **not** `aimErrorSigmaRad`. Leading a car through a curve is PREDICTION (how well it reads your speed and turn rate, `bot/brain/predict.ts`); `aimErrorSigmaRad` is steady-state hands and will not fix a lead that is aimed at the wrong place to begin with. If it misses you equally badly while you drive STRAIGHT, that is the hands after all |
-| "It doesn't set up its shots" | **Planning** — a third factor as of 4.3.0. `planHorizonTicks` is how long an arc the bot can express at all; `targetBranches` is how hard it hedges against what you do next. Easy's 0 is a one-tick rollout by design (see [Known limitations](#known-limitations)) |
+| "It doesn't set up its shots" | **Planning** — a third factor as of 4.3.0. `planHorizonMs` is how long an arc the bot can express at all; `targetBranches` is how hard it hedges against what you do next. Easy's 0 is a one-tick rollout by design (see [Known limitations](#known-limitations)) |
 | "It weaves / circles me" | Usually correct now. Circling is emergent: the planner turns because the arc that sweeps its nose across you scores better than the one that does not. A stutter — the wheel flapping rather than an arc — is planner *chatter*: raise `commitPenalty`. `orbitBias` does not exist |
 | "It ults my corpse / spawn shield" | `deadRespect` up (Hard should already be 1) |
 | "It sits in a corner while I approach" | `cornerRespect` up; the overlay should read `unpin`. **`wallPenalty` dominates the terms only in a TRUE corner**, where the pose itself is inside the margin. Merely NEAR a wall it reads 0, same as on open floor — check the pose before you chase the term. **H39's near-wall/open-floor pair (`tiers.test.ts`) no longer discriminates on `wallPenalty` at all — it reads 0 in both runs.** Since 4.5.0 it discriminates on `facingError` instead: `unpin`'s weight (60) prices a reversal near the wall higher than `fight`'s (30) prices the same reversal in the open, and that is what now keeps the near-wall car from reversing (measured tail: steer 1, throttle 0 — turns off the wall, does not back into it) while the open-floor car still backs off to `fightRange` (steer 0, throttle -1). Before the facing term carried a per-situation weight, both runs reversed identically despite the same 2400 `wallPenalty` already sitting there — the test failed then, and `wallPenalty` reading 0 was never what separated the two scenes; do not cite it as the explanation on its own |
-| "It never dodges" | `dodgeChance`, `dodgeReactionTicks`, `dodgeHorizonTicks`, `incomingCarChance`. Those decide WHETHER it reacts; `threatAvoid`'s weight in `objectives.ts` decides how hard, and is not per-tier |
+| "It never dodges" | `dodgeChance`, `dodgeReactionMs`, `dodgeHorizonMs`, `incomingCarChance`. Those decide WHETHER it reacts; `threatAvoid`'s weight in `objectives.ts` decides how hard, and is not per-tier |
 | "It fights at the wrong distance" | `opponentRangeRespect` (how much of *their* shortest gun it insists on clearing) and `awarenessRadiusUnits`. The bot's own comfortable range is **derived**, not dialled — see [`preferredRangeOf`](#preferredrangeof-the-standoff-is-derived-now) |
 | "It charges in / never closes" | `opponentRangeRespect` down to close, up to stand off. Nothing in the shipped profile can make a bot stand *closer* than its own derived comfort — see [Known limitations](#known-limitations) |
 | "It runs away from nothing" | `opponentRangeRespect` down on that tier. It scales `theirEv`, the planner's continuous danger term, so a high value makes every candidate that walks into a firing solution score worse. Read the overlay's `danger` and the `theirEv` term first |
 | "It walks into obvious fire" | `opponentRangeRespect` up. If the overlay's `danger` reads 0 while you are aimed at it from inside your weapon's reach, that is a solver bug (`dangerEvAgainst` in `bot/brain/solution.ts`), not a knob to tune |
-| "It lost me and drove around" | `memoryTicks`, `hearChance` — hunt is last-known / shots / quadrants, never the arena centre |
+| "It lost me and drove around" | `memoryMs`, `hearChance` — hunt is last-known / shots / quadrants, never the arena centre |
 | "It wastes its ult" | `ultDisciplineChance` up, `ultWindowHpFraction` (the HP that counts as a dump window) |
-| "It never punishes a stun" | Overlay should flip to `punish`; if it stays `fight`, `situationCommitTicks` is not the issue (punish preempts) |
-| "It feels robotic" | `aimErrorDriftTicks`, `scoreNoiseSigma`, `idleFidgetChance`, `blunderChance` |
-| "It never uses its second weapon" | personality `slotWeights`, `slotStickTicks` (too high = glued to one gun) |
+| "It never punishes a stun" | Overlay should flip to `punish`; if it stays `fight`, `situationCommitMs` is not the issue (punish preempts) |
+| "It feels robotic" | `aimErrorDriftMs`, `scoreNoiseSigma`, `idleFidgetChance`, `blunderChance` |
+| "It never uses its second weapon" | personality `slotWeights`, `slotStickMs` (too high = glued to one gun) |
 | "All three tiers feel the same" | Read [`tiers.test.ts`](../packages/server/src/bot/brain/tiers.test.ts). If that passes, the complaint is a parameter *value*. |
 
 **Knobs that no longer exist. Do not propose them, and do not restore a row that names one.**
@@ -79,8 +79,8 @@ perceive (every tick)
   → humanize (every tick)
 ```
 
-Perception and humanization run every tick; predict / assess / plan / fire run on `recomputeTicks`
-(H6), and `humanize.ts`'s delay line then holds the emitted input for `reactionDelayTicks` ticks.
+Perception and humanization run every tick; predict / assess / plan / fire run on `recomputeMs`
+(H6), and `humanize.ts`'s delay line then holds the emitted input for `reactionDelayMs` (rounded to ticks).
 Practice, playground, and the balance harness all call `HumanController.decide(BotView)`.
 
 **There is exactly one mover.** The desire-vector blend (`blendHeading`, `goalDesire`,
@@ -263,7 +263,7 @@ of each and what was wrong with the first pass:
   than standing still's regardless. That remaining fact is what still traces to `rangeError`
   geometry — a hard tier's commit window cannot turn far enough toward a target ~150° behind it to
   close any net distance under the heavier, faster drive model. Left red — no `BOT_PROFILES` knob
-  fixes it without either blowing the documented performance budget on `planHorizonTicks` or moving
+  fixes it without either blowing the documented performance budget on `planHorizonMs` or moving
   the swept `commitWindowFraction`.
 - The H25 / S13-evade dodge scenes trace to the fixture, not to `facingError` — but the fixture fix
   is narrower than first thought. See the dodge-measurements section above for the full sweep: the
@@ -338,20 +338,22 @@ alive too, so a further resize is a reason to re-run the sweep.) Two consequence
 
 ### Perception
 
+Every timing knob below is authored in milliseconds (NR14) and resolved to ticks by `resolveBotProfile` (`ticks = round(ms * TICK_RATE_HZ / 1000)`) where `mode-bot.ts` hands profiles out; brain modules still read `*Ticks`. At 30 Hz the values are identical to the old tick counts.
+
 | Field | easy | medium | hard |
 |---|---|---|---|
-| `viewStalenessTicks` | 4 | 3 | 2 |
-| `reactionDelayTicks` | 9 | 6 | 4 |
-| `recomputeTicks` | 12 | 6 | 2 |
-| `acquireTicks` | 15 | 9 | 5 |
+| `viewStalenessMs` | 133 | 100 | 67 |
+| `reactionDelayMs` | 300 | 200 | 133 |
+| `recomputeMs` | 400 | 200 | 67 |
+| `acquireMs` | 500 | 300 | 167 |
 | `awarenessRadiusUnits` | 600 | 700 | 900 |
 | `rearBlindHalfAngleRad` | 1.05 | 0.6 | 0 |
 | `trackedThreatLimit` | 1 | 2 | 4 |
-| `memoryTicks` | 15 | 45 | 90 |
+| `memoryMs` | 500 | 1500 | 3000 |
 
 Easy's radius was 520 until R-P14 (2026-09-07) and that was not a taste call: the closed-loop duel
 opens with 553 units between the cars, so an easy bot began every engagement blind, and at
-`planHorizonTicks: 0` it could not turn around to find anyone. 600 is mid-plateau on a 21-duel
+`planHorizonMs: 0` it could not turn around to find anyone. 600 is mid-plateau on a 21-duel
 sweep, and still 100 short of medium.
 
 ### Aim (hands)
@@ -359,7 +361,7 @@ sweep, and still 100 short of medium.
 | Field | easy | medium | hard |
 |---|---|---|---|
 | `aimErrorSigmaRad` | 0.18 | 0.09 | 0.035 |
-| `aimErrorDriftTicks` | 20 | 14 | 9 |
+| `aimErrorDriftMs` | 667 | 467 | 300 |
 | `stateEstimationSigma` | 0.25 | 0.1 | 0.03 |
 
 `stateEstimationSigma` is filed under **Perception** in `bot-profiles.ts`, not Aim — it is a
@@ -411,12 +413,12 @@ read it, and the point stands unchanged under the Unity model's `spinFree` flag 
 
 | Field | easy | medium | hard |
 |---|---|---|---|
-| `planHorizonTicks` | 0 | 8 | 22 |
+| `planHorizonMs` | 0 | 267 | 733 |
 | `planDepth` | 1 | 1 | 1 |
 | `targetBranches` | 1 | 1 | 3 |
 | `commitPenalty` | 0.072 | 0.126 | 0.18 |
 
-`planHorizonTicks` (K) is **the number that makes the tiers differ in kind rather than degree**, and
+`planHorizonMs` (K) is **the number that makes the tiers differ in kind rather than degree**, and
 it is a number precisely so that no module has to branch on a difficulty name (H8). 0 is a reflex
 agent: `plan` still floors the per-segment roll at one tick, so a K=0 bot avoids a wall it is driving
 into, but no candidate on its menu expresses a manoeuvre. Hard's 22 is load-bearing in a way a
@@ -452,7 +454,7 @@ Planning — feeds `planner.ts`:
 
 | Field | Value | What it does |
 |---|---|---|
-| `commitWindowFraction` | 0.52 | How much of the horizon a candidate COMMITS to before its terminal policy (coast to rest) takes over, as a fraction of `planHorizonTicks`, split across `planDepth` windows. Hard's K=22 gives 12 committed and 10 coasting. The middle of an axis whose two ends both fail — a whole-horizon hold puts a 13-degree correction off the menu, a `recomputeTicks`-length hold puts a U-turn off it — and the plateau is two ticks wide. |
+| `commitWindowFraction` | 0.52 | How much of the horizon a candidate COMMITS to before its terminal policy (coast to rest) takes over, as a fraction of `planHorizonMs`, split across `planDepth` windows. Hard's K=22 gives 12 committed and 10 coasting. The middle of an axis whose two ends both fail — a whole-horizon hold puts a 13-degree correction off the menu, a `recomputeMs`-length hold puts a U-turn off it — and the plateau is two ticks wide. |
 | `trajectorySampleCount` | 4 | How many points along a candidate's arc are scored, geometrically spaced. NOT the end pose alone, which is what broke the bot: end-scored, `steer: 0` won every tick. 3 is a cliff (the earliest sample lands after the sweep is over); 4, 5 and 6 are a plateau and 4 is the cheapest cell on it. |
 | `targetBranchMaxHeadingOffsetRad` | π/2 | Cap on how far a hedged branch turns the TARGET's heading before re-reading its danger. The raw offset is derived from `turnRateOf × elapsed`, and **it saturates this cap at every shipped configuration** — read it as the constant it is. It becomes operative again only below about K=8. |
 
@@ -479,7 +481,7 @@ both predictors built in `controller.ts`'s `plan()`:
 
 | Field | Value | What it does |
 |---|---|---|
-| `predictionHorizonTicks` | 90 | How far ahead a firing solution rolls a target. How far a SHOT flies, not how far a bot thinks — that is `planHorizonTicks`. Verified against `WEAPON_TABLE`: the longest flight on the roster is `thumper`'s 87 ticks (1305 u at 450 u/s = 2.9 s), `predator` next at 60. **A tick count, so a `TICK_RATE_HZ` change does not rescale it**: thumper becomes 174 ticks at 60 Hz and this would silently truncate every long solve. Re-derive it if the tick rate ever changes. |
+| `predictionHorizonMs` | 3000 | How far ahead a firing solution rolls a target. How far a SHOT flies, not how far a bot thinks — that is `planHorizonMs`. Verified against `WEAPON_TABLE`: the longest flight on the roster is `thumper`'s 87 ticks (1305 u at 450 u/s = 2.9 s), `predator` next at 60. **Authored in ms (NR14), so a `TICK_RATE_HZ` change rescales it** (90 ticks at 30 Hz, 180 at 60 Hz; thumper's flight is 174 ticks at 60 Hz). |
 | `fullLockAngVelFraction` | 0.5 | Fraction of a chassis's own turn rate an observed turn must reach before it reads as deliberate STEERING rather than a ram's residual spin. A half, because the sim has no partial steer — `stepDrive`'s steer is only ever -1/0/1, so a car genuinely turning is at FULL lock and there is nothing between the two cases to discriminate. Per-chassis by construction: Bastion's bar is lower than Mirage's. |
 | `interceptFixedPointRounds` | 3 | Rounds of fixed-point iteration behind "how many ticks ahead do I aim". A curving path has no closed form, so this converges what a straight-line intercept solves in one shot. Fixed rather than looped to a tolerance because the solver must do bounded work every tick (H21). |
 | `personalityJitter` | 0.25 | How far an archetype may move a parameter from its tier value. |
@@ -489,7 +491,7 @@ both predictors built in `controller.ts`'s `plan()`:
 
 | Field | easy | medium | hard |
 |---|---|---|---|
-| `burstGapTicks` | 14 | 7 | 3 |
+| `burstGapMs` | 467 | 233 | 100 |
 | `minShotValueFraction` | 0.01 | 0.05 | 0.3 |
 | `ultDisciplineChance` | 0 | 0.5 | 0.9 |
 | `ultWindowHpFraction` | 0.4 | 0.4 | 0.4 |
@@ -513,7 +515,7 @@ working.
 
 | Field | easy | medium | hard |
 |---|---|---|---|
-| `targetCommitTicks` | 150 | 60 | 25 |
+| `targetCommitMs` | 5000 | 2000 | 833 |
 | `woundedBias` | 0.1 | 0.5 | 0.9 |
 | `vengefulness` | 0.8 | 0.5 | 0.25 |
 
@@ -540,8 +542,8 @@ continuous `rangeError` instead.
 | `opponentRangeRespect` | 0 | 0.45 | 0.9 |
 | `cornerRespect` | 0.35 | 0.75 | 1 |
 | `incomingCarChance` | 0.1 | 0.55 | 0.95 |
-| `situationCommitTicks` | 20 | 12 | 6 |
-| `slotStickTicks` | 4 | 8 | 12 |
+| `situationCommitMs` | 667 | 400 | 200 |
+| `slotStickMs` | 133 | 267 | 400 |
 
 `opponentRangeRespect` does double duty (P38): it is the keep-out-of-their-gun weight (S11) read by
 `fightRange`, and it is **the only profile field that scales a planner weight** — `theirEv`, the
@@ -555,17 +557,17 @@ archetypes' entire range flavour — see [Known limitations](#known-limitations)
 | Field | easy | medium | hard |
 |---|---|---|---|
 | `dodgeChance` | 0.05 | 0.55 | 0.95 |
-| `dodgeReactionTicks` | 12 | 8 | 2 |
-| `dodgeHorizonTicks` | 12 | 18 | 24 |
+| `dodgeReactionMs` | 400 | 267 | 67 |
+| `dodgeHorizonMs` | 400 | 600 | 800 |
 | `blunderChance` | 0.12 | 0.05 | 0.015 |
-| `blunderTicks` | 10 | 10 | 10 |
+| `blunderMs` | 333 | 333 | 333 |
 | `idleFidgetChance` | 0.1 | 0.05 | 0.02 |
 | `scoreNoiseSigma` | 0.3 | 0.15 | 0.05 |
 | `hearChance` | 0.15 | 0.55 | 1 |
 
-`dodgeChance` and `dodgeReactionTicks` decide WHETHER a shot in flight is reacted to at all; the
+`dodgeChance` and `dodgeReactionMs` decide WHETHER a shot in flight is reacted to at all; the
 list of reacted-to threats then reaches the planner as `threatAvoid`, which decides how hard. Hard's
-`dodgeReactionTicks` was 4 until 2026-09-08; 2 matches its `recomputeTicks`, so a noticed shot is
+`dodgeReactionMs` was 133 ms (4 ticks) until 2026-09-08; 67 ms matches its `recomputeMs`, so a noticed shot is
 acted on at the next decision rather than a window later. The `second-best` blunder is now the
 planner's own runner-up — the best candidate whose first action
 differs from the winner's — so a mistake is a plausible alternative rather than an inverted control.
@@ -658,7 +660,7 @@ of CPU per simulated second) — the range `planner.bench.test.ts` states, spann
 full-suite load, and the one to quote. Quoting the isolated end alone (0.385–0.422 ms, "17–27%
 over") reports the flattering half of the same data. The overrun is reported rather
 than tuned away because there is no dial left that does not cost more than it buys: `planDepth` is
-already 1, and `planHorizonTicks` is where hard's K=22 sits on a two-tick-wide plateau found by a
+already 1, and `planHorizonMs` is where hard's K=22 sits on a two-tick-wide plateau found by a
 seven-seed sweep, so lowering K invalidates that sweep and the five-round convergence built on it.
 P33's own headline is met anyway — 90 plans/s at 0.4 ms is 36 ms of CPU per simulated second — and
 the two rooms that run bots for players run one bot each. `planner.bench.test.ts` gates a RATIO
@@ -671,7 +673,7 @@ The machinery, its `1 | 2` type and its tests are all kept live and covered: it 
 P33 names for whoever earns the budget back (a faster machine, a lower K, fewer simultaneous bots,
 or a cheaper scoring pass).
 
-**4. Easy's `planHorizonTicks: 0` is a one-tick rollout**, so no candidate on its menu expresses a
+**4. Easy's `planHorizonMs: 0` is a one-tick rollout**, so no candidate on its menu expresses a
 manoeuvre: an easy bot navigates on one-tick score margins and cannot plan an arc, turn around, or
 drive to a hunt waypoint deliberately — it drifts. That is P29 and P34's amateur tier working as
 designed, at the edge of its competence, and it is why easy's `awarenessRadiusUnits` had to be

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BOT_PROFILES } from "../../config/bot-profiles.js";
+import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
 import {
   classifySituation, newSituationState, pickSituation, type SituationInputs,
 } from "./situation.js";
@@ -32,7 +32,7 @@ describe("classifySituation", () => {
 });
 
 describe("pickSituation", () => {
-  const hard = BOT_PROFILES.hard;
+  const hard = RESOLVED_BOT_PROFILES.hard;
 
   it("lets a higher-priority situation cut in before the commit window", () => {
     const state = { current: "fight" as const, sinceTick: 100 };

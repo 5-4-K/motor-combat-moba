@@ -3,7 +3,7 @@ import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba
 import {
   ARENA_01, NEUTRAL_MODIFIERS, slotsOf, weaponDefOf, type BotDifficulty,
 } from "@motor-combat-moba/shared";
-import { BOT_PROFILES, type BotProfile } from "../../config/bot-profiles.js";
+import { RESOLVED_BOT_PROFILES, type BotProfile } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSelfView, BotSlotView } from "../types.js";
 import { weightsFor } from "./objectives.js";
 import { plan, type PlanArgs } from "./planner.js";
@@ -269,9 +269,9 @@ function searchSizeOf(profile: BotProfile): number {
 }
 
 function heaviestTier(): BotDifficulty {
-  const tiers = Object.keys(BOT_PROFILES) as BotDifficulty[];
+  const tiers = Object.keys(RESOLVED_BOT_PROFILES) as BotDifficulty[];
   return tiers.reduce((a, b) =>
-    (searchSizeOf(BOT_PROFILES[b]) > searchSizeOf(BOT_PROFILES[a]) ? b : a));
+    (searchSizeOf(RESOLVED_BOT_PROFILES[b]) > searchSizeOf(RESOLVED_BOT_PROFILES[a]) ? b : a));
 }
 
 /**
@@ -358,14 +358,14 @@ describe("planner cost (P33)", () => {
     // the tier table is documented everywhere as ordered that way, and an inversion is worth
     // failing over even when nothing downstream is fooled by it.
     expect(heaviestTier()).toBe("hard");
-    expect(BOT_PROFILES.hard.planDepth).toBe(1);
+    expect(RESOLVED_BOT_PROFILES.hard.planDepth).toBe(1);
   });
 
   it("costs no more than the shipped measurement allows, normalised (P33, R-PF2)", () => {
     // `heaviestTier()`, not `hard` by name (R-C5, H8): the gate must watch whichever shipped tier
     // actually plans hardest, and the helper answers that from `planDepth`/`targetBranches`/
     // `planHorizonTicks` rather than from the difficulty string.
-    const args = planArgsFor(BOT_PROFILES[heaviestTier()]);
+    const args = planArgsFor(RESOLVED_BOT_PROFILES[heaviestTier()]);
 
     // Both halves warmed before either is timed, so the reference is not paying JIT tiering that the
     // plan already paid — that alone would shift the ratio by more than the margin.
