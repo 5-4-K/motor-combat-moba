@@ -1,5 +1,5 @@
 import type Phaser from "phaser";
-import type { Room } from "colyseus.js";
+import type { Room } from "@colyseus/sdk";
 import { TICK_RATE_HZ, controlPercentText, derived, type ArenaState } from "@motor-combat-moba/shared";
 import { HUD_GUTTER_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from "../../config/display.js";
 import { respawnSeconds } from "../../scenes/match-hud.js";

@@ -1,6 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GameMode, cfg, drive, hasMode, modeConfigOf } from "@motor-combat-moba/shared";
+import type { RoomModeSource } from "./mode-scope.js";
 import { installRoomMode, runInRoomMode, watchRoomMode } from "./mode-scope.js";
+
+// `watchRoomMode` subscribes through the SDK's `Callbacks.get(room).listen`, which needs a real
+// decoder behind the room. The fake room below carries its own `listen` and this mock routes
+// `Callbacks.get` to it, so the test still exercises watchRoomMode's own contract: it must ask for
+// an IMMEDIATE fire and reinstall on every change.
+vi.mock("@colyseus/sdk", () => ({
+  Callbacks: {
+    get: (room: { state: RoomStateSource }) => ({
+      listen: (prop: "mode", cb: (v: GameMode, p: GameMode) => void, immediate?: boolean) =>
+        room.state.listen(prop, cb, immediate),
+    }),
+  },
+}));
 
 // This block must run FIRST and must be the only place in this file that reads config before an
 // `installRoomMode` call — vitest isolates each test file into its own module graph (default
@@ -96,11 +110,11 @@ describe("watchRoomMode", () => {
   it("installs on join (immediate) and re-installs on a later state.mode change (MC16)", () => {
     const { room, set } = fakeRoom(GameMode.FFA_LAST_STANDING);
 
-    watchRoomMode(room);
+    watchRoomMode(room as unknown as RoomModeSource);
     expect(cfg()).toBe(modeConfigOf(GameMode.FFA_LAST_STANDING));
 
     // The host changes mode in the lobby before car select (MSG_SET_MODE) — the server patches
-    // ArenaState.mode, which colyseus.js turns into exactly this kind of listen() callback.
+    // ArenaState.mode, which the SDK turns into exactly this kind of listen() callback.
     set(GameMode.FFA_DEATHMATCH);
     expect(cfg()).toBe(modeConfigOf(GameMode.FFA_DEATHMATCH));
     expect(cfg().id).toBe(GameMode.FFA_DEATHMATCH);

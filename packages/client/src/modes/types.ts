@@ -1,5 +1,5 @@
 import type Phaser from "phaser";
-import type { Room } from "colyseus.js";
+import type { Room } from "@colyseus/sdk";
 import type { ArenaState } from "@motor-combat-moba/shared";
 import type { ResultsViewState } from "../ui/results-view.js";
 

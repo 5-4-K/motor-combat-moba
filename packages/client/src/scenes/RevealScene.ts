@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import type { Room } from "colyseus.js";
+import type { Room } from "@colyseus/sdk";
 import { ArenaState } from "@motor-combat-moba/shared";
 import { bindViewRouter } from "../net/view.js";
 import { revealView, type RevealViewPlayer } from "../ui/reveal-view.js";

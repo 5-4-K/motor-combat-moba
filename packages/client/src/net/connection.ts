@@ -1,4 +1,4 @@
-import { Client, type Room } from "colyseus.js";
+import { Client, type Room } from "@colyseus/sdk";
 import {
   ArenaState,
   PLAYGROUND_ROOM_NAME,

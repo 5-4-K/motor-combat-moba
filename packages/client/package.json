@@ -13,8 +13,8 @@
     "test:mode": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@colyseus/sdk": "^0.18.4",
     "@motor-combat-moba/shared": "*",
-    "colyseus.js": "^0.15.0",
     "phaser": "^4.2.1"
   },
   "devDependencies": {

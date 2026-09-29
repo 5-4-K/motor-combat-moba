@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import type { Room } from "colyseus.js";
+import type { Room } from "@colyseus/sdk";
 import {
   GameMode,
   PRACTICE_INVALID_SETUP_ERROR,

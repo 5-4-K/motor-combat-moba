@@ -5,7 +5,7 @@ const joinOrCreate = vi.fn();
 const Client = vi.fn().mockImplementation(() => ({ joinOrCreate }));
 const detectServerEndpoint = vi.fn(() => "ws://localhost:2567");
 
-vi.mock("colyseus.js", () => ({
+vi.mock("@colyseus/sdk", () => ({
   Client,
 }));
 

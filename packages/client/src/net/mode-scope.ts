@@ -1,4 +1,6 @@
+import { Callbacks } from "@colyseus/sdk";
 import {
+  type ArenaState,
   GameMode,
   hasMode,
   installMode,
@@ -89,20 +91,14 @@ export function runInRoomMode<T>(fn: () => T): T {
 
 /** Just enough of a joined room to install and track its mode. */
 export interface RoomModeSource {
-  readonly state: {
-    readonly mode: GameMode;
-    listen(
-      prop: "mode",
-      callback: (value: GameMode, previousValue: GameMode) => void,
-      immediate?: boolean,
-    ): () => boolean;
-  };
+  readonly state: ArenaState;
+  readonly serializer: object;
 }
 
 /**
  * Installs `room`'s current mode immediately and reinstalls on every later change — the one call
  * that satisfies both halves of MC16 ("install on join" and "re-install when the host changes
- * mode"). `@colyseus/schema`'s `Schema.listen` does both in one subscription when passed
+ * mode"). `Callbacks.get(room).listen` (`@colyseus/sdk`, schema 5) does both in one subscription when passed
  * `immediate: true`: it fires once right away with the field's current value, then again on every
  * patch that changes it.
  *
@@ -120,6 +116,6 @@ export interface RoomModeSource {
  * design note above), so there is no second room whose patches this listener could wrongly answer
  * for. The room's connection closing is what actually stops it from firing again.
  */
-export function watchRoomMode(room: RoomModeSource): () => boolean {
-  return room.state.listen("mode", (mode) => installRoomMode(mode), true);
+export function watchRoomMode(room: RoomModeSource): () => void {
+  return Callbacks.get(room).listen("mode", (mode) => installRoomMode(mode), true);
 }

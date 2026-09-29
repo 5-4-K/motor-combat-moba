@@ -6,7 +6,7 @@
  * schema encoding, patch rate (20 Hz against a 30 Hz sim), simulated latency, and the room's own
  * scheduling. Run it against a server started with SIM_LATENCY_MS to model a real LAN.
  */
-import { Client, type Room } from "colyseus.js";
+import { Client, type Room } from "@colyseus/sdk";
 import { speedOf } from "@motor-combat-moba/shared";
 
 const ENDPOINT = process.env.PLAYTEST_ENDPOINT ?? "ws://127.0.0.1:2567";
