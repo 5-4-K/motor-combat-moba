@@ -215,7 +215,9 @@ Only when the mode's `fov.enabled` is true. Every other mode renders exactly as 
   Each vision shape is polygonised as a ray fan from its apex: rays across the cone, each ending at
   the ellipse or at the first obstacle hit when `blockedByObstacles`. The polygon is for drawing
   only; visibility tests (CB25) are exact. The overlay is on the world camera only (the HUD
-  camera ignores it), above the floor, obstacles, cars and shots.
+  camera ignores it), above the floor, obstacles, cars and shots — except the driven car and its
+  hp bar, which sit above the overlay while FOV is on, so your own car always reads fully lit even
+  where it pokes out of its own cone (decided 2026-09-29).
 
 ## 7. Invariants (per mode, in `modes/invariants.test.ts`, naming the mode on failure)
 

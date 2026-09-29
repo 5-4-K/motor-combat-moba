@@ -307,11 +307,21 @@ const TURRET_LIT_NAME = "turret-lit";
 const HP_BAR_DEPTH = 60;
 /**
  * The field-of-vision dark overlay (CB29): one world-space cover with the vision polygons cut out.
- * Over EVERY world layer — floor, obstacles, cars, shots, air fx, arrows and bars — because it is
- * the view being dark, not a thing in the world; only the HUD camera's objects sit above it, and
- * that camera ignores it. Invisible whenever the mode's `camera().fov.enabled` is false.
+ * Over every world layer — floor, obstacles, cars, shots, air fx, arrows and bars — because it is
+ * the view being dark, not a thing in the world; the one exception is your own car and its hp bar
+ * (`FOV_SELF_CAR_DEPTH`, `FOV_SELF_HP_DEPTH`). The HUD camera's objects sit above it too, and that
+ * camera ignores it. Invisible whenever the mode's `camera().fov.enabled` is false.
  */
 const FOV_DIM_DEPTH = HP_BAR_DEPTH + 1;
+/**
+ * Your own car while the field of vision is on: lifted over the dark overlay, because a player
+ * expects their own car fully lit even where it pokes out of its own cone (a 120° cone with no
+ * offset leaves the back half of the hull outside it). Only the driven car, and only while
+ * `camera().fov.enabled` — every other car, and your own with FOV off, stays at `CAR_DEPTH`.
+ */
+const FOV_SELF_CAR_DEPTH = FOV_DIM_DEPTH + 1;
+/** Your own hp bar while the field of vision is on — over your lifted car, as `HP_BAR_DEPTH` is over the cars. */
+const FOV_SELF_HP_DEPTH = FOV_SELF_CAR_DEPTH + 1;
 /** World units added to the FOV cover square's side, so a camera shake never bares its edge. */
 const FOV_DIM_MARGIN = 64;
 /**
@@ -858,6 +868,8 @@ export class ArenaScene extends Phaser.Scene {
    */
   private glowGfx: Phaser.GameObjects.Graphics | undefined;
   private hpGfx: Phaser.GameObjects.Graphics | undefined;
+  /** Your own hp bar while FOV is on, at `FOV_SELF_HP_DEPTH` above the dark overlay; empty otherwise. */
+  private selfHpGfx: Phaser.GameObjects.Graphics | undefined;
   private arrowGfx: Phaser.GameObjects.Graphics | undefined;
   /** The driven car's aim HUD, drawn once in the car's frame and then MOVED — see `syncAimHud`. */
   private aimHudGfx: Phaser.GameObjects.Graphics | undefined;
@@ -1221,6 +1233,7 @@ export class ArenaScene extends Phaser.Scene {
       .setDepth(GLOW_DEPTH)
       .setBlendMode(Phaser.BlendModes.ADD);
     this.hpGfx = this.add.graphics().setDepth(HP_BAR_DEPTH);
+    this.selfHpGfx = this.add.graphics().setDepth(FOV_SELF_HP_DEPTH);
     this.arrowGfx = this.add.graphics().setDepth(ARROW_DEPTH);
     // Starts hidden and stays hidden until there is a car of yours to sit under: the first frames of
     // a room have no pose, and an empty ring at the world origin is worse than no ring.
@@ -1708,6 +1721,8 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.shotGfx ? [this.shotGfx] : []),
       ...(this.glowGfx ? [this.glowGfx] : []),
       ...(this.hpGfx ? [this.hpGfx] : []),
+      // World space at `FOV_SELF_HP_DEPTH`, over the dark overlay — same reason as `hpGfx`.
+      ...(this.selfHpGfx ? [this.selfHpGfx] : []),
       // World space at `ARROW_DEPTH`, drawn over the local car during the countdown, so the world
       // camera keeps it and the HUD camera must not draw it a second time over the gutter.
       ...(this.arrowGfx ? [this.arrowGfx] : []),
@@ -1843,6 +1858,8 @@ export class ArenaScene extends Phaser.Scene {
     this.glowGfx = undefined;
     this.hpGfx?.destroy();
     this.hpGfx = undefined;
+    this.selfHpGfx?.destroy();
+    this.selfHpGfx = undefined;
     this.arrowGfx?.destroy();
     this.arrowGfx = undefined;
     this.aimHudGfx?.destroy();
@@ -2630,9 +2647,11 @@ export class ArenaScene extends Phaser.Scene {
   private renderCars(room: Room<ArenaState>, delta: number): void {
     const seen = new Set<string>();
     const hp = this.hpGfx;
+    const selfHp = this.selfHpGfx;
     const arrow = this.arrowGfx;
     const maneuver = this.maneuverGfx;
     hp?.clear();
+    selfHp?.clear();
     this.syncShadowTextures();
     // Cleared here and refilled below, so the first frame after the countdown draws nothing at all:
     // the arrow going away is the absence of a draw call, not an animation that has to be stopped.
@@ -2715,6 +2734,12 @@ export class ArenaScene extends Phaser.Scene {
         );
       if (hidden) this.hiddenCars.add(sessionId);
       this.setCarVisible(sessionId, !hidden);
+      // Your own car over the FOV dark overlay, and back down the moment FOV is off (a car object
+      // outlives a mode switch only within one match, but the check is per frame and free).
+      const lifted = isLocal && this.vision.active;
+      const container = this.cars.get(sessionId);
+      const carDepth = lifted ? FOV_SELF_CAR_DEPTH : CAR_DEPTH;
+      if (container && container.depth !== carDepth) container.setDepth(carDepth);
       poses.set(sessionId, pose);
       this.lastDrawnPose.set(sessionId, { x: pose.x, y: pose.y, angle: pose.angle });
       const mods = modifiersFromRows(player.statuses, room.state.tick);
@@ -2756,7 +2781,7 @@ export class ArenaScene extends Phaser.Scene {
         const allegiance = viewer
           ? allegianceOf(viewer, { sessionId, team: player.team }, mode)
           : "enemy";
-        this.drawHpBar(hp, player, pose, allegiance);
+        this.drawHpBar(lifted && selfHp ? selfHp : hp, player, pose, allegiance);
       }
       if (maneuver && player.alive && !hidden) this.drawManeuverVisuals(maneuver, sessionId, player, pose);
       if (sessionId === this.cameraTarget(room)) {

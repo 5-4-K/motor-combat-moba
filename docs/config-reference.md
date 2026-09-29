@@ -1115,7 +1115,8 @@ points is; and the fx events (`shotFired`, `shotEnded`, `damaged`, `died`) deriv
 enemy instance or at a hidden enemy car. Map features and your own and your teammates' things are
 never hidden. **Hiding is per object, not a stencil (CB28)**: a shot is drawn whole or not at all,
 so a beam half inside your vision draws in full. Everything outside the vision set is darkened by
-a black overlay at `outsideDim` alpha (CB29), over every world layer and under the HUD.
+a black overlay at `outsideDim` alpha (CB29), over every world layer and under the HUD — except your
+own car and its hp bar, which sit above it so they are never dimmed.
 
 Per-mode overrides today (CB9) — every shipped mode reproduces its pre-2026-09-28 behaviour exactly:
 
