@@ -153,7 +153,8 @@ it in `hiddenCars`; `renderShots` skips an out-of-sight enemy instance whole; th
 `FxHidden` set `fxHidden` builds (`fx/hidden.ts`), so a shot entering vision mid-flight is not
 mistaken for a new one. The dark overlay is one `Graphics` (`dimGfx`, at `FOV_DIM_DEPTH`, above every
 world layer but one: while FOV is on, the driven car's container is lifted to `FOV_SELF_CAR_DEPTH`
-and its hp bar drawn into `selfHpGfx` at `FOV_SELF_HP_DEPTH`, so your own car is never dimmed) with the vision polygons cut out by an INVERTED Phaser 4 mask filter over
+and its maneuver marks, self-arrow and hp bar drawn above it (`selfManeuverGfx`, `arrowGfx` re-depthed,
+`selfHpGfx`), so nothing of your own car is ever dimmed) with the vision polygons cut out by an INVERTED Phaser 4 mask filter over
 `visionMaskGfx`, viewed through the world camera — proven by eye under a turned `"heading"` camera
 and a scrolling arena, since nothing in a node test can see it. Bots do not respect FOV yet (CB5):
 they read the whole world, and the CB33 guard keeps FOV off the bundles bots play in.

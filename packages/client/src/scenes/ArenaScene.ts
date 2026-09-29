@@ -320,8 +320,14 @@ const FOV_DIM_DEPTH = HP_BAR_DEPTH + 1;
  * `camera().fov.enabled` — every other car, and your own with FOV off, stays at `CAR_DEPTH`.
  */
 const FOV_SELF_CAR_DEPTH = FOV_DIM_DEPTH + 1;
-/** Your own hp bar while the field of vision is on — over your lifted car, as `HP_BAR_DEPTH` is over the cars. */
-const FOV_SELF_HP_DEPTH = FOV_SELF_CAR_DEPTH + 1;
+/**
+ * Your own maneuver marks, arrow and hp bar while the field of vision is on — lifted over the dark
+ * overlay with your car, in the same order they keep over the cars with FOV off
+ * (`MANEUVER_DEPTH` < `ARROW_DEPTH` < `HP_BAR_DEPTH`).
+ */
+const FOV_SELF_MANEUVER_DEPTH = FOV_SELF_CAR_DEPTH + 1;
+const FOV_SELF_ARROW_DEPTH = FOV_SELF_MANEUVER_DEPTH + 1;
+const FOV_SELF_HP_DEPTH = FOV_SELF_ARROW_DEPTH + 1;
 /** World units added to the FOV cover square's side, so a camera shake never bares its edge. */
 const FOV_DIM_MARGIN = 64;
 /**
@@ -877,6 +883,8 @@ export class ArenaScene extends Phaser.Scene {
   private aimHudKey = "";
   /** The wild-charge outline and the thunderclap dash ghosts, cleared and redrawn every frame. */
   private maneuverGfx: Phaser.GameObjects.Graphics | undefined;
+  /** Your own maneuver marks while FOV is on, at `FOV_SELF_MANEUVER_DEPTH` above the dark overlay. */
+  private selfManeuverGfx: Phaser.GameObjects.Graphics | undefined;
   /**
    * Each car's two shadow images, on one shared depth below every car — see `CAR_SHADOW_DEPTH` for
    * why they are not children of the car's container. Both draw a texture every car shares, baked
@@ -1240,6 +1248,7 @@ export class ArenaScene extends Phaser.Scene {
     this.aimHudGfx = this.add.graphics().setDepth(AIM_HUD_DEPTH).setVisible(false);
     this.aimHudKey = "";
     this.maneuverGfx = this.add.graphics().setDepth(MANEUVER_DEPTH);
+    this.selfManeuverGfx = this.add.graphics().setDepth(FOV_SELF_MANEUVER_DEPTH);
     // Made, not added: nothing draws `hudGfx` but `bakeHud`. Scaled and shifted so the gutter's
     // left edge lands on the bake texture's, at `HUD_BAKE_SCALE` texels per pixel.
     const gutterX = VIEW_WIDTH - HUD_GUTTER_WIDTH;
@@ -1730,6 +1739,8 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.aimHudGfx ? [this.aimHudGfx] : []),
       // World space at `MANEUVER_DEPTH`, drawn over the cars — the same reason `arrowGfx` is here.
       ...(this.maneuverGfx ? [this.maneuverGfx] : []),
+      // World space at `FOV_SELF_MANEUVER_DEPTH` — same reason as `maneuverGfx`.
+      ...(this.selfManeuverGfx ? [this.selfManeuverGfx] : []),
       // Every FX object in one spread, because this list is the only thing standing between an
       // emitter and drawing twice across the gutter (VFX25). `displayObjects()` exists so a later
       // emitter cannot be added to the layer and forgotten here.
@@ -1867,6 +1878,8 @@ export class ArenaScene extends Phaser.Scene {
     this.aimHudKey = "";
     this.maneuverGfx?.destroy();
     this.maneuverGfx = undefined;
+    this.selfManeuverGfx?.destroy();
+    this.selfManeuverGfx = undefined;
     for (const sessionId of [...this.carShadows.keys()]) this.dropCarShadow(sessionId);
     // The textures die with the scene's match state too, so a restart re-bakes rather than trusting
     // pixels baked from whatever `carLook` the previous match ended on.
@@ -2650,8 +2663,14 @@ export class ArenaScene extends Phaser.Scene {
     const selfHp = this.selfHpGfx;
     const arrow = this.arrowGfx;
     const maneuver = this.maneuverGfx;
+    const selfManeuver = this.selfManeuverGfx;
     hp?.clear();
     selfHp?.clear();
+    selfManeuver?.clear();
+    // The arrow only ever marks your own car, so its one Graphics lifts over the FOV dark overlay
+    // with the car rather than needing a self twin like the bars and maneuver marks.
+    const arrowDepth = this.vision.active ? FOV_SELF_ARROW_DEPTH : ARROW_DEPTH;
+    if (arrow && arrow.depth !== arrowDepth) arrow.setDepth(arrowDepth);
     this.syncShadowTextures();
     // Cleared here and refilled below, so the first frame after the countdown draws nothing at all:
     // the arrow going away is the absence of a draw call, not an animation that has to be stopped.
@@ -2783,7 +2802,9 @@ export class ArenaScene extends Phaser.Scene {
           : "enemy";
         this.drawHpBar(lifted && selfHp ? selfHp : hp, player, pose, allegiance);
       }
-      if (maneuver && player.alive && !hidden) this.drawManeuverVisuals(maneuver, sessionId, player, pose);
+      if (maneuver && player.alive && !hidden) {
+        this.drawManeuverVisuals(lifted && selfManeuver ? selfManeuver : maneuver, sessionId, player, pose);
+      }
       if (sessionId === this.cameraTarget(room)) {
         this.followCamera(pose, delta * this.hitStopScale());
       }
