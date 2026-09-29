@@ -41,7 +41,7 @@ tables.
 | `MONITOR_PASSWORD` | server `monitor.ts` | unset; without it (and without `DEV_TOOLS=1`) `/colyseus` is not mounted |
 | `MAX_PRACTICE_ROOMS` | server `mode.ts` (`getMaxPracticeRooms`) | `PRACTICE_CONFIG.maxConcurrentRooms` (`6`) |
 
-Canonical sim rate is `TICK_RATE_HZ` in `@motor-combat-moba/shared`. Patch rate is `DEFAULT_PATCH_RATE_HZ` (20), not an env knob.
+Canonical sim rate is `TICK_RATE_HZ` (60) in `@motor-combat-moba/shared`. Snapshot rate is `SNAPSHOT_RATE_HZ` (60), not an env knob; it must divide `TICK_RATE_HZ`, and the rooms broadcast one snapshot at the end of every tick `isSnapshotTick` names (NR12). `DEFAULT_PATCH_RATE_HZ` (20) is deleted.
 
 The defaults above are what the process falls back to with no env file. Which file supplies them
 depends on how the server was started, because `dotenv/config` reads `.env` from **cwd**:
@@ -441,12 +441,12 @@ shortening the capsule would put the weapon back to reaching further than it dra
 
 **Authoring in milliseconds.** Every duration on a weapon — `startUpMs`, `cooldownMs`, `recoveryMs`,
 `stock.refireDelayMs`, a beam's `lifetimeMs` — is milliseconds, never ticks, so a balance number
-never hard-codes 30 Hz into itself (invariant 1). `resolveTicks` (`config/weapon-ticks.ts`) runs
+never hard-codes a tick rate into itself (invariant 1). `resolveTicks` (`config/weapon-ticks.ts`) runs
 once per mode inside `assembleModeConfig`, converts each with `ceil(ms × TICK_RATE_HZ / 1000)` and
 separately derives `flightTicks = ceil(range / speed × TICK_RATE_HZ)`; the result is frozen with the
 bundle and read as `derived().weaponTicks` (`weaponTicksOf(id)`). The sim reads only the derived
-ticks, never raw ms. The cost is rounding, not drift: at 30 Hz a tick is 33.3 ms, so `startUpMs: 250`
-becomes 8 ticks (266 ms) — server and client both compute it from the same built `dist`, so they
+ticks, never raw ms. The cost is rounding, not drift: at 60 Hz a tick is 16.7 ms, so `startUpMs: 250`
+becomes 15 ticks exactly, while `startUpMs: 260` becomes 16 ticks (266.7 ms) — server and client both compute it from the same built `dist`, so they
 always round the same way or neither does.
 
 **Adding a weapon with a real wind-up, burst, or recovery window is a config edit and nothing
@@ -1254,6 +1254,7 @@ CB3). Meaningful only on a layout that maps onto itself under that rotation, whi
 | `reconcileSnapAngle` | 0.6 |
 | `reconcileEaseRate` | 0.25 |
 | `interpolationDelayMs` | 50 |
+| `shotExtrapolationCapMs` | 50 — how far past its last snapshot the client extrapolates a live shot before freezing it; one patch interval until NR12 deleted the patch rate, kept at its old wall-clock value |
 
 ## PRACTICE_CONFIG
 

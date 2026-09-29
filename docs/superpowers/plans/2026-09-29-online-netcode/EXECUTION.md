@@ -20,7 +20,7 @@ phase's own acceptance lines.
 |---|---|---|---|---|
 | A — Colyseus 0.18, schema 5, Node 22, monitor gate | [`A-colyseus-upgrade.md`](A-colyseus-upgrade.md) | NR50, NR53 | Landed | `playtest:lan` smoke passed in A2; lockfile on a single schema 5.0.34 |
 | B — netsim harness and today's baseline | [`B-netsim-harness.md`](B-netsim-harness.md) | NR57–NR59 | Landed | Baseline recorded below (legacy client, 60 s, six cars, mean of seeds 1–3) |
-| C — 60 Hz and per-tick snapshots | [`C-sixty-hz.md`](C-sixty-hz.md) | NR11–NR16 | Not started | |
+| C — 60 Hz and per-tick snapshots | [`C-sixty-hz.md`](C-sixty-hz.md) | NR11–NR16 | Landed | 60 Hz, one snapshot per tick; handling unchanged in closed form (radius 89.9 u, 90% top speed 1.79/2.21/2.59 s), slip −1.1 to −1.6°; TTK ±0.1 s; planner bench over its gate (see In flight) |
 | D — time and inputs | [`D-time-and-inputs.md`](D-time-and-inputs.md) | NR17–NR28, NR54–NR56 | Not started | |
 | E — remotes and prediction | [`E-remotes.md`](E-remotes.md) | NR29–NR34 | Not started | |
 | F — combat under latency | [`F-combat.md`](F-combat.md) | NR35–NR41 | Not started | |
@@ -28,98 +28,47 @@ phase's own acceptance lines.
 
 ## In flight
 
-**C2 landed; Task 3 (C3) is next.** C3 worklist (failures at 60 Hz after C2), probed by temporarily
-setting `TICK_RATE_HZ = 60` (reverted, not committed): shared 37 failed, server 26 failed (includes
-the 2 G12 and possibly the P33 timing bench), client 7 failed, scripts 4 failed (manual-page stamp;
-`docs/turn-tuning.md` derived values in Brawl, Deathmatch and Conquer sections). At 30 Hz `no-mode-branching.test.ts`
-(shared) also fails, pre-existing and unrelated.
+**Phase C landed; Phase D, Task 1 (D1) is next** — [`D-time-and-inputs.md`](D-time-and-inputs.md),
+`InputFrame`, packet validation and `TickInputBuffer`.
 
-```
-## shared
-src/config/deathmatch-config.test.ts > DEATHMATCH_TICKS > derives whole ticks from the authored seconds
-src/config/weapon-config.test.ts > WEAPON_TABLE > keeps the field alive long enough to be driven into and out of (LZ17)
-src/config/weapon-ticks.test.ts > WEAPON_TICKS > derives flight ticks from range and speed
-src/config/weapon-ticks.test.ts > WEAPON_TICKS > derives magmablast's clocks from its milliseconds
-src/config/weapon-ticks.test.ts > WEAPON_TICKS > derives the roster's new-mechanic clocks for the rows that carry them (spec 2026-09-01)
-src/config/weapon-ticks.test.ts > msToTicks > rounds up, so a duration is never shorter than authored
-src/modes/no-mode-branching.test.ts > common code never branches on a specific game mode (GM2) > has no GameMode.X / winRuleOf / win-rule-string branch outside modes/ and the judged allow-list
-src/sim/combat.test.ts > damaged and killed events (B4, B5) > records a 0-damage hit from a pure applicator without a killing blow
-src/sim/combat.test.ts > damaged and killed events (B4, B5) > tags pulse damage with the status and who applied it
-src/sim/combat.test.ts > damages a target with a real attached beam fired from a real loadout, once it has grown to reach
-src/sim/combat.test.ts > magma blast detonation (spec P13-P21) > detonates at the PRE-step pose on a wall, never inside it (P14)
-src/sim/combat.test.ts > magma blast detonation (spec P13-P21) > reaches a car on the far side of a wall, because a disc has no wall clip (P17)
-src/sim/combat.test.ts > proximity homing (spec P1-P6) > commits: it does not re-acquire after its target is wrecked (P5)
-src/sim/combat.test.ts > proximity homing (spec P1-P6) > does not pre-commit to a held lock at spawn (regression: acquire must gate on 'lock')
-src/sim/combat.test.ts > proximity homing (spec P1-P6) > grabs a car that comes within acquireRadius and bends toward it
-src/sim/combat.test.ts > proximity homing (spec P1-P6) > takes the nearer of two eligible cars
-src/sim/combat.test.ts > pulses lance for its whole life, spending a full connect over four ticks instead of one
-src/sim/combat.test.ts > real-row integration (2026-09-01 roster) > a wildcharge press opens the charge window and self-applies fortified
-src/sim/combat.test.ts > real-row integration (2026-09-01 roster) > homes a proximity-acquired predator toward a moving target across real combat ticks
-src/sim/combat.test.ts > startManeuver > starts a charge for its authored duration and refuses to stack maneuvers
-src/sim/combat.test.ts > tremor (the unassigned row): presence effects > grants fortified only while the owner stands inside their own zone, and stops refreshing on exit
-src/sim/combat.test.ts > tremor (the unassigned row): presence effects > ticks 25-base damage into a standing target and holds spiked exactly while they stay
-src/sim/combat.test.ts > wall-piercing projectiles (`piercesWalls`, roadblock's row) > passes through an interior wall and lands on the camper behind it — where magmablast dies on it
-src/sim/combat.test.ts > wall-piercing projectiles (`piercesWalls`, roadblock's row) > still dies by its own range clock, walls or no walls
-src/sim/combat.test.ts > wall-piercing projectiles (`piercesWalls`, roadblock's row) > survives being born with a wingtip past the arena bounds, and still lands downrange
-src/sim/drive.test.ts > dash substep helpers (spec C3 / C6) > derives the substep count from distance, so it survives a retune of speed or tick rate
-src/sim/drive.test.ts > stepDrive > approaches forwardMaxSpeedOf(carId) after sustained throttle (asymptotic, not a clamp)
-src/sim/drive.test.ts > stepDrive > brakes from a forward speed into reverse, settling near its own reverse equilibrium
-src/sim/drive.test.ts > stepDrive > holding Up from reverse brings the car back through zero and on to accelerating forward
-src/sim/status/channels.test.ts > topSpeed reaches the drive cap > caps forward speed at the scaled maximum
-src/sim/status/channels.test.ts > topSpeed reaches the drive cap > caps reverse too, so backing away is not the way out of a slow
-src/sim/status/combat.test.ts > weapons apply statuses > `disarmed` lets a press already committed finish
-src/sim/step.test.ts > stepSim > stops the car at an obstacle it would otherwise have driven through
-src/sim/weapons/fire.test.ts > the two lockouts > blocks a different slot for the firing weapon's recovery
-src/sim/weapons/fire.test.ts > the two lockouts > holds the switch lock across two slots carrying the SAME weapon id
-src/sim/weapons/fire.test.ts > the two lockouts > writes the recovery lockout from the weapon that fired, at the tick the shot exits
-src/sim/weapons/instances.test.ts > bounce > expires on its clock, not at range
-## server
-balance/match.test.ts > runMatch > shortening matchSeconds still lets the deathmatch clock fire, so a winner can appear (fix round 2, defect 1)
-src/bot/brain/aim.test.ts > stepAimError > holds its offset between resamples, so error drifts rather than jitters
-src/bot/brain/controller.test.ts > HumanController > hunts a quadrant waypoint when it has never seen anyone, never the arena centre (G12)
-src/bot/brain/controller.test.ts > HumanController > hunts toward a last-known pose, not the arena centre (G12)
-src/bot/brain/humanize.test.ts > applyHumanize > emits the intent decided reactionDelayTicks ago
-src/bot/brain/perception.test.ts > observedAngVelOf > takes the short way round the seam rather than reading a near-full turn
-src/bot/brain/perception.test.ts > perceive > does not know a car until its acquire delay has passed
-src/bot/brain/perception.test.ts > perceive > forgets a car once it has been out of sight for memoryTicks
-src/bot/brain/planner.bench.test.ts > planner cost (P33) > costs no more than the shipped measurement allows, normalised (P33, R-PF2)
-src/bot/brain/planner.test.ts > plan > commitWindowOf > is arithmetically unchanged at the depth every profile ships (depth 1)
-src/bot/brain/planner.test.ts > plan > with horizon 0, the candidates are not all tied -- moving the scene changes the answer (P29, R-P6)
-src/bot/brain/predict.test.ts > a car that is SLIDING, not driving (car-physics merge, 2026-09-07) > and the pre-rework scalar read would have been 62.68 units wrong — more than a car length
-src/bot/brain/predict.test.ts > physicsPredictor > beats a straight line for a turning car
-src/bot/brain/predict.test.ts > predicting an observed car, against an independent ground truth > beats a straight line wherever the target turns, and never loses where it does not
-src/bot/brain/predict.test.ts > predicting an observed car, against an independent ground truth > still lands a throttle-closed rollout SHORT, which is why it is not the held input
-src/bot/brain/predict.test.ts > state estimation noise (P20) > lets a sloppy read miss a curve entirely, and even read it backwards
-src/bot/brain/predict.test.ts > state estimation noise (P20) > reads either side of the steering threshold, by how far the estimate falls short
-src/bot/brain/solution.test.ts > solve — turret (TR26) > leads a crossing target, budgeting the turret's turn into the time to impact
-src/sim/pipeline-order.test.ts > the real serverTick -> contactTick order > drives before it measures contact, so the ram is classified against the poses the tick ended at
-src/sim/ram-bridge.test.ts > contactTick (diminishing returns, spec §7.3) > scales a chained ram's shove, spin and reel, and charges the attacker in full
-src/sim/ram-bridge.test.ts > contactTick applies reeling to a ram victim, scaled by falloff > gives a re-rammed victim a shorter reeling duration than the first ram
-src/sim/ram-bridge.test.ts > contactTick applies reeling to a ram victim, scaled by falloff > lands two slams on one victim at identical strength — falloff is ram-only
-src/sim/tick.test.ts > serverTick > other cars as colliders > converges to a residual overlap that stays bounded across every roster ramDefence pairing, not just mirage/mirage
-src/sim/tick.test.ts > serverTick > other cars as colliders > does not treat a player who is not in the match as a solid wall
-src/sim/tick.test.ts > serverTick > ram knock state round-trip > carries angVel/vx/vy through bodyOf -> stepDrive -> writeBody: it moves the pose, and the fields round-trip decayed rather than dropped
-src/sim/tick.test.ts > serverTick > steps each player against the updated poses of the players stepped before them
-## client
-src/fx/contact.test.ts > shotEndPoint — a projectile ends on the hull it struck > pulls a shot that OVERSHOT the car back to the entry face
-src/modes/conquer/hud.test.ts > CONQUER_HUD.resultsLine (CQ33) > is viewer-relative: team B reads its own bar first
-src/modes/conquer/hud.test.ts > CONQUER_HUD.resultsLine (CQ33) > reports both teams' control percentage
-src/scenes/combat-visual.test.ts > chargeOrbBands > appears as a dot on the press tick rather than fading in from nothing
-src/scenes/combat-visual.test.ts > chargeOrbBands > grows linearly, so the orb tells an opponent how long they have
-src/scenes/combat-visual.test.ts > chargeOrbBands > ignores a pending longer than this weapon's own wind-up
-src/scenes/impact-feedback.test.ts > freshImpacts > the velocity this pass must be given > loses most rams when given the rendered, post-collision velocity
-## scripts
-    not ok 5 - was rebuilt after the last change to the tables or the prose
-not ok 38 - the generated manual page
---
-        not ok 5 - prints derived values this mode's bundle actually computes
-    not ok 3 - Brawl
-        not ok 5 - prints derived values this mode's bundle actually computes
-    not ok 4 - Deathmatch
-        not ok 5 - prints derived values this mode's bundle actually computes
-    not ok 5 - Conquer
-not ok 67 - docs/turn-tuning.md
-```
+Phase C landed 2026-09-29: the sim runs at **60 Hz** (`TICK_RATE_HZ`) and every room broadcasts
+**one snapshot per snapshot tick** (`SNAPSHOT_RATE_HZ` 60, `patchRate = null`, `broadcastPatch()` at
+the end of each tick `isSnapshotTick` names, `rooms/snapshot-cadence.ts`); `DEFAULT_PATCH_RATE_HZ`
+is deleted and hard invariant 5 is reworded (NR11–NR13). The netsim harness sends a snapshot at the
+end of each snapshot tick exactly as the rooms do. No drive-model rule changed (NR15); what the step
+size moved, measured:
+
+- **Handling (NR15).** Every closed-form figure in `docs/turn-tuning.md` is rate-independent and
+  did not move — turn radius 89.9 u for all three shipped chassis at top speed, time to 90% of top
+  speed Mirage 1.79 s / Bullseye 2.21 s / Bastion 2.59 s, before and after. Only the per-tick rows
+  halved (turn per tick Mirage 0.1052 → 0.0526 rad, Bullseye 0.0883 → 0.0441, Bastion
+  0.0756 → 0.0378; spin kept per reeling tick 0.9355 → 0.9672). Stepped through the real
+  `stepDrive`, dt 1/30 → 1/60: measured time to 90% Mirage 1.800 → 1.800 s, Bullseye 2.233 →
+  2.217 s (tick quantization), Bastion 2.600 → 2.600 s; the settled full-lock circle is unchanged
+  (Mirage 39.75 → 39.74 u, Bullseye 39.39 → 39.39, Bastion 38.57 → 38.57, at ~125 / 107 / 95 u/s);
+  the settled full-lock slip angle drops 1.1–1.6° (Mirage 39.5 → 37.9°, Bullseye 35.8 → 34.5°,
+  Bastion 32.5 → 31.3°) — the discretization gap above the closed form roughly halving. Velocity
+  at a given wall-clock time is identical at both rates (the command/drag integrator is closed
+  form); positions differ by a fraction of a unit. `golden.test.ts` keeps its dt 1/30 block as the
+  rate-independent integrator pin and gains a dt 1/60 block pinning the shipped rate.
+- **TTK (`npm run ttk`).** Moves by tick rounding only, ≤ 0.1 s: Mirage→Bullseye 3.7 → 3.6 s,
+  Bastion→Bullseye 6.7 → 6.6 s, Bastion→Bastion-class 11.5 → 11.4 s (weapons-only Bastion→Bullseye
+  10.7 → 10.6 s); every other cell unchanged.
+- **Planner bench (NR16, P33).** Hard's horizon is ms-authored, so it doubles in ticks (K 22 → 44)
+  while its replan cadence stays 15 Hz (`recomputeMs` 67 → 2 → 4 ticks). Per plan: best 0.326–0.338
+  ms at 30 Hz → 0.400–0.415 ms at 60 Hz (~1.2x, not 2x); gated median 863–1006 → 1069–1368 drive
+  ticks/plan against the gate of 1027, so **`planner.bench.test.ts` now fails its gate** and is left
+  failing — per second, six hard bots cost ~36–37 ms of CPU per simulated second against the
+  30 ms budget (was ~30). Budget not raised and planner not changed; the decision is the user's
+  (P33's own remedy is "K and `planDepth` come down").
+- **Bot-tuner cases.** OFF-AXIS (`controller.test.ts`), P49 and P50 (`tiers.test.ts`) all pass at
+  60 Hz; the two G12 failures in `controller.test.ts` still fail, unchanged.
+- **Netsim, legacy client at 60 Hz** — see the note under the baseline table below.
+
+**Every playtest probe now measures a 60 Hz sim; run `npm run playtest -- --scope=all`.** Several
+probes author durations as literal tick counts (e.g. `weapons.ts`'s `ticks: 90`, now 1.5 s rather
+than 3 s) and `lan.ts` states "20 Hz against a 30 Hz sim" as a fact; they compile and were not
+edited (`prediction.ts` was compile-fixed to `SNAPSHOT_RATE_HZ`).
 
 Phase B landed 2026-09-29: the netsim harness
 (`packages/server/src/netsim/`) runs the real tick pipeline against a headless model of today's
@@ -181,6 +130,30 @@ p95 0.12 u (0.11–0.12), remote hold frames 7.09 % (6.15–8.06 %), local recon
 (138.1–139.8). (For reference, net80's input-to-server delay is 57.3 ms (57.2–57.4) and display
 delay 105.6 ms (103.7–106.6); lan's hold rate is 0.006 % (0–0.011 %), its reconcile p95 0.38 u
 (0.34–0.44).)
+
+**The same legacy client at 60 Hz (after Phase C, same run shape: 60 s, six cars, seeds 1–3,
+mean and min–max).** This is the comparison point for Phases D–G; the Baseline column above stays
+the 30 Hz record.
+
+| Metric | lan | net80 | net150 |
+|---|---|---|---|
+| Server steps per car per tick (max) | 1 (1–1) | 5 (5–5) | 5 (5–5) |
+| Remote path error p95 (u) | 0.00 | 0.00 | 0.00 |
+| Remote hold frames | 0.018 % (0.007–0.026 %) | 5.72 % (5.63–5.81 %) | 11.07 % (10.74–11.33 %) |
+| Local reconcile correction p95 (u) | 0.01 (0.00–0.02) | 0.70 (0.45–1.03) | 2.56 (2.33–2.83) |
+| Input-to-server delay (ms) | 9.3 (9.3–9.4) | 51.3 (51.3–51.3) | 90.6 (90.4–90.7) |
+| Remote display delay (ms) | 50.5 (50.5–50.6) | 87.3 (86.4–88.3) | 122.2 (121.2–123.6) |
+
+Read two rows with care: **reconcile p95 (one sample per reconcile) and hold frames (head-of-line
+stalls, per message) shift with the message rate alone** — three times as many snapshots per second
+means three times as many reconciles and three times as many losses to stall the stream behind — so
+a move in those rows is not by itself a netcode change. Hold frames rose (net80 3.62 → 5.72 %,
+net150 7.09 → 11.07 %) for exactly that reason. Input-to-server and display delay fell with the tick
+quantum (lan 21.7 → 9.3 ms and 67.4 → 50.5 ms). Path error fell to float noise: a snapshot every
+tick leaves no chord between patches to cut. Steps per tick at net80 rose 4 → 5 and dropped inputs
+rose (net80 14–15 → 172–202, net150 77–85 → 975–1029 per run): `maxInputsPerTick` (5) and the
+legacy client's catch-up cap are counts of ticks, so their wall-clock headroom halved at 60 Hz —
+Phase D deletes both (NR23).
 
 The remote display delay row is the TOTAL delay the harness measures — interpolation delay plus
 snapshot age plus link plus frame — so its LAN target is "no worse than today's" on that total; the

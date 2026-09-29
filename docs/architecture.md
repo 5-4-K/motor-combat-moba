@@ -2,7 +2,7 @@
 
 npm workspaces: `@motor-combat-moba/shared`, `@motor-combat-moba/server`, `@motor-combat-moba/client`. TypeScript ESM. Colyseus `^0.18` + `@colyseus/schema` `^5` (`@colyseus/sdk` on the client). Phaser 4 + Vite 5. Node 22+.
 
-One room: `ROOM_NAME` `"arena"`, class `ArenaRoom`, `maxClients = MAX_PLAYERS` (6); a second `arena` room is rejected with `4003` so LAN stays one room. Simulation interval uses `TICK_RATE_HZ` (30); patches use `DEFAULT_PATCH_RATE_HZ` (20).
+One room: `ROOM_NAME` `"arena"`, class `ArenaRoom`, `maxClients = MAX_PLAYERS` (6); a second `arena` room is rejected with `4003` so LAN stays one room. Simulation interval uses `TICK_RATE_HZ` (60); snapshots go out at `SNAPSHOT_RATE_HZ` (60), broadcast by the room itself at the end of each snapshot tick (`patchRate = null`, `isSnapshotTick`).
 
 **Server tick, in order.** `ArenaRoom.tick` advances `ArenaState.tick`, runs the phase machine (car-select deadline, countdown expiry), then calls `rooms/tick-pipeline.ts`'s `runPipeline` (shared by `ArenaRoom` and the dev-only `PlaygroundRoom`), which runs:
 

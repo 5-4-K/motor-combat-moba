@@ -2,7 +2,7 @@
 
 Clients must never send poses. The wire message is `INPUT_MESSAGE` (`"input"`): `{ seq, steer, throttle, fireSlots, aimAngle? }` (`InputMessage` in shared) — `fireSlots` is a uint8 bitmask, bit 0 = **fire slot 0, the basic attack** (abilities are 1..`N`, since the 2026-09-20 index flip), replacing the old single `fire` boolean. `aimAngle` is the world bearing, radians, from the driven car's turret pivot to the crosshair (spec TR21) — sent on every input, but the server reads it only off an input whose fire mask carried a NEW press (TR23); absent means "fire where the turret already points" (TR12). Server `isInputMessage` validates then enqueues, accepting only an absent or finite `aimAngle` (TR22). `withSimulatedLatency` delays enqueue when `SIM_LATENCY_MS` / `SIM_JITTER_MS` are set; otherwise pass-through.
 
-`ArenaRoom` ticks at sim rate (`TICK_RATE_HZ`) and patches at a different rate (`DEFAULT_PATCH_RATE_HZ`). `serverTick` applies queued inputs through shared `stepSim`.
+`ArenaRoom` ticks at sim rate (`TICK_RATE_HZ`, 60) and broadcasts a snapshot at `SNAPSHOT_RATE_HZ` (60): `patchRate` is `null`, and the room calls `broadcastPatch()` itself at the end of every tick `isSnapshotTick` (`rooms/snapshot-cadence.ts`) names, so a snapshot is always the state of exactly one tick and carries that tick (NR12). The snapshot rate is its own constant, and no client code may assume one snapshot per tick (hard invariant 5). `serverTick` applies queued inputs through shared `stepSim`.
 
 ## Server
 
@@ -42,8 +42,8 @@ driving; the client derives its own car's through `localModifiers`, which reads
 `PlayerState.statuses` off the schema and hands the rows to the *same* shared `modifiersFromRows`.
 
 Both sides filter by `tick < endsTick` rather than trusting the list. The server's expiry sweep is
-authoritative, but patches arrive at 20 Hz against a 30 Hz sim, so without the independent filter a
-client would predict one or two ticks of a status the server had already dropped. A status list is
+authoritative, but a snapshot is never guaranteed every tick (hard invariant 5) and arrives a link delay late, so
+without the independent filter a client would predict ticks of a status the server had already dropped. A status list is
 therefore neither snapped nor eased on reconcile: it is not a value being integrated, it is the rules
 the integration runs under, and both halves derive it from the same tick through the same function.
 

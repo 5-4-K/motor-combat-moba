@@ -5,7 +5,7 @@
 | **Arena** | The match space and the Colyseus room name (`ROOM_NAME` = `"arena"`). |
 | **Colyseus room** | Server instance of `ArenaRoom` holding `ArenaState` and clients. |
 | **Tick** | Sim step at `TICK_RATE_HZ` (30). `ArenaState.tick` increments each interval. |
-| **Patch** | State broadcast to clients at `DEFAULT_PATCH_RATE_HZ` (20). Not the same as tick. |
+| **Patch** | State broadcast to clients — one snapshot of exactly one tick, at `SNAPSHOT_RATE_HZ` (60). Not the same as tick: no client code may assume one per tick. |
 | **Prediction** | Client applying `stepSim` locally ahead of patches, reconciled by replay against each patch. |
 | **Interpolation** | Smoothing remote poses between patches, sampled `interpolationDelayMs` behind now. |
 | **Lockstep** | Server and client use the same `stepSim` on the same inputs. |

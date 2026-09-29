@@ -80,7 +80,7 @@ on the moved file(s), never a blanket `-u`. `table-pinning.test.ts` and `parity.
 
 ### What is NOT per-mode, and why
 
-`TICK_RATE_HZ`, `NET_CONFIG`, `DEFAULT_PATCH_RATE_HZ`, the enum wire values, `ABILITY_SLOT_CEILING`,
+`TICK_RATE_HZ`, `NET_CONFIG`, `SNAPSHOT_RATE_HZ`, the enum wire values, `ABILITY_SLOT_CEILING`,
 `MAX_PLAYERS`, `COLOR_TABLE`, `PRACTICE_CONFIG`, `CHAT_CONFIG`, `LOGICAL_CANVAS`, and the OBB hull
 (`DRIVE_CONFIG.carWidth` / `carHeight`) are global. The hull is excluded from `ModeTables` **by
 type**, so a mode folder cannot author one even by accident. `MAX_PLAYERS` is on that list as the
@@ -572,7 +572,7 @@ something, discuss it — do not answer with a parameter sweep.
    accessors in `modes/active.ts`; never a raw `config/` table, never captured at module scope.
 3. Clients send inputs (and later lobby intents), never authoritative sim state.
 4. `stepSim` is the lockstep; server and client import the same function.
-5. Sim rate ≠ patch rate (`TICK_RATE_HZ` 30 vs `DEFAULT_PATCH_RATE_HZ` 20).
+5. Snapshot rate is its own constant (`SNAPSHOT_RATE_HZ`); no client code may assume one snapshot per tick.
 6. `{x, y, angle}` is canonical world state.
 7. Enum uint8 values are explicit and stable; never renumber.
 8. If `stepSim` reads it, it is a networked schema field.
@@ -910,7 +910,7 @@ and leaving it broken is worse than leaving it stale. Say that you did.
 Changes that reach them include: `sim/` (drive, collide, ram, combat, damage, status, weapons), the
 tick order in `ArenaRoom.tick` or the bridges, `WEAPON_TABLE`, `CAR_TABLE`, `DRIVE_CONFIG`,
 `RAM_CONFIG`, `COMBAT_CONFIG`, `STATUS_*`, `NET_CONFIG`, `TICK_RATE_HZ`,
-`DEFAULT_PATCH_RATE_HZ`, arena definitions and spawn tables, and the client's prediction or
+`SNAPSHOT_RATE_HZ`, arena definitions and spawn tables, and the client's prediction or
 step-context assembly.
 
 **Never create a new probe file or a new scenario on your own initiative.** The user adds new

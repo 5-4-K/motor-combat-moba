@@ -151,7 +151,7 @@ both of which commute — so the sim keeps rows sorted by `statusId` purely to k
 |---|---|---|---|
 | `statusId` | string | `""` | Lookup key into `STATUS_TABLE`. Validated through `isStatusId` by every reader |
 | `startTick` | uint32 | `0` | The tick it was applied on. Two readers need it and neither can derive it: pulses are counted from here, and the drain bar's total is not in the status table because the applier chose it |
-| `endsTick` | uint32 | `0` | The tick it stops applying. Active while `tick < endsTick` — a tick, not a countdown, so it stays right between two patches at 20 Hz |
+| `endsTick` | uint32 | `0` | The tick it stops applying. Active while `tick < endsTick` — a tick, not a countdown, so it stays right between two snapshots, however far apart they arrive |
 | `sourceSessionId` | string | `""` | Who applied it; `""` for the world (a pickup, a hazard). The sim never reads it |
 
 There is deliberately **no `stacks` field**. A status cannot stack with itself — one id on one car is
