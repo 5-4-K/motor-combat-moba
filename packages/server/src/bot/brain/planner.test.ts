@@ -169,10 +169,21 @@ describe("plan", () => {
     // overrun precisely so a corner dominates an edge, so the corner is the scene that actually
     // states "jammed against a wall" — and it is the pose the comment above always described.
     //
-    // The floor is 33 ms of wall clock (`minRolledHorizonTicks`) since the 60 Hz flip: a literal ONE
-    // tick halved in wall-clock terms at dt 1/60 and the corner then tied the open field, so easy
-    // (K=0) acted in a corner exactly as in open field. Two ticks at 60 Hz restores the distinction.
-    const openField = plan({ ...base, self: selfAt(300, 360, Math.PI), horizonTicks: 0 });
+    // The floor is 33 ms of wall clock (`minRolledHorizonTicks`) since the 60 Hz flip — one tick at
+    // 30 Hz, two at 60 Hz — so K=0 rolls the same span at either rate.
+    //
+    // THE OPEN-FIELD SCENE IS DELIBERATELY ASYMMETRIC (fix round 2 of the 60 Hz flip). It used to be
+    // (300, 360) facing PI, directly AWAY from the target on its own axis, which made steering left
+    // and right an exact tie (margin 0.0000 at 60 Hz): the step size alone picked {+1,-1} at dt 1/30
+    // and {-1,-1} at dt 1/60, the latter matching the corner's pick and failing this test, although
+    // the cornered bot's own choice ({-1,-1}) never moved. Now it sits at (400, 220) facing +x, with
+    // the target (700, 360) ahead and to one side, so the steer is decided by geometry. Measured:
+    //   30 Hz: {+1,-1} 12.1314, runner-up {+1,0} 12.1195 (margin 0.0118); best {-1,-1} is 4.25 behind
+    //   60 Hz: {+1,-1} 12.1273, runner-up {+1,0} 12.1191 (margin 0.0081); best {-1,-1} is 3.47 behind
+    // The runner-up shares the winner's steer, so even a flip to it keeps this assertion honest; the
+    // margin that matters is the one to the corner's pick, {-1,-1}, which is several points. If a
+    // future step-size change moves the winner, re-measure these before touching the scene.
+    const openField = plan({ ...base, self: selfAt(400, 220, 0), horizonTicks: 0 });
     const cornered = plan({ ...base, self: selfAt(30, 30, Math.PI), horizonTicks: 0 });
     expect(cornered.action).not.toEqual(openField.action);
     // And neither is the bare tie-break, which is what a rolled-nothing K=0 would hand back for both.

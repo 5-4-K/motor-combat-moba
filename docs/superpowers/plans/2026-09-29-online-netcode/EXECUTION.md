@@ -20,7 +20,7 @@ phase's own acceptance lines.
 |---|---|---|---|---|
 | A — Colyseus 0.18, schema 5, Node 22, monitor gate | [`A-colyseus-upgrade.md`](A-colyseus-upgrade.md) | NR50, NR53 | Landed | `playtest:lan` smoke passed in A2; lockfile on a single schema 5.0.34 |
 | B — netsim harness and today's baseline | [`B-netsim-harness.md`](B-netsim-harness.md) | NR57–NR59 | Landed | Baseline recorded below (legacy client, 60 s, six cars, mean of seeds 1–3) |
-| C — 60 Hz and per-tick snapshots | [`C-sixty-hz.md`](C-sixty-hz.md) | NR11–NR16 | Landed | 60 Hz, one snapshot per tick; handling unchanged in closed form (radius 89.9 u, 90% top speed 1.79/2.21/2.59 s), slip −1.1 to −1.6°; TTK ±0.1 s; planner bench over its gate and the K=0 corner case open (see In flight) |
+| C — 60 Hz and per-tick snapshots | [`C-sixty-hz.md`](C-sixty-hz.md) | NR11–NR16 | Landed | 60 Hz, one snapshot per tick; handling unchanged in closed form (radius 89.9 u, 90% top speed 1.79/2.21/2.59 s), slip −1.1 to −1.6°; TTK ±0.1 s; planner bench over its gate (see In flight) |
 | D — time and inputs | [`D-time-and-inputs.md`](D-time-and-inputs.md) | NR17–NR28, NR54–NR56 | Not started | |
 | E — remotes and prediction | [`E-remotes.md`](E-remotes.md) | NR29–NR34 | Not started | |
 | F — combat under latency | [`F-combat.md`](F-combat.md) | NR35–NR41 | Not started | |
@@ -69,11 +69,12 @@ size moved, measured:
   wall-clock span at 60 Hz; left as-is, a `bot-tuner` question. The two G12 failures in
   `controller.test.ts` still fail, unchanged.
 - **Easy's K=0 plan (R-P6).** The floor on how far a plan rolls is now wall clock,
-  `BRAIN_CONSTANTS.minRolledHorizonMs` 33 (1 tick at 30 Hz, 2 at 60 Hz). It did NOT restore
-  `planner.test.ts`'s "cornered differs from open field" case, which is left failing: the CORNER's
-  pick is {-1,-1} at both rates and at 1–3 rolled ticks; what flipped is the OPEN-FIELD reference
-  (car facing directly away from the target), which picks {+1,-1} at 30 Hz and {-1,-1} at 60 Hz —
-  a near-mirror-symmetric left/right tie that the step size decides. Open question for the user.
+  `BRAIN_CONSTANTS.minRolledHorizonMs` 33 (1 tick at 30 Hz, 2 at 60 Hz). `planner.test.ts`'s
+  "cornered differs from open field" case had broken on its REFERENCE scene, not on the cornered
+  bot (which picks {-1,-1} at both rates): the old open-field pose faced directly away from the
+  target, an exact left/right tie the step size decided. It is now an asymmetric pose (400, 220,
+  facing +x) whose pick {+1,-1} leads the corner's {-1,-1} by 4.25 (30 Hz) / 3.47 (60 Hz); the
+  test passes at both rates.
 - **Input-count knobs.** `NET_CONFIG.maxInputsPerTick` 5 -> 10 and `pendingInputCap` 24 -> 48, so
   they cover the same wall-clock time as at 30 Hz (Phase D deletes both).
 - **Netsim, legacy client at 60 Hz** — see the note under the baseline table below.
