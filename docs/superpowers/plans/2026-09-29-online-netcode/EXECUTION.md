@@ -19,7 +19,7 @@ phase's own acceptance lines.
 | Phase | File | Spec | Status | Measured / notes |
 |---|---|---|---|---|
 | A — Colyseus 0.18, schema 5, Node 22, monitor gate | [`A-colyseus-upgrade.md`](A-colyseus-upgrade.md) | NR50, NR53 | Landed | `playtest:lan` smoke passed in A2; lockfile on a single schema 5.0.34 |
-| B — netsim harness and today's baseline | [`B-netsim-harness.md`](B-netsim-harness.md) | NR57–NR59 | Not started | |
+| B — netsim harness and today's baseline | [`B-netsim-harness.md`](B-netsim-harness.md) | NR57–NR59 | Landed | Baseline recorded below (legacy client, seed 1, 20 s, 6 cars) |
 | C — 60 Hz and per-tick snapshots | [`C-sixty-hz.md`](C-sixty-hz.md) | NR11–NR16 | Not started | |
 | D — time and inputs | [`D-time-and-inputs.md`](D-time-and-inputs.md) | NR17–NR28, NR54–NR56 | Not started | |
 | E — remotes and prediction | [`E-remotes.md`](E-remotes.md) | NR29–NR34 | Not started | |
@@ -28,7 +28,9 @@ phase's own acceptance lines.
 
 ## In flight
 
-**Phase B, Task 1 (B1) is next.** Phase A landed 2026-09-29 (started after the user's go-ahead,
+**Phase C, Task 1 (C1) is next.** Phase B landed 2026-09-29: the netsim harness
+(`packages/server/src/netsim/`) runs the real tick pipeline against a headless model of today's
+client, and the baseline is recorded below. Phase A landed 2026-09-29 (started after the user's go-ahead,
 "start implementation with sdd"). The six decisions listed at the pause were accepted as written:
 - Server FOV filtering uses `@view()` field tags on `PlayerState`, not a schema split (NR42).
 - Hard invariant 5 reworded (NR13); invariant 8 gains a `@view` clause (G6).
@@ -67,14 +69,28 @@ Filled in by Phase B and after each later phase. Link profile names: `lan` (1 ms
 
 | Metric | Target | Baseline | after D | after E | after F | after G |
 |---|---|---|---|---|---|---|
-| Server steps per car per tick (max) | 1 | | | | | |
+| Server steps per car per tick (max) | 1 | 4 (net80; lan 1) | | | | |
 | Repeated-input ticks, net80 | ≤ 2 % | n/a | | | | |
-| Remote path error p95, net80 (u) | ≤ 12 | | | | | |
-| Remote hold frames, net80 | ≤ 1 % | | | | | |
-| Local reconcile correction p95, net80 (u) | ≤ 4 | | | | | |
-| Input-to-server delay, lan (ms) | ≤ 34 | | | | | |
-| Remote display delay, lan (ms) | ≤ 50 | | | | | |
+| Remote path error p95, net80 (u) | ≤ 12 | 0.13 | | | | |
+| Remote hold frames, net80 | ≤ 1 % | 2.81 % | | | | |
+| Local reconcile correction p95, net80 (u) | ≤ 4 | 0.78 | | | | |
+| Input-to-server delay, lan (ms) | ≤ 34 | 23.3 | | | | |
+| Remote display delay, lan (ms) | ≤ 50 | 71.0 | | | | |
 | Hidden enemy present in decoded state | never | n/a | n/a | n/a | n/a | |
+
+Baseline at net150 (same run shape): steps per tick max 5, remote path error p95 0.13 u, remote
+hold frames 4.61 %, local reconcile correction p95 1.01 u, input-to-server delay 96.0 ms, remote
+display delay 155.7 ms. (For reference, net80's input-to-server delay is 56.1 ms and display delay
+115.4 ms; lan's hold rate is 0 %, its reconcile p95 0.13 u.)
+
+Link model: single retransmit at +1 RTT on loss (optimistic vs real TCP RTO) — the netsim's loss
+numbers are a floor, not a forecast. Reproduce with
+`npm run build -w @motor-combat-moba/shared && NETSIM_REPORT=1 npx vitest run --root packages/server src/netsim`.
+
+Remote path error measures distance to the true trajectory, not lag: today's interpolation only
+ever draws poses the car really passed through, so its baseline is near zero by construction (the
+residual is the chord between patches on a curve) and its delay shows up in the display-delay row
+instead. The metric exists to bound later phases' extrapolation.
 
 ## Deviations from the plan
 
