@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MS_PER_TICK } from "../constants.js";
+import { NET_CONFIG } from "../config/net-config.js";
 import { ClockSync } from "./clock-sync.js";
 
 /** A server whose tick 0 began at client time `origin`, answering after `oneWay` each way. */
@@ -28,5 +29,31 @@ describe("ClockSync", () => {
     const late = pong(3000, 40, 500);
     clock.onPong(late.at + 300, late.pong); // arrived 300 ms late
     expect(clock.serverTick(4000)).toBeCloseTo((4000 - 500) / MS_PER_TICK, 1);
+  });
+});
+
+describe("ClockSync drift", () => {
+  it.each([0.99, 1.01])("tracks a server clock running at %s of the client's for 60 s with no snaps", (rate) => {
+    const clock = new ClockSync();
+    const oneWay = 40;
+    const interval = NET_CONFIG.timeSyncIntervalMs;
+    let maxErr = 0;
+    let snaps = 0;
+    let prev = Number.NaN;
+    // The server's clock reads (client time) x rate; it stamps the ping when it arrives.
+    for (let send = 0; send <= 60_000; send += interval) {
+      const serverMs = (send + oneWay) * rate;
+      const at = send + 2 * oneWay;
+      clock.onPong(at, { c: send, t: Math.floor(serverMs / MS_PER_TICK), p: serverMs % MS_PER_TICK });
+      const est = clock.serverTick(at) * MS_PER_TICK;
+      const err = Math.abs(est - at * rate);
+      if (send >= 5000) {
+        maxErr = Math.max(maxErr, err);
+        if (!Number.isNaN(prev) && Math.abs(est - prev - interval * rate) > 40) snaps++;
+      }
+      prev = est;
+    }
+    expect(maxErr).toBeLessThan(25);
+    expect(snaps).toBe(0);
   });
 });

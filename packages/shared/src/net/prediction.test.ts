@@ -10,7 +10,8 @@ import { getArena } from "../arena/registry.js";
 import { ramDefenceOf } from "../config/car-config.js";
 import { stepSim, type SimBody, type StepContext } from "../sim/step.js";
 import { type InputMessage } from "./input.js";
-import { PredictionBuffer, TickPrediction, reconcileEasePerSnapshot } from "./prediction.js";
+import { PredictionBuffer, TickPrediction, frameAsInput, reconcileEasePerSnapshot } from "./prediction.js";
+import { msToTicks } from "../config/weapon-ticks.js";
 import type { InputFrame } from "./tick-input.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
@@ -441,7 +442,7 @@ describe("TickPrediction", () => {
     const tp = new TickPrediction();
     let cur = START;
     for (const t of [11, 12, 13]) cur = tp.predict(cur, frame(t), ctx);
-    const authoritative = stepSim(START, frame(11), DT, ctx); // pose at tick 11
+    const authoritative = stepSim(START, frameAsInput(frame(11)), DT, ctx); // pose at tick 11
     const target = replay2(authoritative, [12, 13]);
     const out = tp.reconcile(authoritative, 11, farFrom(cur), ctx);
     for (const k of ["x", "y", "angle", "vx", "vy", "angVel"] as const) expect(out[k]).toBeCloseTo(target[k], 9);
@@ -465,6 +466,41 @@ describe("TickPrediction", () => {
     expect(a.angle).toBeCloseTo(b.angle, 9);
   });
 
+  it("eases (does not snap) a small error toward the replay target", () => {
+    const tp = new TickPrediction();
+    let cur = START;
+    for (const t of [1, 2, 3]) cur = tp.predict(cur, frame(t), ctx);
+    const target = tp.replayTarget(START, 0, ctx);
+    const off = { ...target, x: target.x + 1 };
+    const out = tp.reconcile(START, 0, off, ctx);
+    const ease = reconcileEasePerSnapshot();
+    expect(out.x).toBeCloseTo(off.x + (target.x - off.x) * ease, 9);
+    expect(out.x).not.toBeCloseTo(target.x, 3);
+    expect(out.vx).toBeCloseTo(target.vx, 9);
+  });
+
+  it("replays a stall-skip gap the way the server simulated it (repeat, then neutral)", () => {
+    const tp = new TickPrediction();
+    const repeat = msToTicks(NET_CONFIG.inputRepeatMs);
+    const far = 10 + repeat + 20; // gap longer than the repeat window
+    tp.predict(START, frame(10), ctx);
+    tp.predict(START, frame(far), ctx);
+    const got = tp.replayTarget(START, 9, ctx);
+    let want = START;
+    for (let t = 10; t <= far; t++) {
+      const keys = t === far || t - 10 <= repeat ? { steer: 0 as const, throttle: 1 as const } : { steer: 0 as const, throttle: 0 as const };
+      want = stepSim(want, frameAsInput({ tick: t, fireSlots: 0, ...keys }), DT, ctx);
+    }
+    for (const k of ["x", "y", "angle", "vx", "vy"] as const) expect(got[k]).toBeCloseTo(want[k], 9);
+  });
+
+  it("keeps frames until acked, well past the old 23-tick cap", () => {
+    const tp = new TickPrediction();
+    let cur = START;
+    for (let t = 1; t <= 60; t++) cur = tp.predict(cur, frame(t), ctx);
+    expect(tp.frameAt(1)).toBeDefined();
+  });
+
   it("recent() returns the newest frames last, and clear() empties", () => {
     const tp = new TickPrediction();
     let cur = START;
@@ -477,6 +513,6 @@ describe("TickPrediction", () => {
 
 function replay2(from: SimBody, ticks: readonly number[]): SimBody {
   let body = from;
-  for (const t of ticks) body = stepSim(body, { tick: t, steer: 0, throttle: 1, fireSlots: 0 }, DT, ctx);
+  for (const t of ticks) body = stepSim(body, frameAsInput({ tick: t, steer: 0, throttle: 1, fireSlots: 0 }), DT, ctx);
   return body;
 }

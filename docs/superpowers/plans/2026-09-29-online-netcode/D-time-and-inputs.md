@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- `NET_CONFIG` values introduced here: `targetSlackTicks: 1.5`, `maxDilation: 0.04`, `inputRepeatMs: 250`, `maxInputLeadMs: 250`, `inputRedundancy: 3`, `maxCatchUpTicks: 8`, `timeSyncIntervalMs: 500`, `timeSyncBurstMs: 100`, `timeSyncBurstWindowMs: 1000`.
+- `NET_CONFIG` values introduced here: `targetSlackTicks: 1.5`, `maxDilation: 0.04`, `inputRepeatMs: 250`, `maxInputLeadMs: 250`, `inputRedundancy: 3`, `clientMaxCatchUpTicks: 8` (renamed from the plan's `maxCatchUpTicks`, which is the server stepper's), `clockSlewMsPerSec: 20`, `timeSyncIntervalMs: 500`, `timeSyncBurstMs: 100`, `timeSyncBurstWindowMs: 1000`.
 - Deleted by the end of the phase: `NET_CONFIG.maxInputsPerTick`, `silentCoastGraceMs`, `pendingInputCap`; `PlayerState.lastProcessedInputSeq`; `InputMessage.seq`; `drainTicks`; the silent-coast branch of `serverTick`.
 - The input *content* (`steer`, `throttle`, `fireSlots`, `aimAngle`) and all of `stepSim` are unchanged.
 - Press detection stays server-side against the previous **consumed** mask.

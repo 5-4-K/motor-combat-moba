@@ -84,6 +84,8 @@ export const NET_CONFIG = {
   inputRedundancy: 3,
   /** Most ticks the CLIENT scheduler runs in one frame after a stall before it resyncs and skips (NR20). */
   clientMaxCatchUpTicks: 8,
+  /** Fastest the client's server-clock estimate may slew, in ms of offset per second of wall time (NR18). */
+  clockSlewMsPerSec: 20,
   /** Steady-state interval between MSG_TIME clock-sync pings (NR18). */
   timeSyncIntervalMs: 500,
   /** Ping interval during the join burst (NR18). */

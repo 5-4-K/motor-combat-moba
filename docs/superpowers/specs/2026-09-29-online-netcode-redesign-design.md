@@ -103,16 +103,20 @@ today's.
   the input its owner sent *for that tick*. `serverTick`'s per-player drain loop is replaced.
 - **NR18 Clock sync.** `MSG_TIME` (client → server `{ c: clientMs }`, server → client
   `{ c, t: serverTick, p: msIntoTick }`). The client keeps the last 16 samples and takes its tick
-  estimate from the lowest-RTT third, so a delayed pong cannot drag the estimate. Sent every 500 ms,
+  estimate from the lowest-RTT third (RTT ties go to the newest sample), so a delayed pong cannot drag the
+  estimate. The estimate slews at a RATE, `NET_CONFIG.clockSlewMsPerSec` (20 ms/s) times the time since
+  the previous pong, so it tracks a 1 % clock drift at any ping interval; an error over 50 ms snaps. Sent every 500 ms,
   and every 100 ms for the first second after joining.
 - **NR19 Server-measured RTT.** The server also pings each client (`MSG_PING { s }` echoed back),
   so the numbers the server relies on (§7) do not come from the client.
 - **NR20 The client runs ahead.** Input tick `P = estimatedServerTick + leadTicks`, where
-  `leadTicks = ceil((rtt / 2 + safetyMs) / msPerTick)`. The local car is predicted at `P`.
+  `leadTicks = ceil((rtt / 2 + safetyMs) / msPerTick)`, with the lead clamped to
+  `maxInputLeadMs - 1 tick` (the server drops anything further ahead). The local car is predicted at `P`.
 - **NR21 Slack feedback.** Each snapshot carries, for its recipient only, `inputSlack`: the mean
   over the last 30 received inputs of (input tick − server tick at arrival). The client steers
   `safetyMs` so slack sits at `NET_CONFIG.targetSlackTicks` (1.5), by running its tick clock up to
-  `NET_CONFIG.maxDilation` (4 %) faster or slower — never by jumping.
+  `NET_CONFIG.maxDilation` (4 %) faster or slower — never by jumping. The integrator runs once per NEW
+  slack sample (not per frame) with gain 0.03 and a ±0.25-tick deadband around the target.
 - **NR22 Input buffer.** A shared `TickInputBuffer` per player, keyed by tick. On tick `T`:
   input for `T` present → consume it; absent → repeat the last consumed input with its fire bits
   held (a repeat can never create a press, because press detection compares against the previous
@@ -322,3 +326,5 @@ Each stage merges on its own, green, with its measured numbers recorded in the p
 - **NR68 G — interest management** (NR42–NR49), then docs: `docs/networking.md`,
   `docs/schema-reference.md`, `docs/config-reference.md`, `docs/deployment.md`, and `CLAUDE.md`'s
   hard invariant 5 (NR13). `docs/networking.md` states §11's residual unfairness in full.
+
+- 2026-09-29 (D2 fix round): NR18 slew is a rate (20 ms/s) with a recency tie-break; NR20 lead clamped to `maxInputLeadMs - 1 tick`; NR21 integrates per new sample, gain 0.03, ±0.25 deadband.

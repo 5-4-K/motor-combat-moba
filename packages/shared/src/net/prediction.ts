@@ -3,7 +3,7 @@ import { NET_CONFIG } from "../config/net-config.js";
 import { stepSim, type SimBody, type StepContext } from "../sim/step.js";
 import { msToTicks } from "../config/weapon-ticks.js";
 import { type InputMessage } from "./input.js";
-import type { InputFrame } from "./tick-input.js";
+import { NEUTRAL_KEYS, type InputFrame, type InputKeys } from "./tick-input.js";
 
 /** One input the client has simulated locally but the server has not acknowledged yet. */
 export interface PendingInput {
@@ -156,7 +156,7 @@ export class PredictionBuffer {
 }
 
 /** `stepSim` takes the legacy `InputMessage`; it never reads `seq`, so the tick stands in for it. */
-const asInput = (f: InputFrame): InputMessage => ({ ...f, seq: f.tick });
+export const frameAsInput = (f: InputKeys & { tick: number }): InputMessage => ({ ...f, seq: f.tick });
 
 /**
  * Tick-keyed prediction (NR26): frames are stamped with the tick they will execute on, and a
@@ -165,19 +165,42 @@ const asInput = (f: InputFrame): InputMessage => ({ ...f, seq: f.tick });
  */
 export class TickPrediction {
   private frames: InputFrame[] = []; // ascending by tick
+  /** The newest frame at or before the last acknowledged tick: what the server would repeat from. */
+  private base: InputFrame | undefined;
 
   predict(state: SimBody, frame: InputFrame, ctx: StepContext): SimBody {
     this.frames.push(frame);
-    const cap = msToTicks(NET_CONFIG.maxInputLeadMs) + NET_CONFIG.clientMaxCatchUpTicks;
-    if (this.frames.length > cap) this.frames.splice(0, this.frames.length - cap);
-    return stepSim(state, asInput(frame), DT_SECONDS, ctx);
+    // A safety bound only: the ack prunes in `replayTarget`. Long enough for any lead plus a second
+    // of snapshot silence.
+    const cap = msToTicks(NET_CONFIG.maxInputLeadMs + 1000);
+    if (this.frames.length > cap) this.base = this.frames.splice(0, this.frames.length - cap).at(-1);
+    return stepSim(state, frameAsInput(frame), DT_SECONDS, ctx);
   }
 
-  /** The authoritative pose at `snapshotTick`, replayed through every frame after it. */
+  /**
+   * The authoritative pose at `snapshotTick`, replayed through every tick after it up to the newest
+   * frame. A tick with no frame (a stall-skip gap) replays what the server simulated for it under
+   * NR22: the last known frame repeated for `inputRepeatMs`, then neutral keys.
+   */
   replayTarget(authoritative: SimBody, snapshotTick: number, ctx: StepContext): SimBody {
+    for (const f of this.frames) if (f.tick <= snapshotTick) this.base = f;
     this.frames = this.frames.filter((f) => f.tick > snapshotTick);
+    const repeatTicks = msToTicks(NET_CONFIG.inputRepeatMs);
+    let last: InputKeys | undefined = this.base;
+    let lastReal = this.base?.tick ?? Number.NEGATIVE_INFINITY;
     let target = copyBody(authoritative);
-    for (const f of this.frames) target = stepSim(target, asInput(f), DT_SECONDS, ctx);
+    let i = 0;
+    const newest = this.frames.at(-1)?.tick ?? snapshotTick;
+    for (let t = snapshotTick + 1; t <= newest; t++) {
+      let keys: InputKeys;
+      if (this.frames[i]?.tick === t) {
+        keys = last = this.frames[i++]!;
+        lastReal = t;
+      } else {
+        keys = last !== undefined && t - lastReal <= repeatTicks ? last : NEUTRAL_KEYS;
+      }
+      target = stepSim(target, frameAsInput({ ...keys, tick: t }), DT_SECONDS, ctx);
+    }
     return target;
   }
 
@@ -196,5 +219,6 @@ export class TickPrediction {
 
   clear(): void {
     this.frames = [];
+    this.base = undefined;
   }
 }
