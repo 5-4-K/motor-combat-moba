@@ -38,7 +38,15 @@ export const NET_CONFIG = {
   pendingInputCap: 48,
   reconcileSnapPos: 24,
   reconcileSnapAngle: 0.6,
+  /**
+   * Fraction of the reconcile error eased away per `reconcileEaseReferenceMs` of snapshots — authored
+   * as "per one 20 Hz snapshot" (50 ms), the rate it was tuned at. The client applies it per
+   * snapshot through `reconcileEasePerSnapshot()`, which rescales it to `SNAPSHOT_RATE_HZ`, so
+   * tripling the snapshot rate did not triple how fast the correction lands.
+   */
   reconcileEaseRate: 0.25,
+  /** The wall-clock span `reconcileEaseRate` is authored over, in ms (one 20 Hz snapshot). */
+  reconcileEaseReferenceMs: 50,
   interpolationDelayMs: 50,
   /**
    * How far past its last snapshot the client may extrapolate a live weapon instance before it

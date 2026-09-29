@@ -1,4 +1,4 @@
-import { MS_PER_TICK } from "../constants.js";
+import { MS_PER_TICK, SNAPSHOT_RATE_HZ } from "../constants.js";
 import { NET_CONFIG } from "../config/net-config.js";
 import { stepSim, type SimBody, type StepContext } from "../sim/step.js";
 import { type InputMessage } from "./input.js";
@@ -14,6 +14,20 @@ export interface PendingInput {
  * Derived from the shared tick rate — never a literal 1/30.
  */
 const DT_SECONDS = MS_PER_TICK / 1000;
+
+/**
+ * The fraction of the reconcile error one snapshot eases away. `NET_CONFIG.reconcileEaseRate` is
+ * authored per `reconcileEaseReferenceMs` (50 ms — one snapshot at the 20 Hz it was tuned at), and
+ * the ease runs once per snapshot, so it is compounded to the snapshot interval:
+ * `1 - (1 - rate) ** (snapshotMs / referenceMs)`. At 60 Hz that is ~0.0914 per snapshot, three of
+ * which ease exactly 0.25 — the same wall-clock correction speed the 20 Hz build had.
+ * `snapshotRateHz` is a parameter only so a test can evaluate the authored rate; production calls
+ * it bare.
+ */
+export function reconcileEasePerSnapshot(snapshotRateHz: number = SNAPSHOT_RATE_HZ): number {
+  const exponent = 1000 / snapshotRateHz / NET_CONFIG.reconcileEaseReferenceMs;
+  return 1 - (1 - NET_CONFIG.reconcileEaseRate) ** exponent;
+}
 
 /** Shortest signed rotation from `from` to `to`, in (-PI, PI]. */
 function wrapAngle(delta: number): number {
@@ -107,11 +121,12 @@ export class PredictionBuffer {
       return target;
     }
 
+    const ease = reconcileEasePerSnapshot();
     return {
-      x: lerp(currentPredicted.x, target.x, NET_CONFIG.reconcileEaseRate),
-      y: lerp(currentPredicted.y, target.y, NET_CONFIG.reconcileEaseRate),
+      x: lerp(currentPredicted.x, target.x, ease),
+      y: lerp(currentPredicted.y, target.y, ease),
       // Ease along the wrapped delta so the correction takes the short way round the seam.
-      angle: currentPredicted.angle + dAngle * NET_CONFIG.reconcileEaseRate,
+      angle: currentPredicted.angle + dAngle * ease,
       vx: target.vx,
       vy: target.vy,
       // Knock state snaps for the same reason `vx`/`vy` does: these feed the next integration. This

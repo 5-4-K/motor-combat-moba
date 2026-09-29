@@ -3,14 +3,14 @@ import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { installMode } from "../modes/active.js";
 import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
 import { ManeuverKind } from "../sim/maneuver.js";
-import { MS_PER_TICK } from "../constants.js";
+import { MS_PER_TICK, SNAPSHOT_RATE_HZ } from "../constants.js";
 import { NEUTRAL_MODIFIERS } from "../sim/status/modifiers.js";
 import { NET_CONFIG } from "../config/net-config.js";
 import { getArena } from "../arena/registry.js";
 import { ramDefenceOf } from "../config/car-config.js";
 import { stepSim, type SimBody, type StepContext } from "../sim/step.js";
 import { type InputMessage } from "./input.js";
-import { PredictionBuffer } from "./prediction.js";
+import { PredictionBuffer, reconcileEasePerSnapshot } from "./prediction.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 // Also installed directly, synchronously, at module scope: fixture constants below (and
@@ -208,7 +208,7 @@ describe("PredictionBuffer.reconcile", () => {
     const nearby: SimBody = { ...authoritative, x: 410, y: 406 };
 
     const out = buf.reconcile(authoritative, 0, nearby, ctx);
-    const rate = NET_CONFIG.reconcileEaseRate;
+    const rate = reconcileEasePerSnapshot();
     expect(out.x).toBeCloseTo(410 + rate * (400 - 410), 10);
     expect(out.y).toBeCloseTo(406 + rate * (400 - 406), 10);
   });
@@ -381,7 +381,54 @@ describe("PredictionBuffer.reconcile", () => {
     const out = buf.reconcile(authoritative, 0, nearWrap, ctx);
     // Short way is +0.283 rad across the seam, not the -6 rad the raw difference suggests.
     const shortWay = -3 - 3 + 2 * Math.PI;
-    expect(out.angle).toBeCloseTo(3 + NET_CONFIG.reconcileEaseRate * shortWay, 10);
+    expect(out.angle).toBeCloseTo(3 + reconcileEasePerSnapshot() * shortWay, 10);
     expect(out.angle).toBeGreaterThan(3);
+  });
+});
+
+// Phase C I2: the ease is authored per 50 ms (one 20 Hz snapshot) and applied per snapshot, so it
+// has to be rescaled to SNAPSHOT_RATE_HZ — at 60 Hz, unscaled, a correction landed three times as
+// fast as it was tuned to.
+describe("reconcileEasePerSnapshot (Phase C I2)", () => {
+  const snapshotMs = 1000 / SNAPSHOT_RATE_HZ;
+  const snapshotsPerReference = NET_CONFIG.reconcileEaseReferenceMs / snapshotMs;
+
+  it("compounds to exactly reconcileEaseRate over reconcileEaseReferenceMs of snapshots", () => {
+    const perSnapshot = reconcileEasePerSnapshot();
+    const remaining = (1 - perSnapshot) ** snapshotsPerReference;
+    expect(1 - remaining).toBeCloseTo(NET_CONFIG.reconcileEaseRate, 12);
+  });
+
+  it("is reconcileEaseRate itself at the 20 Hz snapshot rate it was authored at", () => {
+    expect(reconcileEasePerSnapshot(1000 / NET_CONFIG.reconcileEaseReferenceMs)).toBeCloseTo(
+      NET_CONFIG.reconcileEaseRate,
+      12,
+    );
+  });
+
+  it("eases a held error by exactly reconcileEaseRate across one reference span of reconciles", () => {
+    // Integer at every shipped rate (60 Hz -> 3 snapshots per 50 ms); the check below needs it.
+    expect(Number.isInteger(snapshotsPerReference)).toBe(true);
+    const buf = new PredictionBuffer();
+    const authoritative: SimBody = {
+      x: 400,
+      y: 400,
+      angle: 0,
+      vx: 0,
+      vy: 0,
+      angVel: 0,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
+    };
+    let current: SimBody = { ...authoritative, x: 410, y: 406, angle: 0.2 };
+    for (let i = 0; i < snapshotsPerReference; i++) {
+      current = buf.reconcile(authoritative, 0, current, ctx);
+    }
+    const rate = NET_CONFIG.reconcileEaseRate;
+    expect(current.x).toBeCloseTo(410 + rate * (400 - 410), 10);
+    expect(current.y).toBeCloseTo(406 + rate * (400 - 406), 10);
+    expect(current.angle).toBeCloseTo(0.2 - rate * 0.2, 10);
   });
 });
