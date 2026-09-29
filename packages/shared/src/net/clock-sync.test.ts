@@ -57,3 +57,55 @@ describe("ClockSync drift", () => {
     expect(snaps).toBe(0);
   });
 });
+
+/** Deterministic PRNG so the jitter is the same every run. */
+function rng(seed: number): () => number {
+  let a = seed;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Pongs whose two legs each carry +-5 ms of jitter, with a 250 ms spike on 1 in 20. */
+function jitteredRun(rate: number, seconds: number, seed: number): { maxErr: number; snaps: number } {
+  const clock = new ClockSync();
+  const rand = rng(seed);
+  const leg = () => 40 + (rand() * 10 - 5) + (rand() < 1 / 20 ? 250 : 0);
+  const interval = NET_CONFIG.timeSyncIntervalMs;
+  let maxErr = 0;
+  let snaps = 0;
+  let prev = Number.NaN;
+  let prevAt = 0;
+  for (let send = 0; send <= seconds * 1000; send += interval) {
+    const up = leg();
+    const down = leg();
+    const serverMs = (send + up) * rate;
+    const at = send + up + down;
+    clock.onPong(at, { c: send, t: Math.floor(serverMs / MS_PER_TICK), p: serverMs % MS_PER_TICK });
+    const est = clock.serverTick(at) * MS_PER_TICK;
+    if (at > 10_000) {
+      maxErr = Math.max(maxErr, Math.abs(est - at * rate));
+      if (!Number.isNaN(prev) && Math.abs(est - prev - (at - prevAt) * rate) > 40) snaps++;
+    }
+    prev = est;
+    prevAt = at;
+  }
+  return { maxErr, snaps };
+}
+
+describe("ClockSync with RTT jitter", () => {
+  it.each([0.99, 1.01])("tracks %s drift through jitter and spikes over 120 s (max error < 25 ms, no snaps)", (rate) => {
+    for (const seed of [1, 2, 3]) {
+      const r = jitteredRun(rate, 120, seed);
+      expect(r.maxErr).toBeLessThan(25);
+      expect(r.snaps).toBe(0);
+    }
+  });
+
+  it("holds a steady clock within 8 ms through the same jitter", () => {
+    for (const seed of [1, 2, 3]) expect(jitteredRun(1, 120, seed).maxErr).toBeLessThan(8);
+  });
+});

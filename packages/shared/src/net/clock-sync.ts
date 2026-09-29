@@ -13,9 +13,38 @@ export interface TimePong {
 const WINDOW = 16;
 const SNAP_MS = 50;
 
+interface Sample {
+  rtt: number;
+  offset: number;
+  at: number;
+}
+
+/**
+ * Least-squares line offset(t) = a + b*t through `set`, evaluated at `nowMs`. The slope is the two
+ * clocks' relative drift, clamped to the slew rate; with fewer than 3 samples it is 0 (the mean).
+ * Fitting the drift is what keeps the estimate current when the chosen low-RTT samples are old.
+ */
+function fitAt(set: Sample[], nowMs: number): number {
+  const n = set.length;
+  const meanAt = set.reduce((s, p) => s + p.at, 0) / n;
+  const meanOff = set.reduce((s, p) => s + p.offset, 0) / n;
+  let slope = 0;
+  if (n >= 3) {
+    let num = 0;
+    let den = 0;
+    for (const p of set) {
+      num += (p.at - meanAt) * (p.offset - meanOff);
+      den += (p.at - meanAt) ** 2;
+    }
+    const cap = NET_CONFIG.clockSlewMsPerSec / 1000;
+    if (den > 0) slope = Math.max(-cap, Math.min(cap, num / den));
+  }
+  return meanOff + slope * (nowMs - meanAt);
+}
+
 /**
  * The client's estimate of the server's clock (NR18). Each pong gives one offset sample; the estimate
- * is the median offset of the lowest-RTT third of the last 16, so one delayed pong cannot drag it.
+ * is a least-squares fit of offset and drift over the lowest-RTT half of the last 16, evaluated now, so one delayed pong cannot drag it and old samples do not leave it stale.
  * Ties in RTT go to the newest sample. After the first sample the offset slews at most
  * `NET_CONFIG.clockSlewMsPerSec` (a RATE, times the time since the previous pong, so it tracks a 1 %
  * clock drift at any ping interval) and the tick estimate never jumps — unless it is more than 50 ms
@@ -23,22 +52,22 @@ const SNAP_MS = 50;
  * scheduler's target: a burst of ticks forward, or a pause backward.
  */
 export class ClockSync {
-  private samples: { rtt: number; offset: number }[] = [];
+  private samples: Sample[] = [];
   private offsetMs = Number.NaN;
   private lastPongAt = Number.NaN;
 
   onPong(nowMs: number, pong: TimePong): void {
     const rtt = Math.max(0, nowMs - pong.c);
     const serverMs = pong.t * MS_PER_TICK + pong.p + rtt / 2;
-    this.samples.push({ rtt, offset: serverMs - nowMs });
+    this.samples.push({ rtt, offset: serverMs - nowMs, at: nowMs });
     if (this.samples.length > WINDOW) this.samples.shift();
-    // Lowest RTT first; equal RTTs newest first (index order is arrival order).
+    // Lowest-RTT half; equal RTTs newest first (index order is arrival order).
     const best = this.samples
       .map((s, i) => ({ s, i }))
       .sort((a, b) => a.s.rtt - b.s.rtt || b.i - a.i)
-      .map((e) => e.s).slice(0, Math.max(1, Math.floor(this.samples.length / 3)));
-    const offsets = best.map((s) => s.offset).sort((a, b) => a - b);
-    const target = offsets[Math.floor(offsets.length / 2)]!;
+      .slice(0, Math.max(1, Math.floor(this.samples.length / 2)))
+      .map((e) => e.s);
+    const target = fitAt(best, nowMs);
     if (Number.isNaN(this.offsetMs) || Math.abs(target - this.offsetMs) > SNAP_MS) this.offsetMs = target;
     else {
       const slew = (NET_CONFIG.clockSlewMsPerSec * Math.max(0, nowMs - this.lastPongAt)) / 1000;
