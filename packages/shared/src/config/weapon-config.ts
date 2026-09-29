@@ -319,11 +319,11 @@ export const WEAPON_TABLE = {
    *
    * The pulse count is RANGE-DEPENDENT, and that is a consequence of the cadence rather than an
    * oversight. `resolveInstanceHits` arms a target's clock on the tick it is first covered, and the
-   * beam grows over 6 ticks, so a car standing at the muzzle is hit at relative tick 0 and takes
-   * 4 pulses (0/15/30/45, inside the 51-tick life), while one at the 1200-unit tip is not touched
-   * until tick 6 and its 4th pulse would land at 51 — one tick past expiry. Full connect is 172 up
-   * close and 129 at maximum reach. A single tick more of `lifetimeMs` (1500 -> 1533) would make it
-   * 4 everywhere; not taken, because 2.4 s committed is already the roster's biggest press.
+   * beam grows over 200 ms (12 ticks at 60 Hz), so a car standing at the muzzle is hit at relative
+   * tick 0 and takes 4 pulses (0/30/60/90, inside the 102-tick, 1.7 s life), while one at the
+   * 1200-unit tip is not touched until tick 12 and its 4th pulse would land at 102 — one tick past
+   * expiry. Full connect is 172 up close and 129 at maximum reach. A single tick more of
+   * `lifetimeMs` (1500 -> 1517 at 60 Hz) would make it 4 everywhere; not taken, because 2.4 s committed is already the roster's biggest press.
    */
   lance: {
     id: "lance",

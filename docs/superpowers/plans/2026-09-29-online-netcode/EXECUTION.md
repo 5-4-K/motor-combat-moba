@@ -20,7 +20,7 @@ phase's own acceptance lines.
 |---|---|---|---|---|
 | A — Colyseus 0.18, schema 5, Node 22, monitor gate | [`A-colyseus-upgrade.md`](A-colyseus-upgrade.md) | NR50, NR53 | Landed | `playtest:lan` smoke passed in A2; lockfile on a single schema 5.0.34 |
 | B — netsim harness and today's baseline | [`B-netsim-harness.md`](B-netsim-harness.md) | NR57–NR59 | Landed | Baseline recorded below (legacy client, 60 s, six cars, mean of seeds 1–3) |
-| C — 60 Hz and per-tick snapshots | [`C-sixty-hz.md`](C-sixty-hz.md) | NR11–NR16 | Landed | 60 Hz, one snapshot per tick; handling unchanged in closed form (radius 89.9 u, 90% top speed 1.79/2.21/2.59 s), slip −1.1 to −1.6°; TTK ±0.1 s; planner bench over its gate (see In flight) |
+| C — 60 Hz and per-tick snapshots | [`C-sixty-hz.md`](C-sixty-hz.md) | NR11–NR16 | Landed | 60 Hz, one snapshot per tick; handling unchanged in closed form (radius 89.9 u, 90% top speed 1.79/2.21/2.59 s), slip −1.1 to −1.6°; TTK ±0.1 s; planner bench over its gate and the K=0 corner case open (see In flight) |
 | D — time and inputs | [`D-time-and-inputs.md`](D-time-and-inputs.md) | NR17–NR28, NR54–NR56 | Not started | |
 | E — remotes and prediction | [`E-remotes.md`](E-remotes.md) | NR29–NR34 | Not started | |
 | F — combat under latency | [`F-combat.md`](F-combat.md) | NR35–NR41 | Not started | |
@@ -57,12 +57,25 @@ size moved, measured:
 - **Planner bench (NR16, P33).** Hard's horizon is ms-authored, so it doubles in ticks (K 22 → 44)
   while its replan cadence stays 15 Hz (`recomputeMs` 67 → 2 → 4 ticks). Per plan: best 0.326–0.338
   ms at 30 Hz → 0.400–0.415 ms at 60 Hz (~1.2x, not 2x); gated median 863–1006 → 1069–1368 drive
-  ticks/plan against the gate of 1027, so **`planner.bench.test.ts` now fails its gate** and is left
-  failing — per second, six hard bots cost ~36–37 ms of CPU per simulated second against the
-  30 ms budget (was ~30). Budget not raised and planner not changed; the decision is the user's
+  ticks/plan against the gate of 1027, so **`planner.bench.test.ts` now fails its gate — a KNOWN,
+  MEASURED FAILURE, put to the user**: 0.40 vs 0.33 ms/plan, six hard bots ~36–37 ms of CPU per
+  simulated second against the 30 ms budget (was ~30). Budget not raised and planner not changed
   (P33's own remedy is "K and `planDepth` come down").
-- **Bot-tuner cases.** OFF-AXIS (`controller.test.ts`), P49 and P50 (`tiers.test.ts`) all pass at
-  60 Hz; the two G12 failures in `controller.test.ts` still fail, unchanged.
+- **Bot-tuner cases, all passing at 60 Hz** (read by temporary logging, not committed). OFF-AXIS
+  (`controller.test.ts`): 120 fires, mean offset **0.0414** (bar < 0.2; fires bar > 55). P49 kill
+  (`tiers.test.ts`): killed at tick 399 = **6.65 s** against a cap of 44.7 s. P49 press rate: **7**
+  presses against a bar of 3.59. P50 hit rate: easy 0.40, medium **0.833**, hard **1.00** — no longer
+  inverted. These duels still run LITERAL tick counts (300 / 600 / 2400), which are half their old
+  wall-clock span at 60 Hz; left as-is, a `bot-tuner` question. The two G12 failures in
+  `controller.test.ts` still fail, unchanged.
+- **Easy's K=0 plan (R-P6).** The floor on how far a plan rolls is now wall clock,
+  `BRAIN_CONSTANTS.minRolledHorizonMs` 33 (1 tick at 30 Hz, 2 at 60 Hz). It did NOT restore
+  `planner.test.ts`'s "cornered differs from open field" case, which is left failing: the CORNER's
+  pick is {-1,-1} at both rates and at 1–3 rolled ticks; what flipped is the OPEN-FIELD reference
+  (car facing directly away from the target), which picks {+1,-1} at 30 Hz and {-1,-1} at 60 Hz —
+  a near-mirror-symmetric left/right tie that the step size decides. Open question for the user.
+- **Input-count knobs.** `NET_CONFIG.maxInputsPerTick` 5 -> 10 and `pendingInputCap` 24 -> 48, so
+  they cover the same wall-clock time as at 30 Hz (Phase D deletes both).
 - **Netsim, legacy client at 60 Hz** — see the note under the baseline table below.
 
 **Every playtest probe now measures a 60 Hz sim; run `npm run playtest -- --scope=all`.** Several
@@ -137,23 +150,25 @@ the 30 Hz record.
 
 | Metric | lan | net80 | net150 |
 |---|---|---|---|
-| Server steps per car per tick (max) | 1 (1–1) | 5 (5–5) | 5 (5–5) |
+| Server steps per car per tick (max) | 1 (1–1) | 7 (7–7) | 10 (10–10) |
 | Remote path error p95 (u) | 0.00 | 0.00 | 0.00 |
-| Remote hold frames | 0.018 % (0.007–0.026 %) | 5.72 % (5.63–5.81 %) | 11.07 % (10.74–11.33 %) |
-| Local reconcile correction p95 (u) | 0.01 (0.00–0.02) | 0.70 (0.45–1.03) | 2.56 (2.33–2.83) |
-| Input-to-server delay (ms) | 9.3 (9.3–9.4) | 51.3 (51.3–51.3) | 90.6 (90.4–90.7) |
-| Remote display delay (ms) | 50.5 (50.5–50.6) | 87.3 (86.4–88.3) | 122.2 (121.2–123.6) |
+| Remote hold frames | 0.018 % (0.007–0.026 %) | 5.65 % (5.33–6.11 %) | 10.88 % (10.47–11.48 %) |
+| Local reconcile correction p95 (u) | 0.01 (0.00–0.02) | 0.30 (0.04–0.44) | 0.68 (0.34–1.01) |
+| Input-to-server delay (ms) | 9.3 (9.3–9.4) | 51.3 (51.3–51.4) | 92.0 (91.9–92.2) |
+| Remote display delay (ms) | 50.5 (50.5–50.6) | 87.8 (87.0–88.9) | 121.3 (120.2–122.5) |
+
+Recorded with `maxInputsPerTick` 10 and `pendingInputCap` 48 (doubled with the flip, see In
+flight). Dropped inputs per run: lan 1–2, net80 22–28 (30 Hz: 14–15), net150 82–124 (30 Hz: 77–85)
+— back near the 30 Hz level; with the old caps of 5/24 they had risen to 172–202 and 975–1029, and
+the steps-per-tick maximum rises with the cap (a catch-up burst now drains up to 10 inputs).
 
 Read two rows with care: **reconcile p95 (one sample per reconcile) and hold frames (head-of-line
 stalls, per message) shift with the message rate alone** — three times as many snapshots per second
 means three times as many reconciles and three times as many losses to stall the stream behind — so
-a move in those rows is not by itself a netcode change. Hold frames rose (net80 3.62 → 5.72 %,
-net150 7.09 → 11.07 %) for exactly that reason. Input-to-server and display delay fell with the tick
+a move in those rows is not by itself a netcode change. Hold frames rose (net80 3.62 → 5.65 %,
+net150 7.09 → 10.88 %) for exactly that reason. Input-to-server and display delay fell with the tick
 quantum (lan 21.7 → 9.3 ms and 67.4 → 50.5 ms). Path error fell to float noise: a snapshot every
-tick leaves no chord between patches to cut. Steps per tick at net80 rose 4 → 5 and dropped inputs
-rose (net80 14–15 → 172–202, net150 77–85 → 975–1029 per run): `maxInputsPerTick` (5) and the
-legacy client's catch-up cap are counts of ticks, so their wall-clock headroom halved at 60 Hz —
-Phase D deletes both (NR23).
+tick leaves no chord between patches to cut.
 
 The remote display delay row is the TOTAL delay the harness measures — interpolation delay plus
 snapshot age plus link plus frame — so its LAN target is "no worse than today's" on that total; the

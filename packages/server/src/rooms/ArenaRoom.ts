@@ -154,11 +154,13 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.state.arenaId = this.modeConfig.arenas[0];
 
     scoped(this.modeConfig, () => {
-      // No patch timer (NR12): `tick()` broadcasts at the end of every snapshot tick itself, so a
-      // snapshot is always the state of exactly one tick and carries that tick.
-      this.patchRate = null;
       const hz = getTickRateHz(TICK_RATE_HZ);
       this.setSimulationInterval(() => scoped(this.modeConfig, () => this.tick()), 1000 / hz);
+      // No patch timer (NR12): `tick()` broadcasts at the end of every snapshot tick itself, so a
+      // snapshot is always the state of exactly one tick and carries that tick. Assigned AFTER
+      // `setSimulationInterval`: Colyseus 0.18's `patchRate` setter otherwise arms a stray clock
+      // interval.
+      this.patchRate = null;
 
       const enqueue = withSimulatedLatency<{ sessionId: string; msg: InputMessage }>(
         ({ sessionId, msg }) => {

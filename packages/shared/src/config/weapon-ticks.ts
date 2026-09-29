@@ -8,7 +8,7 @@ import { derived } from "../modes/active.js";
 
 /**
  * Milliseconds to whole ticks, rounded up so an authored duration is never *shorter* than written.
- * At 30 Hz a tick is 33.3ms, so `250` becomes 8 ticks (266ms). That rounding is the documented
+ * At 60 Hz a tick is 16.7ms, so `260` becomes 16 ticks (266.7ms). That rounding is the documented
  * cost of authoring in ms; it happens here, once, and nowhere else.
  */
 export function msToTicks(ms: number): number {

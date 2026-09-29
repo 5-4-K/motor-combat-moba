@@ -922,8 +922,8 @@ Two rules the probes are built on, worth preserving in any edit:
 - **They report, they do not assert.** A probe that throws on the first surprise stops measuring
   every scenario after it. Verdicts are `OK`, `FINDING`, and `KNOWN-BY-DESIGN` — the last for
   behaviour the code documents as intentional but which a player would still report as a bug.
-- **Anything involving contact sweeps the sub-tick phase.** A car covers 10–18 units per tick, so a
-  single placement measures one arbitrary point on the tick grid. Removing a sweep is how a probe
+- **Anything involving contact sweeps the sub-tick phase.** A car covers 3.4–4.7 units per tick at
+  top speed (60 Hz), so a single placement measures one arbitrary point on the tick grid. Removing a sweep is how a probe
   starts reporting whatever that one phase happened to do.
 
 If a change makes a probe's finding obsolete — you fixed the thing it was measuring — update the

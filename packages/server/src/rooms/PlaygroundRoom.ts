@@ -248,13 +248,15 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
       // is what keeps the room from running live ticks between creation and the player's arrival —
       // `onJoin` re-stamps it once the cars are placed, and `countdownSweep` opens the match.
       beginCountdown(this.state);
-      // No patch timer (NR12): `tick()` broadcasts at the end of every snapshot tick itself, so a
-      // snapshot is always the state of exactly one tick and carries that tick.
-      this.patchRate = null;
       this.setSimulationInterval(
         () => scoped(this.modeConfig, () => this.tick()),
         1000 / getTickRateHz(TICK_RATE_HZ),
       );
+      // No patch timer (NR12): `tick()` broadcasts at the end of every snapshot tick itself, so a
+      // snapshot is always the state of exactly one tick and carries that tick. Assigned AFTER
+      // `setSimulationInterval`: Colyseus 0.18's `patchRate` setter otherwise arms a stray clock
+      // interval.
+      this.patchRate = null;
 
       // Straight into the CONTROLLED car's queue (PG9), and with no latency injection: the playground
       // is a local dev tool, and simulated lag would only make a feel test lie.
@@ -468,6 +470,8 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
    */
   private tick(): void {
     this.step();
+    // Paused: broadcast regardless of `isSnapshotTick` — the frozen tick number may never be a
+    // snapshot tick, and the pause flag and paused edits must still reach the client.
     if (this.state.paused || isSnapshotTick(this.state.tick)) this.broadcastPatch();
   }
 

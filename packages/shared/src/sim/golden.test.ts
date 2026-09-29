@@ -222,6 +222,9 @@ describe("golden: stepDrive at the shipped rate, dt 1/60", () => {
     ...GOLDEN_CHASSIS,
     dragPerTick: Math.exp(-1 / 60),
     gripPerTick: Math.exp(-7 / 60),
+    // Stated for dt 1/60 like the two above: GOLDEN_CHASSIS's spin decay RATE is 0 (`spinPerTick: 1`
+    // at dt 1/30), and exp(-0 / 60) is 1 too. No case here spins, so no pinned number reads it.
+    spinPerTick: Math.exp(-0 / 60),
   });
   function drive60(start: SimBody, msg: InputMessage, ticks: number): SimBody {
     let next = start;

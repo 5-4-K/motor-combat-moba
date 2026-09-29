@@ -31,8 +31,8 @@ describe("drainTicks", () => {
   });
 
   it("caps a catch-up burst at what the server will actually simulate", () => {
-    // Ten ticks' worth of stall arrives in one frame; only maxInputsPerTick may be emitted.
-    const out = drainTicks(0, MS_PER_TICK * 10);
+    // Twice the cap's worth of stall arrives in one frame; only maxInputsPerTick may be emitted.
+    const out = drainTicks(0, MS_PER_TICK * NET_CONFIG.maxInputsPerTick * 2);
     expect(out.ticks).toBe(NET_CONFIG.maxInputsPerTick);
   });
 

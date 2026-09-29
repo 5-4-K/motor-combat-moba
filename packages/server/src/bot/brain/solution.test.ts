@@ -2,12 +2,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   TICK_RATE_HZ, TURRET_TICKS, boundsOf, msToTicks, carHullOf, instanceExpired, resolveInstanceHits,
-  spawnInstances, stepInstance, turretPivotOf, weaponDefOf, wrapAngle, type PoseSnapshot,
+  spawnInstances, stepInstance, turretPivotOf, weaponDefOf, weaponTicksOf, weapons, wrapAngle,
+  type PoseSnapshot, type WeaponId,
 } from "@motor-combat-moba/shared";
 import type { BotArenaView, BotCarView, BotSlotView } from "../types.js";
 import {
   AIM_QUADRATURE, constantVelocityPredictor, dangerEvAgainst, proxyDangerAgainst, proxyValue, solve,
-  turretTurnTicksOf, type PosePredictor, type SolverShooter,
+  marchTicksOf, turretTurnTicksOf, type PosePredictor, type SolverShooter,
 } from "./solution.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
@@ -719,5 +720,17 @@ describe("solver determinism (P43)", () => {
     } finally {
       Math.random = original;
     }
+  });
+});
+
+describe("marchTicksOf", () => {
+  it("walks every row at least as long as that row can live, under the active mode", () => {
+    // The typed 120-tick cap this replaced was 2 s at 60 Hz, under thumper's 2900 ms lifetime.
+    for (const id of Object.keys(weapons()) as WeaponId[]) {
+      const t = weaponTicksOf(id);
+      expect(marchTicksOf(id), id).toBeGreaterThan(t.projectileLifetime);
+      expect(marchTicksOf(id), id).toBeGreaterThan(t.flight + t.lifetime);
+    }
+    expect(marchTicksOf("thumper")).toBeGreaterThan(msToTicks(2900));
   });
 });

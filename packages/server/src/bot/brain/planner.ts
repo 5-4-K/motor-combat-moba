@@ -23,7 +23,7 @@ const DEG_PER_RAD = 180 / Math.PI;
  * scene distinguishes two candidates — e.g. every weight zeroed — and USED TO BE guaranteed at
  * `horizonTicks: 0`, when the rollout moved nothing at all and every candidate scored the
  * identical current pose. R-P6 (fix round 1, 2026-09-06) closed that: `plan` now floors the
- * per-segment roll at one tick even when K is 0, so a K=0 plan still moves before it scores and
+ * per-segment roll at `minRolledHorizonTicks` (33 ms) even when K is 0, so a K=0 plan still moves before it scores and
  * the nine candidates are no longer forced to tie. Straight-and-forward leads, so a genuine tie
  * still resolves to "drive on" rather than to whichever corner of the grid an arbitrary
  * enumeration happened to start in.
@@ -99,8 +99,9 @@ export interface PlanArgs {
    */
   shotThreats: readonly { awayHeadingRad: number }[];
   /**
-   * K. 0 is a reflex agent (P29): even then, `plan` floors the per-segment roll at ONE tick
-   * (R-P6, fix round 1, 2026-09-06) rather than zero, so a K=0 plan still moves before it scores
+   * K. 0 is a reflex agent (P29): even then, `plan` floors the per-segment roll at
+   * `minRolledHorizonTicks` — 33 ms, one tick at 30 Hz and two at 60 Hz (R-P6, fix round 1,
+   * 2026-09-06; the 60 Hz flip) — rather than zero, so a K=0 plan still moves before it scores
    * and can still avoid a wall it is driving straight at. It cannot plan an arc — that is what
    * "reflex" means — but it is not degenerate.
    */
@@ -204,7 +205,8 @@ export interface CommitWindow {
  * The `floor(K / depth)` cap is what makes `commit * depth <= K` true rather than merely likely,
  * so a real tail always survives. The one exception is the floor below, which outranks it.
  *
- * R-P6 (fix round 1, 2026-09-06) survives inside the floor: at ONE tick, never zero. Spec P29
+ * R-P6 (fix round 1, 2026-09-06) survives inside the floor: at `minRolledHorizonTicks` (33 ms —
+ * one tick at 30 Hz, two at 60 Hz; it was a literal ONE tick until the 60 Hz flip), never zero. Spec P29
  * promises a K=0 "reflex agent" still avoids a wall it is about to hit; a window of 0 rolls
  * nothing at all, so every one of the nine candidates would end at the identical current pose,
  * score identically, and let the ALL_ACTIONS tie-break silently decide easy's action on every
@@ -219,7 +221,7 @@ export interface CommitWindow {
  * long, and nothing else in `PlanResult` reports it.
  */
 export function commitWindowOf(horizonTicks: number, depth: 1 | 2): CommitWindow {
-  const K = Math.max(1, Math.floor(horizonTicks));
+  const K = Math.max(resolveBrainConstants().minRolledHorizonTicks, Math.floor(horizonTicks));
   const commit = Math.max(
     1,
     Math.min(

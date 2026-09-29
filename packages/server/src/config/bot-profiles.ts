@@ -712,6 +712,15 @@ export const BRAIN_CONSTANTS = Object.freeze({
    */
   commitWindowFraction: 0.52,
   /**
+   * The shortest horizon a plan ever rolls (R-P6's floor), in wall-clock ms: a K=0 plan still rolls
+   * this far out so its nine candidates end at different poses. It was "one tick" until the 60 Hz
+   * flip (NR15), which halved what one tick means — at dt 1/60 a single rolled tick no longer
+   * separated a car cornered against two walls from one in open field. 33 ms resolves to 1 tick at
+   * 30 Hz (the old floor exactly) and 2 at 60 Hz. `resolveBrainConstants()` turns it into
+   * `minRolledHorizonTicks`.
+   */
+  minRolledHorizonMs: 33,
+  /**
    * How much further ahead a bot looks for a spike strip than for a bare wall (Task 12, AS28) —
    * `spikesAhead`'s lookahead is `wallLookaheadUnits * this`, so a spiked wall registers as "pinned"
    * before a plain one does.
@@ -839,8 +848,9 @@ export function resolveBotProfile(authored: AuthoredBotProfile): BotProfile {
 }
 
 /** `BRAIN_CONSTANTS` with the authored ms horizon replaced by its tick count. */
-export type ResolvedBrainConstants = Omit<typeof BRAIN_CONSTANTS, "predictionHorizonMs"> & {
+export type ResolvedBrainConstants = Omit<typeof BRAIN_CONSTANTS, "predictionHorizonMs" | "minRolledHorizonMs"> & {
   readonly predictionHorizonTicks: number;
+  readonly minRolledHorizonTicks: number;
 };
 let resolvedBrain: ResolvedBrainConstants | undefined;
 
@@ -848,8 +858,12 @@ let resolvedBrain: ResolvedBrainConstants | undefined;
 export function resolveBrainConstants(): ResolvedBrainConstants {
   // Memoised: the planner reads this per candidate, and `TICK_RATE_HZ` is a build constant.
   resolvedBrain ??= (() => {
-    const { predictionHorizonMs, ...rest } = BRAIN_CONSTANTS;
-    return Object.freeze({ ...rest, predictionHorizonTicks: toTicks(predictionHorizonMs) });
+    const { predictionHorizonMs, minRolledHorizonMs, ...rest } = BRAIN_CONSTANTS;
+    return Object.freeze({
+      ...rest,
+      predictionHorizonTicks: toTicks(predictionHorizonMs),
+      minRolledHorizonTicks: Math.max(1, toTicks(minRolledHorizonMs)),
+    });
   })();
   return resolvedBrain;
 }

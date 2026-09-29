@@ -4,7 +4,7 @@ import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba
 import {
   ARENA_01, boundsOf, DRIVE_CONFIG, slotsOf, weaponDefOf, type SimBody,
 } from "@motor-combat-moba/shared";
-import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
+import { RESOLVED_BOT_PROFILES, resolveBrainConstants } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSelfView, BotSlotView } from "../types.js";
 import type { PosePredictor } from "./solution.js";
 import {
@@ -169,21 +169,15 @@ describe("plan", () => {
     // overrun precisely so a corner dominates an edge, so the corner is the scene that actually
     // states "jammed against a wall" — and it is the pose the comment above always described.
     //
-    // BOTH jammed scenes since the 60 Hz flip (NR15): the one tick a K=0 plan rolls is half as long
-    // there, and which of the two jammed poses comes out differing from the open field flipped with
-    // it — at dt 1/30 the corner differs and the edge ties, at dt 1/60 the edge differs and the
-    // corner ties (all three read {-1,-1} except the one that differs). The claim is "moving the
-    // scene changes the answer", so the assertion is that SOME jammed scene does, and that none of
-    // them is the bare tie-break.
+    // The floor is 33 ms of wall clock (`minRolledHorizonTicks`) since the 60 Hz flip: a literal ONE
+    // tick halved in wall-clock terms at dt 1/60 and the corner then tied the open field, so easy
+    // (K=0) acted in a corner exactly as in open field. Two ticks at 60 Hz restores the distinction.
     const openField = plan({ ...base, self: selfAt(300, 360, Math.PI), horizonTicks: 0 });
-    const jammed = [
-      plan({ ...base, self: selfAt(30, 30, Math.PI), horizonTicks: 0 }),
-      plan({ ...base, self: selfAt(30, 360, Math.PI), horizonTicks: 0 }),
-    ];
-    expect(jammed.some((j) => JSON.stringify(j.action) !== JSON.stringify(openField.action))).toBe(true);
+    const cornered = plan({ ...base, self: selfAt(30, 30, Math.PI), horizonTicks: 0 });
+    expect(cornered.action).not.toEqual(openField.action);
     // And neither is the bare tie-break, which is what a rolled-nothing K=0 would hand back for both.
     expect(openField.action).not.toEqual(ALL_ACTIONS[0]);
-    for (const j of jammed) expect(j.action).not.toEqual(ALL_ACTIONS[0]);
+    expect(cornered.action).not.toEqual(ALL_ACTIONS[0]);
   });
 
   it("does not steer into a wall it is about to hit, even at horizon 0 (P29, R-P6)", () => {
@@ -511,11 +505,13 @@ describe("plan", () => {
       // checked at whatever this build's profiles resolve to, which at 60 Hz is 44 / 16 / 0.
       expect(commitWindowOf(22, 1)).toEqual({ commit: 12, tail: 10 });
       expect(commitWindowOf(8, 1)).toEqual({ commit: 5, tail: 3 });
-      expect(commitWindowOf(0, 1)).toEqual({ commit: 1, tail: 0 });
+      // K=0 rolls the wall-clock floor (33 ms): 1 tick at 30 Hz, 2 at 60 Hz, all of it committed.
+      const floor = resolveBrainConstants().minRolledHorizonTicks;
+      expect(commitWindowOf(0, 1)).toEqual({ commit: floor, tail: 0 });
       for (const tier of ["hard", "medium", "easy"] as const) {
         const k = RESOLVED_BOT_PROFILES[tier].planHorizonTicks;
         const { commit, tail } = commitWindowOf(k, 1);
-        expect(commit + tail, tier).toBe(Math.max(k, 1));
+        expect(commit + tail, tier).toBe(Math.max(k, floor));
       }
     });
 

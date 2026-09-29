@@ -1249,7 +1249,7 @@ CB3). Meaningful only on a layout that maps onto itself under that rotation, whi
 
 | Knob | Value |
 |---|---|
-| `pendingInputCap` | 24 |
+| `pendingInputCap` | 48 (doubled from 24 with the 60 Hz flip; Phase D deletes it) |
 | `reconcileSnapPos` | 24 |
 | `reconcileSnapAngle` | 0.6 |
 | `reconcileEaseRate` | 0.25 |

@@ -283,9 +283,9 @@ describe("freshImpacts", () => {
       // RE-PINNED at the 60 Hz flip (NR15): the bound was "under half" (< 20 of 40) at dt 1/30, and
       // dt 1/60 measures 23 of 40 — a smaller step penetrates less per tick, so fewer phases end
       // the tick overlapped and zeroed. Still losing over two rams in five, and still strictly
-      // worse than the tick-entry case below, which sparks on all forty; the bound is now "loses at
-      // least a quarter", which fails the day this stops being a real defect.
-      expect(sparked).toBeLessThanOrEqual(phases().length * 0.75);
+      // worse than the tick-entry case below, which sparks on all forty. Bounded just above that
+      // reading (< 26 of 40, i.e. at least 35% lost), so a real drift in either direction fails.
+      expect(sparked).toBeLessThan(phases().length * 0.65);
     });
 
     it("sparks on every sub-tick phase when given the tick-entry velocity, as `RamCar` requires", () => {

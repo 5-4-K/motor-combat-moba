@@ -161,7 +161,7 @@ function steerSenseOf(forward: number): number {
  *
  * **A REAL DECAY since the Unity ram port's stage 3.** `ram().reelingSpinDecayRate` is 2.0/s
  * and `chassis.spinPerTick` (`resolveChassisDrive`, car-config.ts) resolves to `reelingSpinPerTick()`
- * — `exp(-2/30)` ≈ 0.9355 at 30 Hz — so a rammed car's spin winds down instead of running forever.
+ * — `exp(-2/60)` ≈ 0.9672 at 60 Hz — so a rammed car's spin winds down instead of running forever.
  * It was the identity through stages 1-2, while the knob was still a placeholder 1; that is history,
  * not the current behaviour. The decay only reaches a car whose status grants `spinFree` (`reeling`
  * is the one row that does) or one in a HOLD: under U16 ordinary steering SETS `angVel` every tick,
@@ -206,7 +206,7 @@ export function dashTranslation(body: SimBody, dt: number): { x: number; y: numb
  *
  * DERIVED from distance rather than hardcoded (C3), so the value stays correct if
  * `thunderclap.speed`, `TICK_RATE_HZ` or the hull dimensions are ever retuned — including by a
- * later rescale of the dash itself. At 1600 u/s and 30Hz that is 53.3u against a 16u bound: 4.
+ * later rescale of the dash itself. At 1600 u/s and 60 Hz that is 26.7u against a 16u bound: 2.
  */
 export function dashSubstepCount(body: SimBody, dt: number): number {
   const travel = Math.abs(body.maneuverSpeed) * dt;

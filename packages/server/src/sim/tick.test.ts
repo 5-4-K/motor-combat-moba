@@ -734,7 +734,7 @@ describe("serverTick fire mask reporting", () => {
     // and it is drained and acked but never simulated.
     const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
     const queue: InputMessage[] = [
-      ...ups(1, 2, 3, 4, 5).slice(0, NET_CONFIG.maxInputsPerTick),
+      ...ups(...Array.from({ length: NET_CONFIG.maxInputsPerTick }, (_, i) => i + 1)),
       fires(NET_CONFIG.maxInputsPerTick + 1),
     ];
     const masks = tickWith(player, queue);

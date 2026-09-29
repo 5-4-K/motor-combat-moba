@@ -234,13 +234,15 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
     // above — so it runs as one `scoped` stretch, the same shape `ArenaRoom.onCreate` uses (MC15).
     scoped(this.modeConfig, () => {
       this.setState(newPracticeState());
-      // No patch timer (NR12): `tick()` broadcasts at the end of every snapshot tick itself, so a
-      // snapshot is always the state of exactly one tick and carries that tick.
-      this.patchRate = null;
       this.setSimulationInterval(
         () => scoped(this.modeConfig, () => this.tick()),
         1000 / getTickRateHz(TICK_RATE_HZ),
       );
+      // No patch timer (NR12): `tick()` broadcasts at the end of every snapshot tick itself, so a
+      // snapshot is always the state of exactly one tick and carries that tick. Assigned AFTER
+      // `setSimulationInterval`: Colyseus 0.18's `patchRate` setter otherwise arms a stray clock
+      // interval.
+      this.patchRate = null;
 
       // Mirrors `ArenaRoom`'s injector (PR11). The playground deliberately skips it — simulated lag
       // makes a feel test lie — but practice takes the opposite decision for the reason it exists:
@@ -410,6 +412,8 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
    */
   private tick(): void {
     if (this.step() === "closing") return;
+    // Paused: broadcast regardless of `isSnapshotTick` — the frozen tick number may never be a
+    // snapshot tick, and the pause flag and paused edits must still reach the client.
     if (this.state.paused || isSnapshotTick(this.state.tick)) this.broadcastPatch();
   }
 

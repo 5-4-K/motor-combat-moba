@@ -16,7 +16,8 @@ export const PRACTICE_CONFIG = {
    * Measured 2026-09-03 (spec Risk 2), not just reasoned: N=1/3/6/12 concurrent rooms all held mean
    * sim-tick interval within ~0.1 ms of the 33.33 ms target, and even N=12 stayed light on CPU in a
    * containerized dev sandbox — so 6 is a safety rail with real headroom below it, not a number
-   * pushed up to chase capacity. Left at 6 on purpose; raise it only with a fresh measurement on the
+   * pushed up to chase capacity. That measurement was at 30 Hz; the headroom at 60 Hz (a 16.67 ms
+   * target, twice the ticks per second) is UNMEASURED. Left at 6 on purpose; raise it only with a fresh measurement on the
    * actual host, since a container's CPU numbers do not carry over to someone's LAN PC.
    */
   maxConcurrentRooms: 6,

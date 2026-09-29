@@ -470,7 +470,8 @@ function marchOne(start: WeaponInstance, args: SolveArgs, heading: number): numb
   let damage = 0;
   let lastHitTick = -Infinity;
 
-  for (let ahead = 1; ahead <= MAX_MARCH_TICKS; ahead++) {
+  const marchTicks = marchTicksOf(start.weaponId);
+  for (let ahead = 1; ahead <= marchTicks; ahead++) {
     const now = tick + ahead;
     instance = stepInstance(instance, {
       dt, tick: now,
@@ -508,8 +509,21 @@ function marchOne(start: WeaponInstance, args: SolveArgs, heading: number): numb
   return damage;
 }
 
-/** No shot on this roster stays alive longer than this; the loop must terminate regardless. */
-const MAX_MARCH_TICKS = 120;
+/**
+ * How many ticks `marchOne` walks one `weaponId`'s instance: its own longest clock — a beam's
+ * extension plus linger, a projectile's flight, or a bouncing shot's `projectileLifetime` — plus a
+ * little headroom, resolved from the ACTIVE mode's `weaponTicksOf` at call time. It was a typed
+ * `MAX_MARCH_TICKS = 120` ("no shot stays alive longer than this"), which was 4 s at 30 Hz but only
+ * 2 s at 60 Hz — shorter than thumper's 2900 ms lifetime, so the march stopped walking a thumper
+ * shot 0.9 s early and ignored its late bounces. The loop still terminates: every clock is finite.
+ */
+export function marchTicksOf(weaponId: WeaponId): number {
+  const t = weaponTicksOf(weaponId);
+  return Math.max(t.flight + t.lifetime, t.projectileLifetime) + MARCH_HEADROOM_TICKS;
+}
+
+/** Slack past the longest clock, so an instance that expires on its last tick is still walked. */
+const MARCH_HEADROOM_TICKS = 2;
 
 /**
  * A shell's detonation credited on natural expiry without a direct hit — see the R3(b) note on

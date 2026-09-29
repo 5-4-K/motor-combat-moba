@@ -10,7 +10,8 @@ export const NET_CONFIG = {
    * per-tick cap, and a cap of 1 would strand honest clients after every network stall. Raising this
    * buys stall headroom and raises the flood ceiling by the same factor.
    */
-  maxInputsPerTick: 5,
+  // Doubled with the 60 Hz flip (5 -> 10) to keep the same wall-clock coverage; Phase D deletes this.
+  maxInputsPerTick: 10,
   /**
    * How long a player's input queue must stay empty before the server concludes their CLIENT has
    * stopped stepping, and starts integrating their car without them (`serverTick`'s silent-coast
@@ -24,7 +25,7 @@ export const NET_CONFIG = {
    * once the client has stopped producing inputs at all is an extra server step unobservable to it —
    * and "has it stopped" is a question about elapsed silence, not about `vx`/`vy`/`angVel`.
    *
-   * An honest client sends one input per tick (33 ms at 30 Hz), so this is roughly eight missed
+   * An honest client sends one input per tick (16.7 ms at 60 Hz), so this is roughly fifteen missed
    * ticks — far beyond the reordering and jitter `withSimulatedLatency` produces at the 80–130 ms
    * RTTs this project targets, and short enough that a rammed player who really has gone away is
    * not an immovable wall for long. Raising it makes a disconnected victim freeze for longer;
@@ -32,7 +33,9 @@ export const NET_CONFIG = {
    * reconciliation then has to ease or snap away.
    */
   silentCoastGraceMs: 250,
-  pendingInputCap: 24,
+  // Doubled with the 60 Hz flip (24 -> 48) to keep the same wall-clock coverage (800 ms of inputs);
+  // Phase D deletes this.
+  pendingInputCap: 48,
   reconcileSnapPos: 24,
   reconcileSnapAngle: 0.6,
   reconcileEaseRate: 0.25,
