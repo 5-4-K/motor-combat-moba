@@ -12,9 +12,18 @@ describe("PracticeState", () => {
   });
 
   it("adds exactly one field over ArenaState (PR6)", () => {
-    const added = Object.keys(new PracticeState()).filter(
-      (key) => !Object.keys(new ArenaState()).includes(key),
-    );
+    // Schema 5 keeps synced fields as prototype accessors, not own keys, so read the declared
+    // field names from the class's own metadata rather than from an instance.
+    const fieldsOf = (ctor: object): string[] => {
+      const meta = (ctor as Record<symbol, Record<string, { name: string }> | undefined>)[
+        Symbol.metadata
+      ];
+      const names: string[] = [];
+      for (const key in meta) if (/^\d+$/.test(key)) names.push(meta[key]!.name);
+      return names;
+    };
+    const base = fieldsOf(ArenaState);
+    const added = fieldsOf(PracticeState).filter((name) => !base.includes(name));
     expect(added).toEqual(["paused"]);
   });
 });

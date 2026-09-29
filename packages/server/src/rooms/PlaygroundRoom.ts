@@ -145,7 +145,7 @@ export function loadoutOrChassisChanged(
  * deathmatch respawn machinery forever. The phase is written by `countdown.ts` alone — an opening
  * `COUNTDOWN` that `countdownSweep` turns into the `MATCH` the room then stays in for its life.
  */
-export class PlaygroundRoom extends Room<PlaygroundState> {
+export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
   maxClients = 1;
   private inputQueues = new Map<string, InputMessage[]>();
   private prevFireMasks = new Map<string, number>();

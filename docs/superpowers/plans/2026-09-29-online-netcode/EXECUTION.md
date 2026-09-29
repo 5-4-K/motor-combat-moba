@@ -35,6 +35,7 @@ with sdd"). The six decisions listed at the pause were accepted as written:
 - Bot timing authored in ms; `BOT_BRAIN_VERSION` 6.3.0 (C1).
 - 60 Hz handling drift measured and reported in C3.
 - D4 is one atomic commit.
+- Baseline before A1: shared 1298 passed (6 skipped), server 833 passed / 2 failed (G12), client 1368 passed (5 skipped).
 - All work lands directly on `development/main`.
 
 Known gap until Phase D's `PROTOCOL_VERSION`: a client built on schema 2 joining a schema-5 server

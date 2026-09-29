@@ -92,7 +92,7 @@ import { ROOM_FULL_ERROR, shouldRejectSecondArena } from "./singleton-arena.js";
 import { canSendChat, formatClockTime, pushChatMessage } from "./chat.js";
 import { scoped } from "./mode-scope.js";
 
-export class ArenaRoom extends Room<ArenaState> {
+export class ArenaRoom extends Room<{ state: ArenaState }> {
   maxClients = MAX_PLAYERS;
   private inputQueues = new Map<string, InputMessage[]>();
   /**

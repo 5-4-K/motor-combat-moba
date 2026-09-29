@@ -117,7 +117,7 @@ export function newPracticeState(): PracticeState {
  * `practice-room.test.ts` reads this source with comments stripped, so naming `installMode` right
  * here cannot fail that test.
  */
-export class PracticeRoom extends Room<PracticeState> {
+export class PracticeRoom extends Room<{ state: PracticeState }> {
   maxClients = 1;
 
   private readonly inputQueues = new Map<string, InputMessage[]>();
