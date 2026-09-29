@@ -1,3 +1,4 @@
+import { TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
@@ -214,7 +215,7 @@ describe("plan", () => {
     // predictor just below, which advances y by 400 u/s and holds x.
     const crossingTarget: BotCarView = { ...target, angle: Math.PI / 2, vx: 0, vy: 400 };
     const crossing: PosePredictor = (ticksAhead) => ({
-      x: 700, y: 360 + (400 * ticksAhead) / 30, angle: Math.PI / 2,
+      x: 700, y: 360 + (400 * ticksAhead) / TICK_RATE_HZ, angle: Math.PI / 2,
     });
     const pepperboxOnly: BotSelfView = {
       ...selfAt(300, 360, 0), slots: [slotsFor("bullseye")[1]!],

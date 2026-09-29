@@ -1075,7 +1075,7 @@ describe("startManeuver", () => {
     expect(p.maneuver).toBe(ManeuverKind.DASH);
     expect(p.maneuverAngle).toBeCloseTo(0);
     expect(p.maneuverSpeed).toBe(1600);
-    expect(p.maneuverTicksLeft).toBe(Math.ceil((400 / 1600) * 30)); // 8 ticks
+    expect(p.maneuverTicksLeft).toBe(Math.ceil((400 / 1600) * TICK_RATE_HZ)); // 0.25 s of ticks
     expect(p.maneuverWeaponId).toBe(dashDef.id);
     expect(p.maneuverPressId).toBe("a#0#1"); // B8a: the press that started it is named
   });
@@ -1442,7 +1442,7 @@ describe("real-row integration (2026-09-01 roster)", () => {
     const out = find(result, "a");
     expect(out.maneuver).toBe(ManeuverKind.DASH);
     expect(out.maneuverSpeed).toBe(1600);
-    expect(out.maneuverTicksLeft).toBe(8); // ceil(range 400 / speed 1600 * 30)
+    expect(out.maneuverTicksLeft).toBe(Math.ceil((400 / 1600) * TICK_RATE_HZ)); // ceil(range 400 / speed 1600 * TICK_RATE_HZ)
     expect(out.maneuverWeaponId).toBe("thunderclap");
     expect(out.fireState.slots[2]!.stocks).toBe(0); // the press spent its stock
     expect(out.maneuverAngle).toBeCloseTo(shooter.angle, 10); // the heading, not the car off the nose

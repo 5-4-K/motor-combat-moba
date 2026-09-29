@@ -5,7 +5,7 @@ import type { ChassisDrive } from "../../config/car-config.js";
 import { STATUS_LIMITS, STATUS_TABLE } from "../../config/status-config.js";
 import type { CarId } from "../../config/types.js";
 import { scaleTicks, weaponTicksOf } from "../../config/weapon-ticks.js";
-import { MS_PER_TICK } from "../../constants.js";
+import { MS_PER_TICK, TICK_RATE_HZ } from "../../constants.js";
 import type { InputMessage } from "../../net/input.js";
 import { applyHeal, scaleDamage } from "../damage.js";
 import { stepDrive } from "../drive.js";
@@ -71,8 +71,8 @@ const GOLDEN_CHASSIS: ChassisDrive = Object.freeze({
   brakeDecel: 1600,
   turnRate: 4.2,
   dragRate: DRAG_RATE,
-  dragPerTick: Math.exp(-DRAG_RATE / 30),
-  gripPerTick: Math.exp(-3 / 30),
+  dragPerTick: Math.exp(-DRAG_RATE / TICK_RATE_HZ),
+  gripPerTick: Math.exp(-3 / TICK_RATE_HZ),
   spinPerTick: 1,
 });
 

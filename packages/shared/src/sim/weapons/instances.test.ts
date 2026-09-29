@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { installMode } from "../../modes/active.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../../modes/registry.js";
-import { MS_PER_TICK } from "../../constants.js";
+import { MS_PER_TICK, TICK_RATE_HZ } from "../../constants.js";
 import { DRIVE_CONFIG } from "../../config/drive-config.js";
 import { TURRET_CONFIG } from "../../config/turret-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
@@ -383,7 +383,7 @@ describe("multi-muzzle", () => {
     const stepped = stepInstance(
       instances[0]!,
       {
-        dt: 1 / 30,
+        dt: MS_PER_TICK / 1000,
         tick: 2,
         obstacles: [],
         bounds: { width: 4000, height: 4000 },
@@ -407,7 +407,7 @@ describe("multi-muzzle", () => {
 // acquired — it does not reflect how a `predator` shot actually gets a target in a real tick.
 const rocket = WEAPON_TABLE.predator;
 const homingCtx = (tick: number, target: { x: number; y: number } | null) => ({
-  dt: 1 / 30, tick, obstacles: [], bounds: { width: 4000, height: 4000 },
+  dt: MS_PER_TICK / 1000, tick, obstacles: [], bounds: { width: 4000, height: 4000 },
   ownerPose: null, homingTarget: target,
 });
 const homingOwner = { sessionId: "a", team: 0 as const, carId: "mirage", x: 0, y: 0, angle: 0 };
@@ -419,14 +419,14 @@ describe("homing", () => {
     const shot = instances[0]!;
     expect(shot.homingTargetId).toBe("victim");
     const stepped = stepInstance(shot, homingCtx(11, { x: 500, y: 500 }), rocket); // 45 deg off
-    const maxTurn = (300 * Math.PI / 180) / 30;
+    const maxTurn = (300 * Math.PI / 180) / TICK_RATE_HZ;
     expect(stepped.angle).toBeCloseTo(maxTurn); // clamped, not snapped to 45 deg
   });
 
   it("flies straight after the guidance window", () => {
     const { instances } = spawnInstances(homingOrder, homingOwner, 10, 0, 1, "victim", rocket);
     const until = instances[0]!.homingUntilTick;
-    expect(until).toBe(10 + 60); // msToTicks(2000) at 30 Hz
+    expect(until).toBe(10 + 2 * TICK_RATE_HZ); // msToTicks(2000)
     const past = stepInstance({ ...instances[0]!, x: 100 }, homingCtx(until + 1, { x: 500, y: 500 }), rocket);
     expect(past.angle).toBe(0);
   });
@@ -438,7 +438,7 @@ describe("homing", () => {
     // the fix a proximity row needs: it also spawns with no target, but must still gain a window to
     // use once it later acquires one). It just never matters here, because `stepInstance`'s gate
     // ALSO requires a non-empty `homingTargetId`, which a bare lock-mode shot never gets.
-    expect(instances[0]!.homingUntilTick).toBe(10 + 60); // msToTicks(2000) at 30 Hz, same as spawned-with-a-lock
+    expect(instances[0]!.homingUntilTick).toBe(10 + 2 * TICK_RATE_HZ); // msToTicks(2000), same as spawned-with-a-lock
     const stepped = stepInstance(instances[0]!, homingCtx(11, null), rocket);
     expect(stepped.angle).toBe(0);
   });

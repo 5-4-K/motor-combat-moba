@@ -1,3 +1,4 @@
+import { TICK_RATE_HZ } from "../../constants.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installMode } from "../../modes/active.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../../modes/registry.js";
@@ -27,7 +28,7 @@ afterEach(() => {
 });
 
 const BOUNDS = { width: 2000, height: 1200 };
-const DT = 1 / 30;
+const DT = 1 / TICK_RATE_HZ;
 
 const snapshot = (
   entries: { sessionId: string; team?: 0 | 1; x: number; y: number }[],

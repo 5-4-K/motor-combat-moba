@@ -1,3 +1,4 @@
+import { TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { describe, expect, it } from "vitest";
 // Mode scope: shared's `withDefaultMode` lives in its test-setup and is not exported from the
 // package, so this uses the public `withMode` over the default bundle — the same scope it wraps.
@@ -22,10 +23,11 @@ describe("captureChip (CQ55)", () => {
 
 describe("conquerClockLabel (CQ54)", () => {
   it("counts down m:ss and switches to OVERTIME", () => {
-    expect(conquerClockLabel(0, 5400, false, 30, 5400)).toBe("3:00");
-    expect(conquerClockLabel(5400 - 30 * 134, 5400, false, 30, 5400)).toBe("2:14");
-    expect(conquerClockLabel(5400, 5400, false, 30, 5400)).toBe("0:00");
-    expect(conquerClockLabel(9999, 5400, true, 30, 5400)).toBe("OVERTIME");
+    const TOTAL = 180 * TICK_RATE_HZ; // three minutes
+    expect(conquerClockLabel(0, TOTAL, false, TICK_RATE_HZ, TOTAL)).toBe("3:00");
+    expect(conquerClockLabel(TOTAL - TICK_RATE_HZ * 134, TOTAL, false, TICK_RATE_HZ, TOTAL)).toBe("2:14");
+    expect(conquerClockLabel(TOTAL, TOTAL, false, TICK_RATE_HZ, TOTAL)).toBe("0:00");
+    expect(conquerClockLabel(TOTAL + 4599, TOTAL, true, TICK_RATE_HZ, TOTAL)).toBe("OVERTIME");
   });
 
   it("shows the full match length during a countdown, before matchEndsTick is stamped", () => {

@@ -1,3 +1,4 @@
+import { TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
@@ -101,7 +102,7 @@ function runTick(driveIn: "carried-in" | "post-resolution") {
   ]);
 
   // Step 1: the REAL `serverTick` — drive, then `resolveWorld`'s contact pass.
-  const { approachVelocities } = serverTick(state, queues, 1 / 30, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
+  const { approachVelocities } = serverTick(state, queues, 1 / TICK_RATE_HZ, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
   const afterResolveWorld = attacker.vx;
 
   // Step 2: the REAL `contactTick`, on the same tick.

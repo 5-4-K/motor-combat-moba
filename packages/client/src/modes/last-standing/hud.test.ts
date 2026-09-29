@@ -1,3 +1,4 @@
+import { TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ArenaState } from "@motor-combat-moba/shared";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
@@ -31,7 +32,7 @@ describe("lastStandingHud", () => {
   });
 
   it("would still format a clock if matchEndsTick were ever set", () => {
-    expect(lastStandingHud(card).clockLabel(state(90 * 30), 0)).toBe("1:30");
+    expect(lastStandingHud(card).clockLabel(state(90 * TICK_RATE_HZ), 0)).toBe("1:30");
   });
 
   it("carries no kills column", () => {

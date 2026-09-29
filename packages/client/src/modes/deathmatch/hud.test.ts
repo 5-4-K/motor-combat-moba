@@ -1,3 +1,4 @@
+import { TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ArenaState } from "@motor-combat-moba/shared";
 import {
@@ -31,7 +32,7 @@ describe("DEATHMATCH_HUD", () => {
   });
 
   it("counts down the match clock", () => {
-    expect(DEATHMATCH_HUD.clockLabel(state(90 * 30), 0)).toBe("1:30");
+    expect(DEATHMATCH_HUD.clockLabel(state(90 * TICK_RATE_HZ), 0)).toBe("1:30");
   });
 
   it("is empty with no matchEndsTick", () => {

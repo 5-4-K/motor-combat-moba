@@ -1,3 +1,4 @@
+import { TICK_RATE_HZ } from "../constants.js";
 import { describe, expect, it } from "vitest";
 import { GameMode } from "../constants.js";
 import type { InputMessage } from "../net/input.js";
@@ -34,7 +35,7 @@ const FAST: ModeConfig = assembleModeConfig(GameMode.FFA_DEATHMATCH, {
 });
 
 const CAR_ID = "mirage";
-const DT = 1 / 30;
+const DT = 1 / TICK_RATE_HZ;
 const TICKS = 30;
 
 const THROTTLE_INPUT: InputMessage = { seq: 0, steer: 0, throttle: 1, fireSlots: 0 };

@@ -1,3 +1,4 @@
+import { TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
@@ -223,8 +224,8 @@ const target: BotCarView = {
 
 /** A moving target, so `interceptTicks` actually converges a lead instead of short-circuiting. */
 const targetAt: PosePredictor = (ticksAhead) => ({
-  x: target.x + (target.vx * ticksAhead) / 30,
-  y: target.y + (target.vy * ticksAhead) / 30,
+  x: target.x + (target.vx * ticksAhead) / TICK_RATE_HZ,
+  y: target.y + (target.vy * ticksAhead) / TICK_RATE_HZ,
   angle: target.angle,
 });
 

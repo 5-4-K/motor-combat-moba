@@ -1,3 +1,4 @@
+import { TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ArenaState } from "@motor-combat-moba/shared";
@@ -63,7 +64,7 @@ describe("CONQUER_HUD lobby card (CQ41, CQ58)", () => {
 
 describe("CONQUER_HUD.clockLabel", () => {
   it("is always empty — the clock lives in the gutter (CQ56)", () => {
-    expect(CONQUER_HUD.clockLabel(state(90 * 30), 0)).toBe("");
+    expect(CONQUER_HUD.clockLabel(state(90 * TICK_RATE_HZ), 0)).toBe("");
     expect(CONQUER_HUD.clockLabel(state(0), 0)).toBe("");
   });
 });

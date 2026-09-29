@@ -1,3 +1,4 @@
+import { TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
@@ -153,7 +154,7 @@ describe("hunt cues (G12, G13)", () => {
     const moving = car({ x: 300, y: 100, angle: 0, vx: 300, vy: 0 });
     state = perceive(state, view({ tick: 0, others: [moving] }), profile);
     const known = [...state.cars.values()][0]!;
-    const pose = predictedPose(known, 30); // 1 second later at 30 Hz
+    const pose = predictedPose(known, TICK_RATE_HZ); // 1 second later
     expect(pose.x).toBeCloseTo(300 + 300, 5);
     expect(pose.y).toBeCloseTo(100, 5);
   });
@@ -219,8 +220,8 @@ describe("observedAngVelOf", () => {
     let state = newPerception();
     state = perceive(state, view({ tick: 0, others: [car({ x: 100, y: 100, angle: 0 })] }), RESOLVED_BOT_PROFILES.hard);
     state = perceive(state, view({ tick: 1, others: [car({ x: 100, y: 100, angle: 0.2 })] }), RESOLVED_BOT_PROFILES.hard);
-    // 0.2 rad in one tick at 30 Hz == 6 rad/s.
-    expect(observedAngVelOf(state, "them")).toBeCloseTo(6, 3);
+    // 0.2 rad in one tick == 0.2 * TICK_RATE_HZ rad/s.
+    expect(observedAngVelOf(state, "them")).toBeCloseTo(0.2 * TICK_RATE_HZ, 3);
   });
 
   it("takes the short way round the seam rather than reading a near-full turn", () => {
@@ -255,8 +256,8 @@ describe("readinessOf", () => {
   it("recovers to loaded once the cooldown has elapsed", () => {
     const state = newPerception();
     state.firedSeenTick.set("them:predator", 100);
-    // predator: 1000 ms == 30 ticks at 30 Hz.
-    expect(readinessOf(state, "them", "predator", 131, RESOLVED_BOT_PROFILES.hard)).toBe(1);
+    // predator: 1000 ms == one second of ticks.
+    expect(readinessOf(state, "them", "predator", 101 + TICK_RATE_HZ, RESOLVED_BOT_PROFILES.hard)).toBe(1);
   });
 
   it("forgets a sighting older than memoryTicks, so a casual loses track", () => {

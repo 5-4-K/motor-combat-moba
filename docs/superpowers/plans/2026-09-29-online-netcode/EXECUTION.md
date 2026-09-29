@@ -28,7 +28,100 @@ phase's own acceptance lines.
 
 ## In flight
 
-**Phase C, Task 1 (C1) is next.** Phase B landed 2026-09-29: the netsim harness
+**C2 landed; Task 3 (C3) is next.** C3 worklist (failures at 60 Hz after C2), probed by temporarily
+setting `TICK_RATE_HZ = 60` (reverted, not committed): shared 37 failed, server 26 failed (includes
+the 2 G12 and possibly the P33 timing bench), client 7 failed, scripts 4 failed (manual-page stamp;
+`docs/turn-tuning.md` derived values in Brawl, Deathmatch and Conquer sections). At 30 Hz `no-mode-branching.test.ts`
+(shared) also fails, pre-existing and unrelated.
+
+```
+## shared
+src/config/deathmatch-config.test.ts > DEATHMATCH_TICKS > derives whole ticks from the authored seconds
+src/config/weapon-config.test.ts > WEAPON_TABLE > keeps the field alive long enough to be driven into and out of (LZ17)
+src/config/weapon-ticks.test.ts > WEAPON_TICKS > derives flight ticks from range and speed
+src/config/weapon-ticks.test.ts > WEAPON_TICKS > derives magmablast's clocks from its milliseconds
+src/config/weapon-ticks.test.ts > WEAPON_TICKS > derives the roster's new-mechanic clocks for the rows that carry them (spec 2026-09-01)
+src/config/weapon-ticks.test.ts > msToTicks > rounds up, so a duration is never shorter than authored
+src/modes/no-mode-branching.test.ts > common code never branches on a specific game mode (GM2) > has no GameMode.X / winRuleOf / win-rule-string branch outside modes/ and the judged allow-list
+src/sim/combat.test.ts > damaged and killed events (B4, B5) > records a 0-damage hit from a pure applicator without a killing blow
+src/sim/combat.test.ts > damaged and killed events (B4, B5) > tags pulse damage with the status and who applied it
+src/sim/combat.test.ts > damages a target with a real attached beam fired from a real loadout, once it has grown to reach
+src/sim/combat.test.ts > magma blast detonation (spec P13-P21) > detonates at the PRE-step pose on a wall, never inside it (P14)
+src/sim/combat.test.ts > magma blast detonation (spec P13-P21) > reaches a car on the far side of a wall, because a disc has no wall clip (P17)
+src/sim/combat.test.ts > proximity homing (spec P1-P6) > commits: it does not re-acquire after its target is wrecked (P5)
+src/sim/combat.test.ts > proximity homing (spec P1-P6) > does not pre-commit to a held lock at spawn (regression: acquire must gate on 'lock')
+src/sim/combat.test.ts > proximity homing (spec P1-P6) > grabs a car that comes within acquireRadius and bends toward it
+src/sim/combat.test.ts > proximity homing (spec P1-P6) > takes the nearer of two eligible cars
+src/sim/combat.test.ts > pulses lance for its whole life, spending a full connect over four ticks instead of one
+src/sim/combat.test.ts > real-row integration (2026-09-01 roster) > a wildcharge press opens the charge window and self-applies fortified
+src/sim/combat.test.ts > real-row integration (2026-09-01 roster) > homes a proximity-acquired predator toward a moving target across real combat ticks
+src/sim/combat.test.ts > startManeuver > starts a charge for its authored duration and refuses to stack maneuvers
+src/sim/combat.test.ts > tremor (the unassigned row): presence effects > grants fortified only while the owner stands inside their own zone, and stops refreshing on exit
+src/sim/combat.test.ts > tremor (the unassigned row): presence effects > ticks 25-base damage into a standing target and holds spiked exactly while they stay
+src/sim/combat.test.ts > wall-piercing projectiles (`piercesWalls`, roadblock's row) > passes through an interior wall and lands on the camper behind it — where magmablast dies on it
+src/sim/combat.test.ts > wall-piercing projectiles (`piercesWalls`, roadblock's row) > still dies by its own range clock, walls or no walls
+src/sim/combat.test.ts > wall-piercing projectiles (`piercesWalls`, roadblock's row) > survives being born with a wingtip past the arena bounds, and still lands downrange
+src/sim/drive.test.ts > dash substep helpers (spec C3 / C6) > derives the substep count from distance, so it survives a retune of speed or tick rate
+src/sim/drive.test.ts > stepDrive > approaches forwardMaxSpeedOf(carId) after sustained throttle (asymptotic, not a clamp)
+src/sim/drive.test.ts > stepDrive > brakes from a forward speed into reverse, settling near its own reverse equilibrium
+src/sim/drive.test.ts > stepDrive > holding Up from reverse brings the car back through zero and on to accelerating forward
+src/sim/status/channels.test.ts > topSpeed reaches the drive cap > caps forward speed at the scaled maximum
+src/sim/status/channels.test.ts > topSpeed reaches the drive cap > caps reverse too, so backing away is not the way out of a slow
+src/sim/status/combat.test.ts > weapons apply statuses > `disarmed` lets a press already committed finish
+src/sim/step.test.ts > stepSim > stops the car at an obstacle it would otherwise have driven through
+src/sim/weapons/fire.test.ts > the two lockouts > blocks a different slot for the firing weapon's recovery
+src/sim/weapons/fire.test.ts > the two lockouts > holds the switch lock across two slots carrying the SAME weapon id
+src/sim/weapons/fire.test.ts > the two lockouts > writes the recovery lockout from the weapon that fired, at the tick the shot exits
+src/sim/weapons/instances.test.ts > bounce > expires on its clock, not at range
+## server
+balance/match.test.ts > runMatch > shortening matchSeconds still lets the deathmatch clock fire, so a winner can appear (fix round 2, defect 1)
+src/bot/brain/aim.test.ts > stepAimError > holds its offset between resamples, so error drifts rather than jitters
+src/bot/brain/controller.test.ts > HumanController > hunts a quadrant waypoint when it has never seen anyone, never the arena centre (G12)
+src/bot/brain/controller.test.ts > HumanController > hunts toward a last-known pose, not the arena centre (G12)
+src/bot/brain/humanize.test.ts > applyHumanize > emits the intent decided reactionDelayTicks ago
+src/bot/brain/perception.test.ts > observedAngVelOf > takes the short way round the seam rather than reading a near-full turn
+src/bot/brain/perception.test.ts > perceive > does not know a car until its acquire delay has passed
+src/bot/brain/perception.test.ts > perceive > forgets a car once it has been out of sight for memoryTicks
+src/bot/brain/planner.bench.test.ts > planner cost (P33) > costs no more than the shipped measurement allows, normalised (P33, R-PF2)
+src/bot/brain/planner.test.ts > plan > commitWindowOf > is arithmetically unchanged at the depth every profile ships (depth 1)
+src/bot/brain/planner.test.ts > plan > with horizon 0, the candidates are not all tied -- moving the scene changes the answer (P29, R-P6)
+src/bot/brain/predict.test.ts > a car that is SLIDING, not driving (car-physics merge, 2026-09-07) > and the pre-rework scalar read would have been 62.68 units wrong — more than a car length
+src/bot/brain/predict.test.ts > physicsPredictor > beats a straight line for a turning car
+src/bot/brain/predict.test.ts > predicting an observed car, against an independent ground truth > beats a straight line wherever the target turns, and never loses where it does not
+src/bot/brain/predict.test.ts > predicting an observed car, against an independent ground truth > still lands a throttle-closed rollout SHORT, which is why it is not the held input
+src/bot/brain/predict.test.ts > state estimation noise (P20) > lets a sloppy read miss a curve entirely, and even read it backwards
+src/bot/brain/predict.test.ts > state estimation noise (P20) > reads either side of the steering threshold, by how far the estimate falls short
+src/bot/brain/solution.test.ts > solve — turret (TR26) > leads a crossing target, budgeting the turret's turn into the time to impact
+src/sim/pipeline-order.test.ts > the real serverTick -> contactTick order > drives before it measures contact, so the ram is classified against the poses the tick ended at
+src/sim/ram-bridge.test.ts > contactTick (diminishing returns, spec §7.3) > scales a chained ram's shove, spin and reel, and charges the attacker in full
+src/sim/ram-bridge.test.ts > contactTick applies reeling to a ram victim, scaled by falloff > gives a re-rammed victim a shorter reeling duration than the first ram
+src/sim/ram-bridge.test.ts > contactTick applies reeling to a ram victim, scaled by falloff > lands two slams on one victim at identical strength — falloff is ram-only
+src/sim/tick.test.ts > serverTick > other cars as colliders > converges to a residual overlap that stays bounded across every roster ramDefence pairing, not just mirage/mirage
+src/sim/tick.test.ts > serverTick > other cars as colliders > does not treat a player who is not in the match as a solid wall
+src/sim/tick.test.ts > serverTick > ram knock state round-trip > carries angVel/vx/vy through bodyOf -> stepDrive -> writeBody: it moves the pose, and the fields round-trip decayed rather than dropped
+src/sim/tick.test.ts > serverTick > steps each player against the updated poses of the players stepped before them
+## client
+src/fx/contact.test.ts > shotEndPoint — a projectile ends on the hull it struck > pulls a shot that OVERSHOT the car back to the entry face
+src/modes/conquer/hud.test.ts > CONQUER_HUD.resultsLine (CQ33) > is viewer-relative: team B reads its own bar first
+src/modes/conquer/hud.test.ts > CONQUER_HUD.resultsLine (CQ33) > reports both teams' control percentage
+src/scenes/combat-visual.test.ts > chargeOrbBands > appears as a dot on the press tick rather than fading in from nothing
+src/scenes/combat-visual.test.ts > chargeOrbBands > grows linearly, so the orb tells an opponent how long they have
+src/scenes/combat-visual.test.ts > chargeOrbBands > ignores a pending longer than this weapon's own wind-up
+src/scenes/impact-feedback.test.ts > freshImpacts > the velocity this pass must be given > loses most rams when given the rendered, post-collision velocity
+## scripts
+    not ok 5 - was rebuilt after the last change to the tables or the prose
+not ok 38 - the generated manual page
+--
+        not ok 5 - prints derived values this mode's bundle actually computes
+    not ok 3 - Brawl
+        not ok 5 - prints derived values this mode's bundle actually computes
+    not ok 4 - Deathmatch
+        not ok 5 - prints derived values this mode's bundle actually computes
+    not ok 5 - Conquer
+not ok 67 - docs/turn-tuning.md
+```
+
+Phase B landed 2026-09-29: the netsim harness
 (`packages/server/src/netsim/`) runs the real tick pipeline against a headless model of today's
 client, and the baseline is recorded below. Phase A landed 2026-09-29 (started after the user's go-ahead,
 "start implementation with sdd"). The six decisions listed at the pause were accepted as written:

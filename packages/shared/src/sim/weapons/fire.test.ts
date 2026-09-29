@@ -1,3 +1,4 @@
+import { TICK_RATE_HZ } from "../../constants.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { basicAttackOf } from "../../config/car-config.js";
 import { DEFAULT_GAME_MODE } from "../../modes/registry.js";
@@ -189,7 +190,7 @@ describe("releasing", () => {
       { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: null },
     ]);
     expect(state.pending).toBeNull();
-    expect(state.slots[1]!.rechargeEndsTick).toBe(130); // 1000ms == 30 ticks
+    expect(state.slots[1]!.rechargeEndsTick).toBe(100 + TICK_RATE_HZ); // 1000ms == one second of ticks
     expect(state.lastFiredSlot).toBe(1);
   });
 
@@ -318,7 +319,7 @@ describe("per-tick order", () => {
     expect(state.slots[1]!.stocks).toBe(0);
 
     // Ticks 101-129: idle, no stock yet, nothing fires.
-    for (let tick = 101; tick < 130; tick++) {
+    for (let tick = 101; tick < 100 + TICK_RATE_HZ; tick++) {
       const idled = step(state, tick, 0);
       state = idled.state;
       seen.push(...idled.orders);
@@ -328,12 +329,12 @@ describe("per-tick order", () => {
 
     // Tick 130: the stock lands on this exact tick (100 + 30). A second press must fire again, same
     // tick, proving the cycle repeats rather than being a one-shot fluke.
-    const step2 = step(state, 130, ABILITY_1);
+    const step2 = step(state, 100 + TICK_RATE_HZ, ABILITY_1);
     state = step2.state;
     seen.push(...step2.orders);
     expect(seen).toEqual([
       { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: null },
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#130#1", bearing: null },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: `p1#${100 + TICK_RATE_HZ}#1`, bearing: null },
     ]);
   });
 
@@ -412,7 +413,7 @@ describe("the two lockouts", () => {
   it("writes the recovery lockout from the weapon that fired, at the tick the shot exits", () => {
     const fired = fireAt(twoSlots(), SLOT_2, 200, LANCE_EXIT);
     expect(fired.pending).toBeNull(); // the wind-up has run out and the beam is away
-    expect(fired.switchLockUntilTick).toBe(251); // 221 + 30 ticks == lance's 1000ms recovery
+    expect(fired.switchLockUntilTick).toBe(221 + TICK_RATE_HZ); // 221 + one second of ticks == lance's 1000ms recovery
   });
 
   it("blocks a different slot for the firing weapon's recovery", () => {
