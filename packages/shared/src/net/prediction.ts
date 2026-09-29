@@ -1,7 +1,9 @@
 import { MS_PER_TICK, SNAPSHOT_RATE_HZ } from "../constants.js";
 import { NET_CONFIG } from "../config/net-config.js";
 import { stepSim, type SimBody, type StepContext } from "../sim/step.js";
+import { msToTicks } from "../config/weapon-ticks.js";
 import { type InputMessage } from "./input.js";
+import type { InputFrame } from "./tick-input.js";
 
 /** One input the client has simulated locally but the server has not acknowledged yet. */
 export interface PendingInput {
@@ -36,6 +38,61 @@ function wrapAngle(delta: number): number {
 
 function lerp(from: number, to: number, rate: number): number {
   return from + (to - from) * rate;
+}
+
+/** The ten-field pose a replay starts from. Maneuver state and knock fields are rules for the next
+ * integration, not a drawn pose, so they are carried whole. */
+function copyBody(b: SimBody): SimBody {
+  return {
+    x: b.x,
+    y: b.y,
+    angle: b.angle,
+    vx: b.vx,
+    vy: b.vy,
+    angVel: b.angVel,
+    maneuver: b.maneuver,
+    maneuverTicksLeft: b.maneuverTicksLeft,
+    maneuverAngle: b.maneuverAngle,
+    maneuverSpeed: b.maneuverSpeed,
+  };
+}
+
+/**
+ * Small errors ease toward the replayed target so corrections are not visible as a jerk; large ones
+ * snap. `vx`/`vy`, `angVel` and maneuver/knock state always snap: they feed the next integration, so
+ * a half-eased value would poison every subsequent step rather than merely look wrong.
+ */
+function settle(target: SimBody, currentPredicted: SimBody): SimBody {
+  const dx = target.x - currentPredicted.x;
+  const dy = target.y - currentPredicted.y;
+  // Wrapped, not raw: `stepDrive` never normalises `angle`, so after a few minutes of turning both
+  // numbers are in the thousands and a raw difference would compare accumulated winding, not error.
+  const dAngle = wrapAngle(target.angle - currentPredicted.angle);
+
+  if (
+    Math.hypot(dx, dy) > NET_CONFIG.reconcileSnapPos ||
+    Math.abs(dAngle) > NET_CONFIG.reconcileSnapAngle
+  ) {
+    return target;
+  }
+
+  const ease = reconcileEasePerSnapshot();
+  return {
+    x: lerp(currentPredicted.x, target.x, ease),
+    y: lerp(currentPredicted.y, target.y, ease),
+    // Ease along the wrapped delta so the correction takes the short way round the seam.
+    angle: currentPredicted.angle + dAngle * ease,
+    vx: target.vx,
+    vy: target.vy,
+    // Knock state snaps for the same reason `vx`/`vy` does: these feed the next integration. This
+    // is also what makes an unpredicted ram viable — the knock lands as one velocity snap and the
+    // client then plays the whole spin-and-slide out locally through its own stepSim.
+    angVel: target.angVel,
+    maneuver: target.maneuver,
+    maneuverTicksLeft: target.maneuverTicksLeft,
+    maneuverAngle: target.maneuverAngle,
+    maneuverSpeed: target.maneuverSpeed,
+  };
 }
 
 /**
@@ -89,54 +146,55 @@ export class PredictionBuffer {
   ): SimBody {
     this.pending = this.pending.filter((entry) => entry.seq > lastProcessedSeq);
 
-    let target: SimBody = {
-      x: authoritative.x,
-      y: authoritative.y,
-      angle: authoritative.angle,
-      vx: authoritative.vx,
-      vy: authoritative.vy,
-      angVel: authoritative.angVel,
-      // Same reasoning as the knock fields below: a maneuver is rules for the next integration, not
-      // a drawn pose, so it snaps to the authoritative value rather than easing. No maneuver-specific
-      // reconcile rule beyond the snap is needed — see the "snaps maneuver state" test.
-      maneuver: authoritative.maneuver,
-      maneuverTicksLeft: authoritative.maneuverTicksLeft,
-      maneuverAngle: authoritative.maneuverAngle,
-      maneuverSpeed: authoritative.maneuverSpeed,
-    };
+    let target = copyBody(authoritative);
     for (const entry of this.pending) {
       target = stepSim(target, entry.input, DT_SECONDS, ctx);
     }
 
-    const dx = target.x - currentPredicted.x;
-    const dy = target.y - currentPredicted.y;
-    // Wrapped, not raw: `stepDrive` never normalises `angle`, so after a few minutes of turning both
-    // numbers are in the thousands and a raw difference would compare accumulated winding, not error.
-    const dAngle = wrapAngle(target.angle - currentPredicted.angle);
+    return settle(target, currentPredicted);
+  }
+}
 
-    if (
-      Math.hypot(dx, dy) > NET_CONFIG.reconcileSnapPos ||
-      Math.abs(dAngle) > NET_CONFIG.reconcileSnapAngle
-    ) {
-      return target;
-    }
+/** `stepSim` takes the legacy `InputMessage`; it never reads `seq`, so the tick stands in for it. */
+const asInput = (f: InputFrame): InputMessage => ({ ...f, seq: f.tick });
 
-    const ease = reconcileEasePerSnapshot();
-    return {
-      x: lerp(currentPredicted.x, target.x, ease),
-      y: lerp(currentPredicted.y, target.y, ease),
-      // Ease along the wrapped delta so the correction takes the short way round the seam.
-      angle: currentPredicted.angle + dAngle * ease,
-      vx: target.vx,
-      vy: target.vy,
-      // Knock state snaps for the same reason `vx`/`vy` does: these feed the next integration. This
-      // is also what makes an unpredicted ram viable — the knock lands as one velocity snap and the
-      // client then plays the whole spin-and-slide out locally through its own stepSim.
-      angVel: target.angVel,
-      maneuver: target.maneuver,
-      maneuverTicksLeft: target.maneuverTicksLeft,
-      maneuverAngle: target.maneuverAngle,
-      maneuverSpeed: target.maneuverSpeed,
-    };
+/**
+ * Tick-keyed prediction (NR26): frames are stamped with the tick they will execute on, and a
+ * snapshot's `tick` — not an ack seq — says which ones the server has already applied. Sits beside
+ * `PredictionBuffer`, which is deleted once the client moves over.
+ */
+export class TickPrediction {
+  private frames: InputFrame[] = []; // ascending by tick
+
+  predict(state: SimBody, frame: InputFrame, ctx: StepContext): SimBody {
+    this.frames.push(frame);
+    const cap = msToTicks(NET_CONFIG.maxInputLeadMs) + NET_CONFIG.clientMaxCatchUpTicks;
+    if (this.frames.length > cap) this.frames.splice(0, this.frames.length - cap);
+    return stepSim(state, asInput(frame), DT_SECONDS, ctx);
+  }
+
+  /** The authoritative pose at `snapshotTick`, replayed through every frame after it. */
+  replayTarget(authoritative: SimBody, snapshotTick: number, ctx: StepContext): SimBody {
+    this.frames = this.frames.filter((f) => f.tick > snapshotTick);
+    let target = copyBody(authoritative);
+    for (const f of this.frames) target = stepSim(target, asInput(f), DT_SECONDS, ctx);
+    return target;
+  }
+
+  reconcile(authoritative: SimBody, snapshotTick: number, current: SimBody, ctx: StepContext): SimBody {
+    return settle(this.replayTarget(authoritative, snapshotTick, ctx), current);
+  }
+
+  frameAt(tick: number): InputFrame | undefined {
+    return this.frames.find((f) => f.tick === tick);
+  }
+
+  /** Newest last, for packet redundancy. */
+  recent(count: number): InputFrame[] {
+    return this.frames.slice(-count);
+  }
+
+  clear(): void {
+    this.frames = [];
   }
 }

@@ -10,7 +10,8 @@ import { getArena } from "../arena/registry.js";
 import { ramDefenceOf } from "../config/car-config.js";
 import { stepSim, type SimBody, type StepContext } from "../sim/step.js";
 import { type InputMessage } from "./input.js";
-import { PredictionBuffer, reconcileEasePerSnapshot } from "./prediction.js";
+import { PredictionBuffer, TickPrediction, reconcileEasePerSnapshot } from "./prediction.js";
+import type { InputFrame } from "./tick-input.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 // Also installed directly, synchronously, at module scope: fixture constants below (and
@@ -432,3 +433,50 @@ describe("reconcileEasePerSnapshot (Phase C I2)", () => {
     expect(current.angle).toBeCloseTo(0.2 - rate * 0.2, 10);
   });
 });
+
+describe("TickPrediction", () => {
+  const frame = (tick: number): InputFrame => ({ tick, steer: 0, throttle: 1, fireSlots: 0 });
+
+  it("reconciles against the replay of frames after the snapshot tick", () => {
+    const tp = new TickPrediction();
+    let cur = START;
+    for (const t of [11, 12, 13]) cur = tp.predict(cur, frame(t), ctx);
+    const authoritative = stepSim(START, frame(11), DT, ctx); // pose at tick 11
+    const target = replay2(authoritative, [12, 13]);
+    const out = tp.reconcile(authoritative, 11, farFrom(cur), ctx);
+    for (const k of ["x", "y", "angle", "vx", "vy", "angVel"] as const) expect(out[k]).toBeCloseTo(target[k], 9);
+    expect(tp.frameAt(11)).toBeUndefined();
+    expect(tp.frameAt(12)).toBeDefined();
+    expect(tp.replayTarget(authoritative, 11, ctx).x).toBeCloseTo(target.x, 9);
+  });
+
+  it("eases small errors like PredictionBuffer does", () => {
+    const tp = new TickPrediction();
+    const buf = new PredictionBuffer();
+    let cur = START;
+    for (const t of [1, 2]) {
+      cur = tp.predict(cur, frame(t), ctx);
+      buf.predict(START, { seq: t, input: { seq: t, steer: 0, throttle: 1, fireSlots: 0 } }, ctx);
+    }
+    const cur2 = { ...cur, x: cur.x + 1 };
+    const a = tp.reconcile(START, 0, cur2, ctx);
+    const b = buf.reconcile(START, 0, cur2, ctx);
+    expect(a.x).toBeCloseTo(b.x, 9);
+    expect(a.angle).toBeCloseTo(b.angle, 9);
+  });
+
+  it("recent() returns the newest frames last, and clear() empties", () => {
+    const tp = new TickPrediction();
+    let cur = START;
+    for (const t of [1, 2, 3, 4, 5]) cur = tp.predict(cur, frame(t), ctx);
+    expect(tp.recent(3).map((f) => f.tick)).toEqual([3, 4, 5]);
+    tp.clear();
+    expect(tp.recent(3)).toEqual([]);
+  });
+});
+
+function replay2(from: SimBody, ticks: readonly number[]): SimBody {
+  let body = from;
+  for (const t of ticks) body = stepSim(body, { tick: t, steer: 0, throttle: 1, fireSlots: 0 }, DT, ctx);
+  return body;
+}

@@ -368,6 +368,8 @@ export type { ModeRules, Sides } from "./modes/rules-types.js";
 export { lastStandingRules } from "./modes/last-standing/rules.js";
 
 export * from "./net/prediction.js";
+export * from "./net/clock-sync.js";
+export * from "./net/input-scheduler.js";
 export * from "./net/interpolation.js";
 export * from "./net/step-context.js";
 export * from "./net/tick-input.js";
