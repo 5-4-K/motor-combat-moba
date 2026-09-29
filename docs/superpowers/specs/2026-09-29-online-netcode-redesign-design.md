@@ -28,13 +28,14 @@ At 80 ms RTT, ±10 ms jitter, 1 % loss, six cars, one minute of scripted driving
 |---|---|
 | Server steps per car per tick | exactly 1, always (speed hack closed) |
 | Ticks a car is simulated on a repeated (missing) input | ≤ 2 % |
-| Remote path error p95 (drawn pose to the car's true trajectory over the last 400 ms) | ≤ 12 u |
+| Remote path error p95 (drawn pose to the car's true trajectory from 400 ms before to 100 ms after the frame) | ≤ 12 u |
 | Frames a remote is held/frozen (buffer starvation) | ≤ 1 % |
 | Local reconcile correction, p95 | ≤ 4 u |
 | A hidden enemy's car or shot present in a client's decoded state | never |
 
 On LAN (1 ms RTT, 0 jitter): input-to-server delay ≤ 34 ms (today 0–33 ms); remote interpolation
-delay ≤ 50 ms (today 50 ms).
+delay ≤ 50 ms (today 50 ms), and total remote display delay as measured by the harness no worse than
+today's.
 
 ## 2. What is wrong today (findings)
 

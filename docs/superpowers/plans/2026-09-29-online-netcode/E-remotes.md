@@ -291,7 +291,7 @@ git commit -m "feat(net): draw nearby remotes where you can hit them (NR34)"
 
 ### Task 5 (E5): Measure and document
 
-- [ ] **Step 1:** `NETSIM_REPORT=1 npx vitest run --root packages/server src/netsim`; fill the "after E" column. Targets: path error p95 ≤ 12 u, hold ≤ 1 %, LAN display delay ≤ 50 ms. Misses are recorded as deviations with the tuning tried.
+- [ ] **Step 1:** `npm run build -w @motor-combat-moba/shared && NETSIM_BASELINE=1 NETSIM_REPORT=1 npx vitest run --root packages/server src/netsim`; fill the "after E" column from the mean over seeds 1–3 (the baseline's shape). Targets: path error p95 ≤ 12 u, hold ≤ 1 %, LAN display delay no worse than baseline with its interpolation component ≤ 50 ms (the harness measures the total: interpolation + snapshot age + link + frame). Misses are recorded as deviations with the tuning tried.
 - [ ] **Step 2:** `docs/networking.md` — rewrite "Interpolation" and "Prediction context" for NR29–NR34; `docs/config-reference.md` NET_CONFIG rows; `docs/schema-reference.md` `lastSteer`/`lastThrottle`.
 - [ ] **Step 3:** EXECUTION.md row → `Landed`; summary notes the playtest `prediction` probe measures a changed client; recommend a playtest run.
 - [ ] **Step 4: Commit** `docs(net): phase E numbers and docs`.

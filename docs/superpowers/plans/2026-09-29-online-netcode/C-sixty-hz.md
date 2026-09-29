@@ -262,4 +262,6 @@ git commit -m "feat(sim): 60 Hz tick and one snapshot per tick (NR11-NR13, NR15)
 
 - [ ] **Step 9: Phase close-out**
 
-EXECUTION.md: Phase C `Landed` with the measured numbers; re-run `NETSIM_REPORT=1 npx vitest run --root packages/server src/netsim` and note the legacy model's numbers at 60 Hz under the baseline table. In the phase summary, say loudly: **every playtest probe now measures a 60 Hz sim; recommend `npm run playtest -- --scope=all`.**
+EXECUTION.md: Phase C `Landed` with the measured numbers; re-run `npm run build -w @motor-combat-moba/shared && NETSIM_BASELINE=1 NETSIM_REPORT=1 npx vitest run --root packages/server src/netsim` (the baseline shape: 60 s, six cars, seeds 1–3, mean) and note the legacy model's numbers at 60 Hz under the baseline table. Two netsim notes:
+  - (a) `packages/server/src/netsim/run.ts` imports `DEFAULT_PATCH_RATE_HZ` and runs a patch clock independent of ticks. When the constant is deleted (Step 2/3), rework it to broadcast a snapshot at the end of each snapshot tick, as the rooms do — it stops compiling otherwise.
+  - (b) When recording the 60 Hz numbers, note that reconcile p95 (one sample per reconcile) and head-of-line stalls (per message) shift with the message rate alone, so a move in those rows is not by itself a netcode change. In the phase summary, say loudly: **every playtest probe now measures a 60 Hz sim; recommend `npm run playtest -- --scope=all`.**

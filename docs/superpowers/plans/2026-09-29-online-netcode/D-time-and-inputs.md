@@ -24,6 +24,7 @@
 - A browser tab that stalls for 2 s then resumes must not flood 120 inputs: it resyncs and skips — pinned by D2's catch-up test.
 - A held fire key across a repeated (missing) input never fires twice — pinned by D4's press test.
 - A client sending frames 10 s in the future or in the past has them dropped, not buffered — pinned by D1.
+- `stepsPerTickMax` counts actual `stepSim` calls per car per tick (reported by `serverTick`/its result or a test spy), not a re-implementation of the drain rule — otherwise the speed-hack acceptance line proves nothing.
 
 ---
 
@@ -750,7 +751,11 @@ Delete `drainTicks` and its test.
 
 - [ ] **Step 5: netsim `tick` model**
 
-`tick-client.ts`: a headless client mirroring Step 4 — `ClockSync` fed by `MSG_TIME` pongs through the links every `timeSyncIntervalMs` (burst on start), `InputScheduler`, `TickPrediction`, and for remotes the existing `InterpolationBuffer` keyed by arrival (Phase E replaces it). `run.ts`: model `"tick"`; the server side offers packets into buffers, answers pongs with `NetSessions`, and records `repeatedInputRate` from `ackRepeated`. Delete the legacy model and file. The determinism and finiteness tests run on `"tick"`.
+`tick-client.ts`: a headless client mirroring Step 4 — `ClockSync` fed by `MSG_TIME` pongs through the links every `timeSyncIntervalMs` (burst on start), `InputScheduler`, `TickPrediction`, and for remotes the existing `InterpolationBuffer` keyed by arrival (Phase E replaces it). `run.ts`: model `"tick"`; the server side offers packets into buffers (through `ServerWorld.receiveInput`), answers pongs with `NetSessions`, and records `repeatedInputRate` from `ackRepeated`. Delete the legacy model and file. The determinism and finiteness tests run on `"tick"`.
+
+Switch `ServerWorld`'s step counting to the REAL count: `lastTickMaxSteps` comes from the number of `stepSim` calls `serverTick` actually made per car this tick (returned by `serverTick`/`runPipeline`, or counted by a spy), and `recordIntake`'s re-implementation of the drain rule is deleted. `appliedAt` likewise records the tick an input was actually consumed.
+
+Don't write a third copy of the client's input clock or replay. `legacy-client.ts` (~line 135) re-implements `drainTicks` (`packages/client/src/scenes/arena-input.ts`) and the replay loop of `PredictionBuffer.reconcile` (`replayTarget`). The tick client reuses shared code instead: the `InputScheduler` itself, and a read-only accessor on `TickPrediction` (its pending tail, or an exported `replayTarget`) so the harness can read the correction before the ease without re-implementing it.
 
 - [ ] **Step 6: Everything green**
 
@@ -835,7 +840,7 @@ git commit -m "feat(net): rate limits, payload cap, protocol version, two-way la
 **Files:**
 - Modify: `docs/networking.md` (rewrite "Client — movement" and "Server" for NR17–NR28), `docs/config-reference.md` (`NET_CONFIG` table), `docs/schema-reference.md` (`ackRepeated`, `inputSlack`; `lastProcessedInputSeq` gone), `EXECUTION.md`
 
-- [ ] **Step 1:** `NETSIM_REPORT=1 npx vitest run --root packages/server src/netsim` and fill EXECUTION.md's "after D" column. `stepsPerTickMax` must read 1 and `repeatedInputRate` on net80 ≤ 2 %; if not, record it as a deviation and tune `targetSlackTicks`/`SAFETY_GAIN` before closing the phase.
+- [ ] **Step 1:** `npm run build -w @motor-combat-moba/shared && NETSIM_BASELINE=1 NETSIM_REPORT=1 npx vitest run --root packages/server src/netsim` and fill EXECUTION.md's "after D" column from the mean over seeds 1–3 (the baseline's shape). `stepsPerTickMax` must read 1 and `repeatedInputRate` on net80 ≤ 2 %; if not, record it as a deviation and tune `targetSlackTicks`/`SAFETY_GAIN` before closing the phase.
 - [ ] **Step 2:** Rewrite the docs sections named above.
 - [ ] **Step 3:** Phase row `Landed`; in-flight → Phase E. Summary says loudly: **the input path the playtest probes drive changed (one input per tick); recommend `npm run playtest -- --scope=all`.**
 - [ ] **Step 4: Commit**
