@@ -64,3 +64,47 @@ describe("TickInputBuffer", () => {
     expect(b.slackStdTicks()).toBe(1);
   });
 });
+
+describe("hostile input", () => {
+  const bad = (over: object) => isInputPacket({ inputs: [{ ...f(1), ...over }] });
+  it("rejects out-of-range fireSlots", () => {
+    for (const v of [-1, 2 ** 31, 1e300, Infinity, Number.NaN, 32]) expect(bad({ fireSlots: v })).toBe(false);
+    expect(bad({ fireSlots: 31 })).toBe(true);
+  });
+  it("rejects non-finite tick, steer, throttle", () => {
+    for (const k of ["tick", "steer", "throttle"]) for (const v of [Infinity, Number.NaN]) expect(bad({ [k]: v })).toBe(false);
+  });
+  it("rejects bad inputs containers", () => {
+    expect(isInputPacket({ inputs: "x" })).toBe(false);
+    expect(isInputPacket({ inputs: { 0: f(1), length: 1 } })).toBe(false);
+    expect(isInputPacket({ inputs: Array.from({ length: 1000 }, (_, i) => f(i)) })).toBe(false);
+    // eslint-disable-next-line no-sparse-arrays
+    expect(isInputPacket({ inputs: [f(1), , f(3)] })).toBe(false);
+  });
+  it("survives a __proto__ own key", () => {
+    const msg = JSON.parse('{"inputs":[{"tick":1,"steer":0,"throttle":1,"fireSlots":0,"__proto__":{"steer":1}}]}');
+    expect(isInputPacket(msg)).toBe(true);
+    const b = new TickInputBuffer(15, 15);
+    b.offer(msg.inputs[0], 0);
+    expect(Object.keys(b.take(1).keys)).not.toContain("__proto__");
+    expect(({} as Record<string, unknown>).steer).toBeUndefined();
+  });
+  it("stores a whitelisted copy", () => {
+    const b = new TickInputBuffer(15, 15);
+    b.offer({ ...f(1), extra: 1 } as InputFrame, 0);
+    expect(b.take(1).frame).toEqual(f(1));
+  });
+  it("5 duplicate packets yield one frame per tick", () => {
+    const b = new TickInputBuffer(15, 15);
+    const results: string[] = [];
+    for (let n = 0; n < 5; n++) for (const t of [1, 2, 3]) results.push(b.offer(f(t), 0));
+    expect(results.filter((r) => r === "accepted")).toHaveLength(3);
+    for (const t of [1, 2, 3]) expect(b.take(t).repeated).toBe(false);
+    expect(b.take(4).repeated).toBe(true);
+  });
+  it("drops frames 600 ticks ahead or behind", () => {
+    const b = new TickInputBuffer(15, 15);
+    expect(b.offer(f(601), 0)).toBe("early");
+    expect(b.offer(f(1), 600)).toBe("late");
+  });
+});

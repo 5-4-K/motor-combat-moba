@@ -1,5 +1,6 @@
 // packages/shared/src/net/tick-input.ts
 import { NET_CONFIG } from "../config/net-config.js";
+import { ABILITY_SLOT_CEILING } from "../config/weapon-slots.js";
 import { msToTicks } from "../config/weapon-ticks.js";
 
 /** What a player's hands are doing on one tick. `stepSim` reads only these. */
@@ -28,6 +29,9 @@ export const NEUTRAL_KEYS: Readonly<InputKeys> = Object.freeze({ steer: 0, throt
 export const MAX_FRAMES_PER_PACKET = 4;
 
 const isAxis = (n: unknown): n is -1 | 0 | 1 => n === -1 || n === 0 || n === 1;
+/** Widest legal wire mask: the basic attack (bit 0) plus the structural ability ceiling. */
+const MAX_FIRE_MASK = (1 << (ABILITY_SLOT_CEILING + 1)) - 1;
+const isMask = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 0 && (n as number) <= MAX_FIRE_MASK;
 const isTick = (n: unknown): n is number => Number.isSafeInteger(n) && (n as number) >= 0;
 
 function isInputFrame(v: unknown): v is InputFrame {
@@ -37,10 +41,16 @@ function isInputFrame(v: unknown): v is InputFrame {
     isTick(r.tick) &&
     isAxis(r.steer) &&
     isAxis(r.throttle) &&
-    Number.isInteger(r.fireSlots) &&
+    isMask(r.fireSlots) &&
     (r.aimAngle === undefined || (typeof r.aimAngle === "number" && Number.isFinite(r.aimAngle))) &&
     (r.viewTick === undefined || isTick(r.viewTick))
   );
+}
+
+function allFrames(inputs: unknown[]): boolean {
+  // An index loop, not `every`: `every` skips holes, so a sparse array would pass unchecked.
+  for (let i = 0; i < inputs.length; i++) if (!isInputFrame(inputs[i])) return false;
+  return true;
 }
 
 /** Wire validation. Everything a client sends is untrusted. */
@@ -51,7 +61,7 @@ export function isInputPacket(msg: unknown): msg is InputPacket {
     Array.isArray(inputs) &&
     inputs.length >= 1 &&
     inputs.length <= MAX_FRAMES_PER_PACKET &&
-    inputs.every(isInputFrame)
+    allFrames(inputs)
   );
 }
 
@@ -90,7 +100,11 @@ export class TickInputBuffer {
     if (frame.tick < next) return "late";
     if (frame.tick > next + this.maxLeadTicks) return "early";
     if (this.frames.has(frame.tick)) return "duplicate";
-    this.frames.set(frame.tick, frame);
+    // Copy only the whitelisted fields: the parsed wire object may carry anything else.
+    const copy: InputFrame = { tick: frame.tick, steer: frame.steer, throttle: frame.throttle, fireSlots: frame.fireSlots };
+    if (frame.aimAngle !== undefined) copy.aimAngle = frame.aimAngle;
+    if (frame.viewTick !== undefined) copy.viewTick = frame.viewTick;
+    this.frames.set(frame.tick, copy);
     this.slacks.push(frame.tick - next);
     if (this.slacks.length > SLACK_WINDOW) this.slacks.shift();
     return "accepted";
