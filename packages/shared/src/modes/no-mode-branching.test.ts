@@ -38,6 +38,7 @@ const ALLOWED: Readonly<Record<string, string>> = {
   "packages/server/src/config/mode-bot.ts": "Record<GameMode, BotModeConfig> registry",
   "packages/server/src/rooms/PracticeRoom.ts": "practice pins FFA_DEATHMATCH (room kind, GM21)",
   "packages/client/src/scenes/PracticeSetupScene.ts": "installs practice's pinned mode",
+  "packages/server/src/netsim/server-world.ts": "netsim measurement harness pins FFA_DEATHMATCH, like practice (NR58)",
   "packages/shared/src/modes/rules-types.ts": "declares the winRuleLabel union type itself, not a branch on it",
 };
 
