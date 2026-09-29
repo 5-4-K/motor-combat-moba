@@ -1,0 +1,63 @@
+# Online netcode redesign — execution state
+
+> **Read this first in any session that executes this work.** It is the state file: which phase is
+> in flight, what each finished phase measured, and what was decided along the way. It is updated
+> **in the same commit** as the work it describes, so a session can stop anywhere and the next one
+> resumes exactly.
+
+**Spec:** [`docs/superpowers/specs/2026-09-29-online-netcode-redesign-design.md`](../../specs/2026-09-29-online-netcode-redesign-design.md) (NR1–NR68)
+**Branch:** `development/main` (the user's instruction for this work; each task commits and pushes).
+**Method:** superpowers:subagent-driven-development — one implementer subagent per task, one
+reviewer per task, a whole-phase review at each phase's end.
+
+## Phases
+
+Each phase is its own plan file, runs in order, and ends green: `npm test` (the two G12 bot
+failures in `controller.test.ts` are pre-existing, see `docs/testing.md`), `npm run build`, and the
+phase's own acceptance lines.
+
+| Phase | File | Spec | Status | Measured / notes |
+|---|---|---|---|---|
+| A — Colyseus 0.18, schema 5, Node 22, monitor gate | [`A-colyseus-upgrade.md`](A-colyseus-upgrade.md) | NR50, NR53 | Not started | |
+| B — netsim harness and today's baseline | [`B-netsim-harness.md`](B-netsim-harness.md) | NR57–NR59 | Not started | |
+| C — 60 Hz and per-tick snapshots | [`C-sixty-hz.md`](C-sixty-hz.md) | NR11–NR16 | Not started | |
+| D — time and inputs | [`D-time-and-inputs.md`](D-time-and-inputs.md) | NR17–NR28, NR54–NR56 | Not started | |
+| E — remotes and prediction | [`E-remotes.md`](E-remotes.md) | NR29–NR34 | Not started | |
+| F — combat under latency | [`F-combat.md`](F-combat.md) | NR35–NR41 | Not started | |
+| G — interest management, docs | [`G-interest.md`](G-interest.md) | NR42–NR49, NR68 | Not started | |
+
+## In flight
+
+Nothing yet. Next: Phase A, Task A1.
+
+## Rules that bite mid-execution
+
+- Build shared before anything reads it: `npm run build -w @motor-combat-moba/shared`. Server and
+  client consume shared's `dist`; a stale `dist` looks like "my change did nothing".
+- Build with root `npm run build`, never `--workspaces` (order matters: the server bundle inlines
+  shared).
+- Every config accessor is read inside a mode scope; never at module scope (root `CLAUDE.md`).
+- A change to anything the playtest probes measure is reported loudly in the phase summary, with a
+  recommendation to run `npm run playtest`; probes are only edited to keep them compiling.
+- `docs/ideas/` and `docs/invariants/` are off limits.
+- A task that finds the plan wrong stops and records the deviation here before working around it.
+
+## Baseline and per-phase numbers (netsim, §10 of the spec)
+
+Filled in by Phase B and after each later phase. Link profile names: `lan` (1 ms, 0 jitter, 0 %),
+`net80` (80 ms RTT, ±10 ms, 1 %), `net150` (150 ms RTT, ±15 ms, 1 %).
+
+| Metric | Target | Baseline | after D | after E | after F | after G |
+|---|---|---|---|---|---|---|
+| Server steps per car per tick (max) | 1 | | | | | |
+| Repeated-input ticks, net80 | ≤ 2 % | n/a | | | | |
+| Remote path error p95, net80 (u) | ≤ 12 | | | | | |
+| Remote hold frames, net80 | ≤ 1 % | | | | | |
+| Local reconcile correction p95, net80 (u) | ≤ 4 | | | | | |
+| Input-to-server delay, lan (ms) | ≤ 34 | | | | | |
+| Remote display delay, lan (ms) | ≤ 50 | | | | | |
+| Hidden enemy present in decoded state | never | n/a | n/a | n/a | n/a | |
+
+## Deviations from the plan
+
+None yet.

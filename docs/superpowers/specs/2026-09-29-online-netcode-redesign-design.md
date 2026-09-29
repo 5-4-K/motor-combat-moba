@@ -28,7 +28,7 @@ At 80 ms RTT, ±10 ms jitter, 1 % loss, six cars, one minute of scripted driving
 |---|---|
 | Server steps per car per tick | exactly 1, always (speed hack closed) |
 | Ticks a car is simulated on a repeated (missing) input | ≤ 2 % |
-| Remote car draw error vs server truth at the same tick, p95 | ≤ 12 u |
+| Remote path error p95 (drawn pose to the car's true trajectory over the last 400 ms) | ≤ 12 u |
 | Frames a remote is held/frozen (buffer starvation) | ≤ 1 % |
 | Local reconcile correction, p95 | ≤ 4 u |
 | A hidden enemy's car or shot present in a client's decoded state | never |
@@ -142,9 +142,12 @@ delay ≤ 50 ms (today 50 ms).
 - **NR29 Tick-keyed interpolation.** Each snapshot is stored under its tick. A remote is drawn at
   render tick `R = estimatedServerTick − delayTicks` (fractional), interpolating the two snapshots
   that bracket `R`. Arrival time is used only to measure jitter.
-- **NR30 Adaptive delay.** `delayTicks = clamp(snapshotIntervalTicks × 2 + jitterP95Ticks,
-  minDelayMs, maxDelayMs)` with `minDelayMs` 33, `maxDelayMs` 150. It moves by at most 1 ms per
-  frame so nothing visibly jumps. LAN settles near 33 ms (today 50).
+- **NR30 Adaptive delay.** Each snapshot's *lateness* is how far the synced server clock has
+  moved past the snapshot's tick when it arrives (one-way delay plus jitter). `delay = clamp(p95 of
+  the last 120 latenesses + one snapshot interval, minDelayMs, maxDelayMs)` with `minDelayMs` 33
+  and `maxDelayMs` 250, so the render tick always has a snapshot on both sides of it. It moves by at
+  most 1 ms per frame so nothing visibly jumps. LAN settles near 33 ms (today 50); 80 ms RTT near
+  70 ms.
 - **NR31 Capped extrapolation.** If `R` is past the newest snapshot, the remote is advanced with
   shared `stepSim` from that snapshot using its last known input (NR33), for at most
   `NET_CONFIG.maxExtrapolateMs` (100). Past that it holds. When the next snapshot lands, the drawn
@@ -317,4 +320,4 @@ Each stage merges on its own, green, with its measured numbers recorded in the p
 - **NR67 F — combat under latency** (NR35–NR41).
 - **NR68 G — interest management** (NR42–NR49), then docs: `docs/networking.md`,
   `docs/schema-reference.md`, `docs/config-reference.md`, `docs/deployment.md`, and `CLAUDE.md`'s
-  hard invariant 5 (NR13).
+  hard invariant 5 (NR13). `docs/networking.md` states §11's residual unfairness in full.
