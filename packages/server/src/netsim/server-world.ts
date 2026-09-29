@@ -81,7 +81,7 @@ export class ServerWorld {
   readonly truth = new Map<string, { t: number; x: number; y: number }[]>();
   /** Most `stepSim` calls one car got in the last tick (legacy: min(queue length, maxInputsPerTick)). */
   lastTickMaxSteps = 0;
-  /** For each car, the seq → server ms at which that input was simulated. */
+  /** For each car, the seq → server ms at which that input was FIRST simulated. */
   readonly appliedAt = new Map<string, Map<number, number>>();
   readonly ids: string[] = [];
 
@@ -128,6 +128,11 @@ export class ServerWorld {
     this.truth.set(id, [{ t: this.timeOfTick(0), x, y }]);
     this.appliedAt.set(id, new Map());
     this.ids.push(id);
+  }
+
+  /** An input message from car `id`'s client arrived: `ArenaRoom`'s input handler, legacy path. */
+  receiveInput(id: string, msg: InputMessage): void {
+    this.inputQueues.get(id)!.push(msg);
   }
 
   /** Server time in ms of each completed tick: tick * MS_PER_TICK. */
@@ -183,7 +188,8 @@ export class ServerWorld {
       const simulated = [...queue].sort((a, b) => a.seq - b.seq).slice(0, NET_CONFIG.maxInputsPerTick);
       max = Math.max(max, simulated.length);
       const applied = this.appliedAt.get(id)!;
-      for (const msg of simulated) applied.set(msg.seq, now);
+      // The FIRST time a seq is simulated is when it took effect; never overwrite it.
+      for (const msg of simulated) if (!applied.has(msg.seq)) applied.set(msg.seq, now);
     }
     this.lastTickMaxSteps = max;
   }

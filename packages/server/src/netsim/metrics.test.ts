@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isHold, nearestOnPath, percentile, truthAt, truthWindow } from "./metrics.js";
+import { isHold, nearestOnPath, percentile, scoreRemoteSample, truthAt, truthWindow } from "./metrics.js";
 
 describe("netsim metrics", () => {
   it("percentile is nearest-rank", () => {
@@ -44,6 +44,36 @@ describe("netsim metrics", () => {
     expect(truthWindow(path, 50, 250).map((p) => p.t)).toEqual([50, 100, 200, 250]);
     expect(truthWindow(path, 100, 200).map((p) => p.t)).toEqual([100, 200]);
     expect(truthWindow(path, 50, 250)[3]!.x).toBe(250);
+  });
+
+  describe("scoreRemoteSample", () => {
+    // A car driving +x at 1 u/ms, truth sampled every 33 ms out to 2 s.
+    const path = Array.from({ length: 61 }, (_, i) => ({ t: i * 33, x: i * 33, y: 0 }));
+
+    it("a pose drawn behind on the true path scores ~0 error and a positive delay", () => {
+      const s = scoreRemoteSample(path, 1000, 900, 0);
+      expect(s.distance).toBeCloseTo(0);
+      expect(s.delayMs).toBeCloseTo(100);
+    });
+
+    it("a pose drawn AHEAD on the true path (within 100 ms) scores ~0 error and a negative delay", () => {
+      const s = scoreRemoteSample(path, 1000, 1080, 0);
+      expect(s.distance).toBeCloseTo(0);
+      expect(s.delayMs).toBeCloseTo(-80);
+    });
+
+    it("a stationary car drawn where it stands scores zero delay, not the lead window's edge", () => {
+      const still = Array.from({ length: 61 }, (_, i) => ({ t: i * 33, x: 5, y: 5 }));
+      const s = scoreRemoteSample(still, 1000, 5, 5);
+      expect(s.distance).toBe(0);
+      expect(s.delayMs).toBe(0);
+    });
+
+    it("a pose drawn more than 100 ms ahead is scored against the window's leading edge", () => {
+      const s = scoreRemoteSample(path, 1000, 1150, 0);
+      expect(s.distance).toBeCloseTo(50);
+      expect(s.delayMs).toBeCloseTo(-100);
+    });
   });
 
   describe("isHold", () => {

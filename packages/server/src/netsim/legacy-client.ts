@@ -199,13 +199,13 @@ export class LegacyClient {
 
   /**
    * What this client would draw for a remote car right now (undefined if unknown): `renderCars`'
-   * pose choice — a wreck at its patched pose, a live car through `remotePose`.
+   * pose choice — a wreck at its patched pose (`wreck: true`), a live car through `remotePose`.
    */
-  drawnRemote(id: string, nowMs: number): { x: number; y: number } | undefined {
+  drawnRemote(id: string, nowMs: number): { x: number; y: number; wreck: boolean } | undefined {
     const car = this.lastById.get(id);
     if (!car || car.status !== PlayerStatus.IN_MATCH) return undefined;
-    if (!car.alive) return { x: car.body.x, y: car.body.y };
+    if (!car.alive) return { x: car.body.x, y: car.body.y, wreck: true };
     const pose = this.interps.get(id)?.sample(nowMs) ?? car.body;
-    return { x: pose.x, y: pose.y };
+    return { x: pose.x, y: pose.y, wreck: false };
   }
 }

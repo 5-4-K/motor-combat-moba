@@ -5,10 +5,13 @@
  * - `stepsPerTickMax` — the most `stepSim` calls any one car received in a single server tick.
  * - `repeatedInputRate` — share of car-ticks simulated on a repeated input; `null` for the legacy
  *   model (it never repeats an input: an empty queue is simply not stepped).
- * - `remotePathErrorP95` — each client frame, for each remote car that is alive: distance from the
- *   drawn pose to the nearest point of that car's true trajectory over the last 400 ms (truth
- *   sampled per tick, linearly interpolated). p95 over all samples.
- * - `remoteDisplayDelayMs` — mean of (now − the truth time of that nearest point).
+ * - `remotePathErrorP95` — each client frame, for each remote car that is alive (on the server and
+ *   as the client draws it): distance from the drawn pose to the nearest point of that car's true
+ *   trajectory from 400 ms before to 100 ms after the frame (`TRUTH_WINDOW_MS`, `TRUTH_LEAD_MS`;
+ *   truth sampled per tick, linearly interpolated). The 100 ms lead is spec NR31's dead-reckoning
+ *   cap, so a remote drawn ahead on its true path is not punished. p95 over all samples.
+ * - `remoteDisplayDelayMs` — mean of (now − the truth time of that nearest point). Signed: negative
+ *   when a remote is drawn ahead of where the car really is at `now`.
  * - `remoteHoldRate` — share of those samples where the drawn position equals the previous frame's
  *   drawn position (distance < 0.01 u) while the true car moved more than 1 u since the previous
  *   frame (`isHold`). A remote that is standing still is never a hold. "The true car" is the
@@ -29,8 +32,13 @@ export interface NetsimMetrics {
   inputToServerMs: number;
 }
 
-/** The trajectory window a drawn remote pose is judged against, ms. */
+/** How far BEFORE the frame the trajectory a drawn remote pose is judged against reaches, ms. */
 export const TRUTH_WINDOW_MS = 400;
+/**
+ * How far AFTER the frame that trajectory reaches, ms: spec NR31's dead-reckoning cap
+ * (the future `NET_CONFIG.maxExtrapolateMs`, 100), so a remote drawn ahead within it scores ~0 error.
+ */
+export const TRUTH_LEAD_MS = 100;
 /** A drawn pose that moved less than this since the previous frame is frozen, u. */
 export const HOLD_DRAWN_EPSILON = 0.01;
 /** A true car that moved more than this since the previous frame was really moving, u. */
@@ -50,11 +58,16 @@ export interface PathPoint {
   y: number;
 }
 
-/** Closest point to (x, y) on the polyline through `path` (sorted by t), with its interpolated time. */
+/**
+ * Closest point to (x, y) on the polyline through `path` (sorted by t), with its interpolated time.
+ * On an exact distance tie the NEWER point wins — or, when `preferT` is given, the point whose time
+ * is closest to `preferT` (then the newer of those).
+ */
 export function nearestOnPath(
   path: readonly PathPoint[],
   x: number,
   y: number,
+  preferT?: number,
 ): { distance: number; t: number } {
   let best = { distance: Infinity, t: path[0]?.t ?? 0 };
   for (let i = 0; i < path.length; i++) {
@@ -67,9 +80,16 @@ export function nearestOnPath(
     const px = a.x + dx * u;
     const py = a.y + dy * u;
     const d = Math.hypot(x - px, y - py);
-    // `<=`: on a tie the NEWER point wins, so a stationary car (every point equidistant) resolves to
-    // the newest sample in the window rather than the oldest, which would inflate display delay.
-    if (d <= best.distance) best = { distance: d, t: a.t + (b.t - a.t) * u };
+    const t = a.t + (b.t - a.t) * u;
+    // On a tie the NEWER point wins, so a stationary car (every point equidistant) resolves to the
+    // newest sample in the window rather than the oldest, which would inflate display delay. With a
+    // `preferT` (the frame's time, when the window also reaches past it) the tie goes to the point
+    // nearest that time instead, so a stationary car is not scored as drawn ahead.
+    const closer =
+      d < best.distance ||
+      (d === best.distance &&
+        (preferT === undefined || Math.abs(t - preferT) <= Math.abs(best.t - preferT)));
+    if (closer) best = { distance: d, t };
   }
   return best;
 }
@@ -123,6 +143,28 @@ export function isHold(prevDrawn: Point, drawn: Point, prevTrue: Point, trueNow:
   const drawnMoved = Math.hypot(drawn.x - prevDrawn.x, drawn.y - prevDrawn.y);
   const trueMoved = Math.hypot(trueNow.x - prevTrue.x, trueNow.y - prevTrue.y);
   return drawnMoved < HOLD_DRAWN_EPSILON && trueMoved > HOLD_TRUTH_MIN_MOVE;
+}
+
+/**
+ * Scores one drawn remote pose against that car's true trajectory over
+ * `[now − TRUTH_WINDOW_MS, now + TRUTH_LEAD_MS]`: the distance to the nearest point, and the signed
+ * display delay (frame time − that point's time; negative when drawn ahead). A window reaching past
+ * the last truth sample clamps to it (`truthAt`). An exact tie (a stationary car) resolves to the
+ * point nearest `now`, so only a pose genuinely ahead on the path reads as a negative delay.
+ */
+export function scoreRemoteSample(
+  path: readonly PathPoint[],
+  now: number,
+  x: number,
+  y: number,
+): { distance: number; delayMs: number } {
+  // A knot at `now` itself, so the tie-break toward `now` can land on it exactly.
+  const window = [
+    ...truthWindow(path, now - TRUTH_WINDOW_MS, now),
+    ...truthWindow(path, now, now + TRUTH_LEAD_MS).slice(1),
+  ];
+  const hit = nearestOnPath(window, x, y, now);
+  return { distance: hit.distance, delayMs: now - hit.t };
 }
 
 export const mean = (xs: number[]): number =>
