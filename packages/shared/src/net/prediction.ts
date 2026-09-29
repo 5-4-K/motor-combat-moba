@@ -1,11 +1,7 @@
-import {
-  MS_PER_TICK,
-  NET_CONFIG,
-  stepSim,
-  type InputMessage,
-  type SimBody,
-  type StepContext,
-} from "@motor-combat-moba/shared";
+import { MS_PER_TICK } from "../constants.js";
+import { NET_CONFIG } from "../config/net-config.js";
+import { stepSim, type SimBody, type StepContext } from "../sim/step.js";
+import { type InputMessage } from "./input.js";
 
 /** One input the client has simulated locally but the server has not acknowledged yet. */
 export interface PendingInput {

@@ -1,16 +1,14 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
-import {
-  ACTIVE_ARENA_ID,
-  DEFAULT_CAR_ID,
-  DRIVE_CONFIG,
-  NEUTRAL_MODIFIERS,
-  PlayerStatus,
-  boundsOf,
-  getArena,
-  modifiersFromRows,
-  ramDefenceOf,
-} from "@motor-combat-moba/shared";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
+import { installMode } from "../modes/active.js";
+import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
+import { DEFAULT_CAR_ID, ramDefenceOf } from "../config/car-config.js";
+import { DRIVE_CONFIG } from "../config/drive-config.js";
+import { NEUTRAL_MODIFIERS } from "../sim/status/modifiers.js";
+import { PlayerStatus } from "../constants.js";
+import { boundsOf } from "../arena/bounds.js";
+import { getArena } from "../arena/registry.js";
+import { modifiersFromRows } from "../sim/status/statuses.js";
 import {
   buildStepContext,
   localModifiers,

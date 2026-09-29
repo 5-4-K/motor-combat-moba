@@ -1,18 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
-import {
-  ACTIVE_ARENA_ID,
-  ManeuverKind,
-  MS_PER_TICK,
-  NEUTRAL_MODIFIERS,
-  NET_CONFIG,
-  getArena,
-  ramDefenceOf,
-  stepSim,
-  type InputMessage,
-  type SimBody,
-  type StepContext,
-} from "@motor-combat-moba/shared";
+import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
+import { installMode } from "../modes/active.js";
+import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
+import { ManeuverKind } from "../sim/maneuver.js";
+import { MS_PER_TICK } from "../constants.js";
+import { NEUTRAL_MODIFIERS } from "../sim/status/modifiers.js";
+import { NET_CONFIG } from "../config/net-config.js";
+import { getArena } from "../arena/registry.js";
+import { ramDefenceOf } from "../config/car-config.js";
+import { stepSim, type SimBody, type StepContext } from "../sim/step.js";
+import { type InputMessage } from "./input.js";
 import { PredictionBuffer } from "./prediction.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));

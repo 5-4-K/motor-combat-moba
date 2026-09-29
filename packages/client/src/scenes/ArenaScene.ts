@@ -10,6 +10,11 @@ import type {
   WeaponSlotState,
 } from "@motor-combat-moba/shared";
 import {
+  InterpolationBuffer,
+  PredictionBuffer,
+  blendPose,
+  buildStepContext,
+  localModifiers,
   modifiersFromRows,
   ARENA_IDS,
   camera,
@@ -98,10 +103,6 @@ import {
   type LockState,
 } from "../input/pointer-lock.js";
 import { clearPauseRequest, isPauseInFlight, markPauseRequested } from "../input/pause-request.js";
-import { InterpolationBuffer } from "../net/interpolation.js";
-import { PredictionBuffer } from "../net/prediction.js";
-import { blendPose } from "../net/interpolation.js";
-import { buildStepContext, localModifiers } from "../net/step-context.js";
 import { bindViewRouter } from "../net/view.js";
 import { ScreenOverlay } from "../ui/overlay.js";
 import { renderArenaMismatch } from "../ui/screens/arena-mismatch.js";

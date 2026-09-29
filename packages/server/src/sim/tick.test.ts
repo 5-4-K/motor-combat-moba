@@ -863,7 +863,7 @@ describe("serverTick fire mask reporting", () => {
  *
  * **What decides the coast is elapsed SILENCE, not what the body looks like.** The client produces
  * exactly one input per sim tick and predicts exactly one `stepSim` for it
- * (`packages/client/src/net/prediction.ts` — there is no coast path in that file), so a running
+ * (`packages/shared/src/net/prediction.ts` — there is no coast path in that file), so a running
  * client never steps a tick it did not send an input for. Any extra server step while the client is
  * running is therefore a desync; no extra server step is observable once it has stopped. That is why
  * every case below either waits out `GRACE_TICKS` or deliberately stops short of it, and why they

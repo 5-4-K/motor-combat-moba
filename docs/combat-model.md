@@ -1331,7 +1331,7 @@ instance's `damageClock`, the lock's commit timers all stay off the wire), and t
 invariant 8: `stepSim` reads the modifiers derived from these rows, and the client predicts the local
 car through the same `stepSim`.
 
-The client's whole half is `localModifiers` in `net/step-context.ts`, which reads the rows off the
+The client's whole half is `localModifiers` in shared's `net/step-context.ts`, which reads the rows off the
 schema and hands them to the *same* shared `modifiersFromRows` the server reaches through.
 
 Statuses are cleared outright, not expired, whenever a match ends or is set up: `clearInstances`

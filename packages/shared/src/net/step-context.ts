@@ -1,17 +1,10 @@
-import {
-  NEUTRAL_MODIFIERS,
-  boundsOf,
-  carIdOf,
-  modifiersFromRows,
-  otherCarHulls,
-  ramDefenceOf,
-  type ArenaDef,
-  type ContextEntry,
-  type ContextPlayer,
-  type StatusRow,
-  type Modifiers,
-  type StepContext,
-} from "@motor-combat-moba/shared";
+import { NEUTRAL_MODIFIERS, type Modifiers } from "../sim/status/modifiers.js";
+import { boundsOf } from "../arena/bounds.js";
+import { carIdOf, otherCarHulls, type ContextEntry, type ContextPlayer } from "../sim/context.js";
+import { modifiersFromRows, type StatusRow } from "../sim/status/statuses.js";
+import { ramDefenceOf } from "../config/car-config.js";
+import { type ArenaDef } from "../arena/types.js";
+import { type StepContext } from "../sim/step.js";
 
 export type { ContextPlayer };
 

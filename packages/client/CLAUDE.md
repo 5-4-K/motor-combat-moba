@@ -6,7 +6,7 @@ Phaser 4 render + join. Boot → Join → Lobby → Car select → Arena → Res
 
 `ArenaScene` emits one `InputMessage` per `MS_PER_TICK` (not per frame), predicts the local car through shared `stepSim` via `PredictionBuffer`, reconciles against each state patch, and draws remotes from `InterpolationBuffer`. See [`docs/networking.md`](../../docs/networking.md).
 
-Keep the scene thin: pure, testable logic lives beside it (`net/step-context.ts`, `scenes/car-visual.ts`, `scenes/arena-input.ts`) because `ArenaScene` itself cannot be unit-tested without a browser. Client tests are vitest in the **node** environment — never import Phaser from a test.
+Keep the scene thin: pure, testable logic lives beside it (`packages/shared/src/net/step-context.ts`, `scenes/car-visual.ts`, `scenes/arena-input.ts`) because `ArenaScene` itself cannot be unit-tested without a browser. Client tests are vitest in the **node** environment — never import Phaser from a test.
 
 **The client installs exactly one mode bundle and lets it persist.** A tab holds one room at a time,
 so there is no previous bundle to restore and `net/mode-scope.ts` uses shared's `installMode`, not
@@ -24,7 +24,7 @@ and `maneuver-visual.ts`'s charge outline are the live users).
 `buildStepContext` must keep agreeing with `serverTick`. The parts that decide who is solid and how a hull is sized are the *same* shared functions both call (`carIdOf`, `otherCarHulls` in `@motor-combat-moba/shared`) — change them there, never fork a client copy.
 
 Statuses are the one part of combat the client DOES predict — because `stepSim` reads them.
-`localModifiers` in `net/step-context.ts` reads `PlayerState.statuses` off the schema and hands the
+`localModifiers` in shared's `net/step-context.ts` reads `PlayerState.statuses` off the schema and hands the
 rows to the same shared `modifiersFromRows` the server reaches through; never fork that derivation
 here, for the same reason `carIdOf` and `otherCarHulls` are not forked. The badge strip above the
 weapon slots is derived in `scenes/status-hud.ts` (order, drain fraction, seconds, strip layout) and

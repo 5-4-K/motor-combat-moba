@@ -115,7 +115,7 @@ export interface TickResult {
  * collision checks.
  *
  * `carIdOf` and `otherCarHulls` live in `@motor-combat-moba/shared` because the client's prediction
- * assembles the *same* `StepContext` (see `buildStepContext` in the client's `net/step-context.ts`).
+ * assembles the *same* `StepContext` (see `buildStepContext` in shared's `net/step-context.ts`).
  * `stepSim` is the single lockstep and this is its input, so anything that changes how a hull is
  * sized or which players are solid must change for both sides at once. Edit them there, not here.
  *
@@ -315,7 +315,7 @@ function silenceGraceTicks(dt: number): number {
  *
  * **The requirement was never a definition of "knock"; it is lockstep with the client, and the
  * client settles it.** `ArenaScene.sendInputTick` produces exactly one input per sim tick and calls
- * `PredictionBuffer.predict` once for it (`packages/client/src/net/prediction.ts`); there is no
+ * `PredictionBuffer.predict` once for it (`packages/shared/src/net/prediction.ts`); there is no
  * coast path in that file at all. **A running client never steps a tick it did not send an input
  * for.** So while the client is running, ANY extra server step is a desync — whatever the body looks
  * like — and once the client has stopped producing inputs, NO extra server step is observable to it.

@@ -1,4 +1,5 @@
-import { NET_CONFIG, type SimBody } from "@motor-combat-moba/shared";
+import { NET_CONFIG } from "../config/net-config.js";
+import { type SimBody } from "../sim/step.js";
 
 interface Snapshot {
   time: number;
