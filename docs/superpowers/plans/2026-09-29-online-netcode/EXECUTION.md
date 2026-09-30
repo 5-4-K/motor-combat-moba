@@ -21,113 +21,59 @@ phase's own acceptance lines.
 | A — Colyseus 0.18, schema 5, Node 22, monitor gate | [`A-colyseus-upgrade.md`](A-colyseus-upgrade.md) | NR50, NR53 | Landed | `playtest:lan` smoke passed in A2; lockfile on a single schema 5.0.34 |
 | B — netsim harness and today's baseline | [`B-netsim-harness.md`](B-netsim-harness.md) | NR57–NR59 | Landed | Baseline recorded below (legacy client, 60 s, six cars, mean of seeds 1–3) |
 | C — 60 Hz and per-tick snapshots | [`C-sixty-hz.md`](C-sixty-hz.md) | NR11–NR16 | Landed | 60 Hz, one snapshot per tick; handling unchanged in closed form (radius 89.9 u, 90% top speed 1.79/2.21/2.59 s), slip −1.1 to −1.6°; TTK ±0.1 s; planner bench over its gate (see In flight) |
-| D — time and inputs | [`D-time-and-inputs.md`](D-time-and-inputs.md) | NR17–NR28, NR54–NR56 | Not started | |
+| D — time and inputs | [`D-time-and-inputs.md`](D-time-and-inputs.md) | NR17–NR28, NR54–NR56 | In progress — D1–D3 landed; D4 parked on local `wip/d4-input-switch` | see In flight |
 | E — remotes and prediction | [`E-remotes.md`](E-remotes.md) | NR29–NR34 | Not started | |
 | F — combat under latency | [`F-combat.md`](F-combat.md) | NR35–NR41 | Not started | |
 | G — interest management, docs | [`G-interest.md`](G-interest.md) | NR42–NR49, NR68 | Not started | |
 
 ## In flight
 
-**Phase C landed; Phase D, Task 1 (D1) is next** — [`D-time-and-inputs.md`](D-time-and-inputs.md),
-`InputFrame`, packet validation and `TickInputBuffer`.
+**CHECKPOINT (2026-09-30, stopped at the user's request).** `development/main` is at D3
+(`32352125`), clean and green except the known failures (two G12 bot tests, planner bench P33).
 
-Phase C landed 2026-09-29: the sim runs at **60 Hz** (`TICK_RATE_HZ`) and every room broadcasts
-**one snapshot per snapshot tick** (`SNAPSHOT_RATE_HZ` 60, `patchRate = null`, `broadcastPatch()` at
-the end of each tick `isSnapshotTick` names, `rooms/snapshot-cadence.ts`); `DEFAULT_PATCH_RATE_HZ`
-is deleted and hard invariant 5 is reworded (NR11–NR13). The netsim harness sends a snapshot at the
-end of each snapshot tick exactly as the rooms do. No drive-model rule changed (NR15); what the step
-size moved, measured:
+Landed in Phase D, each reviewed:
+- **D1** `tick-input.ts`: `InputFrame`, hardened `isInputPacket` (fire mask bounded to the wire mask,
+  whitelisted copies, sparse arrays rejected) and `TickInputBuffer`.
+- **D2** `ClockSync`, `InputScheduler`, `TickPrediction`. After four review rounds ClockSync is a
+  weighted offset+drift fit held to an acceptance envelope (≤ 25 ms error, zero snaps across
+  jitter 0–30 ms × drift ±1 % × spikes 0–20 %; route steps ≤ 1 snap; 0 late inputs at 60/144 fps).
+  Spec NR18/NR20/NR21 were rewritten to match. `NET_CONFIG.clientMaxCatchUpTicks: 8` is the client
+  knob (the plan's `maxCatchUpTicks` name belongs to the server stepper, 5). `ClockSync.rttMs()`
+  is ≈ min RTT, not a median — never show it as "ping".
+- **D3** time-sync (`MSG_TIME`) and server-measured RTT (`MSG_PING`) on every room; pongs describe
+  the steady tick grid (`markTick(tick, wallNow − stepper.remainderMs)`).
 
-- **Handling (NR15).** Every closed-form figure in `docs/turn-tuning.md` is rate-independent and
-  did not move — turn radius 89.9 u for all three shipped chassis at top speed, time to 90% of top
-  speed Mirage 1.79 s / Bullseye 2.21 s / Bastion 2.59 s, before and after. Only the per-tick rows
-  halved (turn per tick Mirage 0.1052 → 0.0526 rad, Bullseye 0.0883 → 0.0441, Bastion
-  0.0756 → 0.0378; spin kept per reeling tick 0.9355 → 0.9672). Stepped through the real
-  `stepDrive`, dt 1/30 → 1/60: measured time to 90% Mirage 1.800 → 1.800 s, Bullseye 2.233 →
-  2.217 s (tick quantization), Bastion 2.600 → 2.600 s; the settled full-lock circle is unchanged
-  (Mirage 39.75 → 39.74 u, Bullseye 39.39 → 39.39, Bastion 38.57 → 38.57, at ~125 / 107 / 95 u/s);
-  the settled full-lock slip angle drops 1.1–1.6° (Mirage 39.5 → 37.9°, Bullseye 35.8 → 34.5°,
-  Bastion 32.5 → 31.3°) — the discretization gap above the closed form roughly halving. Velocity
-  at a given wall-clock time is identical at both rates (the command/drag integrator is closed
-  form); positions differ by a fraction of a unit. `golden.test.ts` keeps its dt 1/30 block as the
-  rate-independent integrator pin and gains a dt 1/60 block pinning the shipped rate.
-- **TTK (`npm run ttk`).** Moves by tick rounding only, ≤ 0.1 s: Mirage→Bullseye 3.7 → 3.6 s,
-  Bastion→Bullseye 6.7 → 6.6 s, Bastion→Bastion-class 11.5 → 11.4 s (weapons-only Bastion→Bullseye
-  10.7 → 10.6 s); every other cell unchanged.
-- **Planner bench (NR16, P33).** Hard's horizon is ms-authored, so it doubles in ticks (K 22 → 44)
-  while its replan cadence stays 15 Hz (`recomputeMs` 67 → 2 → 4 ticks). Per plan: best 0.326–0.338
-  ms at 30 Hz → 0.400–0.415 ms at 60 Hz (~1.2x, not 2x); gated median 863–1006 → 1069–1368 drive
-  ticks/plan against the gate of 1027, so **`planner.bench.test.ts` now fails its gate — a KNOWN,
-  MEASURED FAILURE, put to the user**: 0.40 vs 0.33 ms/plan, six hard bots ~36–37 ms of CPU per
-  simulated second against the 30 ms budget (was ~30). Budget not raised and planner not changed
-  (P33's own remedy is "K and `planDepth` come down").
-- **Bot-tuner cases, all passing at 60 Hz** (read by temporary logging, not committed). OFF-AXIS
-  (`controller.test.ts`): 120 fires, mean offset **0.0414** (bar < 0.2; fires bar > 55). P49 kill
-  (`tiers.test.ts`): killed at tick 399 = **6.65 s** against a cap of 44.7 s. P49 press rate: **7**
-  presses against a bar of 3.59. P50 hit rate: easy 0.40, medium **0.833**, hard **1.00** — no longer
-  inverted. These duels still run LITERAL tick counts (300 / 600 / 2400), which are half their old
-  wall-clock span at 60 Hz; left as-is, a `bot-tuner` question. The two G12 failures in
-  `controller.test.ts` still fail, unchanged.
-- **Easy's K=0 plan (R-P6).** The floor on how far a plan rolls is now wall clock,
-  `BRAIN_CONSTANTS.minRolledHorizonMs` 33 (1 tick at 30 Hz, 2 at 60 Hz). `planner.test.ts`'s
-  "cornered differs from open field" case had broken on its REFERENCE scene, not on the cornered
-  bot (which picks {-1,-1} at both rates): the old open-field pose faced directly away from the
-  target, an exact left/right tie the step size decided. It is now an asymmetric pose (400, 220,
-  facing +x) whose pick {+1,-1} leads the corner's {-1,-1} by 4.25 (30 Hz) / 3.47 (60 Hz); the
-  test passes at both rates.
-- **Input-count knobs.** `NET_CONFIG.maxInputsPerTick` 5 -> 10 and `pendingInputCap` 24 -> 48, so
-  they cover the same wall-clock time as at 30 Hz (Phase D deletes both). Corrected premise (final
-  review): catch-up coverage in ms is indeed unchanged, but `maxInputsPerTick` is a per-TICK cap and
-  there are now twice as many ticks, so the per-second flood ceiling doubled — a flooder can apply up
-  to 10x an honest car's steps per second where it was 5x. Accepted because the game is LAN-only and
-  Phase D deletes the knob.
-- **Server tick rate held exactly (final review I1).** `setSimulationInterval(cb, 1000 / 60)` ran
-  ~3 % fast (measured 61.73 ticks/s): Node truncates the 16.67 ms delay to 16 ms. Every room now
-  drives its tick through `rooms/fixed-step.ts`'s `FixedStepper`, which banks Colyseus's measured
-  frame delta and runs one tick per whole `MS_PER_TICK`, at most `NET_CONFIG.maxCatchUpTicks` (5) per
-  frame, dropping a larger backlog rather than spiralling. Phase D (NR17–NR28) assumes the server
-  ticks at exactly `TICK_RATE_HZ`; this is what makes that true. The `TICK_RATE_HZ` env override
-  (`getTickRateHz`, the release `.env` line) is removed — a client predicts at its own built rate, so
-  the override could only ever desync.
-- **Reconcile ease rescaled (final review I2).** `reconcileEaseRate` 0.25 is now authored per
-  `reconcileEaseReferenceMs` (50 ms, one 20 Hz snapshot) and applied per snapshot through
-  `reconcileEasePerSnapshot()` = `1 - 0.75 ** (16.67 / 50)` ≈ 0.0914, so three 60 Hz snapshots ease
-  exactly what one 20 Hz snapshot did; unscaled, corrections had landed three times as fast.
-- **Bot timing notes (final review, not acted on).** The humanize layer's idle fidget is rolled per
-  tick (`humanize.ts`), so at 60 Hz flicks are twice as frequent and half as long — a `bot-tuner`
-  question. NR16's measurement covers the planner only: `solve()`'s march, the physics predictor's
-  horizon, `perceive` and `stepAimError` also run roughly twice as often per simulated second, and
-  their CPU cost is unmeasured.
-- **Netsim, legacy client at 60 Hz** — see the note under the baseline table below.
+**D4 (the one-input-per-tick switch) is parked on the LOCAL branch `wip/d4-input-switch`
+(`12d974d7`, not pushed, not green).** Brief steps 1–5 are coded; shared/client suites, the server
+rooms/sim/net subset and netsim pass; `stepsPerTickMax` reads 1 on every link. Still to do before it
+may land (it lands as one reviewed set, never piecemeal):
+1. root `npm run build`, `npm run typecheck`, full server suite (~11 min), `npm run test:scripts`;
+2. the live `npm run playtest:lan` smoke;
+3. task review, then squash into the real D4 commit(s) and push.
+Known from the WIP: net80 repeated-input ticks 3.93 % (target ≤ 2 %, loss-driven; slack tuning is
+D6's); lan input-to-server 34.0 ms (on the limit); playtest probe W6's input-flood arm no longer
+exercises its exploit (one frame per tick now) and `common/collision`'s silent-coast scenarios cite a
+deleted knob — recommend `npm run playtest -- --scope=all` after D4.
+If the container was reclaimed and the branch is gone, redo D4 from its brief.
 
-**Every playtest probe now measures a 60 Hz sim; run `npm run playtest -- --scope=all`.** Several
-probes author durations as literal tick counts (e.g. `weapons.ts`'s `ticks: 90`, now 1.5 s rather
-than 3 s) and `lan.ts` states "20 Hz against a 30 Hz sim" as a fact; they compile and were not
-edited (`prediction.ts` was compile-fixed to `SNAPSHOT_RATE_HZ`).
-
-Phase B landed 2026-09-29: the netsim harness
-(`packages/server/src/netsim/`) runs the real tick pipeline against a headless model of today's
-client, and the baseline is recorded below. Phase A landed 2026-09-29 (started after the user's go-ahead,
-"start implementation with sdd"). The six decisions listed at the pause were accepted as written:
-- Server FOV filtering uses `@view()` field tags on `PlayerState`, not a schema split (NR42).
-- Hard invariant 5 reworded (NR13); invariant 8 gains a `@view` clause (G6).
-- Bot timing authored in ms; `BOT_BRAIN_VERSION` 6.3.0 (C1).
-- 60 Hz handling drift measured and reported in C3.
-- D4 is one atomic commit.
-- Baseline before A1: shared 1298 passed (6 skipped), server 833 passed / 2 failed (G12), client 1368 passed (5 skipped).
-- All work lands directly on `development/main`.
-
-Known gap until Phase D's `PROTOCOL_VERSION`: a client built on schema 2 joining a schema-5 server
-is not refused cleanly. Likewise, a client built at 30 Hz joining a 60 Hz server (or the reverse) is
-not refused at all — it predicts at its own built `TICK_RATE_HZ` against a server stepping at another,
-and nothing checks the two agree until `PROTOCOL_VERSION` lands in Phase D.
+**Queued, in order:**
+- **User decision (2026-09-30): raise the P33 planner budget to 37 ms** of CPU per simulated second
+  (`BUDGET_MS` 30/90 → 37/90 in `planner.bench.test.ts`), re-measure its `MEASURED_RATIO` at 60 Hz
+  per the file's own procedure, update the comments/docs citing 30 ms.
+- **D5 hardening**, plus carried rulings: ClockSync must not trust one spiked pong after a ≥ 6 s
+  pong gap; NR21's slack target gains a spread term (≈ mean + 1·`slackStdTicks()`) so a jittery
+  input path stops landing late; `onPingEcho` accepts only server-issued stamps (server RTT will feed
+  F1's shot-compensation cap); move `ServerError(4003)` off `CloseCode.FAILED_TO_RECONNECT`; restrict
+  matchmaker CORS to `CLIENT_ORIGIN` when set.
+- **D6** measure and document.
+- Then phases E, F, G.
 
 Tooling notes for the executor:
 - Plan task headings are numeric (`### Task 1 (A1): …`) so `task-brief PLAN_FILE N` finds them;
-  each phase file is its own SDD plan with its own workspace under `.superpowers/sdd/<phase>/`.
-- Phase A pre-flight ruling: if `npm run playtest:lan` (A2 Step 6 smoke) does not exit on its own,
-  the implementer judges pass from its log (both clients joined and received state).
-- Two failures in `packages/server/src/bot/brain/controller.test.ts` (G12) are pre-existing.
+  each phase file is its own SDD plan with its own workspace under `.superpowers/sdd/<phase>/`
+  (git-ignored — the D ledger and reports live there and are lost if the container is reclaimed;
+  this block is the durable record).
+- The full server suite takes ~11 min at 60 Hz.
 
 ## Rules that bite mid-execution
 
