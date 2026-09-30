@@ -24,7 +24,7 @@ interface Sample {
  * clocks' relative drift, clamped to the slew rate; with fewer than 3 samples it is 0 (the mean).
  * Fitting the drift is what keeps the estimate current when the chosen low-RTT samples are old.
  */
-function fitAt(set: Sample[], nowMs: number): number {
+function fitAt(set: Sample[], nowMs: number): { value: number; slope: number } {
   const n = set.length;
   const meanAt = set.reduce((s, p) => s + p.at, 0) / n;
   const meanOff = set.reduce((s, p) => s + p.offset, 0) / n;
@@ -39,12 +39,16 @@ function fitAt(set: Sample[], nowMs: number): number {
     const cap = NET_CONFIG.clockSlewMsPerSec / 1000;
     if (den > 0) slope = Math.max(-cap, Math.min(cap, num / den));
   }
-  return meanOff + slope * (nowMs - meanAt);
+  if (n < 3) {
+    const o = set.map((p) => p.offset).sort((a, b) => a - b);
+    return { value: o[Math.floor(o.length / 2)]!, slope: 0 };
+  }
+  return { value: meanOff + slope * (nowMs - meanAt), slope };
 }
 
 /**
  * The client's estimate of the server's clock (NR18). Each pong gives one offset sample; the estimate
- * is a least-squares fit of offset and drift over the lowest-RTT half of the last 16, evaluated now, so one delayed pong cannot drag it and old samples do not leave it stale.
+ * is a least-squares fit of offset and drift over the lowest-RTT half of the last 16 (trimmed to RTTs near the minimum), evaluated now, so one delayed pong cannot drag it and old samples do not leave it stale.
  * Ties in RTT go to the newest sample. After the first sample the offset slews at most
  * `NET_CONFIG.clockSlewMsPerSec` (a RATE, times the time since the previous pong, so it tracks a 1 %
  * clock drift at any ping interval) and the tick estimate never jumps — unless it is more than 50 ms
@@ -54,6 +58,7 @@ function fitAt(set: Sample[], nowMs: number): number {
 export class ClockSync {
   private samples: Sample[] = [];
   private offsetMs = Number.NaN;
+  private slopeMsPerMs = 0;
   private lastPongAt = Number.NaN;
 
   onPong(nowMs: number, pong: TimePong): void {
@@ -67,7 +72,14 @@ export class ClockSync {
       .sort((a, b) => a.s.rtt - b.s.rtt || b.i - a.i)
       .slice(0, Math.max(1, Math.floor(this.samples.length / 2)))
       .map((e) => e.s);
-    const target = fitAt(best, nowMs);
+    // Trim spikes the half still contains: keep only RTTs near the minimum, so a bufferbloated
+    // window cannot pull the fit. The band is the larger of 10 ms and half the window's median excess.
+    const rtts = this.samples.map((s) => s.rtt).sort((a, b) => a - b);
+    const minRtt = best[0]!.rtt;
+    const band = Math.max(10, 0.5 * (rtts[Math.floor(rtts.length / 2)]! - minRtt));
+    const fit = fitAt(best.filter((s) => s.rtt <= minRtt + band), nowMs);
+    const target = fit.value;
+    this.slopeMsPerMs = fit.slope;
     if (Number.isNaN(this.offsetMs) || Math.abs(target - this.offsetMs) > SNAP_MS) this.offsetMs = target;
     else {
       const slew = (NET_CONFIG.clockSlewMsPerSec * Math.max(0, nowMs - this.lastPongAt)) / 1000;
@@ -81,7 +93,8 @@ export class ClockSync {
   }
 
   serverTick(nowMs: number): number {
-    return (nowMs + this.offsetMs) / MS_PER_TICK;
+    // Between pongs the estimate keeps drifting at the fitted rate instead of lagging by up to a ping interval.
+    return (nowMs + this.offsetMs + this.slopeMsPerMs * Math.max(0, nowMs - this.lastPongAt)) / MS_PER_TICK;
   }
 
   rttMs(): number {

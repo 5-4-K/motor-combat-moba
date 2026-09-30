@@ -102,7 +102,7 @@ today's.
 - **NR17 One authoritative clock.** Every tick, every on-field car steps exactly once, together, with
   the input its owner sent *for that tick*. `serverTick`'s per-player drain loop is replaced.
 - **NR18 Clock sync.** `MSG_TIME` (client → server `{ c: clientMs }`, server → client
-  `{ c, t: serverTick, p: msIntoTick }`). The client keeps the last 16 samples and fits offset and drift over the lowest-RTT half (RTT ties go to the newest sample) and evaluates the fit now, so a delayed pong cannot drag the
+  `{ c, t: serverTick, p: msIntoTick }`). The client keeps the last 16 samples and fits offset and drift over the lowest-RTT half (RTT ties go to the newest sample, and samples more than max(10 ms, half the window's median excess) above the minimum RTT are trimmed) and evaluates the fit now, continuing at the fitted drift between pongs, so a delayed pong cannot drag the
   estimate. The estimate slews at a RATE, `NET_CONFIG.clockSlewMsPerSec` (20 ms/s) times the time since
   the previous pong, so it tracks a 1 % clock drift at any ping interval; an error over 50 ms snaps. Sent every 500 ms,
   and every 100 ms for the first second after joining.
@@ -328,3 +328,4 @@ Each stage merges on its own, green, with its measured numbers recorded in the p
 
 - 2026-09-29 (D2 fix round): NR18 slew is a rate (20 ms/s) with a recency tie-break; NR20 lead clamped to `maxInputLeadMs - 1 tick`; NR21 integrates per new sample, gain 0.03, ±0.25 deadband.
 - 2026-09-29 (D2 fix round 2): NR18 fits offset and drift (least squares, slope clamped to the slew rate) over the lowest-RTT half, since a median of old low-RTT samples leaves a 1 % drift 40-70 ms stale under jitter.
+- 2026-09-29 (D2 fix round 3): NR18 trims RTT outliers from the fit (robust to 20 % spiked legs) and extrapolates at the fitted drift between pongs.

@@ -70,10 +70,10 @@ function rng(seed: number): () => number {
 }
 
 /** Pongs whose two legs each carry +-5 ms of jitter, with a 250 ms spike on 1 in 20. */
-function jitteredRun(rate: number, seconds: number, seed: number): { maxErr: number; snaps: number } {
+function jitteredRun(rate: number, seconds: number, seed: number, spike = 1 / 20): { maxErr: number; snaps: number } {
   const clock = new ClockSync();
   const rand = rng(seed);
-  const leg = () => 40 + (rand() * 10 - 5) + (rand() < 1 / 20 ? 250 : 0);
+  const leg = () => 40 + (rand() * 10 - 5) + (rand() < spike ? 250 : 0);
   const interval = NET_CONFIG.timeSyncIntervalMs;
   let maxErr = 0;
   let snaps = 0;
@@ -107,5 +107,13 @@ describe("ClockSync with RTT jitter", () => {
 
   it("holds a steady clock within 8 ms through the same jitter", () => {
     for (const seed of [1, 2, 3]) expect(jitteredRun(1, 120, seed).maxErr).toBeLessThan(8);
+  });
+
+  it.each([0.99, 1, 1.01])("survives spikes on 20 %% of legs at drift %s (max error < 25 ms, no snaps)", (rate) => {
+    for (const seed of [1, 2, 3]) {
+      const r = jitteredRun(rate, 120, seed, 0.2);
+      expect(r.maxErr).toBeLessThan(25);
+      expect(r.snaps).toBe(0);
+    }
   });
 });
