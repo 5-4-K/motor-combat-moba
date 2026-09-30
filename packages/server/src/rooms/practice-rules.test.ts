@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
-import { activeCarIds, type InputMessage } from "@motor-combat-moba/shared";
+import { activeCarIds, type InputKeys } from "@motor-combat-moba/shared";
 import {
   isActiveInput,
   isIdleWarningDue,
@@ -12,7 +12,7 @@ import {
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
-const neutral: InputMessage = { seq: 1, steer: 0, throttle: 0, fireSlots: 0 };
+const neutral: InputKeys = { steer: 0, throttle: 0, fireSlots: 0 };
 
 describe("shouldRefusePractice", () => {
   it("admits a join while under the cap", () => {
@@ -80,7 +80,7 @@ describe("isPracticeIdle", () => {
   });
 });
 
-// The client sends one InputMessage per sim tick unconditionally (30/s), whether or not the player
+// The client sends one input frame per sim tick unconditionally, whether or not the player
 // touched anything — so "an input arrived" proves nothing about presence. Only a non-neutral one does.
 describe("isActiveInput", () => {
   it("is not active on the all-neutral input a parked car sends every tick", () => {

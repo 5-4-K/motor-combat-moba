@@ -1,5 +1,5 @@
 import type { ChassisDrive } from "../config/car-config.js";
-import type { InputMessage } from "../net/input.js";
+import type { InputKeys } from "../net/tick-input.js";
 import { drive, ram } from "../modes/active.js";
 import { ManeuverKind, NO_MANEUVER } from "./maneuver.js";
 import type { Modifiers } from "./status/modifiers.js";
@@ -27,7 +27,7 @@ import { forwardOf, lateralOf, toWorld } from "./velocity.js";
  */
 export function stepDrive(
   body: SimBody,
-  input: InputMessage,
+  input: InputKeys,
   dt: number,
   chassis: ChassisDrive,
   mods: Readonly<Modifiers>,
@@ -89,7 +89,7 @@ export function stepDrive(
 /** Throttle, brake and reverse as one signed acceleration. Unity's `DrivePhysics.DriveForce`. */
 function engineCommandOf(
   forward: number,
-  throttle: InputMessage["throttle"],
+  throttle: InputKeys["throttle"],
   chassis: ChassisDrive,
   mods: Readonly<Modifiers>,
 ): number {
@@ -176,7 +176,7 @@ function nextSpinOf(angVel: number, chassis: ChassisDrive): number {
  * Exponential decay never reaches zero, so a car with no input would creep forever a hair above
  * rest. Only with the throttle neutral: a car held against a wall is not at rest, it is pushing.
  */
-function atRest(forward: number, lateral: number, throttle: InputMessage["throttle"]): boolean {
+function atRest(forward: number, lateral: number, throttle: InputKeys["throttle"]): boolean {
   return throttle === 0 && Math.hypot(forward, lateral) < drive().stopEpsilon;
 }
 
@@ -268,7 +268,7 @@ function stepDash(body: SimBody, dt: number, chassis: ChassisDrive, mods: Readon
  */
 function stepHold(
   body: SimBody,
-  input: InputMessage,
+  input: InputKeys,
   dt: number,
   chassis: ChassisDrive,
   mods: Readonly<Modifiers>,

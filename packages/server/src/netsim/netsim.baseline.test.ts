@@ -15,7 +15,7 @@ const BASELINE_SEEDS = [1, 2, 3] as const;
 /** Three 60 s six-car runs; each takes a few seconds, so this is generous. */
 const BASELINE_TIMEOUT_MS = 180_000;
 
-const title = "netsim baseline — legacy client, 60 s, six cars, seeds 1–3";
+const title = "netsim baseline — tick client, 60 s, six cars, seeds 1–3";
 
 describe.skipIf(!process.env.NETSIM_BASELINE)(title, () => {
   for (const link of [LINKS.lan, LINKS.net80, LINKS.net150]) {
@@ -25,7 +25,7 @@ describe.skipIf(!process.env.NETSIM_BASELINE)(title, () => {
         const runs = BASELINE_SEEDS.map((seed) => {
           const run = runNetsimDetailed({
             link,
-            model: "legacy",
+            model: "tick",
             seconds: BASELINE_SECONDS,
             seed,
             cars: BASELINE_CARS,

@@ -4,7 +4,7 @@ import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import type { ChassisDrive } from "../config/car-config.js";
 import { DRIVE_CONFIG, perTickDecay } from "../config/drive-config.js";
 import { MS_PER_TICK, TICK_RATE_HZ } from "../constants.js";
-import type { InputMessage } from "../net/input.js";
+import type { InputKeys } from "../net/tick-input.js";
 import { dashSubstepCount, dashTranslation, isDashing, stepDrive } from "./drive.js";
 import { ManeuverKind } from "./maneuver.js";
 import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
@@ -55,8 +55,8 @@ const GOLDEN_CHASSIS: ChassisDrive = Object.freeze({
  */
 const COMMAND_FACTOR = (1 - GOLDEN_CHASSIS.dragPerTick) / GOLDEN_CHASSIS.dragRate;
 
-function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputMessage {
-  return { seq: 0, steer, throttle, fireSlots: 0 };
+function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputKeys {
+  return { steer, throttle, fireSlots: 0 };
 }
 
 function rest(): SimBody {
@@ -74,7 +74,7 @@ function rest(): SimBody {
   };
 }
 
-function drive(body: SimBody, msg: InputMessage, ticks: number): SimBody {
+function drive(body: SimBody, msg: InputKeys, ticks: number): SimBody {
   let next = body;
   for (let i = 0; i < ticks; i++) {
     next = stepDrive(next, msg, DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
@@ -253,7 +253,7 @@ describe("maneuvers (spec S3 / O13)", () => {
     };
     const out = stepDrive(
       dashing,
-      { seq: 1, steer: 1, throttle: -1, fireSlots: 0 },
+      { steer: 1, throttle: -1, fireSlots: 0 },
       DT,
       GOLDEN_CHASSIS,
       NEUTRAL_MODIFIERS,
@@ -280,7 +280,7 @@ describe("maneuvers (spec S3 / O13)", () => {
   it("HOLD pins the car and steers at the turn rate (there is no separate at-rest rate any more)", () => {
     const restingBody = rest();
     const held: SimBody = { ...restingBody, vx: 200, vy: 0, maneuver: ManeuverKind.HOLD, maneuverTicksLeft: 10 };
-    const out = stepDrive(held, { seq: 1, steer: 1, throttle: 1, fireSlots: 0 }, DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
+    const out = stepDrive(held, { steer: 1, throttle: 1, fireSlots: 0 }, DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(out.x).toBeCloseTo(restingBody.x); // throttle dead
     expect(fwd(out)).toBe(0);
     expect(out.angle).toBeCloseTo(restingBody.angle + GOLDEN_CHASSIS.turnRate * DT);

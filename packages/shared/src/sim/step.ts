@@ -1,6 +1,6 @@
 import { driveOf } from "../config/car-config.js";
 import type { CarId } from "../config/types.js";
-import type { InputMessage } from "../net/input.js";
+import type { InputKeys } from "../net/tick-input.js";
 import { resolveWorld, type Aabb, type Bounds, type CarObstacle } from "./collide.js";
 import { dashSubstepCount, dashTranslation, isDashing, stepDrive } from "./drive.js";
 import type { Modifiers } from "./status/modifiers.js";
@@ -93,7 +93,7 @@ export interface StepContext {
  * tick and a stationary car touched it not at all. The reconciliation-not-replay answer above still
  * holds; it is simply exercised more often now.
  */
-export function stepSim(body: SimBody, input: InputMessage, dt: number, ctx: StepContext): SimBody {
+export function stepSim(body: SimBody, input: InputKeys, dt: number, ctx: StepContext): SimBody {
   const driven = stepDrive(body, input, dt, driveOf(ctx.carId), ctx.modifiers);
   if (!isDashing(body)) {
     return resolveWorld(driven, ctx.others, ctx.obstacles, ctx.bounds, ctx.selfRamDefence);

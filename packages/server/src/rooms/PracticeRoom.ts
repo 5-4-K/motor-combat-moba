@@ -3,9 +3,10 @@ import {
   BOT_SESSION_ID,
   GameMode,
   INPUT_MESSAGE,
+  isInputPacket,
+  newTickInputBuffer,
   MSG_PRACTICE_IDLE_WARNING,
   MSG_PRACTICE_PAUSE,
-  NET_CONFIG,
   PLAYGROUND_ROOM_NAME,
   PRACTICE_CONFIG,
   PRACTICE_FULL_CLOSE_CODE,
@@ -31,12 +32,13 @@ import {
   type CarId,
   type CombatEvents,
   type FiredEvent,
-  type InputMessage,
+  type InputPacket,
+  type TickInputBuffer,
   type ModeConfig,
   type PracticeSetup,
 } from "@motor-combat-moba/shared";
 import { getMaxPracticeRooms, getSimulatedLatency } from "../mode.js";
-import { isInputMessage } from "../net/input-message.js";
+import { offerForTick } from "../net/offer-input.js";
 import { withSimulatedLatency } from "../net/latency-injector.js";
 import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
@@ -123,10 +125,8 @@ export function newPracticeState(): PracticeState {
 export class PracticeRoom extends Room<{ state: PracticeState }> {
   maxClients = 1;
 
-  private readonly inputQueues = new Map<string, InputMessage[]>();
+  private readonly inputBuffers = new Map<string, TickInputBuffer>();
   private readonly prevFireMasks = new Map<string, number>();
-  /** Consecutive empty-queue ticks per session; see `PipelineCtx.silentTicks`. */
-  private readonly silentTicks = new Map<string, number>();
   private readonly matchRoster = new Set<string>();
   private readonly phaseCaps = new Map<string, number>();
   private readonly combat: CombatMemory = newCombatMemory();
@@ -151,12 +151,6 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
   private previousTickFires: readonly FiredEvent[] = [];
 
   private humanSessionId = "";
-  /**
-   * The bot's input `seq`. Monotonic across the room rather than per car, which is all `serverTick`
-   * needs — it sorts a batch by seq and acks the highest, and never compares one player's seq to
-   * another's.
-   */
-  private botSeq = 0;
   /** The bot, as an instance (B10). Built once: practice has no mid-session reconfiguration. */
   private bot: BotController | undefined;
   private readonly botRng = makeRng(deriveSeed(1, "practice-bot"));
@@ -253,37 +247,35 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
       // makes a feel test lie — but practice takes the opposite decision for the reason it exists:
       // strict mirror means practice must feel like the arena on the same deploy. The knobs are off in
       // a release build, where `withSimulatedLatency` hands back the deliver function unwrapped.
-      const enqueue = withSimulatedLatency<{ sessionId: string; msg: InputMessage }>(
+      const offer = withSimulatedLatency<{ sessionId: string; msg: InputPacket }>(
         ({ sessionId, msg }) => {
-          const q = this.inputQueues.get(sessionId);
-          // Capped, not just eventually drained (review F3): `tick()` returns before `serverTick` ever
-          // runs while `state.paused` is true, so nothing reads this queue for as long as pause holds.
-          // The shipped client stops sending on pause, so a well-behaved session never gets close to
-          // this, but this codebase does not trust a client to shape its own inputs, and a client that
-          // keeps sending through a HELD pause would otherwise grow it without bound for as long as the
-          // pause lasts. Clearing once on the pause->true edge would not close that — the same client
-          // could just keep sending afterward — so the bound is on every push instead. Reuses
-          // `NET_CONFIG.pendingInputCap`, the same "an honest client has this many inputs outstanding"
-          // figure the client already holds itself to on its own prediction buffer.
-          if (q && q.length < NET_CONFIG.pendingInputCap) q.push(msg);
+          // Bounded without a cap of its own (review F3's concern): `tick()` returns before
+          // `serverTick` runs while `state.paused` holds, so nothing takes from this buffer then, but
+          // `state.tick` is frozen too and the buffer drops every frame stamped further than
+          // `maxInputLeadMs` past it. A client that keeps sending through a held pause fills at most
+          // that window and never grows it.
+          const buffer = this.inputBuffers.get(sessionId);
+          if (!buffer) return;
+          for (const frame of msg.inputs) buffer.offer(frame, this.state.tick);
         },
         getSimulatedLatency(),
       );
 
       this.onMessage(INPUT_MESSAGE, (client, msg: unknown) =>
         scoped(this.modeConfig, () => {
-          if (!isInputMessage(msg)) return;
-          // Gated on `isActiveInput`, not on arrival: `ArenaScene.sendInputTick` sends one message a
-          // tick regardless of whether the player touched anything, so a neutral input is not evidence
-          // of presence and must not reset the idle clock — that is the whole bug I1 fixes. Stamped
+          if (!isInputPacket(msg)) return;
+          // Gated on `isActiveInput`, not on arrival: the client sends a packet every tick whether or
+          // not the player touched anything, so a neutral input is not evidence of presence and must
+          // not reset the idle clock — that is the whole bug I1 fixes. Read off the NEWEST frame: the
+          // older ones are redundancy (NR24) and were already judged when they were newest. Stamped
           // BEFORE the latency injector, so injected lag can never make a live player look idle.
-          if (isActiveInput(msg)) {
+          if (isActiveInput(msg.inputs[msg.inputs.length - 1]!)) {
             this.lastInputAtMs = Date.now();
             this.warnedOfIdle = false;
           }
-          // Enqueued unconditionally, active or not: the sim needs every tick's input to drive
+          // Offered unconditionally, active or not: the sim needs every tick's input to drive
           // correctly, including "hold nothing". Only the idle stamp above is conditional.
-          enqueue({ sessionId: client.sessionId, msg });
+          offer({ sessionId: client.sessionId, msg });
         }),
       );
 
@@ -403,9 +395,8 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
     player.status = PlayerStatus.IN_MATCH;
     player.alive = true;
     this.state.players.set(sessionId, player);
-    this.inputQueues.set(sessionId, []);
+    this.inputBuffers.set(sessionId, newTickInputBuffer());
     this.prevFireMasks.set(sessionId, 0);
-    this.silentTicks.set(sessionId, 0);
     this.matchRoster.add(sessionId);
     return player;
   }
@@ -489,16 +480,18 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
   }
 
   /**
-   * One input per tick for the bot's car, through the ordinary input queue — so "clients send
-   * inputs, never state" holds: the bot is a client, just an in-process one. Nothing here ever
-   * writes to the human's queue (PR14); that queue is fed only by the `INPUT_MESSAGE` handler.
+   * One input per tick for the bot's car, offered into its ordinary `TickInputBuffer` for the tick
+   * about to run (NR27, lead 0) — so "clients send inputs, never state" holds: the bot is a client,
+   * just an in-process one. Nothing here ever writes to the human's buffer (PR14); that buffer is fed
+   * only by the `INPUT_MESSAGE` handler.
+   *
+   * Called after `state.tick += 1`, so `state.tick` IS the tick `runPipeline` is about to simulate.
+   * A multi-tick stepper frame runs increment, offer and consume per tick, so the bot can never
+   * offer for a tick the room has already passed.
    */
   private enqueueBotInput(): void {
-    const queue = this.inputQueues.get(BOT_SESSION_ID);
-    if (!queue) return;
-
-    this.botSeq += 1;
-    const seq = this.botSeq;
+    const buffer = this.inputBuffers.get(BOT_SESSION_ID);
+    if (!buffer) return;
 
     this.bot ??= new HumanController(this.difficulty, {
       targetSessionId: this.humanSessionId,
@@ -514,11 +507,10 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
       stalenessTicks: this.botConfig.profiles[this.difficulty].viewStalenessTicks,
       ring: this.botRing,
     });
+    // No view (the bot's car is gone): nothing offered, and its buffer repeats then goes neutral.
     if (!view) return;
 
-    // A fresh `seq` every tick: `serverTick` wants one input per tick per car, and reusing a
-    // sequence number reads as a duplicate rather than a repeat.
-    queue.push({ seq, ...this.bot.decide(view) });
+    offerForTick(buffer, this.state.tick, this.bot.decide(view));
   }
 
   /**
@@ -528,9 +520,8 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
   private ctx(): PipelineCtx {
     return {
       state: this.state,
-      inputQueues: this.inputQueues,
+      inputBuffers: this.inputBuffers,
       prevFireMasks: this.prevFireMasks,
-      silentTicks: this.silentTicks,
       matchRoster: this.matchRoster,
       phaseCaps: this.phaseCaps,
       combat: this.combat,

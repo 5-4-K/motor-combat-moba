@@ -49,7 +49,6 @@ export { assembleModeConfig } from "./modes/build.js";
 export type { ModeConfig, ModeTables } from "./modes/types.js";
 
 export { INPUT_MESSAGE } from "./net/input.js";
-export type { InputMessage } from "./net/input.js";
 export {
   MSG_SWITCH_TEAM,
   MSG_SET_MODE,

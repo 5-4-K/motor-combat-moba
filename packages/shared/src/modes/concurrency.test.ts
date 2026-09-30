@@ -1,7 +1,7 @@
 import { TICK_RATE_HZ } from "../constants.js";
 import { describe, expect, it } from "vitest";
 import { GameMode } from "../constants.js";
-import type { InputMessage } from "../net/input.js";
+import type { InputKeys } from "../net/tick-input.js";
 import { NEUTRAL_MODIFIERS } from "../sim/status/modifiers.js";
 import { stepSim, type SimBody, type StepContext } from "../sim/step.js";
 import { withMode } from "./active.js";
@@ -38,7 +38,7 @@ const CAR_ID = "mirage";
 const DT = 1 / TICK_RATE_HZ;
 const TICKS = 30;
 
-const THROTTLE_INPUT: InputMessage = { seq: 0, steer: 0, throttle: 1, fireSlots: 0 };
+const THROTTLE_INPUT: InputKeys = { steer: 0, throttle: 1, fireSlots: 0 };
 
 // A wide-open field: no wall or obstacle contact for either bundle across 30 ticks of straight-line
 // throttle, so the two bundles' `stepDrive` outputs are the whole story and `resolveWorld` never

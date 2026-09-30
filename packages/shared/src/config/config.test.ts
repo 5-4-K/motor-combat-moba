@@ -326,12 +326,7 @@ describe("weapon / combat / drive / flow knobs exist", () => {
     expect(NET_CONFIG.reconcileEaseRate).toBeGreaterThan(0);
     expect(NET_CONFIG.reconcileEaseRate).toBeLessThanOrEqual(1);
   });
-  it("caps how many inputs one player can have applied per tick", () => {
-    expect(NET_CONFIG.maxInputsPerTick).toBeTypeOf("number");
-    expect(Number.isInteger(NET_CONFIG.maxInputsPerTick)).toBe(true);
-    // Below 1 the server would drop every input and no one could move.
-    expect(NET_CONFIG.maxInputsPerTick).toBeGreaterThanOrEqual(1);
-  });
+
 });
 
 describe("the three types (T5/T6)", () => {

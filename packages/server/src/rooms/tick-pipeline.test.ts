@@ -14,8 +14,10 @@ import {
   TICK_RATE_HZ,
   TURRET_TICKS,
   hpOf,
-  type InputMessage,
+  newTickInputBuffer,
+  type InputKeys,
 } from "@motor-combat-moba/shared";
+import { offerForTick } from "../net/offer-input.js";
 import { newCombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory } from "../sim/ram-bridge.js";
 import { runPipeline, type PipelineCtx } from "./tick-pipeline.js";
@@ -42,9 +44,8 @@ const ARENA_CENTRE_Y = 360;
 function newCtx(state: ArenaState, sessionId: string): PipelineCtx {
   return {
     state,
-    inputQueues: new Map(),
+    inputBuffers: new Map(),
     prevFireMasks: new Map(),
-    silentTicks: new Map(),
     matchRoster: new Set([sessionId]),
     phaseCaps: new Map(),
     combat: newCombatMemory(),
@@ -114,14 +115,16 @@ describe("runPipeline: a mouse-aimed turret press (TR7, TR10-TR24)", () => {
 
     const ctx = newCtx(state, "p1");
 
-    function oneTick(input: InputMessage): void {
+    const buffer = newTickInputBuffer();
+    ctx.inputBuffers.set("p1", buffer);
+    function oneTick(input: InputKeys): void {
       state.tick += 1;
-      ctx.inputQueues.set("p1", [input]);
+      offerForTick(buffer, state.tick, input);
       runPipeline(ctx);
     }
 
     // Mirage's basic attack is its only turret weapon on this build, and it sits on fire slot 0.
-    oneTick({ seq: 1, steer: 0, throttle: 0, fireSlots: 1 << 0, aimAngle: Math.PI / 2 });
+    oneTick({ steer: 0, throttle: 0, fireSlots: 1 << 0, aimAngle: Math.PI / 2 });
 
     // The turret is still turning, so nothing has fired yet.
     expect(hasInstance(state, TURRET_ROW)).toBe(false);
@@ -130,12 +133,11 @@ describe("runPipeline: a mouse-aimed turret press (TR7, TR10-TR24)", () => {
     // 5 steps of 18deg (TURRET_TICKS.turnPerTick), and the press tick above already spent the first
     // one, so at most 4 more ticks should be needed.
     const maxTicks = Math.ceil(Math.PI / 2 / TURRET_TICKS.turnPerTick) + 1;
-    let seq = 2;
     for (let i = 1; i < maxTicks && !hasInstance(state, TURRET_ROW); i++) {
       // The mask is HELD, not re-pressed: the same bit was already down last tick, so no new press
       // is detected and no aimAngle is needed — the turret keeps turning toward the frozen bearing
       // on its own every tick a turret press is pending (TR11/TR15).
-      oneTick({ seq: seq++, steer: 0, throttle: 0, fireSlots: 1 << 0 });
+      oneTick({ steer: 0, throttle: 0, fireSlots: 1 << 0 });
     }
 
     expect(hasInstance(state, TURRET_ROW)).toBe(true);

@@ -962,7 +962,7 @@ function turningCrosserDuel(ticks: number): { fires: number } {
     if (intent.fireSlots !== 0) fires += 1;
     body = stepDrive(
       body,
-      { seq: tick, steer: intent.steer, throttle: intent.throttle, fireSlots: 0 },
+      { steer: intent.steer, throttle: intent.throttle, fireSlots: 0 },
       1 / TICK_RATE_HZ,
       driveOf("bullseye"),
       NEUTRAL_MODIFIERS,

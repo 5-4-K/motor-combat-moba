@@ -33,7 +33,7 @@ import { newFireState, type FireState } from "./weapons/fire.js";
 import { muzzleOf, type WeaponInstance } from "./weapons/instances.js";
 import { stepSim } from "./step.js";
 import type { SimBody } from "./step.js";
-import type { InputMessage } from "../net/input.js";
+import type { InputKeys } from "../net/tick-input.js";
 import { msToTicks, weaponTicksOf } from "../config/weapon-ticks.js";
 
 const DT = MS_PER_TICK / 1000;
@@ -755,13 +755,13 @@ describe("collision deals no damage", () => {
     // the pair's ramDefence split is symmetric (mirage vs mirage) either way.
     selfRamDefence: ramDefenceOf("mirage"),
   };
-  const THROTTLE: InputMessage = { seq: 1, steer: 0, throttle: 1, fireSlots: 0 };
-  const COAST: InputMessage = { seq: 1, steer: 0, throttle: 0, fireSlots: 0 };
+  const THROTTLE: InputKeys = { steer: 0, throttle: 1, fireSlots: 0 };
+  const COAST: InputKeys = { steer: 0, throttle: 0, fireSlots: 0 };
 
   function simTick(
     state: { a: SimBody; b: SimBody; players: CombatPlayer[] },
     tick: number,
-    inputs: { a: InputMessage; b: InputMessage },
+    inputs: { a: InputKeys; b: InputKeys },
   ) {
     const a = stepSim(state.a, inputs.a, DT, {
       ...CLEAR,

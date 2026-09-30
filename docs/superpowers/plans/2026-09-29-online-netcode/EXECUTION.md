@@ -94,13 +94,13 @@ Filled in by Phase B and after each later phase. Link profile names: `lan` (1 ms
 
 | Metric | Target | Baseline | after D | after E | after F | after G |
 |---|---|---|---|---|---|---|
-| Server steps per car per tick (max) | 1 | 4 (4–4) (net80; lan 1) | | | | |
-| Repeated-input ticks, net80 | ≤ 2 % | n/a | | | | |
-| Remote path error p95, net80 (u) | ≤ 12 | 0.13 (0.12–0.13) | | | | |
-| Remote hold frames, net80 | ≤ 1 % | 3.62 % (2.75–4.73 %) | | | | |
-| Local reconcile correction p95, net80 (u) | ≤ 4 | 0.86 (0.47–1.51) | | | | |
-| Input-to-server delay, lan (ms) | ≤ 34 | 21.7 (20.7–23.3) | | | | |
-| Remote display delay, lan (ms) | no worse than baseline; interpolation component ≤ 50 | 67.4 (66.8–67.9) | | | | |
+| Server steps per car per tick (max) | 1 | 4 (4–4) (net80; lan 1) | 1 (1–1) (lan, net80, net150) | | | |
+| Repeated-input ticks, net80 | ≤ 2 % | n/a | 3.93 % (3.66–4.21 %) | | | |
+| Remote path error p95, net80 (u) | ≤ 12 | 0.13 (0.12–0.13) | 0.00 | | | |
+| Remote hold frames, net80 | ≤ 1 % | 3.62 % (2.75–4.73 %) | 1.23 % (1.11–1.39 %) | | | |
+| Local reconcile correction p95, net80 (u) | ≤ 4 | 0.86 (0.47–1.51) | 1.23 (0.75–2.05) | | | |
+| Input-to-server delay, lan (ms) | ≤ 34 | 21.7 (20.7–23.3) | 34.0 (33.9–34.0) | | | |
+| Remote display delay, lan (ms) | no worse than baseline; interpolation component ≤ 50 | 67.4 (66.8–67.9) | 50.4 (49.9–50.8) | | | |
 | Hidden enemy present in decoded state | never | n/a | n/a | n/a | n/a | |
 
 Each Baseline cell is the MEAN over seeds 1–3, with the min–max across the three seeds in

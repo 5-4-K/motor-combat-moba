@@ -8,7 +8,7 @@
  * `resolveWorld` is a hard positional constraint, so a stale remote pose is not a small error, it is
  * a push-out computed against the wrong box.
  *
- * This runs the real server pipeline and a real `PredictionBuffer` side by side over a delay line,
+ * This runs the real server pipeline and a real `TickPrediction` side by side over a delay line,
  * and reports the correction the local player actually eats.
  */
 import {
@@ -25,8 +25,8 @@ import {
   otherCarHulls,
   stepSim,
   type ContextEntry,
-  PredictionBuffer,
-  type InputMessage,
+  TickPrediction,
+  type InputFrame,
   type SimBody,
   type StepContext,
 } from "@motor-combat-moba/shared";
@@ -49,7 +49,8 @@ const ARENA_BOUNDS = boundsOf(ARENA);
 interface Snapshot {
   atTick: number;
   self: SimBody;
-  lastProcessedInputSeq: number;
+  /** The server tick this snapshot is the end of (NR26): every car steps every tick, so no ack seq. */
+  tick: number;
   others: { sessionId: string; x: number; y: number; angle: number }[];
 }
 
@@ -78,12 +79,11 @@ function trial(opts: {
     },
   ]);
 
-  const buffer = new PredictionBuffer();
+  const prediction = new TickPrediction();
   let predicted: SimBody = { ...bodyOf(world.get("me")) };
   const snapshots: Snapshot[] = [];
-  const inputsInFlight: { arriveAtTick: number; msg: InputMessage }[] = [];
+  const inputsInFlight: { arriveAtTick: number; frame: InputFrame }[] = [];
 
-  let seq = 0;
   let peak = 0;
   let sum = 0;
   let samples = 0;
@@ -92,18 +92,18 @@ function trial(opts: {
 
   const total = opts.ticks ?? 240;
   for (let t = 1; t <= total; t++) {
-    // ---- client frame: sample input, predict locally
-    seq += 1;
-    const input: InputMessage = { seq, steer: 0, throttle: 1, fireSlots: 0 };
+    // ---- client frame: sample input, predict locally. The frame is stamped for the server tick it
+    // lands on (lead = the one-way delay, NR20), which is the tick the old seq path applied it on.
+    const frame: InputFrame = { tick: t + latencyTicks, steer: 0, throttle: 1, fireSlots: 0 };
     // The client's own view of the world: remotes at their last-RECEIVED server pose.
     const lastSnap = snapshots.length > 0 ? snapshots[snapshots.length - 1]! : null;
     const ctx = clientContext(lastSnap, predicted);
-    predicted = buffer.predict(predicted, { seq, input }, ctx);
-    inputsInFlight.push({ arriveAtTick: t + latencyTicks, msg: input });
+    predicted = prediction.predict(predicted, frame, ctx);
+    inputsInFlight.push({ arriveAtTick: t + latencyTicks, frame });
 
     // ---- server: accept whatever has arrived, tick
     for (const pending of inputsInFlight.filter((p) => p.arriveAtTick === t)) {
-      world.queues.get("me")!.push(pending.msg);
+      world.buffers.get("me")!.offer(pending.frame, world.state.tick);
     }
     world.input("them", { throttle: 1 });
     world.tick();
@@ -118,7 +118,7 @@ function trial(opts: {
       snapshots.push({
         atTick: t + latencyTicks,
         self: bodyOf(me),
-        lastProcessedInputSeq: me.lastProcessedInputSeq,
+        tick: world.state.tick,
         others,
       });
     }
@@ -127,7 +127,7 @@ function trial(opts: {
     const arrived = snapshots.filter((s) => s.atTick === t);
     for (const snap of arrived) {
       const before = { x: predicted.x, y: predicted.y };
-      predicted = buffer.reconcile(snap.self, snap.lastProcessedInputSeq, predicted, clientContext(snap, predicted));
+      predicted = prediction.reconcile(snap.self, snap.tick, predicted, clientContext(snap, predicted));
       const correction = Math.hypot(predicted.x - before.x, predicted.y - before.y);
       peak = Math.max(peak, correction);
       sum += correction;

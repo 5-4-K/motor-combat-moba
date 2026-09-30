@@ -22,9 +22,12 @@ import {
   hpOf,
   speedOf,
   toWorld,
+  newTickInputBuffer,
   type CarId,
-  type InputMessage,
+  type InputKeys,
+  type TickInputBuffer,
 } from "@motor-combat-moba/shared";
+import { offerForTick } from "../../src/net/offer-input.js";
 import { serverTick } from "../../src/sim/tick.js";
 import { statusTick } from "../../src/sim/status-bridge.js";
 import {
@@ -56,27 +59,26 @@ export interface SpawnSpec {
 }
 
 /** The neutral input: no steer, no throttle, no fire. */
-export const IDLE: Omit<InputMessage, "seq"> = { steer: 0, throttle: 0, fireSlots: 0 };
+export const IDLE: InputKeys = { steer: 0, throttle: 0, fireSlots: 0 };
 
 export class PlaytestWorld {
   readonly state = new ArenaState();
-  readonly queues = new Map<string, InputMessage[]>();
+  /**
+   * Mirrors `ArenaRoom.inputBuffers`: each player's inputs keyed by the tick they are for (NR22).
+   * `serverTick` takes one per player per tick. A player a probe did not feed this tick runs the
+   * buffer's fill — its last input repeated for `inputRepeatMs`, then neutral — exactly as a room's
+   * car does when its owner's frame is late; it is no longer left unstepped.
+   */
+  readonly buffers = new Map<string, TickInputBuffer>();
   /**
    * Mirrors `ArenaRoom.prevFireMasks`: what each player's last simulated input had held down, so
    * `serverTick` can tell a press from a held key. A probe that presses on one tick and holds
    * thereafter fires ONCE — set the mask back to 0 on a tick to release the trigger.
    */
   readonly prevFireMasks = new Map<string, number>();
-  /**
-   * Mirrors `ArenaRoom.silentTicks`: consecutive empty-queue ticks per player. Probes feed every car
-   * from `queues` on every tick, so this normally stays at 0 — it matters only for a scenario that
-   * deliberately stops feeding one, which is exactly what `serverTick`'s silent-coast branch is for.
-   */
-  readonly silentTicks = new Map<string, number>();
   readonly roster = new Set<string>();
   private combat: CombatMemory = newCombatMemory();
   private ram: ContactMemory = newContactMemory();
-  private seq = new Map<string, number>();
 
   constructor(
     spawns: readonly SpawnSpec[],
@@ -111,9 +113,8 @@ export class PlaytestWorld {
     // stage 3b); the schema default of vx = vy = 0 already covers the "no motion" reset this used to
     // pair with, so nothing here replaces it.
     this.state.players.set(spec.id, p);
-    this.queues.set(spec.id, []);
+    this.buffers.set(spec.id, newTickInputBuffer());
     this.roster.add(spec.id);
-    this.seq.set(spec.id, 0);
     return p;
   }
 
@@ -123,11 +124,13 @@ export class PlaytestWorld {
     return p;
   }
 
-  /** Queue one input for this player on the next tick, with the next monotonic seq. */
-  input(id: string, msg: Partial<Omit<InputMessage, "seq">> = {}): void {
-    const next = (this.seq.get(id) ?? 0) + 1;
-    this.seq.set(id, next);
-    this.queues.get(id)?.push({ seq: next, ...IDLE, ...msg });
+  /**
+   * Offer this player's input for the NEXT tick (NR27, lead 0). One per tick: a second call before
+   * the tick runs is a duplicate for the same tick and is dropped, exactly as the room drops one.
+   */
+  input(id: string, msg: Partial<InputKeys> = {}): void {
+    const buffer = this.buffers.get(id);
+    if (buffer) offerForTick(buffer, this.state.tick + 1, { ...IDLE, ...msg });
   }
 
   /** Live weapon instances, straight out of room memory (the schema is only a projection of it). */
@@ -141,12 +144,11 @@ export class PlaytestWorld {
     const statusMods = statusTick(this.state, this.state.tick);
     const { masks, approachVelocities } = serverTick(
       this.state,
-      this.queues,
+      this.buffers,
       DT,
       this.state.phase,
       statusMods,
       this.prevFireMasks,
-      this.silentTicks,
     );
     let contact: ContactTickResult = { contactHits: [], statusRequests: [], spikeHits: [] };
     if (this.state.phase === RoomPhase.MATCH && this.roster.size > 0) {

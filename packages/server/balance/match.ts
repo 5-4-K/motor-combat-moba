@@ -28,13 +28,14 @@ import {
   hasStatus,
   hpOf,
   newCombatEvents,
+  newTickInputBuffer,
   rulesOf,
   type BotDifficulty,
   type CarId,
   type CombatEvents,
   type DeathmatchPlayer,
   type FiredEvent,
-  type InputMessage,
+  type TickInputBuffer,
 } from "@motor-combat-moba/shared";
 import {
   buildBotView,
@@ -53,6 +54,7 @@ import { readStatuses } from "../src/sim/status-bridge.js";
 import { controllerOf } from "../src/modes/registry.js";
 import type { ModeRoomView } from "../src/modes/types.js";
 import { respawnSweep, runPipeline, type PipelineCtx } from "../src/rooms/tick-pipeline.js";
+import { offerForTick } from "../src/net/offer-input.js";
 
 export interface MatchSetup {
   seats: readonly { sessionId: string; carId: CarId; team: 0 | 1 }[];
@@ -138,9 +140,8 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
   state.mode = setup.mode;
 
   const matchRoster = new Set(setup.seats.map((seat) => seat.sessionId));
-  const inputQueues = new Map<string, InputMessage[]>();
+  const inputBuffers = new Map<string, TickInputBuffer>();
   const prevFireMasks = new Map<string, number>();
-  const silentTicks = new Map<string, number>();
   const phaseCaps = new Map<string, number>();
   const combat: CombatMemory = newCombatMemory();
   const ram: ContactMemory = newContactMemory();
@@ -160,7 +161,6 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
 
   const bots = new Map<string, HumanController>();
   const botRngs = new Map<string, Rng>();
-  const seqs = new Map<string, number>();
 
   for (const [slot, seat] of setup.seats.entries()) {
     const spawn = spawns[seat.sessionId];
@@ -181,9 +181,8 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
     player.angle = spawn.angle;
     state.players.set(seat.sessionId, player);
 
-    inputQueues.set(seat.sessionId, []);
+    inputBuffers.set(seat.sessionId, newTickInputBuffer());
     prevFireMasks.set(seat.sessionId, 0);
-    seqs.set(seat.sessionId, 0);
 
     bots.set(seat.sessionId, new HumanController(setup.difficulty, { botConfig }));
     // A distinct, seeded stream per seat rather than one shared stream: two seats sharing an RNG
@@ -199,9 +198,8 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
    */
   const ctx = (): PipelineCtx => ({
     state,
-    inputQueues,
+    inputBuffers,
     prevFireMasks,
-    silentTicks,
     matchRoster,
     phaseCaps,
     combat,
@@ -272,10 +270,10 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
     ring.push(snapshotWorld(state, combat));
 
     for (const seat of setup.seats) {
-      const queue = inputQueues.get(seat.sessionId);
+      const buffer = inputBuffers.get(seat.sessionId);
       const bot = bots.get(seat.sessionId);
       const rng = botRngs.get(seat.sessionId);
-      if (!queue || !bot || !rng) continue;
+      if (!buffer || !bot || !rng) continue;
 
       const botView = buildBotView({
         state,
@@ -288,9 +286,9 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
       });
       if (!botView) continue;
 
-      const seq = (seqs.get(seat.sessionId) ?? 0) + 1;
-      seqs.set(seat.sessionId, seq);
-      queue.push({ seq, ...bot.decide(botView) });
+      // After `state.tick += 1`, so `state.tick` is the tick `runPipeline` is about to simulate
+      // (NR27, lead 0) — the same offer `PracticeRoom` makes for its bot.
+      offerForTick(buffer, state.tick, bot.decide(botView));
     }
 
     const { combatPlayers } = runPipeline(ctx());

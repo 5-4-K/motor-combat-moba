@@ -37,10 +37,13 @@ import {
   weaponDefOf,
   type CarId,
   type GameMode,
-  type InputMessage,
+  newTickInputBuffer,
+  type InputKeys,
+  type TickInputBuffer,
   type WeaponId,
 } from "@motor-combat-moba/shared";
 import { respawnSweep, runPipeline, type PipelineCtx } from "../../src/rooms/tick-pipeline.js";
+import { offerForTick } from "../../src/net/offer-input.js";
 import { controllerOf } from "../../src/modes/registry.js";
 import type { MatchOutcome, ModeRoomView } from "../../src/modes/types.js";
 import { newCombatMemory, type CombatMemory } from "../../src/sim/combat-bridge.js";
@@ -77,9 +80,8 @@ export function arenaOfMode(mode: GameMode): string {
 export class ModeWorld {
   readonly state = new ArenaState();
   readonly roster = new Set<string>();
-  readonly inputQueues = new Map<string, InputMessage[]>();
+  readonly inputBuffers = new Map<string, TickInputBuffer>();
   readonly prevFireMasks = new Map<string, number>();
-  readonly silentTicks = new Map<string, number>();
   readonly phaseCaps = new Map<string, number>();
   readonly combat: CombatMemory = newCombatMemory();
   readonly ram: ContactMemory = newContactMemory();
@@ -90,7 +92,6 @@ export class ModeWorld {
    * driving, contact and combat all read. What a probe samples here is what the tick simulated.
    */
   beforePipeline?: (tick: number) => void;
-  private seq = new Map<string, number>();
 
   constructor(
     readonly mode: GameMode,
@@ -119,9 +120,8 @@ export class ModeWorld {
     p.vx = v.vx;
     p.vy = v.vy;
     this.state.players.set(spec.id, p);
-    this.inputQueues.set(spec.id, []);
+    this.inputBuffers.set(spec.id, newTickInputBuffer());
     this.roster.add(spec.id);
-    this.seq.set(spec.id, 0);
     return p;
   }
 
@@ -138,9 +138,8 @@ export class ModeWorld {
   ctx(): PipelineCtx {
     return {
       state: this.state,
-      inputQueues: this.inputQueues,
+      inputBuffers: this.inputBuffers,
       prevFireMasks: this.prevFireMasks,
-      silentTicks: this.silentTicks,
       matchRoster: this.roster,
       phaseCaps: this.phaseCaps,
       combat: this.combat,
@@ -156,19 +155,21 @@ export class ModeWorld {
     controllerOf(this.state.mode).onMatchStart(this.view());
   }
 
-  /** Queue one input for the next tick. A player with nothing queued gets `IDLE`, as a live client sends. */
-  input(id: string, msg: Partial<Omit<InputMessage, "seq">> = {}): void {
-    const next = (this.seq.get(id) ?? 0) + 1;
-    this.seq.set(id, next);
-    this.inputQueues.get(id)?.push({ seq: next, ...IDLE, ...msg });
+  /**
+   * Offer one input for the next tick (NR27, lead 0). A player with nothing offered gets `IDLE`, as
+   * a live client sends. One per tick: a second offer for the same tick is a dropped duplicate.
+   */
+  input(id: string, msg: Partial<InputKeys> = {}): void {
+    const buffer = this.inputBuffers.get(id);
+    if (buffer) offerForTick(buffer, this.state.tick + 1, { ...IDLE, ...msg });
   }
 
   /** One tick in `ArenaRoom.tick`'s order. Returns the outcome if the match ended on this tick. */
   tick(): MatchOutcome | undefined {
     if (this.ended) return undefined;
-    for (const id of this.roster) {
-      if ((this.inputQueues.get(id)?.length ?? 0) === 0) this.input(id);
-    }
+    // `IDLE` for everyone; a probe's own input for this tick is already buffered, so this offer is a
+    // dropped duplicate for exactly the players the probe fed.
+    for (const id of this.roster) this.input(id);
     this.state.tick += 1;
     if (this.state.phase === RoomPhase.MATCH && rulesOf(this.state.mode).respawns) {
       respawnSweep(this.ctx());
@@ -196,9 +197,8 @@ export class ModeWorld {
   leave(id: string): MatchOutcome | undefined {
     this.state.players.delete(id);
     this.roster.delete(id);
-    this.inputQueues.delete(id);
+    this.inputBuffers.delete(id);
     this.prevFireMasks.delete(id);
-    this.silentTicks.delete(id);
     const out = controllerOf(this.state.mode).afterLeave(this.view());
     if (out && !this.ended) this.ended = { tick: this.state.tick, outcome: out };
     return out;

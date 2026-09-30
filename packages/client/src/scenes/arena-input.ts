@@ -1,27 +1,39 @@
-import { MS_PER_TICK, NET_CONFIG } from "@motor-combat-moba/shared";
-
-export interface DrainResult {
-  /** Time left over, carried into the next frame. Always in `[0, MS_PER_TICK)`. */
-  accMs: number;
-  /** How many input ticks to emit this frame. */
-  ticks: number;
+/** The one call of `InputScheduler` the scene makes; an interface so a test can spy on it. */
+export interface DueTicks {
+  due(nowMs: number, frameMs: number, slackTicks: number | undefined): number[];
 }
 
 /**
- * Turn elapsed frame time into whole sim ticks. Inputs go out on the sim clock, not the render
- * clock, so a 144 Hz client does not send — and predict — five times as many steps as a 30 Hz one.
+ * The client's input clock (NR20, NR21): which ticks to send a frame for this render frame, with the
+ * server's slack report handed to the scheduler exactly ONCE per snapshot.
  *
- * The clamp happens *before* the drain, and it is capped at what the server will actually
- * **simulate** in one tick (`MS_PER_TICK * NET_CONFIG.maxInputsPerTick`), not at some arbitrary
- * ceiling. Inputs past that cap are drained and acked by the server but never stepped, so emitting
- * them would manufacture divergence that reconciliation then has to snap away. Clamping first also
- * means a long stall (an alt-tab, a GC pause) can never turn into an unbounded catch-up burst.
+ * `InputScheduler.due`'s slack integrator runs once per sample it is given, so passing the same
+ * snapshot's value on every frame would multiply its gain by the frame rate and limit-cycle the
+ * lead. `onSnapshot` therefore only marks a value fresh; the next `due` passes it and clears it, and
+ * every other call passes `undefined`. A frame that sends nothing (`discard`) drops the sample
+ * rather than holding it for later, so a value never outlives the snapshot that carried it.
  */
-export function drainTicks(accMs: number, deltaMs: number): DrainResult {
-  const maxCatchUpMs = MS_PER_TICK * NET_CONFIG.maxInputsPerTick;
-  const clamped = Math.min(accMs + deltaMs, maxCatchUpMs);
-  const ticks = Math.floor(clamped / MS_PER_TICK);
-  return { accMs: clamped - ticks * MS_PER_TICK, ticks };
+export class InputClock {
+  private freshSlack: number | undefined;
+
+  constructor(private readonly scheduler: DueTicks) {}
+
+  /** A snapshot was reconciled and carried this `inputSlack`. */
+  onSnapshot(slackTicks: number): void {
+    this.freshSlack = slackTicks;
+  }
+
+  /** The ticks to produce a frame for now, consuming any fresh slack sample. */
+  due(nowMs: number, frameMs: number): number[] {
+    const slack = this.freshSlack;
+    this.freshSlack = undefined;
+    return this.scheduler.due(nowMs, frameMs, slack);
+  }
+
+  /** A frame that will not send (paused, not driving): the pending sample, if any, is dropped. */
+  discard(): void {
+    this.freshSlack = undefined;
+  }
 }
 
 /**

@@ -2,14 +2,7 @@ import { MS_PER_TICK, SNAPSHOT_RATE_HZ } from "../constants.js";
 import { NET_CONFIG } from "../config/net-config.js";
 import { stepSim, type SimBody, type StepContext } from "../sim/step.js";
 import { msToTicks } from "../config/weapon-ticks.js";
-import { type InputMessage } from "./input.js";
 import { NEUTRAL_KEYS, type InputFrame, type InputKeys } from "./tick-input.js";
-
-/** One input the client has simulated locally but the server has not acknowledged yet. */
-export interface PendingInput {
-  seq: number;
-  input: InputMessage;
-}
 
 /**
  * The client sends exactly one input per sim tick, so a replayed step always advances by one tick.
@@ -96,72 +89,15 @@ function settle(target: SimBody, currentPredicted: SimBody): SimBody {
 }
 
 /**
- * Client-side prediction: run the local car through the same `stepSim` the server will run, then
- * reconcile against the authoritative pose once the server's ack catches up.
+ * Client-side prediction, keyed by tick (NR26): run the local car through the same `stepSim` the
+ * server will run, one frame per tick, and reconcile against each authoritative snapshot.
  *
- * The buffer holds every input the server has not acked. `reconcile` re-simulates that tail on top
- * of the authoritative pose, which is what lets the local car respond on the same frame the key is
- * pressed instead of a round-trip later.
- */
-export class PredictionBuffer {
-  private pending: PendingInput[] = [];
-
-  /**
-   * Record an input and advance the predicted pose by it. The buffer is capped at
-   * `NET_CONFIG.pendingInputCap` and drops the *oldest* entry on overflow: during a long stall the
-   * client keeps predicting while no ack arrives, and an unbounded buffer would grow for as long as
-   * the stall lasts and then replay all of it in one frame. Dropping the oldest is the right end to
-   * lose — those are the entries the server is most likely to have already applied, and anything
-   * genuinely lost is corrected by the next authoritative snap.
-   */
-  predict(state: SimBody, pending: PendingInput, ctx: StepContext): SimBody {
-    this.pending.push(pending);
-    if (this.pending.length > NET_CONFIG.pendingInputCap) {
-      this.pending.splice(0, this.pending.length - NET_CONFIG.pendingInputCap);
-    }
-    return stepSim(state, pending.input, DT_SECONDS, ctx);
-  }
-
-  /**
-   * Fold an authoritative snapshot back into the predicted pose.
-   *
-   * Acked inputs are dropped by the *predicate* `seq <= lastProcessedSeq`, never by position or by a
-   * remembered cursor. `withSimulatedLatency` delays every message independently, so a high-seq
-   * input can land in tick N's batch while a lower-seq one lands in tick N+1's, and the server's ack
-   * therefore walks backwards across ticks as a matter of course. Under the predicate a stale lower
-   * ack is a harmless no-op; a cursor would either throw away still-unacked inputs or re-replay
-   * already-integrated ones, and both read as rubber-banding.
-   *
-   * The remaining tail replays from the authoritative pose to give the *target*. Small errors ease
-   * toward that target so corrections are not visible as a jerk; large ones snap, because easing a
-   * big error is just a slow visible slide to the same place. `vx`/`vy` always snap: they are
-   * derived sim fields that feed the next integration, so a half-eased value would poison every
-   * subsequent step rather than merely look wrong.
-   */
-  reconcile(
-    authoritative: SimBody,
-    lastProcessedSeq: number,
-    currentPredicted: SimBody,
-    ctx: StepContext,
-  ): SimBody {
-    this.pending = this.pending.filter((entry) => entry.seq > lastProcessedSeq);
-
-    let target = copyBody(authoritative);
-    for (const entry of this.pending) {
-      target = stepSim(target, entry.input, DT_SECONDS, ctx);
-    }
-
-    return settle(target, currentPredicted);
-  }
-}
-
-/** `stepSim` takes the legacy `InputMessage`; it never reads `seq`, so the tick stands in for it. */
-export const frameAsInput = (f: InputKeys & { tick: number }): InputMessage => ({ ...f, seq: f.tick });
-
-/**
- * Tick-keyed prediction (NR26): frames are stamped with the tick they will execute on, and a
- * snapshot's `tick` — not an ack seq — says which ones the server has already applied. Sits beside
- * `PredictionBuffer`, which is deleted once the client moves over.
+ * Frames are stamped with the tick they will execute on, and a snapshot's `tick` — not an ack seq —
+ * says which ones the server has already applied: every car steps every tick (NR17), so the
+ * snapshot's pose IS the pose at the end of its own tick. `reconcile` replays the frames after it on
+ * top of the authoritative pose, which is what lets the local car respond on the frame the key is
+ * pressed instead of a round trip later. Small errors ease toward that target; large ones snap
+ * (`settle`).
  */
 export class TickPrediction {
   private frames: InputFrame[] = []; // ascending by tick
@@ -174,7 +110,7 @@ export class TickPrediction {
     // of snapshot silence.
     const cap = msToTicks(NET_CONFIG.maxInputLeadMs + 1000);
     if (this.frames.length > cap) this.base = this.frames.splice(0, this.frames.length - cap).at(-1);
-    return stepSim(state, frameAsInput(frame), DT_SECONDS, ctx);
+    return stepSim(state, frame, DT_SECONDS, ctx);
   }
 
   /**
@@ -199,7 +135,7 @@ export class TickPrediction {
       } else {
         keys = last !== undefined && t - lastReal <= repeatTicks ? last : NEUTRAL_KEYS;
       }
-      target = stepSim(target, frameAsInput({ ...keys, tick: t }), DT_SECONDS, ctx);
+      target = stepSim(target, keys, DT_SECONDS, ctx);
     }
     return target;
   }

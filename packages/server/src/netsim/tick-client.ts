@@ -1,24 +1,22 @@
 import {
+  ClockSync,
+  InputScheduler,
   InterpolationBuffer,
-  MS_PER_TICK,
   NET_CONFIG,
   PlayerStatus,
-  PredictionBuffer,
+  TickPrediction,
   buildStepContext,
   localModifiers,
-  stepSim,
   type ArenaDef,
   type ContextPlayer,
-  type InputMessage,
-  type PendingInput,
+  type InputFrame,
+  type InputPacket,
   type SimBody,
   type StepContext,
+  type TimePong,
 } from "@motor-combat-moba/shared";
 import type { ScriptedDriver } from "./drivers.js";
 import type { Snapshot, SnapshotCar } from "./server-world.js";
-
-/** Same derivation as `PredictionBuffer`'s own: one replayed step is one sim tick. */
-const DT_SECONDS = MS_PER_TICK / 1000;
 
 /** `buildStepContext`'s and `localModifiers`' view of a decoded patch. */
 interface StateView {
@@ -50,66 +48,76 @@ function viewOf(snap: Snapshot): StateView {
 }
 
 /**
- * `PredictionBuffer.reconcile`'s replay, without the ease: the pose the pending tail lands on when
- * replayed from the authoritative one. Kept in lockstep with `reconcile` so the harness can record
- * |target − predicted| before `reconcile` eases (or snaps) toward it.
+ * The Phase D client, headless: `ArenaScene`'s `bindTimeSync` (a `ClockSync` fed by `MSG_TIME`
+ * pongs, a burst on join then the steady rate), `pumpInput` → `sendInputTick` (the shared
+ * `InputScheduler` deciding which server ticks to send a frame for, a `TickPrediction` predicting
+ * each one, and the packet carrying `inputRedundancy` older frames), `reconcileLocal` and
+ * `pushRemoteSnapshots` (on each patch, in that order) and `remotePose`. No Phaser, no Colyseus: the
+ * "room state" is the last `Snapshot` this client decoded, and every config read happens inside the
+ * caller's mode scope.
+ *
+ * The only logic written here is the plumbing between those shared modules: the slack sample is
+ * handed to the scheduler once per snapshot and then cleared (the browser's `InputClock` rule), and
+ * the reconcile error is read off `TickPrediction.replayTarget` — the same target `reconcile` eases
+ * toward — rather than a copy of the replay.
+ *
+ * `clockOffsetMs` is this client's clock minus the harness clock: a real client's `performance.now()`
+ * has nothing to do with the server's wall clock, and `ClockSync` must earn the offset from pongs.
+ * Every time this class REPORTS (`producedAt`) is on the harness clock, so the harness can compare it
+ * with server time directly.
  */
-function replayTarget(
-  authoritative: SimBody,
-  pending: readonly PendingInput[],
-  ctx: StepContext,
-): SimBody {
-  let target: SimBody = {
-    x: authoritative.x,
-    y: authoritative.y,
-    angle: authoritative.angle,
-    vx: authoritative.vx,
-    vy: authoritative.vy,
-    angVel: authoritative.angVel,
-    maneuver: authoritative.maneuver,
-    maneuverTicksLeft: authoritative.maneuverTicksLeft,
-    maneuverAngle: authoritative.maneuverAngle,
-    maneuverSpeed: authoritative.maneuverSpeed,
-  };
-  for (const entry of pending) target = stepSim(target, entry.input, DT_SECONDS, ctx);
-  return target;
-}
-
-/**
- * Today's client, headless: `ArenaScene`'s `pumpInput` → `sendInputTick` (the input clock and local
- * prediction), `reconcileLocal` and `pushRemoteSnapshots` (on each patch, in that order) and
- * `remotePose` (remote interpolation sampling). No Phaser, no Colyseus: the "room state" is the last
- * `Snapshot` this client decoded, and every config read happens inside the caller's mode scope.
- */
-export class LegacyClient {
+export class TickClient {
   /** Every reconcile's |predicted − target| distance, appended as it happens. */
   readonly reconcileErrors: number[] = [];
-  /** clientMs at which each seq was produced. */
+  /** Harness ms at which the frame for each server tick was produced. */
   readonly producedAt = new Map<number, number>();
 
-  private readonly prediction = new PredictionBuffer();
-  /**
-   * The buffer's private `pending` list, mirrored with the same push/cap/filter rules, so
-   * `replayTarget` can replay exactly what `reconcile` is about to.
-   */
-  private pending: PendingInput[] = [];
+  private readonly clock = new ClockSync();
+  private readonly scheduler = new InputScheduler(this.clock);
+  private readonly prediction = new TickPrediction();
   private readonly interps = new Map<string, InterpolationBuffer>();
   private last: Snapshot | undefined;
   private lastById = new Map<string, SnapshotCar>();
   private view: StateView | undefined;
   private predicted: SimBody | undefined;
-  private inputAccumulatorMs = 0;
-  private inputSeq = 0;
+  /** The newest snapshot's `inputSlack`, handed to the scheduler once and then cleared (NR21). */
+  private freshSlack: number | undefined;
+  private nextTimeSyncAt: number;
+  private readonly joinedAt: number;
 
   constructor(
     readonly id: string,
     private readonly driver: ScriptedDriver,
     private readonly arena: ArenaDef,
-  ) {}
+    private readonly clockOffsetMs: number,
+    joinMs: number,
+  ) {
+    this.joinedAt = joinMs;
+    this.nextTimeSyncAt = joinMs;
+  }
 
   /** The newest predicted pose, for tests and diagnostics. */
   get predictedPose(): SimBody | undefined {
     return this.predicted;
+  }
+
+  private local(nowMs: number): number {
+    return nowMs + this.clockOffsetMs;
+  }
+
+  /**
+   * A `MSG_TIME` request due at harness time `nowMs`, if any: on join, every `timeSyncBurstMs` for
+   * `timeSyncBurstWindowMs`, then every `timeSyncIntervalMs` — `bindTimeSync`'s schedule.
+   */
+  timeRequest(nowMs: number): { c: number } | undefined {
+    if (nowMs < this.nextTimeSyncAt) return undefined;
+    const inBurst = nowMs - this.joinedAt < NET_CONFIG.timeSyncBurstWindowMs;
+    this.nextTimeSyncAt += inBurst ? NET_CONFIG.timeSyncBurstMs : NET_CONFIG.timeSyncIntervalMs;
+    return { c: this.local(nowMs) };
+  }
+
+  onPong(nowMs: number, pong: TimePong): void {
+    this.clock.onPong(this.local(nowMs), pong);
   }
 
   /** `ArenaScene.canDrive`: phase is always MATCH here, so the patched self must be on the field. */
@@ -124,41 +132,33 @@ export class LegacyClient {
     return buildStepContext(this.arena, view, this.id, snap.tick, localModifiers(view, this.id, snap.tick));
   }
 
-  /** One render frame at client time nowMs; returns the input messages to send this frame. */
-  frame(nowMs: number, deltaMs: number): InputMessage[] {
-    // `pumpInput`: a client that cannot drive stops its input clock outright.
+  /** One render frame at harness time nowMs; returns the input packets to send this frame. */
+  frame(nowMs: number, deltaMs: number): InputPacket[] {
+    // `pumpInput`: a client that cannot drive sends nothing, and its pending slack sample is dropped.
     if (!this.canDrive()) {
-      this.inputAccumulatorMs = 0;
+      this.freshSlack = undefined;
       return [];
     }
-    // `drainTicks`: clamp BEFORE draining, at what the server will simulate in one tick.
-    const clamped = Math.min(this.inputAccumulatorMs + deltaMs, MS_PER_TICK * NET_CONFIG.maxInputsPerTick);
-    const ticks = Math.floor(clamped / MS_PER_TICK);
-    this.inputAccumulatorMs = clamped - ticks * MS_PER_TICK;
-
-    const out: InputMessage[] = [];
-    for (let i = 0; i < ticks; i++) out.push(this.sendInputTick(nowMs));
+    const slack = this.freshSlack;
+    this.freshSlack = undefined;
+    const out: InputPacket[] = [];
+    for (const tick of this.scheduler.due(this.local(nowMs), deltaMs, slack)) {
+      out.push(this.sendInputTick(nowMs, tick));
+    }
     return out;
   }
 
   /** `sendInputTick`, less the aim bearing (no firing in the baseline) and the idle-warning UI. */
-  private sendInputTick(nowMs: number): InputMessage {
+  private sendInputTick(nowMs: number, tick: number): InputPacket {
     const self = this.lastById.get(this.id)!;
-    this.inputSeq += 1;
-    const input: InputMessage = { seq: this.inputSeq, ...this.driver.inputFor(this.inputSeq), aimAngle: undefined };
-    this.producedAt.set(input.seq, nowMs);
-
+    const frame: InputFrame = { tick, ...this.driver.inputFor(tick) };
+    this.producedAt.set(tick, nowMs);
     const from = this.predicted ?? self.body;
-    const entry: PendingInput = { seq: input.seq, input };
-    this.pending.push(entry);
-    if (this.pending.length > NET_CONFIG.pendingInputCap) {
-      this.pending.splice(0, this.pending.length - NET_CONFIG.pendingInputCap);
-    }
-    this.predicted = this.prediction.predict(from, entry, this.stepContext());
-    return input;
+    this.predicted = this.prediction.predict(from, frame, this.stepContext());
+    return { inputs: this.prediction.recent(1 + NET_CONFIG.inputRedundancy) };
   }
 
-  /** A snapshot arrived at client time nowMs: `reconcileLocal`, then `pushRemoteSnapshots`. */
+  /** A snapshot arrived at harness time nowMs: `reconcileLocal`, then `pushRemoteSnapshots`. */
   onSnapshot(nowMs: number, snap: Snapshot): void {
     this.last = snap;
     this.lastById = new Map(snap.cars.map((c) => [c.id, c]));
@@ -169,7 +169,9 @@ export class LegacyClient {
 
   private reconcileLocal(): void {
     const self = this.lastById.get(this.id);
+    if (self) this.freshSlack = self.inputSlack;
     if (!self || self.status !== PlayerStatus.IN_MATCH || !self.alive) {
+      this.prediction.clear();
       this.predicted = undefined;
       return;
     }
@@ -179,10 +181,10 @@ export class LegacyClient {
       return;
     }
     const ctx = this.stepContext();
-    this.pending = this.pending.filter((e) => e.seq > self.lastProcessedInputSeq);
-    const target = replayTarget(authoritative, this.pending, ctx);
+    const tick = this.last!.tick;
+    const target = this.prediction.replayTarget(authoritative, tick, ctx);
     this.reconcileErrors.push(Math.hypot(target.x - this.predicted.x, target.y - this.predicted.y));
-    this.predicted = this.prediction.reconcile(authoritative, self.lastProcessedInputSeq, this.predicted, ctx);
+    this.predicted = this.prediction.reconcile(authoritative, tick, this.predicted, ctx);
   }
 
   private pushRemoteSnapshots(nowMs: number): void {

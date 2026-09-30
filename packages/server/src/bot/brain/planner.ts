@@ -13,7 +13,7 @@ import { proxyDangerAgainst, proxyValue, type PosePredictor } from "./solution.j
 const DEG_PER_RAD = 180 / Math.PI;
 
 /**
- * Every input the game accepts. COMPLETE, not sampled: `InputMessage.steer` and `.throttle` are
+ * Every input the game accepts. COMPLETE, not sampled: `InputKeys.steer` and `.throttle` are
  * each `-1 | 0 | 1` and nothing else, so these nine sequences are the whole action space and a
  * search over them carries no discretization error at all — there is no finer input the bot
  * declined to consider, and no interpolation between two of these that the sim could execute.

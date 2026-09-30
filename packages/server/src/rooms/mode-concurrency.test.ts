@@ -11,13 +11,15 @@ import {
   hpOf,
   installMode,
   modeConfigOf,
-  type InputMessage,
+  newTickInputBuffer,
+  type InputKeys,
   type ModeConfig,
 } from "@motor-combat-moba/shared";
 import { newCombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory } from "../sim/ram-bridge.js";
 import { scoped } from "./mode-scope.js";
 import { runPipeline, type PipelineCtx } from "./tick-pipeline.js";
+import { offerForTick } from "../net/offer-input.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
@@ -87,7 +89,7 @@ const FAST: ModeConfig = assembleModeConfig(GameMode.FFA_DEATHMATCH, {
   drive: { ...deathmatchTables.drive, baseMaxSpeed: deathmatchTables.drive.baseMaxSpeed * 6 },
 });
 
-const THROTTLE_INPUT: Omit<InputMessage, "seq"> = { steer: 0, throttle: 1, fireSlots: 0 };
+const THROTTLE_INPUT: InputKeys = { steer: 0, throttle: 1, fireSlots: 0 };
 
 function newRoom(): { ctx: PipelineCtx; player: PlayerState } {
   const state = new ArenaState();
@@ -107,9 +109,8 @@ function newRoom(): { ctx: PipelineCtx; player: PlayerState } {
 
   const ctx: PipelineCtx = {
     state,
-    inputQueues: new Map(),
+    inputBuffers: new Map(),
     prevFireMasks: new Map(),
-    silentTicks: new Map(),
     matchRoster: new Set([SESSION_ID]),
     phaseCaps: new Map(),
     combat: newCombatMemory(),
@@ -123,7 +124,8 @@ function newRoom(): { ctx: PipelineCtx; player: PlayerState } {
 
 function oneTick(ctx: PipelineCtx): void {
   ctx.state.tick += 1;
-  ctx.inputQueues.set(SESSION_ID, [{ ...THROTTLE_INPUT, seq: ctx.state.tick }]);
+  if (!ctx.inputBuffers.has(SESSION_ID)) ctx.inputBuffers.set(SESSION_ID, newTickInputBuffer());
+  offerForTick(ctx.inputBuffers.get(SESSION_ID)!, ctx.state.tick, THROTTLE_INPUT);
   runPipeline(ctx);
 }
 

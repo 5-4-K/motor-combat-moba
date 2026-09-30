@@ -1,6 +1,8 @@
 import { Room, ServerError, matchMaker, type Client } from "@colyseus/core";
 import {
   INPUT_MESSAGE,
+  isInputPacket,
+  newTickInputBuffer,
   MSG_PLAYGROUND_BOT_DEBUG,
   MSG_PLAYGROUND_PAUSE,
   MSG_PLAYGROUND_SETUP,
@@ -25,12 +27,12 @@ import {
   modeConfigOrDefault,
   type CombatEvents,
   type FiredEvent,
-  type InputMessage,
+  type TickInputBuffer,
   type ModeConfig,
   type PlaygroundCarSetup,
   type PlaygroundSetup,
 } from "@motor-combat-moba/shared";
-import { isInputMessage } from "../net/input-message.js";
+import { offerForTick } from "../net/offer-input.js";
 import { forgetCombatPlayer, newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { forgetContactPlayer, newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
 import {
@@ -149,10 +151,8 @@ export function loadoutOrChassisChanged(
  */
 export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
   maxClients = 1;
-  private inputQueues = new Map<string, InputMessage[]>();
+  private inputBuffers = new Map<string, TickInputBuffer>();
   private prevFireMasks = new Map<string, number>();
-  /** Consecutive empty-queue ticks per session; see `PipelineCtx.silentTicks`. */
-  private silentTicks = new Map<string, number>();
   private matchRoster = new Set<string>();
   private phaseCaps = new Map<string, number>();
   private combat: CombatMemory = newCombatMemory();
@@ -175,12 +175,6 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
   /** This tick's view of "what the bot just saw fired" — last tick's fires, sliced off the drained
    * bag before it was cleared. */
   private previousTickFires: readonly FiredEvent[] = [];
-  /**
-   * The un-driven cars' input `seq`. Monotonic across the room rather than per car, which is all
-   * `serverTick` needs — it sorts a batch by seq and acks the highest, and never compares one
-   * player's seq to another's.
-   */
-  private opponentSeq = 0;
   /**
    * One bot per seat (B10, spec PG69). Rebuilt when the difficulty changes — a profile is
    * constructor state — and dropped wholesale whenever a setup arrives, the bot is switched off or
@@ -262,12 +256,16 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
       this.patchRate = null;
       installNetHandlers(this, this.netSessions, (fn) => scoped(this.modeConfig, fn));
 
-      // Straight into the CONTROLLED car's queue (PG9), and with no latency injection: the playground
-      // is a local dev tool, and simulated lag would only make a feel test lie.
+      // Straight into the CONTROLLED car's buffer (PG9), and with no latency injection: the
+      // playground is a local dev tool, and simulated lag would only make a feel test lie. While
+      // paused nothing takes from the buffer, and it drops anything stamped past `maxInputLeadMs`
+      // ahead of the frozen tick, so it stays bounded (NR27: a paused playground stops consuming).
       this.onMessage(INPUT_MESSAGE, (_client, msg: unknown) =>
         scoped(this.modeConfig, () => {
-          if (!isInputMessage(msg)) return;
-          this.inputQueues.get(this.state.controlledSessionId)?.push(msg);
+          if (!isInputPacket(msg)) return;
+          const buffer = this.inputBuffers.get(this.state.controlledSessionId);
+          if (!buffer) return;
+          for (const frame of msg.inputs) buffer.offer(frame, this.state.tick);
         }),
       );
 
@@ -374,7 +372,16 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
     // difficulty has a different cadence, the wheel may have moved, and a bot may have just been
     // switched off (PG29). Dropping every controller is the whole of that rule.
     this.bots.clear();
-    this.state.controlledSessionId = PLAYGROUND_SEAT_IDS[setup.drivenSeat]!;
+    const nextDriven = PLAYGROUND_SEAT_IDS[setup.drivenSeat]!;
+    if (nextDriven !== this.state.controlledSessionId) {
+      // A driver switch hands both seats a fresh buffer: the old seat may hold the human's frames a
+      // tick or two ahead (they lead the server), which would otherwise shadow its bot's offers as
+      // duplicates, and the new seat must not run on its bot's last intent as if it were the human's.
+      for (const id of [this.state.controlledSessionId, nextDriven]) {
+        if (this.inputBuffers.has(id)) this.inputBuffers.set(id, newTickInputBuffer());
+      }
+    }
+    this.state.controlledSessionId = nextDriven;
     const arenaChanged = this.state.arenaId !== setup.arenaId;
     if (arenaChanged) this.state.arenaId = setup.arenaId;
 
@@ -433,9 +440,8 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
    */
   private removeSeat(sessionId: string): void {
     this.state.players.delete(sessionId);
-    this.inputQueues.delete(sessionId);
+    this.inputBuffers.delete(sessionId);
     this.prevFireMasks.delete(sessionId);
-    this.silentTicks.delete(sessionId);
     this.matchRoster.delete(sessionId);
     this.phaseCaps.delete(sessionId);
     this.bots.delete(sessionId);
@@ -460,9 +466,8 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
     player.alive = true;
     player.level = PLAYGROUND_LEVEL;
     this.state.players.set(sessionId, player);
-    this.inputQueues.set(sessionId, []);
+    this.inputBuffers.set(sessionId, newTickInputBuffer());
     this.prevFireMasks.set(sessionId, 0);
-    this.silentTicks.set(sessionId, 0);
     this.matchRoster.add(sessionId);
     return player;
   }
@@ -553,8 +558,13 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
 
   /**
    * One input per tick for every enabled seat the human is NOT driving — that seat's bot intent with
-   * the bot on, a neutral input with it off. Either way it goes through the ordinary input queue, so
-   * the "clients send inputs, never state" invariant holds: a bot is a client, just an in-process one.
+   * the bot on, a neutral input with it off. Either way it is offered into the seat's ordinary
+   * `TickInputBuffer` for the tick about to run (NR27, lead 0), so the "clients send inputs, never
+   * state" invariant holds: a bot is a client, just an in-process one.
+   *
+   * Called after `state.tick += 1`, so `state.tick` IS the tick `runPipeline` is about to simulate;
+   * a multi-tick stepper frame runs increment, offer and consume per tick, so no offer can land on a
+   * tick the room has already passed.
    */
   private enqueueAiInputs(): void {
     const driven = this.state.controlledSessionId;
@@ -562,27 +572,17 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
 
     for (const id of PLAYGROUND_SEAT_IDS) {
       if (id === driven) continue;
-      const queue = this.inputQueues.get(id);
-      // No queue means the seat is off the field. Nothing to drive.
-      if (!queue) continue;
+      const buffer = this.inputBuffers.get(id);
+      // No buffer means the seat is off the field. Nothing to drive.
+      if (!buffer) continue;
 
-      // A fresh `seq` every tick, held intent or not: `serverTick` wants one input per tick per car,
-      // and reusing a sequence number reads as a duplicate rather than a repeat. Monotonic across the
-      // room rather than per seat, which is all `serverTick` needs — it sorts a batch by seq and acks
-      // the highest, and never compares one player's seq to another's.
-      this.opponentSeq += 1;
-      const seq = this.opponentSeq;
-
-      // Alone mode (PG11/PG71) sends a NEUTRAL input, not silence. `serverTick` leaves an input-less
-      // player unstepped unless it is carrying a knock, so a dummy handed no input freezes exactly
-      // where the bot was switched off — and it KEEPS the velocity it was carrying, which
-      // `serverTick` reports as that car's `approachVelocities` on every subsequent tick.
-      // `resolveRam` reads that as the drive-in term, so a parked dummy scores as an attacker at its
-      // last driving speed in every contact, forever. Coasting it on zeros runs it through the
-      // ordinary drive model instead.
+      // Alone mode (PG11/PG71) offers a NEUTRAL input, not silence. Silence would also end neutral,
+      // but only after the buffer had repeated the bot's last intent for `inputRepeatMs` — a dummy
+      // switched off mid-turn would drive on for a quarter second. Coasting it on zeros from the
+      // first tick runs it through the ordinary drive model instead.
       if (!this.state.botEnabled) {
         this.bots.delete(id);
-        queue.push({ seq, steer: 0, throttle: 0, fireSlots: 0 });
+        offerForTick(buffer, this.state.tick, { steer: 0, throttle: 0, fireSlots: 0 });
         continue;
       }
 
@@ -607,12 +607,10 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
         stalenessTicks: this.botConfig.profiles[difficulty].viewStalenessTicks,
         ring: this.botRing,
       });
-      // No car for this seat: push NOTHING. An input queued for a session that is not in
-      // `state.players` is never consumed by `serverTick`, and would be read as a stale intent if
-      // that seat were re-added.
+      // No car for this seat: offer NOTHING, and the buffer repeats then goes neutral.
       if (!view) continue;
 
-      queue.push({ seq, ...bot.decide(view) });
+      offerForTick(buffer, this.state.tick, bot.decide(view));
     }
   }
 
@@ -643,9 +641,8 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
   private ctx(): PipelineCtx {
     return {
       state: this.state,
-      inputQueues: this.inputQueues,
+      inputBuffers: this.inputBuffers,
       prevFireMasks: this.prevFireMasks,
-      silentTicks: this.silentTicks,
       matchRoster: this.matchRoster,
       phaseCaps: this.phaseCaps,
       combat: this.combat,

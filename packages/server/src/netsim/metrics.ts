@@ -2,9 +2,11 @@
  * What a netsim run measures (spec NR57–NR59). Every number is taken from the headless client
  * models' own view of the world against the server's recorded truth, over simulated links.
  *
- * - `stepsPerTickMax` — the most `stepSim` calls any one car received in a single server tick.
- * - `repeatedInputRate` — share of car-ticks simulated on a repeated input; `null` for the legacy
- *   model (it never repeats an input: an empty queue is simply not stepped).
+ * - `stepsPerTickMax` — the most `stepSim` calls any one car received in a single server tick, as
+ *   `runPipeline` counted them (NR17: 1).
+ * - `repeatedInputRate` — share of stepped car-ticks simulated on a repeated or neutral input,
+ *   because that car's own frame for the tick had not arrived (NR22). `null` is kept in the type for
+ *   a model that never repeats; the `"tick"` model always reports a number.
  * - `remotePathErrorP95` — each client frame, for each remote car that is alive (on the server and
  *   as the client draws it): distance from the drawn pose to the nearest point of that car's true
  *   trajectory from 400 ms before to 100 ms after the frame (`TRUTH_WINDOW_MS`, `TRUTH_LEAD_MS`;
@@ -20,7 +22,7 @@
  * - `reconcileErrorP95` — at each snapshot the client reconciles, distance between its current
  *   predicted position and the replayed target, p95.
  * - `inputToServerMs` — mean of (the server time a car's input was simulated − the client time it
- *   was produced).
+ *   was produced), over inputs simulated as their own tick's input.
  */
 export interface NetsimMetrics {
   stepsPerTickMax: number;

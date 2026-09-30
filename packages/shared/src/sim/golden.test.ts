@@ -3,7 +3,7 @@ import { installMode } from "../modes/active.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import type { ChassisDrive } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
-import type { InputMessage } from "../net/input.js";
+import type { InputKeys } from "../net/tick-input.js";
 import { resolveWorld } from "./collide.js";
 import { stepDrive } from "./drive.js";
 import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
@@ -62,8 +62,8 @@ const GOLDEN_CHASSIS: ChassisDrive = Object.freeze({
   spinPerTick: 1,
 });
 
-function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputMessage {
-  return { seq: 0, steer, throttle, fireSlots: 0 };
+function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputKeys {
+  return { steer, throttle, fireSlots: 0 };
 }
 
 function body(over: Partial<SimBody> = {}): SimBody {
@@ -92,7 +92,7 @@ function bodyAt(x: number, y: number, angle: number, forward: number): SimBody {
   return body({ x, y, angle, ...toWorld(angle, forward, 0) });
 }
 
-function drive(start: SimBody, msg: InputMessage, ticks: number): SimBody {
+function drive(start: SimBody, msg: InputKeys, ticks: number): SimBody {
   let next = start;
   // `NEUTRAL_MODIFIERS`, and only ever that: the status work adds a fifth argument whose
   // neutral value multiplies every drive constant by exactly 1. Every number below must survive
@@ -226,7 +226,7 @@ describe("golden: stepDrive at the shipped rate, dt 1/60", () => {
     // at dt 1/30), and exp(-0 / 60) is 1 too. No case here spins, so no pinned number reads it.
     spinPerTick: Math.exp(-0 / 60),
   });
-  function drive60(start: SimBody, msg: InputMessage, ticks: number): SimBody {
+  function drive60(start: SimBody, msg: InputKeys, ticks: number): SimBody {
     let next = start;
     for (let i = 0; i < ticks; i++) next = stepDrive(next, msg, DT_60, CHASSIS_60, NEUTRAL_MODIFIERS);
     return next;

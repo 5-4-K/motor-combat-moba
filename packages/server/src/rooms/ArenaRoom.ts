@@ -3,6 +3,8 @@ import {
   ArenaState,
   PlayerState,
   INPUT_MESSAGE,
+  isInputPacket,
+  newTickInputBuffer,
   MAX_PLAYERS,
   ROOM_NAME,
   MS_PER_TICK,
@@ -46,7 +48,8 @@ import {
   type FlowEvent,
   type FlowPlayer,
   type FlowState,
-  type InputMessage,
+  type InputPacket,
+  type TickInputBuffer,
   type ModeConfig,
   type StartRulePlayer,
 } from "@motor-combat-moba/shared";
@@ -55,7 +58,6 @@ import {
   getCarSelectSeconds,
   getRevealSeconds,
 } from "../mode.js";
-import { isInputMessage } from "../net/input-message.js";
 import { withSimulatedLatency } from "../net/latency-injector.js";
 import {
   clearInstances,
@@ -96,15 +98,14 @@ import { NetSessions, installNetHandlers } from "../net/net-session.js";
 
 export class ArenaRoom extends Room<{ state: ArenaState }> {
   maxClients = MAX_PLAYERS;
-  private inputQueues = new Map<string, InputMessage[]>();
+  /** Each player's inputs keyed by the tick they are for (NR22); `serverTick` takes one per tick. */
+  private readonly inputBuffers = new Map<string, TickInputBuffer>();
   /**
    * What each player's last SIMULATED input had held down, so `serverTick` can tell a press from a
    * held key. Server-only and never networked: the client does not predict firing, so nothing on the
    * other half of the lockstep needs it.
    */
   private prevFireMasks = new Map<string, number>();
-  /** Consecutive empty-queue ticks per session; see `PipelineCtx.silentTicks`. */
-  private silentTicks = new Map<string, number>();
   private pendingCarId = new Map<string, CarId>();
   private matchRoster = new Set<string>();
   /**
@@ -168,18 +169,21 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       this.patchRate = null;
       installNetHandlers(this, this.netSessions, (fn) => scoped(this.modeConfig, fn));
 
-      const enqueue = withSimulatedLatency<{ sessionId: string; msg: InputMessage }>(
+      // The offer reads `state.tick` at DELIVERY, after any simulated delay, so a delayed frame is
+      // judged late or early against the tick the room is actually about to run.
+      const offer = withSimulatedLatency<{ sessionId: string; msg: InputPacket }>(
         ({ sessionId, msg }) => {
-          const q = this.inputQueues.get(sessionId);
-          if (q) q.push(msg);
+          const buffer = this.inputBuffers.get(sessionId);
+          if (!buffer) return;
+          for (const frame of msg.inputs) buffer.offer(frame, this.state.tick);
         },
         getSimulatedLatency(),
       );
 
       this.onMessage(INPUT_MESSAGE, (client, msg: unknown) =>
         scoped(this.modeConfig, () => {
-          if (!isInputMessage(msg)) return;
-          enqueue({ sessionId: client.sessionId, msg });
+          if (!isInputPacket(msg)) return;
+          offer({ sessionId: client.sessionId, msg });
         }),
       );
 
@@ -379,9 +383,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       player.x = 400 + 80 * index;
       player.y = 300;
       this.state.players.set(client.sessionId, player);
-      this.inputQueues.set(client.sessionId, []);
+      this.inputBuffers.set(client.sessionId, newTickInputBuffer());
       this.prevFireMasks.set(client.sessionId, 0);
-      this.silentTicks.set(client.sessionId, 0);
       if (!this.state.hostSessionId) {
         this.state.hostSessionId = client.sessionId;
       }
@@ -395,9 +398,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       const wasInRoster = this.matchRoster.has(client.sessionId);
 
       this.state.players.delete(client.sessionId);
-      this.inputQueues.delete(client.sessionId);
+      this.inputBuffers.delete(client.sessionId);
       this.prevFireMasks.delete(client.sessionId);
-      this.silentTicks.delete(client.sessionId);
       this.pendingCarId.delete(client.sessionId);
       this.postMatchIds.delete(client.sessionId);
       this.matchRoster.delete(client.sessionId);
@@ -497,9 +499,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   private ctx(): PipelineCtx {
     return {
       state: this.state,
-      inputQueues: this.inputQueues,
+      inputBuffers: this.inputBuffers,
       prevFireMasks: this.prevFireMasks,
-      silentTicks: this.silentTicks,
       matchRoster: this.matchRoster,
       phaseCaps: this.phaseCaps,
       combat: this.combat,

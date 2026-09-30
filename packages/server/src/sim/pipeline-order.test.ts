@@ -8,10 +8,12 @@ import {
   RoomPhase,
   forwardMaxSpeedOf,
   hasStatus,
+  newTickInputBuffer,
   type Modifiers,
   type WeaponId,
 } from "@motor-combat-moba/shared";
 import { serverTick } from "./tick.js";
+import { offerForTick } from "../net/offer-input.js";
 import { contactTick, newContactMemory } from "./ram-bridge.js";
 import { readStatuses } from "./status-bridge.js";
 
@@ -101,13 +103,16 @@ function runTick(driveIn: "carried-in" | "post-resolution") {
   const attacker = addPlayer(state, "a", { x: ATTACKER_START_X, y: 400, angle: 0, carId: "bastion", vx: topSpeed, vy: 0 });
   const victim = addPlayer(state, "b", { x: 1000, y: 400, angle: 0, carId: "bullseye" });
 
-  const queues = new Map([
-    ["a", [{ seq: 1, steer: 0, throttle: 1, fireSlots: 0 }]],
-    ["b", [{ seq: 1, steer: 0, throttle: 0, fireSlots: 0 }]],
+  const buffers = new Map([
+    ["a", newTickInputBuffer()],
+    ["b", newTickInputBuffer()],
   ]);
+  // Offered for `state.tick` itself, the tick `serverTick` is about to simulate.
+  offerForTick(buffers.get("a")!, state.tick, { steer: 0, throttle: 1, fireSlots: 0 });
+  offerForTick(buffers.get("b")!, state.tick, { steer: 0, throttle: 0, fireSlots: 0 });
 
   // Step 1: the REAL `serverTick` — drive, then `resolveWorld`'s contact pass.
-  const { approachVelocities } = serverTick(state, queues, 1 / TICK_RATE_HZ, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
+  const { approachVelocities } = serverTick(state, buffers, 1 / TICK_RATE_HZ, RoomPhase.MATCH, NO_EFFECTS, new Map());
   const afterResolveWorld = attacker.vx;
 
   // Step 2: the REAL `contactTick`, on the same tick.

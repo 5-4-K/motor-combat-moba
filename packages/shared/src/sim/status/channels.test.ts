@@ -6,7 +6,7 @@ import { STATUS_LIMITS, STATUS_TABLE } from "../../config/status-config.js";
 import type { CarId } from "../../config/types.js";
 import { scaleTicks, weaponTicksOf } from "../../config/weapon-ticks.js";
 import { MS_PER_TICK, TICK_RATE_HZ } from "../../constants.js";
-import type { InputMessage } from "../../net/input.js";
+import type { InputKeys } from "../../net/tick-input.js";
 import { applyHeal, scaleDamage } from "../damage.js";
 import { stepDrive } from "../drive.js";
 import { resolveRam, type RamCar } from "../ram.js";
@@ -93,8 +93,8 @@ function fwd(b: SimBody): number {
   return forwardOf(b.vx, b.vy, b.angle);
 }
 
-function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputMessage {
-  return { seq: 0, steer, throttle, fireSlots: 0 };
+function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputKeys {
+  return { steer, throttle, fireSlots: 0 };
 }
 
 function mods(over: Partial<Modifiers>): Modifiers {

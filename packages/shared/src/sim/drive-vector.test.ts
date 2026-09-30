@@ -4,7 +4,7 @@ import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import type { ChassisDrive } from "../config/car-config.js";
 import { DRIVE_CONFIG, perTickDecay } from "../config/drive-config.js";
 import { TICK_RATE_HZ } from "../constants.js";
-import type { InputMessage } from "../net/input.js";
+import type { InputKeys } from "../net/tick-input.js";
 import { stepDrive } from "./drive.js";
 import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import type { SimBody } from "./step.js";
@@ -31,8 +31,8 @@ const CHASSIS: ChassisDrive = Object.freeze({
   spinPerTick: 1,
 });
 
-function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputMessage {
-  return { seq: 0, steer, throttle, fireSlots: 0 };
+function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputKeys {
+  return { steer, throttle, fireSlots: 0 };
 }
 
 function body(over: Partial<SimBody> = {}): SimBody {

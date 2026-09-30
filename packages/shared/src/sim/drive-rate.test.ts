@@ -46,7 +46,7 @@ function run(hz: number, ticks: number) {
     maneuverSpeed: 0,
   };
   for (let i = 0; i < ticks; i++) {
-    b = stepDrive(b, { seq: 0, steer: 1, throttle: 1, fireSlots: 0 }, 1 / hz, chassisAt(hz), NEUTRAL_MODIFIERS);
+    b = stepDrive(b, { steer: 1, throttle: 1, fireSlots: 0 }, 1 / hz, chassisAt(hz), NEUTRAL_MODIFIERS);
   }
   return b;
 }

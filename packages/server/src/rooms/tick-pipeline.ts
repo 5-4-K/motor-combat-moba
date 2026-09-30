@@ -17,7 +17,7 @@ import {
   carIdOf,
   type ArenaState,
   type CombatEvents,
-  type InputMessage,
+  type TickInputBuffer,
   type PlayerState,
 } from "@motor-combat-moba/shared";
 import { serverTick } from "../sim/tick.js";
@@ -53,15 +53,14 @@ import {
  */
 export interface PipelineCtx {
   state: ArenaState;
-  inputQueues: Map<string, InputMessage[]>;
-  prevFireMasks: Map<string, number>;
   /**
-   * Per session, how many consecutive ticks that player's input queue has been empty. Server-only
-   * and room-owned, exactly like `prevFireMasks`: `serverTick` reads it to tell a jittered tick from
-   * a client that has stopped stepping, and nothing it holds crosses the wire. See
-   * `NET_CONFIG.silentCoastGraceMs`.
+   * Per session, that player's inputs keyed by the tick they are for (NR22). `serverTick` takes
+   * exactly one per player per tick — a real frame, or the repeat/neutral fill — so a car steps once
+   * per tick however many frames arrived (NR17). Every producer offers into these: the room's INPUT
+   * handler for a human, and the room itself (lead 0) for a bot.
    */
-  silentTicks: Map<string, number>;
+  inputBuffers: Map<string, TickInputBuffer>;
+  prevFireMasks: Map<string, number>;
   matchRoster: ReadonlySet<string>;
   /**
    * Per-player tick at which spawn protection must end no matter what. Server-only: the client reads
@@ -94,6 +93,8 @@ export interface PipelineCtx {
 export function runPipeline(ctx: PipelineCtx): {
   masks: ReadonlyMap<string, number>;
   combatPlayers: CombatResultPlayer[] | null;
+  /** `serverTick`'s real per-car `stepSim` count for this tick (0 or 1, NR17). */
+  steps: ReadonlyMap<string, number>;
 } {
   const state = ctx.state;
   const dt = 1 / ctx.hz;
@@ -103,14 +104,13 @@ export function runPipeline(ctx: PipelineCtx): {
   // effect whose last tick was the previous one. New effects are only ever added at the far end of
   // the tick, by combat, and take hold on the next one.
   const statusMods = statusTick(state, state.tick);
-  const { masks, aims, approachVelocities } = serverTick(
+  const { masks, aims, approachVelocities, steps } = serverTick(
     state,
-    ctx.inputQueues,
+    ctx.inputBuffers,
     dt,
     state.phase,
     statusMods,
     ctx.prevFireMasks,
-    ctx.silentTicks,
   );
   // Contact, after driving and before combat. The order is the rule: contacts are measured against
   // the poses driving actually produced, and the knock written here is read by stepDrive next tick.
@@ -132,7 +132,7 @@ export function runPipeline(ctx: PipelineCtx): {
       state.tick,
     );
   }
-  return { masks, combatPlayers: combatTick(ctx, dt, masks, contact, aims) };
+  return { masks, combatPlayers: combatTick(ctx, dt, masks, contact, aims), steps };
 }
 
 /**

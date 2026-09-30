@@ -15,11 +15,20 @@ import {
   forwardOf,
   lateralOf,
   toWorld,
+  isInputPacket,
+  msToTicks,
+  newTickInputBuffer,
+  stepSim,
   wrapAngle,
+  boundsOf,
+  getArena,
+  ramDefenceOf,
   type CarId,
-  type InputMessage,
+  type InputFrame,
+  type InputKeys,
   type Modifiers,
   type SimBody,
+  type TickInputBuffer,
 } from "@motor-combat-moba/shared";
 import { serverTick } from "./tick.js";
 
@@ -32,32 +41,85 @@ beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 const NO_EFFECTS = new Map<string, Modifiers>();
 
 const DT = MS_PER_TICK / 1000;
-const UP: InputMessage = { seq: 1, steer: 0, throttle: 1, fireSlots: 0 };
+const UP: InputKeys = { steer: 0, throttle: 1, fireSlots: 0 };
+/** Throttle-neutral: the car keeps whatever speed it already had, minus drag. */
+const COAST: InputKeys = { steer: 0, throttle: 0, fireSlots: 0 };
+const fire = (mask: number, aimAngle?: number): InputKeys =>
+  aimAngle === undefined ? { steer: 0, throttle: 0, fireSlots: mask } : { steer: 0, throttle: 0, fireSlots: mask, aimAngle };
+
+/** How many ticks a missing frame repeats the last real input before going neutral (NR22). */
+const REPEAT_TICKS = msToTicks(NET_CONFIG.inputRepeatMs);
+
+/** The brief's fixture: one buffer per id, every frame offered against `lastCompletedTick`. */
+function buffers(entries: Record<string, InputFrame[]>, lastCompletedTick: number): Map<string, TickInputBuffer> {
+  const map = new Map<string, TickInputBuffer>();
+  for (const [id, frames] of Object.entries(entries)) {
+    const b = newTickInputBuffer();
+    for (const f of frames) b.offer(f, lastCompletedTick);
+    map.set(id, b);
+  }
+  return map;
+}
 
 /**
- * How many consecutive empty-queue ticks `serverTick` waits out before it will coast a player.
- *
- * Derived the same way the production code derives it, from `dt` — a literal here would pin the
- * suite to 30 Hz and to today's grace at once.
+ * A room slice across ticks: the state, one `TickInputBuffer` per player that has hands, and the
+ * room-owned `prevFireMasks`. `tick` offers each given input for the tick about to run (lead 0, the
+ * way a bot does), advances `state.tick`, and runs `serverTick` on it — `ArenaRoom.step`'s order.
+ * A player given no input on a tick simply has no frame for it: the buffer's repeat-then-neutral
+ * fill is what `serverTick` then runs.
  */
-const GRACE_TICKS = Math.ceil(NET_CONFIG.silentCoastGraceMs / (DT * 1000));
+class Rig {
+  readonly state: ArenaState;
+  readonly buffers = new Map<string, TickInputBuffer>();
+  readonly prev = new Map<string, number>();
 
-/**
- * `n` ticks with no input at all for anyone, against ONE silence counter.
- *
- * The shared map is the whole point: `serverTick`'s silence run only accumulates because the room
- * owns that map across ticks, and a fresh one per call would mean the grace never elapses and no
- * coast ever happens. Every case in this file that does not care about the coast passes a throwaway
- * map inline, which is exactly equivalent to a player who has just spoken.
- */
-function goSilent(
-  state: ArenaState,
-  n: number,
-  silence: Map<string, number> = new Map<string, number>(),
-  phase: RoomPhase = RoomPhase.MATCH,
-): Map<string, number> {
-  for (let i = 0; i < n; i++) serverTick(state, new Map(), DT, phase, NO_EFFECTS, new Map(), silence);
-  return silence;
+  constructor(players: PlayerState[], withHands: readonly string[] = players.map((p) => p.sessionId)) {
+    this.state = stateWith(...players);
+    for (const id of withHands) this.buffers.set(id, newTickInputBuffer());
+  }
+
+  /** Offer a frame for `tick` as a client would, judged against the tick the room last completed. */
+  offer(id: string, frame: InputFrame): void {
+    this.buffers.get(id)!.offer(frame, this.state.tick);
+  }
+
+  tick(
+    inputs: Record<string, InputKeys> = {},
+    phase: RoomPhase = RoomPhase.MATCH,
+    mods: ReadonlyMap<string, Modifiers> = NO_EFFECTS,
+    dt: number = DT,
+  ): ReturnType<typeof serverTick> {
+    for (const [id, keys] of Object.entries(inputs)) this.offer(id, { tick: this.state.tick + 1, ...keys });
+    this.state.tick += 1;
+    return serverTick(this.state, this.buffers, dt, phase, mods, this.prev);
+  }
+
+  /** `n` ticks with no frame from anyone. */
+  silent(n: number, phase: RoomPhase = RoomPhase.MATCH): void {
+    for (let i = 0; i < n; i++) this.tick({}, phase);
+  }
+}
+
+/** One `stepSim` of a copy of `player`, as `serverTick` would step it alone in `state`'s arena. */
+function oneStep(state: ArenaState, player: PlayerState, keys: InputKeys): SimBody {
+  const arena = getArena(state.arenaId);
+  return stepSim(
+    {
+      x: player.x, y: player.y, angle: player.angle, vx: player.vx, vy: player.vy, angVel: player.angVel,
+      maneuver: player.maneuver, maneuverTicksLeft: player.maneuverTicksLeft,
+      maneuverAngle: player.maneuverAngle, maneuverSpeed: player.maneuverSpeed,
+    },
+    keys,
+    DT,
+    {
+      obstacles: arena.obstacles,
+      bounds: boundsOf(arena),
+      carId: player.carId as CarId,
+      others: [],
+      modifiers: NEUTRAL_MODIFIERS,
+      selfRamDefence: ramDefenceOf(player.carId as CarId),
+    },
+  );
 }
 
 /**
@@ -105,7 +167,6 @@ function makePlayer(
   p.angle = angle;
   p.status = status;
   p.carId = carId;
-  p.lastProcessedInputSeq = 0;
   return p;
 }
 
@@ -127,118 +188,129 @@ function poseOf(player: PlayerState): SimBody {
   };
 }
 
-function ups(...seqs: number[]): InputMessage[] {
-  return seqs.map((seq) => ({ seq, steer: 0, throttle: 1, fireSlots: 0 }));
-}
-
-/** Throttle-neutral inputs: the car keeps whatever speed it already had, minus drag. */
-function coasts(...seqs: number[]): InputMessage[] {
-  return seqs.map((seq) => ({ seq, steer: 0, throttle: 0, fireSlots: 0 }));
-}
-
 describe("serverTick", () => {
-  it("drives the car forward and empties the queue", () => {
+  it("drives the car forward on this tick's frame", () => {
     const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
-    const state = stateWith(player);
-    const queues = new Map<string, InputMessage[]>([["p1", [{ ...UP, seq: 7 }]]]);
+    const rig = new Rig([player]);
 
-    serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
+    const { steps } = rig.tick({ p1: UP });
 
     expect(player.x).toBeGreaterThan(300);
     expect(player.y).toBe(CORRIDOR_Y);
     // RE-PINNED for the Unity drive-model port: `driveOf("mirage").accel` is gone, and the
     // command's contribution is no longer a flat `* DT` — see `forwardAfterThrottleTicks`.
     expect(forwardOf(player.vx, player.vy, player.angle)).toBeCloseTo(forwardAfterThrottleTicks("mirage", 1), 6);
-    expect(player.lastProcessedInputSeq).toBe(7);
-    expect(queues.get("p1")).toEqual([]);
+    expect(player.ackRepeated).toBe(false);
+    expect(steps.get("p1")).toBe(1);
   });
 
-  it("carries speed forward between inputs, so N queued inputs accelerate N times", () => {
+  it("carries speed forward between ticks, so N ticks of throttle accelerate N times", () => {
     const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
-    const state = stateWith(player);
-    const queues = new Map<string, InputMessage[]>([["p1", ups(1, 2, 3)]]);
+    const rig = new Rig([player]);
 
-    serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
+    for (let i = 0; i < 3; i++) rig.tick({ p1: UP });
 
-    // Would be a single tick's worth if `vx`/`vy` were only written back after the last input —
-    // and, since the Unity drive-model port, "3 ticks' worth" is the GEOMETRIC accumulation
-    // `forwardAfterThrottleTicks` computes, not `3 * (one tick's worth)`: drag now acts every
-    // tick, so the series is sublinear (each tick's drag-decay makes the previous ticks' gains
-    // worth slightly less), and `toEqual`-checking against a literal `3x` would be re-asserting
-    // the pre-port flat-Euler model this whole task replaced.
+    // "3 ticks' worth" is the GEOMETRIC accumulation `forwardAfterThrottleTicks` computes, not
+    // `3 * (one tick's worth)`: drag acts every tick, so the series is sublinear.
     expect(forwardOf(player.vx, player.vy, player.angle))
       .toBeCloseTo(forwardAfterThrottleTicks("mirage", 3), 6);
   });
 
-  it("leaves a player with an empty or missing queue unchanged", () => {
-    const emptyQ = makePlayer("empty", 1, 2, 0.1);
-    emptyQ.lastProcessedInputSeq = 3;
-    const missingQ = makePlayer("missing", 4, 5, 0.2);
-    missingQ.lastProcessedInputSeq = 4;
-    const state = stateWith(emptyQ, missingQ);
-
-    const queues = new Map<string, InputMessage[]>([["empty", []]]);
-
-    serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
-
-    expect(poseOf(emptyQ)).toEqual({
-      x: 1,
-      y: 2,
-      angle: 0.1,
-      vx: 0,
-      vy: 0,
-      angVel: 0,
-    });
-    expect(emptyQ.lastProcessedInputSeq).toBe(3);
-    expect(poseOf(missingQ)).toEqual({
-      x: 4,
-      y: 5,
-      angle: 0.2,
-      vx: 0,
-      vy: 0,
-      angVel: 0,
-    });
-    expect(missingQ.lastProcessedInputSeq).toBe(4);
+  it("steps every car exactly once per tick, however many frames arrived (F1)", () => {
+    // state.tick is the tick being simulated; frames for it and five future ticks are buffered.
+    const frames = [1, 2, 3, 4, 5, 6].map((t) => ({ tick: t, steer: 0 as const, throttle: 1 as const, fireSlots: 0 }));
+    const player = makePlayer("a", 300, CORRIDOR_Y, 0);
+    const state = stateWith(player);
+    const expected = oneStep(state, player, frames[0]!);
+    state.tick = 1;
+    const { steps } = serverTick(state, buffers({ a: frames }, 0), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
+    expect(state.players.get("a")!.x).toBeCloseTo(expected.x, 9);
+    expect(state.players.get("a")!.vx).toBeCloseTo(expected.vx, 9);
+    expect(steps.get("a")).toBe(1);
   });
 
-  it("sets lastProcessedInputSeq to the last seq applied when multiple messages are queued", () => {
+  it("a hostile client flooding duplicate and far-future frames still steps exactly once per tick", () => {
+    // Five packets a tick, each carrying six frames for the same run of ticks, plus a frame 600
+    // ticks ahead. The wire guard refuses a six-frame packet outright; offered straight into the
+    // buffer anyway, the duplicates are dropped and the far-future frame is beyond `maxInputLeadMs`,
+    // so the car moves exactly as far as an honest client sending one frame a tick.
+    const TICKS = 40;
+    const flooder = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const honest = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const hostile = new Rig([flooder]);
+    const fair = new Rig([honest]);
+    for (let i = 0; i < TICKS; i++) {
+      const next = hostile.state.tick + 1;
+      const packet = { inputs: [0, 1, 2, 3, 4, 5].map((k) => ({ tick: next + k, ...UP })) };
+      expect(isInputPacket(packet)).toBe(false);
+      for (let p = 0; p < 5; p++) for (const frame of packet.inputs) hostile.offer("p1", frame);
+      hostile.offer("p1", { tick: next + 600, ...UP });
+      const { steps } = hostile.tick();
+      fair.tick({ p1: UP });
+      expect(steps.get("p1")).toBe(1);
+    }
+    expect(poseOf(flooder)).toEqual(poseOf(honest));
+    expect(flooder.x).toBeGreaterThan(300);
+  });
+
+  it("a car with no input for the tick still steps, on the repeated input, and says so", () => {
+    const state = stateWith(makePlayer("a", 300, CORRIDOR_Y, 0));
+    state.tick = 1;
+    const b = buffers({ a: [] }, 0);
+    const { steps } = serverTick(state, b, DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
+    expect(state.players.get("a")!.ackRepeated).toBe(true);
+    expect(steps.get("a")).toBe(1);
+  });
+
+  it("leaves a player with no input buffer unchanged and unstepped", () => {
+    const handless = makePlayer("missing", 4, 5, 0.2);
+    const rig = new Rig([handless], []);
+
+    const { steps } = rig.tick();
+
+    expect(poseOf(handless)).toEqual({ x: 4, y: 5, angle: 0.2, vx: 0, vy: 0, angVel: 0 });
+    expect(steps.get("missing")).toBe(0);
+  });
+
+  it("takes only this tick's frame, and a later tick's frame waits for its own tick", () => {
     const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
-    const state = stateWith(player);
-    const queues = new Map<string, InputMessage[]>([
-      [
-        "p1",
-        [
-          { seq: 1, steer: 0, throttle: 0, fireSlots: 0 },
-          { seq: 2, steer: 1, throttle: 0, fireSlots: 0 },
-          { seq: 5, steer: 0, throttle: 1, fireSlots: 0b001 },
-        ],
-      ],
-    ]);
+    const rig = new Rig([player]);
+    rig.offer("p1", { tick: 1, ...UP });
+    rig.offer("p1", { tick: 2, steer: 1, throttle: 1, fireSlots: 0 });
 
-    serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
+    const twin = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const twinRig = new Rig([twin]);
+    rig.tick();
+    twinRig.tick({ p1: UP });
+    expect(poseOf(player)).toEqual(poseOf(twin));
 
-    expect(player.lastProcessedInputSeq).toBe(5);
-    expect(queues.get("p1")).toEqual([]);
+    rig.tick();
+    twinRig.tick({ p1: { steer: 1, throttle: 1, fireSlots: 0 } });
+    expect(poseOf(player)).toEqual(poseOf(twin));
+    expect(player.ackRepeated).toBe(false);
+  });
+
+  it("reports the buffer's mean input slack on the car (NR21)", () => {
+    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const rig = new Rig([player]);
+    // Offered while the room has completed tick 0: frames for ticks 3 and 5 sit 2 and 4 ahead of
+    // the next tick to run.
+    rig.offer("p1", { tick: 3, ...UP });
+    rig.offer("p1", { tick: 5, ...UP });
+    rig.tick();
+    expect(player.inputSlack).toBeCloseTo(3, 9);
   });
 
   it("integrates with the dt it is given", () => {
-    // CHANGED by the Unity drive-model port's exact-integrator ruling, and in a more structural
-    // way than "the numbers moved": `chassis.dragPerTick`/`gripPerTick`/`spinPerTick` are baked as
-    // PER-TICK factors (`perTickDecay`, at module load, against `TICK_RATE_HZ`) rather than
-    // per-second rates re-applied against whatever `dt` a caller passes — that is the whole point
-    // of resolving them onto `ChassisDrive` once (Task 8's 30-vs-60Hz proof rebuilds a NEW chassis
-    // for the other rate; it does not feed one chassis a different `dt`). One consequence: the
-    // velocity `stepDrive` produces from a throttle press is now IDENTICAL regardless of the `dt`
-    // argument (measured: bit-identical `forwardOf` for `DT` and `DT * 2` here) — `dt` only still
-    // matters for turning THAT velocity into a position (`x += v.vx * dt`), which is what this case
-    // now checks: `serverTick`'s own `dt` parameter really does reach that integration step, via
-    // the position delta scaling with it, rather than via the old (and now false) claim that the
-    // velocity itself scales with `dt`.
+    // `chassis.dragPerTick`/`gripPerTick`/`spinPerTick` are baked as PER-TICK factors, so the
+    // velocity a throttle press produces is identical whatever `dt` a caller passes; `dt` only turns
+    // that velocity into a position. So this checks `serverTick`'s own `dt` reaches the position
+    // integration: the position delta scales with it.
     const slow = makePlayer("p1", 300, CORRIDOR_Y, 0);
     const fast = makePlayer("p1", 300, CORRIDOR_Y, 0);
 
-    serverTick(stateWith(slow), new Map([["p1", ups(1)]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
-    serverTick(stateWith(fast), new Map([["p1", ups(1)]]), DT * 2, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
+    new Rig([slow]).tick({ p1: UP }, RoomPhase.MATCH, NO_EFFECTS, DT);
+    new Rig([fast]).tick({ p1: UP }, RoomPhase.MATCH, NO_EFFECTS, DT * 2);
 
     expect(forwardOf(fast.vx, fast.vy, fast.angle)).toBeCloseTo(forwardOf(slow.vx, slow.vy, slow.angle), 9);
     expect(fast.x - 300).toBeCloseTo((slow.x - 300) * 2, 6);
@@ -253,71 +325,38 @@ describe("serverTick", () => {
       { steer: 1, throttle: -1 },
     ] as const;
 
-    const at = (body: number, seq: number): InputMessage => ({ ...BODIES[body]!, seq, fireSlots: 0 });
-
-    function runWith(queue: InputMessage[]): PlayerState {
+    function runWith(arrivals: Array<{ body: number; tick: number }>): PlayerState {
       const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
-      serverTick(stateWith(player), new Map([["p1", queue]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
+      const rig = new Rig([player]);
+      for (const { body, tick } of arrivals) rig.offer("p1", { tick, ...BODIES[body]!, fireSlots: 0 });
+      for (let i = 0; i < 3; i++) rig.tick();
       return player;
     }
 
-    it("applies inputs in seq order regardless of the order they arrived in", () => {
+    it("applies frames by the tick they are for, regardless of the order they arrived in", () => {
       // Simulated latency gives every packet its own jittered delay, so this is routine, not exotic.
-      const inOrder = runWith([at(0, 1), at(1, 2), at(2, 3)]);
-      const arrivedShuffled = runWith([at(2, 3), at(0, 1), at(1, 2)]);
+      const inOrder = runWith([{ body: 0, tick: 1 }, { body: 1, tick: 2 }, { body: 2, tick: 3 }]);
+      const arrivedShuffled = runWith([{ body: 2, tick: 3 }, { body: 0, tick: 1 }, { body: 1, tick: 2 }]);
 
       // Precondition: the fixture really is order-sensitive, so the equality below has teeth.
-      const seqsReversed = runWith([at(2, 1), at(1, 2), at(0, 3)]);
-      expect(poseOf(seqsReversed)).not.toEqual(poseOf(inOrder));
+      const ticksReversed = runWith([{ body: 2, tick: 1 }, { body: 1, tick: 2 }, { body: 0, tick: 3 }]);
+      expect(poseOf(ticksReversed)).not.toEqual(poseOf(inOrder));
 
       expect(poseOf(arrivedShuffled)).toEqual(poseOf(inOrder));
-      // Acking the last *arrival* would leave this at 2 while seq 3 had already been applied, and
-      // Task 4's reconcile would then replay inputs the server has already integrated.
-      expect(arrivedShuffled.lastProcessedInputSeq).toBe(3);
     });
-  });
-
-  it("applies at most maxInputsPerTick inputs, but still drains and acks the whole burst", () => {
-    const cap = NET_CONFIG.maxInputsPerTick;
-    const burst = cap * 4;
-
-    const flooder = makePlayer("p1", 300, CORRIDOR_Y, 0);
-    const floodQueue = ups(...Array.from({ length: burst }, (_, i) => i + 1));
-    serverTick(stateWith(flooder), new Map([["p1", floodQueue]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
-
-    const honest = makePlayer("p1", 300, CORRIDOR_Y, 0);
-    serverTick(
-      stateWith(honest),
-      new Map([["p1", ups(...Array.from({ length: cap }, (_, i) => i + 1))]]),
-      DT,
-      RoomPhase.MATCH,
-      NO_EFFECTS,
-      new Map(),
-      new Map(),
-    );
-
-    // Flooding buys no distance *beyond the cap*: both clients here send `maxInputsPerTick`, so
-    // this pins the ceiling rather than comparing a flooder against an honest client.
-    expect(poseOf(flooder)).toEqual(poseOf(honest));
-    expect(flooder.x).toBeGreaterThan(300);
-    // ...but the whole burst is drained and acked, so the queue cannot grow and the client's
-    // pending-input buffer still clears.
-    expect(floodQueue).toEqual([]);
-    expect(flooder.lastProcessedInputSeq).toBe(burst);
   });
 
   describe("phase gating", () => {
     for (const phase of [RoomPhase.LOBBY, RoomPhase.CAR_SELECT, RoomPhase.COUNTDOWN] as const) {
-      it(`drains the queue and advances the seq without moving in phase ${RoomPhase[phase]}`, () => {
+      it(`takes the tick's frame without moving in phase ${RoomPhase[phase]}`, () => {
         const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
-        const state = stateWith(player);
-        const queues = new Map<string, InputMessage[]>([["p1", ups(1, 2, 9)]]);
+        const rig = new Rig([player]);
 
-        serverTick(state, queues, DT, phase, NO_EFFECTS, new Map(), new Map());
+        const { steps } = rig.tick({ p1: UP }, phase);
 
         expect(poseOf(player)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, vx: 0, vy: 0, angVel: 0 });
-        expect(player.lastProcessedInputSeq).toBe(9);
-        expect(queues.get("p1")).toEqual([]);
+        expect(player.ackRepeated).toBe(false);
+        expect(steps.get("p1")).toBe(0);
       });
     }
   });
@@ -325,16 +364,15 @@ describe("serverTick", () => {
   // A mid-match joiner is READY and a knocked-out player is POST_MATCH. Stepping either would drive
   // an off-field car around the arena that real players cannot see in their own collision checks.
   for (const status of [PlayerStatus.READY, PlayerStatus.POST_MATCH] as const) {
-    it(`drains a ${PlayerStatus[status]} player's queue during MATCH without moving them`, () => {
+    it(`takes a ${PlayerStatus[status]} player's frame during MATCH without moving them`, () => {
       const offField = makePlayer("p1", 300, CORRIDOR_Y, 0, status);
-      const state = stateWith(offField);
-      const queues = new Map<string, InputMessage[]>([["p1", ups(1, 2, 9)]]);
+      const rig = new Rig([offField]);
 
-      serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
+      const { steps } = rig.tick({ p1: UP });
 
       expect(poseOf(offField)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, vx: 0, vy: 0, angVel: 0 });
-      expect(offField.lastProcessedInputSeq).toBe(9);
-      expect(queues.get("p1")).toEqual([]);
+      expect(offField.ackRepeated).toBe(false);
+      expect(steps.get("p1")).toBe(0);
     });
   }
 
@@ -356,19 +394,19 @@ describe("serverTick", () => {
     ): PlayerState {
       const driver = makePlayer("a-driver", 300, CORRIDOR_Y, 0, PlayerStatus.IN_MATCH, driverCar);
       const blocker = makePlayer("b-blocker", 500, CORRIDOR_Y, 0, blockerStatus, blockerCar);
-      const state = stateWith(driver, blocker);
-      for (let i = 0; i < TICKS; i++) {
-        serverTick(state, new Map([["a-driver", ups(i + 1)]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
-      }
+      // Only the driver has hands: the blocker has no input buffer at all, so it is never stepped —
+      // the "idle blocker" every residual below is measured against.
+      const rig = new Rig([driver, blocker], ["a-driver"]);
+      for (let i = 0; i < TICKS; i++) rig.tick({ "a-driver": UP });
       return driver;
     }
 
     it("stops a driver short of another player who is in the match", () => {
       const driver = driveIntoBlocker(PlayerStatus.IN_MATCH);
       expect(driver.x).toBeGreaterThan(300);
-      // REPINNED for stage 2 Task 2 (ramDefence-weighted separation): a lone `IN_MATCH` blocker with an
-      // empty queue and no knock is never itself stepped (`serverTick` drains only queued or
-      // knocked players), so its own `resolveWorld` call -- and its own half of the ramDefence split --
+      // REPINNED for stage 2 Task 2 (ramDefence-weighted separation): a lone `IN_MATCH` blocker with no
+      // input buffer is never itself stepped (`serverTick` takes an input only for a player that has
+      // one), so its own `resolveWorld` call -- and its own half of the ramDefence split --
       // never runs. Only the driver's side concedes its `shareOf` the overlap each tick, so the
       // pair's damped steady state (throttle re-driving it in, restitution pushing it back out,
       // exactly the wall equilibrium `step.test.ts`'s "single-step path" case documents) settles a
@@ -383,7 +421,7 @@ describe("serverTick", () => {
       // point noise, but a doubled residual (~0.1326u) now fails.
       //
       // RE-PINNED for stage 1 Task 8 (Unity drive-model port + Task 6's final anchors): this is a
-      // straight-line scenario (`ups()` never steers), so the mover is `stepDrive`'s new closed-form
+      // straight-line scenario (`UP` never steers), so the mover is `stepDrive`'s new closed-form
       // drag/engine integrator (Task 3) hitting its own equilibrium differently -- the old model's
       // `engineAccel` was a flat clamp-anchored acceleration; the new one is DERIVED so
       // `engineAccel === maxSpeed * dragRate` at the balance point, and the tick-by-tick push profile
@@ -405,7 +443,7 @@ describe("serverTick", () => {
       // rather than a bounce, so the "wall equilibrium" `step.test.ts`'s "single-step path" case
       // documents is a damped push-in/push-out balance, not a spring; the ramDefence-weighted
       // `shareOf` split in `resolveWorld`, which here only ever runs on the DRIVER's side (the idle
-      // `IN_MATCH` blocker has an empty queue and is never itself stepped, so it never concedes its
+      // `IN_MATCH` blocker has no input buffer and is never itself stepped, so it never concedes its
       // own half); and `stepDrive`'s drag/engine integrator, which is itself an asymptotic
       // (non-linear) approach to `maxSpeed` rather than a constant closing speed. None of the four
       // reduces this residual to a formula in isolation -- it is a genuinely traced, empirical fixed
@@ -476,12 +514,8 @@ describe("serverTick", () => {
     function run(insertionOrder: "sorted" | "reversed"): SimBody[] {
       const a = makePlayer("aaa", 400, CORRIDOR_Y, 0);
       const b = makePlayer("bbb", 440, CORRIDOR_Y, 0);
-      const state = insertionOrder === "sorted" ? stateWith(a, b) : stateWith(b, a);
-      const queues = new Map<string, InputMessage[]>([
-        ["aaa", ups(1)],
-        ["bbb", ups(1)],
-      ]);
-      serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
+      const rig = new Rig(insertionOrder === "sorted" ? [a, b] : [b, a]);
+      rig.tick({ aaa: UP, bbb: UP });
       return [poseOf(a), poseOf(b)];
     }
 
@@ -503,13 +537,9 @@ describe("serverTick", () => {
     const leader = makePlayer("aaa", LEADER_X, CORRIDOR_Y, Math.PI);
     Object.assign(leader, toWorld(Math.PI, CLEARING_SPEED, 0));
     const follower = makePlayer("bbb", FOLLOWER_X, CORRIDOR_Y, 0);
-    const state = stateWith(leader, follower);
-    const queues = new Map<string, InputMessage[]>([
-      ["aaa", coasts(1)],
-      ["bbb", coasts(1)],
-    ]);
+    const rig = new Rig([leader, follower]);
 
-    serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
+    rig.tick({ aaa: COAST, bbb: COAST });
 
     // The leader really did drive clear, so the follower's contact genuinely depends on which pose
     // it was tested against.
@@ -529,27 +559,17 @@ describe("serverTick", () => {
       player.angVel = 2;
       player.vx = 120;
       player.vy = -60;
-      const state = stateWith(player);
-      // No steer, no throttle: any rotation or translation below comes solely from the knock state,
-      // not from ordinary driving.
-      const queues = new Map<string, InputMessage[]>([["p1", coasts(1)]]);
-      // RESTORED at stage 3 Task 6. Between stage 1 Task 8 and here, `angVel`'s half of this test was
-      // pinned at a degenerate value: under U16 ("steering SETS the yaw rate"), the ordinary
-      // `stepDrive` branch computes `angVel` entirely from `steer * turnRate * ...` every tick, and
-      // reads the incoming `body.angVel` only while a status sets `spinFree` — a flag nothing set
-      // until this stage's Task 4 put it on `reeling`. So the round trip needs `reeling` in play to
-      // reach the branch that reads `body.angVel` at all; `NO_EFFECTS` can no longer exercise it.
+      const rig = new Rig([player]);
+      // The round trip needs `reeling` in play to reach the branch that reads `body.angVel` at all:
+      // under U16 the ordinary `stepDrive` branch computes `angVel` from steering and reads the
+      // incoming value only while a status sets `spinFree`.
       const reeling: ReadonlyMap<string, Modifiers> = new Map([
         ["p1", { ...NEUTRAL_MODIFIERS, spinFree: true, grip: 0.6, immobilised: true, steeringLocked: true, ramBlocked: true }],
       ]);
 
-      serverTick(state, queues, DT, RoomPhase.MATCH, reeling, new Map(), new Map());
+      // No steer, no throttle: any rotation or translation below comes solely from the knock state.
+      rig.tick({ p1: COAST }, RoomPhase.MATCH, reeling);
 
-      // angle/angVel: survive the round trip and decay rather than being dropped. `spinFree` reads
-      // the incoming `body.angVel` (2) and decays it by `chassis.spinPerTick` (`nextSpinOf`,
-      // drive.ts) — `RAM_CONFIG.reelingSpinDecayRate` wired to a real per-chassis rate by this
-      // stage's Task 4, where stage 1 left `spinPerTick` at the identity placeholder. `angle`
-      // integrates from the DECAYED `angVel`, so it moves off 0 too.
       const chassis = driveOf("mirage");
       expect(player.angVel).toBeCloseTo(2 * chassis.spinPerTick, 6);
       expect(player.angVel).toBeGreaterThan(0);
@@ -558,13 +578,8 @@ describe("serverTick", () => {
       expect(player.x).toBeGreaterThan(300);
       expect(player.y).toBeLessThan(CORRIDOR_Y);
 
-      // vx/vy: round-trip through drag (and, for the lateral half, grip) exactly as before. `vx` is
-      // unaffected by `reeling`'s `grip` channel (it only scales the LATERAL bleed, and `immobilised`
-      // costs nothing here since `coasts(1)` already sends `throttle: 0`), so it lands on the same
-      // figure as the neutral case: one tick of mirage's drag, 120 * dragPerTick (114.969 at 30 Hz,
-      // 117.458 at 60 Hz — a traced 114.969 literal until the 60 Hz flip). `vy`'s decay is slower than the neutral
-      // case (grip: 0.6 loosens the lateral bleed, per spec §5 — that is the whole point of the
-      // channel), but the loose bounds below hold either way.
+      // vx: one tick of mirage's drag (`reeling`'s grip only scales the LATERAL bleed). vy decays
+      // slower than neutral under grip 0.6, but the loose bounds hold either way.
       expect(player.vx).toBeCloseTo(120 * chassis.dragPerTick, 3);
       expect(player.vy).toBeLessThan(0);
       expect(player.vy).toBeGreaterThan(-60);
@@ -572,38 +587,24 @@ describe("serverTick", () => {
   });
 
   describe("maneuver state keeps a silent player moving", () => {
-    // `hasMotionToResolve` gates the same silent-coast step that rescues a knocked player who
-    // stopped sending input (see the `serverTick coasts a player whose client has gone quiet...`
-    // block below). A DASH is the same shape of problem: motion applied from OUTSIDE the player's
-    // own inputs, via `maneuverAngle`/`maneuverSpeed` rather than a shove. Unless
-    // `hasMotionToResolve` also checks `player.maneuver`, a dashing player who goes silent mid-dash
-    // freezes holding the whole state instead of finishing the dash the status/ram system already
-    // committed them to.
-    it("keeps stepping a silent player mid-dash — a dash is motion applied from outside", () => {
+    // A dash is motion applied from OUTSIDE the player's own inputs. A dashing player whose frames
+    // stop arriving still steps every tick on the buffer's fill (NR22), so it finishes the dash one
+    // tick per tick — never frozen holding it, and never burning more than one tick of it per tick.
+    it("keeps stepping a silent player mid-dash, one dash tick per server tick", () => {
       const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
       player.maneuver = ManeuverKind.DASH;
       player.maneuverTicksLeft = 8;
       player.maneuverAngle = 0;
       player.maneuverSpeed = 1600;
       const before = player.x;
+      const rig = new Rig([player]);
 
-      goSilent(stateWith(player), GRACE_TICKS + 1);
-
+      rig.silent(1);
       expect(player.x).toBeGreaterThan(before);
-      // Only the tick past the grace stepped: the grace ticks do not burn the dash either.
       expect(player.maneuverTicksLeft).toBe(7);
-    });
 
-    it("does not step it during the grace, so a mid-dash jitter tick stays in lockstep", () => {
-      const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
-      player.maneuver = ManeuverKind.DASH;
-      player.maneuverTicksLeft = 8;
-      player.maneuverSpeed = 1600;
-
-      goSilent(stateWith(player), GRACE_TICKS);
-
-      expect(player.x).toBe(300);
-      expect(player.maneuverTicksLeft).toBe(8);
+      rig.silent(2);
+      expect(player.maneuverTicksLeft).toBe(5);
     });
   });
 
@@ -611,7 +612,7 @@ describe("serverTick", () => {
     function driveOneTickAs(carId: string): PlayerState {
       const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
       player.carId = carId;
-      serverTick(stateWith(player), new Map([["p1", ups(1)]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
+      new Rig([player]).tick({ p1: UP });
       return player;
     }
 
@@ -630,27 +631,20 @@ describe("serverTick", () => {
 });
 
 describe("serverTick fire mask reporting", () => {
-  function fires(seq: number, mask: number = 0b001): InputMessage {
-    return { seq, steer: 0, throttle: 0, fireSlots: mask };
-  }
-
+  /** One tick for a fresh player, with `keys` as its frame (or no frame at all when undefined). */
   function tickWith(
     player: PlayerState,
-    queue: InputMessage[],
+    keys: InputKeys | undefined,
     phase: RoomPhase = RoomPhase.MATCH,
-  ): Map<string, number> {
-    return serverTick(stateWith(player), new Map([[player.sessionId, queue]]), DT, phase, NO_EFFECTS, new Map(), new Map())
-      .masks;
+  ): ReturnType<typeof serverTick> {
+    return new Rig([player]).tick(keys ? { [player.sessionId]: keys } : {}, phase);
   }
 
   it("reports a HELD trigger as exactly one press, not one per tick", () => {
     // The whole point of edge detection: `fireSlots` is raw key state, so a player holding the
     // trigger sets the same bit on every input. Only the transition counts.
-    const prev = new Map<string, number>();
-    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
-    const tick = (mask: number) =>
-      serverTick(stateWith(player), new Map([["p1", [{ seq: 1, steer: 0, throttle: 0, fireSlots: mask }]]]),
-        DT, RoomPhase.MATCH, NO_EFFECTS, prev, new Map(), new Map()).masks.get("p1");
+    const rig = new Rig([makePlayer("p1", 300, CORRIDOR_Y, 0)]);
+    const tick = (mask: number) => rig.tick({ p1: fire(mask) }).masks.get("p1");
 
     expect(tick(0b001)).toBe(0b001); // key goes down: a press
     expect(tick(0b001)).toBeUndefined(); // still held: nothing
@@ -659,123 +653,108 @@ describe("serverTick fire mask reporting", () => {
     expect(tick(0b001)).toBe(0b001); // pressed again: a second press
   });
 
-  it("sees a release and re-press INSIDE one tick's batch, from an already-held key", () => {
-    // `prev` advances per input, not once per tick. Seeded as already-held, the first input is not a
-    // press — so the only way a press is reported here is if the release in the middle of the batch
-    // was seen. Advancing `prev` once per tick instead would report nothing at all.
-    const prev = new Map<string, number>([["p1", 0b001]]);
-    const masks = serverTick(
-      stateWith(makePlayer("p1", 300, CORRIDOR_Y, 0)),
-      new Map([["p1", [fires(1, 0b001), fires(2, 0b000), fires(3, 0b001)]]]),
-      DT, RoomPhase.MATCH, NO_EFFECTS, prev, new Map(),
-    ).masks;
-    expect(masks.get("p1")).toBe(0b001);
-    expect(prev.get("p1")).toBe(0b001); // the batch ended with the key down again
+  it("a held fire key across a repeated tick fires once", () => {
+    const prev = new Map<string, number>();
+    const state = stateWith(makePlayer("a", 300, CORRIDOR_Y, 0));
+    state.tick = 1;
+    const b = buffers({ a: [{ tick: 1, steer: 0, throttle: 0, fireSlots: 2 }] }, 0);
+    const r1 = serverTick(state, b, DT, RoomPhase.MATCH, NO_EFFECTS, prev);
+    state.tick = 2;
+    const r2 = serverTick(state, b, DT, RoomPhase.MATCH, NO_EFFECTS, prev); // tick 2 missing → repeat
+    expect(r1.masks.get("a")).toBe(2);
+    expect(r2.masks.get("a")).toBeUndefined();
+    expect(state.players.get("a")!.ackRepeated).toBe(true);
+  });
+
+  it("reads a release that arrives after a repeated tick as a release, so the next press fires", () => {
+    const rig = new Rig([makePlayer("p1", 300, CORRIDOR_Y, 0)]);
+    expect(rig.tick({ p1: fire(0b010) }).masks.get("p1")).toBe(0b010);
+    expect(rig.tick().masks.get("p1")).toBeUndefined(); // missing frame: held key repeated
+    expect(rig.tick({ p1: fire(0) }).masks.get("p1")).toBeUndefined(); // the release lands
+    expect(rig.tick({ p1: fire(0b010) }).masks.get("p1")).toBe(0b010);
+  });
+
+  it("goes neutral after inputRepeatMs of missing frames, releasing a held trigger", () => {
+    const rig = new Rig([makePlayer("p1", 300, CORRIDOR_Y, 0)]);
+    expect(rig.tick({ p1: fire(0b001) }).masks.get("p1")).toBe(0b001);
+    rig.silent(REPEAT_TICKS + 1);
+    expect(rig.prev.get("p1")).toBe(0);
+    // The owner comes back still holding the key: after the neutral fill that is a new press.
+    expect(rig.tick({ p1: fire(0b001) }).masks.get("p1")).toBe(0b001);
   });
 
   it("counts a second slot pressed while the first is held", () => {
     // Edge detection is per BIT, not per mask: holding slot 1 must not swallow a slot 2 press.
-    const prev = new Map<string, number>();
-    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
-    const tick = (mask: number) =>
-      serverTick(stateWith(player), new Map([["p1", [{ seq: 1, steer: 0, throttle: 0, fireSlots: mask }]]]),
-        DT, RoomPhase.MATCH, NO_EFFECTS, prev, new Map(), new Map()).masks.get("p1");
+    const rig = new Rig([makePlayer("p1", 300, CORRIDOR_Y, 0)]);
+    const tick = (mask: number) => rig.tick({ p1: fire(mask) }).masks.get("p1");
 
     expect(tick(0b001)).toBe(0b001);
     expect(tick(0b011)).toBe(0b010); // slot 1 still held, slot 2 newly down
   });
 
   it("reports the slot mask from an input it actually simulated", () => {
-    const masks = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1, 0b001)]);
-    expect(masks.get("p1")).toBe(0b001);
+    expect(tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), fire(0b001)).masks.get("p1")).toBe(0b001);
   });
 
   it("masks off bits beyond maxFireSlots", () => {
-    const masks = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1, 0b1111_1111)]);
-    expect(masks.get("p1")).toBe(0b1111); // three ability slots plus the basic attack (BA15)
+    // Offered straight into the buffer (the wire guard would refuse this mask): the sim still masks.
+    const rig = new Rig([makePlayer("p1", 300, CORRIDOR_Y, 0)]);
+    rig.buffers.set("p1", buffers({ p1: [{ tick: 1, ...fire(0b1111_1111) }] }, 0).get("p1")!);
+    expect(rig.tick().masks.get("p1")).toBe(0b1111); // three ability slots plus the basic attack (BA15)
   });
 
   it("lets a press through on the basic attack's bit, and still strips everything above it (BA15)", () => {
     // Hand-rolled wire data: bit 3 is a real slot now, bit 4 never is.
-    const masks = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1, (1 << 3) | (1 << 4))]);
+    const masks = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), fire((1 << 3) | (1 << 4))).masks;
     expect(masks.get("p1")).toBe(1 << 3);
   });
 
-  it("ors the masks of every input simulated this tick", () => {
-    const masks = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1, 0b001), fires(2, 0b010)]);
-    expect(masks.get("p1")).toBe(0b011);
+  it("credits only this tick's frame's press, never a later tick's (NR23: no OR-ing across frames)", () => {
+    const rig = new Rig([makePlayer("p1", 300, CORRIDOR_Y, 0)]);
+    rig.offer("p1", { tick: 1, ...fire(0b001) });
+    rig.offer("p1", { tick: 2, ...fire(0b011) });
+    expect(rig.tick().masks.get("p1")).toBe(0b001);
+    expect(rig.tick().masks.get("p1")).toBe(0b010);
   });
 
   it("reports nothing for a player outside the match", () => {
-    const masks = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1, 0b001)], RoomPhase.COUNTDOWN);
-    expect(masks.size).toBe(0);
+    expect(tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), fire(0b001), RoomPhase.COUNTDOWN).masks.size).toBe(0);
   });
 
   it("ignores a negative or non-integer mask", () => {
-    const masks = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1, -5 as number)]);
-    expect(masks.get("p1") ?? 0).toBe(0);
+    // Below the wire guard, which would refuse both: the sim's own clamp still holds.
+    for (const bad of [-5, 1.5]) {
+      const rig = new Rig([makePlayer("p1", 300, CORRIDOR_Y, 0)]);
+      rig.buffers.set("p1", buffers({ p1: [{ tick: 1, ...fire(bad) }] }, 0).get("p1")!);
+      expect(rig.tick().masks.get("p1") ?? 0).toBe(0);
+    }
   });
 
   it("reports nothing when no input carries a fire mask", () => {
-    expect(tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), ups(1)).size).toBe(0);
+    expect(tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), UP).masks.size).toBe(0);
   });
 
-  it("reports nothing when the queue is empty", () => {
-    expect(tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), []).size).toBe(0);
+  it("reports nothing when the frame is missing and nothing was held", () => {
+    expect(tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), undefined).masks.size).toBe(0);
   });
 
   it("ignores fire from a player who is not on the field", () => {
     const bystander = makePlayer("p1", 300, CORRIDOR_Y, 0, PlayerStatus.READY);
-    expect(tickWith(bystander, [fires(1)]).size).toBe(0);
+    expect(tickWith(bystander, fire(0b001)).masks.size).toBe(0);
   });
 
-  it("does not credit a shot to an input past the per-tick simulate cap", () => {
-    // The first `maxInputsPerTick` inputs are plain drives; only the one past the cap asks to fire,
-    // and it is drained and acked but never simulated.
-    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
-    const queue: InputMessage[] = [
-      ...ups(...Array.from({ length: NET_CONFIG.maxInputsPerTick }, (_, i) => i + 1)),
-      fires(NET_CONFIG.maxInputsPerTick + 1),
-    ];
-    const masks = tickWith(player, queue);
-    expect(masks.size).toBe(0);
-    expect(player.lastProcessedInputSeq).toBe(NET_CONFIG.maxInputsPerTick + 1);
-  });
-
-  it("reports the aimAngle of the last simulated input whose PRESS mask was non-zero", () => {
-    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
-    const queue: InputMessage[] = [
-      { seq: 1, steer: 0, throttle: 0, fireSlots: 0, aimAngle: 0.1 },
-      { seq: 2, steer: 0, throttle: 0, fireSlots: 0b010, aimAngle: 0.2 },
-      { seq: 3, steer: 0, throttle: 0, fireSlots: 0b010, aimAngle: 0.3 },
-    ];
-    const { aims } = serverTick(
-      stateWith(player),
-      new Map([["p1", queue]]),
-      DT,
-      RoomPhase.MATCH,
-      NO_EFFECTS,
-      new Map(),
-      new Map(),
-    );
-    // Seq 2 is the last input whose PRESSED mask was non-zero (seq 3 only holds the same bit down).
-    expect(aims.get("p1")).toBe(0.2);
+  it("reports the aimAngle of this tick's input only when it carried a new press", () => {
+    const rig = new Rig([makePlayer("p1", 300, CORRIDOR_Y, 0)]);
+    expect(rig.tick({ p1: fire(0, 0.1) }).aims.has("p1")).toBe(false); // no press
+    expect(rig.tick({ p1: fire(0b010, 0.2) }).aims.get("p1")).toBe(0.2); // the press
+    expect(rig.tick({ p1: fire(0b010, 0.3) }).aims.has("p1")).toBe(false); // only held
   });
 
   it("normalises an absurd finite aimAngle before storing it (final-fixes item 4)", () => {
     // A malformed or hostile client could send anything finite; `wrapAngle` is the one place the
     // sim/client turret code agrees an angle is normalised, so the captured aim must go through it
     // too rather than reach `PlayerState.aimBearing` (and the turret/lead math built on it) raw.
-    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
-    const { aims } = serverTick(
-      stateWith(player),
-      new Map([["p1", [{ seq: 1, steer: 0, throttle: 0, fireSlots: 0b010, aimAngle: 1e300 }]]]),
-      DT,
-      RoomPhase.MATCH,
-      NO_EFFECTS,
-      new Map(),
-      new Map(),
-    );
+    const { aims } = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), fire(0b010, 1e300));
     const aim = aims.get("p1");
     expect(aim).toBeDefined();
     expect(aim).toBeCloseTo(wrapAngle(1e300), 10);
@@ -784,76 +763,18 @@ describe("serverTick fire mask reporting", () => {
   });
 
   it("reports no aim when the pressing input carried none", () => {
-    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
-    const { aims } = serverTick(
-      stateWith(player),
-      new Map([["p1", [fires(1, 0b010)]]]),
-      DT,
-      RoomPhase.MATCH,
-      NO_EFFECTS,
-      new Map(),
-      new Map(),
-    );
-    expect(aims.has("p1")).toBe(false);
+    expect(tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), fire(0b010)).aims.has("p1")).toBe(false);
   });
 
-  it("clears an earlier press's aim when a LATER pressing input in the same batch carries none (fix round 1)", () => {
-    // TR23: the aim is that of the LAST pressing input, and a pressing input with no aimAngle
-    // records nothing — it must not leave an earlier press's stale bearing in place.
-    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
-    const { aims } = serverTick(
-      stateWith(player),
-      new Map([
-        [
-          "p1",
-          [
-            { seq: 1, steer: 0, throttle: 0, fireSlots: 0b010, aimAngle: 0.5 },
-            { seq: 2, steer: 0, throttle: 0, fireSlots: 0b110 },
-          ],
-        ],
-      ]),
-      DT,
-      RoomPhase.MATCH,
-      NO_EFFECTS,
-      new Map(),
-      new Map(),
-    );
-    expect(aims.has("p1")).toBe(false);
-  });
-
-  it("contributes no aim from an input past the per-tick simulate cap", () => {
-    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
-    const queue: InputMessage[] = [
-      ...ups(...Array.from({ length: NET_CONFIG.maxInputsPerTick }, (_, i) => i + 1)),
-      { ...fires(NET_CONFIG.maxInputsPerTick + 1, 0b010), aimAngle: 0.9 },
-    ];
-    const { aims } = serverTick(
-      stateWith(player),
-      new Map([["p1", queue]]),
-      DT,
-      RoomPhase.MATCH,
-      NO_EFFECTS,
-      new Map(),
-      new Map(),
-    );
-    expect(aims.has("p1")).toBe(false);
+  it("does not carry an earlier press's aim onto a later press that carries none (TR23)", () => {
+    const rig = new Rig([makePlayer("p1", 300, CORRIDOR_Y, 0)]);
+    expect(rig.tick({ p1: fire(0b010, 0.5) }).aims.get("p1")).toBe(0.5);
+    expect(rig.tick({ p1: fire(0b110) }).aims.has("p1")).toBe(false);
   });
 
   it("names every player who fired, not just the first", () => {
-    const a = makePlayer("aaa", 300, CORRIDOR_Y, 0);
-    const b = makePlayer("bbb", 900, CORRIDOR_Y, 0);
-    const { masks } = serverTick(
-      stateWith(a, b),
-      new Map([
-        ["aaa", [fires(1)]],
-        ["bbb", [fires(1)]],
-      ]),
-      DT,
-      RoomPhase.MATCH,
-      NO_EFFECTS,
-      new Map(),
-      new Map(),
-    );
+    const rig = new Rig([makePlayer("aaa", 300, CORRIDOR_Y, 0), makePlayer("bbb", 900, CORRIDOR_Y, 0)]);
+    const { masks } = rig.tick({ aaa: fire(0b001), bbb: fire(0b001) });
     expect([...masks.keys()].sort()).toEqual(["aaa", "bbb"]);
   });
 });
@@ -864,25 +785,13 @@ describe("serverTick fire mask reporting", () => {
  * that no amount of ramming can shift, and the knock written onto them never decays either.
  *
  * Found in playtest: a second browser tab in the background stops sending (rAF throttles hard when
- * hidden), so the victim was skipped entirely and sat frozen with a full-strength shove on it.
- *
- * **What decides the coast is elapsed SILENCE, not what the body looks like.** The client produces
- * exactly one input per sim tick and predicts exactly one `stepSim` for it
- * (`packages/shared/src/net/prediction.ts` — there is no coast path in that file), so a running
- * client never steps a tick it did not send an input for. Any extra server step while the client is
- * running is therefore a desync; no extra server step is observable once it has stopped. That is why
- * every case below either waits out `GRACE_TICKS` or deliberately stops short of it, and why they
- * all share ONE silence counter through `goSilent`. See `hasMotionToResolve` in `tick.ts`.
+ * hidden). Under NR22 there is no silent-coast branch and no grace window any more: every car steps
+ * every tick, and a missing frame is filled with the last real input for `inputRepeatMs`, then with
+ * neutral keys. The client replays the same fill (`TickPrediction.replayTarget`), so the fill is
+ * lockstep on both halves rather than a server-only step.
  */
-describe("serverTick coasts a player whose client has gone quiet", () => {
-  /**
-   * A rammed car: shoved along its own heading, with spin on it.
-   *
-   * The shove is `vx = 300` at `angle = 0` — aligned with the nose, the "dead-on rear-end" case the
-   * old `lateralOf`-based predicate could not see at all. Under silence gating the direction of the
-   * push is simply not part of the question any more, which is the point of the case two blocks
-   * down that drives this fixture all the way to rest.
-   */
+describe("serverTick steps a car whose frames have stopped arriving (NR22)", () => {
+  /** A rammed car: shoved along its own heading, with spin on it. */
   function knocked(over: Partial<PlayerState> = {}): PlayerState {
     const p = makePlayer("v", 500, 400, 0);
     p.vx = 300;
@@ -891,177 +800,106 @@ describe("serverTick coasts a player whose client has gone quiet", () => {
     return p;
   }
 
-  it("leaves a knocked player alone for the whole grace window", () => {
-    // The lockstep half. One empty tick — or eight — is jitter, and the client predicted every one
-    // of them from an input still in flight. Stepping here is a step the client never took.
-    const player = knocked();
-    goSilent(stateWith(player), GRACE_TICKS);
-    expect(player.x).toBe(500);
-    expect(player.vx).toBe(300);
+  it("repeats the last real input for a missing frame, and flags the tick as repeated", () => {
+    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const twin = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const rig = new Rig([player]);
+    const twinRig = new Rig([twin]);
+    rig.tick({ p1: UP });
+    twinRig.tick({ p1: UP });
+    rig.tick();
+    twinRig.tick({ p1: UP });
+    expect(poseOf(player)).toEqual(poseOf(twin));
+    expect(player.ackRepeated).toBe(true);
+    expect(twin.ackRepeated).toBe(false);
   });
 
-  it("moves a knocked player once the grace has elapsed", () => {
-    const player = knocked();
-    goSilent(stateWith(player), GRACE_TICKS + 1);
-    expect(player.x).toBeGreaterThan(500);
-  });
-
-  it("moves a knocked player whose queue is present but empty, not only one absent from the map", () => {
-    // `goSilent` passes no queue at all; this passes an empty one. Both are silence.
-    const player = knocked();
-    const state = stateWith(player);
-    const silence = new Map<string, number>();
-    for (let i = 0; i < GRACE_TICKS + 1; i++) {
-      serverTick(state, new Map([["v", []]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map(), silence);
+  it("goes neutral once the frames have been missing for longer than inputRepeatMs", () => {
+    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const twin = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const rig = new Rig([player]);
+    const twinRig = new Rig([twin]);
+    rig.tick({ p1: UP });
+    twinRig.tick({ p1: UP });
+    for (let i = 0; i < REPEAT_TICKS + 20; i++) {
+      rig.tick();
+      twinRig.tick({ p1: i < REPEAT_TICKS ? UP : COAST });
     }
+    expect(poseOf(player)).toEqual(poseOf(twin));
+  });
+
+  it("moves a knocked silent player on the very first tick — there is no grace window", () => {
+    const player = knocked();
+    new Rig([player]).silent(1);
     expect(player.x).toBeGreaterThan(500);
+    expect(player.ackRepeated).toBe(true);
   });
 
   it("decays the knock rather than freezing it at full strength", () => {
     const player = knocked();
-    goSilent(stateWith(player), GRACE_TICKS + 1);
+    new Rig([player]).silent(1);
     expect(player.vx).toBeLessThan(300);
     expect(player.vx).toBeGreaterThan(0);
   });
 
-  it("resets the silence run on any drained input, so steady jitter never accumulates into a coast", () => {
-    // The failure this guards: counting empty ticks without resetting would let a player who drops
-    // one packet in two reach the threshold anyway, and every coast past it is a step their client
-    // did take on its own — the desync, arrived at the long way round. Asserted on the counter
-    // itself rather than on the pose, because the pose also moves on the ticks that DO carry input.
-    const player = makePlayer("v", ARENA_CENTRE_X, ARENA_CENTRE_Y, 0);
-    const state = stateWith(player);
-    const silence = new Map<string, number>();
-    for (let i = 0; i < GRACE_TICKS * 4; i++) {
-      const queues = i % 2 === 0 ? new Map<string, InputMessage[]>() : new Map([["v", [UP]]]);
-      serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map(), silence);
-    }
-    expect(silence.get("v")).toBeLessThanOrEqual(1);
-  });
-
   it("zeroes a coasting car's angVel on its first stepped tick, and never rotates it", () => {
-    // RENAMED. This was "carries every knock component, not just shove", which by the end of the
-    // drive-model port asserted `angVel` lands on exactly 0 — the negation of its own name.
-    //
-    // **This is the NO-STATUS case, and it is unchanged by stage 3.** Under U16 the ordinary
-    // `stepDrive` branch computes `angVel` entirely from steering input and never reads the incoming
-    // `body.angVel` unless a status sets `spinFree`. `reeling` now carries that flag and
-    // `chassis.spinPerTick` is a real decay (`reelingSpinPerTick()`), so a rammed car DOES tumble and
-    // wind down — but this fixture applies no status at all, so none of that reaches it. `COAST_INPUT`
-    // has `steer: 0`, so an injected spin resolves to 0 on the first stepped tick rather than
-    // decaying, and with `angVel` 0 the `angle` never moves off its start either. The decay path is
-    // covered by this file's "carries angVel/vx/vy" round trip and by `drive-vector.test.ts`'s
-    // "keeps its spin while spinFree".
+    // The NO-STATUS case. Under U16 the ordinary `stepDrive` branch computes `angVel` entirely from
+    // steering and never reads the incoming `body.angVel` unless a status sets `spinFree`. A player
+    // who never sent a frame repeats neutral keys (`steer: 0`), so an injected spin resolves to 0 on
+    // the first stepped tick, and `angle` never moves off its start.
     const player = knocked({ vx: 0, vy: 0, angVel: 3 });
-    goSilent(stateWith(player), GRACE_TICKS + 1);
+    new Rig([player]).silent(1);
     expect(player.angVel).toBe(0);
     expect(player.angle).toBe(0);
   });
 
   it("coasts a dead-on shove all the way to rest, not to 96% of it", () => {
-    // The false NEGATIVE the silence gate closes. The predicate this replaced read
-    // `lateralOf(vx, vy, angle)`, so a shove along the victim's own heading was invisible to it: a
-    // silent victim was stepped exactly once (`angVel` was nonzero on that first tick and 0 after),
-    // then froze holding 300 * dragPerTick = 287.423 u/s — 96% of the shove — for the rest of the
-    // match. Silence does not care which way the push pointed, so the same fixture now rolls out.
     const player = knocked({ angVel: 3 });
-    const state = stateWith(player);
-    const silence = goSilent(state, GRACE_TICKS + 1);
+    const rig = new Rig([player]);
+    rig.silent(1);
     expect(Math.hypot(player.vx, player.vy)).toBeLessThan(300);
     expect(player.x).toBeGreaterThan(500);
 
-    goSilent(state, 600, silence);
+    rig.silent(600);
     // Exactly 0, not merely small: `stepDrive`'s `atRest` snaps a throttle-free car below
-    // `stopEpsilon` to rest, and the car then drops out of `hasMotionToResolve` and stops being
-    // stepped at all.
+    // `stopEpsilon` to rest, and a resting car on neutral keys then stays put.
     expect(player.vx).toBe(0);
     expect(player.vy).toBe(0);
     expect(player.angVel).toBe(0);
     const restingX = player.x;
-    goSilent(state, 1, silence);
+    rig.silent(1);
     expect(player.x).toBe(restingX);
   });
 
   it("leaves a truly resting, unknocked player exactly where it is, however long it is silent", () => {
-    // Zero velocity, zero spin, no maneuver: `hasMotionToResolve` is false, so the grace elapsing
-    // changes nothing. A parked car is not stepped at all.
     const player = makePlayer("v", 500, 400, 0);
-    goSilent(stateWith(player), GRACE_TICKS * 3);
+    new Rig([player]).silent(REPEAT_TICKS * 3);
     expect(player.x).toBe(500);
     expect(player.vx).toBe(0);
   });
 
-  it("leaves a merely-driving silent player frozen for the whole grace window", () => {
-    // This is the property client prediction depends on, and it is now unconditional on what the
-    // body carries: for `GRACE_TICKS` the server takes zero steps for a player with an empty queue,
-    // full stop. Before the silence gate this rested on "a car never drives itself sideways", which
-    // the drive-model port falsified by deleting `steeringGrip` — see `hasMotionToResolve`'s doc.
-    const player = makePlayer("v", 500, 400, 0);
-    player.vx = 200;
-    goSilent(stateWith(player), GRACE_TICKS);
-    expect(player.x).toBe(500);
-    expect(player.vx).toBe(200);
+  it("reports no fire mask for a filled tick", () => {
+    const rig = new Rig([knocked()]);
+    expect(rig.tick().masks.size).toBe(0);
   });
 
-  it("leaves a CORNERING silent player frozen for the whole grace window, drift and steering rate and all", () => {
-    // Regression for the Critical finding on the old `hasKnock`. A car at full lock under this model
-    // carries BOTH things that predicate tested as evidence of an external knock: real lateral
-    // velocity (the drift — tens of u/s, against a `stopEpsilon` of 1e-3) and a nonzero `angVel`
-    // (which under U16 is just "this player is steering"). So the old predicate fired for every
-    // cornering player on every jittered tick — an event its own comment called routine at these
-    // latencies — and each firing cost a server-only coast step the client never predicted.
-    const player = makePlayer("v", ARENA_CENTRE_X, ARENA_CENTRE_Y, 0);
-    const state = stateWith(player);
-    let seq = 1;
-    for (let i = 0; i < 30; i++) {
-      const queue = [{ seq: seq++, steer: 1 as const, throttle: 1 as const, fireSlots: 0 }];
-      serverTick(state, new Map([["v", queue]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map(), new Map());
-    }
-    // Both of the old predicate's signals are live on an ordinary cornering car.
-    expect(Math.abs(lateralOf(player.vx, player.vy, player.angle))).toBeGreaterThan(DRIVE_CONFIG.stopEpsilon);
-    expect(player.angVel).not.toBe(0);
-
-    const restingX = player.x;
-    const restingY = player.y;
-    const restingVx = player.vx;
-    const restingVy = player.vy;
-    goSilent(state, GRACE_TICKS);
-    expect(player.x).toBe(restingX);
-    expect(player.y).toBe(restingY);
-    expect(player.vx).toBe(restingVx);
-    expect(player.vy).toBe(restingVy);
-  });
-
-  it("does not advance the input ack — a coast step acknowledges nothing", () => {
-    const player = knocked({ lastProcessedInputSeq: 7 });
-    goSilent(stateWith(player), GRACE_TICKS + 1);
-    expect(player.lastProcessedInputSeq).toBe(7);
-  });
-
-  it("reports no fire mask for a coast step", () => {
-    const state = stateWith(knocked());
-    const silence = goSilent(state, GRACE_TICKS);
-    const result = serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map(), silence);
-    expect(result.masks.size).toBe(0);
-  });
-
-  it("does not coast outside MATCH, however long the silence runs", () => {
+  it("does not step outside MATCH, however long the silence runs", () => {
     const player = knocked();
-    goSilent(stateWith(player), GRACE_TICKS * 3, new Map(), RoomPhase.COUNTDOWN);
+    new Rig([player]).silent(REPEAT_TICKS * 3, RoomPhase.COUNTDOWN);
     expect(player.x).toBe(500);
   });
 
-  it("does not coast a player who is not on the field, however long the silence runs", () => {
+  it("does not step a player who is not on the field, however long the silence runs", () => {
     const player = knocked({ status: PlayerStatus.POST_MATCH });
-    goSilent(stateWith(player), GRACE_TICKS * 3);
+    new Rig([player]).silent(REPEAT_TICKS * 3);
     expect(player.x).toBe(500);
   });
 
-  it("still resolves the coasting car against other cars", () => {
+  it("still resolves the silent car against other cars", () => {
     // Shoved straight into a stationary neighbour: it must be pushed clear, not driven through.
     const victim = knocked({ vx: 600 });
     const wall = makePlayer("w", 560, 400, 0);
-    goSilent(stateWith(victim, wall), GRACE_TICKS + 5);
+    new Rig([victim, wall]).silent(5);
     expect(victim.x).toBeLessThan(560 - 40);
   });
 });

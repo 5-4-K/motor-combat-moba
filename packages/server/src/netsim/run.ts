@@ -1,13 +1,23 @@
-import { MS_PER_TICK, getArena, withMode, type InputMessage } from "@motor-combat-moba/shared";
+import { MS_PER_TICK, getArena, withMode, type InputPacket, type TimePong } from "@motor-combat-moba/shared";
 import { isSnapshotTick } from "../rooms/snapshot-cadence.js";
 import { makeDriver } from "./drivers.js";
-import { LegacyClient } from "./legacy-client.js";
 import { Link, type LinkProfile } from "./link.js";
 import { isHold, mean, percentile, scoreRemoteSample, truthAt, type NetsimMetrics } from "./metrics.js";
 import { mulberry32 } from "./rng.js";
 import { NETSIM_ARENA_ID, ServerWorld, type Snapshot } from "./server-world.js";
+import { TickClient } from "./tick-client.js";
 
-export type ClientModel = "legacy";
+/**
+ * The client model a run drives. `"tick"` is the Phase D client (NR17–NR28): clock-synced,
+ * tick-stamped frames sent ahead, one input per car per tick on the server. The pre-D `"legacy"`
+ * model and its client are deleted with the server path they measured.
+ */
+export type ClientModel = "tick";
+
+/** Client → server on one WebSocket: input packets and `MSG_TIME` requests share the ordered stream. */
+type UpMessage = { kind: "input"; packet: InputPacket } | { kind: "time"; c: number };
+/** Server → client on the same stream: snapshots and `MSG_TIME` pongs. */
+type DownMessage = { kind: "snapshot"; snap: Snapshot } | { kind: "pong"; pong: TimePong };
 
 export interface NetsimOptions {
   link: LinkProfile;
@@ -21,6 +31,12 @@ export interface NetsimOptions {
 const FRAME_HZ = 60;
 /** Each client's frame clock is offset by `index * FRAME_PHASE_MS`, so they do not render in step. */
 const FRAME_PHASE_MS = 2.7;
+/**
+ * Each client's own clock reads `index * CLOCK_OFFSET_MS + CLOCK_BASE_MS` ahead of the harness clock,
+ * so `ClockSync` has a real offset to earn from its pongs rather than starting on the answer.
+ */
+const CLOCK_BASE_MS = 12_345.6;
+const CLOCK_OFFSET_MS = 1_003.7;
 const DEFAULT_CARS = 6;
 
 /**
@@ -28,12 +44,17 @@ const DEFAULT_CARS = 6;
  * target, so it stays out of `NetsimMetrics`.
  */
 export interface NetsimDiagnostics {
-  /** Inputs the clients produced, all cars. */
+  /** Input frames the clients produced (one per tick each client sent for), all cars. */
   producedInputs: number;
-  /** Produced and acked by the server (seq ≤ its `lastProcessedInputSeq`) but never simulated. */
+  /**
+   * Produced for a tick the server has already run, but not simulated as that tick's input: it
+   * arrived late (the tick ran on a repeat), or the car was not on the field that tick.
+   */
   droppedInputs: number;
-  /** Produced after the server's last ack: still in flight or queued when the run ended. */
+  /** Produced for a tick the server had not run yet when the run ended: still in flight. */
   unackedAtEnd: number;
+  /** Car-ticks stepped over the run, all cars — the `repeatedInputRate` denominator. */
+  steppedCarTicks: number;
   /** Remote samples scored (client frames × live remotes drawn live). */
   remoteSamples: number;
   /** Server-side deaths over the run, all cars. */
@@ -65,7 +86,7 @@ export function runNetsim(opts: NetsimOptions): NetsimMetrics {
 
 /** `runNetsim`, plus the run's `NetsimDiagnostics`. */
 export function runNetsimDetailed(opts: NetsimOptions): NetsimRun {
-  if (opts.model !== "legacy") throw new Error(`unknown netsim client model: ${String(opts.model)}`);
+  if (opts.model !== "tick") throw new Error(`unknown netsim client model: ${String(opts.model)}`);
   const world = new ServerWorld(opts.cars ?? DEFAULT_CARS);
   return withMode(world.modeConfig, () => runIn(world, opts));
 }
@@ -83,9 +104,9 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
     const downRng = mulberry32(nextSeed());
     return {
       id,
-      client: new LegacyClient(id, makeDriver(driverRng), arena),
-      up: new Link<InputMessage>(opts.link, upRng),
-      down: new Link<Snapshot>(opts.link, downRng),
+      client: new TickClient(id, makeDriver(driverRng), arena, CLOCK_BASE_MS + i * CLOCK_OFFSET_MS, 0),
+      up: new Link<UpMessage>(opts.link, upRng),
+      down: new Link<DownMessage>(opts.link, downRng),
       nextFrameAt: i * FRAME_PHASE_MS,
       /** Per remote, the previous frame's sample (dropped while that remote is dead). */
       prev: new Map<string, RemoteSample>(),
@@ -115,22 +136,31 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
       }
       if (isSnapshotTick(world.state.tick)) {
         const snap = world.snapshot();
-        for (const c of clients) c.down.send(now, snap);
+        for (const c of clients) c.down.send(now, { kind: "snapshot", snap });
       }
       nextTickAt += MS_PER_TICK;
     }
 
-    // 2. Deliver what the links hand over by now.
+    // 2. Deliver what the links hand over by now. A time request is answered on arrival, from the
+    // same `NetSessions.pong` the rooms answer with.
     for (const c of clients) {
-      for (const msg of c.up.receive(now)) world.receiveInput(c.id, msg);
-      for (const snap of c.down.receive(now)) c.client.onSnapshot(now, snap);
+      for (const msg of c.up.receive(now)) {
+        if (msg.kind === "input") world.receiveInput(c.id, msg.packet);
+        else c.down.send(now, { kind: "pong", pong: world.sessions.pong(msg.c, now) });
+      }
+      for (const msg of c.down.receive(now)) {
+        if (msg.kind === "snapshot") c.client.onSnapshot(now, msg.snap);
+        else c.client.onPong(now, msg.pong);
+      }
+      const timeRequest = c.client.timeRequest(now);
+      if (timeRequest) c.up.send(now, { kind: "time", c: timeRequest.c });
     }
 
     // 3. Clients: a frame each whenever its own frame clock comes due.
     for (const c of clients) {
       if (now < c.nextFrameAt) continue;
       c.nextFrameAt += frameMs;
-      for (const msg of c.client.frame(now, frameMs)) c.up.send(now, msg);
+      for (const packet of c.client.frame(now, frameMs)) c.up.send(now, { kind: "input", packet });
 
       // 4. Sample every other car that is alive on the server AND drawn alive by this client: a car
       // the client still draws as a wreck (or not at all) is skipped, and its hold history reset.
@@ -164,21 +194,21 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
   let producedInputs = 0;
   let droppedInputs = 0;
   let unackedAtEnd = 0;
+  const lastTick = world.state.tick;
   for (const c of clients) {
     const applied = world.appliedAt.get(c.id)!;
-    const acked = world.state.players.get(c.id)!.lastProcessedInputSeq;
-    for (const [seq, producedMs] of c.client.producedAt) {
+    for (const [tick, producedMs] of c.client.producedAt) {
       producedInputs++;
-      const appliedMs = applied.get(seq);
+      const appliedMs = applied.get(tick);
       if (appliedMs !== undefined) inputDelays.push(appliedMs - producedMs);
-      else if (seq <= acked) droppedInputs++;
+      else if (tick <= lastTick) droppedInputs++;
       else unackedAtEnd++;
     }
   }
 
   const metrics: NetsimMetrics = {
     stepsPerTickMax,
-    repeatedInputRate: null,
+    repeatedInputRate: world.steppedCarTicks === 0 ? 0 : world.repeatedCarTicks / world.steppedCarTicks,
     remotePathErrorP95: percentile(pathErrors, 95),
     remoteDisplayDelayMs: mean(displayDelays),
     remoteHoldRate: samples.length === 0 ? 0 : holds / samples.length,
@@ -187,6 +217,13 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
   };
   return {
     metrics,
-    diagnostics: { producedInputs, droppedInputs, unackedAtEnd, remoteSamples: samples.length, deaths },
+    diagnostics: {
+      producedInputs,
+      droppedInputs,
+      unackedAtEnd,
+      steppedCarTicks: world.steppedCarTicks,
+      remoteSamples: samples.length,
+      deaths,
+    },
   };
 }

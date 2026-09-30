@@ -54,7 +54,7 @@ export function blendPose(from: SimBody, to: SimBody, alpha: number): SimBody {
  * which buys enough buffer to always have a snapshot on both sides of the render time.
  *
  * Local prediction is deliberately not built on this: the local car must respond on the frame the
- * key is pressed, so it runs ahead through `PredictionBuffer` while remotes lag behind.
+ * key is pressed, so it runs ahead through `TickPrediction` while remotes lag behind.
  */
 export class InterpolationBuffer {
   private snapshots: Snapshot[] = [];

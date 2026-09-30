@@ -2,25 +2,26 @@ import {
   ArenaState,
   GameMode,
   MS_PER_TICK,
-  NET_CONFIG,
   PlayerState,
   PlayerStatus,
   RoomPhase,
   TICK_RATE_HZ,
   getArena,
   hpOf,
-  isOnField,
   modeConfigOf,
+  newTickInputBuffer,
   rulesOf,
   toWorld,
   withMode,
   type CarId,
-  type InputMessage,
+  type InputPacket,
   type ModeConfig,
   type SimBody,
   type StatusRow,
+  type TickInputBuffer,
 } from "@motor-combat-moba/shared";
 import { respawnSweep, runPipeline, type PipelineCtx } from "../rooms/tick-pipeline.js";
+import { NetSessions } from "../net/net-session.js";
 import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
 
@@ -35,7 +36,10 @@ export interface SnapshotCar {
   id: string;
   body: SimBody;
   alive: boolean;
-  lastProcessedInputSeq: number;
+  /** Owner-only on the wire (NR26): whether this tick ran the car on a repeated or neutral input. */
+  ackRepeated: boolean;
+  /** Owner-only on the wire (NR21): the server's mean input slack for this car, in ticks. */
+  inputSlack: number;
   /** Beyond the plan's minimum: what `buildStepContext`/`localModifiers` read off a patched player. */
   carId: string;
   status: number;
@@ -69,25 +73,33 @@ function bodyOf(p: PlayerState): SimBody {
  *
  *     state.tick += 1 -> respawnSweep (the mode respawns) -> runPipeline
  *
- * Unlike `ModeWorld` it does NOT inject an idle input into an empty queue: the input path is the
- * live one, so a player whose inputs have not arrived gets exactly what `serverTick` gives them.
- * Every call runs inside `withMode` for the netsim mode's bundle.
+ * Unlike `ModeWorld` it does NOT offer an idle input for a car its client has not fed: the input
+ * path is the live one, so a player whose frame has not arrived gets exactly what its
+ * `TickInputBuffer` gives it — the repeat, then neutral. Every call runs inside `withMode` for the
+ * netsim mode's bundle.
  */
 export class ServerWorld {
   readonly state = new ArenaState();
-  /** Legacy path: today's per-player queues. Phase D replaces this with tick input buffers. */
-  readonly inputQueues = new Map<string, InputMessage[]>();
+  /** Each car's inputs keyed by the tick they are for (NR22): `ArenaRoom.inputBuffers`. */
+  readonly inputBuffers = new Map<string, TickInputBuffer>();
   /** Per car, the (tick time, x, y) truth recorded after every tick. */
   readonly truth = new Map<string, { t: number; x: number; y: number }[]>();
-  /** Most `stepSim` calls one car got in the last tick (legacy: min(queue length, maxInputsPerTick)). */
+  /** Most `stepSim` calls one car got in the last tick, as `runPipeline` counted them (NR17). */
   lastTickMaxSteps = 0;
-  /** For each car, the seq → server ms at which that input was FIRST simulated. */
+  /** For each car, the tick → server ms at which the client's own frame for that tick was simulated. */
   readonly appliedAt = new Map<string, Map<number, number>>();
+  /** Car-ticks that stepped a car, and how many of those ran on a repeated or neutral input (NR22). */
+  steppedCarTicks = 0;
+  repeatedCarTicks = 0;
+  /**
+   * The room's time-sync state, answering `MSG_TIME` exactly as `installNetHandlers` does. Each tick is
+   * marked at its due time on the harness clock, which here is also the server's wall clock.
+   */
+  readonly sessions = new NetSessions();
   readonly ids: string[] = [];
 
   private readonly roster = new Set<string>();
   private readonly prevFireMasks = new Map<string, number>();
-  private readonly silentTicks = new Map<string, number>();
   private readonly phaseCaps = new Map<string, number>();
   private readonly combat: CombatMemory = newCombatMemory();
   private readonly ram: ContactMemory = newContactMemory();
@@ -123,16 +135,17 @@ export class ServerWorld {
     p.vx = v.vx;
     p.vy = v.vy;
     this.state.players.set(id, p);
-    this.inputQueues.set(id, []);
+    this.inputBuffers.set(id, newTickInputBuffer());
     this.roster.add(id);
     this.truth.set(id, [{ t: this.timeOfTick(0), x, y }]);
     this.appliedAt.set(id, new Map());
     this.ids.push(id);
   }
 
-  /** An input message from car `id`'s client arrived: `ArenaRoom`'s input handler, legacy path. */
-  receiveInput(id: string, msg: InputMessage): void {
-    this.inputQueues.get(id)!.push(msg);
+  /** An input packet from car `id`'s client arrived: `ArenaRoom`'s input handler. */
+  receiveInput(id: string, msg: InputPacket): void {
+    const buffer = this.inputBuffers.get(id)!;
+    for (const frame of msg.inputs) buffer.offer(frame, this.state.tick);
   }
 
   /** Server time in ms of each completed tick: tick * MS_PER_TICK. */
@@ -143,9 +156,8 @@ export class ServerWorld {
   private ctx(): PipelineCtx {
     return {
       state: this.state,
-      inputQueues: this.inputQueues,
+      inputBuffers: this.inputBuffers,
       prevFireMasks: this.prevFireMasks,
-      silentTicks: this.silentTicks,
       matchRoster: this.roster,
       phaseCaps: this.phaseCaps,
       combat: this.combat,
@@ -155,43 +167,32 @@ export class ServerWorld {
     };
   }
 
-  /** One pipeline tick in `ArenaRoom.tick`'s order; records truth, `lastTickMaxSteps`, `appliedAt`. */
+  /**
+   * One pipeline tick in `ArenaRoom.tick`'s order; records truth, and — from what `runPipeline`
+   * reports it actually did — `lastTickMaxSteps`, `appliedAt` and the repeated-input counts.
+   */
   tick(): void {
     withMode(this.modeConfig, () => {
       this.state.tick += 1;
       if (this.state.phase === RoomPhase.MATCH && rulesOf(this.state.mode).respawns) {
         respawnSweep(this.ctx());
       }
-      this.recordIntake();
-      runPipeline(this.ctx());
+      const { steps } = runPipeline(this.ctx());
       const t = this.timeOfTick(this.state.tick);
+      let max = 0;
       for (const id of this.ids) {
         const p = this.state.players.get(id)!;
         this.truth.get(id)!.push({ t, x: p.x, y: p.y });
+        const n = steps.get(id) ?? 0;
+        max = Math.max(max, n);
+        if (n === 0) continue;
+        this.steppedCarTicks++;
+        if (p.ackRepeated) this.repeatedCarTicks++;
+        else this.appliedAt.get(id)!.set(this.state.tick, t);
       }
+      this.lastTickMaxSteps = max;
+      this.sessions.markTick(this.state.tick, t);
     });
-  }
-
-  /**
-   * What `serverTick` is about to simulate, read off the queues before it drains them: it sorts the
-   * batch by seq and steps the first `maxInputsPerTick` — only for a car on the field in `MATCH`
-   * (its `ctx !== null` gate). The rest are drained and acked, never stepped.
-   */
-  private recordIntake(): void {
-    let max = 0;
-    const now = this.timeOfTick(this.state.tick);
-    const moving = this.state.phase === RoomPhase.MATCH;
-    for (const id of this.ids) {
-      const player = this.state.players.get(id)!;
-      const queue = this.inputQueues.get(id) ?? [];
-      if (!moving || !isOnField(player) || queue.length === 0) continue;
-      const simulated = [...queue].sort((a, b) => a.seq - b.seq).slice(0, NET_CONFIG.maxInputsPerTick);
-      max = Math.max(max, simulated.length);
-      const applied = this.appliedAt.get(id)!;
-      // The FIRST time a seq is simulated is when it took effect; never overwrite it.
-      for (const msg of simulated) if (!applied.has(msg.seq)) applied.set(msg.seq, now);
-    }
-    this.lastTickMaxSteps = max;
   }
 
   /** The state a patch would carry right now. */
@@ -204,7 +205,8 @@ export class ServerWorld {
           id,
           body: bodyOf(p),
           alive: p.alive,
-          lastProcessedInputSeq: p.lastProcessedInputSeq,
+          ackRepeated: p.ackRepeated,
+          inputSlack: p.inputSlack,
           carId: p.carId,
           status: p.status,
           statuses: p.statuses.map((s) => ({

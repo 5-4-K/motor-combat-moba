@@ -251,7 +251,7 @@ export function runDuel(opts: DuelOptions): DuelResult {
     body = stepDrive(
       body,
       {
-        seq: tick, steer: intent.steer, throttle: intent.throttle, fireSlots: 0,
+        steer: intent.steer, throttle: intent.throttle, fireSlots: 0,
         ...(intent.aimAngle === undefined ? {} : { aimAngle: intent.aimAngle }),
       },
       1 / TICK_RATE_HZ,

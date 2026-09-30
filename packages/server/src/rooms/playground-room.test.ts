@@ -23,7 +23,7 @@ import {
   type CarId,
   type CombatEvents,
   type FiredEvent,
-  type InputMessage,
+  type TickInputBuffer,
   type ModeConfig,
   type PlaygroundSetup,
 } from "@motor-combat-moba/shared";
@@ -195,7 +195,7 @@ describe("Task 8: the view ring and the fired sink actually run outside the harn
 
   interface PlaygroundRoomHarness {
     state: PlaygroundState;
-    inputQueues: Map<string, InputMessage[]>;
+    inputBuffers: Map<string, TickInputBuffer>;
     botEvents: CombatEvents;
     setState(state: PlaygroundState): void;
     addCar(sessionId: string, name: string, colorId: number, team: number): PlayerState;
@@ -311,7 +311,7 @@ describe("Task 8: the view ring and the fired sink actually run outside the harn
 
     // A REAL press through the ordinary input queue, exactly as `practice-room.test.ts` forces one —
     // see that test's comment for why this does not depend on the bot's own AI ever choosing to fire.
-    room.inputQueues.get(DRIVEN)?.push({ seq: 1, steer: 0, throttle: 0, fireSlots: 0b111 });
+    room.inputBuffers.get(DRIVEN)?.offer({ tick: room.state.tick + 1, steer: 0, throttle: 0, fireSlots: 0b111 }, room.state.tick);
     room.tick(); // tick 1: the press resolves, a FiredEvent lands in botEvents, then gets drained.
     room.tick(); // tick 2: the bot's own decide() call should now see it.
     decideSpy.mockRestore();
@@ -330,7 +330,7 @@ describe("Task 8: the view ring and the fired sink actually run outside the harn
     const room = readyPlaygroundRoom("medium");
 
     for (let t = 1; t <= 200; t++) {
-      room.inputQueues.get(DRIVEN)?.push({ seq: t, steer: 0, throttle: 0, fireSlots: 0b111 });
+      room.inputBuffers.get(DRIVEN)?.offer({ tick: room.state.tick + 1, steer: 0, throttle: 0, fireSlots: 0b111 }, room.state.tick);
       room.tick();
       expect(room.botEvents.fired.length).toBe(0);
       expect(room.botEvents.damaged.length).toBe(0);
@@ -344,9 +344,8 @@ describe("seat lifecycle (PG66/PG67/PG68)", () => {
     state: PlaygroundState;
     combat: CombatMemory;
     ram: ContactMemory;
-    inputQueues: Map<string, InputMessage[]>;
+    inputBuffers: Map<string, TickInputBuffer>;
     prevFireMasks: Map<string, number>;
-    silentTicks: Map<string, number>;
     matchRoster: Set<string>;
     phaseCaps: Map<string, number>;
     setState(state: PlaygroundState): void;
@@ -389,7 +388,7 @@ describe("seat lifecycle (PG66/PG67/PG68)", () => {
     expect(added!.alive).toBe(true);
     expect(added!.hp).toBe(hpOf(added!.carId));
     expect(room.matchRoster.has(PLAYGROUND_SEAT_IDS[4]!)).toBe(true);
-    expect(room.inputQueues.has(PLAYGROUND_SEAT_IDS[4]!)).toBe(true);
+    expect(room.inputBuffers.has(PLAYGROUND_SEAT_IDS[4]!)).toBe(true);
   });
 
   it("removes a car, and every map entry with it, when a seat is disabled (PG67)", () => {
@@ -403,9 +402,8 @@ describe("seat lifecycle (PG66/PG67/PG68)", () => {
     room.applySetup(setupWith((s) => enable(s, 0, 1)));
 
     expect(room.state.players.has(gone)).toBe(false);
-    expect(room.inputQueues.has(gone)).toBe(false);
+    expect(room.inputBuffers.has(gone)).toBe(false);
     expect(room.prevFireMasks.has(gone)).toBe(false);
-    expect(room.silentTicks.has(gone)).toBe(false);
     expect(room.matchRoster.has(gone)).toBe(false);
     expect(room.phaseCaps.has(gone)).toBe(false);
     expect(room.combat.loadouts.has(gone)).toBe(false);
@@ -484,12 +482,26 @@ describe("seat lifecycle (PG66/PG67/PG68)", () => {
     room.applySetup(setupWith((s) => enable(s, 2, 5)));
     expect(room.state.controlledSessionId).toBe(PLAYGROUND_SEAT_IDS[2]);
   });
+
+  it("hands both seats a fresh input buffer when the wheel moves to another seat", () => {
+    const room = readyRoom();
+    room.applySetup(setupWith((s) => enable(s, 0, 1, 2)));
+    const [a, b, c] = [0, 1, 2].map((i) => PLAYGROUND_SEAT_IDS[i]!);
+    const before = new Map([a, b, c].map((id) => [id, room.inputBuffers.get(id)]));
+
+    room.applySetup(setupWith((s) => ({ ...enable(s, 0, 1, 2), drivenSeat: 1 })));
+
+    expect(room.state.controlledSessionId).toBe(b);
+    expect(room.inputBuffers.get(a)).not.toBe(before.get(a));
+    expect(room.inputBuffers.get(b)).not.toBe(before.get(b));
+    expect(room.inputBuffers.get(c)).toBe(before.get(c));
+  });
 });
 
 describe("enqueueAiInputs (PG70/PG71)", () => {
   interface AiHarness {
     state: PlaygroundState;
-    inputQueues: Map<string, InputMessage[]>;
+    inputBuffers: Map<string, TickInputBuffer>;
     bots: Map<string, unknown>;
     setState(state: PlaygroundState): void;
     applySetup(setup: PlaygroundSetup): void;
@@ -511,19 +523,24 @@ describe("enqueueAiInputs (PG70/PG71)", () => {
     return room;
   }
 
-  it("queues nothing for the driven seat — that queue is the human's", () => {
+  // `enqueueAiInputs` runs after the room's `state.tick += 1`, so it offers for `state.tick` itself;
+  // taking that tick back out of a buffer shows exactly what was offered.
+  const takeNow = (room: AiHarness, seat: number) =>
+    room.inputBuffers.get(PLAYGROUND_SEAT_IDS[seat]!)!.take(room.state.tick);
+
+  it("offers nothing for the driven seat — that buffer is the human's", () => {
     const room = readyAiRoom(false, [0, 1, 2]);
     room.enqueueAiInputs();
-    expect(room.inputQueues.get(PLAYGROUND_SEAT_IDS[0]!)).toHaveLength(0);
+    expect(takeNow(room, 0).repeated).toBe(true);
   });
 
-  it("queues a neutral input for every other enabled seat when the bot is off (PG71)", () => {
+  it("offers a neutral input for every other enabled seat when the bot is off (PG71)", () => {
     const room = readyAiRoom(false, [0, 1, 2]);
     room.enqueueAiInputs();
     for (const seat of [1, 2]) {
-      const queue = room.inputQueues.get(PLAYGROUND_SEAT_IDS[seat]!)!;
-      expect(queue).toHaveLength(1);
-      expect(queue[0]).toMatchObject({ steer: 0, throttle: 0, fireSlots: 0 });
+      const taken = takeNow(room, seat);
+      expect(taken.repeated).toBe(false);
+      expect(taken.keys).toMatchObject({ steer: 0, throttle: 0, fireSlots: 0 });
     }
     expect(room.bots.size).toBe(0);
   });
@@ -536,17 +553,17 @@ describe("enqueueAiInputs (PG70/PG71)", () => {
     );
   });
 
-  it("queues nothing at all for a disabled seat", () => {
+  it("offers nothing at all for a disabled seat", () => {
     const room = readyAiRoom(true, [0, 1]);
     room.enqueueAiInputs();
-    expect(room.inputQueues.has(PLAYGROUND_SEAT_IDS[4]!)).toBe(false);
+    expect(room.inputBuffers.has(PLAYGROUND_SEAT_IDS[4]!)).toBe(false);
   });
 
-  it("gives each seat a distinct input seq on one tick", () => {
+  it("offers every non-driven seat exactly one input for the tick about to run", () => {
     const room = readyAiRoom(false, [0, 1, 2, 3]);
     room.enqueueAiInputs();
-    const seqs = [1, 2, 3].map((s) => room.inputQueues.get(PLAYGROUND_SEAT_IDS[s]!)![0]!.seq);
-    expect(new Set(seqs).size).toBe(3);
+    room.enqueueAiInputs(); // a second offer for the same tick is a dropped duplicate
+    for (const seat of [1, 2, 3]) expect(takeNow(room, seat).repeated).toBe(false);
   });
 });
 
@@ -618,7 +635,7 @@ describe("PlaygroundRoom tuning: a tuned value survives into a SUBSEQUENT tick (
   interface TuningHarness {
     modeConfig: ModeConfig;
     state: PlaygroundState;
-    inputQueues: Map<string, InputMessage[]>;
+    inputBuffers: Map<string, TickInputBuffer>;
     setState(state: PlaygroundState): void;
     addCar(sessionId: string, name: string, colorId: number, team: number): PlayerState;
     applyTuningMessage(msg: unknown): void;
@@ -664,7 +681,7 @@ describe("PlaygroundRoom tuning: a tuned value survives into a SUBSEQUENT tick (
     // Full throttle, straight ahead, re-centred after every tick so the run measures acceleration
     // toward a top speed rather than a wall collision.
     for (let t = 1; t <= 200; t++) {
-      room.inputQueues.get(DRIVEN)?.push({ seq: t, steer: 0, throttle: 1, fireSlots: 0 });
+      room.inputBuffers.get(DRIVEN)?.offer({ tick: room.state.tick + 1, steer: 0, throttle: 1, fireSlots: 0 }, room.state.tick);
       scoped(room.modeConfig, () => room.tick());
       const player = room.state.players.get(DRIVEN)!;
       player.x = 640;

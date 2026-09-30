@@ -4,7 +4,7 @@ import type {
 import type { PlanWeights } from "./brain/planner.js";
 import type { Rng } from "./rng.js";
 
-/** What the bot asks for. Deliberately NOT an `InputMessage`: `seq` is the host's business. */
+/** What the bot asks for. Deliberately NOT an `InputFrame`: the tick is the host's business. */
 export interface BotIntent {
   steer: -1 | 0 | 1;
   throttle: -1 | 0 | 1;
@@ -97,7 +97,7 @@ export interface BotArenaView {
  * Everything a bot may know, and nothing else (B15).
  *
  * A CONSTRUCTED PROJECTION, never a handle on `ArenaState`. That is the structural form of "the bot
- * never cheats": `inputQueues` and `prevFireMasks` — the actual keypresses — are not reachable from
+ * never cheats": `inputBuffers` and `prevFireMasks` — the actual keypresses — are not reachable from
  * inside `decide`, because they are not in the type. A promise decays; a type does not.
  *
  * `others`/`instances` carry a vision limit as of B17: both shipped arenas (1280x720) are authored

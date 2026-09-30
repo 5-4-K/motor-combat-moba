@@ -299,9 +299,8 @@ describe("explicit loadouts", () => {
     respawnPlayer(
       {
         state,
-        inputQueues: new Map(),
+        inputBuffers: new Map(),
         prevFireMasks: new Map(),
-        silentTicks: new Map(),
         matchRoster: new Set(["aaa"]),
         phaseCaps: new Map(),
         combat: memory,

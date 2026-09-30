@@ -9,10 +9,9 @@ import { NET_CONFIG } from "../config/net-config.js";
 import { getArena } from "../arena/registry.js";
 import { ramDefenceOf } from "../config/car-config.js";
 import { stepSim, type SimBody, type StepContext } from "../sim/step.js";
-import { type InputMessage } from "./input.js";
-import { PredictionBuffer, TickPrediction, frameAsInput, reconcileEasePerSnapshot } from "./prediction.js";
+import { TickPrediction, reconcileEasePerSnapshot } from "./prediction.js";
 import { msToTicks } from "../config/weapon-ticks.js";
-import type { InputFrame } from "./tick-input.js";
+import type { InputFrame, InputKeys } from "./tick-input.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 // Also installed directly, synchronously, at module scope: fixture constants below (and
@@ -48,16 +47,7 @@ const START: SimBody = {
   maneuverSpeed: 0,
 };
 
-function up(seq: number): InputMessage {
-  return { seq, steer: 0, throttle: 1, fireSlots: 0 };
-}
-
-/** The pose a lone client reaches by driving `count` Up ticks from `from` — the local double-step. */
-function replay(from: SimBody, seqs: readonly number[]): SimBody {
-  let body = from;
-  for (const seq of seqs) body = stepSim(body, up(seq), DT, ctx);
-  return body;
-}
+const UP: InputKeys = { steer: 0, throttle: 1, fireSlots: 0 };
 
 /**
  * A predicted pose deliberately far enough from the replayed target to force the snap branch, so a
@@ -67,93 +57,19 @@ function farFrom(body: SimBody): SimBody {
   return { ...body, x: body.x + NET_CONFIG.reconcileSnapPos * 10 };
 }
 
-describe("PredictionBuffer.predict", () => {
+describe("TickPrediction.predict", () => {
   it("runs the shared stepSim, so Up from rest moves the pose forward", () => {
-    const buf = new PredictionBuffer();
-    const out = buf.predict(START, { seq: 1, input: up(1) }, ctx);
-    expect(out).toEqual(stepSim(START, up(1), DT, ctx));
+    const tp = new TickPrediction();
+    const out = tp.predict(START, { tick: 1, ...UP }, ctx);
+    expect(out).toEqual(stepSim(START, UP, DT, ctx));
     expect(out.x).toBeGreaterThan(START.x);
     expect(out.vx).toBeGreaterThan(0);
   });
-
-  it("caps the pending buffer at NET_CONFIG.pendingInputCap, dropping the oldest", () => {
-    const buf = new PredictionBuffer();
-    const overflow = NET_CONFIG.pendingInputCap + 1;
-    let predicted = START;
-    for (let seq = 1; seq <= overflow; seq++) {
-      predicted = buf.predict(predicted, { seq, input: up(seq) }, ctx);
-    }
-
-    // Nothing acked, so every *retained* input replays. Seq 1 was evicted to make room for the last.
-    const kept = Array.from({ length: NET_CONFIG.pendingInputCap }, (_, i) => i + 2);
-    const out = buf.reconcile(START, 0, farFrom(replay(START, kept)), ctx);
-
-    expect(out).toEqual(replay(START, kept));
-    expect(out).not.toEqual(replay(START, [1, ...kept]));
-  });
-
-  it("still drops by predicate after an eviction, so a live ack cannot strand survivors", () => {
-    // Eviction and a nonzero ack have to meet in one test. A cursor that splices off
-    // `ack - previousAck` entries agrees with the predicate right up until the cap has thrown the
-    // head away: the count is then measured against seqs that are no longer in the buffer, and it
-    // eats live inputs off the front.
-    const buf = new PredictionBuffer();
-    const sent = NET_CONFIG.pendingInputCap + 6;
-    let predicted = START;
-    for (let seq = 1; seq <= sent; seq++) {
-      predicted = buf.predict(predicted, { seq, input: up(seq) }, ctx);
-    }
-
-    // The buffer holds seqs 7..30; the server has acked through 10, so 11..30 must replay.
-    const oldestKept = sent - NET_CONFIG.pendingInputCap + 1;
-    const ack = oldestKept + 3;
-    const survivors: number[] = [];
-    for (let seq = ack + 1; seq <= sent; seq++) survivors.push(seq);
-
-    const authoritative = replay(START, [1]);
-    const expected = replay(authoritative, survivors);
-    expect(buf.reconcile(authoritative, ack, farFrom(expected), ctx)).toEqual(expected);
-  });
 });
 
-describe("PredictionBuffer.reconcile", () => {
-  it("replays the inputs the server has not acked yet", () => {
-    const buf = new PredictionBuffer();
-    const afterOne = buf.predict(START, { seq: 1, input: up(1) }, ctx);
-    const afterTwo = buf.predict(afterOne, { seq: 2, input: up(2) }, ctx);
-
-    // Server has applied seq 1 only; its pose is therefore the client's own single step.
-    const authoritative = replay(START, [1]);
-    const out = buf.reconcile(authoritative, 1, afterTwo, ctx);
-
-    // Replaying seq 2 on top of the ack lands exactly where local prediction already was.
-    expect(out).toEqual(replay(START, [1, 2]));
-    expect(out).toEqual(afterTwo);
-  });
-
-  it("drops acked inputs by predicate, so a backwards-walking ack is a no-op", () => {
-    // `withSimulatedLatency` delays each message independently, so the server's ack can legitimately
-    // report a *lower* seq on a later tick. The still-unacked tail must survive that.
-    const buf = new PredictionBuffer();
-    let predicted = START;
-    for (let seq = 1; seq <= 5; seq++) {
-      predicted = buf.predict(predicted, { seq, input: up(seq) }, ctx);
-    }
-
-    const authoritative = replay(START, [1, 2, 3]);
-    const expected = replay(authoritative, [4, 5]);
-
-    const first = buf.reconcile(authoritative, 3, farFrom(expected), ctx);
-    expect(first).toEqual(expected);
-
-    const stale = buf.reconcile(authoritative, 1, farFrom(expected), ctx);
-    expect(stale).toEqual(expected);
-    // The tail must still be pending — landing on the bare authoritative pose is the rubber-band bug.
-    expect(stale).not.toEqual(authoritative);
-  });
-
+describe("TickPrediction.reconcile (settle)", () => {
   it("snaps to the replayed target when the position error exceeds reconcileSnapPos", () => {
-    const buf = new PredictionBuffer();
+    const buf = new TickPrediction();
     const authoritative: SimBody = {
       x: 400,
       y: 400,
@@ -175,7 +91,7 @@ describe("PredictionBuffer.reconcile", () => {
   });
 
   it("snaps when the angle error exceeds reconcileSnapAngle even with position in tolerance", () => {
-    const buf = new PredictionBuffer();
+    const buf = new TickPrediction();
     const authoritative: SimBody = {
       x: 400,
       y: 400,
@@ -194,7 +110,7 @@ describe("PredictionBuffer.reconcile", () => {
   });
 
   it("eases x/y toward the target inside the snap threshold", () => {
-    const buf = new PredictionBuffer();
+    const buf = new TickPrediction();
     const authoritative: SimBody = {
       x: 400,
       y: 400,
@@ -218,7 +134,7 @@ describe("PredictionBuffer.reconcile", () => {
   it("snaps vx/vy to the replayed target instead of easing them", () => {
     // Derived sim fields are inputs to the next step, so a half-eased velocity would feed a wrong
     // integration next tick and never converge.
-    const buf = new PredictionBuffer();
+    const buf = new TickPrediction();
     const authoritative: SimBody = {
       x: 400,
       y: 400,
@@ -253,7 +169,7 @@ describe("PredictionBuffer.reconcile", () => {
   it("measures angle error as a wrapped delta, so an accumulated angle does not force a snap", () => {
     // `stepDrive` never normalises `angle`, so after minutes of turning it is thousands of radians.
     // A raw subtraction here would read a ~628 rad error and snap every single tick.
-    const buf = new PredictionBuffer();
+    const buf = new TickPrediction();
     const authoritative: SimBody = {
       x: 400,
       y: 400,
@@ -281,7 +197,7 @@ describe("PredictionBuffer.reconcile", () => {
     // the whole file undetected. Exercising it specifically on the EASE branch (small positional
     // error, so x/y visibly lerp) is what makes this test able to catch a `lerp` slipped in beside
     // the position/angle easing, rather than only a wholesale drop of the fields.
-    const buf = new PredictionBuffer();
+    const buf = new TickPrediction();
     const authoritative: SimBody = {
       x: 400,
       y: 400,
@@ -324,7 +240,7 @@ describe("PredictionBuffer.reconcile", () => {
     // ease branches, never ease toward it. Exercised on the EASE branch (small positional error)
     // since every other reconcile test in this file uses ManeuverKind.NONE on both sides, which
     // would let a `lerp` slipped in beside the maneuver fields pass unnoticed.
-    const buf = new PredictionBuffer();
+    const buf = new TickPrediction();
     const authoritative: SimBody = {
       x: 400,
       y: 400,
@@ -356,7 +272,7 @@ describe("PredictionBuffer.reconcile", () => {
     expect(out.x).not.toBe(authoritative.x);
     expect(out.y).not.toBe(authoritative.y);
 
-    // No pending inputs are queued on this fresh buffer, so the replayed tail is empty and the
+    // No frames are held by this fresh buffer, so the replayed tail is empty and the
     // authoritative maneuver state passes through untouched.
     expect(out.maneuver).toBe(ManeuverKind.DASH);
     expect(out.maneuverTicksLeft).toBe(5);
@@ -365,7 +281,7 @@ describe("PredictionBuffer.reconcile", () => {
   });
 
   it("eases angle the short way round the wrap", () => {
-    const buf = new PredictionBuffer();
+    const buf = new TickPrediction();
     const authoritative: SimBody = {
       x: 400,
       y: 400,
@@ -411,7 +327,7 @@ describe("reconcileEasePerSnapshot (Phase C I2)", () => {
   it("eases a held error by exactly reconcileEaseRate across one reference span of reconciles", () => {
     // Integer at every shipped rate (60 Hz -> 3 snapshots per 50 ms); the check below needs it.
     expect(Number.isInteger(snapshotsPerReference)).toBe(true);
-    const buf = new PredictionBuffer();
+    const buf = new TickPrediction();
     const authoritative: SimBody = {
       x: 400,
       y: 400,
@@ -442,28 +358,13 @@ describe("TickPrediction", () => {
     const tp = new TickPrediction();
     let cur = START;
     for (const t of [11, 12, 13]) cur = tp.predict(cur, frame(t), ctx);
-    const authoritative = stepSim(START, frameAsInput(frame(11)), DT, ctx); // pose at tick 11
+    const authoritative = stepSim(START, frame(11), DT, ctx); // pose at tick 11
     const target = replay2(authoritative, [12, 13]);
     const out = tp.reconcile(authoritative, 11, farFrom(cur), ctx);
     for (const k of ["x", "y", "angle", "vx", "vy", "angVel"] as const) expect(out[k]).toBeCloseTo(target[k], 9);
     expect(tp.frameAt(11)).toBeUndefined();
     expect(tp.frameAt(12)).toBeDefined();
     expect(tp.replayTarget(authoritative, 11, ctx).x).toBeCloseTo(target.x, 9);
-  });
-
-  it("eases small errors like PredictionBuffer does", () => {
-    const tp = new TickPrediction();
-    const buf = new PredictionBuffer();
-    let cur = START;
-    for (const t of [1, 2]) {
-      cur = tp.predict(cur, frame(t), ctx);
-      buf.predict(START, { seq: t, input: { seq: t, steer: 0, throttle: 1, fireSlots: 0 } }, ctx);
-    }
-    const cur2 = { ...cur, x: cur.x + 1 };
-    const a = tp.reconcile(START, 0, cur2, ctx);
-    const b = buf.reconcile(START, 0, cur2, ctx);
-    expect(a.x).toBeCloseTo(b.x, 9);
-    expect(a.angle).toBeCloseTo(b.angle, 9);
   });
 
   it("eases (does not snap) a small error toward the replay target", () => {
@@ -489,7 +390,7 @@ describe("TickPrediction", () => {
     let want = START;
     for (let t = 10; t <= far; t++) {
       const keys = t === far || t - 10 <= repeat ? { steer: 0 as const, throttle: 1 as const } : { steer: 0 as const, throttle: 0 as const };
-      want = stepSim(want, frameAsInput({ tick: t, fireSlots: 0, ...keys }), DT, ctx);
+      want = stepSim(want, { fireSlots: 0, ...keys }, DT, ctx);
     }
     for (const k of ["x", "y", "angle", "vx", "vy"] as const) expect(got[k]).toBeCloseTo(want[k], 9);
   });
@@ -512,7 +413,8 @@ describe("TickPrediction", () => {
 });
 
 function replay2(from: SimBody, ticks: readonly number[]): SimBody {
+  const frame = (tick: number): InputFrame => ({ tick, ...UP });
   let body = from;
-  for (const t of ticks) body = stepSim(body, frameAsInput({ tick: t, steer: 0, throttle: 1, fireSlots: 0 }), DT, ctx);
+  for (const t of ticks) body = stepSim(body, frame(t), DT, ctx);
   return body;
 }

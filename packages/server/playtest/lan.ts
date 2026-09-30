@@ -7,7 +7,15 @@
  * scheduling. Run it against a server started with SIM_LATENCY_MS to model a real LAN.
  */
 import { Client, type Room } from "@colyseus/sdk";
-import { speedOf } from "@motor-combat-moba/shared";
+import {
+  ClockSync,
+  InputScheduler,
+  MSG_PING,
+  MSG_TIME,
+  NET_CONFIG,
+  speedOf,
+  type InputFrame,
+} from "@motor-combat-moba/shared";
 
 const ENDPOINT = process.env.PLAYTEST_ENDPOINT ?? "ws://127.0.0.1:2567";
 const TICK_MS = 1000 / 30;
@@ -15,7 +23,14 @@ const TICK_MS = 1000 / 30;
 interface Bot {
   name: string;
   room: Room;
-  seq: number;
+  /** The same clock sync and input scheduler the browser client runs (NR18, NR20). */
+  clock: ClockSync;
+  scheduler: InputScheduler;
+  /** Sent frames, newest last, for packet redundancy (NR24). */
+  frames: InputFrame[];
+  lastSendMs: number;
+  /** The newest snapshot's `inputSlack`, handed to the scheduler once and then cleared (NR21). */
+  freshSlack: number | undefined;
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -25,12 +40,43 @@ async function join(name: string): Promise<Bot> {
   const room = await client.joinOrCreate("arena", { name });
   // The server never allows reconnection; the SDK default would hang on a dropped socket.
   room.reconnection.enabled = false;
-  return { name, room, seq: 0 };
+  const clock = new ClockSync();
+  const bot: Bot = {
+    name, room, clock, scheduler: new InputScheduler(clock), frames: [], lastSendMs: performance.now(),
+    freshSlack: undefined,
+  };
+  // Time sync exactly as `ArenaScene.bindTimeSync` runs it: a burst on join, then the steady rate.
+  room.onMessage(MSG_TIME, (p) => clock.onPong(performance.now(), p));
+  room.onMessage(MSG_PING, (m) => room.send(MSG_PING, m));
+  const ping = (): void => room.send(MSG_TIME, { c: performance.now() });
+  ping();
+  const burst = setInterval(ping, NET_CONFIG.timeSyncBurstMs);
+  setTimeout(() => {
+    clearInterval(burst);
+    setInterval(ping, NET_CONFIG.timeSyncIntervalMs).unref();
+  }, NET_CONFIG.timeSyncBurstWindowMs).unref();
+  room.onStateChange((state: any) => {
+    const me = state.players?.get(room.sessionId);
+    if (me) bot.freshSlack = me.inputSlack;
+  });
+  return bot;
 }
 
+/**
+ * Hold these keys: one tick-stamped frame for every server tick the scheduler says is due since the
+ * last call, sent with the previous frames as redundancy — the browser client's `pumpInput`.
+ */
 function send(bot: Bot, msg: { steer?: -1 | 0 | 1; throttle?: -1 | 0 | 1; fireSlots?: number }): void {
-  bot.seq += 1;
-  bot.room.send("input", { seq: bot.seq, steer: 0, throttle: 0, fireSlots: 0, ...msg });
+  const now = performance.now();
+  const slack = bot.freshSlack;
+  bot.freshSlack = undefined;
+  const ticks = bot.scheduler.due(now, now - bot.lastSendMs, slack);
+  bot.lastSendMs = now;
+  for (const tick of ticks) {
+    bot.frames.push({ tick, steer: 0, throttle: 0, fireSlots: 0, ...msg });
+    if (bot.frames.length > 1 + NET_CONFIG.inputRedundancy) bot.frames.shift();
+    bot.room.send("input", { inputs: bot.frames.slice() });
+  }
 }
 
 /** Poll `state` until `predicate` holds, or give up. */

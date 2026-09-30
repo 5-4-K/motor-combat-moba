@@ -22,7 +22,7 @@ import {
   type CarId,
   type CombatEvents,
   type FiredEvent,
-  type InputMessage,
+  type TickInputBuffer,
 } from "@motor-combat-moba/shared";
 import { RESOLVED_BOT_PROFILES } from "../config/bot-profiles.js";
 import { HumanController, ViewRing, type BotView } from "../bot/index.js";
@@ -178,7 +178,7 @@ describe("Task 8: the view ring and the fired sink actually run outside the harn
     state: PracticeState;
     difficulty: BotDifficulty;
     humanSessionId: string;
-    inputQueues: Map<string, InputMessage[]>;
+    inputBuffers: Map<string, TickInputBuffer>;
     botEvents: CombatEvents;
     setState(state: PracticeState): void;
     addCar(
@@ -307,7 +307,7 @@ describe("Task 8: the view ring and the fired sink actually run outside the harn
     // fires regardless of aim, range, or whether the bot's own AI ever chooses to. If a future edit
     // dropped `events: this.botEvents` from `ctx()`, this press would still happen but nothing would
     // carry it forward, and the assertion below would catch exactly that.
-    room.inputQueues.get("human")?.push({ seq: 1, steer: 0, throttle: 0, fireSlots: 0b111 });
+    room.inputBuffers.get("human")?.offer({ tick: room.state.tick + 1, steer: 0, throttle: 0, fireSlots: 0b111 }, room.state.tick);
     room.tick(); // tick 1: the press resolves, a FiredEvent lands in botEvents, then gets drained
     // into `previousTickFires` for the NEXT tick's view.
     room.tick(); // tick 2: the bot's own decide() call should now see it.
@@ -331,7 +331,7 @@ describe("Task 8: the view ring and the fired sink actually run outside the harn
     for (let t = 1; t <= 200; t++) {
       // Pressed every tick so the bag is actually exercised repeatedly across the run, not merely
       // empty because nothing ever fired.
-      room.inputQueues.get("human")?.push({ seq: t, steer: 0, throttle: 0, fireSlots: 0b111 });
+      room.inputBuffers.get("human")?.offer({ tick: room.state.tick + 1, steer: 0, throttle: 0, fireSlots: 0b111 }, room.state.tick);
       room.tick();
       expect(room.botEvents.fired.length).toBe(0);
       expect(room.botEvents.damaged.length).toBe(0);

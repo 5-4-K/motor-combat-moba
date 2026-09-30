@@ -3,7 +3,8 @@ import type { Room } from "@colyseus/sdk";
 import type {
   ArenaDef,
   ArenaState,
-  InputMessage,
+  InputFrame,
+  InputKeys,
   PlayerState,
   SimBody,
   StepContext,
@@ -11,7 +12,8 @@ import type {
 } from "@motor-combat-moba/shared";
 import {
   InterpolationBuffer,
-  PredictionBuffer,
+  TickPrediction,
+  InputScheduler,
   blendPose,
   buildStepContext,
   localModifiers,
@@ -113,7 +115,7 @@ import { renderArenaMismatch } from "../ui/screens/arena-mismatch.js";
 import { renderPause } from "../ui/screens/pause.js";
 import type { PracticeSummaryPlayer } from "../ui/screens/practice-summary.js";
 import { arenaMismatchMessage } from "./arena-mismatch.js";
-import { axisOf, drainTicks } from "./arena-input.js";
+import { InputClock, axisOf } from "./arena-input.js";
 import { releaseKeyboardCaptures } from "./keyboard-captures.js";
 import { drawCrosshair } from "./crosshair.js";
 import { controlledCarOf, isPlaygroundRoom, isPracticeRoom, isSimPaused } from "./controlled-car.js";
@@ -704,7 +706,6 @@ interface ArenaPlayer {
   status: number;
   carId: string;
   colorId: number;
-  lastProcessedInputSeq: number;
   hp: number;
   alive: boolean;
   diedAtTick: number;
@@ -779,7 +780,7 @@ function visualKeyOf(player: ArenaPlayer): string {
 
 export class ArenaScene extends Phaser.Scene {
   private room: Room<ArenaState> | undefined;
-  private prediction = new PredictionBuffer();
+  private readonly prediction = new TickPrediction();
   private readonly interps = new Map<string, InterpolationBuffer>();
   private readonly cars = new Map<string, Phaser.GameObjects.Container>();
   private readonly visualKeys = new Map<string, string>();
@@ -850,14 +851,6 @@ export class ArenaScene extends Phaser.Scene {
    */
   private lastDrivenSid: string | undefined;
   private camFocus: { x: number; y: number } | undefined;
-  private inputAccumulatorMs = 0;
-  /**
-   * Monotonic for the lifetime of the page, deliberately *not* reset in `create`. The server never
-   * resets `PlayerState.lastProcessedInputSeq`, so a seq that restarted at 1 for a second match
-   * would sit below the standing ack and reconciliation would discard every pending input — the car
-   * would fall back to pure server-follow. It is only ever nudged forward, never back.
-   */
-  private inputSeq = 0;
   private debug = false;
   /**
    * Whether the boot loader is still running. Inspectable state only — the rebuild that swaps
@@ -867,10 +860,16 @@ export class ArenaScene extends Phaser.Scene {
   private artPending = true;
   private unbind: Array<() => void> = [];
   /**
-   * The estimate of the server's tick clock (NR18), one per room join: `bindRoom` makes it, and
-   * nothing reads it yet. Uses `performance.now()` on this side throughout.
+   * The estimate of the server's tick clock (NR18), one per room join: `bindRoom` makes it. Uses
+   * `performance.now()` on this side throughout.
    */
   private clockSync: ClockSync | undefined;
+  /**
+   * Which ticks to send a frame for (NR20, NR21), built on `clockSync` beside it. `inputClock` wraps
+   * it so the snapshot's `inputSlack` reaches the scheduler once per snapshot, never per frame.
+   */
+  private scheduler: InputScheduler | undefined;
+  private inputClock: InputClock | undefined;
   private countdownText: Phaser.GameObjects.Text | undefined;
   private shotGfx: Phaser.GameObjects.Graphics | undefined;
   /**
@@ -1168,10 +1167,6 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    this.inputSeq = Math.max(
-      this.inputSeq,
-      this.room.state.players.get(this.drivenSid(this.room))?.lastProcessedInputSeq ?? 0,
-    );
     // Seeded here rather than left undefined so the first `update` frame is not itself a "switch":
     // `syncDrivenCar` would otherwise reset a buffer that `resetMatchState` just built, which is
     // harmless but would make the production path differ from the pre-playground one for no reason.
@@ -1817,6 +1812,8 @@ export class ArenaScene extends Phaser.Scene {
   private bindTimeSync(room: Room<ArenaState>): void {
     const clock = new ClockSync();
     this.clockSync = clock;
+    this.scheduler = new InputScheduler(clock);
+    this.inputClock = new InputClock(this.scheduler);
     const ping = (): void => room.send(MSG_TIME, { c: performance.now() });
     ping();
     let timer: ReturnType<typeof setInterval> | undefined = setInterval(ping, NET_CONFIG.timeSyncBurstMs);
@@ -1841,6 +1838,8 @@ export class ArenaScene extends Phaser.Scene {
   private onShutdown(): void {
     this.resetMatchState();
     this.clockSync = undefined;
+    this.scheduler = undefined;
+    this.inputClock = undefined;
     this.room = undefined;
   }
 
@@ -1849,7 +1848,7 @@ export class ArenaScene extends Phaser.Scene {
    *
    * Phaser guarantees shutdown-before-create, so one of these is always redundant — but only as long
    * as both reset the *same* fields. Two partial reset paths is exactly the shape that let a
-   * `PredictionBuffer` survive across matches and replay a previous match's pending inputs. Adding a
+   * prediction buffer survive across matches and replay a previous match's pending inputs. Adding a
    * field here covers both entry points at once; adding it to only one covers neither reliably.
    */
   private resetMatchState(): void {
@@ -1924,7 +1923,7 @@ export class ArenaScene extends Phaser.Scene {
     this.shadowTextureSig = undefined;
     // Here rather than in `onShutdown`, per the doc comment above: `create` calls this too, so a
     // shutdown-only destroy would leave the previous layer's four emitters (and their render
-    // textures) alive on a scene restart — the same shape of leak the `PredictionBuffer` had.
+    // textures) alive on a scene restart — the same shape of leak the old `PredictionBuffer` had.
     this.fx?.destroy();
     this.fx = undefined;
     this.hudGfx?.destroy();
@@ -1966,12 +1965,11 @@ export class ArenaScene extends Phaser.Scene {
     this.keys = undefined;
     this.slotKeys = undefined;
     this.pauseKey = undefined;
-    this.prediction = new PredictionBuffer();
+    this.prediction.clear();
     this.predicted = undefined;
     this.predictedPrev = undefined;
     this.lastDrivenSid = undefined;
     this.camFocus = undefined;
-    this.inputAccumulatorMs = 0;
     this.spectateTarget = "";
     this.freeRoam = false;
     this.localAlive = true;
@@ -2141,7 +2139,12 @@ export class ArenaScene extends Phaser.Scene {
 
   // --- input -------------------------------------------------------------------------------
 
-  /** Inputs go out on the sim clock, not the render clock. See `drainTicks` for the arithmetic. */
+  /**
+   * Inputs go out on the SERVER's tick clock, not the render clock (NR20): one frame per server
+   * tick, stamped with that tick, `leadMs` ahead of the client's estimate of the server clock so it
+   * lands just before the server runs it. `InputScheduler` owns the arithmetic; nothing is sent
+   * until the first clock-sync pong has arrived.
+   */
   private pumpInput(room: Room<ArenaState>, delta: number): void {
     // Ahead of every gate below, so a switch made while paused (or while the driven car is a wreck)
     // is still picked up. This is the first thing `update` reaches, and `renderCars` runs after it,
@@ -2151,14 +2154,14 @@ export class ArenaScene extends Phaser.Scene {
     // A paused playground stops the input clock outright: no send, and — because `sendInputTick` is
     // the only thing that predicts — no predicted step either. Interpolation of the other cars keeps
     // running, which costs nothing, since a paused room stops patching new poses anyway (spec PG7).
+    const inputClock = this.inputClock;
+    if (!inputClock) return;
     if (!this.canDrive(room) || isSimPaused(room.state)) {
-      this.inputAccumulatorMs = 0;
+      inputClock.discard();
       return;
     }
 
-    const { accMs, ticks } = drainTicks(this.inputAccumulatorMs, delta);
-    this.inputAccumulatorMs = accMs;
-    for (let i = 0; i < ticks; i++) this.sendInputTick(room);
+    for (const tick of inputClock.due(performance.now(), delta)) this.sendInputTick(room, tick);
   }
 
   /**
@@ -2551,22 +2554,19 @@ export class ArenaScene extends Phaser.Scene {
   /**
    * Hand prediction over to a newly-driven car. No-op on every frame but the one the wheel moves on.
    *
-   * Both halves of the prediction state are per-car: the `PredictionBuffer` holds inputs that only
-   * the previous car's server-side queue will ever ack, and `predicted` is that car's pose. Carrying
-   * either across a switch would replay one car's inputs onto another car's pose, so the buffer is
-   * rebuilt exactly as `resetMatchState` first builds it and the pose is snapped to the new car's
-   * authoritative one — the same seeding `reconcileLocal` does when it has no prediction yet.
-   *
-   * `inputSeq` deliberately does NOT reset. It is monotonic for the page (see the field's comment):
-   * the server never rewinds `lastProcessedInputSeq`, and a seq restarting below the standing ack
-   * would have reconciliation discard every pending input from here on.
+   * Both halves of the prediction state are per-car: the `TickPrediction` holds frames only the
+   * previous car ever ran, and `predicted` is that car's pose. Carrying either across a switch would
+   * replay one car's inputs onto another car's pose, so the frames are cleared exactly as
+   * `resetMatchState` clears them and the pose is snapped to the new car's authoritative one — the
+   * same seeding `reconcileLocal` does when it has no prediction yet. The server hands both seats a
+   * fresh input buffer on the same switch (`PlaygroundRoom.applySetup`).
    */
   private syncDrivenCar(room: Room<ArenaState>): void {
     const driven = this.drivenSid(room);
     if (this.lastDrivenSid === driven) return;
     this.lastDrivenSid = driven;
 
-    this.prediction = new PredictionBuffer();
+    this.prediction.clear();
     const car = room.state.players.get(driven);
     this.predicted = car ? bodyOf(car) : undefined;
     this.predictedPrev = undefined;
@@ -2574,7 +2574,7 @@ export class ArenaScene extends Phaser.Scene {
 
   /**
    * The same gate `serverTick` and `runCombat` use, so a client never predicts a step the server
-   * would not have run. `alive` is part of it: a wreck's inputs are drained and acked but move
+   * would not have run. `alive` is part of it: a wreck's inputs are taken by the server but move
    * nothing and fire nothing, so continuing to send them would only spend bandwidth predicting a
    * car that cannot move.
    */
@@ -2584,11 +2584,11 @@ export class ArenaScene extends Phaser.Scene {
     return local?.status === PlayerStatus.IN_MATCH && local.alive;
   }
 
-  private sendInputTick(room: Room<ArenaState>): void {
+  /** One frame, for server tick `tick`: build it, predict it, send it with its redundancy (NR24). */
+  private sendInputTick(room: Room<ArenaState>, tick: number): void {
     const local = room.state.players.get(this.drivenSid(room));
     if (!local) return;
 
-    this.inputSeq += 1;
     // Aimed from the RENDERED pose, not the schema one: it is what the player aimed at on screen
     // (TR33), at the crosshair's world point (TR56). Keyboard fire keys aim at the crosshair too, and
     // before the first lock it sits straight ahead of the car. The fallback — the turret's current
@@ -2599,10 +2599,10 @@ export class ArenaScene extends Phaser.Scene {
     // A menu is up (TR34): neutral input for as long as it is, so an arena car coasts rather than
     // driving on whatever keys were held when the menu opened. Practice and the playground never get
     // here while paused — `pumpInput`'s gate stops them first.
-    const input: InputMessage = this.menuOpen(room)
-      ? { seq: this.inputSeq, steer: 0, throttle: 0, fireSlots: 0, aimAngle }
+    const keys: InputKeys = this.menuOpen(room)
+      ? { steer: 0, throttle: 0, fireSlots: 0, aimAngle }
       : this.readInput(aimAngle, this.wantsPointerLock(room));
-    room.send(INPUT_MESSAGE, input);
+    const input: InputFrame = { tick, ...keys };
 
     // Mirrors the server's own `isActiveInput` (PracticeRoom's presence stamp): a real steer,
     // throttle or fire input is what the room now counts as "still here", so the warning it sent is
@@ -2614,7 +2614,10 @@ export class ArenaScene extends Phaser.Scene {
     // Predict immediately: the local car has to answer on this frame, not a round-trip later.
     const from = this.predicted ?? bodyOf(local);
     this.predictedPrev = from;
-    this.predicted = this.prediction.predict(from, { seq: input.seq, input }, this.stepContext(room));
+    this.predicted = this.prediction.predict(from, input, this.stepContext(room));
+    // The newest frame plus the previous `inputRedundancy`, so one lost or late packet costs nothing:
+    // the next one re-carries it, and the server drops the copies it already holds (NR24).
+    room.send(INPUT_MESSAGE, { inputs: this.prediction.recent(1 + NET_CONFIG.inputRedundancy) });
   }
 
   /**
@@ -2624,9 +2627,8 @@ export class ArenaScene extends Phaser.Scene {
    * only while the cursor is captured (TR31); false for a turret-less car, whose buttons count
    * always, since it never asks for the lock in the first place.
    */
-  private readInput(aimAngle: number, usesLock: boolean): InputMessage {
+  private readInput(aimAngle: number, usesLock: boolean): InputKeys {
     return {
-      seq: this.inputSeq,
       steer: axisOf(
         (this.cursors?.left.isDown ?? false) || (this.driveKeys?.left.isDown ?? false),
         (this.cursors?.right.isDown ?? false) || (this.driveKeys?.right.isDown ?? false),
@@ -2671,7 +2673,11 @@ export class ArenaScene extends Phaser.Scene {
     // Same gate as `canDrive`. A wreck stops predicting: the server has stopped stepping it, so a
     // prediction buffer left running would replay pending inputs against a car that cannot move and
     // then be snapped back every patch.
+    // The server's slack report for this snapshot (NR21), read whether or not the car is driving:
+    // `InputClock` hands it to the scheduler on the next frame that sends, and drops it otherwise.
+    if (local) this.inputClock?.onSnapshot(local.inputSlack);
     if (!local || local.status !== PlayerStatus.IN_MATCH || !local.alive) {
+      this.prediction.clear();
       this.predicted = undefined;
       this.predictedPrev = undefined;
       return;
@@ -2685,9 +2691,12 @@ export class ArenaScene extends Phaser.Scene {
     }
     // `predictedPrev` is left alone: reconcile eases `predicted`, so the blend simply carries the
     // correction across the rest of the tick window instead of landing it on one frame.
+    //
+    // Every car steps every tick (NR17), so this snapshot's pose IS the car at the end of
+    // `state.tick`; the frames stamped after it replay on top (NR26).
     this.predicted = this.prediction.reconcile(
       authoritative,
-      local.lastProcessedInputSeq,
+      room.state.tick,
       this.predicted,
       this.stepContext(room),
     );
@@ -3042,14 +3051,24 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * The local car between ticks. Prediction steps on the sim clock, frames come faster, so the
-   * drawn pose is the previous tick blended toward the newest by how far the input accumulator has
-   * got through the current tick. Render-only: `predicted` itself is what the next step reads.
+   * The local car between ticks. Prediction steps on the server's tick clock, frames come faster, so
+   * the drawn pose is the previous tick blended toward the newest by how far the client's input
+   * clock — the server-clock estimate plus the lead — has got through the current tick.
+   * Render-only: `predicted` itself is what the next step reads.
    */
   private localRenderPose(serverPose: SimBody): SimBody {
     if (!this.predicted) return serverPose;
     if (!this.predictedPrev) return this.predicted;
-    return blendPose(this.predictedPrev, this.predicted, this.inputAccumulatorMs / MS_PER_TICK);
+    return blendPose(this.predictedPrev, this.predicted, this.inputTickFraction());
+  }
+
+  /** How far into the current predicted tick the input clock is, in [0, 1); 1 before it runs. */
+  private inputTickFraction(): number {
+    const clock = this.clockSync;
+    const lead = this.scheduler?.leadMs ?? Number.NaN;
+    if (!clock?.ready || !Number.isFinite(lead)) return 1;
+    const at = clock.serverTick(performance.now()) + lead / MS_PER_TICK;
+    return at - Math.floor(at);
   }
 
   private remotePose(sessionId: string, pose: SimBody): SimBody {

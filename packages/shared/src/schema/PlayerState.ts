@@ -9,7 +9,18 @@ export class PlayerState extends Schema {
   @type("number") y = 0;
   @type("number") angle = 0;
   @type("uint8") status: PlayerStatus = PlayerStatus.READY;
-  @type("uint32") lastProcessedInputSeq = 0;
+  /**
+   * Owner-only in intent (NR26, NR42): whether this snapshot's tick ran this car on a repeated or
+   * neutral input because its owner's frame for the tick had not arrived (NR22). Written by
+   * `serverTick`; the client reads it only as a diagnostic, never feeds it to `stepSim`.
+   */
+  @type("boolean") ackRepeated = false;
+  /**
+   * Owner-only in intent (NR21, NR42): the mean, over the last 30 frames this car's owner sent, of
+   * (frame tick - the tick the server was about to run when it arrived). The client's input
+   * scheduler steers its lead so this sits at `NET_CONFIG.targetSlackTicks`. Never read by `stepSim`.
+   */
+  @type("float32") inputSlack = 0;
   @type("string") name = "";
   @type("uint8") colorId = 0;
   @type("uint8") team = 0;

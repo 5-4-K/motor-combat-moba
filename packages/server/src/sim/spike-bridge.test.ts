@@ -120,9 +120,8 @@ describe("respawn clears the shove", () => {
     respawnPlayer(
       {
         state,
-        inputQueues: new Map(),
+        inputBuffers: new Map(),
         prevFireMasks: new Map(),
-        silentTicks: new Map(),
         matchRoster: new Set(["a"]),
         phaseCaps: new Map(),
         combat: newCombatMemory(),

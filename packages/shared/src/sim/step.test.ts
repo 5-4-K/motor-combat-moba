@@ -10,7 +10,7 @@ import { ManeuverKind } from "./maneuver.js";
 import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import { stepSim, type SimBody, type StepContext } from "./step.js";
 import { forwardOf } from "./velocity.js";
-import type { InputMessage } from "../net/input.js";
+import type { InputKeys } from "../net/tick-input.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
@@ -20,7 +20,7 @@ beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 const DT = MS_PER_TICK / 1000;
-const UP: InputMessage = { seq: 1, steer: 0, throttle: 1, fireSlots: 0 };
+const UP: InputKeys = { steer: 0, throttle: 1, fireSlots: 0 };
 
 const EMPTY_ARENA: StepContext = {
   carId: "mirage",
@@ -127,7 +127,7 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
   const START_BACK = 240;
   const PHASE_SAMPLES = 24;
 
-  const NO_INPUT: InputMessage = { seq: 1, steer: 0, throttle: 0, fireSlots: 0 };
+  const NO_INPUT: InputKeys = { steer: 0, throttle: 0, fireSlots: 0 };
 
   function hullOf(x: number, y: number, angle: number): Obb {
     return { x, y, angle, w: DRIVE_CONFIG.carWidth, h: DRIVE_CONFIG.carHeight };

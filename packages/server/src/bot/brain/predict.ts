@@ -7,7 +7,7 @@ import type { Rng } from "../rng.js";
 import type { BotCarView, BotSelfView } from "../types.js";
 import type { PosePredictor } from "./solution.js";
 
-/** The two axes a rollout candidate varies. Matches `InputMessage`'s complete action space. */
+/** The two axes a rollout candidate varies. Matches `InputKeys`'s complete action space. */
 export interface DriveAction {
   steer: -1 | 0 | 1;
   throttle: -1 | 0 | 1;
@@ -161,7 +161,7 @@ export function rollForward(
   const out: SimBody[] = [];
   let current = body;
   for (let i = 0; i < ticks; i++) {
-    current = stepDrive(current, { seq: 0, ...input, fireSlots: 0 }, dt, chassis, mods);
+    current = stepDrive(current, { ...input, fireSlots: 0 }, dt, chassis, mods);
     out.push(current);
   }
   return out;

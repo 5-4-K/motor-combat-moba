@@ -1,7 +1,7 @@
 import {
   activeCarIds,
   type CarId,
-  type InputMessage,
+  type InputKeys,
   type PracticeOpponent,
 } from "@motor-combat-moba/shared";
 
@@ -55,12 +55,12 @@ export function resolveOpponentCar(opponent: PracticeOpponent, rng: () => number
 /**
  * Did the player actually do something with this input (PR27)?
  *
- * `ArenaScene.sendInputTick` sends one `InputMessage` per sim tick unconditionally — a parked car
- * with no key held still emits 30 neutral inputs a second. So "an input arrived" is not evidence of
+ * `ArenaScene.sendInputTick` sends one input frame per sim tick unconditionally — a parked car
+ * with no key held still emits a neutral frame every tick. So "an input arrived" is not evidence of
  * presence; the room would never age while the tab sits open and focused. Only a non-neutral one —
  * the player actually steered, throttled, or fired — counts as "still here".
  */
-export function isActiveInput(msg: InputMessage): boolean {
+export function isActiveInput(msg: InputKeys): boolean {
   return msg.steer !== 0 || msg.throttle !== 0 || msg.fireSlots !== 0;
 }
 

@@ -239,7 +239,7 @@ describe("a car that is SLIDING, not driving (car-physics merge, 2026-09-07)", (
   function truth(): SimBody {
     let b = sliding;
     for (let i = 0; i < HORIZON; i++) {
-      b = stepDrive(b, { seq: i, steer: 0, throttle: 1, fireSlots: 0 }, 1 / TICK_RATE_HZ,
+      b = stepDrive(b, { steer: 0, throttle: 1, fireSlots: 0 }, 1 / TICK_RATE_HZ,
         driveOf("mirage"), OBSERVATION_MODIFIERS);
     }
     return b;
