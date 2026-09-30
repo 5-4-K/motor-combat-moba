@@ -269,6 +269,9 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
           // not reset the idle clock — that is the whole bug I1 fixes. Read off the NEWEST frame: the
           // older ones are redundancy (NR24) and were already judged when they were newest. Stamped
           // BEFORE the latency injector, so injected lag can never make a live player look idle.
+          // It refreshes on any VALID packet, even one whose every frame the buffer then refuses as
+          // late or early: that is still a live client pressing keys, so counting it as presence is
+          // harmless — the stamp only decides when an idle room is reaped, never what the car does.
           if (isActiveInput(msg.inputs[msg.inputs.length - 1]!)) {
             this.lastInputAtMs = Date.now();
             this.warnedOfIdle = false;

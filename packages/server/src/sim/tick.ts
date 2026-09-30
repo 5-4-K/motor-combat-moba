@@ -200,7 +200,7 @@ export function serverTick(
     if (ctx === null) continue;
 
     writeBody(player, stepSim(bodyOf(player), taken.keys, dt, ctx));
-    steps.set(sessionId, 1);
+    steps.set(sessionId, (steps.get(sessionId) ?? 0) + 1);
     const raw = taken.keys.fireSlots;
     const clean = Number.isInteger(raw) && raw > 0 ? raw & slotMask : 0;
     // Only bits that were NOT down on this player's previous simulated input count as a press.

@@ -13,7 +13,6 @@ import type {
 import {
   InterpolationBuffer,
   TickPrediction,
-  InputScheduler,
   blendPose,
   buildStepContext,
   localModifiers,
@@ -28,7 +27,6 @@ import {
   MS_PER_TICK,
   MSG_PING,
   MSG_TIME,
-  ClockSync,
   NET_CONFIG,
   MSG_PRACTICE_IDLE_WARNING,
   MSG_PLAYGROUND_PAUSE,
@@ -860,15 +858,11 @@ export class ArenaScene extends Phaser.Scene {
   private artPending = true;
   private unbind: Array<() => void> = [];
   /**
-   * The estimate of the server's tick clock (NR18), one per room join: `bindRoom` makes it. Uses
+   * The client's input clock (NR18, NR20, NR21), one per room join: `bindTimeSync` makes it. It owns
+   * the server-clock estimate, the `MSG_TIME` schedule, which ticks to send a frame for, the
+   * once-per-snapshot slack hand-off and the rebuild on a pause's resume edge. Uses
    * `performance.now()` on this side throughout.
    */
-  private clockSync: ClockSync | undefined;
-  /**
-   * Which ticks to send a frame for (NR20, NR21), built on `clockSync` beside it. `inputClock` wraps
-   * it so the snapshot's `inputSlack` reaches the scheduler once per snapshot, never per frame.
-   */
-  private scheduler: InputScheduler | undefined;
   private inputClock: InputClock | undefined;
   private countdownText: Phaser.GameObjects.Text | undefined;
   private shotGfx: Phaser.GameObjects.Graphics | undefined;
@@ -1804,29 +1798,23 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * Time sync (NR18, NR19): send `MSG_TIME` on join, every `timeSyncBurstMs` for
-   * `timeSyncBurstWindowMs`, then every `timeSyncIntervalMs`; feed each pong to a fresh `ClockSync`;
-   * echo the server's `MSG_PING`. Both timers are cleared through `unbind`, which every scene
-   * shutdown and every rebind runs, so nothing outlives the room.
+   * Time sync (NR18, NR19): a fresh `InputClock` per join, polled every `timeSyncBurstMs` for its
+   * `MSG_TIME` schedule (on join, every `timeSyncBurstMs` for `timeSyncBurstWindowMs`, then every
+   * `timeSyncIntervalMs`, and the burst again after a pause's resume); each pong fed back to it; the
+   * server's `MSG_PING` echoed. The poll timer is cleared through `unbind`, which every scene shutdown
+   * and every rebind runs, so nothing outlives the room.
    */
   private bindTimeSync(room: Room<ArenaState>): void {
-    const clock = new ClockSync();
-    this.clockSync = clock;
-    this.scheduler = new InputScheduler(clock);
-    this.inputClock = new InputClock(this.scheduler);
-    const ping = (): void => room.send(MSG_TIME, { c: performance.now() });
-    ping();
-    let timer: ReturnType<typeof setInterval> | undefined = setInterval(ping, NET_CONFIG.timeSyncBurstMs);
-    const slow = setTimeout(() => {
-      if (timer !== undefined) clearInterval(timer);
-      timer = setInterval(ping, NET_CONFIG.timeSyncIntervalMs);
-    }, NET_CONFIG.timeSyncBurstWindowMs);
-    this.unbind.push(() => {
-      clearTimeout(slow);
-      if (timer !== undefined) clearInterval(timer);
-      timer = undefined;
-    });
-    this.unbind.push(room.onMessage(MSG_TIME, (p) => clock.onPong(performance.now(), p)));
+    const inputClock = new InputClock(performance.now());
+    this.inputClock = inputClock;
+    const poll = (): void => {
+      const request = inputClock.timeRequest(performance.now());
+      if (request) room.send(MSG_TIME, request);
+    };
+    poll();
+    const timer = setInterval(poll, NET_CONFIG.timeSyncBurstMs);
+    this.unbind.push(() => clearInterval(timer));
+    this.unbind.push(room.onMessage(MSG_TIME, (p) => inputClock.onPong(performance.now(), p)));
     this.unbind.push(room.onMessage(MSG_PING, (m) => room.send(MSG_PING, m)));
   }
 
@@ -1837,8 +1825,6 @@ export class ArenaScene extends Phaser.Scene {
 
   private onShutdown(): void {
     this.resetMatchState();
-    this.clockSync = undefined;
-    this.scheduler = undefined;
     this.inputClock = undefined;
     this.room = undefined;
   }
@@ -2156,6 +2142,9 @@ export class ArenaScene extends Phaser.Scene {
     // running, which costs nothing, since a paused room stops patching new poses anyway (spec PG7).
     const inputClock = this.inputClock;
     if (!inputClock) return;
+    // The resume edge rebuilds the clock and the scheduler (`InputClock.setPaused`): a paused room's
+    // tick stood still while its pongs kept arriving. False forever outside practice/the playground.
+    inputClock.setPaused(isSimPaused(room.state), performance.now());
     if (!this.canDrive(room) || isSimPaused(room.state)) {
       inputClock.discard();
       return;
@@ -3052,23 +3041,14 @@ export class ArenaScene extends Phaser.Scene {
 
   /**
    * The local car between ticks. Prediction steps on the server's tick clock, frames come faster, so
-   * the drawn pose is the previous tick blended toward the newest by how far the client's input
-   * clock — the server-clock estimate plus the lead — has got through the current tick.
-   * Render-only: `predicted` itself is what the next step reads.
+   * the drawn pose is the previous tick blended toward the newest by how far the SERVER clock
+   * estimate has got through its current tick — the phase new predicted ticks are produced on
+   * (`localBlendAlpha`). Render-only: `predicted` itself is what the next step reads.
    */
   private localRenderPose(serverPose: SimBody): SimBody {
     if (!this.predicted) return serverPose;
     if (!this.predictedPrev) return this.predicted;
-    return blendPose(this.predictedPrev, this.predicted, this.inputTickFraction());
-  }
-
-  /** How far into the current predicted tick the input clock is, in [0, 1); 1 before it runs. */
-  private inputTickFraction(): number {
-    const clock = this.clockSync;
-    const lead = this.scheduler?.leadMs ?? Number.NaN;
-    if (!clock?.ready || !Number.isFinite(lead)) return 1;
-    const at = clock.serverTick(performance.now()) + lead / MS_PER_TICK;
-    return at - Math.floor(at);
+    return blendPose(this.predictedPrev, this.predicted, this.inputClock?.blendAlpha(performance.now()) ?? 1);
   }
 
   private remotePose(sessionId: string, pose: SimBody): SimBody {

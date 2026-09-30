@@ -10,6 +10,7 @@ import { Client, type Room } from "@colyseus/sdk";
 import {
   ClockSync,
   InputScheduler,
+  MS_PER_TICK,
   MSG_PING,
   MSG_TIME,
   NET_CONFIG,
@@ -18,7 +19,8 @@ import {
 } from "@motor-combat-moba/shared";
 
 const ENDPOINT = process.env.PLAYTEST_ENDPOINT ?? "ws://127.0.0.1:2567";
-const TICK_MS = 1000 / 30;
+/** The driver loop samples once per sim tick (invariant 1: the rate lives once, in shared). */
+const TICK_MS = MS_PER_TICK;
 
 interface Bot {
   name: string;

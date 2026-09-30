@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import { DEFAULT_GAME_MODE, TickInputBuffer, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   ArenaState,
   PlayerState,
@@ -78,7 +78,16 @@ describe("buildBotView fairness (B15, B16, B18)", () => {
   it("carries no route back to keypresses", () => {
     const view = buildBotView(fixture())!;
     const json = JSON.stringify({ ...view, rng: undefined });
-    expect(json).not.toContain("inputQueues");
+    expect(json).not.toContain("inputBuffers");
+    // Structurally, not just by name: no value anywhere in the view is a room's input buffer.
+    const seen = new Set<unknown>();
+    const holdsBuffer = (v: unknown): boolean => {
+      if (v === null || typeof v !== "object" || seen.has(v)) return false;
+      seen.add(v);
+      if (v instanceof TickInputBuffer) return true;
+      return Object.values(v as Record<string, unknown>).some(holdsBuffer);
+    };
+    expect(holdsBuffer(view)).toBe(false);
     expect(json).not.toContain("prevFireMasks");
     expect(json).not.toContain("fireMask");
     expect(json).not.toContain("lastDamagerSessionId");

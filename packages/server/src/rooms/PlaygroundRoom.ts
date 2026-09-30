@@ -377,8 +377,11 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
       // A driver switch hands both seats a fresh buffer: the old seat may hold the human's frames a
       // tick or two ahead (they lead the server), which would otherwise shadow its bot's offers as
       // duplicates, and the new seat must not run on its bot's last intent as if it were the human's.
+      // The held-key memory goes with it: a key the bot "held" must not swallow the human's first
+      // press, and the human's held key must not swallow the bot's.
       for (const id of [this.state.controlledSessionId, nextDriven]) {
         if (this.inputBuffers.has(id)) this.inputBuffers.set(id, newTickInputBuffer());
+        if (this.prevFireMasks.has(id)) this.prevFireMasks.set(id, 0);
       }
     }
     this.state.controlledSessionId = nextDriven;

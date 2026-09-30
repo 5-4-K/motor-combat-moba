@@ -483,13 +483,18 @@ describe("seat lifecycle (PG66/PG67/PG68)", () => {
     expect(room.state.controlledSessionId).toBe(PLAYGROUND_SEAT_IDS[2]);
   });
 
-  it("hands both seats a fresh input buffer when the wheel moves to another seat", () => {
+  it("hands both seats a fresh input buffer and held-key memory when the wheel moves to another seat", () => {
     const room = readyRoom();
     room.applySetup(setupWith((s) => enable(s, 0, 1, 2)));
     const [a, b, c] = [0, 1, 2].map((i) => PLAYGROUND_SEAT_IDS[i]!);
     const before = new Map([a, b, c].map((id) => [id, room.inputBuffers.get(id)]));
+    for (const id of [a, b, c]) room.prevFireMasks.set(id, 0b011);
 
     room.applySetup(setupWith((s) => ({ ...enable(s, 0, 1, 2), drivenSeat: 1 })));
+
+    expect(room.prevFireMasks.get(a)).toBe(0);
+    expect(room.prevFireMasks.get(b)).toBe(0);
+    expect(room.prevFireMasks.get(c)).toBe(0b011);
 
     expect(room.state.controlledSessionId).toBe(b);
     expect(room.inputBuffers.get(a)).not.toBe(before.get(a));
