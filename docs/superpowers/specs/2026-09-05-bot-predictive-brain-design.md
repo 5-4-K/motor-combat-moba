@@ -341,6 +341,8 @@ order **30 ms of CPU per simulated second**; a 20-match balance run (~2400 sim-s
 roughly a minute. **Phase D must measure this against a stated budget.** If it misses, K and
 `planDepth` come down and nothing else changes.
 
+*2026-09-30: the user raised this budget from ~30 ms to 37 ms of CPU per simulated second (37/90 ms per plan) when the sim moved to 60 Hz and hard's K doubled; see `planner.bench.test.ts`.*
+
 ---
 
 ## 8. Tiers

@@ -20,7 +20,7 @@ phase's own acceptance lines.
 |---|---|---|---|---|
 | A — Colyseus 0.18, schema 5, Node 22, monitor gate | [`A-colyseus-upgrade.md`](A-colyseus-upgrade.md) | NR50, NR53 | Landed | `playtest:lan` smoke passed in A2; lockfile on a single schema 5.0.34 |
 | B — netsim harness and today's baseline | [`B-netsim-harness.md`](B-netsim-harness.md) | NR57–NR59 | Landed | Baseline recorded below (legacy client, 60 s, six cars, mean of seeds 1–3) |
-| C — 60 Hz and per-tick snapshots | [`C-sixty-hz.md`](C-sixty-hz.md) | NR11–NR16 | Landed | 60 Hz, one snapshot per tick; handling unchanged in closed form (radius 89.9 u, 90% top speed 1.79/2.21/2.59 s), slip −1.1 to −1.6°; TTK ±0.1 s; planner bench over its gate (see In flight) |
+| C — 60 Hz and per-tick snapshots | [`C-sixty-hz.md`](C-sixty-hz.md) | NR11–NR16 | Landed | 60 Hz, one snapshot per tick; handling unchanged in closed form (radius 89.9 u, 90% top speed 1.79/2.21/2.59 s), slip −1.1 to −1.6°; TTK ±0.1 s; planner bench: P33 budget raised to 37 ms by user decision 2026-09-30 (resolved, see In flight) |
 | D — time and inputs | [`D-time-and-inputs.md`](D-time-and-inputs.md) | NR17–NR28, NR54–NR56 | In progress — D1–D3 landed; D4 parked on local `wip/d4-input-switch` | see In flight |
 | E — remotes and prediction | [`E-remotes.md`](E-remotes.md) | NR29–NR34 | Not started | |
 | F — combat under latency | [`F-combat.md`](F-combat.md) | NR35–NR41 | Not started | |
@@ -29,7 +29,7 @@ phase's own acceptance lines.
 ## In flight
 
 **CHECKPOINT (2026-09-30, stopped at the user's request).** `development/main` is at D3
-(`32352125`), clean and green except the known failures (two G12 bot tests, planner bench P33).
+(`32352125`), clean and green except the known failures (two G12 bot tests; the planner bench P33 failure was resolved 2026-09-30 by the user's budget decision, below).
 
 Landed in Phase D, each reviewed:
 - **D1** `tick-input.ts`: `InputFrame`, hardened `isInputPacket` (fire mask bounded to the wire mask,
@@ -57,9 +57,12 @@ deleted knob — recommend `npm run playtest -- --scope=all` after D4.
 If the container was reclaimed and the branch is gone, redo D4 from its brief.
 
 **Queued, in order:**
-- **User decision (2026-09-30): raise the P33 planner budget to 37 ms** of CPU per simulated second
-  (`BUDGET_MS` 30/90 → 37/90 in `planner.bench.test.ts`), re-measure its `MEASURED_RATIO` at 60 Hz
-  per the file's own procedure, update the comments/docs citing 30 ms.
+- **DONE (2026-09-30): P33 planner budget raised to 37 ms** of CPU per simulated second by user
+  decision (`BUDGET_MS` 30/90 → 37/90 = 0.411 ms/plan in `planner.bench.test.ts`). The bench's known
+  failure (hard K 22 → 44 at 60 Hz, ~1237 drive ticks/plan against the 30 Hz gate of ~1027) is
+  RESOLVED: `MEASURED_RATIO` 790 → 1262 (worst median of 10 runs, alone 1089.7–1218.5, loaded
+  1092.2–1261.7), gate ×1.3 ≈ 1641 drive ticks/plan. Hard still reads ~0.45–0.47 ms/plan (~1.1x the new
+  budget), accepted as before. Docs citing 30 ms updated.
 - **D5 hardening**, plus carried rulings: ClockSync must not trust one spiked pong after a ≥ 6 s
   pong gap; NR21's slack target gains a spread term (≈ mean + 1·`slackStdTicks()`) so a jittery
   input path stops landing late; `onPingEcho` accepts only server-issued stamps (server RTT will feed

@@ -654,7 +654,7 @@ multiply zero — and so is every other field the two shift, so **an easy `brawl
 Restoring the closing half needs a profile field that scales `ownComfort`, which P35/P36 do not
 list. It is a candidate for the next tuning pass, deliberately not added on the way past.
 
-**2. The perf budget is missed by 13–78%, and was not throttled away.** Hard's plan measures
+**2. The perf budget is missed, and was not throttled away.** *(Updated 2026-09-30: at 60 Hz hard's K is 44 and the user raised P33's budget from 30 to **37 ms** of CPU per simulated second = 0.411 ms/plan; hard now measures ~0.45–0.47 ms, about 1.1x that budget, and `planner.bench.test.ts`'s `MEASURED_RATIO` is 1262. The figures in the rest of this item are the 30 Hz build's: 0.33 ms budget, K=22.)* Hard's plan measured
 **0.375–0.593 ms** per plan against P33's stated 0.33 ms (six bots replanning at 15 Hz inside ~30 ms
 of CPU per simulated second) — the range `planner.bench.test.ts` states, spanning isolated through
 full-suite load, and the one to quote. Quoting the isolated end alone (0.385–0.422 ms, "17–27%

@@ -18,21 +18,24 @@ beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 /**
- * THE STATED BUDGET (P33), in milliseconds per `plan()` call. Derived, not chosen: six bots
- * replanning at 15 Hz must stay inside ~30 ms of CPU per SIMULATED second, and 6 x 15 = 90 plans per
- * simulated second gives one plan 30 / 90 ms.
+ * THE STATED BUDGET (P33), in milliseconds per `plan()` call: 37 ms of CPU per SIMULATED second.
+ * Six bots replanning at 15 Hz is 6 x 15 = 90 plans per simulated second, so one plan gets 37 / 90 ms.
  *
- * THIS NUMBER DOES NOT MOVE. Spec P33 is explicit about what happens if the planner misses it —
+ * RAISED FROM 30 ms TO 37 ms BY THE USER ON 2026-09-30, when the sim moved to 60 Hz and the planner's
+ * horizon doubled in ticks (hard's K 22 -> 44). That is a deliberate decision, not a drift: the
+ * number is still not something a test edit may move on its own.
+ *
+ * FROM HERE, THE RULE IS UNCHANGED. Spec P33 is explicit about what happens if the planner misses it —
  * "K and `planDepth` come down and nothing else changes" — so a future edit that overruns is a
  * signal to shrink the search, never to edit this constant. What the assertion below adds is a
- * separate, named, argued allowance for HARNESS variance; the budget itself stays 0.33.
+ * separate, named, argued allowance for HARNESS variance; the budget itself stays 37 / 90.
  */
-const BUDGET_MS = 30 / 90;
+const BUDGET_MS = 37 / 90;
 
 /**
  * THE REFERENCE WORKLOAD, and why the gate is a RATIO against it rather than a stopwatch reading.
  *
- * THE SHIPPED CONFIGURATION DOES NOT CLEAR 0.33 ms, and that is said out loud rather than hidden.
+ * AT 30 Hz THE SHIPPED CONFIGURATION DID NOT CLEAR 0.33 ms (the then-budget), and that was said out loud rather than hidden. At 60 Hz it reads ~0.45-0.47 ms against 0.411 (~1.1x), same stance.
  * Hard measures 0.375 - 0.593 ms per plan here — 13% to 78% over the budget — and that overrun is
  * reported as-is, not tuned away: `planDepth` is already 1 and `planHorizonTicks` is load-bearing
  * (the commitment-window plateau is only two ticks wide at K=22), so there is no dial left that
@@ -113,20 +116,26 @@ const REFERENCE_TICKS = 100;
 const REFERENCE_ROLLOUTS = 10_000;
 
 /**
- * THE SHIPPED READING the gate is derived from: the WORST median-of-five ratio in the table above,
- * across all twenty-six runs and all three conditions (alone 776, loaded 790, suite 758).
+ * THE SHIPPED READING the gate is derived from: the WORST median-of-five ratio across every run
+ * taken, in both conditions.
+ *
+ * RE-MEASURED 2026-09-30 AT 60 Hz (hard K=44), by the procedure above: ALONE x6 medians 1118.4, 1089.7,
+ * 1190.2, 1200.4, 1218.5, 1184.6; LOADED (`src/bot/ src/config/`) x4 medians 1119.9, 1201.1, 1092.2,
+ * 1261.7. The worst is 1261.7, recorded as 1262. (The full-suite condition was not re-taken; it read
+ * inside the loaded range at 30 Hz.) The 30 Hz figure it replaces was 790 — the ratio rose 1.6x because
+ * the horizon doubled, so the tables above describe the 30 Hz build and are kept as the method's record.
  *
  * The worst rather than the mean, so the margin below is entirely headroom against a DIFFERENT
  * machine and is not being spent covering this one's own known noise.
  *
  * IF THIS EVER FLAKES ON A DIFFERENT MACHINE, raise THIS or `NORMALISED_MARGIN` and record the
  * reading that made you — never `BUDGET_MS`. The budget is a statement about the game (six bots,
- * 15 Hz, 30 ms of CPU per simulated second); this is a statement about a stopwatch.
+ * 15 Hz, 37 ms of CPU per simulated second); this is a statement about a stopwatch.
  */
-const MEASURED_RATIO = 790;
+const MEASURED_RATIO = 1262;
 
 /**
- * The stated margin on top of that reading: 30%, so the gate trips at ~1027 drive ticks per plan.
+ * The stated margin on top of that reading: 30%, so the gate trips at ~1641 drive ticks per plan.
  *
  * Against FLAKES: the worst reading taken here is 790 and the total spread of this statistic across
  * all three conditions is 1.14x, so 1.30 clears the observed worst case by 30% and the observed best
