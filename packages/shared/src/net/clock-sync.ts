@@ -10,81 +10,152 @@ export interface TimePong {
   p: number;
 }
 
-const WINDOW = 16;
-const SNAP_MS = 50;
+/** How many of the newest RTTs `jitterMs` spreads over. */
+const JITTER_SAMPLES = 16;
 
 interface Sample {
   rtt: number;
+  /** Server clock minus client clock, in ms, as this pong measured it. */
   offset: number;
   at: number;
 }
 
 /**
- * Least-squares line offset(t) = a + b*t through `set`, evaluated at `nowMs`. The slope is the two
- * clocks' relative drift, clamped to the slew rate; with fewer than 3 samples it is 0 (the mean).
- * Fitting the drift is what keeps the estimate current when the chosen low-RTT samples are old.
+ * A pong's weight: half its RTT above the window minimum bounds how wrong its offset can be, so a
+ * spiked pong counts for almost nothing and near-minimum pongs count about equally.
  */
-function fitAt(set: Sample[], nowMs: number): { value: number; slope: number } {
-  const n = set.length;
-  const meanAt = set.reduce((s, p) => s + p.at, 0) / n;
-  const meanOff = set.reduce((s, p) => s + p.offset, 0) / n;
-  let slope = 0;
-  if (n >= 3) {
-    let num = 0;
-    let den = 0;
-    for (const p of set) {
-      num += (p.at - meanAt) * (p.offset - meanOff);
-      den += (p.at - meanAt) ** 2;
-    }
-    const cap = NET_CONFIG.clockSlewMsPerSec / 1000;
-    if (den > 0) slope = Math.max(-cap, Math.min(cap, num / den));
+function weightOf(rtt: number, minRtt: number): number {
+  return 1 / (NET_CONFIG.clockWeightFloorMs + (rtt - minRtt) / 2) ** 2;
+}
+
+function minRttOf(set: readonly Sample[]): number {
+  let m = Infinity;
+  for (const s of set) m = Math.min(m, s.rtt);
+  return m;
+}
+
+/** Weighted least-squares slope of offset against time, or undefined when the samples cannot fix one. */
+function driftOf(set: readonly Sample[]): number | undefined {
+  const m = minRttOf(set);
+  let sw = 0;
+  let st = 0;
+  let so = 0;
+  for (const s of set) {
+    const w = weightOf(s.rtt, m);
+    sw += w;
+    st += w * s.at;
+    so += w * s.offset;
   }
-  if (n < 3) {
-    const o = set.map((p) => p.offset).sort((a, b) => a - b);
-    return { value: o[Math.floor(o.length / 2)]!, slope: 0 };
+  const meanAt = st / sw;
+  const meanOff = so / sw;
+  let num = 0;
+  let den = 0;
+  for (const s of set) {
+    const w = weightOf(s.rtt, m);
+    num += w * (s.at - meanAt) * (s.offset - meanOff);
+    den += w * (s.at - meanAt) ** 2;
   }
-  return { value: meanOff + slope * (nowMs - meanAt), slope };
+  return den > 0 ? num / den : undefined;
+}
+
+function median(xs: number[]): number {
+  const s = [...xs].sort((a, b) => a - b);
+  const n = s.length;
+  return n % 2 === 1 ? s[(n - 1) / 2]! : (s[n / 2 - 1]! + s[n / 2]!) / 2;
 }
 
 /**
- * The client's estimate of the server's clock (NR18). Each pong gives one offset sample; the estimate
- * is a least-squares fit of offset and drift over the lowest-RTT half of the last 16 (trimmed to RTTs near the minimum), evaluated now, so one delayed pong cannot drag it and old samples do not leave it stale.
- * Ties in RTT go to the newest sample. After the first sample the offset slews at most
- * `NET_CONFIG.clockSlewMsPerSec` (a RATE, times the time since the previous pong, so it tracks a 1 %
- * clock drift at any ping interval) and the tick estimate never jumps — unless it is more than 50 ms
- * off, which only happens on join or after a long stall. A snap passes straight through to the
- * scheduler's target: a burst of ticks forward, or a pause backward.
+ * The client's estimate of the server's clock (NR18). Every pong is a sample of the offset between
+ * the clocks, weighted by how close its RTT is to the minimum (a pong's offset can be wrong by at most
+ * half its excess RTT, so spikes and bufferbloat weigh almost nothing). Two fits share those weights:
+ *
+ * - DRIFT: a weighted least-squares slope over `clockFitWindowMs` (24 s), clamped to
+ *   +-`clockSlewMsPerSec` / 1000. With fewer than `clockMinFitSamples` samples spanning
+ *   `clockMinFitSpanMs` it keeps its previous slope rather than falling back to 0.
+ * - OFFSET: the weighted mean over the newest `clockOffsetWindowMs` (6 s), each sample carried to now
+ *   along the drift. The short window is what lets a route change be believed within seconds.
+ *
+ * The estimate runs on at the drift between pongs. At each pong that running value is folded into the
+ * stored offset first, and the correction toward the new fit is then slewed in continuously, at
+ * `clockSlewMsPerSec`, until the next pong, so `serverTick` does not jump at a pong. It snaps instead
+ * on join, on a correction over `clockSnapMs`, or when two pongs in a row sit more than twice that
+ * further from the estimate than their RTT can explain (the server's clock stepped), which shifts the
+ * whole history by that step. A snap passes straight through to the scheduler's target, as a burst of
+ * ticks forward or a pause backward.
  */
 export class ClockSync {
   private samples: Sample[] = [];
   private offsetMs = Number.NaN;
   private slopeMsPerMs = 0;
   private lastPongAt = Number.NaN;
+  /** Correction still being slewed in since the last pong, in ms (signed). */
+  private pendingMs = 0;
+  /** A pong too far off to be jitter, waiting for a second one to confirm a server clock step. */
+  private suspect: { sample: Sample; miss: number } | undefined;
+  /** Whether a drift has ever been fitted; before that a large miss is warm-up, not a clock step. */
+  private fitted = false;
 
   onPong(nowMs: number, pong: TimePong): void {
     const rtt = Math.max(0, nowMs - pong.c);
     const serverMs = pong.t * MS_PER_TICK + pong.p + rtt / 2;
-    this.samples.push({ rtt, offset: serverMs - nowMs, at: nowMs });
-    if (this.samples.length > WINDOW) this.samples.shift();
-    // Lowest-RTT half; equal RTTs newest first (index order is arrival order).
-    const best = this.samples
-      .map((s, i) => ({ s, i }))
-      .sort((a, b) => a.s.rtt - b.s.rtt || b.i - a.i)
-      .slice(0, Math.max(1, Math.floor(this.samples.length / 2)))
-      .map((e) => e.s);
-    // Trim spikes the half still contains: keep only RTTs near the minimum, so a bufferbloated
-    // window cannot pull the fit. The band is the larger of 10 ms and half the window's median excess.
-    const rtts = this.samples.map((s) => s.rtt).sort((a, b) => a - b);
-    const minRtt = best[0]!.rtt;
-    const band = Math.max(10, 0.5 * (rtts[Math.floor(rtts.length / 2)]! - minRtt));
-    const fit = fitAt(best.filter((s) => s.rtt <= minRtt + band), nowMs);
-    const target = fit.value;
-    this.slopeMsPerMs = fit.slope;
-    if (Number.isNaN(this.offsetMs) || Math.abs(target - this.offsetMs) > SNAP_MS) this.offsetMs = target;
-    else {
-      const slew = (NET_CONFIG.clockSlewMsPerSec * Math.max(0, nowMs - this.lastPongAt)) / 1000;
-      this.offsetMs += Math.max(-slew, Math.min(slew, target - this.offsetMs));
+    const sample: Sample = { rtt, offset: serverMs - nowMs, at: nowMs };
+    if (this.fitted) {
+      // A pong's offset can be wrong by at most half its RTT above the minimum. Once the drift is
+      // fitted, one wrong by more than that plus 2 x clockSnapMs means the server's clock stepped:
+      // hold it back until a second pong agrees, then shift the history by the step, keeping the drift.
+      const miss = sample.offset - this.offsetAt(nowMs);
+      const excess = Math.max(0, rtt - minRttOf(this.samples));
+      if (Math.abs(miss) - excess / 2 > 2 * NET_CONFIG.clockSnapMs) {
+        const held = this.suspect;
+        if (held === undefined || Math.sign(held.miss) !== Math.sign(miss)) {
+          this.suspect = { sample, miss };
+          return;
+        }
+        const step = (held.miss + miss) / 2;
+        for (const s of this.samples) s.offset += step;
+        this.samples.push(held.sample);
+      }
     }
+    this.suspect = undefined;
+    this.samples.push(sample);
+    while (this.samples[0]!.at < nowMs - NET_CONFIG.clockFitWindowMs) this.samples.shift();
+
+    let slope = this.slopeMsPerMs;
+    if (
+      this.samples.length >= NET_CONFIG.clockMinFitSamples &&
+      nowMs - this.samples[0]!.at >= NET_CONFIG.clockMinFitSpanMs
+    ) {
+      const fit = driftOf(this.samples);
+      if (fit !== undefined) {
+        slope = fit;
+        this.fitted = true;
+      }
+    }
+    const cap = NET_CONFIG.clockSlewMsPerSec / 1000;
+    slope = Math.max(-cap, Math.min(cap, slope));
+
+    const recent = this.samples.filter((s) => s.at >= nowMs - NET_CONFIG.clockOffsetWindowMs);
+    const m = minRttOf(recent);
+    let sw = 0;
+    let sx = 0;
+    for (const s of recent) {
+      const w = weightOf(s.rtt, m);
+      sw += w;
+      sx += w * (s.offset + slope * (nowMs - s.at));
+    }
+    const target = sx / sw;
+
+    if (Number.isNaN(this.offsetMs)) this.offsetMs = target;
+    else {
+      // Fold the running value (drift and any unfinished slew) in first, so serverTick does not jump
+      // at a pong; the new correction is then slewed in continuously, at the slew rate, from here.
+      const current = this.offsetAt(nowMs);
+      this.offsetMs = current;
+      this.pendingMs = 0;
+      if (Math.abs(target - current) > NET_CONFIG.clockSnapMs) this.offsetMs = target;
+      else this.pendingMs = target - current;
+    }
+    this.slopeMsPerMs = slope;
     this.lastPongAt = nowMs;
   }
 
@@ -93,17 +164,39 @@ export class ClockSync {
   }
 
   serverTick(nowMs: number): number {
-    // Between pongs the estimate keeps drifting at the fitted rate instead of lagging by up to a ping interval.
-    return (nowMs + this.offsetMs + this.slopeMsPerMs * Math.max(0, nowMs - this.lastPongAt)) / MS_PER_TICK;
+    return (nowMs + this.offsetAt(nowMs)) / MS_PER_TICK;
   }
 
+  /** Server minus client clock at `nowMs`: the stored offset, run on at the drift, plus the slewed-in correction. */
+  private offsetAt(nowMs: number): number {
+    const dt = Math.max(0, nowMs - this.lastPongAt);
+    const slewed = Math.min(Math.abs(this.pendingMs), (NET_CONFIG.clockSlewMsPerSec * dt) / 1000);
+    return this.offsetMs + this.slopeMsPerMs * dt + Math.sign(this.pendingMs) * slewed;
+  }
+
+  /**
+   * The path's RTT without its spikes: the median, over the last `clockRttWindowMs`, of each
+   * `clockRttBucketMs` bucket's lowest RTT. It sits near the low edge of the jitter band; the
+   * scheduler's slack loop (NR21) supplies the margin above it.
+   */
   rttMs(): number {
-    const r = this.samples.map((s) => s.rtt).sort((a, b) => a - b);
-    return r.length === 0 ? 0 : r[Math.floor(r.length / 2)]!;
+    if (Number.isNaN(this.lastPongAt)) return 0;
+    const byBucket = new Map<number, number>();
+    for (const s of this.samples) {
+      if (s.at < this.lastPongAt - NET_CONFIG.clockRttWindowMs) continue;
+      const k = Math.floor(s.at / NET_CONFIG.clockRttBucketMs);
+      const b = byBucket.get(k);
+      if (b === undefined || s.rtt < b) byBucket.set(k, s.rtt);
+    }
+    return median([...byBucket.values()]);
   }
 
+  /** Half the 10th-90th percentile spread of the newest 16 RTTs, spikes included. */
   jitterMs(): number {
-    const r = this.samples.map((s) => s.rtt).sort((a, b) => a - b);
+    const r = this.samples
+      .slice(-JITTER_SAMPLES)
+      .map((s) => s.rtt)
+      .sort((a, b) => a - b);
     if (r.length < 2) return 0;
     const at = (q: number) => r[Math.min(r.length - 1, Math.floor(q * (r.length - 1)))]!;
     return (at(0.9) - at(0.1)) / 2;

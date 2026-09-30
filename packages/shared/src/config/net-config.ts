@@ -84,8 +84,42 @@ export const NET_CONFIG = {
   inputRedundancy: 3,
   /** Most ticks the CLIENT scheduler runs in one frame after a stall before it resyncs and skips (NR20). */
   clientMaxCatchUpTicks: 8,
-  /** Fastest the client's server-clock estimate may slew, in ms of offset per second of wall time (NR18). */
+  /**
+   * Fastest the client's server-clock estimate may slew, in ms of offset per second of wall time
+   * (NR18). It also caps the fitted drift at +-clockSlewMsPerSec / 1000 (2 %).
+   */
   clockSlewMsPerSec: 20,
+  /**
+   * A clock-estimate correction larger than this, in ms, snaps instead of slewing (NR18). Two pongs in
+   * a row more than twice this off, beyond what their RTT explains, are taken as a server clock step.
+   */
+  clockSnapMs: 50,
+  /**
+   * How much pong history, in ms, the drift fit covers (NR18). Long, so jitter and spikes average out
+   * of the slope; a route change biases the slope only while the old route's samples are in it.
+   */
+  clockFitWindowMs: 24_000,
+  /** The drift fit keeps its previous slope until it has this many samples... (NR18) */
+  clockMinFitSamples: 6,
+  /** ...spanning at least this many ms, so a thin early window cannot fit a noisy slope (NR18). */
+  clockMinFitSpanMs: 4_000,
+  /**
+   * The newest span, in ms, whose weighted samples set the clock offset (NR18). This is also how long
+   * an asymmetric route change takes to be believed: until the old route's low-RTT samples age out of
+   * it, the new, slower samples are outweighed.
+   */
+  clockOffsetWindowMs: 6_000,
+  /**
+   * A pong's weight in the clock fits is 1 / (clockWeightFloorMs + excess / 2)^2, where excess is its
+   * RTT above the window's minimum (NR18). Half the excess bounds how far the pong's offset can be
+   * wrong; the floor keeps near-minimum pongs weighted about equally, so jitter averages out, while a
+   * 250 ms spike weighs about 0.5 % of a clean pong.
+   */
+  clockWeightFloorMs: 10,
+  /** `ClockSync.rttMs()` is the median of per-bucket minimum RTTs over this many ms (NR18, NR20)... */
+  clockRttWindowMs: 12_000,
+  /** ...in buckets this many ms wide, so a streak of spiked pongs cannot move the lead (NR18, NR20). */
+  clockRttBucketMs: 2_000,
   /** Steady-state interval between MSG_TIME clock-sync pings (NR18). */
   timeSyncIntervalMs: 500,
   /** Ping interval during the join burst (NR18). */
