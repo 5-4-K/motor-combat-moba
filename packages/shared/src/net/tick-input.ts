@@ -137,3 +137,18 @@ export class TickInputBuffer {
 export function newTickInputBuffer(): TickInputBuffer {
   return new TickInputBuffer(msToTicks(NET_CONFIG.inputRepeatMs), msToTicks(NET_CONFIG.maxInputLeadMs));
 }
+
+/** Time-sync request (NR18): the client's send time in, a `TimePong` out. Additive on every room. */
+export const MSG_TIME = "time";
+/** Server-initiated RTT probe (NR19): the server sends `{ s }`, the client echoes it back unchanged. */
+export const MSG_PING = "ping";
+
+const isFiniteNumber = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
+
+export function isTimeRequest(msg: unknown): msg is { c: number } {
+  return msg !== null && typeof msg === "object" && isFiniteNumber((msg as Record<string, unknown>).c);
+}
+
+export function isPingEcho(msg: unknown): msg is { s: number } {
+  return msg !== null && typeof msg === "object" && isFiniteNumber((msg as Record<string, unknown>).s);
+}

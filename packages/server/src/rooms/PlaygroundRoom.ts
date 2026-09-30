@@ -57,6 +57,7 @@ import {
 } from "./tick-pipeline.js";
 import { scoped } from "./mode-scope.js";
 import { newRoomStepper } from "./fixed-step.js";
+import { NetSessions, installNetHandlers } from "../net/net-session.js";
 
 /**
  * The level every playground car is held at. Every `unlocksAt` in `weapons()` is at or below it,
@@ -220,6 +221,8 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
   private modeConfig: ModeConfig = modeConfigOrDefault(DEFAULT_GAME_MODE);
   /** Turns interval frames into whole ticks at exactly `TICK_RATE_HZ` (Phase C I1). */
   private readonly stepper = newRoomStepper();
+  /** Time-sync state (NR18, NR19): the tick grid pongs describe and each session's measured RTT. */
+  private readonly netSessions = new NetSessions();
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -257,6 +260,7 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
       // `setSimulationInterval`: Colyseus 0.18's `patchRate` setter otherwise arms a stray clock
       // interval.
       this.patchRate = null;
+      installNetHandlers(this, this.netSessions, (fn) => scoped(this.modeConfig, fn));
 
       // Straight into the CONTROLLED car's queue (PG9), and with no latency injection: the playground
       // is a local dev tool, and simulated lag would only make a feel test lie.
@@ -300,8 +304,9 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
     });
   }
 
-  onLeave(): void {
+  onLeave(client: Client): void {
     scoped(this.modeConfig, () => {
+      this.netSessions.drop(client.sessionId);
       this.disconnect();
     });
   }
@@ -470,6 +475,9 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
    */
   private onFrame(deltaMs: number): void {
     this.stepper.advance(deltaMs, () => scoped(this.modeConfig, () => this.tick()));
+    // Date the last tick to the steady tick grid, not to this callback: the banked remainder is how far
+    // past that tick's due time `wallNow` already is. One mark per callback, even after a catch-up.
+    this.netSessions.markTick(this.state.tick, Date.now() - this.stepper.remainderMs);
   }
 
   /**

@@ -92,6 +92,7 @@ import { canSendChat, formatClockTime, pushChatMessage } from "./chat.js";
 import { isSnapshotTick } from "./snapshot-cadence.js";
 import { scoped } from "./mode-scope.js";
 import { newRoomStepper } from "./fixed-step.js";
+import { NetSessions, installNetHandlers } from "../net/net-session.js";
 
 export class ArenaRoom extends Room<{ state: ArenaState }> {
   maxClients = MAX_PLAYERS;
@@ -139,6 +140,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   private modeConfig: ModeConfig = modeConfigOrDefault(DEFAULT_GAME_MODE);
   /** Turns interval frames into whole ticks at exactly `TICK_RATE_HZ` (Phase C I1). */
   private readonly stepper = newRoomStepper();
+  /** Time-sync state (NR18, NR19): the tick grid pongs describe and each session's measured RTT. */
+  private readonly netSessions = new NetSessions();
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -163,6 +166,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       // `setSimulationInterval`: Colyseus 0.18's `patchRate` setter otherwise arms a stray clock
       // interval.
       this.patchRate = null;
+      installNetHandlers(this, this.netSessions, (fn) => scoped(this.modeConfig, fn));
 
       const enqueue = withSimulatedLatency<{ sessionId: string; msg: InputMessage }>(
         ({ sessionId, msg }) => {
@@ -399,6 +403,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       this.matchRoster.delete(client.sessionId);
       this.phaseCaps.delete(client.sessionId);
       this.chatLastSentAt.delete(client.sessionId);
+      this.netSessions.drop(client.sessionId);
       forgetSpikeState(this.ram.spikes, client.sessionId);
 
       if (this.state.hostSessionId === client.sessionId) {
@@ -426,6 +431,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    */
   private onFrame(deltaMs: number): void {
     this.stepper.advance(deltaMs, () => scoped(this.modeConfig, () => this.tick()));
+    // Date the last tick to the steady tick grid, not to this callback: the banked remainder is how far
+    // past that tick's due time `wallNow` already is. One mark per callback, even after a catch-up.
+    this.netSessions.markTick(this.state.tick, Date.now() - this.stepper.remainderMs);
   }
 
   /** One sim tick, then the snapshot of it when this is a snapshot tick (NR12). */

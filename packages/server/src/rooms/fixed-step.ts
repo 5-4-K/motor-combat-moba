@@ -33,6 +33,15 @@ export class FixedStepper {
     this.epsMs = stepMs * 1e-9;
   }
 
+  /**
+   * The banked fraction of a step, in ms, in [0, stepMs): how far past the last step's due time the
+   * caller's clock has run. A room subtracts it from its wall clock to date the last tick to the
+   * steady tick grid rather than to whenever the interval callback happened to fire.
+   */
+  get remainderMs(): number {
+    return this.accMs;
+  }
+
   /** Total wall-clock time, in ms, that a stall cost the sim — owed steps dropped rather than run. */
   get droppedMs(): number {
     return this.dropped;

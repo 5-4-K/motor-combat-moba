@@ -71,6 +71,7 @@ import {
 } from "./tick-pipeline.js";
 import { scoped } from "./mode-scope.js";
 import { newRoomStepper } from "./fixed-step.js";
+import { NetSessions, installNetHandlers } from "../net/net-session.js";
 
 /**
  * The room's opening state, exported so the two decisions in it are pinned by a test rather than by
@@ -182,6 +183,8 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
   private readonly modeConfig: ModeConfig = modeConfigOrDefault(GameMode.FFA_DEATHMATCH);
   /** Turns interval frames into whole ticks at exactly `TICK_RATE_HZ` (Phase C I1). */
   private readonly stepper = newRoomStepper();
+  /** Time-sync state (NR18, NR19): the tick grid pongs describe and each session's measured RTT. */
+  private readonly netSessions = new NetSessions();
   /**
    * Latched at the first close, because `disconnect()` is asynchronous and the simulation interval
    * can fire again before the room is gone — without this the idle sweep would keep kicking clients
@@ -244,6 +247,7 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
       // `setSimulationInterval`: Colyseus 0.18's `patchRate` setter otherwise arms a stray clock
       // interval.
       this.patchRate = null;
+      installNetHandlers(this, this.netSessions, (fn) => scoped(this.modeConfig, fn));
 
       // Mirrors `ArenaRoom`'s injector (PR11). The playground deliberately skips it — simulated lag
       // makes a feel test lie — but practice takes the opposite decision for the reason it exists:
@@ -361,8 +365,9 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
    * `allowReconnection` is deliberately never called (PR30): a closed tab disposes the room
    * immediately rather than holding a 60 Hz sim through a grace window nobody is watching.
    */
-  onLeave(): void {
+  onLeave(client: Client): void {
     scoped(this.modeConfig, () => {
+      this.netSessions.drop(client.sessionId);
       this.closing = true;
       void this.disconnect();
     });
@@ -413,6 +418,9 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
    */
   private onFrame(deltaMs: number): void {
     this.stepper.advance(deltaMs, () => scoped(this.modeConfig, () => this.tick()));
+    // Date the last tick to the steady tick grid, not to this callback: the banked remainder is how far
+    // past that tick's due time `wallNow` already is. One mark per callback, even after a catch-up.
+    this.netSessions.markTick(this.state.tick, Date.now() - this.stepper.remainderMs);
   }
 
   /**

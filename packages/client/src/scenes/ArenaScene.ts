@@ -24,6 +24,10 @@ import {
   ManeuverKind,
   MAX_PLAYERS,
   MS_PER_TICK,
+  MSG_PING,
+  MSG_TIME,
+  ClockSync,
+  NET_CONFIG,
   MSG_PRACTICE_IDLE_WARNING,
   MSG_PLAYGROUND_PAUSE,
   MSG_PRACTICE_PAUSE,
@@ -862,6 +866,11 @@ export class ArenaScene extends Phaser.Scene {
    */
   private artPending = true;
   private unbind: Array<() => void> = [];
+  /**
+   * The estimate of the server's tick clock (NR18), one per room join: `bindRoom` makes it, and
+   * nothing reads it yet. Uses `performance.now()` on this side throughout.
+   */
+  private clockSync: ClockSync | undefined;
   private countdownText: Phaser.GameObjects.Text | undefined;
   private shotGfx: Phaser.GameObjects.Graphics | undefined;
   /**
@@ -1784,6 +1793,8 @@ export class ArenaScene extends Phaser.Scene {
     room.onLeave(onLeave);
     this.unbind.push(() => room.onLeave.remove(onLeave));
 
+    this.bindTimeSync(room);
+
     // A one-shot, server-latched warning (PR28/PR29): no payload, so showing it needs nothing off
     // the room beyond the fact that it arrived. `idleWarningSeconds` is the room's own countdown
     // from the same tick this fires (`isIdleWarningDue`), so quoting it here rather than a literal
@@ -1797,6 +1808,31 @@ export class ArenaScene extends Phaser.Scene {
     this.unbind.push(room.onMessage(MSG_PRACTICE_IDLE_WARNING, onIdleWarning));
   }
 
+  /**
+   * Time sync (NR18, NR19): send `MSG_TIME` on join, every `timeSyncBurstMs` for
+   * `timeSyncBurstWindowMs`, then every `timeSyncIntervalMs`; feed each pong to a fresh `ClockSync`;
+   * echo the server's `MSG_PING`. Both timers are cleared through `unbind`, which every scene
+   * shutdown and every rebind runs, so nothing outlives the room.
+   */
+  private bindTimeSync(room: Room<ArenaState>): void {
+    const clock = new ClockSync();
+    this.clockSync = clock;
+    const ping = (): void => room.send(MSG_TIME, { c: performance.now() });
+    ping();
+    let timer: ReturnType<typeof setInterval> | undefined = setInterval(ping, NET_CONFIG.timeSyncBurstMs);
+    const slow = setTimeout(() => {
+      if (timer !== undefined) clearInterval(timer);
+      timer = setInterval(ping, NET_CONFIG.timeSyncIntervalMs);
+    }, NET_CONFIG.timeSyncBurstWindowMs);
+    this.unbind.push(() => {
+      clearTimeout(slow);
+      if (timer !== undefined) clearInterval(timer);
+      timer = undefined;
+    });
+    this.unbind.push(room.onMessage(MSG_TIME, (p) => clock.onPong(performance.now(), p)));
+    this.unbind.push(room.onMessage(MSG_PING, (m) => room.send(MSG_PING, m)));
+  }
+
   private unbindAll(): void {
     for (const fn of this.unbind) fn();
     this.unbind = [];
@@ -1804,6 +1840,7 @@ export class ArenaScene extends Phaser.Scene {
 
   private onShutdown(): void {
     this.resetMatchState();
+    this.clockSync = undefined;
     this.room = undefined;
   }
 

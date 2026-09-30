@@ -108,3 +108,20 @@ describe("hostile input", () => {
     expect(b.offer(f(1), 600)).toBe("late");
   });
 });
+
+describe("time-sync wire guards", () => {
+  it("accepts finite numbers only", async () => {
+    const { isTimeRequest, isPingEcho, MSG_TIME, MSG_PING } = await import("./tick-input.js");
+    expect(MSG_TIME).toBe("time");
+    expect(MSG_PING).toBe("ping");
+    expect(isTimeRequest({ c: 12.5 })).toBe(true);
+    expect(isTimeRequest({ c: Number.NaN })).toBe(false);
+    expect(isTimeRequest({ c: Infinity })).toBe(false);
+    expect(isTimeRequest({ c: "1" })).toBe(false);
+    expect(isTimeRequest(null)).toBe(false);
+    expect(isTimeRequest(5)).toBe(false);
+    expect(isPingEcho({ s: 0 })).toBe(true);
+    expect(isPingEcho({ s: undefined })).toBe(false);
+    expect(isPingEcho({})).toBe(false);
+  });
+});

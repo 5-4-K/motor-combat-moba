@@ -50,3 +50,19 @@ describe("FixedStepper (Phase C I1)", () => {
     expect(() => new FixedStepper(STEP_MS, 0)).toThrow();
   });
 });
+
+describe("FixedStepper.remainderMs", () => {
+  it("is the banked fraction of a step after advance", () => {
+    const stepper = new FixedStepper(STEP_MS, 5);
+    expect(stepper.remainderMs).toBe(0);
+    stepper.advance(STEP_MS + 4, () => {});
+    expect(stepper.remainderMs).toBeCloseTo(4, 9);
+    stepper.advance(5, () => {});
+    expect(stepper.remainderMs).toBeCloseTo(9, 9);
+  });
+  it("keeps the fraction, not the backlog, after a stall drop", () => {
+    const stepper = new FixedStepper(STEP_MS, 2);
+    stepper.advance(10 * STEP_MS + 3, () => {});
+    expect(stepper.remainderMs).toBeCloseTo(3, 6);
+  });
+});
