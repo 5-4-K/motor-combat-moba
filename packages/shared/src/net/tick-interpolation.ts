@@ -248,6 +248,8 @@ interface Track {
   final: SimBody | undefined;
   finalOffset: { x: number; y: number; angle: number } | undefined;
   finalOffsetLeftMs: number;
+  /** How far last frame's DRAWN reckoning cap was extended past the whole-tick cap, ticks (I5). */
+  drawnExtra: number;
   /** This frame's blend target before the final settle: `blend(pose, reckoned@anchor, w)` (diagnostics). */
   intended: SimBody | undefined;
   /** The frame `cached` was computed on. */
@@ -258,13 +260,22 @@ interface Track {
 /** Below this many world units (and radians) of gap, there is nothing to ease. */
 const SETTLE_EPSILON = 1e-6;
 /**
- * The contact blend's anchor tick may differ from last frame's plus one frame's worth by up to this
- * many ticks and still count as the local car's clock advancing (clock slew). Half a tick: the phase
- * itself advances continuously, so anything larger is a step the eye would see. Beyond
- * it — a catch-up burst, a prediction reset, an anchor that returns after a gap, a pause — the
- * reckoned target jumped, and the step is eased like a rebase (NR34).
+ * A frame's anchor-tick advance anywhere in `[0, one frame's worth]` is the local car's clock running
+ * (a pause or a held prediction advances it by nothing). The contact blend's anchor may land up to
+ * this many ticks OUTSIDE that window — clock slew — and still count as normal. Half a tick: the
+ * phase itself advances continuously, so anything larger is a step the eye would see. Beyond it — a
+ * catch-up burst, a prediction reset, an anchor that returns after a gap, the drop onto a paused
+ * room's frozen tick — the reckoned target jumped, and only the part outside the window is eased
+ * like a rebase (NR34).
  */
 const ANCHOR_JUMP_TICKS = 0.5;
+
+/**
+ * Most the earliest-expected snapshot arrival the drawn cap's extension runs from moves per snapshot,
+ * ticks (I5): a twentieth of a tick, so a change of link moves the drawn remote by a fraction of a
+ * unit per snapshot rather than in one step.
+ */
+const ARRIVAL_SLEW_TICKS = 0.05;
 
 /** `to − from` as an easeable gap: position difference and the short-way angle difference. */
 function gapOf(from: SimBody, to: SimBody): { x: number; y: number; angle: number } {
@@ -310,6 +321,20 @@ export class RemoteTimeline {
   private frame = 0;
   private frameMs = 0;
   private R: number | undefined;
+  /** This frame's synced server clock (undefined before it syncs). */
+  private serverNow: number | undefined;
+  /**
+   * The EARLIEST a snapshot is expected to arrive after its own tick, ticks: the minimum lateness of
+   * the last `LATENESS_WINDOW` snapshots, slewed toward it by at most `ARRIVAL_SLEW_TICKS` per
+   * snapshot. The drawn cap's extension runs from each snapshot's earliest expected arrival,
+   * `tick + earliest` (I5): from the minimum, so a snapshot almost never lands before its extension
+   * has started (which would force a forward step to keep the drawn remote from lagging the hit
+   * pose); slewed, so the window's minimum moving never steps the drawn cap. Undefined before the
+   * clock syncs.
+   */
+  private earliest: number | undefined;
+  private readonly arrivalLateness: number[] = [];
+  private newestLatenessTick = Number.NEGATIVE_INFINITY;
   private paused = false;
 
   /** The render tick of the current frame (`serverTickNow − delay`); undefined before the clock syncs. */
@@ -319,7 +344,19 @@ export class RemoteTimeline {
 
   /** A snapshot of server tick `snapshotTick` arrived when the synced clock read `arrivalServerTick`. */
   onSnapshot(arrivalServerTick: number | undefined, snapshotTick: number): void {
-    if (arrivalServerTick !== undefined) this.delay.onSnapshot(arrivalServerTick, snapshotTick);
+    if (arrivalServerTick === undefined || !Number.isFinite(arrivalServerTick)) return;
+    this.delay.onSnapshot(arrivalServerTick, snapshotTick);
+    // Each server tick once, like `DisplayDelay`: a paused room's re-broadcast is not a sample.
+    if (snapshotTick > this.newestLatenessTick) {
+      this.newestLatenessTick = snapshotTick;
+      this.arrivalLateness.push(arrivalServerTick - snapshotTick);
+      if (this.arrivalLateness.length > LATENESS_WINDOW) this.arrivalLateness.shift();
+      const min = Math.min(...this.arrivalLateness);
+      this.earliest =
+        this.earliest === undefined
+          ? min
+          : this.earliest + Math.max(-ARRIVAL_SLEW_TICKS, Math.min(ARRIVAL_SLEW_TICKS, min - this.earliest));
+    }
   }
 
   push(id: string, tick: number, snap: RemoteSnapshot): void {
@@ -344,6 +381,7 @@ export class RemoteTimeline {
         offsetLeftMs: 0,
         blendW: 0,
         rebased: false,
+        drawnExtra: 0,
         intended: undefined,
         anchorTick: 0,
         final: undefined,
@@ -388,7 +426,8 @@ export class RemoteTimeline {
     this.frameMs = frameMs;
     this.paused = paused;
     const delay = this.delay.ticks(frameMs);
-    this.R = serverTickNow === undefined || !Number.isFinite(serverTickNow) ? undefined : serverTickNow - delay;
+    this.serverNow = serverTickNow === undefined || !Number.isFinite(serverTickNow) ? undefined : serverTickNow;
+    this.R = this.serverNow === undefined ? undefined : this.serverNow - delay;
   }
 
   /** The pose to draw this frame, or undefined for a car with no snapshot. */
@@ -496,7 +535,26 @@ export class RemoteTimeline {
     const w = track.blendW;
     let out = pose;
     if (w > 0) {
-      const reckoned = this.reckoner.poseAt(id, track.anchorTick);
+      // Past the cap the reckoning holds at a whole tick until the next snapshot moves it on a tick,
+      // which above 60 fps draws a contact-range remote hold-and-jump. The DRAWN cap therefore
+      // extends continuously with the time since the newest snapshot was first due to arrive (its
+      // tick plus the earliest recent lateness — the actual arrival is quantised to frames and
+      // jittered, and either would leak back in as a step), up to one snapshot interval: so the
+      // drawn remote leads the whole-tick pose prediction collides with (`reckonedPose`, NR32,
+      // unchanged) by at most one tick of its motion, and never lags it (phase E re-review I5).
+      const interval = Math.max(dtMs, 1000 / SNAPSHOT_RATE_HZ) / MS_PER_TICK;
+      const snapInterval = 1000 / SNAPSHOT_RATE_HZ / MS_PER_TICK;
+      const reachWhole = this.reckoner.reachTick(id);
+      const extra =
+        this.paused || this.serverNow === undefined || this.earliest === undefined || reachWhole === undefined
+          ? 0
+          : Math.min(
+              snapInterval,
+              Math.max(0, this.serverNow - (reachWhole - msToTicks(NET_CONFIG.maxExtrapolateMs) + this.earliest)),
+            );
+      const lastExtra = track.drawnExtra;
+      track.drawnExtra = extra;
+      const reckoned = this.reckoner.poseAt(id, track.anchorTick, extra);
       if (reckoned) {
         out = blendPose(pose, reckoned, w);
         // What the target would have been without the replacement: the superseded reckoning (when a
@@ -515,12 +573,18 @@ export class RemoteTimeline {
           // Normally the new reckoning reaches one snapshot interval past the old one, and that
           // advance is drawn as it comes. If it reaches further (snapshots lost or late), only the
           // last interval's worth is drawn outright and the rest is eased with the rebase.
-          const newReach = this.reckoner.reachTick(id) ?? reach;
+          // Both measured against the OLD reckoning's DRAWN cap (its whole-tick reach plus last
+          // frame's extension), so the extension stays continuous across an arrival.
+          const oldDrawReach = reach + lastExtra;
+          const newReach = (this.reckoner.reachTick(id) ?? reach) + extra;
           const drawnTick = Math.min(track.anchorTick, newReach);
-          const interval = Math.max(dtMs, 1000 / SNAPSHOT_RATE_HZ) / MS_PER_TICK;
-          // The old reckoning holds at its own reach (`poseAt` caps), so `before` needs no clamp.
-          const before = old.poseAt(id, anchorJumped ? normalAnchor : track.anchorTick);
-          const after = this.reckoner.poseAt(id, Math.min(track.anchorTick, Math.max(reach, drawnTick - interval)));
+          // The old reckoning holds at its own drawn cap, so `before` needs no other clamp.
+          const before = old.poseAt(id, anchorJumped ? normalAnchor : track.anchorTick, lastExtra);
+          const after = this.reckoner.poseAt(
+            id,
+            Math.min(track.anchorTick, Math.max(oldDrawReach, drawnTick - interval)),
+            extra,
+          );
           if (before && after) {
             const gap = gapOf(blendPose(pose, after, w), blendPose(pose, before, w));
             if (hasGap(gap)) {

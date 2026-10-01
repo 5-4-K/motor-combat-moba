@@ -504,6 +504,60 @@ describe("RemoteTimeline contact blend on a turning remote (phase E review I1)",
   });
 });
 
+describe("RemoteTimeline contact blend past the cap at 144 fps (phase E re-review I5)", () => {
+  const FRAME = 1000 / 144;
+  const TPF = FRAME / MS_PER_TICK;
+  const LATE = 4;
+  /**
+   * A 144 Hz display: snapshots every tick, each arriving LATE ticks after its tick (the frame it
+   * lands on stamps the arrival), the local car 20 u off the drawn remote and predicted far enough
+   * ahead that the anchor sits past the reckoning cap. Per frame: drawn displacement, and the most
+   * the car itself moves in one frame.
+   */
+  function run(keys: InputKeys): { dx: number[]; own: number; lead: number[] } {
+    const truth = path(moving(1000, 150), keys, 400);
+    const stepLen = Math.max(...truth.slice(1).map((b, i) => Math.hypot(b.x - truth[i]!.x, b.y - truth[i]!.y)));
+    const cap = msToTicks(NET_CONFIG.maxExtrapolateMs);
+    const tl = new RemoteTimeline();
+    const drawn: SimBody[] = [];
+    const lead: number[] = [];
+    // The stream is already running when the test starts: no backlog of snapshots on frame 0.
+    let pushed = 20 - LATE - 1;
+    let near = truth[pushed + 1]!;
+    for (let f = 0; f < 300; f++) {
+      const server = 20.3 + f * TPF;
+      for (let t = pushed + 1; t <= Math.floor(server) - LATE; t++) {
+        tl.onSnapshot(server, t);
+        tl.push("a", t, { body: truth[t]!, keys, ctx: OPEN, alive: true });
+        pushed = t;
+      }
+      tl.beginFrame(server, FRAME);
+      const anchor: LocalAnchor = { pose: { x: near.x + 20, y: near.y }, tick: server + cap };
+      const pose = tl.pose("a", anchor)!;
+      near = pose;
+      drawn.push(pose);
+      // How far the drawn pose leads the whole-tick pose prediction collides with, in ticks of motion.
+      const hit = tl.reckonedPose("a", anchor.tick)!;
+      lead.push(Math.hypot(pose.x - hit.x, pose.y - hit.y) / stepLen);
+    }
+    const dx = drawn.slice(1).map((p, i) => Math.hypot(p.x - drawn[i]!.x, p.y - drawn[i]!.y));
+    return { dx, own: stepLen * TPF, lead };
+  }
+
+  it("moves the drawn remote by its own motion per frame, not in whole-tick steps", () => {
+    for (const keys of [LEFT, GO]) {
+      const { dx, own } = run(keys);
+      // Past the weight's slew-in.
+      expect(Math.max(...dx.slice(60))).toBeLessThanOrEqual(own * 1.05);
+    }
+  });
+
+  it("leads the pose prediction collides with by at most one tick of motion, at full weight", () => {
+    const { lead } = run(LEFT);
+    expect(Math.max(...lead.slice(60))).toBeLessThanOrEqual(1.05);
+  });
+});
+
 describe("RemoteTimeline while the room is paused (phase E review I2, M2, M3)", () => {
   const TICKS_PER_FRAME = FRAME_MS / MS_PER_TICK;
   const FROZEN = 30;

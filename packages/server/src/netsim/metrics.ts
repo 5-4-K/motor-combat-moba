@@ -35,7 +35,12 @@
  *   frame's span ending at the time being drawn (the sample's display delay back from the frame, so
  *   a remote drawn a delay behind a car that just braked is not read as jumping), as VECTORS:
  *   `|Δdrawn − Δtrue|`, u — a sideways jump of the car's own length scores its length. A span whose
- *   truth touches a death or respawn (`aliveThrough`) is not scored: its truth has the teleport in it. The Phase E Global Constraint is that this never exceeds the settle
+ *   truth touches a death or respawn (`aliveThrough`) is not scored: its truth has the teleport in it.
+ *   That makes this metric blind to a broken respawn reset (a remote sliding from its wreck to its
+ *   spawn finds its nearest truth on the dead or respawn tick and is skipped, and the first alive
+ *   frame has no previous sample). That case is covered by the shared unit test "resets on death
+ *   and respawn: no slide from the death pose to the spawn" (`net/tick-interpolation.test.ts`), not
+ *   by netsim. The Phase E Global Constraint is that this never exceeds the settle
  *   ease's share of a gap.
  * - `remoteBlendPathErrorP95` / `remoteBlendHeadingErrorP95Deg` — `remotePathErrorP95` and
  *   `remoteHeadingErrorP95Deg` over only the samples drawn within `contactBlendRangeCars` car

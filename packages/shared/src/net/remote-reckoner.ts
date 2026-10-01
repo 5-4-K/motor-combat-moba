@@ -32,25 +32,31 @@ export class RemoteReckoner {
     this.cars.set(id, { source, steps: [source.body] });
   }
 
-  private stepTo(id: string, whole: number): Readonly<SimBody> | undefined {
+  private stepTo(id: string, whole: number, limit: number): Readonly<SimBody> | undefined {
     const car = this.cars.get(id);
     if (!car) return undefined;
-    const n = Math.max(0, Math.min(this.maxTicks, whole - car.source.tick));
+    const n = Math.max(0, Math.min(limit, whole - car.source.tick));
     while (car.steps.length <= n) {
       car.steps.push(stepSim(car.steps[car.steps.length - 1]!, car.source.keys, DT, car.source.ctx));
     }
     return car.steps[n];
   }
 
-  /** Pose at (fractional) tick, stepped from the newest snapshot, capped at maxTicks past it. */
-  poseAt(id: string, tick: number): Readonly<SimBody> | undefined {
+  /**
+   * Pose at (fractional) tick, stepped from the newest snapshot, capped at maxTicks past it.
+   * `extraTicks` (≥ 0, fractional) moves the cap that much further: the DRAWN contact-blend target
+   * only (`RemoteTimeline`, phase E re-review I5), never prediction, which keeps the whole-tick cap.
+   */
+  poseAt(id: string, tick: number, extraTicks = 0): Readonly<SimBody> | undefined {
     const car = this.cars.get(id);
     if (!car) return undefined;
-    const capped = Math.min(tick, car.source.tick + this.maxTicks);
+    const extra = Math.max(0, extraTicks);
+    const limit = this.maxTicks + Math.ceil(extra);
+    const capped = Math.min(tick, car.source.tick + this.maxTicks + extra);
     const lo = Math.floor(capped);
-    const a = this.stepTo(id, lo);
+    const a = this.stepTo(id, lo, limit);
     if (capped === lo) return a;
-    const b = this.stepTo(id, lo + 1);
+    const b = this.stepTo(id, lo + 1, limit);
     if (!a || !b) return a;
     return blendPose(a, b, capped - lo);
   }

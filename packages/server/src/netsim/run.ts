@@ -235,6 +235,9 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
       // back), so a remote drawn a delay behind a car that just braked is not scored as jumping.
       const drawnAt = s.now - scored.delayMs;
       const span = s.now - s.prev.now;
+      // Skips spans touching a death or respawn, so a broken respawn reset is invisible here: the
+      // shared test "resets on death and respawn: no slide…" (net/tick-interpolation.test.ts) is
+      // what catches that, not this metric.
       if (aliveThrough(path, drawnAt - span, drawnAt)) {
         jumpExcesses.push(jumpExcess(s.prev, s, truthAt(path, drawnAt - span), truthAt(path, drawnAt)));
       }
