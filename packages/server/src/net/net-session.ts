@@ -7,6 +7,7 @@ import {
   type TimePong,
 } from "@motor-combat-moba/shared";
 import { limited, type ClientLimits } from "./rate-limit.js";
+import { WsRtt, pingSocketOf } from "./ws-rtt.js";
 
 /** How many echoed pings a session's RTT median spans (NR19). */
 const RTT_SAMPLES = 8;
@@ -50,6 +51,8 @@ export class NetSessions {
   private readonly rtts = new Map<string, number[]>();
   /** Stamps sent to each session and not yet echoed, oldest first (D5 ruling C). */
   private readonly outstanding = new Map<string, number[]>();
+  /** Each session's transport-level ping RTT: bounds the compensation RTT only (NR36, `compRttMs`). */
+  readonly ws = new WsRtt(netNowMs);
 
   markTick(tick: number, dueWallMs: number): void {
     this.lastTick = tick;
@@ -108,9 +111,24 @@ export class NetSessions {
     return ring === undefined || ring.length === 0 ? undefined : median(ring);
   }
 
+  /**
+   * The RTT a press's shot compensation is priced from (NR36): the app-level `rttMs`, bounded above
+   * by the transport ping RTT when one is known. Page JavaScript can hold its `MSG_PING` echoes back
+   * to inflate `rttMs` at no cost; it cannot delay a WebSocket pong, so the min holds the allowance to
+   * the real link. Undefined until the app RTT is measured (no compensation before then). Clock sync
+   * never reads this.
+   */
+  compRttMs(sessionId: string): number | undefined {
+    const app = this.rttMs(sessionId);
+    if (app === undefined) return undefined;
+    const ws = this.ws.rttMs(sessionId);
+    return ws === undefined ? app : Math.min(app, ws);
+  }
+
   drop(sessionId: string): void {
     this.rtts.delete(sessionId);
     this.outstanding.delete(sessionId);
+    this.ws.drop(sessionId);
   }
 }
 
@@ -126,6 +144,11 @@ export function installNetHandlers(
   sessions: NetSessions,
   scope: <T>(fn: () => T) => T,
   limits: ClientLimits,
+  /**
+   * How a frame leaves for `client`: the room's simulated outgoing delay (NR56) when it has one, so
+   * the transport ping probe rides the same injected path as the app ping. Straight out otherwise.
+   */
+  delayOutgoing: (client: Client, send: () => void) => void = (_client, send) => send(),
 ): void {
   room.onMessage(
     MSG_TIME,
@@ -148,7 +171,16 @@ export function installNetHandlers(
   room.clock.setInterval(() => {
     scope(() => {
       const now = netNowMs();
-      for (const client of room.clients) client.send(MSG_PING, sessions.pingPayload(client.sessionId, now));
+      for (const client of room.clients) {
+        client.send(MSG_PING, sessions.pingPayload(client.sessionId, now));
+        // The transport ping beside it (NR36): attached lazily, since joins are the room's own hook.
+        // A transport that exposes no socket simply leaves compensation on the app RTT alone.
+        if (!sessions.ws.attached(client.sessionId)) {
+          const socket = pingSocketOf(client);
+          if (socket !== undefined) sessions.ws.attach(client.sessionId, socket);
+        }
+        sessions.ws.probe(client.sessionId, (send) => delayOutgoing(client, send));
+      }
     });
   }, PING_INTERVAL_MS);
 }

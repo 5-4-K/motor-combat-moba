@@ -135,4 +135,16 @@ export const NET_CONFIG = {
    * 16–17 / 20–21 / 22–23. net80clean's p95 is 9 ticks = 150 ms.
    */
   shotCompCapMs: 150,
+  /**
+   * NR36's `allowedDelayMs` counts this many snapshot intervals of display delay an honest client may
+   * draw remotes behind (the delay is a lateness p95 plus one interval; the second covers the floor of
+   * `viewTick` and frame phase).
+   */
+  shotCompDelaySnapshots: 2,
+  /**
+   * ...plus this many standard deviations of the server-measured input slack (NR36's "2 × the
+   * input-arrival jitter"), so a client whose lead wobbles is not clamped on its slow presses. The
+   * cap, not this term, is what bounds a jittery link (D6 ruling).
+   */
+  shotCompSlackStds: 2,
 } as const;

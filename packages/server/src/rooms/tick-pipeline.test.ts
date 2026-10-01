@@ -164,8 +164,9 @@ describe("runPipeline: a press's shot compensation budget (NR35, NR36)", () => {
     const ctx: PipelineCtx = { ...newCtx(state, "p1"), rttMsOf };
     const buffer = newTickInputBuffer();
     ctx.inputBuffers.set("p1", buffer);
-    // The frame for tick 1001, arriving 2 ticks early (an honest lead), drawn at render tick 994.
-    buffer.offer({ tick: 1001, steer: 0, throttle: 0, fireSlots: 1 << 1, viewTick: 994 }, 999);
+    // The frame for tick 1001, offered while 999 is the last completed tick: one slack sample of
+    // 1 tick (mean 1, spread 0). It claims render tick 990 — 11 ticks stale, more than the link allows.
+    buffer.offer({ tick: 1001, steer: 0, throttle: 0, fireSlots: 1 << 1, viewTick: 990 }, 999);
     state.tick = 1001;
     return runPipeline(ctx);
   }
@@ -173,8 +174,9 @@ describe("runPipeline: a press's shot compensation budget (NR35, NR36)", () => {
   it("prices a press from its viewTick, the room's RTT and the buffer's slack", () => {
     const { masks, compTicks } = pressRig(() => 80);
     expect(masks.get("p1")).toBe(1 << 1);
-    expect(compTicks.get("p1")).toBeGreaterThan(0);
-    expect(compTicks.get("p1")).toBeLessThanOrEqual(1001 - 994);
+    // allowed = ceil((80 + 1 tick of slack + 2 snapshot intervals + 2 × 0) / tick) = ceil(7.8) = 8,
+    // under the 9-tick cap and the 11 ticks claimed. A lost RTT would read 0, a lost slack mean 7.
+    expect(compTicks.get("p1")).toBe(8);
   });
 
   it("gives nothing when the room measures no RTT (harnesses, bots)", () => {

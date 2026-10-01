@@ -6,7 +6,10 @@ export interface CompInputs {
   pressTick: number;
   /** The render tick the client says it was drawing remotes at when it produced that frame (NR35). */
   viewTick: number | undefined;
-  /** The server's own RTT measurement of this session (NR19), or undefined before the first echo. */
+  /**
+   * The session's compensation RTT (`NetSessions.compRttMs`: NR19's app RTT bounded by the transport
+   * ping RTT), or undefined before the first echo.
+   */
   rttMs: number | undefined;
   /** The server-measured mean input slack of this session, ticks (NR21). */
   slackMeanTicks: number;
@@ -22,7 +25,8 @@ export interface CompInputs {
  * full RTT, slack mean and spread, and two snapshot intervals); `capTicks`
  * (`NET_CONFIG.shotCompCapMs`) is the most ANY link earns, sized from the honest good connection's
  * need, because the victim pays for every tick of it and a bad link must not buy more (D6 ruling).
- * A client that lies about `viewTick` gains at most the gap between its true staleness and that.
+ * A client that lies about `viewTick` gains at most the gap between its true staleness and that; the
+ * RTT it is priced from is bounded by a WebSocket pong page JS cannot delay, and the cap bounds the rest.
  *
  * Without a `viewTick` (a bot, a harness, a frame from before the client's clock synced) or a
  * measured RTT, the press gets none.
@@ -35,7 +39,10 @@ export function shotCompTicks(i: CompInputs): number {
   // plus slack) AND its remote display delay, which carries the downlink half (`DisplayDelay`). With
   // rtt/2 an honest net80clean client measured 9 ticks stale but was allowed 7 (F1).
   const allowedMs =
-    i.rttMs + i.slackMeanTicks * MS_PER_TICK + 2 * snapshotMs + 2 * i.slackStdTicks * MS_PER_TICK;
+    i.rttMs +
+    i.slackMeanTicks * MS_PER_TICK +
+    NET_CONFIG.shotCompDelaySnapshots * snapshotMs +
+    NET_CONFIG.shotCompSlackStds * i.slackStdTicks * MS_PER_TICK;
   const allowedTicks = Math.ceil(allowedMs / MS_PER_TICK);
   const stale = i.pressTick - i.viewTick;
   return Math.max(0, Math.min(stale, capTicks, allowedTicks));

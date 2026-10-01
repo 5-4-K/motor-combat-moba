@@ -3,6 +3,7 @@ import type { Room } from "@colyseus/core";
 import { MSG_PING, MSG_TIME, MS_PER_TICK, type TimePong } from "@motor-combat-moba/shared";
 import { FixedStepper } from "../rooms/fixed-step.js";
 import { NetSessions, installNetHandlers, netNowMs } from "./net-session.js";
+import type { PingSocket } from "./ws-rtt.js";
 import { readFileSync } from "node:fs";
 import { ClientLimits } from "./rate-limit.js";
 
@@ -186,5 +187,76 @@ describe("installNetHandlers on the monotonic time-sync clock (review M2)", () =
     f.handlers.get(MSG_TIME)!(f.client, { c: 1 });
     const pong = f.sent.find(([t]) => t === MSG_TIME)![1] as TimePong;
     expect(pong).toEqual({ c: 1, t: 10, p: 5 });
+  });
+});
+
+describe("compRttMs: the compensation RTT (NR36 fix round 1, M1)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  function appRtt(sessions: NetSessions, rtt: number): void {
+    sessions.pingPayload("a", 0);
+    sessions.onPingEcho("a", 0, rtt);
+  }
+  function socketDouble() {
+    const pings: Buffer[] = [];
+    let listener: ((d: Buffer) => void) | undefined;
+    const socket: PingSocket = {
+      ping: (d) => void pings.push(d as Buffer),
+      on: (_e, l) => (listener = l),
+      off: () => (listener = undefined),
+    };
+    return { socket, pings, pong: (d: Buffer) => listener?.(d) };
+  }
+
+  it("is undefined until the app RTT is measured, and the app RTT alone without a ws RTT", () => {
+    const sessions = new NetSessions();
+    expect(sessions.compRttMs("a")).toBeUndefined();
+    appRtt(sessions, 80);
+    expect(sessions.compRttMs("a")).toBe(80);
+  });
+
+  it("holds an inflated app RTT (echoes held back by page JS) down to the transport ping RTT", () => {
+    const perf = vi.spyOn(performance, "now").mockReturnValue(100);
+    const sessions = new NetSessions();
+    appRtt(sessions, 400);
+    const s = socketDouble();
+    sessions.ws.attach("a", s.socket);
+    sessions.ws.probe("a");
+    perf.mockReturnValue(101);
+    s.pong(s.pings[0]!);
+    expect(sessions.rttMs("a")).toBe(400); // clock sync's RTT is untouched
+    expect(sessions.compRttMs("a")).toBe(1);
+  });
+
+  it("never raises an honest app RTT to a slower ws RTT", () => {
+    const perf = vi.spyOn(performance, "now").mockReturnValue(100);
+    const sessions = new NetSessions();
+    appRtt(sessions, 80);
+    const s = socketDouble();
+    sessions.ws.attach("a", s.socket);
+    sessions.ws.probe("a");
+    perf.mockReturnValue(190);
+    s.pong(s.pings[0]!);
+    expect(sessions.compRttMs("a")).toBe(80);
+  });
+
+  it("the room's ping interval probes the client's ws socket through the outgoing delay", () => {
+    const pings: Buffer[] = [];
+    const ref: PingSocket = { ping: (d) => void pings.push(d as Buffer), on: () => undefined, off: () => undefined };
+    let interval: (() => void) | undefined;
+    const client = { sessionId: "a", send: () => undefined, ref };
+    const room = {
+      onMessage: () => undefined,
+      clock: { setInterval: (cb: () => void) => (interval = cb) },
+      clients: [client],
+    } as unknown as Room;
+    const sessions = new NetSessions();
+    const delayed: Array<() => void> = [];
+    installNetHandlers(room, sessions, (fn) => fn(), new ClientLimits(), (_c, send) => delayed.push(send));
+    interval!();
+    expect(sessions.ws.attached("a")).toBe(true);
+    expect(pings).toHaveLength(0);
+    delayed.forEach((send) => send());
+    expect(pings).toHaveLength(1);
   });
 });

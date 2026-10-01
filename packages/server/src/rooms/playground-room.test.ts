@@ -36,8 +36,11 @@ import {
   PlaygroundRoom,
   loadoutOrChassisChanged,
   seatIndexOf,
+  playgroundRttMsOf,
   shouldRefusePlayground,
 } from "./PlaygroundRoom.js";
+import { runPipeline, type PipelineCtx } from "./tick-pipeline.js";
+import type { NetSessions } from "../net/net-session.js";
 import { scoped } from "./mode-scope.js";
 import { shouldRejectSecondArena } from "./singleton-arena.js";
 import type { CombatMemory } from "../sim/combat-bridge.js";
@@ -768,5 +771,61 @@ describe("PlaygroundRoom tuning: a tuned value survives into a SUBSEQUENT tick (
 describe("the playground room never installs a bundle process-wide (F1, mirrors PR10)", () => {
   it("does not mention installMode anywhere in its module", () => {
     expect(ROOM_CODE).not.toContain("installMode");
+  });
+});
+
+/**
+ * Fix round 1, I1: the playground's buffers are keyed by seat (`pg-N`) while `NetSessions` is keyed
+ * by the client's session id, so the RTT lookup has to map the DRIVEN seat to the one human client.
+ * Driven through the room's own `ctx()` and the real pipeline, so a lookup by seat id reads k = 0.
+ */
+describe("playground shot compensation (NR36)", () => {
+  const DRIVEN = PLAYGROUND_SEAT_IDS[0]!;
+  const PARKED = PLAYGROUND_SEAT_IDS[1]!;
+  const HUMAN = "human-client";
+
+  interface CompHarness {
+    state: PlaygroundState;
+    inputBuffers: Map<string, TickInputBuffer>;
+    netSessions: NetSessions;
+    setState(state: PlaygroundState): void;
+    addCar(sessionId: string, name: string, colorId: number, team: number): PlayerState;
+    ctx(): PipelineCtx;
+  }
+
+  it("prices the driven seat from the human client's RTT, and no other seat", () => {
+    const room = new PlaygroundRoom() as unknown as CompHarness;
+    room.setState(new PlaygroundState());
+    room.state.phase = RoomPhase.MATCH;
+    room.state.controlledSessionId = DRIVEN;
+    for (const [i, seat] of [DRIVEN, PARKED].entries()) {
+      const car = room.addCar(seat, seat, i, i);
+      car.carId = "mirage";
+      car.hp = hpOf("mirage");
+      car.x = 400 + 400 * i;
+      car.y = 360;
+    }
+    Object.defineProperty(room, "clients", { value: [{ sessionId: HUMAN }] });
+    room.netSessions.pingPayload(HUMAN, 0);
+    room.netSessions.onPingEcho(HUMAN, 0, 80);
+
+    room.state.tick = 1000;
+    for (const seat of [DRIVEN, PARKED]) {
+      room.inputBuffers.get(seat)!.offer({ tick: 1001, steer: 0, throttle: 0, fireSlots: 1 << 1, viewTick: 990 }, 999);
+    }
+    room.state.tick = 1001;
+    const { masks, compTicks } = runPipeline(room.ctx());
+    expect(masks.get(DRIVEN)).toBe(1 << 1);
+    expect(masks.get(PARKED)).toBe(1 << 1);
+    // 80 ms RTT, one slack sample of 1 tick: allowed ceil(7.8) = 8 of the 11 ticks claimed.
+    expect(compTicks.get(DRIVEN)).toBe(8);
+    expect(compTicks.has(PARKED)).toBe(false);
+  });
+
+  it("playgroundRttMsOf answers only for the driven seat, and only with a client", () => {
+    const rtt = (sid: string) => (sid === HUMAN ? 42 : undefined);
+    expect(playgroundRttMsOf(DRIVEN, DRIVEN, HUMAN, rtt)).toBe(42);
+    expect(playgroundRttMsOf(PARKED, DRIVEN, HUMAN, rtt)).toBeUndefined();
+    expect(playgroundRttMsOf(DRIVEN, DRIVEN, undefined, rtt)).toBeUndefined();
   });
 });

@@ -89,6 +89,20 @@ export const PLAYGROUND_BUSY_ERROR = "A playground session is already open";
 const PLAYGROUND_BUSY_CODE = CLOSE_CODES.PLAYGROUND_BUSY;
 
 /**
+ * The compensation RTT of playground seat `seatId` (NR36): the human client's, for the seat they
+ * drive, and undefined for every other seat (parked cars and bots get no shot compensation).
+ */
+export function playgroundRttMsOf(
+  seatId: string,
+  drivenSeatId: string,
+  humanSessionId: string | undefined,
+  compRttOf: (sessionId: string) => number | undefined,
+): number | undefined {
+  if (humanSessionId === undefined || seatId !== drivenSeatId) return undefined;
+  return compRttOf(humanSessionId);
+}
+
+/**
  * May a playground room open right now? No, if anyone at all is sitting in the arena OR in a
  * practice room (spec PG15, widened by PR10).
  *
@@ -667,8 +681,12 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
       runPhaseSweep: true,
       events: this.botEvents,
 
-      // NR36: the RTT this room measured for a session prices its presses' shot compensation.
-      rttMsOf: (id) => this.netSessions.rttMs(id),
+      // NR36: seats are keyed `pg-N`, but the room measures RTT per CLIENT session (fix round 1, I1).
+      // Only the driven seat has a human behind it — the one client (`maxClients = 1`) — so it alone
+      // is priced from that client's RTT; every parked or bot seat answers undefined and gets none.
+      rttMsOf: (id) => playgroundRttMsOf(id, this.state.controlledSessionId, this.clients[0]?.sessionId, (sid) =>
+        this.netSessions.compRttMs(sid),
+      ),
     };
   }
 }

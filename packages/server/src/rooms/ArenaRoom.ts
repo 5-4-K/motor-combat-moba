@@ -178,7 +178,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       // `setSimulationInterval`: Colyseus 0.18's `patchRate` setter otherwise arms a stray clock
       // interval.
       this.patchRate = null;
-      installNetHandlers(this, this.netSessions, (fn) => scoped(this.modeConfig, fn), this.limits);
+      installNetHandlers(this, this.netSessions, (fn) => scoped(this.modeConfig, fn), this.limits, (client, send) =>
+        this.outgoing.delayOutgoing(client, send),
+      );
       refuseUnknownMessages(this);
 
       // The offer reads `state.tick` at DELIVERY, after any simulated delay, so a delayed frame is
@@ -526,8 +528,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       hz: TICK_RATE_HZ,
       runPhaseSweep: rulesOf(this.state.mode).respawns,
 
-      // NR36: the RTT this room measured for a session prices its presses' shot compensation.
-      rttMsOf: (id) => this.netSessions.rttMs(id),
+      // NR36: the RTT this room measured for a session (app RTT bounded by the transport ping RTT)
+      // prices its presses' shot compensation.
+      rttMsOf: (id) => this.netSessions.compRttMs(id),
     };
   }
 
