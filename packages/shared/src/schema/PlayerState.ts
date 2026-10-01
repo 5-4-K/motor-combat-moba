@@ -128,4 +128,11 @@ export class PlayerState extends Schema {
    * than a reshuffle.
    */
   @type([StatusState]) statuses = new ArraySchema<StatusState>();
+  /**
+   * The steer and throttle axes (-1, 0, 1) of the input the server consumed for this car on the tick
+   * (NR33). Networked because remote dead reckoning steps `stepSim` with them (invariant 8); written
+   * every tick for every car, neutral when none was taken. Appended last: never reorder fields.
+   */
+  @type("int8") lastSteer = 0;
+  @type("int8") lastThrottle = 0;
 }

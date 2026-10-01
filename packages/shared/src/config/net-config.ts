@@ -99,4 +99,14 @@ export const NET_CONFIG = {
   timeSyncBurstMs: 100,
   /** How long after joining the burst interval applies (NR18). */
   timeSyncBurstWindowMs: 1000,
+  /** Floor of the adaptive remote render delay, ms (NR30). */
+  minDelayMs: 33,
+  /** Ceiling of the adaptive remote render delay, ms (NR30). */
+  maxDelayMs: 250,
+  /** Longest a remote is dead-reckoned past its newest snapshot before it holds, ms (NR31, NR32). */
+  maxExtrapolateMs: 100,
+  /** How long the drawn pose eases to the interpolated one once a fresh snapshot lands, ms (NR31). */
+  extrapolateSettleMs: 100,
+  /** Distance, in car lengths, within which a remote's contact is blended into the local car (NR32). */
+  contactBlendRangeCars: 2,
 } as const;

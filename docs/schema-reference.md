@@ -113,6 +113,7 @@ field at all, so the check is always false there. See root `CLAUDE.md` and
 | `lastFiredSlot` | int8 | `-1` | Slot the car most recently committed to firing; `-1` = never fired. Signed because `-1` is the natural "never" for an index |
 | `turretAngle` | number | `0` | The turret's angle relative to the car's heading, radians (spec TR10). Mirrored from the server-only `FireState.turretAngle`. Render-only — `stepSim` never reads it, so invariant 8 does not apply and the client does not predict it |
 | `statuses` | array `StatusState` | empty | The statuses this car is in, capped at `STATUS_CONFIG.maxActive` (6). Sorted by `statusId` so a patch carries a diff rather than a reshuffle |
+| `lastSteer`, `lastThrottle` | int8 | `0` | The steer and throttle axes (-1/0/1) of the input the server consumed for this car on the tick, written every tick for every car (neutral when none). Remote dead reckoning feeds them to `stepSim` (NR33, invariant 8) |
 
 `weaponCooldown` (a single counter for the one pre-weapon-system shot) is gone — replaced by
 `weapons` above, one row per slot.

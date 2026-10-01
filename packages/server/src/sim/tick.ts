@@ -193,8 +193,15 @@ export function serverTick(
 
     // A player with no buffer (a spectator seat, a harness row) has no hands: nothing to take.
     const buffer = buffers.get(sessionId);
-    if (!buffer) continue;
+    if (!buffer) {
+      player.lastSteer = 0;
+      player.lastThrottle = 0;
+      continue;
+    }
     const taken = buffer.take(state.tick);
+    // NR33: every car, every tick, stepped or not — what dead reckoning on a client will feed stepSim.
+    player.lastSteer = taken.keys.steer;
+    player.lastThrottle = taken.keys.throttle;
     player.ackRepeated = taken.repeated;
     player.inputSlack = buffer.slackMeanTicks();
     player.inputSlackStd = buffer.slackStdTicks();

@@ -18,9 +18,10 @@ export const ROOM_NAME = "arena";
  * The wire protocol's version (NR55), sent by every client as the `protocol` join option and refused
  * on mismatch. Bumped by every wire change: a new or changed message, a schema field, or a changed
  * meaning of one. 1 is the Phase D wire (tick-stamped input frames, `MSG_TIME`/`MSG_PING`,
- * `inputSlack` and `inputSlackStd`); a client older than it sends no `protocol` at all.
+ * `inputSlack` and `inputSlackStd`); a client older than it sends no `protocol` at all. 2 adds
+ * `PlayerState.lastSteer`/`lastThrottle` (NR33).
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 export enum RoomPhase {
   LOBBY = 0,

@@ -363,6 +363,25 @@ describe("serverTick", () => {
     }
   });
 
+  describe("lastSteer / lastThrottle (NR33)", () => {
+    it("records the consumed keys for a stepped car", () => {
+      const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+      new Rig([player]).tick({ p1: { steer: -1, throttle: 1, fireSlots: 0 } });
+      expect([player.lastSteer, player.lastThrottle]).toEqual([-1, 1]);
+    });
+
+    it("records them for a car that is not stepped, and neutral for a car with no hands", () => {
+      const frozen = makePlayer("p1", 300, CORRIDOR_Y, 0);
+      new Rig([frozen]).tick({ p1: { steer: 1, throttle: -1, fireSlots: 0 } }, RoomPhase.COUNTDOWN);
+      expect([frozen.lastSteer, frozen.lastThrottle]).toEqual([1, -1]);
+
+      const idle = makePlayer("p2", 300, CORRIDOR_Y, 0);
+      idle.lastSteer = 1;
+      new Rig([idle]).tick({});
+      expect([idle.lastSteer, idle.lastThrottle]).toEqual([0, 0]);
+    });
+  });
+
   // A mid-match joiner is READY and a knocked-out player is POST_MATCH. Stepping either would drive
   // an off-field car around the arena that real players cannot see in their own collision checks.
   for (const status of [PlayerStatus.READY, PlayerStatus.POST_MATCH] as const) {

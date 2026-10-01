@@ -24,7 +24,7 @@ describe("protocolRefusal (NR55)", () => {
   });
   it("refuses a client that sends no protocol at all (pre-D5 builds)", () => {
     for (const opts of [undefined, null, {}, { name: "x" }, { protocol: "1" }]) {
-      expect(protocolRefusal(opts)).toMatch(/client protocol none, server 1\). Refresh the page\.$/);
+      expect(protocolRefusal(opts)).toMatch(new RegExp(`client protocol none, server ${PROTOCOL_VERSION}\\). Refresh the page\\.$`));
     }
   });
 });
