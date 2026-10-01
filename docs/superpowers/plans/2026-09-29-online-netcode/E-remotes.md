@@ -234,7 +234,7 @@ if (!s.beyond) return this.settle(id, s.body);
 return this.settle(id, this.reckoner.poseAt(id, R) ?? s.body);
 ```
 
-`settle(id, pose)` eases from the previous drawn pose when the previous frame was extrapolated and this one is not (over `extrapolateSettleMs`). On death, respawn, or a teleport (> 3 car lengths in one snapshot), `interp.reset()` and `reckoner.forget(id)`.
+`settle(id, pose)` eases from the previous drawn pose when the previous frame was extrapolated and this one is not (over `extrapolateSettleMs`). On death, respawn, or a teleport (> 3 car lengths in one snapshot), `interp.reset()` and `reckoner.forget(id)`. (As built: `RemoteTimeline.forget(id)` does both; `interp.reset()` does not exist.)
 
 Also record `viewTick = Math.floor(R)` on the scene for Phase F (`this.lastRenderTick`).
 

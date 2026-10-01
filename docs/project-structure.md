@@ -58,7 +58,7 @@ motor-combat-MOBA/
 │   │   ├── arena-02.ts           # second arena layout
 │   │   ├── registry.ts           # ARENAS map, ArenaId, isArenaId, getArena, ARENA_IDS
 │   │   └── art-keys.ts           # arena.<id>.<slot> namespace parser, used by client and release script
-│   ├── net/                      # InputFrame/InputPacket (fireSlots bitmask), ClockSync, InputScheduler, TickPrediction, lobby message names
+│   ├── net/                      # InputFrame/InputPacket (fireSlots bitmask), ClockSync, InputScheduler, TickPrediction, TickInterpolation/DisplayDelay/RemoteTimeline (remote drawing), RemoteReckoner, contact blend, lobby message names
 │   │   ├── playground-messages.ts # MSG_PLAYGROUND_*, PlaygroundSetup + validator, defaultPlaygroundSetup (PG13)
 │   │   └── practice-messages.ts  # PRACTICE_ROOM_NAME, close codes 4006–4009, PracticeSetup + validator (PR3, PR7)
 │   ├── lobby/                    # names, teams, start rules, status → view, chat text validation (LC13)
@@ -161,9 +161,7 @@ motor-combat-MOBA/
         │       └── storage.ts     # localStorage codec under "motor-combat.playground.v1" (PG20)
         ├── net/
         │   ├── connection.ts
-        │   ├── prediction.ts     # predict + reconcile-by-replay
-        │   ├── interpolation.ts  # remote snapshot buffer + local between-tick render blend
-        │   ├── step-context.ts   # the client's half of the lockstep input
+        │   ├── (prediction, interpolation, step-context, remote timeline: shared `net/`, not here)
         │   └── view.ts           # status + phase → scene
         ├── scenes/
         │   ├── {Boot,Join,Lobby,CarSelect,Arena,Results}Scene.ts

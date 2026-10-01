@@ -1261,6 +1261,7 @@ Every key of `config/net-config.ts`. Global, not per mode. Deleted by Phase D: `
 | `maxDelayMs` | 250 | Ceiling of the adaptive remote render delay (NR30) |
 | `maxExtrapolateMs` | 100 | Longest a remote is dead-reckoned past its newest snapshot before it holds (NR31) |
 | `extrapolateSettleMs` | 100 | How long a remote's drawn pose eases onto the new path when a snapshot lands under an extrapolated frame (NR31) |
+| `contactBlendRangeCars` | 2 | A remote within this many car lengths of the local car is drawn blended toward its dead-reckoned pose (full weight at one car length), so what you see is where prediction meets it (NR34, `net/contact-blend.ts`) |
 | `remoteTeleportCars` | 3 | A remote that moves more than this many car lengths in one snapshot has teleported: its interpolation and reckoning reset rather than blend across the jump |
 | `targetSlackTicks` | 1.5 | Where the client's slack feedback steers the mean input lead, in ticks (NR21) |
 | `slackSpreadK` | 1 | Ticks of target added per tick of `inputSlackStd` beyond the 0.5-tick quantisation floor (`SLACK_QUANTISATION_STD_TICKS`). D6 measured K 8 (with gain 0.015) at net80 1.84 % repeats / 112 ms input-to-server against K 1's 3.69 % / 78 ms and kept 1: latency first, a lossy link's repeats land on its own player |
@@ -1282,7 +1283,7 @@ Every key of `config/net-config.ts`. Global, not per mode. Deleted by Phase D: `
 | `timeSyncBurstMs` | 100 | Ping interval during the join burst |
 | `timeSyncBurstWindowMs` | 1000 | How long after joining the burst interval applies |
 
-Not in the table, because they are module constants rather than config: the scheduler's safety gain `SAFETY_GAIN` (0.03 ticks of safety per tick of slack error, per new sample; `net/input-scheduler.ts`), its deadband (0.25 tick), `SLACK_QUANTISATION_STD_TICKS` (0.5) and `LATE_SLACK_FLOOR_TICKS` (-1, `net/tick-input.ts`; derived from the gain, see its comment). Also in shared: `PROTOCOL_VERSION` (1, bump on every wire change) and `CLOSE_CODES` (4100–4112). Server-side limits live in `net/rate-limit.ts` (`input` 120/s burst 30, `time` 20/s burst 20, `lobby` 10/s burst 10, kick after 5 s continuously over; `MAX_MESSAGES_PER_SECOND` 1000) and `http-app.ts` (`MAX_WS_PAYLOAD_BYTES` 4096); see [`networking.md`](networking.md#hardening-nr54nr56).
+Not in the table, because they are module constants rather than config: the scheduler's safety gain `SAFETY_GAIN` (0.03 ticks of safety per tick of slack error, per new sample; `net/input-scheduler.ts`), its deadband (0.25 tick), `SLACK_QUANTISATION_STD_TICKS` (0.5) and `LATE_SLACK_FLOOR_TICKS` (-1, `net/tick-input.ts`; derived from the gain, see its comment). Also in shared: `PROTOCOL_VERSION` (2, bump on every wire change; 2 added `lastSteer`/`lastThrottle`) and `CLOSE_CODES` (4100–4112). Server-side limits live in `net/rate-limit.ts` (`input` 120/s burst 30, `time` 20/s burst 20, `lobby` 10/s burst 10, kick after 5 s continuously over; `MAX_MESSAGES_PER_SECOND` 1000) and `http-app.ts` (`MAX_WS_PAYLOAD_BYTES` 4096); see [`networking.md`](networking.md#hardening-nr54nr56).
 
 ## PRACTICE_CONFIG
 

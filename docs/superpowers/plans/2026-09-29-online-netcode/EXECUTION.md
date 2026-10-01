@@ -22,13 +22,24 @@ phase's own acceptance lines.
 | B — netsim harness and today's baseline | [`B-netsim-harness.md`](B-netsim-harness.md) | NR57–NR59 | Landed | Baseline recorded below (legacy client, 60 s, six cars, mean of seeds 1–3) |
 | C — 60 Hz and per-tick snapshots | [`C-sixty-hz.md`](C-sixty-hz.md) | NR11–NR16 | Landed | 60 Hz, one snapshot per tick; handling unchanged in closed form (radius 89.9 u, 90% top speed 1.79/2.21/2.59 s), slip −1.1 to −1.6°; TTK ±0.1 s; planner bench: P33 budget raised to 37 ms by user decision 2026-09-30 (resolved, see In flight) |
 | D — time and inputs | [`D-time-and-inputs.md`](D-time-and-inputs.md) | NR17–NR28, NR54–NR56 | Landed (final review clean, `648bf4a3`) | Tick-stamped inputs, one per car per tick (speed hack closed, steps/tick 1 on every link), `ClockSync` + slack-steered `InputScheduler`, hardening; numbers in the table below |
-| E — remotes and prediction | [`E-remotes.md`](E-remotes.md) | NR29–NR34 | Not started | |
+| E — remotes and prediction | [`E-remotes.md`](E-remotes.md) | NR29–NR34 | Landed (final review pending) | Remotes drawn at an adaptive tick-keyed delay (33–250 ms) with capped dead reckoning from `lastSteer`/`lastThrottle`, predicted against at their reckoned pose, contact-blended within 2 car lengths; `PROTOCOL_VERSION` 2; numbers in the table below |
 | F — combat under latency | [`F-combat.md`](F-combat.md) | NR35–NR41 | Not started | |
 | G — interest management, docs | [`G-interest.md`](G-interest.md) | NR42–NR49, NR68 | Not started | |
 
 ## In flight
 
-**Phase D is landed and its whole-phase final review is clean** (one Important fixed: every scene now answers the server's ping, `648bf4a3`). **Next: Phase E** (remotes and prediction, NR29–NR34). `development/main` is pushed; known failures: the two G12 bot tests only (the P33 planner bench passes since the user raised its budget to 37 ms per simulated second, `08c3d82b`).
+**Phase E is landed (E1–E5, final review pending).** **Next: the Phase E whole-phase review, then Phase F** (combat under latency, NR35–NR41). Known failures: the two G12 bot tests only. Phase D is landed and its final review is clean (`648bf4a3`).
+
+Phase E (E1–E4 each reviewed; E5 = numbers and docs):
+- **E1** `PlayerState.lastSteer`/`lastThrottle` (int8, every car every tick), shared `RemoteReckoner` (stepSim dead reckoning cached per snapshot, capped `maxExtrapolateMs`), `PROTOCOL_VERSION` 2.
+- **E2** `TickInterpolation`, `DisplayDelay` (p95 lateness + one snapshot interval, 33–250 ms, ≤ 1 ms/frame), shared `RemoteTimeline` used by `ArenaScene` and the netsim tick client, settle ease, `remoteTeleportCars`; `InterpolationBuffer` and `interpolationDelayMs` deleted.
+- **E3** remotes at their reckoned pose in `StepContext.others` for prediction and replay; prediction uses each frame's own tick for statuses; prediction cleared on practice/playground resume; lateness samples deduped by tick.
+- **E4** contact blend within `contactBlendRangeCars` (2): fractional-tick target, eased final pose, slewed weight.
+- **E5** numbers (table below) and docs. API note for Phase G: forgetting a remote is `RemoteTimeline.forget(id)` (there is no `interp.reset()`).
+
+Phase E parked items (Minor): per-frame `localAnchor`/`blendPose` allocations in the contact blend; the contact anchor can switch off and on again within 100 ms with a reset tick.
+
+**Playtest note (a USER question):** the `prediction` probe (`packages/server/playtest/common/prediction.ts`) still models the pre-E3 client (remotes frozen at their snapshot pose, arrival-time interpolation). Update it? Not touched. **Recommended: `npm run playtest -- --scope=all`.**
 
 Phase D (each task reviewed):
 - **D1** tick-stamped `InputFrame`s, hardened `isInputPacket`, `TickInputBuffer`.
@@ -73,14 +84,14 @@ Filled in by Phase B and after each later phase. Link profile names: `lan` (1 ms
 
 | Metric | Target | Baseline | after D | after E | after F | after G |
 |---|---|---|---|---|---|---|
-| Server steps per car per tick (max) | 1 | 4 (4–4) (net80; lan 1) | 1 (1–1) (lan, net80clean, net80, net150) | | | |
-| Repeated-input ticks | `lan`, `net80clean` ≤ 2 %; `net80` ≤ 4 % (its own player's cost) | n/a | lan 0.11 % (0.11–0.11); net80clean 0.39 % (0.37–0.42); net80 3.69 % (3.46–3.93); net150 8.14 % (7.83–8.44) | | | |
-| Remote path error p95, net80 (u) | ≤ 12 | 0.13 (0.12–0.13) | 0.00 (0.00–0.00) | | | |
-| Remote hold frames, net80 | ≤ 1 % | 3.62 % (2.75–4.73 %) | 1.28 % (1.21–1.39 %) | | | |
-| Local reconcile correction p95 (u) | ≤ 4 on `lan` and `net80clean`; lossy links reported | net80 0.86 (0.47–1.51) | lan 0.28 (0.13–0.49); net80clean 1.07 (0.45–1.85); net80 1.22 (0.60–2.15); net150 2.01 (1.18–2.63) | | | |
-| Input-to-server delay, lan (ms) | ≤ 34 | 21.7 (20.7–23.3) | 33.99 (33.95–34.02) | | | |
-| Input-to-server delay, net80clean (ms) | ≤ 91 (lan's 34 + half RTT + 1 tick) | n/a | 74.3 (74.2–74.4) | | | |
-| Remote display delay, lan (ms) | no worse than baseline; interpolation component ≤ 50 | 67.4 (66.8–67.9) | 50.4 (49.9–50.8) | | | |
+| Server steps per car per tick (max) | 1 | 4 (4–4) (net80; lan 1) | 1 (1–1) (lan, net80clean, net80, net150) | 1 (1–1) (lan, net80clean, net80, net150) | | |
+| Repeated-input ticks | `lan`, `net80clean` ≤ 2 %; `net80` ≤ 4 % (its own player's cost) | n/a | lan 0.11 % (0.11–0.11); net80clean 0.39 % (0.37–0.42); net80 3.69 % (3.46–3.93); net150 8.14 % (7.83–8.44) | lan 0.11 % (0.11–0.11); net80clean 0.39 % (0.37–0.42); net80 3.69 % (3.46–3.93); net150 8.14 % (7.83–8.44) | | |
+| Remote path error p95, net80 (u) | ≤ 12 | 0.13 (0.12–0.13) | 0.00 (0.00–0.00) | 0.08 (0.01–0.21) (lan 0.03 (0.00–0.07); net80clean 0.14 (0.00–0.40); net150 0.07 (0.01–0.10)) | | |
+| Remote hold frames, net80 | ≤ 1 % | 3.62 % (2.75–4.73 %) | 1.28 % (1.21–1.39 %) | 0.005 % (0–0.014 %) (lan 0.005 % (0.001–0.010 %); net80clean 0.006 % (0–0.017 %); net150 0.21 % (0.19–0.22 %)) | | |
+| Local reconcile correction p95 (u) | ≤ 4 on `lan` and `net80clean`; lossy links reported | net80 0.86 (0.47–1.51) | lan 0.28 (0.13–0.49); net80clean 1.07 (0.45–1.85); net80 1.22 (0.60–2.15); net150 2.01 (1.18–2.63) | lan 0.25 (0.04–0.53); net80clean 0.81 (0.27–1.57); net80 0.77 (0.38–1.51); net150 1.47 (0.86–1.86) | | |
+| Input-to-server delay, lan (ms) | ≤ 34 | 21.7 (20.7–23.3) | 33.99 (33.95–34.02) | 33.99 (33.95–34.02) | | |
+| Input-to-server delay, net80clean (ms) | ≤ 91 (lan's 34 + half RTT + 1 tick) | n/a | 74.3 (74.2–74.4) | 74.3 (74.2–74.4) | | |
+| Remote display delay, lan (ms) | no worse than baseline; interpolation component ≤ 50 | 67.4 (66.8–67.9) | 50.4 (49.9–50.8) | 31.1 (30.1–31.8) | | |
 | Hidden enemy present in decoded state | never | n/a | n/a | n/a | n/a | |
 
 Each Baseline cell is the MEAN over seeds 1–3, with the min–max across the three seeds in
@@ -95,6 +106,8 @@ input-to-server 118.0 ms (117.8–118.2), hold frames 3.88 % (3.73–4.06 %), di
 Net150 and net80 repeated inputs, extra latency and corrections are the cost of that player's own
 lossy link, by design (spec §1). **Phases C–G compare on this shape: `NETSIM_BASELINE=1`, 60 s, six
 cars, seeds 1–3, mean.** (The 20 s seed-1 runs in `netsim.test.ts` are a smoke test, not a comparison point.)
+
+The "after E" column is the Phase E close build (`development/main` at `b21a7974`, the E4 fix; E5 changed docs only), measured 2026-10-01 with the same command. Other "after E" rows not in the table: net80clean display delay 55.6 ms (53.6–57.2); net80 input-to-server 78.3 ms (78.1–78.6), display delay 73.1 ms (71.1–74.7); net150 input-to-server 118.0 ms (117.8–118.2), display delay 143.4 ms (141.6–144.6) — net150's display delay rose from D's 131.4 ms because the adaptive delay (p95 lateness + one snapshot interval) widens on a lossy link, which is its design and that player's cost. **Targets, all met:** `lan`/`net80clean` path error p95 ≤ 12 u (0.03 / 0.14), hold ≤ 1 % (0.005 % / 0.006 %), reconcile p95 ≤ 4 u (0.25 / 0.81), repeats ≤ 2 % (0.11 % / 0.39 %), input-to-server unchanged from D, LAN display delay 31.1 ms against the baseline's 67.4 (and D's 50.4), its interpolation component bounded by `minDelayMs` 33 ms ≤ 50. No deviations. Dropped inputs net80 667–729 per run, net150 1532–1642 (a lossy link's own cost).
 
 Baseline at net150 (same run shape, mean and min–max): steps per tick max 5 (5–5), remote path error
 p95 0.12 u (0.11–0.12), remote hold frames 7.09 % (6.15–8.06 %), local reconcile correction p95

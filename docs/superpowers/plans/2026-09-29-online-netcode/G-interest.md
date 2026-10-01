@@ -126,7 +126,7 @@ Rules (NR44–NR47), per viewer:
 ### Task 4 (G4): The client copes with hidden cars
 
 **Files:**
-- Modify: `packages/client/src/scenes/ArenaScene.ts` (draw only `inView === true` cars; on a car turning hidden: hide sprites, `interp.reset()`, `reckoner.forget`, `shotView.forget` for its instances), HUD readers of remote `hp`/statuses, the roster panels (`packages/client/src/modes/*/gutter.ts` and the last-standing/deathmatch equivalents): HP shows `?` when `inView !== true` (NR48)
+- Modify: `packages/client/src/scenes/ArenaScene.ts` (draw only `inView === true` cars; on a car turning hidden: hide sprites, `RemoteTimeline.forget(id)` (the old `interp.reset()` was deleted in E2), `reckoner.forget`, `shotView.forget` for its instances), HUD readers of remote `hp`/statuses, the roster panels (`packages/client/src/modes/*/gutter.ts` and the last-standing/deathmatch equivalents): HP shows `?` when `inView !== true` (NR48)
 - Modify: `packages/client/src/fx/events.ts` callers — derive events only for visible cars/instances (absence already gives this; add a test that a car turning hidden emits no `died`/`damaged`)
 - Test: the gutter/hud tests for `?`
 

@@ -4,7 +4,7 @@ Phaser 4 render + join. Boot → Join → Lobby → Car select → Arena → Res
 
 **Local invariant:** send inputs (and lobby intents) only — never authoritative sim state.
 
-`ArenaScene` sends one tick-stamped `InputFrame` per server tick (not per frame; `InputScheduler` runs it ahead of a `ClockSync` estimate of the server clock), predicts the local car through shared `stepSim` via `TickPrediction`, reconciles against each snapshot's tick, and draws remotes through the shared `RemoteTimeline` (tick-keyed interpolation, adaptive delay, capped extrapolation; NR29–NR31). See [`docs/networking.md`](../../docs/networking.md).
+`ArenaScene` sends one tick-stamped `InputFrame` per server tick (not per frame; `InputScheduler` runs it ahead of a `ClockSync` estimate of the server clock), predicts the local car through shared `stepSim` via `TickPrediction`, reconciles against each snapshot's tick, and draws remotes through the shared `RemoteTimeline` (tick-keyed interpolation, adaptive delay, capped extrapolation; NR29–NR31), predicts against remotes at their dead-reckoned pose (NR32) and draws near ones blended toward it (NR34). See [`docs/networking.md`](../../docs/networking.md).
 
 Keep the scene thin: pure, testable logic lives beside it (`packages/shared/src/net/step-context.ts`, `scenes/car-visual.ts`, `scenes/arena-input.ts`) because `ArenaScene` itself cannot be unit-tested without a browser. Client tests are vitest in the **node** environment — never import Phaser from a test.
 
