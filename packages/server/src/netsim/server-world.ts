@@ -87,8 +87,8 @@ export class ServerWorld {
   readonly state = new ArenaState();
   /** Each car's inputs keyed by the tick they are for (NR22): `ArenaRoom.inputBuffers`. */
   readonly inputBuffers = new Map<string, TickInputBuffer>();
-  /** Per car, the (tick time, x, y, angle) truth recorded after every tick. */
-  readonly truth = new Map<string, { t: number; x: number; y: number; angle: number }[]>();
+  /** Per car, the (tick time, x, y, angle, alive) truth recorded after every tick. */
+  readonly truth = new Map<string, { t: number; x: number; y: number; angle: number; alive: boolean }[]>();
   /** Most `stepSim` calls one car got in the last tick, as `runPipeline` counted them (NR17). */
   lastTickMaxSteps = 0;
   /** For each car, the tick → server ms at which the client's own frame for that tick was simulated. */
@@ -142,7 +142,7 @@ export class ServerWorld {
     this.state.players.set(id, p);
     this.inputBuffers.set(id, newTickInputBuffer());
     this.roster.add(id);
-    this.truth.set(id, [{ t: this.timeOfTick(0), x, y, angle }]);
+    this.truth.set(id, [{ t: this.timeOfTick(0), x, y, angle, alive: true }]);
     this.appliedAt.set(id, new Map());
     this.ids.push(id);
   }
@@ -187,7 +187,7 @@ export class ServerWorld {
       let max = 0;
       for (const id of this.ids) {
         const p = this.state.players.get(id)!;
-        this.truth.get(id)!.push({ t, x: p.x, y: p.y, angle: p.angle });
+        this.truth.get(id)!.push({ t, x: p.x, y: p.y, angle: p.angle, alive: p.alive });
         const n = steps.get(id) ?? 0;
         max = Math.max(max, n);
         if (n === 0) continue;

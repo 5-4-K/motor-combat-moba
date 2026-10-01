@@ -30,17 +30,23 @@
  * - `remoteHeadingErrorP95Deg` — per remote sample, |drawn heading − the true heading at the time
  *   of the nearest true point| (the same point `remotePathErrorP95` scores against, so the display
  *   delay is not counted as error), degrees, p95.
- * - `remoteJumpExcessMax` / `remoteJumpExcessP99` — per remote sample with a previous frame, how
- *   far the drawn pose moved since that frame beyond how far the true car moved over one frame's
- *   span ending at the time being drawn (the sample's display delay back from the frame, so a
- *   remote drawn a delay behind a car that just braked is not read as jumping):
- *   `max(0, drawn − true)`, u. The Phase E Global Constraint is that this never exceeds the settle
+ * - `remoteJumpExcessMax` / `remoteJumpExcessP99` — per remote sample with a previous frame, the
+ *   length of the drawn displacement since that frame minus the true car's displacement over one
+ *   frame's span ending at the time being drawn (the sample's display delay back from the frame, so
+ *   a remote drawn a delay behind a car that just braked is not read as jumping), as VECTORS:
+ *   `|Δdrawn − Δtrue|`, u — a sideways jump of the car's own length scores its length. A span whose
+ *   truth touches a death or respawn (`aliveThrough`) is not scored: its truth has the teleport in it. The Phase E Global Constraint is that this never exceeds the settle
  *   ease's share of a gap.
  * - `remoteBlendPathErrorP95` / `remoteBlendHeadingErrorP95Deg` — `remotePathErrorP95` and
  *   `remoteHeadingErrorP95Deg` over only the samples drawn within `contactBlendRangeCars` car
  *   lengths of the local car's drawn pose, where the contact blend (NR34) acts; those are a few
  *   percent of all samples, too few for the all-sample p95 to see. 0 when there are none (the count
- *   is `NetsimDiagnostics.blendSamples`).
+ *   is `NetsimDiagnostics.blendSamples`). Both are nearest-point scores, so they are blind to a pose
+ *   lagged ALONG its path (it carries that path point's heading) — which is what the next two see.
+ * - `remoteBlendLagP95` / `remoteBlendLagHeadingP95Deg` — over the same blend-range samples, the
+ *   drawn pose against the blend's own target that frame, `blend(interpolated, reckoned at the
+ *   anchor tick, current weight)` (`RemoteTimeline.blendTarget`): position u and heading degrees,
+ *   p95. Time-aware: a settle that trails the target (phase E re-review I4) reads here.
  */
 export interface NetsimMetrics {
   stepsPerTickMax: number;
@@ -55,6 +61,8 @@ export interface NetsimMetrics {
   remoteJumpExcessP99: number;
   remoteBlendPathErrorP95: number;
   remoteBlendHeadingErrorP95Deg: number;
+  remoteBlendLagP95: number;
+  remoteBlendLagHeadingP95Deg: number;
 }
 
 /** How far BEFORE the frame the trajectory a drawn remote pose is judged against reaches, ms. */
@@ -222,13 +230,25 @@ export function headingErrorDeg(drawn: number, truth: number): number {
 }
 
 /**
- * How far the drawn pose moved between two frames beyond how far the true car moved over the same
- * span, u, never negative: a drawn pose that keeps up with (or lags) its car scores 0.
+ * How far the drawn pose's displacement between two frames differs from the true car's over the
+ * matching span, as vectors: `|(drawn − prevDrawn) − (trueNow − prevTrue)|`, u. A drawn pose that
+ * moves exactly as its car scores 0; one that jumps sideways, holds, or runs ahead scores the
+ * difference.
  */
 export function jumpExcess(prevDrawn: Point, drawn: Point, prevTrue: Point, trueNow: Point): number {
-  const drawnMoved = Math.hypot(drawn.x - prevDrawn.x, drawn.y - prevDrawn.y);
-  const trueMoved = Math.hypot(trueNow.x - prevTrue.x, trueNow.y - prevTrue.y);
-  return Math.max(0, drawnMoved - trueMoved);
+  return Math.hypot(drawn.x - prevDrawn.x - (trueNow.x - prevTrue.x), drawn.y - prevDrawn.y - (trueNow.y - prevTrue.y));
+}
+
+/**
+ * Whether the car was alive on every tick sample from the one before `from` to the one after `to`:
+ * a span that touches a death or a respawn has a teleport in its truth (wreck to spawn), which no
+ * per-frame motion comparison can score.
+ */
+export function aliveThrough(path: readonly { t: number; alive: boolean }[], from: number, to: number): boolean {
+  const lo = Math.max(0, lowerBound(path, from) - 1);
+  const hi = Math.min(path.length - 1, lowerBound(path, to));
+  for (let i = lo; i <= hi; i++) if (!path[i]!.alive) return false;
+  return true;
 }
 
 export const mean = (xs: number[]): number =>

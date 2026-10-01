@@ -55,6 +55,15 @@ export class RemoteReckoner {
     return blendPose(a, b, capped - lo);
   }
 
+  /**
+   * The last tick this car's reckoning reaches before it holds: its newest snapshot's tick plus
+   * `maxTicks`. Undefined for a car with no reckoning.
+   */
+  reachTick(id: string): number | undefined {
+    const car = this.cars.get(id);
+    return car ? car.source.tick + this.maxTicks : undefined;
+  }
+
   /** How far past its newest snapshot `tick` is, in ticks (0 when at or before it). */
   overshoot(id: string, tick: number): number {
     const car = this.cars.get(id);

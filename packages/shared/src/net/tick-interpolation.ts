@@ -248,6 +248,8 @@ interface Track {
   final: SimBody | undefined;
   finalOffset: { x: number; y: number; angle: number } | undefined;
   finalOffsetLeftMs: number;
+  /** This frame's blend target before the final settle: `blend(pose, reckoned@anchor, w)` (diagnostics). */
+  intended: SimBody | undefined;
   /** The frame `cached` was computed on. */
   frame: number;
   cached: SimBody | undefined;
@@ -257,11 +259,12 @@ interface Track {
 const SETTLE_EPSILON = 1e-6;
 /**
  * The contact blend's anchor tick may differ from last frame's plus one frame's worth by up to this
- * many ticks and still count as the local car's clock advancing (render phase, clock slew). Beyond
+ * many ticks and still count as the local car's clock advancing (clock slew). Half a tick: the phase
+ * itself advances continuously, so anything larger is a step the eye would see. Beyond
  * it — a catch-up burst, a prediction reset, an anchor that returns after a gap, a pause — the
  * reckoned target jumped, and the step is eased like a rebase (NR34).
  */
-const ANCHOR_JUMP_TICKS = 1;
+const ANCHOR_JUMP_TICKS = 0.5;
 
 /** `to − from` as an easeable gap: position difference and the short-way angle difference. */
 function gapOf(from: SimBody, to: SimBody): { x: number; y: number; angle: number } {
@@ -341,6 +344,7 @@ export class RemoteTimeline {
         offsetLeftMs: 0,
         blendW: 0,
         rebased: false,
+        intended: undefined,
         anchorTick: 0,
         final: undefined,
         finalOffset: undefined,
@@ -456,7 +460,7 @@ export class RemoteTimeline {
    *
    * The blend target is continuous from frame to frame except when something REPLACES it: a
    * snapshot rebases the reckoning (a shove the reckoner could not know about), or the anchor tick
-   * jumps (more than `ANCHOR_JUMP_TICKS` off its expected advance). Only then is the final-pose
+   * jumps (more than `ANCHOR_JUMP_TICKS` outside an advance of zero to one frame's worth). Only then is the final-pose
    * settle armed, with the gap between the old target and the new one at the SAME tick — so the
    * car's own motion and rotation are never part of the gap, and a car the reckoner already had right
    * (every snapshot of a steady turn) arms nothing (phase E review I1). A settle still running when
@@ -470,7 +474,8 @@ export class RemoteTimeline {
     newest: number,
   ): SimBody {
     const dtMs = this.frameMs;
-    const expectedAnchor = track.anchorTick + dtMs / MS_PER_TICK;
+    const prevAnchor = track.anchorTick;
+    const expectedAnchor = prevAnchor + dtMs / MS_PER_TICK;
     // The weight the anchor asks for; no anchor (death, spectator, cleared prediction) asks for 0.
     let want = 0;
     if (local) {
@@ -496,14 +501,28 @@ export class RemoteTimeline {
         out = blendPose(pose, reckoned, w);
         // What the target would have been without the replacement: the superseded reckoning (when a
         // snapshot rebased it) at the tick the anchor was expected at (when the anchor jumped).
-        const anchorJumped = Math.abs(track.anchorTick - expectedAnchor) > ANCHOR_JUMP_TICKS;
-        if (track.final && prevW > 0 && (track.rebased || anchorJumped)) {
-          const before = (track.rebased ? this.superseded : this.reckoner).poseAt(
-            id,
-            anchorJumped ? expectedAnchor : track.anchorTick,
-          );
-          if (before) {
-            const gap = gapOf(out, blendPose(pose, before, w));
+        // Both are measured at a tick the OLD reckoning actually reaches: past its cap it holds,
+        // while the new one (a snapshot later) reaches one tick further — that tick is the car's own
+        // motion, not a rebase, and easing it would low-pass the blend into a standing lag (I4).
+        // An anchor that advanced by anything from nothing (a pause, a held prediction) to one
+        // frame's worth is the local clock running; the nearest such tick is what it "should" have
+        // been, and only the part beyond it is a jump.
+        const normalAnchor = Math.min(expectedAnchor, Math.max(prevAnchor, track.anchorTick));
+        const anchorJumped = Math.abs(track.anchorTick - normalAnchor) > ANCHOR_JUMP_TICKS;
+        const old = track.rebased ? this.superseded : this.reckoner;
+        const reach = old.reachTick(id);
+        if (track.final && prevW > 0 && (track.rebased || anchorJumped) && reach !== undefined) {
+          // Normally the new reckoning reaches one snapshot interval past the old one, and that
+          // advance is drawn as it comes. If it reaches further (snapshots lost or late), only the
+          // last interval's worth is drawn outright and the rest is eased with the rebase.
+          const newReach = this.reckoner.reachTick(id) ?? reach;
+          const drawnTick = Math.min(track.anchorTick, newReach);
+          const interval = Math.max(dtMs, 1000 / SNAPSHOT_RATE_HZ) / MS_PER_TICK;
+          // The old reckoning holds at its own reach (`poseAt` caps), so `before` needs no clamp.
+          const before = old.poseAt(id, anchorJumped ? normalAnchor : track.anchorTick);
+          const after = this.reckoner.poseAt(id, Math.min(track.anchorTick, Math.max(reach, drawnTick - interval)));
+          if (before && after) {
+            const gap = gapOf(blendPose(pose, after, w), blendPose(pose, before, w));
             if (hasGap(gap)) {
               // Carry what is still un-eased of a running settle into the new one.
               const left = track.finalOffset && NET_CONFIG.extrapolateSettleMs > 0
@@ -521,6 +540,7 @@ export class RemoteTimeline {
         }
       }
     }
+    track.intended = out;
     if (track.finalOffset) {
       track.finalOffsetLeftMs -= dtMs;
       const k = NET_CONFIG.extrapolateSettleMs > 0 ? Math.max(0, track.finalOffsetLeftMs / NET_CONFIG.extrapolateSettleMs) : 0;
@@ -536,6 +556,15 @@ export class RemoteTimeline {
     }
     track.final = out;
     return out;
+  }
+
+  /**
+   * Diagnostics (the netsim harness): this frame's contact-blend target before the final-pose settle
+   * — `blend(interpolated, reckoned at the anchor tick, current weight)` — or undefined when the
+   * remote has not been drawn. The drawn pose differs from it only by the settle being eased out.
+   */
+  blendTarget(id: string): Readonly<SimBody> | undefined {
+    return this.tracks.get(id)?.intended;
   }
 
   /**

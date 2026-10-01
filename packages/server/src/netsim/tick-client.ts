@@ -21,6 +21,21 @@ import {
 import type { ScriptedDriver } from "./drivers.js";
 import type { Snapshot, SnapshotCar } from "./server-world.js";
 
+/** One remote as a client drew it this frame (`TickClient.drawnRemote`). */
+export interface DrawnRemote {
+  x: number;
+  y: number;
+  angle: number;
+  wreck: boolean;
+  /** Drawn within `contactBlendRangeCars` car lengths of the local car's drawn pose. */
+  inBlendRange: boolean;
+  /**
+   * The contact blend's own target this frame, before the final-pose settle
+   * (`RemoteTimeline.blendTarget`): what the drawn pose should be. Undefined for a wreck.
+   */
+  intended: { x: number; y: number; angle: number } | undefined;
+}
+
 /** `buildStepContext`'s and `localModifiers`' view of a decoded patch. */
 interface StateView {
   players: {
@@ -252,15 +267,19 @@ export class TickClient {
   drawnRemote(
     id: string,
     nowMs: number,
-  ): { x: number; y: number; angle: number; wreck: boolean; inBlendRange: boolean } | undefined {
+  ): DrawnRemote | undefined {
     const car = this.lastById.get(id);
     if (!car || car.status !== PlayerStatus.IN_MATCH) return undefined;
-    if (!car.alive) return { x: car.body.x, y: car.body.y, angle: car.body.angle, wreck: true, inBlendRange: false };
+    if (!car.alive) {
+      return { x: car.body.x, y: car.body.y, angle: car.body.angle, wreck: true, inBlendRange: false, intended: undefined };
+    }
     const local = this.localAnchor(nowMs);
     const pose = this.remotes.pose(id, local) ?? car.body;
     const inBlendRange =
       local !== undefined &&
       Math.hypot(pose.x - local.pose.x, pose.y - local.pose.y) < NET_CONFIG.contactBlendRangeCars * drive().carWidth;
-    return { x: pose.x, y: pose.y, angle: pose.angle, wreck: false, inBlendRange };
+    const target = this.remotes.blendTarget(id);
+    const intended = target ? { x: target.x, y: target.y, angle: target.angle } : undefined;
+    return { x: pose.x, y: pose.y, angle: pose.angle, wreck: false, inBlendRange, intended };
   }
 }

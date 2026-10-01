@@ -430,29 +430,35 @@ describe("RemoteTimeline contact blend on a turning remote (phase E review I1)",
    * weight is 1) and predicted AHEAD ticks past the server clock. Returns, per frame, the drawn pose
    * and the pose prediction collides with at the anchor tick.
    */
-  function turning(frames: number): { drawn: SimBody[]; target: SimBody[]; stepLen: number } {
-    const truth = path(moving(1000, 150), LEFT, 40 + frames);
+  function turning(
+    frames: number,
+    ahead = AHEAD,
+    keys: InputKeys = LEFT,
+  ): { drawn: SimBody[]; target: SimBody[]; intended: SimBody[]; stepLen: number } {
+    const truth = path(moving(1000, 150), keys, 40 + frames);
     const stepLen = Math.max(...truth.slice(1).map((b, i) => Math.hypot(b.x - truth[i]!.x, b.y - truth[i]!.y)));
     const tl = new RemoteTimeline();
     const drawn: SimBody[] = [];
     const target: SimBody[] = [];
+    const intended: SimBody[] = [];
     let pushed = -1;
     let near = truth[0]!;
     for (let f = 0; f < frames; f++) {
       const server = 20 + f * TICKS_PER_FRAME;
       for (let t = pushed + 1; t <= Math.floor(server); t++) {
-        tl.push("a", t, { body: truth[t]!, keys: LEFT, ctx: OPEN, alive: true });
+        tl.push("a", t, { body: truth[t]!, keys, ctx: OPEN, alive: true });
         tl.onSnapshot(t + LATE, t);
         pushed = t;
       }
       tl.beginFrame(server, FRAME_MS);
-      const anchor: LocalAnchor = { pose: { x: near.x + 20, y: near.y }, tick: server + AHEAD };
+      const anchor: LocalAnchor = { pose: { x: near.x + 20, y: near.y }, tick: server + ahead };
       const pose = tl.pose("a", anchor)!;
       near = pose;
       drawn.push(pose);
       target.push(tl.reckonedPose("a", anchor.tick)!);
+      intended.push(tl.blendTarget("a")!);
     }
-    return { drawn, target, stepLen };
+    return { drawn, target, intended, stepLen };
   }
 
   it("draws the heading prediction collides with, with no standing lag", () => {
@@ -462,6 +468,29 @@ describe("RemoteTimeline contact blend on a turning remote (phase E review I1)",
     expect(Math.max(...errs)).toBeLessThan(0.5);
     const posErr = drawn.slice(30).map((p, i) => Math.hypot(p.x - target[30 + i]!.x, p.y - target[30 + i]!.y));
     expect(Math.max(...posErr)).toBeLessThan(0.1);
+  });
+
+  it("draws the pose prediction collides with when the anchor is past the reckoning cap (I4)", () => {
+    // The anchor 8 ticks past the newest snapshot, beyond `maxExtrapolateMs` (6 ticks): every
+    // snapshot advances the capped reckoning by one tick, which is the car's own motion, not a
+    // rebase, and must not be low-passed into a lag.
+    const cap = msToTicks(NET_CONFIG.maxExtrapolateMs);
+    // Full lock: the remote circles near the local car, so the weight stays 1 and the drawn pose
+    // is the reckoned one.
+    const turn = turning(90, cap + 2, LEFT);
+    const errs = turn.drawn.slice(30).map((p, i) => deg(wrap(p.angle - turn.target[30 + i]!.angle)));
+    expect(Math.max(...errs)).toBeLessThan(0.5);
+    const posErr = turn.drawn.slice(30).map((p, i) => Math.hypot(p.x - turn.target[30 + i]!.x, p.y - turn.target[30 + i]!.y));
+    expect(Math.max(...posErr)).toBeLessThan(0.1);
+    // Straight at speed: the interpolated pose falls out of one car length of the anchor as the car
+    // speeds up, so the weight drops below 1; the drawn pose is still the blend target, not behind it.
+    const straight = turning(90, cap + 2, GO);
+    for (let i = 30; i < 90; i++) {
+      const d = straight.drawn[i]!;
+      const want = straight.intended[i]!;
+      expect(Math.hypot(d.x - want.x, d.y - want.y)).toBeLessThan(0.1);
+      expect(deg(wrap(d.angle - want.angle))).toBeLessThan(0.5);
+    }
   });
 
   it("never jumps by more than the car moved plus the ease", () => {

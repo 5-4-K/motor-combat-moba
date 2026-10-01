@@ -3,6 +3,7 @@ import { isSnapshotTick } from "../rooms/snapshot-cadence.js";
 import { makeDriver } from "./drivers.js";
 import { Link, type LinkProfile } from "./link.js";
 import {
+  aliveThrough,
   headingAt,
   headingErrorDeg,
   isHold,
@@ -86,6 +87,7 @@ interface RemoteSample {
   y: number;
   angle: number;
   inBlendRange: boolean;
+  intended: { x: number; y: number; angle: number } | undefined;
   prev: RemoteSample | undefined;
 }
 
@@ -193,6 +195,7 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
           y: drawn.y,
           angle: drawn.angle,
           inBlendRange: drawn.inBlendRange,
+          intended: drawn.intended,
           prev: c.prev.get(otherId),
         };
         samples.push(sample);
@@ -207,6 +210,8 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
   const jumpExcesses: number[] = [];
   const blendPathErrors: number[] = [];
   const blendHeadingErrors: number[] = [];
+  const blendIntendedErrors: number[] = [];
+  const blendIntendedHeadingErrors: number[] = [];
   let holds = 0;
   for (const s of samples) {
     const path = world.truth.get(s.otherId)!;
@@ -219,6 +224,10 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
     if (s.inBlendRange) {
       blendPathErrors.push(scored.distance);
       blendHeadingErrors.push(heading);
+      if (s.intended) {
+        blendIntendedErrors.push(Math.hypot(s.x - s.intended.x, s.y - s.intended.y));
+        blendIntendedHeadingErrors.push(headingErrorDeg(s.angle, s.intended.angle));
+      }
     }
     if (s.prev) {
       if (isHold(s.prev, s, truthAt(path, s.prev.now), truthAt(path, s.now))) holds++;
@@ -226,7 +235,9 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
       // back), so a remote drawn a delay behind a car that just braked is not scored as jumping.
       const drawnAt = s.now - scored.delayMs;
       const span = s.now - s.prev.now;
-      jumpExcesses.push(jumpExcess(s.prev, s, truthAt(path, drawnAt - span), truthAt(path, drawnAt)));
+      if (aliveThrough(path, drawnAt - span, drawnAt)) {
+        jumpExcesses.push(jumpExcess(s.prev, s, truthAt(path, drawnAt - span), truthAt(path, drawnAt)));
+      }
     }
   }
 
@@ -259,6 +270,8 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
     remoteJumpExcessP99: percentile(jumpExcesses, 99),
     remoteBlendPathErrorP95: percentile(blendPathErrors, 95),
     remoteBlendHeadingErrorP95Deg: percentile(blendHeadingErrors, 95),
+    remoteBlendLagP95: percentile(blendIntendedErrors, 95),
+    remoteBlendLagHeadingP95Deg: percentile(blendIntendedHeadingErrors, 95),
   };
   return {
     metrics,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  aliveThrough,
   headingAt,
   headingErrorDeg,
   isHold,
@@ -119,9 +120,19 @@ describe("netsim metrics", () => {
     expect(headingErrorDeg(0.5, 0.5)).toBe(0);
   });
 
-  it("jumpExcess is the drawn motion beyond the true motion, never negative", () => {
+  it("jumpExcess compares displacement vectors, so a sideways jump is not hidden by its length", () => {
     const o = { x: 0, y: 0 };
     expect(jumpExcess(o, { x: 10, y: 0 }, o, { x: 4, y: 0 })).toBeCloseTo(6, 9);
-    expect(jumpExcess(o, { x: 2, y: 0 }, o, { x: 4, y: 0 })).toBe(0);
+    expect(jumpExcess(o, { x: 4, y: 0 }, o, { x: 4, y: 0 })).toBe(0);
+    // Same length as the true motion, perpendicular to it.
+    expect(jumpExcess(o, { x: 0, y: 4 }, o, { x: 4, y: 0 })).toBeCloseTo(Math.hypot(4, 4), 9);
+  });
+
+  it("aliveThrough refuses a span whose truth touches a dead tick", () => {
+    const path = [0, 10, 20, 30, 40].map((t, i) => ({ t, alive: i !== 3 }));
+    expect(aliveThrough(path, 0, 15)).toBe(true);
+    expect(aliveThrough(path, 22, 25)).toBe(false);
+    expect(aliveThrough(path, 31, 35)).toBe(false);
+    expect(aliveThrough(path, 41, 50)).toBe(true);
   });
 });
