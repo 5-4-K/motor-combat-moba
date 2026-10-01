@@ -21,61 +21,58 @@ phase's own acceptance lines.
 | A — Colyseus 0.18, schema 5, Node 22, monitor gate | [`A-colyseus-upgrade.md`](A-colyseus-upgrade.md) | NR50, NR53 | Landed | `playtest:lan` smoke passed in A2; lockfile on a single schema 5.0.34 |
 | B — netsim harness and today's baseline | [`B-netsim-harness.md`](B-netsim-harness.md) | NR57–NR59 | Landed | Baseline recorded below (legacy client, 60 s, six cars, mean of seeds 1–3) |
 | C — 60 Hz and per-tick snapshots | [`C-sixty-hz.md`](C-sixty-hz.md) | NR11–NR16 | Landed | 60 Hz, one snapshot per tick; handling unchanged in closed form (radius 89.9 u, 90% top speed 1.79/2.21/2.59 s), slip −1.1 to −1.6°; TTK ±0.1 s; planner bench: P33 budget raised to 37 ms by user decision 2026-09-30 (resolved, see In flight) |
-| D — time and inputs | [`D-time-and-inputs.md`](D-time-and-inputs.md) | NR17–NR28, NR54–NR56 | In progress — D1–D3 landed; D4 parked on local `wip/d4-input-switch` | see In flight |
+| D — time and inputs | [`D-time-and-inputs.md`](D-time-and-inputs.md) | NR17–NR28, NR54–NR56 | In progress — D1–D5 landed; D6 (measure + docs) next | see In flight |
 | E — remotes and prediction | [`E-remotes.md`](E-remotes.md) | NR29–NR34 | Not started | |
 | F — combat under latency | [`F-combat.md`](F-combat.md) | NR35–NR41 | Not started | |
 | G — interest management, docs | [`G-interest.md`](G-interest.md) | NR42–NR49, NR68 | Not started | |
 
 ## In flight
 
-**CHECKPOINT (2026-09-30, stopped at the user's request).** `development/main` is at D3
-(`32352125`), clean and green except the known failures (two G12 bot tests; the planner bench P33 failure was resolved 2026-09-30 by the user's budget decision, below).
+**CHECKPOINT (2026-10-01, stopped at the user's request after D5).** `development/main` is at
+`c5ae5243` plus this note, clean and pushed. Known failures: the two G12 bot tests only (the P33
+planner bench passes since the user raised its budget to 37 ms per simulated second, `08c3d82b`).
 
-Landed in Phase D, each reviewed:
-- **D1** `tick-input.ts`: `InputFrame`, hardened `isInputPacket` (fire mask bounded to the wire mask,
-  whitelisted copies, sparse arrays rejected) and `TickInputBuffer`.
-- **D2** `ClockSync`, `InputScheduler`, `TickPrediction`. After four review rounds ClockSync is a
-  weighted offset+drift fit held to an acceptance envelope (≤ 25 ms error, zero snaps across
-  jitter 0–30 ms × drift ±1 % × spikes 0–20 %; route steps ≤ 1 snap; 0 late inputs at 60/144 fps).
-  Spec NR18/NR20/NR21 were rewritten to match. `NET_CONFIG.clientMaxCatchUpTicks: 8` is the client
-  knob (the plan's `maxCatchUpTicks` name belongs to the server stepper, 5). `ClockSync.rttMs()`
-  is ≈ min RTT, not a median — never show it as "ping".
-- **D3** time-sync (`MSG_TIME`) and server-measured RTT (`MSG_PING`) on every room; pongs describe
-  the steady tick grid (`markTick(tick, wallNow − stepper.remainderMs)`).
+Phase D so far (each task reviewed):
+- **D1** tick-stamped `InputFrame`s, hardened `isInputPacket`, `TickInputBuffer`.
+- **D2** `ClockSync` (weighted offset+drift fit, held to an acceptance envelope), `InputScheduler`,
+  `TickPrediction`. Client knob is `NET_CONFIG.clientMaxCatchUpTicks: 8`; the server stepper's is
+  `maxCatchUpTicks: 5`. `ClockSync.rttMs()` ≈ min RTT — never show it as "ping".
+- **D3** `MSG_TIME`/`MSG_PING` on every room; pongs describe the steady tick grid.
+- **D4** one input per car per tick — the speed hack is closed (`stepsPerTickMax` = 1 on every link);
+  client blends on the server tick phase; clock and scheduler rebuilt on a practice/playground resume.
+- **D5** hardening: per-kind token buckets (`ClientLimits`, kick after 5 s continuously over), 4 KiB
+  `maxPayload`, Colyseus `maxMessagesPerSecond` backstop 1000 (sized for the burst a 10 s stall
+  releases), unknown message types disconnect at once, `PROTOCOL_VERSION` 1 refuses stale clients with
+  a "refresh the page" message, all app close codes moved to 4100–4112 (clear of Colyseus's),
+  matchmaker CORS pinned to `CLIENT_ORIGIN` when set, ping echoes accepted only for server-issued
+  stamps, ClockSync guarded after a ≥ 6 s pong gap, slack target gains a spread term above the 0.5-tick
+  quantisation floor, first-copy late frames now feed the slack statistics, and the two-way latency/loss
+  injector (`SIM_LATENCY_MS`, `SIM_JITTER_MS`, `SIM_LOSS_PCT`) delivers in order.
 
-**D4 (the one-input-per-tick switch) is parked on the LOCAL branch `wip/d4-input-switch`
-(`12d974d7`, not pushed, not green).** Brief steps 1–5 are coded; shared/client suites, the server
-rooms/sim/net subset and netsim pass; `stepsPerTickMax` reads 1 on every link. Still to do before it
-may land (it lands as one reviewed set, never piecemeal):
-1. root `npm run build`, `npm run typecheck`, full server suite (~11 min), `npm run test:scripts`;
-2. the live `npm run playtest:lan` smoke;
-3. task review, then squash into the real D4 commit(s) and push.
-Known from the WIP: net80 repeated-input ticks 3.93 % (target ≤ 2 %, loss-driven; slack tuning is
-D6's); lan input-to-server 34.0 ms (on the limit); playtest probe W6's input-flood arm no longer
-exercises its exploit (one frame per tick now) and `common/collision`'s silent-coast scenarios cite a
-deleted knob — recommend `npm run playtest -- --scope=all` after D4.
-If the container was reclaimed and the branch is gone, redo D4 from its brief.
+Netsim "after D" (60 s, six cars, seeds 1–3, mean): steps per tick 1; net80 repeated inputs
+**3.53 % (target ≤ 2 % — not yet met)**; lan input-to-server 33.99 ms (target ≤ 34); net150
+input-to-server 127 ms (was 111; traded for fewer repeats, 8.67 → 7.62 %).
 
-**Queued, in order:**
-- **DONE (2026-09-30): P33 planner budget raised to 37 ms** of CPU per simulated second by user
-  decision (`BUDGET_MS` 30/90 → 37/90 = 0.411 ms/plan in `planner.bench.test.ts`). The bench's known
-  failure (hard K 22 → 44 at 60 Hz, ~1237 drive ticks/plan against the 30 Hz gate of ~1027) is
-  RESOLVED: `MEASURED_RATIO` 790 → 1262 (worst median of 10 runs, alone 1089.7–1218.5, loaded
-  1092.2–1261.7), gate ×1.3 ≈ 1641 drive ticks/plan. Hard still reads ~0.45–0.47 ms/plan (~1.1x the new
-  budget), accepted as before. Docs citing 30 ms updated.
-- **DONE (2026-10-01): D5 hardening**, plus carried rulings (net80 repeats 3.53 %, lan input-to-server 34.0 ms after the fix round — see the table): ClockSync must not trust one spiked pong after a ≥ 6 s
-  pong gap; NR21's slack target gains a spread term (≈ mean + 1·`slackStdTicks()`) so a jittery
-  input path stops landing late; `onPingEcho` accepts only server-issued stamps (server RTT will feed
-  F1's shot-compensation cap); move `ServerError(4003)` off `CloseCode.FAILED_TO_RECONNECT`; restrict
-  matchmaker CORS to `CLIENT_ORIGIN` when set.
-- **D6** measure and document.
-- Then phases E, F, G.
+**Next: D6 (measure and document)**, carrying:
+- net80 repeated inputs above target — tune `targetSlackTicks`/`slackSpreadK`/gain against the netsim;
+- clamp a recorded late slack sample (e.g. to −maxLeadTicks): after a 10 s stall the late frames
+  otherwise pin the client's safety margin at its clamp for seconds;
+- rewrite `docs/networking.md`, `config-reference.md`, `schema-reference.md` and the package
+  CLAUDE.md files that still name `InputMessage`, `lastProcessedInputSeq`, `maxInputsPerTick`, etc.
+Then phases E, F, G.
+
+**Open questions for the user (playtest probes are theirs to change):**
+- Probe W6 (fire-rate exploit) no longer exercises its flood arm since D4 (one input per tick) —
+  re-express or retire it? The `collision` probe's comments still cite the deleted silent-coast path.
+- `playtest/lan.ts`'s `PHASE` table predates this work (prints "COUNTDOWN" during a live match and
+  starts its trials during REVEAL) — fix it?
+- Recommended: `npm run playtest -- --scope=all` — every probe now measures a 60 Hz sim with
+  one-input-per-tick buffers.
 
 Tooling notes for the executor:
 - Plan task headings are numeric (`### Task 1 (A1): …`) so `task-brief PLAN_FILE N` finds them;
-  each phase file is its own SDD plan with its own workspace under `.superpowers/sdd/<phase>/`
-  (git-ignored — the D ledger and reports live there and are lost if the container is reclaimed;
-  this block is the durable record).
+  each phase file is its own SDD plan with a git-ignored workspace under `.superpowers/sdd/<phase>/`
+  (lost if the container is reclaimed — this block is the durable record).
 - The full server suite takes ~11 min at 60 Hz.
 
 ## Rules that bite mid-execution
