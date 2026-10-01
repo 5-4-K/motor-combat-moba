@@ -1768,8 +1768,10 @@ export class ArenaScene extends Phaser.Scene {
     const onState = (): void => {
       this.lastPatchMs = performance.now();
       this.syncMatchHud();
-      this.reconcileLocal(room);
+      // Remotes first: the replay inside `reconcileLocal` steps the local car against each remote's
+      // dead-reckoned pose (NR32), which has to be reckoned from THIS snapshot, not the one before.
       this.pushRemoteSnapshots(room);
+      this.reconcileLocal(room);
       this.syncPauseOverlay(room);
     };
     room.onStateChange(onState);
@@ -2160,7 +2162,15 @@ export class ArenaScene extends Phaser.Scene {
     if (!inputClock) return;
     // The resume edge rebuilds the clock and the scheduler (`InputClock.setPaused`): a paused room's
     // tick stood still while its pongs kept arriving. False forever outside practice/the playground.
-    inputClock.setPaused(isSimPaused(room.state), performance.now());
+    // The same edge drops the prediction (phase D review M9 follow-up): frames stamped against the
+    // pre-pause clock must not make the rebuilt scheduler's first frames read as non-ascending, so
+    // prediction restarts from the authoritative pose exactly as `syncDrivenCar` seeds it.
+    if (inputClock.setPaused(isSimPaused(room.state), performance.now())) {
+      this.prediction.clear();
+      const car = room.state.players.get(this.drivenSid(room));
+      this.predicted = car ? bodyOf(car) : undefined;
+      this.predictedPrev = undefined;
+    }
     if (!this.canDrive(room) || isSimPaused(room.state)) {
       inputClock.discard();
       return;
@@ -2569,7 +2579,15 @@ export class ArenaScene extends Phaser.Scene {
   private syncDrivenCar(room: Room<ArenaState>): void {
     const driven = this.drivenSid(room);
     if (this.lastDrivenSid === driven) return;
+    const previous = this.lastDrivenSid;
     this.lastDrivenSid = driven;
+
+    // A seat crossing between driven and remote drops its remote track both ways (E2 review minor
+    // 1): the newly driven car is drawn from prediction now, and the newly remote one must start a
+    // fresh track rather than resume one last fed before it was driven — seconds stale, and close
+    // enough to dodge the teleport reset, so it would blend and settle from that old pose.
+    this.remotes.forget(driven);
+    if (previous !== undefined) this.remotes.forget(previous);
 
     this.prediction.clear();
     const car = room.state.players.get(driven);
@@ -2659,18 +2677,22 @@ export class ArenaScene extends Phaser.Scene {
     };
   }
 
-  private stepContext(room: Room<ArenaState>): StepContext {
+  /**
+   * The world each predicted or replayed step runs in, asked per tick (`StepContextFor`): `tick` is
+   * the frame's own server tick, the one `serverTick` will step it on. Status multipliers are read
+   * at that tick (phase D review M5) — an effect that lapses between the snapshot and the frame
+   * lapses here on the same tick the server lapses it — and every remote stands at its dead-reckoned
+   * pose at that tick, capped at `maxExtrapolateMs` past its newest snapshot (NR32). The first
+   * prediction and every replay of a frame ask the same question, answered from the newest
+   * snapshot each time.
+   */
+  private stepContext(room: Room<ArenaState>): (tick: number) => StepContext {
     const self = this.drivenSid(room);
-    return buildStepContext(
-      this.arena ?? getArena(room.state.arenaId),
-      room.state,
-      self,
-      room.state.tick,
-      // Read fresh on every predicted and reconciled step rather than cached: an effect can lapse
-      // between two of them, and the tick it lapses on is the one thing both halves of the lockstep
-      // have to agree about.
-      localModifiers(room.state, self, room.state.tick),
-    );
+    const arena = this.arena ?? getArena(room.state.arenaId);
+    return (tick) =>
+      buildStepContext(arena, room.state, self, tick, localModifiers(room.state, self, tick), (id) =>
+        this.remotes.reckonedPose(id, tick),
+      );
   }
 
   private reconcileLocal(room: Room<ArenaState>): void {

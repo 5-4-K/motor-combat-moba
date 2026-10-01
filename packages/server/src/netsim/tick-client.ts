@@ -52,8 +52,9 @@ function viewOf(snap: Snapshot): StateView {
  * The Phase D client, headless: `ArenaScene`'s `bindTimeSync` (a `ClockSync` fed by `MSG_TIME`
  * pongs, a burst on join then the steady rate), `pumpInput` → `sendInputTick` (the shared
  * `InputScheduler` deciding which server ticks to send a frame for, a `TickPrediction` predicting
- * each one, and the packet carrying `inputRedundancy` older frames), `reconcileLocal` and
- * `pushRemoteSnapshots` (on each patch, in that order) and `remotePose` — the same shared
+ * each one, and the packet carrying `inputRedundancy` older frames), `pushRemoteSnapshots` and
+ * `reconcileLocal` (on each patch, in that order, so the replay steps against remotes reckoned from
+ * this snapshot — NR32) and `remotePose` — the same shared
  * `RemoteTimeline` the scene draws remotes through, its render tick fixed once per frame. No Phaser,
  * no Colyseus: the "room state" is the last `Snapshot` this client decoded, and every config read happens inside the
  * caller's mode scope.
@@ -131,10 +132,13 @@ export class TickClient {
     return self?.status === PlayerStatus.IN_MATCH && self.alive === true;
   }
 
-  private stepContext(): StepContext {
-    const snap = this.last!;
+  /** `ArenaScene.stepContext`: each step at its own tick's modifiers (M5), remotes reckoned to it (NR32). */
+  private stepContext(): (tick: number) => StepContext {
     const view = this.view!;
-    return buildStepContext(this.arena, view, this.id, snap.tick, localModifiers(view, this.id, snap.tick));
+    return (tick) =>
+      buildStepContext(this.arena, view, this.id, tick, localModifiers(view, this.id, tick), (id) =>
+        this.remotes.reckonedPose(id, tick),
+      );
   }
 
   /** One render frame at harness time nowMs; returns the input packets to send this frame. */
@@ -165,13 +169,13 @@ export class TickClient {
     return { inputs: this.prediction.recent(1 + NET_CONFIG.inputRedundancy) };
   }
 
-  /** A snapshot arrived at harness time nowMs: `reconcileLocal`, then `pushRemoteSnapshots`. */
+  /** A snapshot arrived at harness time nowMs: `pushRemoteSnapshots`, then `reconcileLocal`. */
   onSnapshot(nowMs: number, snap: Snapshot): void {
     this.last = snap;
     this.lastById = new Map(snap.cars.map((c) => [c.id, c]));
     this.view = viewOf(snap);
-    this.reconcileLocal();
     this.pushRemoteSnapshots(nowMs);
+    this.reconcileLocal();
   }
 
   private reconcileLocal(): void {

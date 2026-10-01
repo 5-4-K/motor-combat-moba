@@ -1,12 +1,34 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
+  DEFAULT_GAME_MODE,
   InputScheduler,
   MS_PER_TICK,
+  NEUTRAL_MODIFIERS,
+  TickPrediction,
+  installMode,
+  modeConfigOf,
   newTickInputBuffer,
+  ramDefenceOf,
   type InputFrame,
+  type SimBody,
+  type StepContext,
   type TimePong,
 } from "@motor-combat-moba/shared";
 import { InputClock, axisOf, localBlendAlpha, type DueTicks } from "./arena-input.js";
+
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+
+/** An open field: the pause simulation below only needs prediction to accept or refuse a frame. */
+function openField(): StepContext {
+  return {
+    carId: "mirage",
+    others: [],
+    obstacles: [],
+    bounds: { width: 1e6, height: 1e6 },
+    modifiers: NEUTRAL_MODIFIERS,
+    selfRamDefence: ramDefenceOf("mirage"),
+  };
+}
 
 function spyScheduler(): DueTicks & { slacks: Array<number | undefined> } {
   const slacks: Array<number | undefined> = [];
@@ -123,9 +145,14 @@ describe("localBlendAlpha (the local car's render blend)", () => {
  * `InputScheduler` (inside `InputClock`) on the client, a `TickInputBuffer` on the server, 10 ms each
  * way. While paused the server's tick stands still but it keeps answering `MSG_TIME` with that frozen
  * tick, exactly as the rooms do (`NetSessions.pong` off a `markTick` that keeps being called).
- * Returns how many ticks after the resume the server ran on a repeated or neutral input.
+ * Returns how many ticks after the resume the server ran on a repeated or neutral input, and how many
+ * frames after the resume a `TickPrediction` refused as non-ascending — cleared on the resume edge
+ * as `ArenaScene.pumpInput` does (phase D review M9 follow-up).
  */
-function repeatsAfterPause(pauseMs: number, tellClockAboutPause: boolean): { before: number; after: number } {
+function repeatsAfterPause(
+  pauseMs: number,
+  tellClockAboutPause: boolean,
+): { before: number; after: number; refused: number } {
   const ONE_WAY = 10;
   const FRAME_MS = 1000 / 60;
   const PAUSE_AT = 5000;
@@ -145,6 +172,10 @@ function repeatsAfterPause(pauseMs: number, tellClockAboutPause: boolean): { bef
   const sent: InputFrame[] = [];
   let before = 0;
   let after = 0;
+  const prediction = new TickPrediction();
+  const ctx = openField();
+  let body: SimBody = { x: 1000, y: 1000, angle: 0, vx: 0, vy: 0, angVel: 0, maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0 };
+  let refused = 0;
 
   for (let now = 0; now <= END; now++) {
     const serverPaused = now >= PAUSE_AT && now < RESUME_AT;
@@ -180,18 +211,22 @@ function repeatsAfterPause(pauseMs: number, tellClockAboutPause: boolean): { bef
     if (request) up.push({ at: now + ONE_WAY, kind: "time", c: request.c });
     if (now >= nextFrameAt) {
       nextFrameAt += FRAME_MS;
-      if (tellClockAboutPause) input.setPaused(clientPaused, now);
+      if (tellClockAboutPause && input.setPaused(clientPaused, now)) prediction.clear();
       if (clientPaused) {
         input.discard();
         continue;
       }
       for (const t of input.due(now, FRAME_MS)) {
-        sent.push({ tick: t, steer: 0, throttle: 1, fireSlots: 0 });
+        const frame: InputFrame = { tick: t, steer: 0, throttle: 1, fireSlots: 0 };
+        const next = prediction.predict(body, frame, ctx);
+        if (next === body && now >= RESUME_AT) refused++;
+        body = next;
+        sent.push(frame);
         up.push({ at: now + ONE_WAY, kind: "input", frames: sent.slice(-4) });
       }
     }
   }
-  return { before, after };
+  return { before, after, refused };
 }
 
 describe("InputClock across a practice/playground pause (20 ms RTT)", () => {
@@ -206,6 +241,21 @@ describe("InputClock across a practice/playground pause (20 ms RTT)", () => {
   it("needs the resume edge: without it the car sits on repeats long after a 1 s pause", () => {
     expect(repeatsAfterPause(1000, false).after).toBeGreaterThan(15);
   });
+
+  it("reports the resume edge from setPaused, and only that edge", () => {
+    const clock = new InputClock(0);
+    expect(clock.setPaused(false, 0)).toBe(false);
+    expect(clock.setPaused(true, 1)).toBe(false);
+    expect(clock.setPaused(true, 2)).toBe(false);
+    expect(clock.setPaused(false, 3)).toBe(true);
+    expect(clock.setPaused(false, 4)).toBe(false);
+  });
+
+  for (const pauseMs of [1000, 30_000]) {
+    it(`predicts every frame after a ${pauseMs / 1000} s pause: the resume clears prediction (D review M9)`, () => {
+      expect(repeatsAfterPause(pauseMs, true).refused).toBe(0);
+    });
+  }
 });
 
 describe("axisOf", () => {

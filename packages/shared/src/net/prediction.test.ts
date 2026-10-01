@@ -436,6 +436,55 @@ describe("TickPrediction", () => {
   });
 });
 
+describe("TickPrediction steps each frame with its OWN tick's context (phase D review M5)", () => {
+  const frame = (tick: number): InputFrame => ({ tick, steer: 0, throttle: 1, fireSlots: 0 });
+  // A slow that lapses on tick 13: the context answers per tick, the way `ArenaScene` builds one
+  // from `localModifiers(state, self, tick)`.
+  const LAPSE = 13;
+  const slowed: StepContext = { ...ctx, modifiers: { ...NEUTRAL_MODIFIERS, topSpeed: 0.5, accel: 0.5 } };
+  const ctxFor = (tick: number): StepContext => (tick < LAPSE ? slowed : ctx);
+
+  it("hands predict the frame's tick, and replay every replayed tick in order", () => {
+    const tp = new TickPrediction();
+    const asked: number[] = [];
+    const spy = (tick: number): StepContext => {
+      asked.push(tick);
+      return ctx;
+    };
+    let cur = START;
+    for (const t of [11, 12, 14]) cur = tp.predict(cur, frame(t), spy);
+    expect(asked).toEqual([11, 12, 14]);
+    asked.length = 0;
+    tp.replayTarget(START, 10, spy);
+    // 13 is a stall-skip gap; the server still simulated it, so the replay asks for it too.
+    expect(asked).toEqual([11, 12, 13, 14]);
+  });
+
+  it("predicts across a status lapse exactly as the server steps it, so the replay agrees", () => {
+    const tp = new TickPrediction();
+    let cur = START;
+    let server = START;
+    for (let t = 10; t <= 16; t++) {
+      cur = tp.predict(cur, frame(t), ctxFor);
+      server = stepSim(server, frame(t), DT, ctxFor(t));
+    }
+    for (const k of ["x", "y", "vx", "vy"] as const) expect(cur[k]).toBeCloseTo(server[k], 9);
+    // Replayed from the authoritative start, the frames reproduce the prediction: no correction.
+    const target = tp.replayTarget(START, 9, ctxFor);
+    for (const k of ["x", "y", "vx", "vy"] as const) expect(target[k]).toBeCloseTo(cur[k], 9);
+    // And the snapshot-tick context (the old behaviour) would have mispredicted past the lapse.
+    let stale = START;
+    for (let t = 10; t <= 16; t++) stale = stepSim(stale, frame(t), DT, ctxFor(9));
+    expect(Math.hypot(stale.x - server.x, stale.y - server.y)).toBeGreaterThan(1e-3);
+  });
+
+  it("still takes a single context for every tick", () => {
+    const tp = new TickPrediction();
+    const a = tp.predict(START, frame(1), ctx);
+    expect(a).toEqual(stepSim(START, frame(1), DT, ctx));
+  });
+});
+
 function replay2(from: SimBody, ticks: readonly number[]): SimBody {
   const frame = (tick: number): InputFrame => ({ tick, ...UP });
   let body = from;

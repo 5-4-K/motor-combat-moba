@@ -206,3 +206,32 @@ describe("buildStepContext carries the modifiers it is given", () => {
     expect(ctx.modifiers).toBe(mods);
   });
 });
+
+describe("buildStepContext places remotes at their reckoned pose (NR32)", () => {
+  const roster = (): ContextState =>
+    state({ a: player({ x: 10, y: 20 }), b: player({ x: 300, y: 400, angle: 0.5 }) });
+
+  it("puts a remote's hull where poseOf says it will be", () => {
+    const ctx = buildStepContext(ARENA, roster(), "a", 0, NEUTRAL_MODIFIERS, (id) =>
+      id === "b" ? { x: 999, y: 999, angle: 0 } : undefined,
+    );
+    expect(ctx.others.map((o) => [o.hull.x, o.hull.y, o.hull.angle])).toEqual([[999, 999, 0]]);
+  });
+
+  it("keeps a remote at its state pose without poseOf, or when poseOf has no answer for it", () => {
+    for (const poseOf of [undefined, () => undefined]) {
+      const ctx = buildStepContext(ARENA, roster(), "a", 0, NEUTRAL_MODIFIERS, poseOf);
+      expect(ctx.others.map((o) => [o.hull.x, o.hull.y, o.hull.angle])).toEqual([[300, 400, 0.5]]);
+    }
+  });
+
+  it("asks poseOf about remotes only, never the local car", () => {
+    // The local car's pose is the predicted body stepSim is handed, not a hull from the roster.
+    const asked: string[] = [];
+    buildStepContext(ARENA, roster(), "b", 0, NEUTRAL_MODIFIERS, (id) => {
+      asked.push(id);
+      return undefined;
+    });
+    expect(asked).toEqual(["a"]);
+  });
+});

@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { MS_PER_TICK, SNAPSHOT_RATE_HZ, TICK_RATE_HZ } from "../constants.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MS_PER_TICK, SNAPSHOT_RATE_HZ } from "../constants.js";
 import { NET_CONFIG } from "../config/net-config.js";
 import { ramDefenceOf } from "../config/car-config.js";
 import { msToTicks } from "../config/weapon-ticks.js";
@@ -54,13 +54,11 @@ describe("TickInterpolation", () => {
     b.push(11, { ...at(100), vx: 90, vy: 15 });
     expect(b.sample(10.5)!.body).toMatchObject({ x: 50, vx: 90, vy: 15 });
   });
-  it("keeps at most 64 snapshots and is empty after reset", () => {
+  it("keeps at most 64 snapshots", () => {
     const b = new TickInterpolation();
     for (let t = 0; t < 200; t++) b.push(t, at(t));
     expect(b.sample(0)!.body.x).toBe(200 - 64);
-    b.reset();
-    expect(b.sample(0)).toBeUndefined();
-    expect(b.newestTick()).toBeUndefined();
+    expect(b.newestTick()).toBe(199);
   });
 });
 
@@ -72,7 +70,6 @@ describe("DisplayDelay", () => {
     for (let i = 0; i < 2000; i++) t = d.ticks(1000 / 60);
     const expectMs = 40 + 1000 / SNAPSHOT_RATE_HZ;
     expect(t * MS_PER_TICK).toBeCloseTo(expectMs, 0);
-    expect(TICK_RATE_HZ).toBeGreaterThan(0);
   });
   it("never goes below minDelayMs on a perfect link", () => {
     const d = new DisplayDelay();
@@ -101,6 +98,35 @@ describe("DisplayDelay", () => {
       prev = now;
     }
     expect(prev).toBeGreaterThan(first + 49);
+  });
+});
+
+describe("DisplayDelay samples each server tick once (E2 review minors 2 and 3)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("ignores a re-broadcast of a tick it already sampled, so a pause cannot inflate the delay", () => {
+    const d = new DisplayDelay();
+    for (let i = 0; i < 120; i++) d.onSnapshot(100 + i + 40 / MS_PER_TICK, 100 + i); // 40 ms late
+    // A paused practice room re-broadcasts its frozen tick 219 while the server clock runs on.
+    for (let k = 1; k <= 120; k++) d.onSnapshot(219 + k, 219);
+    let t = 0;
+    for (let i = 0; i < 2000; i++) t = d.ticks(1000 / 60);
+    expect(t * MS_PER_TICK).toBeCloseTo(40 + 1000 / SNAPSHOT_RATE_HZ, 6);
+  });
+
+  it("ignores a snapshot older than the newest one sampled", () => {
+    const d = new DisplayDelay();
+    d.onSnapshot(100 + 40 / MS_PER_TICK, 100);
+    d.onSnapshot(400, 50); // out of order: would read 350 ticks late
+    expect(d.ticks(1000 / 60) * MS_PER_TICK).toBeCloseTo(40 + 1000 / SNAPSHOT_RATE_HZ, 6);
+  });
+
+  it("computes its target once per snapshot, not per rendered frame", () => {
+    const d = new DisplayDelay();
+    for (let i = 0; i < 120; i++) d.onSnapshot(100 + i + 40 / MS_PER_TICK, 100 + i);
+    const sort = vi.spyOn(Array.prototype, "sort");
+    for (let i = 0; i < 100; i++) d.ticks(1000 / 60);
+    expect(sort).not.toHaveBeenCalled();
   });
 });
 
@@ -241,6 +267,22 @@ describe("RemoteTimeline", () => {
     tl.forget("a");
     frameAt(tl, 10);
     expect(tl.pose("a")).toBeUndefined();
+  });
+
+  it("answers a remote's dead-reckoned pose at a tick, capped at maxExtrapolateMs (NR32)", () => {
+    const tl = new RemoteTimeline();
+    const p = path(moving(1000), GO, 1);
+    tl.push("a", 10, { body: p[0]!, keys: GO, ctx: OPEN, alive: true });
+    tl.push("a", 11, { body: p[1]!, keys: GO, ctx: OPEN, alive: true });
+    const cap = msToTicks(NET_CONFIG.maxExtrapolateMs);
+    const ahead = path(p[1]!, GO, cap);
+    expect(tl.reckonedPose("a", 11)!.x).toBeCloseTo(p[1]!.x, 9);
+    expect(tl.reckonedPose("a", 13)!.x).toBeCloseTo(ahead[2]!.x, 9);
+    // A slow link: the remote holds at its capped pose rather than being reckoned on.
+    expect(tl.reckonedPose("a", 11 + cap + 20)!.x).toBeCloseTo(ahead[cap]!.x, 9);
+    expect(tl.reckonedPose("nobody", 13)).toBeUndefined();
+    tl.forget("a");
+    expect(tl.reckonedPose("a", 13)).toBeUndefined();
   });
 
   it("draws the newest snapshot until the clock has synced", () => {

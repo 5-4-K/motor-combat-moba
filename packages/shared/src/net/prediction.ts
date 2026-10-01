@@ -89,6 +89,20 @@ function settle(target: SimBody, currentPredicted: SimBody): SimBody {
 }
 
 /**
+ * The world one predicted step runs in: either one `StepContext` for every tick, or a builder asked
+ * for each tick's own (phase D review M5, NR32). The builder is what the client passes — its status
+ * multipliers lapse on the tick the server lapses them, and remotes stand at their dead-reckoned pose
+ * for that tick — so the first prediction of a frame and every later replay of it ask the SAME
+ * question (`ctxFor(frame.tick)`), answered from whatever the client knows by then. A single context
+ * is for tests and the playtest probe, whose world does not change across the frames in flight.
+ */
+export type StepContextFor = StepContext | ((tick: number) => StepContext);
+
+function contextAt(ctxFor: StepContextFor, tick: number): StepContext {
+  return typeof ctxFor === "function" ? ctxFor(tick) : ctxFor;
+}
+
+/**
  * Client-side prediction, keyed by tick (NR26): run the local car through the same `stepSim` the
  * server will run, one frame per tick, and reconcile against each authoritative snapshot.
  *
@@ -113,7 +127,7 @@ export class TickPrediction {
    * stepped (phase D review M9). No current path produces one; this keeps the invariant local rather
    * than resting on `InputScheduler` internals across a rebuild.
    */
-  predict(state: SimBody, frame: InputFrame, ctx: StepContext): SimBody {
+  predict(state: SimBody, frame: InputFrame, ctxFor: StepContextFor): SimBody {
     if (!(frame.tick > this.newestTick)) return state;
     this.newestTick = frame.tick;
     this.frames.push(frame);
@@ -121,15 +135,16 @@ export class TickPrediction {
     // of snapshot silence.
     const cap = msToTicks(NET_CONFIG.maxInputLeadMs + 1000);
     if (this.frames.length > cap) this.base = this.frames.splice(0, this.frames.length - cap).at(-1);
-    return stepSim(state, frame, DT_SECONDS, ctx);
+    return stepSim(state, frame, DT_SECONDS, contextAt(ctxFor, frame.tick));
   }
 
   /**
    * The authoritative pose at `snapshotTick`, replayed through every tick after it up to the newest
    * frame. A tick with no frame (a stall-skip gap) replays what the server simulated for it under
-   * NR22: the last known frame repeated for `inputRepeatMs`, then neutral keys.
+   * NR22: the last known frame repeated for `inputRepeatMs`, then neutral keys. Each tick `t` steps
+   * in `ctxFor(t)`, the same context its first prediction was asked for.
    */
-  replayTarget(authoritative: SimBody, snapshotTick: number, ctx: StepContext): SimBody {
+  replayTarget(authoritative: SimBody, snapshotTick: number, ctxFor: StepContextFor): SimBody {
     for (const f of this.frames) if (f.tick <= snapshotTick) this.base = f;
     this.frames = this.frames.filter((f) => f.tick > snapshotTick);
     const repeatTicks = msToTicks(NET_CONFIG.inputRepeatMs);
@@ -146,13 +161,13 @@ export class TickPrediction {
       } else {
         keys = last !== undefined && t - lastReal <= repeatTicks ? last : NEUTRAL_KEYS;
       }
-      target = stepSim(target, keys, DT_SECONDS, ctx);
+      target = stepSim(target, keys, DT_SECONDS, contextAt(ctxFor, t));
     }
     return target;
   }
 
-  reconcile(authoritative: SimBody, snapshotTick: number, current: SimBody, ctx: StepContext): SimBody {
-    return settle(this.replayTarget(authoritative, snapshotTick, ctx), current);
+  reconcile(authoritative: SimBody, snapshotTick: number, current: SimBody, ctxFor: StepContextFor): SimBody {
+    return settle(this.replayTarget(authoritative, snapshotTick, ctxFor), current);
   }
 
   /** Newest last, for packet redundancy. */

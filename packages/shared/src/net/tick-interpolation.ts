@@ -73,10 +73,6 @@ export class TickInterpolation {
   newestTick(): number | undefined {
     return this.snaps[this.snaps.length - 1]?.tick;
   }
-
-  reset(): void {
-    this.snaps.length = 0;
-  }
 }
 
 /**
@@ -101,13 +97,25 @@ const DELAY_SLEW_MS_PER_FRAME = 1;
 export class DisplayDelay {
   private readonly lateness: number[] = [];
   private currentMs: number | undefined;
+  /** `targetMs` of the current window: it moves only when a sample does, so it is kept, not re-sorted per frame. */
+  private targetCachedMs: number = NET_CONFIG.minDelayMs;
+  /** The newest snapshot tick sampled: each server tick is measured once (E2 review minor 3). */
+  private newestSampledTick = Number.NEGATIVE_INFINITY;
 
-  /** Record one snapshot's lateness: how far the server clock had moved past its tick on arrival. */
+  /**
+   * Record one snapshot's lateness: how far the server clock had moved past its tick on arrival.
+   * A tick at or below one already sampled is ignored — a paused practice or playground room
+   * re-broadcasts its frozen tick while the server clock runs on, and every such patch would
+   * otherwise read as one more tick late, inflating the delay for a whole window after the resume.
+   */
   onSnapshot(arrivalServerTick: number, snapshotTick: number): void {
     if (!Number.isFinite(arrivalServerTick)) return;
+    if (!(snapshotTick > this.newestSampledTick)) return;
+    this.newestSampledTick = snapshotTick;
     this.lateness.push(arrivalServerTick - snapshotTick);
     if (this.lateness.length > LATENESS_WINDOW) this.lateness.shift();
-    if (this.currentMs === undefined) this.currentMs = this.targetMs();
+    this.targetCachedMs = this.targetMs();
+    if (this.currentMs === undefined) this.currentMs = this.targetCachedMs;
   }
 
   private targetMs(): number {
@@ -124,7 +132,7 @@ export class DisplayDelay {
    */
   ticks(_frameMs: number): number {
     if (this.currentMs === undefined) return NET_CONFIG.minDelayMs / MS_PER_TICK;
-    const target = this.targetMs();
+    const target = this.targetCachedMs;
     const step = Math.max(-DELAY_SLEW_MS_PER_FRAME, Math.min(DELAY_SLEW_MS_PER_FRAME, target - this.currentMs));
     this.currentMs += step;
     return this.currentMs / MS_PER_TICK;
@@ -301,13 +309,21 @@ export class RemoteTimeline {
     return out;
   }
 
+  /**
+   * Where this remote will be at server tick `tick`, for the local car's prediction (NR32): its
+   * newest snapshot dead-reckoned with its last known input through the shared `stepSim`, capped at
+   * `maxExtrapolateMs` past that snapshot and held there — on a slow link, that slow player's cost.
+   * The same cached `RemoteReckoner` the drawn pose extrapolates through, so a reckoned step is
+   * computed once per snapshot however many predicted and replayed ticks ask for it. Undefined for
+   * a car with no track (the caller falls back to its roster pose).
+   */
+  reckonedPose(id: string, tick: number): SimBody | undefined {
+    return this.tracks.has(id) ? this.reckoner.poseAt(id, tick) : undefined;
+  }
+
   /** Drop a remote: on leave, and (internally) on death, respawn and teleport. */
   forget(id: string): void {
     this.tracks.delete(id);
     this.reckoner.forget(id);
-  }
-
-  clear(): void {
-    for (const id of [...this.tracks.keys()]) this.forget(id);
   }
 }

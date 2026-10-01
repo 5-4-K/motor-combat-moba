@@ -15,6 +15,9 @@ export interface ContextState {
   };
 }
 
+/** Where a remote car stands at the tick a context is built for, or undefined to use its roster pose. */
+export type PoseOf = (sessionId: string) => { x: number; y: number; angle: number } | undefined;
+
 /**
  * The `StepContext` the local car is predicted through. This is the client's half of the lockstep:
  * it must describe the same world `serverTick` describes for the same tick, or prediction diverges
@@ -31,12 +34,18 @@ export interface ContextState {
  * half, whether the local player's inputs may move anything at all, is the caller's: see
  * `ArenaScene.canDrive` and `reconcileLocal`. Calling this function does not by itself gate movement.
  *
- * `tick` has to be the state's own tick, the same one `localModifiers` reads: `isSolid` and
- * `modifiersFromRows` both judge a status by `tick < endsTick`, so a client reading its own local
- * clock here instead would let phasing and slows lapse on a different tick than the server's.
+ * `tick` is the SERVER tick the step simulates — for prediction, the frame's own tick, the one
+ * `serverTick` will run it on (phase D review M5) — and the same one `localModifiers` reads:
+ * `isSolid` and `modifiersFromRows` both judge a status by `tick < endsTick`, so reading the
+ * snapshot's tick for a frame `lead` ticks later would keep a lapsing slow on for `lead` ticks too
+ * long, and a local wall clock would lapse it on a tick the server never ran.
  *
- * Remotes enter at their last-known *server* pose. The client predicts only itself, and that is also
- * what the server saw when it built its own `others`.
+ * Remotes enter wherever `poseOf` says they are at `tick` (NR32): the client passes each remote's
+ * dead-reckoned pose at the tick being predicted, because the server steps the local car at that
+ * tick against wherever the remotes are THEN, not where the last snapshot showed them. Only `x`,
+ * `y` and `angle` are replaced — who is solid, the chassis and `ramDefence` still come off the
+ * roster. `poseOf` is never asked about the local car, and a remote it has no answer for (or every
+ * remote, when it is omitted) enters at its last-known server pose.
  */
 export function buildStepContext(
   arena: ArenaDef,
@@ -44,10 +53,27 @@ export function buildStepContext(
   selfSessionId: string,
   tick: number,
   modifiers: Readonly<Modifiers>,
+  poseOf?: PoseOf,
 ): StepContext {
   const entries: ContextEntry[] = [];
   state.players.forEach((player, sessionId) => {
-    entries.push({ sessionId, player });
+    const pose = poseOf && sessionId !== selfSessionId ? poseOf(sessionId) : undefined;
+    // Field by field, never a spread: `player` is a Colyseus schema instance in the client, whose
+    // fields are accessors a spread would not copy.
+    entries.push({
+      sessionId,
+      player: pose
+        ? {
+            x: pose.x,
+            y: pose.y,
+            angle: pose.angle,
+            status: player.status,
+            carId: player.carId,
+            alive: player.alive,
+            statuses: player.statuses,
+          }
+        : player,
+    });
   });
   entries.sort((a, b) => (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0));
 

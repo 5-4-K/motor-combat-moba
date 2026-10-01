@@ -76,16 +76,21 @@ export class InputClock {
     this.clockSync.onPong(nowMs, pong);
   }
 
-  /** The room's pause flag, every frame. Only the paused → running edge does anything. */
-  setPaused(paused: boolean, nowMs: number): void {
+  /**
+   * The room's pause flag, every frame. Only the paused → running edge does anything, and it is what
+   * this returns true for, so the caller can drop its own tick-keyed state on the same edge
+   * (`ArenaScene` clears its `TickPrediction`, phase D review M9 follow-up).
+   */
+  setPaused(paused: boolean, nowMs: number): boolean {
     const resumed = this.paused && !paused;
     this.paused = paused;
-    if (!resumed) return;
+    if (!resumed) return false;
     this.clockSync = new ClockSync();
     this.scheduler = this.schedulerOf(this.clockSync);
     this.freshSlack = undefined;
     this.nextPingAt = nowMs;
     this.burstUntil = nowMs + NET_CONFIG.timeSyncBurstWindowMs;
+    return true;
   }
 
   /** A snapshot was reconciled and carried this `inputSlack` (and its spread, `inputSlackStd`). */
