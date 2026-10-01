@@ -76,16 +76,18 @@ export class WsRtt {
   /**
    * Sends one probe to `sessionId`. `send` runs the actual `ping` — immediately, or on the room's
    * simulated outgoing delay (NR56), so an injected link delays this probe exactly as it delays the
-   * app ping it is compared with. The stamp is taken when the frame actually leaves.
+   * app ping it is compared with. The stamp is taken NOW, before that delay, exactly as the app ping
+   * is stamped (`pingPayload` before `client.send`): stamping when the delayed frame left would drop
+   * the injected outgoing leg from the ws RTT and make `min(appRtt, wsRtt)` under-price compensation.
    */
   probe(sessionId: string, send: (fn: () => void) => void = (fn) => fn()): void {
     const session = this.sessions.get(sessionId);
     if (session === undefined) return;
     const seq = session.nextSeq++;
+    session.sent.push({ seq, at: this.now() });
+    if (session.sent.length > OUTSTANDING_WS_PINGS) session.sent.shift();
     send(() => {
       if (this.sessions.get(sessionId) !== session) return;
-      session.sent.push({ seq, at: this.now() });
-      if (session.sent.length > OUTSTANDING_WS_PINGS) session.sent.shift();
       try {
         session.socket.ping(Buffer.from(String(seq)));
       } catch {

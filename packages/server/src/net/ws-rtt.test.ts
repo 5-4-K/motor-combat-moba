@@ -66,16 +66,17 @@ describe("WsRtt (NR36 fix round 1: the transport ping bounds the compensation RT
     expect(ws.rttMs("a")).toBe(12);
   });
 
-  it("stamps a probe when the delayed send actually leaves (the injected outgoing path)", () => {
+  it("stamps a probe at the call, before the injected outgoing delay, as the app ping is stamped", () => {
     const { ws, socket, at } = rig();
     let later: (() => void) | undefined;
     ws.probe("a", (fn) => (later = fn));
     expect(socket.pings).toHaveLength(0);
-    at(1040);
+    at(1040); // the simulated outgoing leg: 40 ms
     later!();
-    at(1080);
+    at(1080); // the pong back: 40 ms more
     socket.pong(socket.pings[0]!);
-    expect(ws.rttMs("a")).toBe(40);
+    // The full injected round trip, matching the app RTT the same link would read (80), not 40.
+    expect(ws.rttMs("a")).toBe(80);
   });
 
   it("drop detaches the listener and forgets the session", () => {
