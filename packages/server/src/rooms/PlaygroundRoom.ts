@@ -666,6 +666,9 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
       // mode would drag the match clock and the deathmatch HUD along with it.
       runPhaseSweep: true,
       events: this.botEvents,
+
+      // NR36: the RTT this room measured for a session prices its presses' shot compensation.
+      rttMsOf: (id) => this.netSessions.rttMs(id),
     };
   }
 }

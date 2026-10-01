@@ -201,17 +201,19 @@ today's. On `net80clean`: input-to-server delay no more than LAN's plus half the
   at when the frame was produced.
 - **NR36 Staleness.** For a press on input tick `P`, `staleTicks = P − viewTick`. The server clamps
   it: `k = clamp(staleTicks, 0, min(capTicks, allowedTicks))`, where `capTicks =
-  msToTicks(NET_CONFIG.shotCompCapMs)` (100 ms → 6 ticks) and `allowedTicks` is what an honest
-  client on this link could have: `ceil((serverRttMs / 2 + slackMs + allowedDelayMs) / msPerTick)`,
-  with `serverRttMs` from NR19, `slackMs` from NR21's measurement and `allowedDelayMs = 2 snapshot
-  intervals + 2 × the server-measured input-arrival jitter`. A lying client gains at most the gap
+  msToTicks(NET_CONFIG.shotCompCapMs)` (150 ms → 9 ticks, F1) and `allowedTicks` is what an honest
+  client on this link could have: `ceil((serverRttMs + slackMs + allowedDelayMs) / msPerTick)`,
+  with `serverRttMs` the FULL round trip from NR19 — staleness is the input lead (the uplink half plus
+  slack) and the remote display delay, which carries the downlink half, so rtt/2 under-counts it —
+  `slackMs` from NR21's measurement and `allowedDelayMs = 2 snapshot intervals + 2 × the
+  server-measured input-arrival jitter`. A lying client gains at most the gap
   between its true staleness and `allowedTicks`, never more than `capTicks`.
   **The allowance must not grow with a bad link (D6 ruling).** Compensation is paid by the victim,
   and a bad connection must not punish others: the `slackMs` and jitter terms may not let a lossy or
   jittery client earn more rewind than an honest `net80clean` client needs. `shotCompCapMs` is
   therefore sized in Phase F from that need — Phase F measures what an honest `net80clean` client's
-  staleness actually is and sets the cap (and bounds the slack/jitter terms) from it; the 100 ms
-  above is a placeholder until then, not a target.
+  staleness actually is and sets the cap (and bounds the slack/jitter terms) from it — 150 ms,
+  measured in F1 (changelog, 2026-10-01 F1).
 - **NR37 Shot fast-forward.** A weapon instance born this tick from a press with `k > 0` is stepped
   `k` extra times inside the same `runCombat`, against the current world — walls, obstacles,
   bounces, cars, hits and detonations all resolve through the same per-instance step as a normal
@@ -366,3 +368,4 @@ Each stage merges on its own, green, with its measured numbers recorded in the p
 - 2026-09-30 (D2 fix round 4): NR18 replaces the trimmed fit with RTT-weighted fits (24 s drift, 6 s offset), keeps the drift when data is thin, slews continuously from the folded running value, detects server clock steps, and takes `rttMs` from 2 s bucket minima; held to an acceptance envelope (jitter 0-30 ms, ±1 % drift, 0-20 % spiked legs, route steps) in tests.
 - 2026-10-01 (D6, superseded by fix round 1 below): NR21 floors a late slack sample at −2 ticks, so a long stall's backlog cannot pin the safety margin; gain 0.03 → 0.015 and `slackSpreadK` 1 → 8 (net80 repeats 3.53 % at D5 → 1.84 %, input-to-server 80.4 → 112.4 ms; LAN 33.9 ms).
 - 2026-10-01 (D6 fix round 1, user ruling): latency first, and a bad connection must not punish others. §1 splits the targets: strict on `lan` and the new `net80clean` netsim link (80 ms RTT, ±2 ms, no loss); a lossy link degrades at its own player's cost, net80 repeats ≤ 4 %. NR21 back to gain 0.03 and `slackSpreadK` 1, the late-sample floor re-derived at that gain to −1 and its lossy-link cost stated (D6 final: lan 33.99 ms; net80clean 74.3 ms / 0.39 %; net80 78.3 ms / 3.69 %; net150 118.0 ms / 8.14 %). NR36's allowance must not grow with a bad link; `shotCompCapMs` is sized in Phase F from an honest `net80clean` client's need.
+- 2026-10-01 (F1): netsim measures honest shot staleness `P − viewTick` (ticks, p50 / p95 / max, six cars, 60 s, seeds 1–3): lan 4 / 5 / 5, net80clean 9 / 9 / 9, net80 10 / 12 / 13–14, net150 16–17 / 20–21 / 22–23. `shotCompCapMs` = net80clean's p95, 9 ticks = 150 ms. NR36's `allowedTicks` takes the full `serverRttMs`, not half: with rtt/2 an honest net80clean client (slack 1.54 ± 0.34) was allowed 7 of its 9 while net80 and net150 reached the cap; with the full RTT net80clean is allowed ~10 and every lossy link is held to the same 9-tick cap.

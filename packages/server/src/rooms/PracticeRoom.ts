@@ -553,6 +553,9 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
       // real deathmatch, and `runPipeline` will not infer that from the mode.
       runPhaseSweep: true,
       events: this.botEvents,
+
+      // NR36: the RTT this room measured for a session prices its presses' shot compensation.
+      rttMsOf: (id) => this.netSessions.rttMs(id),
     };
   }
 }

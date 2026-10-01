@@ -75,6 +75,14 @@ export interface TickResult {
    */
   aims: Map<string, number>;
   /**
+   * Per session id, the `viewTick` of this tick's input when that input was a REAL frame (not a
+   * repeat) carrying a new press and a `viewTick` (NR35): the render tick its client was drawing
+   * remotes at, which the pipeline turns into that press's compensation budget (NR36). A repeat
+   * never creates a press, and a frame with no `viewTick` (a bot, a client before its clock synced)
+   * records nothing.
+   */
+  viewTicks: Map<string, number>;
+  /**
    * Per session id, how many times `stepSim` actually ran for that car this tick: 1 for a car on
    * the field in `MATCH`, 0 otherwise, and never more (NR17). Counted at the call, not derived, so
    * the netsim harness's steps-per-tick metric measures the rule rather than restating it.
@@ -162,6 +170,7 @@ export function serverTick(
   const entries = sortedEntries(state);
   const masks = new Map<string, number>();
   const aims = new Map<string, number>();
+  const viewTicks = new Map<string, number>();
   const approachVelocities = new Map<string, { vx: number; vy: number }>();
   const steps = new Map<string, number>();
 
@@ -221,10 +230,11 @@ export function serverTick(
       // invariant), and an absurd-but-finite value (say, 1e300) would otherwise ride all the way
       // to `PlayerState.aimBearing` and the turret/lead math built on top of it unnormalised.
       if (taken.keys.aimAngle !== undefined) aims.set(sessionId, wrapAngle(taken.keys.aimAngle));
+      if (taken.frame?.viewTick !== undefined) viewTicks.set(sessionId, taken.frame.viewTick);
     }
   }
 
-  return { masks, aims, approachVelocities, steps };
+  return { masks, aims, viewTicks, approachVelocities, steps };
 }
 
 /**

@@ -145,3 +145,40 @@ describe("runPipeline: a mouse-aimed turret press (TR7, TR10-TR24)", () => {
     expect(player.turretAngle).toBeCloseTo(Math.PI / 2, 3);
   });
 });
+
+describe("runPipeline: a press's shot compensation budget (NR35, NR36)", () => {
+  function pressRig(rttMsOf: PipelineCtx["rttMsOf"]) {
+    const state = new ArenaState();
+    state.phase = RoomPhase.MATCH;
+    const player = new PlayerState();
+    player.sessionId = "p1";
+    player.carId = "mirage";
+    player.status = PlayerStatus.IN_MATCH;
+    player.x = ARENA_CENTRE_X;
+    player.y = ARENA_CENTRE_Y;
+    player.hp = hpOf("mirage");
+    player.alive = true;
+    player.level = 1;
+    state.players.set("p1", player);
+    state.tick = 1000;
+    const ctx: PipelineCtx = { ...newCtx(state, "p1"), rttMsOf };
+    const buffer = newTickInputBuffer();
+    ctx.inputBuffers.set("p1", buffer);
+    // The frame for tick 1001, arriving 2 ticks early (an honest lead), drawn at render tick 994.
+    buffer.offer({ tick: 1001, steer: 0, throttle: 0, fireSlots: 1 << 1, viewTick: 994 }, 999);
+    state.tick = 1001;
+    return runPipeline(ctx);
+  }
+
+  it("prices a press from its viewTick, the room's RTT and the buffer's slack", () => {
+    const { masks, compTicks } = pressRig(() => 80);
+    expect(masks.get("p1")).toBe(1 << 1);
+    expect(compTicks.get("p1")).toBeGreaterThan(0);
+    expect(compTicks.get("p1")).toBeLessThanOrEqual(1001 - 994);
+  });
+
+  it("gives nothing when the room measures no RTT (harnesses, bots)", () => {
+    expect(pressRig(undefined).compTicks.size).toBe(0);
+    expect(pressRig(() => undefined).compTicks.size).toBe(0);
+  });
+});

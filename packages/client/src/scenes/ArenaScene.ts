@@ -790,7 +790,7 @@ export class ArenaScene extends Phaser.Scene {
   private remotes = new RemoteTimeline();
   /**
    * The render tick the remotes were drawn at this frame, floored (Phase F's `viewTick`, NR35);
-   * undefined until the clock has synced. Recorded only — nothing sends it yet.
+   * undefined until the clock has synced. `sendInputTick` stamps it on every frame it produces.
    */
   lastRenderTick: number | undefined;
   private readonly cars = new Map<string, Phaser.GameObjects.Container>();
@@ -2628,6 +2628,9 @@ export class ArenaScene extends Phaser.Scene {
       ? { steer: 0, throttle: 0, fireSlots: 0, aimAngle }
       : this.readInput(aimAngle, this.wantsPointerLock(room));
     const input: InputFrame = { tick, ...keys };
+    // NR35: the render tick this frame's remotes were drawn at, so the server can price a press's
+    // shot compensation (NR36). Omitted before the clock syncs, and below tick 0 (not a wire tick).
+    if (this.lastRenderTick !== undefined && this.lastRenderTick >= 0) input.viewTick = this.lastRenderTick;
 
     // Mirrors the server's own `isActiveInput` (PracticeRoom's presence stamp): a real steer,
     // throttle or fire input is what the room now counts as "still here", so the warning it sent is

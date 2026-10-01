@@ -91,6 +91,12 @@ export class TickClient {
   readonly reconcileErrors: number[] = [];
   /** Harness ms at which the frame for each server tick was produced. */
   readonly producedAt = new Map<number, number>();
+  /**
+   * Every sent frame's honest shot staleness, `tick − viewTick` in ticks (NR35, NR36): how far behind
+   * the tick a frame is FOR the remotes were drawn when it was produced. Frames produced before the
+   * clock synced carry no `viewTick` and are not recorded.
+   */
+  readonly staleness: number[] = [];
 
   private readonly clock = new ClockSync();
   private readonly scheduler = new InputScheduler(this.clock);
@@ -178,10 +184,21 @@ export class TickClient {
     return out;
   }
 
-  /** `sendInputTick`, less the aim bearing (no firing in the baseline) and the idle-warning UI. */
+  /**
+   * `sendInputTick`, less the aim bearing (no firing in the baseline) and the idle-warning UI. The
+   * frame carries `viewTick`, the floored render tick this frame's remotes were drawn at
+   * (`ArenaScene.lastRenderTick`, NR35), exactly as the scene sends it.
+   */
   private sendInputTick(nowMs: number, tick: number): InputPacket {
     const self = this.lastById.get(this.id)!;
     const frame: InputFrame = { tick, ...this.driver.inputFor(tick) };
+    // A render tick before tick 0 (the first frames of a fresh room) is not a wire tick: omitted, as
+    // the scene omits it.
+    const R = this.remotes.renderTick;
+    if (R !== undefined && R >= 0) {
+      frame.viewTick = Math.floor(R);
+      this.staleness.push(tick - frame.viewTick);
+    }
     this.producedAt.set(tick, nowMs);
     const from = this.predicted ?? self.body;
     this.predictedPrev = from;

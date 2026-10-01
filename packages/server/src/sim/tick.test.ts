@@ -84,7 +84,7 @@ class Rig {
   }
 
   tick(
-    inputs: Record<string, InputKeys> = {},
+    inputs: Record<string, InputKeys & Pick<InputFrame, "viewTick">> = {},
     phase: RoomPhase = RoomPhase.MATCH,
     mods: ReadonlyMap<string, Modifiers> = NO_EFFECTS,
     dt: number = DT,
@@ -791,6 +791,14 @@ describe("serverTick fire mask reporting", () => {
     const rig = new Rig([makePlayer("p1", 300, CORRIDOR_Y, 0)]);
     expect(rig.tick({ p1: fire(0b010, 0.5) }).aims.get("p1")).toBe(0.5);
     expect(rig.tick({ p1: fire(0b110) }).aims.has("p1")).toBe(false);
+  });
+
+  it("reports the pressing frame's viewTick only, never a held or unpressed frame's (NR35)", () => {
+    const rig = new Rig([makePlayer("p1", 300, CORRIDOR_Y, 0)]);
+    expect(rig.tick({ p1: { ...fire(0), viewTick: 0 } }).viewTicks.has("p1")).toBe(false); // no press
+    expect(rig.tick({ p1: { ...fire(0b010), viewTick: 1 } }).viewTicks.get("p1")).toBe(1); // the press
+    expect(rig.tick({ p1: { ...fire(0b010), viewTick: 2 } }).viewTicks.has("p1")).toBe(false); // held
+    expect(rig.tick({ p1: fire(0b110) }).viewTicks.has("p1")).toBe(false); // a press with none
   });
 
   it("names every player who fired, not just the first", () => {

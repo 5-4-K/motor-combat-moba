@@ -260,6 +260,7 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
     }
   }
 
+  const staleness = clients.flatMap((c) => c.client.staleness);
   const metrics: NetsimMetrics = {
     stepsPerTickMax,
     repeatedInputRate: world.steppedCarTicks === 0 ? 0 : world.repeatedCarTicks / world.steppedCarTicks,
@@ -275,6 +276,9 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
     remoteBlendHeadingErrorP95Deg: percentile(blendHeadingErrors, 95),
     remoteBlendLagP95: percentile(blendIntendedErrors, 95),
     remoteBlendLagHeadingP95Deg: percentile(blendIntendedHeadingErrors, 95),
+    shotStalenessP50Ticks: percentile(staleness, 50),
+    shotStalenessP95Ticks: percentile(staleness, 95),
+    shotStalenessMaxTicks: staleness.reduce((m, v) => Math.max(m, v), 0),
   };
   return {
     metrics,

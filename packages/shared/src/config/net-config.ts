@@ -123,4 +123,16 @@ export const NET_CONFIG = {
    * the jump (NR29, NR31).
    */
   remoteTeleportCars: 3,
+  /**
+   * The most rewind any press may earn, in ms (NR36): a freshly born shot is fast-forwarded at most
+   * `msToTicks(shotCompCapMs)` ticks, however the client's link measures. Compensation is paid by the
+   * victim, so it is sized from what an HONEST client on the good connection needs and no link earns
+   * more (the D6 ruling on NR36): `net80clean`'s measured p95 shot staleness (`tick − viewTick`),
+   * rounded up to a whole tick.
+   *
+   * Measured at 27169355 + the F1 staleness metric (netsim baseline, six cars, 60 s, seeds 1–3), in
+   * ticks p50 / p95 / max: lan 4 / 5 / 5, net80clean 9 / 9 / 9, net80 10 / 12 / 13–14, net150
+   * 16–17 / 20–21 / 22–23. net80clean's p95 is 9 ticks = 150 ms.
+   */
+  shotCompCapMs: 150,
 } as const;

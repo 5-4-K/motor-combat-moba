@@ -52,6 +52,11 @@
  *   drawn pose against the blend's own target that frame, `blend(interpolated, reckoned at the
  *   anchor tick, current weight)` (`RemoteTimeline.blendTarget`): position u and heading degrees,
  *   p95. Time-aware: a settle that trails the target (phase E re-review I4) reads here.
+ * - `shotStalenessP50Ticks` / `shotStalenessP95Ticks` / `shotStalenessMaxTicks` — per input frame a
+ *   client sent with a `viewTick` (NR35), `tick − viewTick`: how many ticks behind the tick the
+ *   frame is for the client was drawing remotes, i.e. the input lead plus the remote display delay.
+ *   It is the rewind an HONEST client on this link would ask for on a press (NR36); Phase F sized
+ *   `NET_CONFIG.shotCompCapMs` from `net80clean`'s p95. Ticks, nearest-rank percentiles.
  */
 export interface NetsimMetrics {
   stepsPerTickMax: number;
@@ -68,6 +73,9 @@ export interface NetsimMetrics {
   remoteBlendHeadingErrorP95Deg: number;
   remoteBlendLagP95: number;
   remoteBlendLagHeadingP95Deg: number;
+  shotStalenessP50Ticks: number;
+  shotStalenessP95Ticks: number;
+  shotStalenessMaxTicks: number;
 }
 
 /** How far BEFORE the frame the trajectory a drawn remote pose is judged against reaches, ms. */

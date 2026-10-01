@@ -21,6 +21,7 @@ import {
   type PlayerState,
 } from "@motor-combat-moba/shared";
 import { serverTick } from "../sim/tick.js";
+import { shotCompTicks } from "../net/shot-comp.js";
 import {
   applyCombatResult,
   clearInstances,
@@ -82,6 +83,12 @@ export interface PipelineCtx {
    * passes one, to log what a headless match actually did.
    */
   events?: CombatEvents;
+  /**
+   * The server's measured RTT of a session (`NetSessions.rttMs`, NR19), for pricing a press's shot
+   * compensation (NR36). The rooms pass their `NetSessions`; a harness leaves it undefined, and every
+   * press then gets no compensation — as does a bot, whose frames carry no `viewTick`.
+   */
+  rttMsOf?: (sessionId: string) => number | undefined;
 }
 
 /**
@@ -95,6 +102,8 @@ export function runPipeline(ctx: PipelineCtx): {
   combatPlayers: CombatResultPlayer[] | null;
   /** `serverTick`'s real per-car `stepSim` count for this tick (0 or 1, NR17). */
   steps: ReadonlyMap<string, number>;
+  /** Per pressing session, the ticks its new shots are owed (NR36); only entries above 0. */
+  compTicks: ReadonlyMap<string, number>;
 } {
   const state = ctx.state;
   const dt = 1 / ctx.hz;
@@ -104,7 +113,7 @@ export function runPipeline(ctx: PipelineCtx): {
   // effect whose last tick was the previous one. New effects are only ever added at the far end of
   // the tick, by combat, and take hold on the next one.
   const statusMods = statusTick(state, state.tick);
-  const { masks, aims, approachVelocities, steps } = serverTick(
+  const { masks, aims, viewTicks, approachVelocities, steps } = serverTick(
     state,
     ctx.inputBuffers,
     dt,
@@ -132,7 +141,31 @@ export function runPipeline(ctx: PipelineCtx): {
       state.tick,
     );
   }
-  return { masks, combatPlayers: combatTick(ctx, dt, masks, contact, aims), steps };
+  const compTicks = compTicksOf(ctx, viewTicks);
+  return { masks, combatPlayers: combatTick(ctx, dt, masks, contact, aims, compTicks), steps, compTicks };
+}
+
+/**
+ * Each press's shot compensation budget (NR36), from the `viewTick` its frame carried, the room's RTT
+ * measurement of that session and the slack its input buffer measured. Only presses with a
+ * `viewTick` are priced, and only a budget above 0 is kept.
+ */
+function compTicksOf(ctx: PipelineCtx, viewTicks: ReadonlyMap<string, number>): Map<string, number> {
+  const out = new Map<string, number>();
+  if (ctx.rttMsOf === undefined) return out;
+  for (const [id, viewTick] of viewTicks) {
+    const buffer = ctx.inputBuffers.get(id);
+    if (!buffer) continue;
+    const k = shotCompTicks({
+      pressTick: ctx.state.tick,
+      viewTick,
+      rttMs: ctx.rttMsOf(id),
+      slackMeanTicks: buffer.slackMeanTicks(),
+      slackStdTicks: buffer.slackStdTicks(),
+    });
+    if (k > 0) out.set(id, k);
+  }
+  return out;
 }
 
 /**
@@ -153,6 +186,9 @@ function combatTick(
   // every turret press's bearing onto `toCombatPlayers`'s own default. `toCombatPlayers` keeps its
   // own default — its many direct callers in tests and the playtest harness do not care about aim.
   aims: ReadonlyMap<string, number>,
+  // Per pressing session, how many ticks its newly born shots are owed (NR36). Priced here and
+  // carried to the seam below; nothing consumes it yet. NR37's fast-forward (F2) is what spends it.
+  compTicks: ReadonlyMap<string, number>,
 ): CombatResultPlayer[] | null {
   const state = ctx.state;
   if (state.phase !== RoomPhase.MATCH || ctx.matchRoster.size === 0) {
@@ -176,6 +212,8 @@ function combatTick(
     spikeHits: contact.spikeHits,
     statusRequests: contact.statusRequests,
     events: ctx.events,
+    // F2 seam (NR37): `compTicks` becomes `runCombat`'s fast-forward input here. Until then it is
+    // priced and returned by `runPipeline`, but no shot is stepped ahead.
   });
 
   applyCombatResult(state, result, ctx.combat);

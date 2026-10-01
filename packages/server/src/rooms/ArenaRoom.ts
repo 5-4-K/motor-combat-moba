@@ -525,6 +525,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       ram: this.ram,
       hz: TICK_RATE_HZ,
       runPhaseSweep: rulesOf(this.state.mode).respawns,
+
+      // NR36: the RTT this room measured for a session prices its presses' shot compensation.
+      rttMsOf: (id) => this.netSessions.rttMs(id),
     };
   }
 
