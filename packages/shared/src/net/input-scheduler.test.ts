@@ -47,6 +47,21 @@ describe("InputScheduler", () => {
     expect(burst.length).toBeLessThanOrEqual(8);
   });
 
+  it("steers slack to targetSlackTicks + slackSpreadK x the reported spread (NR21, D5 ruling E)", () => {
+    // Same clock, same mean-slack samples sitting exactly on the old target; only the spread differs.
+    const flat = new InputScheduler(syncedClock(40));
+    const spread = new InputScheduler(syncedClock(40));
+    for (let now = 2000; now < 6000; now += 1000 / 60) {
+      flat.due(now, 1000 / 60, NET_CONFIG.targetSlackTicks, 0);
+      spread.due(now, 1000 / 60, NET_CONFIG.targetSlackTicks, 2);
+    }
+    // On target with no spread: the lead does not move off rtt/2 + the initial safety.
+    expect(flat.leadMs).toBeCloseTo(40 + NET_CONFIG.targetSlackTicks * MS_PER_TICK, 6);
+    // A 2-tick spread means slack is 2K ticks short of its target: the safety grows.
+    expect(NET_CONFIG.slackSpreadK).toBeGreaterThan(0);
+    expect(spread.leadMs).toBeGreaterThan(flat.leadMs + MS_PER_TICK);
+  });
+
   it("moves its lead by at most maxDilation of elapsed time per call", () => {
     const s = new InputScheduler(syncedClock(40));
     s.due(2000, 1000 / 60, 1.5);

@@ -299,6 +299,8 @@ describe("serverTick", () => {
     rig.offer("p1", { tick: 5, ...UP });
     rig.tick();
     expect(player.inputSlack).toBeCloseTo(3, 9);
+    // ...and their spread (D5 ruling E): slacks 2 and 4, population std 1.
+    expect(player.inputSlackStd).toBeCloseTo(1, 6);
   });
 
   it("integrates with the dt it is given", () => {

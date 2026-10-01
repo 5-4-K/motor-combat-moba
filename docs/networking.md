@@ -1,6 +1,6 @@
 # Networking
 
-Clients must never send poses. The wire message is `INPUT_MESSAGE` (`"input"`): `{ seq, steer, throttle, fireSlots, aimAngle? }` (`InputMessage` in shared) — `fireSlots` is a uint8 bitmask, bit 0 = **fire slot 0, the basic attack** (abilities are 1..`N`, since the 2026-09-20 index flip), replacing the old single `fire` boolean. `aimAngle` is the world bearing, radians, from the driven car's turret pivot to the crosshair (spec TR21) — sent on every input, but the server reads it only off an input whose fire mask carried a NEW press (TR23); absent means "fire where the turret already points" (TR12). Server `isInputMessage` validates then enqueues, accepting only an absent or finite `aimAngle` (TR22). `withSimulatedLatency` delays enqueue when `SIM_LATENCY_MS` / `SIM_JITTER_MS` are set; otherwise pass-through.
+Clients must never send poses. The wire message is `INPUT_MESSAGE` (`"input"`): `{ seq, steer, throttle, fireSlots, aimAngle? }` (`InputMessage` in shared) — `fireSlots` is a uint8 bitmask, bit 0 = **fire slot 0, the basic attack** (abilities are 1..`N`, since the 2026-09-20 index flip), replacing the old single `fire` boolean. `aimAngle` is the world bearing, radians, from the driven car's turret pivot to the crosshair (spec TR21) — sent on every input, but the server reads it only off an input whose fire mask carried a NEW press (TR23); absent means "fire where the turret already points" (TR12). Server `isInputMessage` validates then enqueues, accepting only an absent or finite `aimAngle` (TR22). `withSimulatedLatency` delays enqueue when `SIM_LATENCY_MS` / `SIM_JITTER_MS` are set; otherwise pass-through (and since D5 it delays the other direction too — see [Hardening](#hardening-nr54nr56)).
 
 `ArenaRoom` ticks at sim rate (`TICK_RATE_HZ`, 60) and broadcasts a snapshot at `SNAPSHOT_RATE_HZ` (60): `patchRate` is `null`, and the room calls `broadcastPatch()` itself at the end of every tick `isSnapshotTick` (`rooms/snapshot-cadence.ts`) names, so a snapshot is always the state of exactly one tick and carries that tick (NR12). The snapshot rate is its own constant, and no client code may assume one snapshot per tick (hard invariant 5). `serverTick` applies queued inputs through shared `stepSim`.
 
@@ -78,3 +78,60 @@ a refused chat message needs no reply, since the client ran the same validator f
 server still rejects is a stale or hostile client. See
 [`schema-reference.md`](schema-reference.md#lobby-messages) for the full lobby message list and
 [`config-reference.md`](config-reference.md#chat_config) for `CHAT_CONFIG`.
+
+## Hardening (NR54–NR56)
+
+Three guards stand between a room and a hostile, flooding or old client. None of them may ever touch a
+client of the current build in normal play — `rate-limit.test.ts` drives an honest client's whole
+message mix (inputs from a 144 fps loop with catch-up bursts, the time-sync burst and steady rate, ping
+echoes, lobby clicking, jitter and two TCP retransmit stalls) through the limits for 60 s and requires
+zero refusals.
+
+**Rate limits (NR54).** `packages/server/src/net/rate-limit.ts`. Every `onMessage` handler in all three
+rooms is wrapped in `limited(this.limits, kind, …)`, which charges the message to a per-client token
+bucket before the handler runs: `"input"` (`INPUT_MESSAGE`) at `2 × TICK_RATE_HZ`/s with a burst of 30,
+`"time"` (`MSG_TIME` and the `MSG_PING` echo) at 20/s burst 20, `"lobby"` (every other message, and any
+message type the room never registered, via a `"*"` handler) at 10/s burst 10. An over-limit message is
+dropped and counted (`ClientLimits.droppedFor`). A client continuously over any one limit for more than
+`RATE_LIMIT_KICK_MS` (5 s) is disconnected with `CLOSE_CODES.RATE_LIMITED`. "Continuously" means
+refusals keep coming at least once a second and no allowed message finds the bucket with tokens to
+spare; a flood trickled through at exactly the refill rate is still the flood. The WebSocket transport
+refuses any frame over `MAX_WS_PAYLOAD_BYTES` (4 KiB, `http-app.ts`) — Colyseus 0.18's own default,
+now set explicitly.
+
+**Protocol version (NR55).** `PROTOCOL_VERSION` (shared `constants.ts`) rides every join as the
+`protocol` option (`joinOptions` in the client's `net/connection.ts`; `playtest/lan.ts` does the same).
+Every room's `onJoin` — and `PracticeRoom.onCreate`, before its own setup check — refuses a mismatch
+with `CLOSE_CODES.PROTOCOL_MISMATCH` and "Client and server are different versions (client protocol X,
+server Y). Refresh the page.", which each scene's existing join-error path shows. A client older than
+D5 sends no `protocol` and reads "client protocol none". Bump it on every wire change.
+
+**Close codes.** Every code the game chooses is in `CLOSE_CODES` (shared `net/close-codes.ts`), in
+4100–4199: Colyseus 0.18 owns 4000–4003 and 4010 (`CloseCode`) and 4217 (`ErrorCode.INVALID_PAYLOAD`),
+and a server test holds the table clear of both.
+
+**Matchmaker CORS.** Colyseus core answers `/matchmake/*` ahead of Express with the caller's Origin
+reflected. With `CLIENT_ORIGIN` set, `restrictMatchmakerCors` (`http-app.ts`) pins
+`Access-Control-Allow-Origin` to that origin for every route; unset (the LAN release, same-origin),
+the reflection stands. `/colyseus` keeps its own same-site guard (`monitor.ts`).
+
+**Server RTT is not forgeable.** `NetSessions` remembers the last four `MSG_PING` stamps it sent each
+session and accepts an echo only of one of those, once — the server's RTT will cap shot compensation
+(Phase F), so an invented old stamp must not buy a longer window.
+
+**Latency injection, both directions (NR56).** Dev only: `SIM_LATENCY_MS` (one-way), `SIM_JITTER_MS`
+and `SIM_LOSS_PCT`, all unset in a release. Both directions run on a `DelayLine` per client — in order,
+like the WebSocket it models, with a lost message retransmitted `2 × SIM_LATENCY_MS` later and
+everything behind it held (the netsim `Link` model). Client → server wraps input delivery
+(`withSimulatedLatency`, keyed by session). Server → client wraps the client's `raw` send
+(`OutgoingDelay.wrapClient`), which in Colyseus 0.18 every outgoing frame passes through — snapshots
+from `broadcastPatch`, the `MSG_TIME` pong, `MSG_PING`, errors — copying the bytes so a delayed
+snapshot is still the tick it was encoded at. It is installed per client only when a latency is
+configured, so nothing touches a release build's transport. `ArenaRoom` and `PracticeRoom` inject;
+`PlaygroundRoom` deliberately does not (PG9: simulated lag makes a feel test lie).
+
+**Slack spread (NR21, D5 ruling E).** `PlayerState.inputSlackStd` carries, beside `inputSlack`, the
+standard deviation of the same 30 slack samples. The client's `InputScheduler` steers the mean slack to
+`targetSlackTicks + slackSpreadK × inputSlackStd`, so a jittery input path aims further from the late
+edge instead of landing its slow tail late. It is a separate field rather than folded into
+`inputSlack`, so the mean keeps its NR21 meaning and the margin a spread is worth stays a client knob.

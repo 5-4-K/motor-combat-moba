@@ -2664,7 +2664,7 @@ export class ArenaScene extends Phaser.Scene {
     // then be snapped back every patch.
     // The server's slack report for this snapshot (NR21), read whether or not the car is driving:
     // `InputClock` hands it to the scheduler on the next frame that sends, and drops it otherwise.
-    if (local) this.inputClock?.onSnapshot(local.inputSlack);
+    if (local) this.inputClock?.onSnapshot(local.inputSlack, local.inputSlackStd);
     if (!local || local.status !== PlayerStatus.IN_MATCH || !local.alive) {
       this.prediction.clear();
       this.predicted = undefined;

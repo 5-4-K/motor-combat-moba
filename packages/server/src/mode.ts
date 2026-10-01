@@ -35,12 +35,19 @@ export function getRevealSeconds(fallback: number): number {
   return parseCarSelectSeconds(process.env.REVEAL_SECONDS, fallback);
 }
 
+/**
+ * The dev-only latency injector's knobs (NR56): one-way `SIM_LATENCY_MS` and `SIM_JITTER_MS`, applied
+ * to BOTH directions, and `SIM_LOSS_PCT`, the chance a message is lost and retransmitted one round
+ * trip later. All three unset (a release `.env`) means no injection anywhere.
+ */
 export function getSimulatedLatency(): LatencyConfig {
   const latencyMs = Number(process.env.SIM_LATENCY_MS);
   const jitterMs = Number(process.env.SIM_JITTER_MS);
+  const lossPct = Number(process.env.SIM_LOSS_PCT);
   return {
     latencyMs: Number.isFinite(latencyMs) && latencyMs > 0 ? latencyMs : 0,
     jitterMs: Number.isFinite(jitterMs) && jitterMs > 0 ? jitterMs : 0,
+    lossPct: Number.isFinite(lossPct) && lossPct > 0 ? Math.min(100, lossPct) : 0,
   };
 }
 

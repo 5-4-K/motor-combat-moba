@@ -19,6 +19,7 @@ describe("PlayerState", () => {
     expect(p.status).toBe(0);
     expect(p.ackRepeated).toBe(false);
     expect(p.inputSlack).toBe(0);
+    expect(p.inputSlackStd).toBe(0);
     expect(p.name).toBe("");
     expect(p.colorId).toBe(0);
     expect(p.team).toBe(0);

@@ -33,6 +33,13 @@ export const NET_CONFIG = {
   shotExtrapolationCapMs: 50,
   /** Where the client's slack feedback steers the mean input lead, in ticks (NR21). */
   targetSlackTicks: 1.5,
+  /**
+   * How many standard deviations of the server-reported slack spread (`PlayerState.inputSlackStd`)
+   * the client adds to `targetSlackTicks` (NR21, D5 ruling E), so a jittery input path aims its mean
+   * further from the late edge instead of landing its slow tail late. A steady path reports ~0 spread
+   * and keeps the plain target.
+   */
+  slackSpreadK: 1,
   /** Most the client's tick clock may run faster or slower than nominal while steering slack (NR21). */
   maxDilation: 0.04,
   /** How long a missing input repeats the last real one before the car goes neutral (NR22). */

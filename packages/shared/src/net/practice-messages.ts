@@ -2,6 +2,7 @@ import { activeCarIds, isActiveCarId } from "../config/car-config.js";
 import type { CarId } from "../config/types.js";
 import { flow } from "../modes/active.js";
 import { isBotDifficulty, type BotDifficulty } from "./playground-messages.js";
+import { CLOSE_CODES } from "./close-codes.js";
 
 /** Room name, registered on EVERY process — practice ships (spec PR3). */
 export const PRACTICE_ROOM_NAME = "practice";
@@ -10,20 +11,18 @@ export const MSG_PRACTICE_PAUSE = "pr_pause"; // no payload: toggle
 export const MSG_PRACTICE_IDLE_WARNING = "pr_idle_warn"; // no payload: server -> client
 
 /**
- * Close codes, continuing the room-defined 4000+ block (4000 bad name, 4001 taken name, 4002 kicked,
- * 4003 second arena, 4004 arena busy, 4005 playground busy). None of these four are
- * interchangeable — 4007 refuses a join over the room cap, 4008 refuses one because a playground is
- * live (PR10's mirror: the tuning store it writes through is process-wide, so a practice session born
- * under its overrides would run on tables no arena is using), 4006 ends a session already in
- * progress (PR25), and 4009 refuses join options that fail `isPracticeSetup` — this room's own
- * counterpart to `ArenaRoom`'s "bad name" refusal, which claims 4000 there instead, since 4000 was
- * already spoken for in this room's own block (see above). 4010 is colyseus's own `DEVMODE_RESTART`
- * close code — never claim it.
+ * Practice's close codes, named aliases into the one app-code table `CLOSE_CODES` (D5 ruling A moved
+ * every app code out of the 4000–4010 block Colyseus claims). None of these four are
+ * interchangeable — FULL refuses a join over the room cap, PLAYGROUND_BUSY refuses one because a
+ * playground is live (PR10's mirror: the tuning store it writes through is process-wide, so a
+ * practice session born under its overrides would run on tables no arena is using), IDLE ends a
+ * session already in progress (PR25), and INVALID_SETUP refuses join options that fail
+ * `isPracticeSetup` — this room's own counterpart to `ArenaRoom`'s "bad name" refusal.
  */
-export const PRACTICE_IDLE_CLOSE_CODE = 4006;
-export const PRACTICE_FULL_CLOSE_CODE = 4007;
-export const PRACTICE_PLAYGROUND_BUSY_CLOSE_CODE = 4008;
-export const PRACTICE_INVALID_SETUP_CLOSE_CODE = 4009;
+export const PRACTICE_IDLE_CLOSE_CODE = CLOSE_CODES.PRACTICE_IDLE;
+export const PRACTICE_FULL_CLOSE_CODE = CLOSE_CODES.PRACTICE_FULL;
+export const PRACTICE_PLAYGROUND_BUSY_CLOSE_CODE = CLOSE_CODES.PRACTICE_PLAYGROUND_BUSY;
+export const PRACTICE_INVALID_SETUP_CLOSE_CODE = CLOSE_CODES.PRACTICE_INVALID_SETUP;
 
 export const PRACTICE_IDLE_ERROR = "Practice session ended — no input for a while";
 export const PRACTICE_FULL_ERROR = "Too many practice sessions are running right now";

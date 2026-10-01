@@ -201,6 +201,57 @@ describe("ClockSync acceptance envelope (NR18)", () => {
   });
 });
 
+describe("ClockSync after a pong gap (N7)", () => {
+  /**
+   * A throttled background tab: pongs every `timeSyncIntervalMs` for 30 s, none for the next 30 s,
+   * then pongs again for 60 s — every leg after the gap spiked by 250 ms with probability 0.2.
+   * A pong whose own legs were spiked must not cause a snap, and the estimate stays within 40 ms.
+   * Seeds 17 and 39 open the refill on a run of same-signed spikes, which once read as a clock step.
+   */
+  const GAP_FROM = 30_000;
+  const GAP_TO = 60_000;
+  const cases = [0.01, -0.01].flatMap((drift) => [1, 2, 3, 4, 17, 39].map((seed) => ({ drift, seed })));
+
+  it.each(cases)("drift $drift, seed $seed: no spike-caused snap, error <= 40 ms", ({ drift, seed }) => {
+    const rand = rng(seed);
+    const rate = 1 / (1 + drift);
+    const origin = 5432.1;
+    const truth = (q: number) => q * rate + origin;
+    const pongs: { at: number; pong: TimePong; spiked: boolean }[] = [];
+    for (let send = 0; send <= 120_000; send += NET_CONFIG.timeSyncIntervalMs) {
+      if (send > GAP_FROM && send < GAP_TO) continue;
+      let u = 40 + (rand() * 2 - 1) * 5;
+      let d = 40 + (rand() * 2 - 1) * 5;
+      let spiked = false;
+      if (send >= GAP_TO && rand() < 0.2) {
+        u += 250;
+        spiked = true;
+      }
+      if (send >= GAP_TO && rand() < 0.2) {
+        d += 250;
+        spiked = true;
+      }
+      pongs.push({ at: send + u + d, pong: { c: send, ...pongFields((send + u) * rate + origin) }, spiked });
+    }
+    pongs.sort((a, b) => a.at - b.at);
+    const clock = new ClockSync();
+    let spikeSnaps = 0;
+    let maxErr = 0;
+    pongs.forEach(({ at, pong: p, spiked }, i) => {
+      const before = clock.ready ? clock.serverTick(at) * MS_PER_TICK : Number.NaN;
+      clock.onPong(at, p);
+      const jump = Math.abs(clock.serverTick(at) * MS_PER_TICK - before);
+      if (spiked && jump > NET_CONFIG.clockSnapMs) spikeSnaps++;
+      const next = pongs[i + 1]?.at ?? at;
+      for (const q of [at, (at + next) / 2, next - 0.01]) {
+        if (q > WARMUP_MS) maxErr = Math.max(maxErr, Math.abs(clock.serverTick(q) * MS_PER_TICK - truth(q)));
+      }
+    });
+    expect(spikeSnaps).toBe(0);
+    expect(maxErr).toBeLessThanOrEqual(40);
+  });
+});
+
 describe("ClockSync route changes", () => {
   const STEP_AT = 40_000;
   const routes = [

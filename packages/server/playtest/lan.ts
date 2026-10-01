@@ -14,6 +14,7 @@ import {
   MSG_PING,
   MSG_TIME,
   NET_CONFIG,
+  PROTOCOL_VERSION,
   speedOf,
   type InputFrame,
 } from "@motor-combat-moba/shared";
@@ -33,20 +34,28 @@ interface Bot {
   lastSendMs: number;
   /** The newest snapshot's `inputSlack`, handed to the scheduler once and then cleared (NR21). */
   freshSlack: number | undefined;
+  /** That snapshot's `inputSlackStd`, handed over with it (D5 ruling E). */
+  freshSlackStd: number;
+  /** The close code if the server dropped this bot mid-run (a rate-limit kick would show here). */
+  droppedWith: number | undefined;
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 async function join(name: string): Promise<Bot> {
   const client = new Client(ENDPOINT);
-  const room = await client.joinOrCreate("arena", { name });
+  // `protocol` on every join (NR55): a server refuses a join that does not carry its PROTOCOL_VERSION.
+  const room = await client.joinOrCreate("arena", { name, protocol: PROTOCOL_VERSION });
   // The server never allows reconnection; the SDK default would hang on a dropped socket.
   room.reconnection.enabled = false;
   const clock = new ClockSync();
   const bot: Bot = {
     name, room, clock, scheduler: new InputScheduler(clock), frames: [], lastSendMs: performance.now(),
-    freshSlack: undefined,
+    freshSlack: undefined, freshSlackStd: 0, droppedWith: undefined,
   };
+  room.onLeave((code) => {
+    bot.droppedWith = code;
+  });
   // Time sync exactly as `ArenaScene.bindTimeSync` runs it: a burst on join, then the steady rate.
   room.onMessage(MSG_TIME, (p) => clock.onPong(performance.now(), p));
   room.onMessage(MSG_PING, (m) => room.send(MSG_PING, m));
@@ -59,7 +68,10 @@ async function join(name: string): Promise<Bot> {
   }, NET_CONFIG.timeSyncBurstWindowMs).unref();
   room.onStateChange((state: any) => {
     const me = state.players?.get(room.sessionId);
-    if (me) bot.freshSlack = me.inputSlack;
+    if (me) {
+      bot.freshSlack = me.inputSlack;
+      bot.freshSlackStd = me.inputSlackStd;
+    }
   });
   return bot;
 }
@@ -72,7 +84,7 @@ function send(bot: Bot, msg: { steer?: -1 | 0 | 1; throttle?: -1 | 0 | 1; fireSl
   const now = performance.now();
   const slack = bot.freshSlack;
   bot.freshSlack = undefined;
-  const ticks = bot.scheduler.due(now, now - bot.lastSendMs, slack);
+  const ticks = bot.scheduler.due(now, now - bot.lastSendMs, slack, bot.freshSlackStd);
   bot.lastSendMs = now;
   for (const tick of ticks) {
     bot.frames.push({ tick, steer: 0, throttle: 0, fireSlots: 0, ...msg });
@@ -208,6 +220,12 @@ async function main(): Promise<void> {
   if (state().winnerSessionId) {
     console.log(`winner: ${state().players.get(state().winnerSessionId)?.name ?? state().winnerSessionId}`);
   }
+
+  // NR54: an honest client is never rate-limited or disconnected.
+  const dropped = [alice, bob].filter((b) => b.droppedWith !== undefined);
+  console.log(
+    `server disconnects during the run: ${dropped.map((b) => `${b.name} (code ${b.droppedWith})`).join(", ") || "none"}`,
+  );
 
   await alice.room.leave();
   await bob.room.leave();

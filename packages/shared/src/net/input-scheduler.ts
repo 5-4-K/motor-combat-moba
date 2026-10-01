@@ -29,12 +29,15 @@ export class InputScheduler {
   /**
    * `slackTicks` is a NEW slack sample — pass it once per snapshot received since the last call, and
    * `undefined` on every other call. The integrator runs per sample, never per call, so its gain does
-   * not depend on the frame rate.
+   * not depend on the frame rate. `slackStdTicks` is the same snapshot's spread (`inputSlackStd`);
+   * the target the mean is steered to is `targetSlackTicks + slackSpreadK × slackStdTicks` (D5 ruling
+   * E), so a jittery path keeps its slow tail on time rather than only its mean.
    */
-  due(nowMs: number, frameMs: number, slackTicks: number | undefined): number[] {
+  due(nowMs: number, frameMs: number, slackTicks: number | undefined, slackStdTicks = 0): number[] {
     if (!this.clock.ready) return [];
     if (slackTicks !== undefined) {
-      const err = NET_CONFIG.targetSlackTicks - slackTicks;
+      const target = NET_CONFIG.targetSlackTicks + NET_CONFIG.slackSpreadK * Math.max(0, slackStdTicks);
+      const err = target - slackTicks;
       const beyond = Math.sign(err) * Math.max(0, Math.abs(err) - DEADBAND_TICKS);
       this.safetyMs += beyond * SAFETY_GAIN * MS_PER_TICK;
       this.safetyMs = Math.max(0, Math.min(this.safetyMs, NET_CONFIG.maxInputLeadMs - MS_PER_TICK));

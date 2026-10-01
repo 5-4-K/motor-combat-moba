@@ -1,5 +1,6 @@
 import { Room, ServerError, matchMaker, type Client } from "@colyseus/core";
 import {
+  CLOSE_CODES,
   INPUT_MESSAGE,
   isInputPacket,
   newTickInputBuffer,
@@ -60,6 +61,8 @@ import {
 import { scoped } from "./mode-scope.js";
 import { newRoomStepper } from "./fixed-step.js";
 import { NetSessions, installNetHandlers } from "../net/net-session.js";
+import { assertProtocol } from "../net/protocol-gate.js";
+import { ClientLimits, limitUnknownMessages, limited } from "../net/rate-limit.js";
 
 /**
  * The level every playground car is held at. Every `unlocksAt` in `weapons()` is at or below it,
@@ -72,11 +75,8 @@ export const PLAYGROUND_LEVEL = 3;
 export const ARENA_BUSY_ERROR =
   "Someone is in a match right now. Close the arena and any practice session, then try again";
 
-/**
- * The close code carried with `ARENA_BUSY_ERROR`. Sits alongside `ArenaRoom`'s 4003 (second arena)
- * and 4000/4001/4002 (bad name, taken name, kicked) in the room-defined 4000+ block.
- */
-const ARENA_BUSY_CODE = 4004;
+/** The close code carried with `ARENA_BUSY_ERROR`, from the one app-code table (D5 ruling A). */
+const ARENA_BUSY_CODE = CLOSE_CODES.PLAYGROUND_ARENA_BUSY;
 
 /**
  * The string a second playground tab sees. `maxClients = 1` only keeps ONE client out of a given
@@ -85,8 +85,8 @@ const ARENA_BUSY_CODE = 4004;
  */
 export const PLAYGROUND_BUSY_ERROR = "A playground session is already open";
 
-/** The close code carried with `PLAYGROUND_BUSY_ERROR`, next in the room-defined 4000+ block. */
-const PLAYGROUND_BUSY_CODE = 4005;
+/** The close code carried with `PLAYGROUND_BUSY_ERROR`, from the one app-code table (D5 ruling A). */
+const PLAYGROUND_BUSY_CODE = CLOSE_CODES.PLAYGROUND_BUSY;
 
 /**
  * May a playground room open right now? No, if anyone at all is sitting in the arena OR in a
@@ -217,6 +217,11 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
   private readonly stepper = newRoomStepper();
   /** Time-sync state (NR18, NR19): the tick grid pongs describe and each session's measured RTT. */
   private readonly netSessions = new NetSessions();
+  /**
+   * Per-client message budgets (NR54). No latency injection in either direction here: simulated lag
+   * would only make a feel test lie (PG9).
+   */
+  private readonly limits = new ClientLimits();
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -254,41 +259,43 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
       // `setSimulationInterval`: Colyseus 0.18's `patchRate` setter otherwise arms a stray clock
       // interval.
       this.patchRate = null;
-      installNetHandlers(this, this.netSessions, (fn) => scoped(this.modeConfig, fn));
+      installNetHandlers(this, this.netSessions, (fn) => scoped(this.modeConfig, fn), this.limits);
+      limitUnknownMessages(this, this.limits);
 
       // Straight into the CONTROLLED car's buffer (PG9), and with no latency injection: the
       // playground is a local dev tool, and simulated lag would only make a feel test lie. While
       // paused nothing takes from the buffer, and it drops anything stamped past `maxInputLeadMs`
       // ahead of the frozen tick, so it stays bounded (NR27: a paused playground stops consuming).
-      this.onMessage(INPUT_MESSAGE, (_client, msg: unknown) =>
+      this.onMessage(INPUT_MESSAGE, limited(this.limits, "input", (_client, msg: unknown) =>
         scoped(this.modeConfig, () => {
           if (!isInputPacket(msg)) return;
           const buffer = this.inputBuffers.get(this.state.controlledSessionId);
           if (!buffer) return;
           for (const frame of msg.inputs) buffer.offer(frame, this.state.tick);
-        }),
+        })),
       );
 
-      this.onMessage(MSG_PLAYGROUND_PAUSE, () =>
+      this.onMessage(MSG_PLAYGROUND_PAUSE, limited(this.limits, "lobby", () =>
         scoped(this.modeConfig, () => {
           this.state.paused = !this.state.paused;
-        }),
+        })),
       );
 
-      this.onMessage(MSG_PLAYGROUND_TUNING, (_client, msg: unknown) =>
-        scoped(this.modeConfig, () => this.applyTuningMessage(msg)),
+      this.onMessage(MSG_PLAYGROUND_TUNING, limited(this.limits, "lobby", (_client, msg: unknown) =>
+        scoped(this.modeConfig, () => this.applyTuningMessage(msg))),
       );
 
-      this.onMessage(MSG_PLAYGROUND_SETUP, (_client, msg: unknown) =>
+      this.onMessage(MSG_PLAYGROUND_SETUP, limited(this.limits, "lobby", (_client, msg: unknown) =>
         scoped(this.modeConfig, () => {
           if (!isPlaygroundSetup(msg)) return;
           this.applySetup(msg);
-        }),
+        })),
       );
     });
   }
 
-  onJoin(_client: Client, _options?: { name?: unknown }): void {
+  onJoin(_client: Client, options?: { name?: unknown; protocol?: unknown }): void {
+    assertProtocol(options);
     scoped(this.modeConfig, () => {
       // No car is created here. `applySetup` is the one path that adds, removes and configures cars
       // (PG66), and it runs below with whatever this browser last saved replayed over it moments later
@@ -305,6 +312,7 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
   onLeave(client: Client): void {
     scoped(this.modeConfig, () => {
       this.netSessions.drop(client.sessionId);
+      this.limits.drop(client.sessionId);
       this.disconnect();
     });
   }

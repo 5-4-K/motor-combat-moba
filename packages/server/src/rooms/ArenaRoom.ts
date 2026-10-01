@@ -1,6 +1,7 @@
 import { Room, ServerError, matchMaker, type Client } from "@colyseus/core";
 import {
   ArenaState,
+  CLOSE_CODES,
   PlayerState,
   INPUT_MESSAGE,
   isInputPacket,
@@ -58,7 +59,9 @@ import {
   getCarSelectSeconds,
   getRevealSeconds,
 } from "../mode.js";
-import { withSimulatedLatency } from "../net/latency-injector.js";
+import { OutgoingDelay, withSimulatedLatency } from "../net/latency-injector.js";
+import { assertProtocol } from "../net/protocol-gate.js";
+import { ClientLimits, limitUnknownMessages, limited } from "../net/rate-limit.js";
 import {
   clearInstances,
   newCombatMemory,
@@ -143,11 +146,15 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   private readonly stepper = newRoomStepper();
   /** Time-sync state (NR18, NR19): the tick grid pongs describe and each session's measured RTT. */
   private readonly netSessions = new NetSessions();
+  /** Per-client message budgets (NR54); every handler below is charged to one. */
+  private readonly limits = new ClientLimits();
+  /** Server → client latency injection (NR56); inactive, and never installed, unless SIM_LATENCY_MS is set. */
+  private readonly outgoing = new OutgoingDelay(getSimulatedLatency());
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
     if (shouldRejectSecondArena(listings, this.roomId)) {
-      throw new ServerError(4003, ROOM_FULL_ERROR);
+      throw new ServerError(CLOSE_CODES.ARENA_SINGLETON, ROOM_FULL_ERROR);
     }
 
     this.setState(new ArenaState());
@@ -167,7 +174,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       // `setSimulationInterval`: Colyseus 0.18's `patchRate` setter otherwise arms a stray clock
       // interval.
       this.patchRate = null;
-      installNetHandlers(this, this.netSessions, (fn) => scoped(this.modeConfig, fn));
+      installNetHandlers(this, this.netSessions, (fn) => scoped(this.modeConfig, fn), this.limits);
+      limitUnknownMessages(this, this.limits);
 
       // The offer reads `state.tick` at DELIVERY, after any simulated delay, so a delayed frame is
       // judged late or early against the tick the room is actually about to run.
@@ -178,16 +186,17 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
           for (const frame of msg.inputs) buffer.offer(frame, this.state.tick);
         },
         getSimulatedLatency(),
+        ({ sessionId }) => sessionId,
       );
 
-      this.onMessage(INPUT_MESSAGE, (client, msg: unknown) =>
+      this.onMessage(INPUT_MESSAGE, limited(this.limits, "input", (client, msg: unknown) =>
         scoped(this.modeConfig, () => {
           if (!isInputPacket(msg)) return;
           offer({ sessionId: client.sessionId, msg });
-        }),
+        })),
       );
 
-      this.onMessage(MSG_SWITCH_TEAM, (client) =>
+      this.onMessage(MSG_SWITCH_TEAM, limited(this.limits, "lobby", (client) =>
         scoped(this.modeConfig, () => {
           const player = this.state.players.get(client.sessionId);
           if (!player) return;
@@ -199,10 +208,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
             return;
           }
           player.team = player.team === 0 ? 1 : 0;
-        }),
+        })),
       );
 
-      this.onMessage(MSG_SET_MODE, (client, msg: unknown) =>
+      this.onMessage(MSG_SET_MODE, limited(this.limits, "lobby", (client, msg: unknown) =>
         scoped(this.modeConfig, () => {
           if (client.sessionId !== this.state.hostSessionId) return;
           if (!isSetModePayload(msg)) return;
@@ -217,10 +226,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
           // client's loaded art would keep showing the OLD mode's arena while the new bundle's
           // roster and kits are already live.
           this.state.arenaId = next.arenaId;
-        }),
+        })),
       );
 
-      this.onMessage(MSG_KICK, (client, msg: unknown) =>
+      this.onMessage(MSG_KICK, limited(this.limits, "lobby", (client, msg: unknown) =>
         scoped(this.modeConfig, () => {
           if (client.sessionId !== this.state.hostSessionId) return;
           if (!isKickPayload(msg)) return;
@@ -231,11 +240,11 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
             return;
           }
           const targetClient = this.clients.find((c) => c.sessionId === msg.sessionId);
-          if (targetClient) targetClient.leave(4002, "Kicked");
-        }),
+          if (targetClient) targetClient.leave(CLOSE_CODES.KICKED, "Kicked");
+        })),
       );
 
-      this.onMessage(MSG_START_MATCH, (client) =>
+      this.onMessage(MSG_START_MATCH, limited(this.limits, "lobby", (client) =>
         scoped(this.modeConfig, () => {
           if (client.sessionId !== this.state.hostSessionId) return;
           if (this.state.phase !== RoomPhase.LOBBY) return;
@@ -267,10 +276,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
           // before this fires, so it is unaffected. Resolved fresh, not cached — same as every other
           // call site.
           controllerOf(this.state.mode).onStartRequested(this.modeView());
-        }),
+        })),
       );
 
-      this.onMessage(MSG_SELECT_CAR, (client, msg: unknown) =>
+      this.onMessage(MSG_SELECT_CAR, limited(this.limits, "lobby", (client, msg: unknown) =>
         scoped(this.modeConfig, () => {
           if (this.state.phase !== RoomPhase.CAR_SELECT) return;
           if (!isSelectCarPayload(msg)) return;
@@ -284,13 +293,13 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
           this.pendingCarId.set(client.sessionId, msg.carId);
           this.reduce({ type: "lock_car", sessionId: client.sessionId });
           if (this.allRosterLocked()) this.revealCars();
-        }),
+        })),
       );
 
       // A preview, not a commitment: it records what the player is sitting on so the deadline can
       // hand them that exact car. Same guards as MSG_SELECT_CAR minus the lock, and it
       // deliberately refuses once locked so a stray click cannot rewrite a committed pick.
-      this.onMessage(MSG_PREVIEW_CAR, (client, msg: unknown) =>
+      this.onMessage(MSG_PREVIEW_CAR, limited(this.limits, "lobby", (client, msg: unknown) =>
         scoped(this.modeConfig, () => {
           if (this.state.phase !== RoomPhase.CAR_SELECT) return;
           if (!isSelectCarPayload(msg)) return;
@@ -298,14 +307,14 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
           const player = this.state.players.get(client.sessionId);
           if (!player || player.selectLocked) return;
           this.pendingCarId.set(client.sessionId, msg.carId);
-        }),
+        })),
       );
 
-      this.onMessage(MSG_RETURN_TO_LOBBY, (client) =>
+      this.onMessage(MSG_RETURN_TO_LOBBY, limited(this.limits, "lobby", (client) =>
         scoped(this.modeConfig, () => {
           if (!this.postMatchIds.has(client.sessionId)) return;
           this.reduce({ type: "return_to_lobby", sessionId: client.sessionId });
-        }),
+        })),
       );
 
       /**
@@ -316,7 +325,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
        * client. The cooldown is different — it bounds every *attempt*, not just successful sends
        * (see below), so it also does not warrant a reply.
        */
-      this.onMessage(MSG_CHAT, (client, msg: unknown) =>
+      this.onMessage(MSG_CHAT, limited(this.limits, "lobby", (client, msg: unknown) =>
         scoped(this.modeConfig, () => {
           if (!isChatPayload(msg)) return;
           // A raw-payload ceiling ahead of normalization, not a second content limit: normalization
@@ -347,16 +356,17 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
             text: result.text,
             at: formatClockTime(new Date(now)),
           });
-        }),
+        })),
       );
     });
   }
 
-  onJoin(client: Client, options?: { name?: unknown }): void {
+  onJoin(client: Client, options?: { name?: unknown; protocol?: unknown }): void {
     scoped(this.modeConfig, () => {
+      assertProtocol(options);
       const nameResult = validateName(String(options?.name ?? ""));
       if (!nameResult.ok) {
-        throw new ServerError(4000, nameResult.error);
+        throw new ServerError(CLOSE_CODES.NAME_INVALID, nameResult.error);
       }
 
       const names: string[] = [];
@@ -369,7 +379,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       });
 
       if (isNameTaken(names, nameResult.name)) {
-        throw new ServerError(4001, "Name is taken");
+        throw new ServerError(CLOSE_CODES.NAME_TAKEN, "Name is taken");
       }
 
       const index = this.state.players.size;
@@ -388,6 +398,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       if (!this.state.hostSessionId) {
         this.state.hostSessionId = client.sessionId;
       }
+      this.outgoing.wrapClient(client);
     });
   }
 
@@ -406,6 +417,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       this.phaseCaps.delete(client.sessionId);
       this.chatLastSentAt.delete(client.sessionId);
       this.netSessions.drop(client.sessionId);
+      this.limits.drop(client.sessionId);
+      this.outgoing.drop(client.sessionId);
       forgetSpikeState(this.ram.spikes, client.sessionId);
 
       if (this.state.hostSessionId === client.sessionId) {

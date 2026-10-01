@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { getMaxPracticeRooms, isDevToolsEnabled, parseCarSelectSeconds } from "./mode.js";
+import { getMaxPracticeRooms, getSimulatedLatency, isDevToolsEnabled, parseCarSelectSeconds } from "./mode.js";
 
 describe("parseCarSelectSeconds", () => {
   it("uses a positive numeric env value", () => {
@@ -67,5 +67,33 @@ describe("getMaxPracticeRooms", () => {
       process.env.MAX_PRACTICE_ROOMS = value;
       expect(`${value}:${getMaxPracticeRooms(6)}`).toBe(`${value}:6`);
     }
+  });
+});
+
+describe("getSimulatedLatency (NR56)", () => {
+  const keys = ["SIM_LATENCY_MS", "SIM_JITTER_MS", "SIM_LOSS_PCT"] as const;
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+
+  afterEach(() => {
+    for (const k of keys) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it("is all zero when nothing is set", () => {
+    for (const k of keys) delete process.env[k];
+    expect(getSimulatedLatency()).toEqual({ latencyMs: 0, jitterMs: 0, lossPct: 0 });
+  });
+
+  it("reads SIM_LOSS_PCT beside the latency and jitter, clamped to a percentage", () => {
+    process.env.SIM_LATENCY_MS = "40";
+    process.env.SIM_JITTER_MS = "10";
+    process.env.SIM_LOSS_PCT = "1.5";
+    expect(getSimulatedLatency()).toEqual({ latencyMs: 40, jitterMs: 10, lossPct: 1.5 });
+    process.env.SIM_LOSS_PCT = "250";
+    expect(getSimulatedLatency().lossPct).toBe(100);
+    process.env.SIM_LOSS_PCT = "nope";
+    expect(getSimulatedLatency().lossPct).toBe(0);
   });
 });

@@ -39,7 +39,9 @@ import {
 } from "@motor-combat-moba/shared";
 import { getMaxPracticeRooms, getSimulatedLatency } from "../mode.js";
 import { offerForTick } from "../net/offer-input.js";
-import { withSimulatedLatency } from "../net/latency-injector.js";
+import { OutgoingDelay, withSimulatedLatency } from "../net/latency-injector.js";
+import { assertProtocol } from "../net/protocol-gate.js";
+import { ClientLimits, limitUnknownMessages, limited } from "../net/rate-limit.js";
 import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
 import {
@@ -179,6 +181,10 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
   private readonly stepper = newRoomStepper();
   /** Time-sync state (NR18, NR19): the tick grid pongs describe and each session's measured RTT. */
   private readonly netSessions = new NetSessions();
+  /** Per-client message budgets (NR54); every handler below is charged to one. */
+  private readonly limits = new ClientLimits();
+  /** Server → client latency injection (NR56), mirroring `ArenaRoom` (PR11); inactive unless SIM_LATENCY_MS is set. */
+  private readonly outgoing = new OutgoingDelay(getSimulatedLatency());
   /**
    * Latched at the first close, because `disconnect()` is asynchronous and the simulation interval
    * can fire again before the room is gone — without this the idle sweep would keep kicking clients
@@ -204,6 +210,8 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
     // narrows nothing and leaves `options` as `unknown` for the assignments below. Returning the
     // value itself — `options` when it passed, `undefined` when it did not — carries the narrowed
     // type out through `scoped`'s return, so `setup` is a `PracticeSetup` with no assertion.
+    // An old client is told to refresh (NR55) rather than that its setup is invalid.
+    assertProtocol(options);
     const setup = scoped(this.modeConfig, () => (isPracticeSetup(options) ? options : undefined));
     if (setup === undefined) {
       throw new ServerError(PRACTICE_INVALID_SETUP_CLOSE_CODE, PRACTICE_INVALID_SETUP_ERROR);
@@ -241,7 +249,8 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
       // `setSimulationInterval`: Colyseus 0.18's `patchRate` setter otherwise arms a stray clock
       // interval.
       this.patchRate = null;
-      installNetHandlers(this, this.netSessions, (fn) => scoped(this.modeConfig, fn));
+      installNetHandlers(this, this.netSessions, (fn) => scoped(this.modeConfig, fn), this.limits);
+      limitUnknownMessages(this, this.limits);
 
       // Mirrors `ArenaRoom`'s injector (PR11). The playground deliberately skips it — simulated lag
       // makes a feel test lie — but practice takes the opposite decision for the reason it exists:
@@ -259,9 +268,10 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
           for (const frame of msg.inputs) buffer.offer(frame, this.state.tick);
         },
         getSimulatedLatency(),
+        ({ sessionId }) => sessionId,
       );
 
-      this.onMessage(INPUT_MESSAGE, (client, msg: unknown) =>
+      this.onMessage(INPUT_MESSAGE, limited(this.limits, "input", (client, msg: unknown) =>
         scoped(this.modeConfig, () => {
           if (!isInputPacket(msg)) return;
           // Gated on `isActiveInput`, not on arrival: the client sends a packet every tick whether or
@@ -279,11 +289,11 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
           // Offered unconditionally, active or not: the sim needs every tick's input to drive
           // correctly, including "hold nothing". Only the idle stamp above is conditional.
           offer({ sessionId: client.sessionId, msg });
-        }),
+        })),
       );
 
       // A toggle rather than a set: the client holds no pause state of its own to disagree with.
-      this.onMessage(MSG_PRACTICE_PAUSE, () =>
+      this.onMessage(MSG_PRACTICE_PAUSE, limited(this.limits, "lobby", () =>
         scoped(this.modeConfig, () => {
           this.state.paused = !this.state.paused;
           // Counts as presence (PR27): `sweepIdle` runs at the TOP of `tick()`, ahead of the pause
@@ -291,12 +301,14 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
           // next tick, before their first post-resume input has a chance to land and restamp it.
           this.lastInputAtMs = Date.now();
           this.warnedOfIdle = false;
-        }),
+        })),
       );
     });
   }
 
   onJoin(client: Client, options?: unknown): void {
+    assertProtocol(options);
+    this.outgoing.wrapClient(client);
     scoped(this.modeConfig, () => {
       // `onCreate` has already rejected an invalid setup, so the room cannot exist without one; the
       // client's own options are preferred only because they are the same object, freshly validated.
@@ -363,6 +375,8 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
   onLeave(client: Client): void {
     scoped(this.modeConfig, () => {
       this.netSessions.drop(client.sessionId);
+      this.limits.drop(client.sessionId);
+      this.outgoing.drop(client.sessionId);
       this.closing = true;
       void this.disconnect();
     });

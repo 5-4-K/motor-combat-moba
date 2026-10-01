@@ -2,7 +2,7 @@ import { ClockSync, InputScheduler, NET_CONFIG, type TimePong } from "@motor-com
 
 /** The one call of `InputScheduler` the scene makes; an interface so a test can spy on it. */
 export interface DueTicks {
-  due(nowMs: number, frameMs: number, slackTicks: number | undefined): number[];
+  due(nowMs: number, frameMs: number, slackTicks: number | undefined, slackStdTicks?: number): number[];
 }
 
 /**
@@ -43,6 +43,8 @@ export class InputClock {
   private clockSync: ClockSync;
   private scheduler: DueTicks;
   private freshSlack: number | undefined;
+  /** The same snapshot's `inputSlackStd`, handed over with `freshSlack` (D5 ruling E). */
+  private freshSlackStd = 0;
   private nextPingAt: number;
   private burstUntil: number;
   private paused = false;
@@ -86,16 +88,17 @@ export class InputClock {
     this.burstUntil = nowMs + NET_CONFIG.timeSyncBurstWindowMs;
   }
 
-  /** A snapshot was reconciled and carried this `inputSlack`. */
-  onSnapshot(slackTicks: number): void {
+  /** A snapshot was reconciled and carried this `inputSlack` (and its spread, `inputSlackStd`). */
+  onSnapshot(slackTicks: number, slackStdTicks = 0): void {
     this.freshSlack = slackTicks;
+    this.freshSlackStd = slackStdTicks;
   }
 
   /** The ticks to produce a frame for now, consuming any fresh slack sample. */
   due(nowMs: number, frameMs: number): number[] {
     const slack = this.freshSlack;
     this.freshSlack = undefined;
-    return this.scheduler.due(nowMs, frameMs, slack);
+    return this.scheduler.due(nowMs, frameMs, slack, this.freshSlackStd);
   }
 
   /** A frame that will not send (paused, not driving): the pending sample, if any, is dropped. */

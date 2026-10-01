@@ -5,6 +5,7 @@ export {
   MAX_PLAYERS,
   MAX_TEAM_SIZE,
   ROOM_NAME,
+  PROTOCOL_VERSION,
   RoomPhase,
   GameMode,
   PlayerStatus,
@@ -49,6 +50,7 @@ export { assembleModeConfig } from "./modes/build.js";
 export type { ModeConfig, ModeTables } from "./modes/types.js";
 
 export { INPUT_MESSAGE } from "./net/input.js";
+export { CLOSE_CODES, protocolRefusal } from "./net/close-codes.js";
 export {
   MSG_SWITCH_TEAM,
   MSG_SET_MODE,

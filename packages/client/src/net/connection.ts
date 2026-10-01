@@ -2,6 +2,7 @@ import { Client, type Room } from "@colyseus/sdk";
 import {
   ArenaState,
   PLAYGROUND_ROOM_NAME,
+  PROTOCOL_VERSION,
   PlaygroundState,
   ROOM_NAME,
   PRACTICE_ROOM_NAME,
@@ -15,6 +16,15 @@ import { detectServerEndpoint } from "../config/client-mode.js";
  * `allowReconnection`, so a retry could only hang and `onLeave` would never fire. Reconnection is
  * a future designed feature; until then a lost connection must leave the room immediately.
  */
+/**
+ * Every join carries the wire protocol version (NR55). A server built from a different wire refuses
+ * the join with a readable "Refresh the page" error, which each scene's existing join-error path
+ * shows like any other refusal.
+ */
+export function joinOptions<T extends object>(options: T): T & { protocol: number } {
+  return { ...options, protocol: PROTOCOL_VERSION };
+}
+
 async function noReconnect<T extends Room>(joining: Promise<T>): Promise<T> {
   const room = await joining;
   room.reconnection.enabled = false;
@@ -23,7 +33,7 @@ async function noReconnect<T extends Room>(joining: Promise<T>): Promise<T> {
 
 export async function joinArena(name: string): Promise<Room<ArenaState>> {
   const client = new Client(detectServerEndpoint());
-  return noReconnect(client.joinOrCreate<ArenaState>(ROOM_NAME, { name }));
+  return noReconnect(client.joinOrCreate<ArenaState>(ROOM_NAME, joinOptions({ name })));
 }
 
 /**
@@ -34,7 +44,7 @@ export async function joinArena(name: string): Promise<Room<ArenaState>> {
  */
 export async function joinPlayground(): Promise<Room<PlaygroundState>> {
   const client = new Client(detectServerEndpoint());
-  return noReconnect(client.joinOrCreate<PlaygroundState>(PLAYGROUND_ROOM_NAME, { name: "Dev" }));
+  return noReconnect(client.joinOrCreate<PlaygroundState>(PLAYGROUND_ROOM_NAME, joinOptions({ name: "Dev" })));
 }
 
 /**
@@ -47,5 +57,5 @@ export async function joinPlayground(): Promise<Room<PlaygroundState>> {
  */
 export async function joinPractice(setup: PracticeSetup): Promise<Room<PracticeState>> {
   const client = new Client(detectServerEndpoint());
-  return noReconnect(client.joinOrCreate<PracticeState>(PRACTICE_ROOM_NAME, setup));
+  return noReconnect(client.joinOrCreate<PracticeState>(PRACTICE_ROOM_NAME, joinOptions(setup)));
 }

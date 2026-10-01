@@ -44,6 +44,21 @@ describe("InputClock (NR21 slack, once per snapshot)", () => {
     expect(spy.slacks).toEqual([1, undefined]);
   });
 
+  it("hands the snapshot's slack spread to the scheduler with its mean (D5 ruling E)", () => {
+    const stds: Array<number | undefined> = [];
+    const clock = new InputClock(0, () => ({
+      due(_now, _frame, slack, std) {
+        if (slack !== undefined) stds.push(std);
+        return [];
+      },
+    }));
+    clock.onSnapshot(2, 0.75);
+    clock.due(0, 16);
+    clock.onSnapshot(1.5);
+    clock.due(16, 16);
+    expect(stds).toEqual([0.75, 0]);
+  });
+
   it("drops a pending sample on a frame that does not send, rather than holding it", () => {
     const spy = spyScheduler();
     const clock = new InputClock(0, () => spy);

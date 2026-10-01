@@ -21,6 +21,13 @@ export class PlayerState extends Schema {
    * scheduler steers its lead so this sits at `NET_CONFIG.targetSlackTicks`. Never read by `stepSim`.
    */
   @type("float32") inputSlack = 0;
+  /**
+   * Owner-only in intent, beside `inputSlack` (NR21, D5 ruling E): the population standard deviation
+   * of the same 30 slack samples, in ticks. A separate field rather than folded into `inputSlack`, so
+   * the mean keeps meaning what NR21 says and the client owns how much margin a spread is worth
+   * (`NET_CONFIG.slackSpreadK`). Never read by `stepSim`.
+   */
+  @type("float32") inputSlackStd = 0;
   @type("string") name = "";
   @type("uint8") colorId = 0;
   @type("uint8") team = 0;

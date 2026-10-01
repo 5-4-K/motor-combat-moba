@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PLAYGROUND_ROOM_NAME, ROOM_NAME } from "@motor-combat-moba/shared";
+import { PLAYGROUND_ROOM_NAME, PROTOCOL_VERSION, ROOM_NAME } from "@motor-combat-moba/shared";
 
 const joinOrCreate = vi.fn();
 const Client = vi.fn().mockImplementation(() => ({ joinOrCreate }));
@@ -29,7 +29,7 @@ describe("joinArena", () => {
 
     expect(detectServerEndpoint).toHaveBeenCalled();
     expect(Client).toHaveBeenCalledWith("ws://localhost:2567");
-    expect(joinOrCreate).toHaveBeenCalledWith(ROOM_NAME, { name: "Ada" });
+    expect(joinOrCreate).toHaveBeenCalledWith(ROOM_NAME, { name: "Ada", protocol: PROTOCOL_VERSION });
     expect(result).toBe(room);
     expect(room.reconnection.enabled).toBe(false);
   });
@@ -51,7 +51,7 @@ describe("joinPlayground", () => {
 
     expect(detectServerEndpoint).toHaveBeenCalled();
     expect(Client).toHaveBeenCalledWith("ws://localhost:2567");
-    expect(joinOrCreate).toHaveBeenCalledWith(PLAYGROUND_ROOM_NAME, { name: "Dev" });
+    expect(joinOrCreate).toHaveBeenCalledWith(PLAYGROUND_ROOM_NAME, { name: "Dev", protocol: PROTOCOL_VERSION });
     expect(result).toBe(room);
     expect(room.reconnection.enabled).toBe(false);
   });
@@ -63,7 +63,8 @@ describe("joinPractice", () => {
     const room = { sessionId: "s1", reconnection: { enabled: true } };
     joinOrCreate.mockResolvedValue(room);
     const { joinPractice } = await import("./connection.js");
-    const result = await joinPractice({} as never);
+    const result = await joinPractice({ name: "Ada" } as never);
+    expect(joinOrCreate).toHaveBeenCalledWith(expect.any(String), { name: "Ada", protocol: PROTOCOL_VERSION });
     expect(result).toBe(room);
     expect(room.reconnection.enabled).toBe(false);
   });

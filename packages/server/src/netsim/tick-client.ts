@@ -82,6 +82,8 @@ export class TickClient {
   private predicted: SimBody | undefined;
   /** The newest snapshot's `inputSlack`, handed to the scheduler once and then cleared (NR21). */
   private freshSlack: number | undefined;
+  /** That snapshot's `inputSlackStd`, handed over with it (D5 ruling E). */
+  private freshSlackStd = 0;
   private nextTimeSyncAt: number;
   private readonly joinedAt: number;
 
@@ -142,7 +144,7 @@ export class TickClient {
     const slack = this.freshSlack;
     this.freshSlack = undefined;
     const out: InputPacket[] = [];
-    for (const tick of this.scheduler.due(this.local(nowMs), deltaMs, slack)) {
+    for (const tick of this.scheduler.due(this.local(nowMs), deltaMs, slack, this.freshSlackStd)) {
       out.push(this.sendInputTick(nowMs, tick));
     }
     return out;
@@ -169,7 +171,10 @@ export class TickClient {
 
   private reconcileLocal(): void {
     const self = this.lastById.get(this.id);
-    if (self) this.freshSlack = self.inputSlack;
+    if (self) {
+      this.freshSlack = self.inputSlack;
+      this.freshSlackStd = self.inputSlackStd;
+    }
     if (!self || self.status !== PlayerStatus.IN_MATCH || !self.alive) {
       this.prediction.clear();
       this.predicted = undefined;

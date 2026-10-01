@@ -197,6 +197,7 @@ export function serverTick(
     const taken = buffer.take(state.tick);
     player.ackRepeated = taken.repeated;
     player.inputSlack = buffer.slackMeanTicks();
+    player.inputSlackStd = buffer.slackStdTicks();
     if (ctx === null) continue;
 
     writeBody(player, stepSim(bodyOf(player), taken.keys, dt, ctx));

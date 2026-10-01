@@ -10,42 +10,22 @@ if (!nodeMajorOk(process.versions.node)) {
 }
 
 import "dotenv/config";
-import { createServer } from "node:http";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import express from "express";
-import cors from "cors";
-import { Server } from "@colyseus/core";
-import { WebSocketTransport } from "@colyseus/ws-transport";
 import { PLAYGROUND_ROOM_NAME, PRACTICE_ROOM_NAME, ROOM_NAME } from "@motor-combat-moba/shared";
 import { getDeployMode, getPort, isDevToolsEnabled } from "./mode.js";
-import { mountHealth } from "./health.js";
-import { monitorGate, mountMonitor } from "./monitor.js";
+import { createGameServer } from "./http-app.js";
+import { monitorGate } from "./monitor.js";
 import { ArenaRoom } from "./rooms/ArenaRoom.js";
 import { PlaygroundRoom } from "./rooms/PlaygroundRoom.js";
 import { PracticeRoom } from "./rooms/PracticeRoom.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
 const mode = getDeployMode();
 const port = getPort();
-const clientOrigin = process.env.CLIENT_ORIGIN;
 
-const app = express();
-if (clientOrigin || mode === "cloud") {
-  app.use(cors({ origin: clientOrigin || true }));
-}
-app.use(express.json());
-mountHealth(app);
-mountMonitor(app, { devTools: isDevToolsEnabled(), password: process.env.MONITOR_PASSWORD });
-
-if (mode === "lan") {
-  app.use(express.static(path.resolve(__dirname, "../../client/dist")));
-}
-
-const httpServer = createServer(app);
-const gameServer = new Server({
-  transport: new WebSocketTransport({ server: httpServer }),
+const { gameServer } = createGameServer({
+  mode,
+  clientOrigin: process.env.CLIENT_ORIGIN,
+  devTools: isDevToolsEnabled(),
+  monitorPassword: process.env.MONITOR_PASSWORD,
 });
 gameServer.define(ROOM_NAME, ArenaRoom);
 // Ships (spec PR3). Practice is a player-facing feature, so unlike the playground below it carries

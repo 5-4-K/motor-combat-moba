@@ -40,6 +40,8 @@ export interface SnapshotCar {
   ackRepeated: boolean;
   /** Owner-only on the wire (NR21): the server's mean input slack for this car, in ticks. */
   inputSlack: number;
+  /** Owner-only on the wire (D5 ruling E): the spread of those same slack samples, in ticks. */
+  inputSlackStd: number;
   /** Beyond the plan's minimum: what `buildStepContext`/`localModifiers` read off a patched player. */
   carId: string;
   status: number;
@@ -207,6 +209,7 @@ export class ServerWorld {
           alive: p.alive,
           ackRepeated: p.ackRepeated,
           inputSlack: p.inputSlack,
+          inputSlackStd: p.inputSlackStd,
           carId: p.carId,
           status: p.status,
           statuses: p.statuses.map((s) => ({

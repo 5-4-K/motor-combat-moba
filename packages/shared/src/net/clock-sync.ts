@@ -82,6 +82,12 @@ function median(xs: number[]): number {
  * further from the estimate than their RTT can explain (the server's clock stepped), which shifts the
  * whole history by that step. A snap passes straight through to the scheduler's target, as a burst of
  * ticks forward or a pause backward.
+ *
+ * After a gap of `clockOffsetWindowMs` or more with no pong (a throttled background tab, N7), the
+ * offset window is empty and would otherwise be refilled by whatever pong arrives first, spiked or
+ * not. For one `clockOffsetWindowMs` after the gap the weights and the clock-step test are taken
+ * against the pre-gap minimum RTT, and the running estimate stays in the offset fit as one clean
+ * pong's worth of evidence, so a spike neither snaps the estimate nor passes for a clock step.
  */
 export class ClockSync {
   private samples: Sample[] = [];
@@ -94,17 +100,31 @@ export class ClockSync {
   private suspect: { sample: Sample; miss: number } | undefined;
   /** Whether a drift has ever been fitted; before that a large miss is warm-up, not a clock step. */
   private fitted = false;
+  /**
+   * After a pong gap of at least `clockOffsetWindowMs` (N7), the offset window refills from nothing,
+   * so its own minimum RTT means nothing yet and one spiked pong would be the whole weighted mean.
+   * Until `gapUntil`, weights are taken against the pre-gap minimum RTT (`gapMinRtt`) and the
+   * running estimate is kept in the fit as one clean pong's worth of evidence (`gapAnchor`).
+   */
+  private gapUntil = Number.NEGATIVE_INFINITY;
+  private gapMinRtt = Infinity;
 
   onPong(nowMs: number, pong: TimePong): void {
     const rtt = Math.max(0, nowMs - pong.c);
     const serverMs = pong.t * MS_PER_TICK + pong.p + rtt / 2;
     const sample: Sample = { rtt, offset: serverMs - nowMs, at: nowMs };
+    if (nowMs - this.lastPongAt >= NET_CONFIG.clockOffsetWindowMs && this.samples.length > 0) {
+      this.gapMinRtt = minRttOf(this.samples);
+      this.gapUntil = nowMs + NET_CONFIG.clockOffsetWindowMs;
+    }
     if (this.fitted) {
       // A pong's offset can be wrong by at most half its RTT above the minimum. Once the drift is
       // fitted, one wrong by more than that plus 2 x clockSnapMs means the server's clock stepped:
       // hold it back until a second pong agrees, then shift the history by the step, keeping the drift.
       const miss = sample.offset - this.offsetAt(nowMs);
-      const excess = Math.max(0, rtt - minRttOf(this.samples));
+      // While the window refills after a gap (N7), a run of spiked pongs must not set its own minimum.
+      const floor = nowMs < this.gapUntil ? Math.min(minRttOf(this.samples), this.gapMinRtt) : minRttOf(this.samples);
+      const excess = Math.max(0, rtt - floor);
       if (Math.abs(miss) - excess / 2 > 2 * NET_CONFIG.clockSnapMs) {
         const held = this.suspect;
         if (held === undefined || Math.sign(held.miss) !== Math.sign(miss)) {
@@ -114,6 +134,8 @@ export class ClockSync {
         const step = (held.miss + miss) / 2;
         for (const s of this.samples) s.offset += step;
         this.samples.push(held.sample);
+        // A confirmed step is new truth; the running estimate is no longer evidence worth keeping.
+        this.gapUntil = Number.NEGATIVE_INFINITY;
       }
     }
     this.suspect = undefined;
@@ -135,9 +157,16 @@ export class ClockSync {
     slope = Math.max(-cap, Math.min(cap, slope));
 
     const recent = this.samples.filter((s) => s.at >= nowMs - NET_CONFIG.clockOffsetWindowMs);
-    const m = minRttOf(recent);
+    const refilling = nowMs < this.gapUntil && !Number.isNaN(this.offsetMs);
+    const m = refilling ? Math.min(minRttOf(recent), this.gapMinRtt) : minRttOf(recent);
     let sw = 0;
     let sx = 0;
+    if (refilling) {
+      // The drift-run estimate, weighted as one pong at the pre-gap minimum RTT (N7).
+      const w = weightOf(m, m);
+      sw += w;
+      sx += w * this.offsetAt(nowMs);
+    }
     for (const s of recent) {
       const w = weightOf(s.rtt, m);
       sw += w;
