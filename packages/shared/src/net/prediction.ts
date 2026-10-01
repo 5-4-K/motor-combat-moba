@@ -120,6 +120,11 @@ export class TickPrediction {
   /** The newest tick `predict` ever accepted since the last `clear`, pruned or not. */
   private newestTick = Number.NEGATIVE_INFINITY;
 
+  /** The newest tick `predict` accepted, or undefined before any (the tick the predicted pose stands at the end of). */
+  get newestPredictedTick(): number | undefined {
+    return Number.isFinite(this.newestTick) ? this.newestTick : undefined;
+  }
+
   /**
    * Steps `state` through `frame` and records it for replay. Frames must arrive strictly ascending by
    * tick (`replayTarget` walks them with one index), so a frame at or below the newest tick already

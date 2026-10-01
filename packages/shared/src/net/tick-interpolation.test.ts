@@ -295,6 +295,39 @@ describe("RemoteTimeline", () => {
   });
 });
 
+describe("RemoteTimeline contact blend (NR34)", () => {
+  /** A remote moving +x at 200 u/s, snapshots at ticks 10 and 11, drawn at R = 10.5 (interpolated). */
+  function drawnWith(localDx: number | undefined, tick = 14): { x: number; interpolated: number; reckoned: number } {
+    const tl = new RemoteTimeline();
+    const p = path(moving(1000), GO, 1);
+    tl.push("a", 10, { body: p[0]!, keys: GO, ctx: OPEN, alive: true });
+    tl.push("a", 11, { body: p[1]!, keys: GO, ctx: OPEN, alive: true });
+    frameAt(tl, 10.5);
+    const interpolated = (p[0]!.x + p[1]!.x) / 2;
+    const pose = tl.pose("a", localDx === undefined ? undefined : { pose: { x: interpolated + localDx, y: 1000 }, tick })!;
+    return { x: pose.x, interpolated, reckoned: tl.reckonedPose("a", tick)!.x };
+  }
+  const carLength = () => drive().carWidth;
+
+  it("draws the interpolated pose with no local car, or one two car lengths away or more", () => {
+    const none = drawnWith(undefined);
+    expect(none.x).toBeCloseTo(none.interpolated, 9);
+    const far = drawnWith(2 * carLength() + 1);
+    expect(far.x).toBeCloseTo(far.interpolated, 9);
+  });
+
+  it("draws the dead-reckoned pose at the predicted tick within one car length", () => {
+    const near = drawnWith(0.5 * carLength());
+    expect(near.reckoned).toBeGreaterThan(near.interpolated + 1);
+    expect(near.x).toBeCloseTo(near.reckoned, 9);
+  });
+
+  it("is halfway between at one and a half car lengths", () => {
+    const mid = drawnWith(1.5 * carLength());
+    expect(mid.x).toBeCloseTo((mid.interpolated + mid.reckoned) / 2, 6);
+  });
+});
+
 describe("axisOfWire", () => {
   it("narrows a wire int8 to -1, 0 or 1", () => {
     expect([-128, -1, 0, 1, 127].map(axisOfWire)).toEqual([-1, -1, 0, 1, 1]);

@@ -252,7 +252,7 @@ describe("InputClock across a practice/playground pause (20 ms RTT)", () => {
   });
 
   for (const pauseMs of [1000, 30_000]) {
-    it(`predicts every frame after a ${pauseMs / 1000} s pause: the resume clears prediction (D review M9)`, () => {
+    it(`regression guard: no frame is refused after a ${pauseMs / 1000} s pause (passes with or without the resume clear; D review M9)`, () => {
       expect(repeatsAfterPause(pauseMs, true).refused).toBe(0);
     });
   }

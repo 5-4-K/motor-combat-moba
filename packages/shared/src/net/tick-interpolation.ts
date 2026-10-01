@@ -3,6 +3,7 @@ import { NET_CONFIG } from "../config/net-config.js";
 import { msToTicks } from "../config/weapon-ticks.js";
 import { drive } from "../modes/active.js";
 import { type SimBody, type StepContext } from "../sim/step.js";
+import { contactBlendWeight } from "./contact-blend.js";
 import { blendPose } from "./interpolation.js";
 import { RemoteReckoner } from "./remote-reckoner.js";
 import type { InputKeys } from "./tick-input.js";
@@ -148,6 +149,14 @@ export function axisOfWire(value: number): -1 | 0 | 1 {
   return value > 0 ? 1 : value < 0 ? -1 : 0;
 }
 
+/** The local car as `RemoteTimeline.pose` measures contact range from it (NR34). */
+export interface LocalAnchor {
+  /** The local car's drawn (predicted) pose. */
+  pose: { x: number; y: number };
+  /** The tick the local car's prediction has reached. */
+  tick: number;
+}
+
 /** One remote's snapshot, as `RemoteTimeline.push` takes it. */
 export interface RemoteSnapshot {
   body: SimBody;
@@ -256,16 +265,16 @@ export class RemoteTimeline {
   }
 
   /** The pose to draw this frame, or undefined for a car with no snapshot. */
-  pose(id: string): SimBody | undefined {
+  pose(id: string, local?: LocalAnchor): SimBody | undefined {
     const track = this.tracks.get(id);
     if (!track) return undefined;
     if (track.frame === this.frame) return track.cached;
     track.frame = this.frame;
-    track.cached = this.compute(id, track);
+    track.cached = this.compute(id, track, local);
     return track.cached;
   }
 
-  private compute(id: string, track: Track): SimBody | undefined {
+  private compute(id: string, track: Track, local: LocalAnchor | undefined): SimBody | undefined {
     // Before the clock syncs there is no render tick: draw the newest snapshot as it stands.
     const R = this.R ?? track.interp.newestTick();
     if (R === undefined) return undefined;
@@ -306,7 +315,23 @@ export class RemoteTimeline {
     track.drawn = out;
     track.drawnBeyond = s.beyond;
     track.fresh = false;
-    return out;
+    return local ? this.nearLocal(id, out, local) : out;
+  }
+
+  /**
+   * NR34: within `contactBlendRangeCars` car lengths of the local car the drawn pose moves toward
+   * the remote's dead-reckoned pose at the local car's predicted tick — where the local prediction
+   * will meet it — fully at one car length. The settle logic above is fed the un-blended pose.
+   */
+  private nearLocal(id: string, pose: SimBody, local: LocalAnchor): SimBody {
+    const w = contactBlendWeight(
+      Math.hypot(pose.x - local.pose.x, pose.y - local.pose.y),
+      drive().carWidth,
+      NET_CONFIG.contactBlendRangeCars,
+    );
+    if (w <= 0) return pose;
+    const reckoned = this.reckoner.poseAt(id, local.tick);
+    return reckoned ? blendPose(pose, reckoned, w) : pose;
   }
 
   /**
@@ -317,7 +342,7 @@ export class RemoteTimeline {
    * computed once per snapshot however many predicted and replayed ticks ask for it. Undefined for
    * a car with no track (the caller falls back to its roster pose).
    */
-  reckonedPose(id: string, tick: number): SimBody | undefined {
+  reckonedPose(id: string, tick: number): Readonly<SimBody> | undefined {
     return this.tracks.has(id) ? this.reckoner.poseAt(id, tick) : undefined;
   }
 

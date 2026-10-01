@@ -32,7 +32,7 @@ export class RemoteReckoner {
     this.cars.set(id, { source, steps: [source.body] });
   }
 
-  private stepTo(id: string, whole: number): SimBody | undefined {
+  private stepTo(id: string, whole: number): Readonly<SimBody> | undefined {
     const car = this.cars.get(id);
     if (!car) return undefined;
     const n = Math.max(0, Math.min(this.maxTicks, whole - car.source.tick));
@@ -43,7 +43,7 @@ export class RemoteReckoner {
   }
 
   /** Pose at (fractional) tick, stepped from the newest snapshot, capped at maxTicks past it. */
-  poseAt(id: string, tick: number): SimBody | undefined {
+  poseAt(id: string, tick: number): Readonly<SimBody> | undefined {
     const car = this.cars.get(id);
     if (!car) return undefined;
     const capped = Math.min(tick, car.source.tick + this.maxTicks);

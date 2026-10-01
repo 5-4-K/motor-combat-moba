@@ -12,6 +12,7 @@ import type {
 } from "@motor-combat-moba/shared";
 import {
   RemoteTimeline,
+  type LocalAnchor,
   TickPrediction,
   axisOfWire,
   blendPose,
@@ -3116,7 +3117,20 @@ export class ArenaScene extends Phaser.Scene {
    * timeline has not seen.
    */
   private remotePose(sessionId: string, pose: SimBody): SimBody {
-    return this.remotes.pose(sessionId) ?? pose;
+    return this.remotes.pose(sessionId, this.localAnchor()) ?? pose;
+  }
+
+  /**
+   * The local car as a remote's contact blend measures from it (NR34): its drawn pose and the tick
+   * its prediction has reached. Undefined for a spectator or a wreck, which get no blend.
+   */
+  private localAnchor(): LocalAnchor | undefined {
+    const room = this.room;
+    const tick = this.prediction.newestPredictedTick;
+    if (!room || !this.predicted || tick === undefined) return undefined;
+    const local = room.state.players.get(this.drivenSid(room));
+    if (!local?.alive) return undefined;
+    return { pose: this.localRenderPose(bodyOf(local)), tick };
   }
 
   private syncCar(sessionId: string, player: ArenaPlayer, pose: SimBody): void {

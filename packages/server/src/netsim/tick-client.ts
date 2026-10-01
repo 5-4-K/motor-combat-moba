@@ -227,7 +227,9 @@ export class TickClient {
     const car = this.lastById.get(id);
     if (!car || car.status !== PlayerStatus.IN_MATCH) return undefined;
     if (!car.alive) return { x: car.body.x, y: car.body.y, wreck: true };
-    const pose = this.remotes.pose(id) ?? car.body;
+    const tick = this.prediction.newestPredictedTick;
+    const local = this.predicted && tick !== undefined ? { pose: this.predicted, tick } : undefined;
+    const pose = this.remotes.pose(id, local) ?? car.body;
     return { x: pose.x, y: pose.y, wreck: false };
   }
 }
