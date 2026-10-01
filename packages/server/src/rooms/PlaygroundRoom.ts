@@ -62,7 +62,7 @@ import { scoped } from "./mode-scope.js";
 import { newRoomStepper } from "./fixed-step.js";
 import { NetSessions, installNetHandlers } from "../net/net-session.js";
 import { assertProtocol } from "../net/protocol-gate.js";
-import { ClientLimits, limitUnknownMessages, limited } from "../net/rate-limit.js";
+import { ClientLimits, MAX_MESSAGES_PER_SECOND, limited, refuseUnknownMessages } from "../net/rate-limit.js";
 
 /**
  * The level every playground car is held at. Every `unlocksAt` in `weapons()` is at or below it,
@@ -151,6 +151,8 @@ export function loadoutOrChassisChanged(
  */
 export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
   maxClients = 1;
+  /** Colyseus's pre-decode backstop above the NR54 token buckets; see `MAX_MESSAGES_PER_SECOND`. */
+  maxMessagesPerSecond = MAX_MESSAGES_PER_SECOND;
   private inputBuffers = new Map<string, TickInputBuffer>();
   private prevFireMasks = new Map<string, number>();
   private matchRoster = new Set<string>();
@@ -260,7 +262,7 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
       // interval.
       this.patchRate = null;
       installNetHandlers(this, this.netSessions, (fn) => scoped(this.modeConfig, fn), this.limits);
-      limitUnknownMessages(this, this.limits);
+      refuseUnknownMessages(this);
 
       // Straight into the CONTROLLED car's buffer (PG9), and with no latency injection: the
       // playground is a local dev tool, and simulated lag would only make a feel test lie. While

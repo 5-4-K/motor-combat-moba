@@ -39,6 +39,12 @@ export const CLOSE_CODES = {
   RATE_LIMITED: 4110,
   /** Any room: the client's `protocol` join option is not this server's `PROTOCOL_VERSION` (NR55). */
   PROTOCOL_MISMATCH: 4111,
+  /**
+   * Any room: the client sent a message type the room never registered. No client of this build
+   * does, so it is a stale or hostile client and is disconnected at once — Colyseus 0.18's own
+   * production default, kept fail-closed under our own code.
+   */
+  UNKNOWN_MESSAGE: 4112,
 } as const;
 
 /** The refusal text for a protocol mismatch (NR55); `undefined` when the join option matches. */

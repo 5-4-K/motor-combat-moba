@@ -1766,8 +1766,9 @@ export class ArenaScene extends Phaser.Scene {
 
     const onLeave = (code: number): void => {
       this.registry.remove("room");
-      // 4006 ends a live practice session (PR25); anything else — a server restart — falls through
-      // to the join screen as every other scene does. 4009 never reaches here: it refuses a join the
+      // `PRACTICE_IDLE_CLOSE_CODE` (`CLOSE_CODES.PRACTICE_IDLE`, 4106) ends a live practice session
+      // (PR25); anything else — a server restart, a kick — falls through to the join screen as every
+      // other scene does. `PRACTICE_INVALID_SETUP` (4109) never reaches here: it refuses a join the
       // player never left the settings page for, and PracticeSetupScene shows it inline.
       if (code === PRACTICE_IDLE_CLOSE_CODE) {
         this.registry.set("practiceNotice", PRACTICE_IDLE_ERROR);

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import {
   DelayLine,
+  InputDelay,
   OutgoingDelay,
   latencyActive,
   withSimulatedLatency,
@@ -155,5 +156,65 @@ describe("latencyActive", () => {
     expect(latencyActive({ ...OFF, lossPct: 5 })).toBe(false);
     expect(latencyActive({ ...OFF, latencyMs: 1 })).toBe(true);
     expect(latencyActive({ ...OFF, jitterMs: 1 })).toBe(true);
+  });
+});
+
+describe("DelayLine ordering on REAL timers (fix round I1)", () => {
+  /**
+   * Node arms each timer from its cached loop time, so two timers armed in different loop iterations
+   * with the same absolute due time can fire inverted. A line must deliver in send order regardless.
+   */
+  it("delivers several hundred jittered, lossy messages in send order", async () => {
+    const line = new DelayLine({ latencyMs: 5, jitterMs: 4, lossPct: 5 });
+    const got: number[] = [];
+    const N = 600;
+    for (let n = 0; n < N; n++) {
+      line.schedule(() => got.push(n));
+      // Spread the sends over many loop iterations, sometimes several per iteration.
+      if (n % 3 === 0) await new Promise((r) => setImmediate(r));
+    }
+    const deadline = Date.now() + 5000;
+    while (got.length < N && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+    expect(got.length).toBe(N);
+    let inversions = 0;
+    for (let i = 1; i < got.length; i++) if (got[i]! < got[i - 1]!) inversions++;
+    expect(inversions).toBe(0);
+  });
+
+  it("OutgoingDelay keeps a client's frames in order on real timers too", async () => {
+    const out = new OutgoingDelay({ latencyMs: 5, jitterMs: 4, lossPct: 5 });
+    const got: number[] = [];
+    const client = {
+      sessionId: "a",
+      raw(data: Uint8Array | Buffer) {
+        got.push(data[0]! + 256 * data[1]!);
+      },
+    };
+    out.wrapClient(client);
+    const N = 400;
+    for (let n = 0; n < N; n++) {
+      client.raw(new Uint8Array([n % 256, Math.floor(n / 256)]));
+      if (n % 2 === 0) await new Promise((r) => setImmediate(r));
+    }
+    const deadline = Date.now() + 5000;
+    while (got.length < N && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+    expect(got).toEqual(Array.from({ length: N }, (_, i) => i));
+  });
+});
+
+describe("InputDelay.drop (a client left)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("forgets the session's line and discards what was still queued on it", () => {
+    vi.useFakeTimers();
+    const got: string[] = [];
+    const d = new InputDelay<{ k: string }>((m) => got.push(m.k), { latencyMs: 20, jitterMs: 0, lossPct: 0 }, (m) => m.k);
+    d.offer({ k: "a" });
+    d.offer({ k: "b" });
+    d.drop("a");
+    vi.advanceTimersByTime(50);
+    expect(got).toEqual(["b"]);
   });
 });

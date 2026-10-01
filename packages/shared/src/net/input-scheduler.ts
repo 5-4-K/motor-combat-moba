@@ -4,6 +4,13 @@ import type { ClockSync } from "./clock-sync.js";
 
 /** Ticks of safety per tick of slack error, per NEW slack sample (one per snapshot). */
 const SAFETY_GAIN = 0.03;
+/**
+ * The worst-case slack spread that integer quantisation alone produces, in ticks (fix round I3).
+ * Slack samples are whole ticks, so a perfectly steady path whose true lead is fractional reads as a
+ * Bernoulli mix of two neighbouring integers — std up to 0.5 at a half-tick fraction — with nothing
+ * late about it. Only spread beyond this floor is jitter worth margin.
+ */
+export const SLACK_QUANTISATION_STD_TICKS = 0.5;
 /** Slack within this of the target is left alone (NR21). */
 const DEADBAND_TICKS = 0.25;
 
@@ -30,13 +37,14 @@ export class InputScheduler {
    * `slackTicks` is a NEW slack sample — pass it once per snapshot received since the last call, and
    * `undefined` on every other call. The integrator runs per sample, never per call, so its gain does
    * not depend on the frame rate. `slackStdTicks` is the same snapshot's spread (`inputSlackStd`);
-   * the target the mean is steered to is `targetSlackTicks + slackSpreadK × slackStdTicks` (D5 ruling
-   * E), so a jittery path keeps its slow tail on time rather than only its mean.
+   * the target the mean is steered to is `targetSlackTicks + slackSpreadK × max(0, slackStdTicks −
+   * SLACK_QUANTISATION_STD_TICKS)` (D5 ruling E, fix round I3), so a jittery path keeps its slow tail
+   * on time rather than only its mean, and a steady one is not charged for integer quantisation.
    */
   due(nowMs: number, frameMs: number, slackTicks: number | undefined, slackStdTicks = 0): number[] {
     if (!this.clock.ready) return [];
     if (slackTicks !== undefined) {
-      const target = NET_CONFIG.targetSlackTicks + NET_CONFIG.slackSpreadK * Math.max(0, slackStdTicks);
+      const target = NET_CONFIG.targetSlackTicks + NET_CONFIG.slackSpreadK * Math.max(0, slackStdTicks - SLACK_QUANTISATION_STD_TICKS);
       const err = target - slackTicks;
       const beyond = Math.sign(err) * Math.max(0, Math.abs(err) - DEADBAND_TICKS);
       this.safetyMs += beyond * SAFETY_GAIN * MS_PER_TICK;

@@ -13,6 +13,7 @@ import {
 import { ArenaRoom } from "./ArenaRoom.js";
 import { PracticeRoom, newPracticeState } from "./PracticeRoom.js";
 import { PlaygroundRoom } from "./PlaygroundRoom.js";
+import { MAX_MESSAGES_PER_SECOND } from "../net/rate-limit.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
@@ -99,5 +100,11 @@ describe("PracticeRoom.onCreate (NR55)", () => {
     await expect(room.onCreate!({ ...defaultPracticeSetup(), protocol: PROTOCOL_VERSION - 1 })).rejects.toThrow(
       refusal(PROTOCOL_VERSION - 1),
     );
+  });
+});
+
+describe("Colyseus maxMessagesPerSecond backstop (fix round I2)", () => {
+  it.each(ROOMS)("$name sets it to MAX_MESSAGES_PER_SECOND rather than Colyseus's Infinity", ({ make }) => {
+    expect((make() as unknown as { maxMessagesPerSecond: number }).maxMessagesPerSecond).toBe(MAX_MESSAGES_PER_SECOND);
   });
 });

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MS_PER_TICK } from "../constants.js";
 import { NET_CONFIG } from "../config/net-config.js";
 import { ClockSync } from "./clock-sync.js";
-import { InputScheduler } from "./input-scheduler.js";
+import { InputScheduler, SLACK_QUANTISATION_STD_TICKS } from "./input-scheduler.js";
 
 /** A pong's tick and phase from ONE server time, so a tick boundary cannot round into an extra tick. */
 function pongFields(serverMs: number): { t: number; p: number } {
@@ -60,6 +60,19 @@ describe("InputScheduler", () => {
     // A 2-tick spread means slack is 2K ticks short of its target: the safety grows.
     expect(NET_CONFIG.slackSpreadK).toBeGreaterThan(0);
     expect(spread.leadMs).toBeGreaterThan(flat.leadMs + MS_PER_TICK);
+  });
+
+  it("ignores a spread no larger than integer quantisation (fix round I3)", () => {
+    // Slack samples are whole ticks: a steady path with a fractional true lead reads as a Bernoulli
+    // mix of two neighbouring integers, std up to 0.5, with nothing late about it.
+    const flat = new InputScheduler(syncedClock(40));
+    const quantised = new InputScheduler(syncedClock(40));
+    for (let now = 2000; now < 6000; now += 1000 / 60) {
+      flat.due(now, 1000 / 60, NET_CONFIG.targetSlackTicks, 0);
+      quantised.due(now, 1000 / 60, NET_CONFIG.targetSlackTicks, SLACK_QUANTISATION_STD_TICKS);
+    }
+    expect(SLACK_QUANTISATION_STD_TICKS).toBe(0.5);
+    expect(quantised.leadMs).toBeCloseTo(flat.leadMs, 9);
   });
 
   it("moves its lead by at most maxDilation of elapsed time per call", () => {

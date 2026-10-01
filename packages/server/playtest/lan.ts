@@ -38,6 +38,11 @@ interface Bot {
   freshSlackStd: number;
   /** The close code if the server dropped this bot mid-run (a rate-limit kick would show here). */
   droppedWith: number | undefined;
+  /** Snapshot decoding health: patches seen, and any whose `state.tick` did not advance (NR12, NR56). */
+  patches: number;
+  tickRegressions: number;
+  lastTick: number;
+  decodeErrors: string[];
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -52,7 +57,11 @@ async function join(name: string): Promise<Bot> {
   const bot: Bot = {
     name, room, clock, scheduler: new InputScheduler(clock), frames: [], lastSendMs: performance.now(),
     freshSlack: undefined, freshSlackStd: 0, droppedWith: undefined,
+    patches: 0, tickRegressions: 0, lastTick: -1, decodeErrors: [],
   };
+  room.onError((code, message) => {
+    bot.decodeErrors.push(`${code}: ${message}`);
+  });
   room.onLeave((code) => {
     bot.droppedWith = code;
   });
@@ -67,6 +76,13 @@ async function join(name: string): Promise<Bot> {
     setInterval(ping, NET_CONFIG.timeSyncIntervalMs).unref();
   }, NET_CONFIG.timeSyncBurstWindowMs).unref();
   room.onStateChange((state: any) => {
+    // Every snapshot is one tick (NR12): a patch whose tick does not move forward was decoded out of
+    // order or not at all — what an out-of-order delayed frame would produce.
+    bot.patches++;
+    if (typeof state.tick === "number") {
+      if (state.tick <= bot.lastTick) bot.tickRegressions++;
+      bot.lastTick = state.tick;
+    }
     const me = state.players?.get(room.sessionId);
     if (me) {
       bot.freshSlack = me.inputSlack;
@@ -221,6 +237,12 @@ async function main(): Promise<void> {
     console.log(`winner: ${state().players.get(state().winnerSessionId)?.name ?? state().winnerSessionId}`);
   }
 
+  for (const b of [alice, bob]) {
+    console.log(
+      `${b.name}: ${b.patches} patches decoded, state.tick ended at ${b.lastTick}, ` +
+        `non-advancing ticks ${b.tickRegressions}, room errors ${b.decodeErrors.join("; ") || "none"}`,
+    );
+  }
   // NR54: an honest client is never rate-limited or disconnected.
   const dropped = [alice, bob].filter((b) => b.droppedWith !== undefined);
   console.log(

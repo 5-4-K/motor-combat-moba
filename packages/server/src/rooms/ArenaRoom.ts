@@ -59,9 +59,9 @@ import {
   getCarSelectSeconds,
   getRevealSeconds,
 } from "../mode.js";
-import { OutgoingDelay, withSimulatedLatency } from "../net/latency-injector.js";
+import { InputDelay, OutgoingDelay } from "../net/latency-injector.js";
 import { assertProtocol } from "../net/protocol-gate.js";
-import { ClientLimits, limitUnknownMessages, limited } from "../net/rate-limit.js";
+import { ClientLimits, MAX_MESSAGES_PER_SECOND, limited, refuseUnknownMessages } from "../net/rate-limit.js";
 import {
   clearInstances,
   newCombatMemory,
@@ -101,6 +101,8 @@ import { NetSessions, installNetHandlers } from "../net/net-session.js";
 
 export class ArenaRoom extends Room<{ state: ArenaState }> {
   maxClients = MAX_PLAYERS;
+  /** Colyseus's pre-decode backstop above the NR54 token buckets; see `MAX_MESSAGES_PER_SECOND`. */
+  maxMessagesPerSecond = MAX_MESSAGES_PER_SECOND;
   /** Each player's inputs keyed by the tick they are for (NR22); `serverTick` takes one per tick. */
   private readonly inputBuffers = new Map<string, TickInputBuffer>();
   /**
@@ -150,6 +152,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   private readonly limits = new ClientLimits();
   /** Server → client latency injection (NR56); inactive, and never installed, unless SIM_LATENCY_MS is set. */
   private readonly outgoing = new OutgoingDelay(getSimulatedLatency());
+  /** Client → server latency injection (NR56), one in-order line per session; built in `onCreate`. */
+  private inputDelay: InputDelay<{ sessionId: string; msg: InputPacket }> | undefined;
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -175,11 +179,11 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       // interval.
       this.patchRate = null;
       installNetHandlers(this, this.netSessions, (fn) => scoped(this.modeConfig, fn), this.limits);
-      limitUnknownMessages(this, this.limits);
+      refuseUnknownMessages(this);
 
       // The offer reads `state.tick` at DELIVERY, after any simulated delay, so a delayed frame is
       // judged late or early against the tick the room is actually about to run.
-      const offer = withSimulatedLatency<{ sessionId: string; msg: InputPacket }>(
+      this.inputDelay = new InputDelay<{ sessionId: string; msg: InputPacket }>(
         ({ sessionId, msg }) => {
           const buffer = this.inputBuffers.get(sessionId);
           if (!buffer) return;
@@ -192,7 +196,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       this.onMessage(INPUT_MESSAGE, limited(this.limits, "input", (client, msg: unknown) =>
         scoped(this.modeConfig, () => {
           if (!isInputPacket(msg)) return;
-          offer({ sessionId: client.sessionId, msg });
+          this.inputDelay?.offer({ sessionId: client.sessionId, msg });
         })),
       );
 
@@ -419,6 +423,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       this.netSessions.drop(client.sessionId);
       this.limits.drop(client.sessionId);
       this.outgoing.drop(client.sessionId);
+      this.inputDelay?.drop(client.sessionId);
       forgetSpikeState(this.ram.spikes, client.sessionId);
 
       if (this.state.hostSessionId === client.sessionId) {

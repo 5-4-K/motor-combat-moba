@@ -89,6 +89,8 @@ export class TickInputBuffer {
   private last: InputKeys = NEUTRAL_KEYS;
   private lastRealTick = Number.NEGATIVE_INFINITY;
   private readonly slacks: number[] = [];
+  /** Highest tick ever accepted or counted late — so a tick feeds the slack window at most once. */
+  private highestSeenTick = Number.NEGATIVE_INFINITY;
 
   constructor(
     private readonly repeatTicks: number,
@@ -97,7 +99,17 @@ export class TickInputBuffer {
 
   offer(frame: InputFrame, lastCompletedTick: number): OfferResult {
     const next = lastCompletedTick + 1;
-    if (frame.tick < next) return "late";
+    if (frame.tick < next) {
+      // A frame's FIRST copy arriving late is exactly the sample the slack loop needs to see (fix
+      // round I3): it is the input that made this tick repeat. Its redundant copies in later packets,
+      // and late copies of ticks already accepted, are not samples — the in-order wire means a tick
+      // above everything seen so far is a first copy.
+      if (frame.tick > this.highestSeenTick) {
+        this.highestSeenTick = frame.tick;
+        this.recordSlack(frame.tick - next);
+      }
+      return "late";
+    }
     if (frame.tick > next + this.maxLeadTicks) return "early";
     if (this.frames.has(frame.tick)) return "duplicate";
     // Copy only the whitelisted fields: the parsed wire object may carry anything else.
@@ -105,8 +117,8 @@ export class TickInputBuffer {
     if (frame.aimAngle !== undefined) copy.aimAngle = frame.aimAngle;
     if (frame.viewTick !== undefined) copy.viewTick = frame.viewTick;
     this.frames.set(frame.tick, copy);
-    this.slacks.push(frame.tick - next);
-    if (this.slacks.length > SLACK_WINDOW) this.slacks.shift();
+    if (frame.tick > this.highestSeenTick) this.highestSeenTick = frame.tick;
+    this.recordSlack(frame.tick - next);
     return "accepted";
   }
 
@@ -120,6 +132,11 @@ export class TickInputBuffer {
     }
     const keys = tick - this.lastRealTick <= this.repeatTicks ? this.last : NEUTRAL_KEYS;
     return { keys, frame: undefined, repeated: true };
+  }
+
+  private recordSlack(ticks: number): void {
+    this.slacks.push(ticks);
+    if (this.slacks.length > SLACK_WINDOW) this.slacks.shift();
   }
 
   slackMeanTicks(): number {

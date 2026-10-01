@@ -34,10 +34,10 @@ export const NET_CONFIG = {
   /** Where the client's slack feedback steers the mean input lead, in ticks (NR21). */
   targetSlackTicks: 1.5,
   /**
-   * How many standard deviations of the server-reported slack spread (`PlayerState.inputSlackStd`)
-   * the client adds to `targetSlackTicks` (NR21, D5 ruling E), so a jittery input path aims its mean
-   * further from the late edge instead of landing its slow tail late. A steady path reports ~0 spread
-   * and keeps the plain target.
+   * How many ticks of target the client adds per tick of server-reported slack spread
+   * (`PlayerState.inputSlackStd`) beyond integer quantisation's 0.5 (NR21, D5 ruling E; see
+   * `SLACK_QUANTISATION_STD_TICKS`), so a jittery input path aims its mean further from the late edge
+   * instead of landing its slow tail late. A steady path keeps the plain target.
    */
   slackSpreadK: 1,
   /** Most the client's tick clock may run faster or slower than nominal while steering slack (NR21). */

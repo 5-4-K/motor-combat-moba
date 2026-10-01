@@ -90,8 +90,11 @@ zero refusals.
 **Rate limits (NR54).** `packages/server/src/net/rate-limit.ts`. Every `onMessage` handler in all three
 rooms is wrapped in `limited(this.limits, kind, …)`, which charges the message to a per-client token
 bucket before the handler runs: `"input"` (`INPUT_MESSAGE`) at `2 × TICK_RATE_HZ`/s with a burst of 30,
-`"time"` (`MSG_TIME` and the `MSG_PING` echo) at 20/s burst 20, `"lobby"` (every other message, and any
-message type the room never registered, via a `"*"` handler) at 10/s burst 10. An over-limit message is
+`"time"` (`MSG_TIME` and the `MSG_PING` echo) at 20/s burst 20, `"lobby"` (every other message) at 10/s burst 10. A message type the room never registered
+disconnects the client at once (`refuseUnknownMessages`, `CLOSE_CODES.UNKNOWN_MESSAGE` — fail-closed,
+as Colyseus's own production default is), and `Room.maxMessagesPerSecond` is set to
+`MAX_MESSAGES_PER_SECOND` (240) in every room as a pre-decode backstop above the 210 messages the
+buckets could ever admit in one second. An over-limit message is
 dropped and counted (`ClientLimits.droppedFor`). A client continuously over any one limit for more than
 `RATE_LIMIT_KICK_MS` (5 s) is disconnected with `CLOSE_CODES.RATE_LIMITED`. "Continuously" means
 refusals keep coming at least once a second and no allowed message finds the bucket with tokens to
@@ -121,9 +124,10 @@ session and accepts an echo only of one of those, once — the server's RTT will
 
 **Latency injection, both directions (NR56).** Dev only: `SIM_LATENCY_MS` (one-way), `SIM_JITTER_MS`
 and `SIM_LOSS_PCT`, all unset in a release. Both directions run on a `DelayLine` per client — in order,
-like the WebSocket it models, with a lost message retransmitted `2 × SIM_LATENCY_MS` later and
+like the WebSocket it models (a FIFO with one timer armed for its head: a timer per message can fire
+inverted in Node, and an out-of-order patch breaks the client's decoder), with a lost message retransmitted `2 × SIM_LATENCY_MS` later and
 everything behind it held (the netsim `Link` model). Client → server wraps input delivery
-(`withSimulatedLatency`, keyed by session). Server → client wraps the client's `raw` send
+(`InputDelay`, one line per session, dropped when the client leaves). Server → client wraps the client's `raw` send
 (`OutgoingDelay.wrapClient`), which in Colyseus 0.18 every outgoing frame passes through — snapshots
 from `broadcastPatch`, the `MSG_TIME` pong, `MSG_PING`, errors — copying the bytes so a delayed
 snapshot is still the tick it was encoded at. It is installed per client only when a latency is
@@ -132,6 +136,10 @@ configured, so nothing touches a release build's transport. `ArenaRoom` and `Pra
 
 **Slack spread (NR21, D5 ruling E).** `PlayerState.inputSlackStd` carries, beside `inputSlack`, the
 standard deviation of the same 30 slack samples. The client's `InputScheduler` steers the mean slack to
-`targetSlackTicks + slackSpreadK × inputSlackStd`, so a jittery input path aims further from the late
-edge instead of landing its slow tail late. It is a separate field rather than folded into
+`targetSlackTicks + slackSpreadK × max(0, inputSlackStd − SLACK_QUANTISATION_STD_TICKS)`, so a
+jittery input path aims further from the late edge instead of landing its slow tail late. The 0.5-tick
+floor is worst-case integer quantisation: a steady path whose true lead is fractional reads as two
+neighbouring whole-tick slacks, std up to 0.5, and must not pay for it. `TickInputBuffer` also counts
+a frame's FIRST late arrival as a (negative) slack sample — the frames that cause repeats used to be
+refused before they were measured, so the loop never saw them; redundant copies are never counted. It is a separate field rather than folded into
 `inputSlack`, so the mean keeps its NR21 meaning and the margin a spread is worth stays a client knob.

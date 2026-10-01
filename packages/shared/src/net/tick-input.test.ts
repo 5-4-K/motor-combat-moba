@@ -63,6 +63,17 @@ describe("TickInputBuffer", () => {
     expect(b.slackMeanTicks()).toBe(2);
     expect(b.slackStdTicks()).toBe(1);
   });
+
+  it("counts a frame's FIRST late arrival as a negative slack sample, never its redundant copies (fix round I3)", () => {
+    const b = new TickInputBuffer(15, 15);
+    b.offer(f(12), 10); // accepted, slack 1
+    b.take(11);
+    b.take(12);
+    b.offer(f(12), 12); // a redundant copy of an accepted tick, now late: not a sample
+    b.offer(f(13), 13); // never accepted, arrives late: slack 13 - 14 = -1
+    b.offer(f(13), 14); // its redundant copy in the next packet: not a sample
+    expect(b.slackMeanTicks()).toBe(0); // (1 + -1) / 2
+  });
 });
 
 describe("hostile input", () => {

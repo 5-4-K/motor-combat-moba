@@ -77,7 +77,7 @@ function waitForArenaReady(room: Room<PracticeState>): Promise<void> {
  * is no mid-session reconfiguration (PR2), which is why they ride as join options rather than as a
  * message the room could accept later.
  *
- * A capacity refusal (PR25, code 4007) is an inline error on THIS screen: the player never left it,
+ * A capacity refusal (PR25, `CLOSE_CODES.PRACTICE_FULL`, 4107) is an inline error on THIS screen: the player never left it,
  * and routing them somewhere else to read the reason would be a worse answer than re-enabling Start.
  */
 export class PracticeSetupScene extends Phaser.Scene {
@@ -108,7 +108,7 @@ export class PracticeSetupScene extends Phaser.Scene {
     this.overlay.render(this.screen.root);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
 
-    // Set by `ArenaScene` just before routing here off close code 4006 (spec PR25) — an idle
+    // Set by `ArenaScene` just before routing here off `CLOSE_CODES.PRACTICE_IDLE` (4106, spec PR25) — an idle
     // session ended somewhere the player never chose to leave, so this screen is where they land
     // and where they read why. Cleared on read so it cannot resurface on a later, unrelated visit.
     const notice = this.registry.get("practiceNotice") as string | undefined;
@@ -155,7 +155,8 @@ export class PracticeSetupScene extends Phaser.Scene {
       // place.
       const alreadyGone = err instanceof Error && err.message === ROOM_ALREADY_GONE;
       if (room && !alreadyGone) void room.leave();
-      // `ServerError` (what every real refusal — 4006-4009 alike — rejects with) extends `Error`, so
+      // `ServerError` (what every real refusal — `CLOSE_CODES` 4106-4109 and the 4111 protocol refusal
+      // alike — rejects with) extends `Error`, so
       // `err.message` already carries the server's own text; this fallback only guards a rejection
       // shaped by something other than the room, which reads closer to a malformed request than to
       // any of the room's own reasons.

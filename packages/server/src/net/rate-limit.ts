@@ -170,13 +170,27 @@ export function limited<M = unknown>(
 }
 
 /**
- * Charges a message of a type the room never registered to the `"lobby"` budget and drops it, so a
- * flood of junk types runs into the same limit and the same disconnect as a flood of real ones.
- * Colyseus only routes a message to `"*"` when no handler for its type exists.
+ * Fail-closed on a message type the room never registered: disconnect at once with
+ * `CLOSE_CODES.UNKNOWN_MESSAGE`. That is Colyseus 0.18's own production default for an unhandled
+ * type; registering `"*"` only puts our code on it. No client of this build ever sends one.
+ * Colyseus routes a message to `"*"` only when no handler for its type exists.
  */
-export function limitUnknownMessages(
+export function refuseUnknownMessages(
   room: { onMessage(type: "*", handler: (client: Client, type: string | number, message: unknown) => void): unknown },
-  limits: ClientLimits,
 ): void {
-  room.onMessage("*", limited(limits, "lobby", () => {}));
+  room.onMessage("*", (client, type) => {
+    console.warn(`[net] disconnecting ${client.sessionId}: unregistered message type ${JSON.stringify(type)}`);
+    client.leave(CLOSE_CODES.UNKNOWN_MESSAGE, "Unknown message type");
+  });
 }
+
+/**
+ * Colyseus's own pre-decode backstop (`Room.maxMessagesPerSecond`): a client past this many messages
+ * in one second is dropped before any message is decoded, with Colyseus's WITH_ERROR. It must sit
+ * above anything the token buckets above could ever admit, so it only ever fires on a client they are
+ * already refusing: the sum of the three refill rates (120 + 20 + 10 = 150/s) plus all three full
+ * bursts (30 + 20 + 10 = 60) is 210 admitted in any one second. An honest client sends ~60 inputs,
+ * at most ~11 time messages and a handful of clicks a second (~80), so 240 leaves it 3x headroom and
+ * still bounds a flooder's decode cost.
+ */
+export const MAX_MESSAGES_PER_SECOND = 240;

@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { CLOSE_CODES, MS_PER_TICK, NET_CONFIG, TICK_RATE_HZ } from "@motor-combat-moba/shared";
-import { ClientLimits, RATE_LIMIT_KICK_MS, TokenBucket, admit, type MessageKind } from "./rate-limit.js";
+import {
+  ClientLimits,
+  MAX_MESSAGES_PER_SECOND,
+  RATE_BUDGETS,
+  RATE_LIMIT_KICK_MS,
+  TokenBucket,
+  admit,
+  refuseUnknownMessages,
+  type MessageKind,
+} from "./rate-limit.js";
 
 describe("TokenBucket", () => {
   it("allows the burst, then the rate", () => {
@@ -108,63 +117,109 @@ function rng(seed: number): () => number {
   };
 }
 
+/**
+ * 60 s of what `ArenaScene` sends, as the SERVER sees it arrive: an input packet per tick from a
+ * 144 fps render loop (so 0-2 packets per frame), an 8-tick catch-up burst after each of a few
+ * frame stalls, the `MSG_TIME` join burst then the steady rate, one `MSG_PING` echo a second, and
+ * lobby clicking at a human's fastest (car-preview cycling, a chat line, pause toggles). Arrival
+ * times carry +-10 ms of network jitter and a TCP retransmit stall (every message held 300 ms,
+ * then delivered together) twice a minute.
+ */
+function honestArrivals(): { at: number; kind: MessageKind }[] {
+  const rand = rng(42);
+  const sends: { at: number; kind: MessageKind }[] = [];
+  const DURATION = 60_000;
+
+  // Inputs: the scheduler emits one tick per MS_PER_TICK, drained by 144 fps frames.
+  const frame = 1000 / 144;
+  let nextTickAt = 0;
+  const stalls = [5_000, 17_000, 33_000, 48_000]; // a 250 ms frame hitch each
+  for (let now = 0; now < DURATION; now += frame) {
+    const stalled = stalls.some((s) => now >= s && now < s + 250);
+    if (stalled) continue;
+    let burst = 0;
+    while (nextTickAt <= now) {
+      if (burst < NET_CONFIG.clientMaxCatchUpTicks) sends.push({ at: now, kind: "input" });
+      burst++;
+      nextTickAt += MS_PER_TICK;
+    }
+  }
+  // Time sync: join burst, then the steady rate, re-bursting on two pause-resumes; ping echoes 1/s.
+  for (const joinAt of [0, 20_000, 40_000]) {
+    for (let t = joinAt; t < joinAt + NET_CONFIG.timeSyncBurstWindowMs; t += NET_CONFIG.timeSyncBurstMs) {
+      sends.push({ at: t, kind: "time" });
+    }
+  }
+  for (let t = 0; t < DURATION; t += NET_CONFIG.timeSyncIntervalMs) sends.push({ at: t, kind: "time" });
+  for (let t = 0; t < DURATION; t += 1000) sends.push({ at: t + 3, kind: "time" });
+  // Lobby: a car-preview click every 120 ms for 3 s, twice; a chat line and a pause toggle now and then.
+  for (const from of [2_000, 30_000]) for (let t = from; t < from + 3_000; t += 120) sends.push({ at: t, kind: "lobby" });
+  for (let t = 1_000; t < DURATION; t += 4_000) sends.push({ at: t, kind: "lobby" }, { at: t + 150, kind: "lobby" });
+
+  // The wire: jitter on every message, in order, with two retransmit stalls.
+  const retransmits = [12_000, 41_000];
+  let lastArrival = -Infinity;
+  return sends
+    .sort((a, b) => a.at - b.at)
+    .map((m) => {
+      let at = m.at + 20 + (rand() * 2 - 1) * 10;
+      for (const r of retransmits) if (m.at >= r && m.at < r + 300) at = Math.max(at, r + 300 + 20);
+      at = Math.max(at, lastArrival);
+      lastArrival = at;
+      return { ...m, at };
+    });
+}
+
+/**
+ * Colyseus 0.18's `Room._onMessage` backstop, reproduced: a counter reset (to 0, not counting the
+ * message that opens the window) whenever `now` reaches the window's end; past `max` the client is
+ * dropped. Returns the arrival time of the first message that would trip it, or undefined.
+ */
+function colyseusBackstopTrips(arrivals: readonly { at: number }[], max: number): number | undefined {
+  let count = 0;
+  let resetsAt = 0;
+  for (const { at } of arrivals) {
+    if (at >= resetsAt) {
+      count = 0;
+      resetsAt = at + 1000;
+    } else if (++count > max) return at;
+  }
+  return undefined;
+}
+
 describe("an honest client of this build is never refused (NR54)", () => {
-  /**
-   * 60 s of what `ArenaScene` sends, as the SERVER sees it arrive: an input packet per tick from a
-   * 144 fps render loop (so 0-2 packets per frame), an 8-tick catch-up burst after each of a few
-   * frame stalls, the `MSG_TIME` join burst then the steady rate, one `MSG_PING` echo a second, and
-   * lobby clicking at a human's fastest (car-preview cycling, a chat line, pause toggles). Arrival
-   * times carry +-10 ms of network jitter and a TCP retransmit stall (every message held 300 ms,
-   * then delivered together) twice a minute.
-   */
   it("drives the full message mix through ClientLimits for 60 s with zero refusals", () => {
-    const rand = rng(42);
-    const sends: { at: number; kind: MessageKind }[] = [];
-    const DURATION = 60_000;
-
-    // Inputs: the scheduler emits one tick per MS_PER_TICK, drained by 144 fps frames.
-    const frame = 1000 / 144;
-    let nextTickAt = 0;
-    const stalls = [5_000, 17_000, 33_000, 48_000]; // a 250 ms frame hitch each
-    for (let now = 0; now < DURATION; now += frame) {
-      const stalled = stalls.some((s) => now >= s && now < s + 250);
-      if (stalled) continue;
-      let burst = 0;
-      while (nextTickAt <= now) {
-        if (burst < NET_CONFIG.clientMaxCatchUpTicks) sends.push({ at: now, kind: "input" });
-        burst++;
-        nextTickAt += MS_PER_TICK;
-      }
-    }
-    // Time sync: join burst, then the steady rate, re-bursting on two pause-resumes; ping echoes 1/s.
-    for (const joinAt of [0, 20_000, 40_000]) {
-      for (let t = joinAt; t < joinAt + NET_CONFIG.timeSyncBurstWindowMs; t += NET_CONFIG.timeSyncBurstMs) {
-        sends.push({ at: t, kind: "time" });
-      }
-    }
-    for (let t = 0; t < DURATION; t += NET_CONFIG.timeSyncIntervalMs) sends.push({ at: t, kind: "time" });
-    for (let t = 0; t < DURATION; t += 1000) sends.push({ at: t + 3, kind: "time" });
-    // Lobby: a car-preview click every 120 ms for 3 s, twice; a chat line and a pause toggle now and then.
-    for (const from of [2_000, 30_000]) for (let t = from; t < from + 3_000; t += 120) sends.push({ at: t, kind: "lobby" });
-    for (let t = 1_000; t < DURATION; t += 4_000) sends.push({ at: t, kind: "lobby" }, { at: t + 150, kind: "lobby" });
-
-    // The wire: jitter on every message, in order, with two retransmit stalls.
-    const retransmits = [12_000, 41_000];
-    let lastArrival = -Infinity;
-    const arrivals = sends
-      .sort((a, b) => a.at - b.at)
-      .map((m) => {
-        let at = m.at + 20 + (rand() * 2 - 1) * 10;
-        for (const r of retransmits) if (m.at >= r && m.at < r + 300) at = Math.max(at, r + 300 + 20);
-        at = Math.max(at, lastArrival);
-        lastArrival = at;
-        return { ...m, at };
-      });
-
+    const arrivals = honestArrivals();
     const limits = new ClientLimits();
     const refused: string[] = [];
     for (const m of arrivals) if (!limits.allow("honest", m.kind, m.at)) refused.push(`${m.kind}@${m.at.toFixed(0)}`);
     expect(arrivals.filter((m) => m.kind === "input").length).toBeGreaterThan(TICK_RATE_HZ * 55);
     expect(refused).toEqual([]);
+  });
+
+  it("never trips Colyseus's maxMessagesPerSecond backstop either", () => {
+    expect(colyseusBackstopTrips(honestArrivals(), MAX_MESSAGES_PER_SECOND)).toBeUndefined();
+  });
+
+  it("sets the backstop above everything the token buckets can admit in one second", () => {
+    const admitted = Object.values(RATE_BUDGETS).reduce((n, b) => n + b.ratePerSec + b.burst, 0);
+    expect(MAX_MESSAGES_PER_SECOND).toBeGreaterThanOrEqual(200);
+    expect(MAX_MESSAGES_PER_SECOND).toBeGreaterThan(admitted);
+  });
+});
+
+describe("refuseUnknownMessages (fail-closed)", () => {
+  it("disconnects a client the moment it sends an unregistered message type", () => {
+    let handler: ((client: never, type: string | number, message: unknown) => void) | undefined;
+    refuseUnknownMessages({
+      onMessage(type: "*", h: (client: never, type: string | number, message: unknown) => void) {
+        expect(type).toBe("*");
+        handler = h;
+      },
+    } as never);
+    const closed: number[] = [];
+    const client = { sessionId: "x", leave: (code?: number) => closed.push(code ?? -1) };
+    handler!(client as never, "not_a_message", {});
+    expect(closed).toEqual([CLOSE_CODES.UNKNOWN_MESSAGE]);
   });
 });

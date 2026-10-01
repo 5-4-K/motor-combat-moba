@@ -63,7 +63,7 @@ If the container was reclaimed and the branch is gone, redo D4 from its brief.
   RESOLVED: `MEASURED_RATIO` 790 → 1262 (worst median of 10 runs, alone 1089.7–1218.5, loaded
   1092.2–1261.7), gate ×1.3 ≈ 1641 drive ticks/plan. Hard still reads ~0.45–0.47 ms/plan (~1.1x the new
   budget), accepted as before. Docs citing 30 ms updated.
-- **D5 hardening**, plus carried rulings: ClockSync must not trust one spiked pong after a ≥ 6 s
+- **DONE (2026-10-01): D5 hardening**, plus carried rulings (net80 repeats 3.53 %, lan input-to-server 34.0 ms after the fix round — see the table): ClockSync must not trust one spiked pong after a ≥ 6 s
   pong gap; NR21's slack target gains a spread term (≈ mean + 1·`slackStdTicks()`) so a jittery
   input path stops landing late; `onPingEcho` accepts only server-issued stamps (server RTT will feed
   F1's shot-compensation cap); move `ServerError(4003)` off `CloseCode.FAILED_TO_RECONNECT`; restrict
@@ -98,16 +98,18 @@ Filled in by Phase B and after each later phase. Link profile names: `lan` (1 ms
 | Metric | Target | Baseline | after D | after E | after F | after G |
 |---|---|---|---|---|---|---|
 | Server steps per car per tick (max) | 1 | 4 (4–4) (net80; lan 1) | 1 (1–1) (lan, net80, net150) | | | |
-| Repeated-input ticks, net80 | ≤ 2 % | n/a | 3.93 % (3.66–4.21 %) | | | |
+| Repeated-input ticks, net80 | ≤ 2 % | n/a | 3.53 % (3.37–3.79 %) | | | |
 | Remote path error p95, net80 (u) | ≤ 12 | 0.13 (0.12–0.13) | 0.00 | | | |
-| Remote hold frames, net80 | ≤ 1 % | 3.62 % (2.75–4.73 %) | 1.23 % (1.11–1.39 %) | | | |
-| Local reconcile correction p95, net80 (u) | ≤ 4 | 0.86 (0.47–1.51) | 1.23 (0.75–2.05) | | | |
-| Input-to-server delay, lan (ms) | ≤ 34 | 21.7 (20.7–23.3) | 34.0 (33.9–34.0) | | | |
+| Remote hold frames, net80 | ≤ 1 % | 3.62 % (2.75–4.73 %) | 1.20 % (1.09–1.37 %) | | | |
+| Local reconcile correction p95, net80 (u) | ≤ 4 | 0.86 (0.47–1.51) | 1.37 (0.81–2.11) | | | |
+| Input-to-server delay, lan (ms) | ≤ 34 | 21.7 (20.7–23.3) | 34.0 (33.95–34.02) | | | |
 | Remote display delay, lan (ms) | no worse than baseline; interpolation component ≤ 50 | 67.4 (66.8–67.9) | 50.4 (49.9–50.8) | | | |
 | Hidden enemy present in decoded state | never | n/a | n/a | n/a | n/a | |
 
 Each Baseline cell is the MEAN over seeds 1–3, with the min–max across the three seeds in
-brackets. **Phases C–G compare on this shape: `NETSIM_BASELINE=1`, 60 s, six cars, seeds 1–3,
+brackets. The "after D" column is the D5 fix-round build (spread term with the 0.5-tick quantisation
+floor, plus late first-copy slack samples), 2026-10-01; net150 on it: repeated-input 7.62 %
+(7.27–8.01 %), input-to-server 127.1 ms. **Phases C–G compare on this shape: `NETSIM_BASELINE=1`, 60 s, six cars, seeds 1–3,
 mean.** (The 20 s seed-1 runs in `netsim.test.ts` are a smoke test, not a comparison point.)
 
 Baseline at net150 (same run shape, mean and min–max): steps per tick max 5 (5–5), remote path error

@@ -39,9 +39,9 @@ import {
 } from "@motor-combat-moba/shared";
 import { getMaxPracticeRooms, getSimulatedLatency } from "../mode.js";
 import { offerForTick } from "../net/offer-input.js";
-import { OutgoingDelay, withSimulatedLatency } from "../net/latency-injector.js";
+import { InputDelay, OutgoingDelay } from "../net/latency-injector.js";
 import { assertProtocol } from "../net/protocol-gate.js";
-import { ClientLimits, limitUnknownMessages, limited } from "../net/rate-limit.js";
+import { ClientLimits, MAX_MESSAGES_PER_SECOND, limited, refuseUnknownMessages } from "../net/rate-limit.js";
 import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
 import {
@@ -126,6 +126,8 @@ export function newPracticeState(): PracticeState {
  */
 export class PracticeRoom extends Room<{ state: PracticeState }> {
   maxClients = 1;
+  /** Colyseus's pre-decode backstop above the NR54 token buckets; see `MAX_MESSAGES_PER_SECOND`. */
+  maxMessagesPerSecond = MAX_MESSAGES_PER_SECOND;
 
   private readonly inputBuffers = new Map<string, TickInputBuffer>();
   private readonly prevFireMasks = new Map<string, number>();
@@ -185,6 +187,8 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
   private readonly limits = new ClientLimits();
   /** Server → client latency injection (NR56), mirroring `ArenaRoom` (PR11); inactive unless SIM_LATENCY_MS is set. */
   private readonly outgoing = new OutgoingDelay(getSimulatedLatency());
+  /** Client → server latency injection (NR56), one in-order line per session; built in `onCreate`. */
+  private inputDelay: InputDelay<{ sessionId: string; msg: InputPacket }> | undefined;
   /**
    * Latched at the first close, because `disconnect()` is asynchronous and the simulation interval
    * can fire again before the room is gone — without this the idle sweep would keep kicking clients
@@ -250,13 +254,13 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
       // interval.
       this.patchRate = null;
       installNetHandlers(this, this.netSessions, (fn) => scoped(this.modeConfig, fn), this.limits);
-      limitUnknownMessages(this, this.limits);
+      refuseUnknownMessages(this);
 
       // Mirrors `ArenaRoom`'s injector (PR11). The playground deliberately skips it — simulated lag
       // makes a feel test lie — but practice takes the opposite decision for the reason it exists:
       // strict mirror means practice must feel like the arena on the same deploy. The knobs are off in
-      // a release build, where `withSimulatedLatency` hands back the deliver function unwrapped.
-      const offer = withSimulatedLatency<{ sessionId: string; msg: InputPacket }>(
+      // a release build, where `InputDelay` delivers straight through.
+      this.inputDelay = new InputDelay<{ sessionId: string; msg: InputPacket }>(
         ({ sessionId, msg }) => {
           // Bounded without a cap of its own (review F3's concern): `tick()` returns before
           // `serverTick` runs while `state.paused` holds, so nothing takes from this buffer then, but
@@ -288,7 +292,7 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
           }
           // Offered unconditionally, active or not: the sim needs every tick's input to drive
           // correctly, including "hold nothing". Only the idle stamp above is conditional.
-          offer({ sessionId: client.sessionId, msg });
+          this.inputDelay?.offer({ sessionId: client.sessionId, msg });
         })),
       );
 
@@ -377,6 +381,7 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
       this.netSessions.drop(client.sessionId);
       this.limits.drop(client.sessionId);
       this.outgoing.drop(client.sessionId);
+      this.inputDelay?.drop(client.sessionId);
       this.closing = true;
       void this.disconnect();
     });

@@ -19,9 +19,19 @@ export function latencyActive(cfg: LatencyConfig): boolean {
   return cfg.latencyMs > 0 || cfg.jitterMs > 0;
 }
 
-/** One direction of one simulated socket: in order, jittered, with loss as a retransmit delay. */
+/**
+ * One direction of one simulated socket: in order, jittered, with loss as a retransmit delay.
+ *
+ * A FIFO with ONE timer, armed for its head — never a `setTimeout` per message. Node arms each timer
+ * from its cached loop time, so two timers with the same absolute due time armed in different loop
+ * iterations can fire inverted (measured: 1–5 inversions per 600 messages), and an out-of-order
+ * schema patch breaks the client's decoder. When the timer fires it drains every entry already due,
+ * in order, then re-arms for the new head.
+ */
 export class DelayLine {
   private lastAt = Number.NEGATIVE_INFINITY;
+  private readonly queue: { at: number; fn: () => void }[] = [];
+  private timer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     private readonly cfg: LatencyConfig,
@@ -35,31 +45,78 @@ export class DelayLine {
     if (this.cfg.lossPct > 0 && this.rand() < this.cfg.lossPct / 100) at += 2 * this.cfg.latencyMs;
     at = Math.max(at, this.lastAt, now);
     this.lastAt = at;
-    setTimeout(fn, at - now);
+    this.queue.push({ at, fn });
+    if (this.timer === undefined) this.arm(now);
+  }
+
+  /** Drops everything still queued (the socket closed). */
+  clear(): void {
+    this.queue.length = 0;
+    if (this.timer !== undefined) clearTimeout(this.timer);
+    this.timer = undefined;
+  }
+
+  private arm(now: number): void {
+    const head = this.queue[0];
+    if (head === undefined) return;
+    this.timer = setTimeout(() => this.drain(), Math.max(0, head.at - now));
+  }
+
+  private drain(): void {
+    this.timer = undefined;
+    const now = Date.now();
+    try {
+      while (this.queue.length > 0 && this.queue[0]!.at <= now) this.queue.shift()!.fn();
+    } finally {
+      // Re-armed even if a delivery threw, so one bad message cannot stall the rest of the line.
+      this.arm(now);
+    }
   }
 }
 
 /**
- * Client → server: wraps a room's input delivery. `keyOf` names the socket a message came in on (the
- * session id), so each client's inputs keep their own order and one client's loss does not hold
- * another's; without it the whole room shares one line.
+ * Client → server: a room's input delivery, delayed. `keyOf` names the socket a message came in on
+ * (the session id), so each client's inputs keep their own order and one client's loss does not hold
+ * another's. `drop(key)` forgets a departed client's line and anything still queued on it.
  */
+export class InputDelay<T> {
+  private readonly lines = new Map<string, DelayLine>();
+
+  constructor(
+    private readonly deliver: (msg: T) => void,
+    private readonly cfg: LatencyConfig,
+    private readonly keyOf: (msg: T) => string = () => "",
+  ) {}
+
+  offer(msg: T): void {
+    if (!latencyActive(this.cfg)) {
+      this.deliver(msg);
+      return;
+    }
+    const key = this.keyOf(msg);
+    let line = this.lines.get(key);
+    if (line === undefined) {
+      line = new DelayLine(this.cfg);
+      this.lines.set(key, line);
+    }
+    line.schedule(() => this.deliver(msg));
+  }
+
+  drop(key: string): void {
+    this.lines.get(key)?.clear();
+    this.lines.delete(key);
+  }
+}
+
+/** `InputDelay` as a bare function: `deliver` itself, unwrapped, when no latency is configured. */
 export function withSimulatedLatency<T>(
   deliver: (msg: T) => void,
   cfg: LatencyConfig,
   keyOf: (msg: T) => string = () => "",
 ): (msg: T) => void {
   if (!latencyActive(cfg)) return deliver;
-  const lines = new Map<string, DelayLine>();
-  return (msg: T) => {
-    const key = keyOf(msg);
-    let line = lines.get(key);
-    if (line === undefined) {
-      line = new DelayLine(cfg);
-      lines.set(key, line);
-    }
-    line.schedule(() => deliver(msg));
-  };
+  const delay = new InputDelay(deliver, cfg, keyOf);
+  return (msg: T) => delay.offer(msg);
 }
 
 /** The part of a Colyseus `Client` every outgoing frame goes through. */
@@ -116,6 +173,7 @@ export class OutgoingDelay {
   }
 
   drop(sessionId: string): void {
+    this.lines.get(sessionId)?.clear();
     this.lines.delete(sessionId);
   }
 }
