@@ -185,12 +185,16 @@ export function refuseUnknownMessages(
 }
 
 /**
- * Colyseus's own pre-decode backstop (`Room.maxMessagesPerSecond`): a client past this many messages
- * in one second is dropped before any message is decoded, with Colyseus's WITH_ERROR. It must sit
- * above anything the token buckets above could ever admit, so it only ever fires on a client they are
- * already refusing: the sum of the three refill rates (120 + 20 + 10 = 150/s) plus all three full
- * bursts (30 + 20 + 10 = 60) is 210 admitted in any one second. An honest client sends ~60 inputs,
- * at most ~11 time messages and a handful of clicks a second (~80), so 240 leaves it 3x headroom and
- * still bounds a flooder's decode cost.
+ * Colyseus's own pre-decode backstop (`Room.maxMessagesPerSecond`): a client past this many frames in
+ * one window is dropped before any is decoded, with Colyseus's WITH_ERROR (4002) and no reason given.
+ *
+ * Sized for the POST-STALL BURST, not for the token buckets' throughput. Colyseus counts every
+ * inbound frame in a fixed one-second window keyed off the room clock, and during a TCP stall an
+ * honest client keeps sending ~65 frames/s (60 inputs plus time sync and clicks) that all arrive
+ * together when the stall clears — inside one window. A stall of S seconds lands ~65·S + 65 frames
+ * in that window, so a backstop near the buckets' 210/s would drop an honest player after a ~2.7 s
+ * stall. 1000 covers the burst after a 10 s stall (≈ 65 × 10 + 65 = 715) with headroom; the token
+ * buckets above still decide what a flood may DO, and the 4 KiB payload cap
+ * (`MAX_WS_PAYLOAD_BYTES`) bounds what 1000 frames a second can cost to decode.
  */
-export const MAX_MESSAGES_PER_SECOND = 240;
+export const MAX_MESSAGES_PER_SECOND = 1000;

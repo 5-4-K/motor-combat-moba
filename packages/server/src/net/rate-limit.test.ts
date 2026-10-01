@@ -171,20 +171,32 @@ function honestArrivals(): { at: number; kind: MessageKind }[] {
 }
 
 /**
- * Colyseus 0.18's `Room._onMessage` backstop, reproduced: a counter reset (to 0, not counting the
- * message that opens the window) whenever `now` reaches the window's end; past `max` the client is
- * dropped. Returns the arrival time of the first message that would trip it, or undefined.
+ * Colyseus 0.18's `Room._onMessage` backstop, reproduced: every inbound frame is counted BEFORE it
+ * is decoded, against `clock.currentTime` — the room clock, which only advances once per simulation
+ * frame (one tick), so every frame arriving within one tick sees the same "now". The counter resets
+ * (to 0, not counting the frame that opens the window) when now reaches the window's end; past `max`
+ * the client is dropped. Returns the arrival time of the first frame that would trip it, or undefined.
  */
 function colyseusBackstopTrips(arrivals: readonly { at: number }[], max: number): number | undefined {
   let count = 0;
   let resetsAt = 0;
   for (const { at } of arrivals) {
-    if (at >= resetsAt) {
+    const now = Math.floor(at / MS_PER_TICK) * MS_PER_TICK;
+    if (now >= resetsAt) {
       count = 0;
-      resetsAt = at + 1000;
+      resetsAt = now + 1000;
     } else if (++count > max) return at;
   }
   return undefined;
+}
+
+/**
+ * The honest mix with a TCP stall: everything sent in [from, from + holdMs) is held by the network
+ * and released at once at its end, in order — the client kept sending through the stall.
+ */
+function withStall(arrivals: { at: number; kind: MessageKind }[], from: number, holdMs: number) {
+  const release = from + holdMs;
+  return arrivals.map((m) => (m.at >= from && m.at < release ? { ...m, at: release } : m));
 }
 
 describe("an honest client of this build is never refused (NR54)", () => {
@@ -201,10 +213,25 @@ describe("an honest client of this build is never refused (NR54)", () => {
     expect(colyseusBackstopTrips(honestArrivals(), MAX_MESSAGES_PER_SECOND)).toBeUndefined();
   });
 
+  it.each([4_000, 10_000])(
+    "survives a %i ms stall released in one burst: no backstop drop, no ClientLimits kick (fix round 2)",
+    (holdMs) => {
+      const arrivals = withStall(honestArrivals(), 20_000, holdMs);
+      expect(colyseusBackstopTrips(arrivals, MAX_MESSAGES_PER_SECOND)).toBeUndefined();
+      const limits = new ClientLimits();
+      let worstOver = 0;
+      for (const m of arrivals) {
+        if (!limits.allow("honest", m.kind, m.at)) worstOver = Math.max(worstOver, limits.overLimitFor("honest", m.at));
+      }
+      expect(worstOver).toBeLessThanOrEqual(RATE_LIMIT_KICK_MS);
+    },
+  );
+
   it("sets the backstop above everything the token buckets can admit in one second", () => {
     const admitted = Object.values(RATE_BUDGETS).reduce((n, b) => n + b.ratePerSec + b.burst, 0);
-    expect(MAX_MESSAGES_PER_SECOND).toBeGreaterThanOrEqual(200);
     expect(MAX_MESSAGES_PER_SECOND).toBeGreaterThan(admitted);
+    // ...and above the burst a 10 s stall releases (~65 frames/s held, plus the next second's).
+    expect(MAX_MESSAGES_PER_SECOND).toBeGreaterThanOrEqual(65 * 10 + 65);
   });
 });
 

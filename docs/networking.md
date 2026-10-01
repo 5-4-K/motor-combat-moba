@@ -93,8 +93,9 @@ bucket before the handler runs: `"input"` (`INPUT_MESSAGE`) at `2 × TICK_RATE_H
 `"time"` (`MSG_TIME` and the `MSG_PING` echo) at 20/s burst 20, `"lobby"` (every other message) at 10/s burst 10. A message type the room never registered
 disconnects the client at once (`refuseUnknownMessages`, `CLOSE_CODES.UNKNOWN_MESSAGE` — fail-closed,
 as Colyseus's own production default is), and `Room.maxMessagesPerSecond` is set to
-`MAX_MESSAGES_PER_SECOND` (240) in every room as a pre-decode backstop above the 210 messages the
-buckets could ever admit in one second. An over-limit message is
+`MAX_MESSAGES_PER_SECOND` (1000) in every room as a pre-decode backstop. It is sized for the burst a
+TCP stall releases into one Colyseus counting window (~65 frames per stalled second, so a 10 s stall
+lands ~715), not for the buckets' throughput; the 4 KiB payload cap bounds the decode cost. An over-limit message is
 dropped and counted (`ClientLimits.droppedFor`). A client continuously over any one limit for more than
 `RATE_LIMIT_KICK_MS` (5 s) is disconnected with `CLOSE_CODES.RATE_LIMITED`. "Continuously" means
 refusals keep coming at least once a second and no allowed message finds the bucket with tokens to
