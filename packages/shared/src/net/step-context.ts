@@ -15,8 +15,23 @@ export interface ContextState {
   };
 }
 
-/** Where a remote car stands at the tick a context is built for, or undefined to use its roster pose. */
-export type PoseOf = (sessionId: string) => { x: number; y: number; angle: number } | undefined;
+/**
+ * Where a remote car stands at the END of server tick `tick` (a snapshot of tick T is the end of T),
+ * or undefined to use its roster pose. `buildStepContext` says which tick to ask about
+ * (`remotePoseTickFor`).
+ */
+export type PoseOf = (sessionId: string, tick: number) => { x: number; y: number; angle: number } | undefined;
+
+/**
+ * The tick whose END a remote stands at while the local car is stepped on server tick `tick`.
+ * `serverTick` steps cars one after another in sorted `sessionId` order, each against the CURRENT
+ * poses of the others: a remote that sorts before the local car has already been stepped this tick
+ * (end of `tick`), one that sorts after it has not (end of `tick - 1`). Same comparison as the
+ * server's `sortedEntries` (phase E review M1).
+ */
+export function remotePoseTickFor(remoteSessionId: string, selfSessionId: string, tick: number): number {
+  return remoteSessionId < selfSessionId ? tick : tick - 1;
+}
 
 /**
  * The `StepContext` the local car is predicted through. This is the client's half of the lockstep:
@@ -40,9 +55,11 @@ export type PoseOf = (sessionId: string) => { x: number; y: number; angle: numbe
  * snapshot's tick for a frame `lead` ticks later would keep a lapsing slow on for `lead` ticks too
  * long, and a local wall clock would lapse it on a tick the server never ran.
  *
- * Remotes enter wherever `poseOf` says they are at `tick` (NR32): the client passes each remote's
- * dead-reckoned pose at the tick being predicted, because the server steps the local car at that
- * tick against wherever the remotes are THEN, not where the last snapshot showed them. Only `x`,
+ * Remotes enter wherever `poseOf` says they are when the server steps the local car (NR32): the
+ * client passes each remote's dead-reckoned pose, because the server steps the local car at that
+ * tick against wherever the remotes are THEN, not where the last snapshot showed them. "Then" is the
+ * end of `tick` for a remote stepped before the local car and the end of `tick - 1` for one stepped
+ * after it (`remotePoseTickFor`), so `poseOf` is asked about that tick. Only `x`,
  * `y` and `angle` are replaced — who is solid, the chassis and `ramDefence` still come off the
  * roster. `poseOf` is never asked about the local car, and a remote it has no answer for (or every
  * remote, when it is omitted) enters at its last-known server pose.
@@ -57,7 +74,10 @@ export function buildStepContext(
 ): StepContext {
   const entries: ContextEntry[] = [];
   state.players.forEach((player, sessionId) => {
-    const pose = poseOf && sessionId !== selfSessionId ? poseOf(sessionId) : undefined;
+    const pose =
+      poseOf && sessionId !== selfSessionId
+        ? poseOf(sessionId, remotePoseTickFor(sessionId, selfSessionId, tick))
+        : undefined;
     // Field by field, never a spread: `player` is a Colyseus schema instance in the client, whose
     // fields are accessors a spread would not copy.
     entries.push({

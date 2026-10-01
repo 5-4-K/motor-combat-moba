@@ -2,7 +2,17 @@ import { MS_PER_TICK, getArena, withMode, type InputPacket, type TimePong } from
 import { isSnapshotTick } from "../rooms/snapshot-cadence.js";
 import { makeDriver } from "./drivers.js";
 import { Link, type LinkProfile } from "./link.js";
-import { isHold, mean, percentile, scoreRemoteSample, truthAt, type NetsimMetrics } from "./metrics.js";
+import {
+  headingAt,
+  headingErrorDeg,
+  isHold,
+  jumpExcess,
+  mean,
+  percentile,
+  scoreRemoteSample,
+  truthAt,
+  type NetsimMetrics,
+} from "./metrics.js";
 import { mulberry32 } from "./rng.js";
 import { NETSIM_ARENA_ID, ServerWorld, type Snapshot } from "./server-world.js";
 import { TickClient } from "./tick-client.js";
@@ -57,6 +67,8 @@ export interface NetsimDiagnostics {
   steppedCarTicks: number;
   /** Remote samples scored (client frames × live remotes drawn live). */
   remoteSamples: number;
+  /** Of those, drawn within `contactBlendRangeCars` car lengths of the local car (the blend's reach). */
+  blendSamples: number;
   /** Server-side deaths over the run, all cars. */
   deaths: number;
 }
@@ -72,6 +84,8 @@ interface RemoteSample {
   now: number;
   x: number;
   y: number;
+  angle: number;
+  inBlendRange: boolean;
   prev: RemoteSample | undefined;
 }
 
@@ -172,7 +186,15 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
           c.prev.delete(otherId);
           continue;
         }
-        const sample: RemoteSample = { otherId, now, x: drawn.x, y: drawn.y, prev: c.prev.get(otherId) };
+        const sample: RemoteSample = {
+          otherId,
+          now,
+          x: drawn.x,
+          y: drawn.y,
+          angle: drawn.angle,
+          inBlendRange: drawn.inBlendRange,
+          prev: c.prev.get(otherId),
+        };
         samples.push(sample);
         c.prev.set(otherId, { ...sample, prev: undefined });
       }
@@ -181,13 +203,31 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
 
   const pathErrors: number[] = [];
   const displayDelays: number[] = [];
+  const headingErrors: number[] = [];
+  const jumpExcesses: number[] = [];
+  const blendPathErrors: number[] = [];
+  const blendHeadingErrors: number[] = [];
   let holds = 0;
   for (const s of samples) {
     const path = world.truth.get(s.otherId)!;
     const scored = scoreRemoteSample(path, s.now, s.x, s.y);
     pathErrors.push(scored.distance);
     displayDelays.push(scored.delayMs);
-    if (s.prev && isHold(s.prev, s, truthAt(path, s.prev.now), truthAt(path, s.now))) holds++;
+    // Heading judged at the same true point the path error found, so display delay is not error.
+    const heading = headingErrorDeg(s.angle, headingAt(path, s.now - scored.delayMs));
+    headingErrors.push(heading);
+    if (s.inBlendRange) {
+      blendPathErrors.push(scored.distance);
+      blendHeadingErrors.push(heading);
+    }
+    if (s.prev) {
+      if (isHold(s.prev, s, truthAt(path, s.prev.now), truthAt(path, s.now))) holds++;
+      // The car's own motion over this frame at the moment being DRAWN (this sample's display delay
+      // back), so a remote drawn a delay behind a car that just braked is not scored as jumping.
+      const drawnAt = s.now - scored.delayMs;
+      const span = s.now - s.prev.now;
+      jumpExcesses.push(jumpExcess(s.prev, s, truthAt(path, drawnAt - span), truthAt(path, drawnAt)));
+    }
   }
 
   const inputDelays: number[] = [];
@@ -214,6 +254,11 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
     remoteHoldRate: samples.length === 0 ? 0 : holds / samples.length,
     reconcileErrorP95: percentile(clients.flatMap((c) => c.client.reconcileErrors), 95),
     inputToServerMs: mean(inputDelays),
+    remoteHeadingErrorP95Deg: percentile(headingErrors, 95),
+    remoteJumpExcessMax: jumpExcesses.reduce((m, v) => Math.max(m, v), 0),
+    remoteJumpExcessP99: percentile(jumpExcesses, 99),
+    remoteBlendPathErrorP95: percentile(blendPathErrors, 95),
+    remoteBlendHeadingErrorP95Deg: percentile(blendHeadingErrors, 95),
   };
   return {
     metrics,
@@ -223,6 +268,7 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
       unackedAtEnd,
       steppedCarTicks: world.steppedCarTicks,
       remoteSamples: samples.length,
+      blendSamples: blendPathErrors.length,
       deaths,
     },
   };

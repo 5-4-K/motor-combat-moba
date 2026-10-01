@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { isHold, nearestOnPath, percentile, scoreRemoteSample, truthAt, truthWindow } from "./metrics.js";
+import {
+  headingAt,
+  headingErrorDeg,
+  isHold,
+  jumpExcess,
+  nearestOnPath,
+  percentile,
+  scoreRemoteSample,
+  truthAt,
+  truthWindow,
+} from "./metrics.js";
 
 describe("netsim metrics", () => {
   it("percentile is nearest-rank", () => {
@@ -92,5 +102,26 @@ describe("netsim metrics", () => {
     it("both moving is not a hold", () => {
       expect(isHold({ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 0, y: 0 }, { x: 5, y: 0 })).toBe(false);
     });
+  });
+
+  it("headingAt interpolates the true heading the short way across the seam", () => {
+    const path = [
+      { t: 0, angle: Math.PI - 0.1 },
+      { t: 100, angle: -Math.PI + 0.1 },
+    ];
+    expect(Math.abs(headingAt(path, 50))).toBeCloseTo(Math.PI, 9);
+    expect(headingAt(path, -10)).toBe(Math.PI - 0.1);
+    expect(headingAt(path, 500)).toBe(-Math.PI + 0.1);
+  });
+
+  it("headingErrorDeg measures the short way round, in degrees", () => {
+    expect(headingErrorDeg(Math.PI - 0.01, -Math.PI + 0.01)).toBeCloseTo((0.02 * 180) / Math.PI, 9);
+    expect(headingErrorDeg(0.5, 0.5)).toBe(0);
+  });
+
+  it("jumpExcess is the drawn motion beyond the true motion, never negative", () => {
+    const o = { x: 0, y: 0 };
+    expect(jumpExcess(o, { x: 10, y: 0 }, o, { x: 4, y: 0 })).toBeCloseTo(6, 9);
+    expect(jumpExcess(o, { x: 2, y: 0 }, o, { x: 4, y: 0 })).toBe(0);
   });
 });

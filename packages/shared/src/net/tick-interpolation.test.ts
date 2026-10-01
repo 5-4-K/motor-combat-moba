@@ -417,6 +417,150 @@ describe("RemoteTimeline contact blend is continuous (NR34, no drawn-pose jump)"
   });
 });
 
+describe("RemoteTimeline contact blend on a turning remote (phase E review I1)", () => {
+  const TICKS_PER_FRAME = FRAME_MS / MS_PER_TICK;
+  const LATE = 5;
+  const AHEAD = 3;
+  const deg = (r: number) => (Math.abs(r) * 180) / Math.PI;
+  const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+
+  /**
+   * A remote at full lock and full throttle, one snapshot every tick on time (LATE ticks of
+   * lateness), the local car 20 u off its drawn pose (well inside one car length, so the blend
+   * weight is 1) and predicted AHEAD ticks past the server clock. Returns, per frame, the drawn pose
+   * and the pose prediction collides with at the anchor tick.
+   */
+  function turning(frames: number): { drawn: SimBody[]; target: SimBody[]; stepLen: number } {
+    const truth = path(moving(1000, 150), LEFT, 40 + frames);
+    const stepLen = Math.max(...truth.slice(1).map((b, i) => Math.hypot(b.x - truth[i]!.x, b.y - truth[i]!.y)));
+    const tl = new RemoteTimeline();
+    const drawn: SimBody[] = [];
+    const target: SimBody[] = [];
+    let pushed = -1;
+    let near = truth[0]!;
+    for (let f = 0; f < frames; f++) {
+      const server = 20 + f * TICKS_PER_FRAME;
+      for (let t = pushed + 1; t <= Math.floor(server); t++) {
+        tl.push("a", t, { body: truth[t]!, keys: LEFT, ctx: OPEN, alive: true });
+        tl.onSnapshot(t + LATE, t);
+        pushed = t;
+      }
+      tl.beginFrame(server, FRAME_MS);
+      const anchor: LocalAnchor = { pose: { x: near.x + 20, y: near.y }, tick: server + AHEAD };
+      const pose = tl.pose("a", anchor)!;
+      near = pose;
+      drawn.push(pose);
+      target.push(tl.reckonedPose("a", anchor.tick)!);
+    }
+    return { drawn, target, stepLen };
+  }
+
+  it("draws the heading prediction collides with, with no standing lag", () => {
+    const { drawn, target } = turning(90);
+    // Past the weight's slew-in and any settle (well over 100 ms), drawn and target agree.
+    const errs = drawn.slice(30).map((p, i) => deg(wrap(p.angle - target[30 + i]!.angle)));
+    expect(Math.max(...errs)).toBeLessThan(0.5);
+    const posErr = drawn.slice(30).map((p, i) => Math.hypot(p.x - target[30 + i]!.x, p.y - target[30 + i]!.y));
+    expect(Math.max(...posErr)).toBeLessThan(0.1);
+  });
+
+  it("never jumps by more than the car moved plus the ease", () => {
+    const { drawn, stepLen } = turning(90);
+    const dx = drawn.slice(1).map((p, i) => Math.hypot(p.x - drawn[i]!.x, p.y - drawn[i]!.y));
+    const carMoved = stepLen * TICKS_PER_FRAME * 1.05;
+    // While the weight slews in, the ease's share of the blend gap (at most 40 u here) on top.
+    expect(Math.max(...dx)).toBeLessThanOrEqual(carMoved + 40 * (FRAME_MS / NET_CONFIG.extrapolateSettleMs));
+    // Once it has, the car's own motion alone.
+    expect(Math.max(...dx.slice(30))).toBeLessThanOrEqual(carMoved + 1e-6);
+  });
+});
+
+describe("RemoteTimeline while the room is paused (phase E review I2, M2, M3)", () => {
+  const TICKS_PER_FRAME = FRAME_MS / MS_PER_TICK;
+  const FROZEN = 30;
+  /** A remote driving straight, snapshots every tick up to FROZEN, then the room pauses. */
+  const truth = path(moving(1000), GO, FROZEN + 1);
+  const stepLen = Math.max(...truth.slice(1).map((b, i) => Math.hypot(b.x - truth[i]!.x, b.y - truth[i]!.y)));
+
+  function pausedRun(anchored: boolean): { tl: RemoteTimeline; drawn: SimBody[]; server: number; frozenTick: number } {
+    const tl = new RemoteTimeline();
+    const drawn: SimBody[] = [];
+    let pushed = -1;
+    let server = 10.5;
+    let near = truth[0]!;
+    // Running: the server tick advances with the clock.
+    for (; server < FROZEN; server += TICKS_PER_FRAME) {
+      for (let t = pushed + 1; t <= Math.floor(server); t++) {
+        tl.push("a", t, { body: truth[t]!, keys: GO, ctx: OPEN, alive: true });
+        tl.onSnapshot(t + 1, t);
+        pushed = t;
+      }
+      tl.beginFrame(server, FRAME_MS);
+      near = tl.pose("a", anchored ? { pose: { x: near.x + 20, y: near.y }, tick: server + 3 } : undefined)!;
+      drawn.push(near);
+    }
+    // Paused: the clock runs on (and a frozen tick is re-broadcast), the room's tick does not.
+    for (let f = 0; f < 60; f++, server += TICKS_PER_FRAME) {
+      tl.push("a", pushed, { body: truth[pushed]!, keys: GO, ctx: OPEN, alive: true });
+      tl.onSnapshot(server, pushed);
+      tl.beginFrame(server, FRAME_MS, true);
+      near = tl.pose("a", anchored ? { pose: { x: near.x + 20, y: near.y }, tick: server + 3 } : undefined)!;
+      drawn.push(near);
+    }
+    return { tl, drawn, server, frozenTick: pushed };
+  }
+
+  it("draws a remote at its frozen snapshot pose, not reckoned ahead", () => {
+    for (const anchored of [false, true]) {
+      const { drawn, frozenTick } = pausedRun(anchored);
+      const frozen = truth[frozenTick]!;
+      const last = drawn[drawn.length - 1]!;
+      // The newest snapshot pushed before the pause, exactly.
+      expect(last.x).toBeCloseTo(frozen.x, 6);
+      expect(last.y).toBeCloseTo(frozen.y, 6);
+      const dx = drawn.slice(1).map((p, i) => Math.hypot(p.x - drawn[i]!.x, p.y - drawn[i]!.y));
+      // Entering the pause never jumps: the car's own motion at most (past the blend weight's slew-in).
+      expect(Math.max(...dx.slice(10))).toBeLessThanOrEqual(stepLen * TICKS_PER_FRAME * 1.05 + 1e-6);
+    }
+  });
+
+  it("draws a pose changed on the paused tick (a playground edit), and ignores a re-broadcast", () => {
+    const { tl, server, frozenTick } = pausedRun(false);
+    const edited = { ...truth[frozenTick]!, x: truth[frozenTick]!.x + 30, vx: 0 };
+    tl.push("a", frozenTick, { body: edited, keys: GO, ctx: OPEN, alive: true });
+    tl.beginFrame(server, FRAME_MS, true);
+    expect(tl.pose("a")!.x).toBeCloseTo(edited.x, 9);
+    tl.push("a", frozenTick, { body: edited, keys: GO, ctx: OPEN, alive: true });
+    tl.beginFrame(server + TICKS_PER_FRAME, FRAME_MS, true);
+    expect(tl.pose("a")!.x).toBeCloseTo(edited.x, 9);
+  });
+
+  it("eases, rather than snaps, when the clock first becomes ready (late join, resume)", () => {
+    const tl = new RemoteTimeline();
+    const run = path(moving(1000), GO, 80);
+    const drawn: SimBody[] = [];
+    let pushed = -1;
+    for (let f = 0; f < 60; f++) {
+      const server = 10.5 + f * TICKS_PER_FRAME;
+      for (let t = pushed + 1; t <= Math.floor(server); t++) {
+        tl.push("a", t, { body: run[t]!, keys: GO, ctx: OPEN, alive: true });
+        tl.onSnapshot(t + 4, t);
+        pushed = t;
+      }
+      // The clock is not ready for the first 20 frames: the newest snapshot is drawn as it stands.
+      tl.beginFrame(f < 20 ? undefined : server, FRAME_MS);
+      drawn.push(tl.pose("a")!);
+    }
+    const dx = drawn.slice(1).map((p, i) => Math.hypot(p.x - drawn[i]!.x, p.y - drawn[i]!.y));
+    // The render tick drops back by the delay when the clock becomes ready; that step is eased, so
+    // the drawn pose never moves backwards (a snap back would read as a negative step along +x).
+    const back = drawn.slice(1).map((p, i) => p.x - drawn[i]!.x);
+    expect(Math.min(...back)).toBeGreaterThanOrEqual(0);
+    const runStep = Math.max(...run.slice(1).map((b, i) => Math.hypot(b.x - run[i]!.x, b.y - run[i]!.y)));
+    expect(Math.max(...dx)).toBeLessThanOrEqual(runStep * TICKS_PER_FRAME * 1.05 + 1e-6);
+  });
+});
+
 describe("axisOfWire", () => {
   it("narrows a wire int8 to -1, 0 or 1", () => {
     expect([-128, -1, 0, 1, 127].map(axisOfWire)).toEqual([-1, -1, 0, 1, 1]);

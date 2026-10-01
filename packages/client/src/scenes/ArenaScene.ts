@@ -12,6 +12,7 @@ import type {
 } from "@motor-combat-moba/shared";
 import {
   RemoteTimeline,
+  localAnchorOf,
   type LocalAnchor,
   TickPrediction,
   axisOfWire,
@@ -2021,7 +2022,7 @@ export class ArenaScene extends Phaser.Scene {
     this.pumpPauseKey(room);
     // The remotes' render tick, fixed once per frame (the adaptive delay slews per call) and before
     // `pumpInput`, so the tick Phase F stamps on an input is the one this frame draws (NR35).
-    this.beginRemoteFrame(delta);
+    this.beginRemoteFrame(room, delta);
     this.pumpInput(room, delta);
     this.updateSpectate(room, delta);
     // Before `renderCars`, which is where `followCamera` actually runs: the frame your car comes
@@ -2683,7 +2684,9 @@ export class ArenaScene extends Phaser.Scene {
    * the frame's own server tick, the one `serverTick` will step it on. Status multipliers are read
    * at that tick (phase D review M5) — an effect that lapses between the snapshot and the frame
    * lapses here on the same tick the server lapses it — and every remote stands at its dead-reckoned
-   * pose at that tick, capped at `maxExtrapolateMs` past its newest snapshot (NR32). The first
+   * pose where `serverTick` has it when it steps the local car (the end of that tick, or of the one
+   * before for a remote stepped after the local car — `remotePoseTickFor`), capped at
+   * `maxExtrapolateMs` past its newest snapshot (NR32). The first
    * prediction and every replay of a frame ask the same question, answered from the newest
    * snapshot each time.
    */
@@ -2691,8 +2694,8 @@ export class ArenaScene extends Phaser.Scene {
     const self = this.drivenSid(room);
     const arena = this.arena ?? getArena(room.state.arenaId);
     return (tick) =>
-      buildStepContext(arena, room.state, self, tick, localModifiers(room.state, self, tick), (id) =>
-        this.remotes.reckonedPose(id, tick),
+      buildStepContext(arena, room.state, self, tick, localModifiers(room.state, self, tick), (id, at) =>
+        this.remotes.reckonedPose(id, at),
       );
   }
 
@@ -3051,8 +3054,10 @@ export class ArenaScene extends Phaser.Scene {
 
   /**
    * One snapshot per state patch, taken on patch arrival rather than per frame, keyed by the patch's
-   * SERVER TICK (NR29) — arrival time only measures lateness, for the adaptive delay (NR30). Pushing
-   * the same tick twice is a no-op, so a patch that did not advance the tick adds nothing.
+   * SERVER TICK (NR29) — arrival time only measures lateness, for the adaptive delay (NR30). A patch
+   * that did not advance the tick adds nothing unless a remote's pose changed on it (a playground
+   * edit while paused), which replaces that remote's newest snapshot; lateness is sampled once per
+   * tick either way.
    *
    * Each remote also hands the reckoner its last consumed input (`lastSteer`/`lastThrottle`, NR33)
    * and a step context of its OWN — its chassis, its own status modifiers, and no other cars — so
@@ -3091,9 +3096,15 @@ export class ArenaScene extends Phaser.Scene {
    * Fix this frame's remote render tick `R = serverTick − delay` (NR29, NR30) and record it for
    * Phase F. Before the clock's first pong there is no `R`: remotes draw their newest snapshot.
    */
-  private beginRemoteFrame(delta: number): void {
+  private beginRemoteFrame(room: Room<ArenaState>, delta: number): void {
     const clock = this.inputClock?.clock;
-    this.remotes.beginFrame(clock?.ready ? clock.serverTick(performance.now()) : undefined, delta);
+    // A paused practice or playground room holds every remote at its newest snapshot rather than
+    // reckoning it past the frozen tick (phase E review I2).
+    this.remotes.beginFrame(
+      clock?.ready ? clock.serverTick(performance.now()) : undefined,
+      delta,
+      isSimPaused(room.state),
+    );
     const R = this.remotes.renderTick;
     this.lastRenderTick = R === undefined ? undefined : Math.floor(R);
   }
@@ -3126,14 +3137,17 @@ export class ArenaScene extends Phaser.Scene {
    */
   private localAnchor(): LocalAnchor | undefined {
     const room = this.room;
-    const tick = this.prediction.newestPredictedTick;
-    if (!room || !this.predicted || tick === undefined) return undefined;
-    const local = room.state.players.get(this.drivenSid(room));
-    if (!local?.alive) return undefined;
-    // The tick the drawn pose stands at: `predicted` is the end of `tick`, `predictedPrev` the end of the
-    // one before, and `localRenderPose` blends between them at the clock's phase.
-    const phase = this.predictedPrev ? (this.inputClock?.blendAlpha(performance.now()) ?? 1) : 1;
-    return { pose: this.localRenderPose(bodyOf(local)), tick: tick - 1 + phase };
+    if (!room) return undefined;
+    const clock = this.inputClock?.clock;
+    // The shared builder the netsim client also uses (phase E review I3): the pose `localRenderPose`
+    // draws, and the tick it stands at.
+    return localAnchorOf({
+      predicted: this.predicted,
+      predictedPrev: this.predictedPrev,
+      newestPredictedTick: this.prediction.newestPredictedTick,
+      alive: room.state.players.get(this.drivenSid(room))?.alive === true,
+      serverTickNow: clock?.ready ? clock.serverTick(performance.now()) : undefined,
+    });
   }
 
   private syncCar(sessionId: string, player: ArenaPlayer, pose: SimBody): void {

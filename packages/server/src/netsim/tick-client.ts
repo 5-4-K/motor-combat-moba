@@ -7,6 +7,8 @@ import {
   TickPrediction,
   axisOfWire,
   buildStepContext,
+  drive,
+  localAnchorOf,
   localModifiers,
   type ArenaDef,
   type ContextPlayer,
@@ -84,6 +86,8 @@ export class TickClient {
   private lastById = new Map<string, SnapshotCar>();
   private view: StateView | undefined;
   private predicted: SimBody | undefined;
+  /** The pose before the newest predicted step: `ArenaScene.predictedPrev`, for the drawn local pose. */
+  private predictedPrev: SimBody | undefined;
   /** The newest snapshot's `inputSlack`, handed to the scheduler once and then cleared (NR21). */
   private freshSlack: number | undefined;
   /** That snapshot's `inputSlackStd`, handed over with it (D5 ruling E). */
@@ -136,8 +140,8 @@ export class TickClient {
   private stepContext(): (tick: number) => StepContext {
     const view = this.view!;
     return (tick) =>
-      buildStepContext(this.arena, view, this.id, tick, localModifiers(view, this.id, tick), (id) =>
-        this.remotes.reckonedPose(id, tick),
+      buildStepContext(this.arena, view, this.id, tick, localModifiers(view, this.id, tick), (id, at) =>
+        this.remotes.reckonedPose(id, at),
       );
   }
 
@@ -165,6 +169,7 @@ export class TickClient {
     const frame: InputFrame = { tick, ...this.driver.inputFor(tick) };
     this.producedAt.set(tick, nowMs);
     const from = this.predicted ?? self.body;
+    this.predictedPrev = from;
     this.predicted = this.prediction.predict(from, frame, this.stepContext());
     return { inputs: this.prediction.recent(1 + NET_CONFIG.inputRedundancy) };
   }
@@ -187,11 +192,13 @@ export class TickClient {
     if (!self || self.status !== PlayerStatus.IN_MATCH || !self.alive) {
       this.prediction.clear();
       this.predicted = undefined;
+      this.predictedPrev = undefined;
       return;
     }
     const authoritative = { ...self.body };
     if (!this.predicted) {
       this.predicted = authoritative;
+      this.predictedPrev = undefined;
       return;
     }
     const ctx = this.stepContext();
@@ -220,16 +227,40 @@ export class TickClient {
   }
 
   /**
+   * The contact blend's anchor, built by the same shared `localAnchorOf` `ArenaScene.localAnchor`
+   * calls: the DRAWN local pose (`predictedPrev` blended toward `predicted` at the server clock's
+   * phase), the fractional tick it stands at, and none while the local car is a wreck. The one
+   * difference from the scene: the scene reads `performance.now()` at draw time, this reads the
+   * frame's harness time — the harness has no gap between a frame's start and its draw.
+   */
+  private localAnchor(nowMs: number) {
+    return localAnchorOf({
+      predicted: this.predicted,
+      predictedPrev: this.predictedPrev,
+      newestPredictedTick: this.prediction.newestPredictedTick,
+      alive: this.lastById.get(this.id)?.alive === true,
+      serverTickNow: this.clock.ready ? this.clock.serverTick(this.local(nowMs)) : undefined,
+    });
+  }
+
+  /**
    * What this client would draw for a remote car right now (undefined if unknown): `renderCars`'
    * pose choice — a wreck at its patched pose (`wreck: true`), a live car through `remotePose`.
+   * `inBlendRange` is whether the drawn remote sits within `contactBlendRangeCars` car lengths of the
+   * local car's drawn pose — where the contact blend (NR34) can act on it.
    */
-  drawnRemote(id: string, _nowMs: number): { x: number; y: number; wreck: boolean } | undefined {
+  drawnRemote(
+    id: string,
+    nowMs: number,
+  ): { x: number; y: number; angle: number; wreck: boolean; inBlendRange: boolean } | undefined {
     const car = this.lastById.get(id);
     if (!car || car.status !== PlayerStatus.IN_MATCH) return undefined;
-    if (!car.alive) return { x: car.body.x, y: car.body.y, wreck: true };
-    const tick = this.prediction.newestPredictedTick;
-    const local = this.predicted && tick !== undefined ? { pose: this.predicted, tick } : undefined;
+    if (!car.alive) return { x: car.body.x, y: car.body.y, angle: car.body.angle, wreck: true, inBlendRange: false };
+    const local = this.localAnchor(nowMs);
     const pose = this.remotes.pose(id, local) ?? car.body;
-    return { x: pose.x, y: pose.y, wreck: false };
+    const inBlendRange =
+      local !== undefined &&
+      Math.hypot(pose.x - local.pose.x, pose.y - local.pose.y) < NET_CONFIG.contactBlendRangeCars * drive().carWidth;
+    return { x: pose.x, y: pose.y, angle: pose.angle, wreck: false, inBlendRange };
   }
 }

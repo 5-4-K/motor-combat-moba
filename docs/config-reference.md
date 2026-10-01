@@ -1260,7 +1260,7 @@ Every key of `config/net-config.ts`. Global, not per mode. Deleted by Phase D: `
 | `minDelayMs` | 33 | Floor of the adaptive remote render delay (NR30) |
 | `maxDelayMs` | 250 | Ceiling of the adaptive remote render delay (NR30) |
 | `maxExtrapolateMs` | 100 | Longest a remote is dead-reckoned past its newest snapshot before it holds (NR31) |
-| `extrapolateSettleMs` | 100 | How long a remote's drawn pose eases onto the new path when a snapshot lands under an extrapolated frame (NR31) |
+| `extrapolateSettleMs` | 100 | The remote settle ease. Times three things: a remote's drawn pose easing onto the new path when a snapshot lands under an extrapolated frame, or when a held frame (clock not yet synced, room paused) ends (NR31); the contact blend's final-pose settle after a snapshot rebases the reckoning or the anchor tick jumps; and the contact blend weight's slew, at most `frameMs / extrapolateSettleMs` per frame (NR34) |
 | `contactBlendRangeCars` | 2 | A remote within this many car lengths of the local car is drawn blended toward its dead-reckoned pose (full weight at one car length), so what you see is where prediction meets it (NR34, `net/contact-blend.ts`) |
 | `remoteTeleportCars` | 3 | A remote that moves more than this many car lengths in one snapshot has teleported: its interpolation and reckoning reset rather than blend across the jump |
 | `targetSlackTicks` | 1.5 | Where the client's slack feedback steers the mean input lead, in ticks (NR21) |

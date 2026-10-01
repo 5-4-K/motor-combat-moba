@@ -1,4 +1,4 @@
-import { ClockSync, InputScheduler, NET_CONFIG, type TimePong } from "@motor-combat-moba/shared";
+import { ClockSync, InputScheduler, NET_CONFIG, localBlendAlpha, type TimePong } from "@motor-combat-moba/shared";
 
 /** The one call of `InputScheduler` the scene makes; an interface so a test can spy on it. */
 export interface DueTicks {
@@ -6,20 +6,11 @@ export interface DueTicks {
 }
 
 /**
- * How far the drawn local car is through the current predicted tick, in [0, 1), for `blendPose`
- * between the previous and the newest predicted pose.
- *
- * The phase is the SERVER clock's alone, never `serverTick + lead`. `InputScheduler` emits a new
- * predicted tick when `floor(serverTick) + ceil(leadTicks)` steps, which at a steady lead is exactly
- * when `frac(serverTick)` wraps — so that fraction is the one that runs 0 → 1 between two predicted
- * ticks. Adding a fractional lead shifts the wrap to somewhere mid-tick, and a display faster than
- * the tick rate would then draw the car stepping backwards once per tick. 1 (draw the newest pose)
- * before the clock has its first pong.
+ * `localBlendAlpha` lives in shared (`net/tick-interpolation.ts`) beside `localAnchorOf`, so the
+ * netsim client builds the contact blend's anchor with the same phase the scene draws the local car
+ * at (phase E review I3). Re-exported here for the scene's existing imports.
  */
-export function localBlendAlpha(serverTickNow: number | undefined): number {
-  if (serverTickNow === undefined || !Number.isFinite(serverTickNow)) return 1;
-  return serverTickNow - Math.floor(serverTickNow);
-}
+export { localBlendAlpha } from "@motor-combat-moba/shared";
 
 /**
  * The client's input clock (NR18, NR20, NR21): the server-clock estimate, the schedule of `MSG_TIME`

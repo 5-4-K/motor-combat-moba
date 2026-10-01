@@ -104,9 +104,18 @@ export const NET_CONFIG = {
   maxDelayMs: 250,
   /** Longest a remote is dead-reckoned past its newest snapshot before it holds, ms (NR31, NR32). */
   maxExtrapolateMs: 100,
-  /** How long the drawn pose eases to the interpolated one once a fresh snapshot lands, ms (NR31). */
+  /**
+   * The remote settle ease, ms. It times three things: the ease from an extrapolated (or held) drawn
+   * pose onto the path once a fresh snapshot lands or the hold ends (NR31); the contact blend's
+   * final-pose settle after a snapshot rebases the reckoning or the anchor tick jumps; and the
+   * contact blend weight's slew, at most `frameMs / extrapolateSettleMs` per frame (NR34).
+   */
   extrapolateSettleMs: 100,
-  /** Distance, in car lengths, within which a remote's contact is blended into the local car (NR32). */
+  /**
+   * Distance, in car lengths, within which a remote's DRAWN pose is blended toward its dead-reckoned
+   * pose at the local car's predicted tick (full weight at one car length), so what you can hit is
+   * what you see (NR34).
+   */
   contactBlendRangeCars: 2,
   /**
    * A remote that moves more than this many car lengths between two snapshots has teleported (a

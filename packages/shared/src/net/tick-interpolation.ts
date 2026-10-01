@@ -74,6 +74,15 @@ export class TickInterpolation {
   newestTick(): number | undefined {
     return this.snaps[this.snaps.length - 1]?.tick;
   }
+
+  /**
+   * Replace the newest snapshot's pose, keeping its tick: a patch whose tick did not advance but
+   * whose pose did (a playground edit applied while the room is paused). No-op when empty.
+   */
+  replaceNewest(body: SimBody): void {
+    const newest = this.snaps[this.snaps.length - 1];
+    if (newest) newest.body = copyBody(body);
+  }
 }
 
 /**
@@ -160,6 +169,46 @@ export interface LocalAnchor {
   tick: number;
 }
 
+/**
+ * How far the drawn local car is through the current predicted tick, in [0, 1), for `blendPose`
+ * between the previous and the newest predicted pose.
+ *
+ * The phase is the SERVER clock's alone, never `serverTick + lead`. `InputScheduler` emits a new
+ * predicted tick when `floor(serverTick) + ceil(leadTicks)` steps, which at a steady lead is exactly
+ * when `frac(serverTick)` wraps — so that fraction is the one that runs 0 → 1 between two predicted
+ * ticks. Adding a fractional lead shifts the wrap to somewhere mid-tick, and a display faster than
+ * the tick rate would then draw the car stepping backwards once per tick. 1 (draw the newest pose)
+ * before the clock has its first pong.
+ */
+export function localBlendAlpha(serverTickNow: number | undefined): number {
+  if (serverTickNow === undefined || !Number.isFinite(serverTickNow)) return 1;
+  return serverTickNow - Math.floor(serverTickNow);
+}
+
+/**
+ * The local car as the contact blend measures from it (NR34), built the one way `ArenaScene` and the
+ * netsim tick client both use: the DRAWN local pose — `predictedPrev` blended toward `predicted` at
+ * the server clock's phase (`localBlendAlpha`) — and the fractional tick that pose stands at,
+ * `newestPredictedTick − 1 + phase` (`predicted` is the end of the newest predicted tick,
+ * `predictedPrev` the end of the one before). Undefined with nothing predicted, or while the local
+ * car is a wreck or not on the field: those get no blend.
+ */
+export function localAnchorOf(input: {
+  predicted: SimBody | undefined;
+  predictedPrev: SimBody | undefined;
+  newestPredictedTick: number | undefined;
+  /** The local car is alive (and on the field). */
+  alive: boolean;
+  /** The synced server clock now, undefined before it is ready. */
+  serverTickNow: number | undefined;
+}): LocalAnchor | undefined {
+  const { predicted, predictedPrev, newestPredictedTick: tick } = input;
+  if (!input.alive || !predicted || tick === undefined) return undefined;
+  if (!predictedPrev) return { pose: predicted, tick };
+  const phase = localBlendAlpha(input.serverTickNow);
+  return { pose: blendPose(predictedPrev, predicted, phase), tick: tick - 1 + phase };
+}
+
 /** One remote's snapshot, as `RemoteTimeline.push` takes it. */
 export interface RemoteSnapshot {
   body: SimBody;
@@ -179,11 +228,22 @@ interface Track {
   /** Last frame's drawn pose, and whether it was extrapolated. */
   drawn: SimBody | undefined;
   drawnBeyond: boolean;
+  /**
+   * Last frame was HELD at the newest snapshot rather than drawn at the render tick: before the
+   * clock syncs, or while the room is paused with the render tick past the newest snapshot. The
+   * frame that leaves the hold eases the step rather than snapping (phase E review I2, M3).
+   */
+  drawnHeld: boolean;
   /** The gap being eased out (drawn − path), and how much of `extrapolateSettleMs` is left of it. */
   offset: { x: number; y: number; angle: number } | undefined;
   offsetLeftMs: number;
   /** Contact blend (NR34): the slewed weight, the tick it samples at, the final drawn pose, and its settle gap. */
   blendW: number;
+  /**
+   * A snapshot has replaced the reckoning since the last drawn frame; the reckoning the last frame
+   * drew from was handed to `RemoteTimeline.superseded` on the first such push.
+   */
+  rebased: boolean;
   anchorTick: number;
   final: SimBody | undefined;
   finalOffset: { x: number; y: number; angle: number } | undefined;
@@ -195,6 +255,27 @@ interface Track {
 
 /** Below this many world units (and radians) of gap, there is nothing to ease. */
 const SETTLE_EPSILON = 1e-6;
+/**
+ * The contact blend's anchor tick may differ from last frame's plus one frame's worth by up to this
+ * many ticks and still count as the local car's clock advancing (render phase, clock slew). Beyond
+ * it — a catch-up burst, a prediction reset, an anchor that returns after a gap, a pause — the
+ * reckoned target jumped, and the step is eased like a rebase (NR34).
+ */
+const ANCHOR_JUMP_TICKS = 1;
+
+/** `to − from` as an easeable gap: position difference and the short-way angle difference. */
+function gapOf(from: SimBody, to: SimBody): { x: number; y: number; angle: number } {
+  return { x: to.x - from.x, y: to.y - from.y, angle: wrapAngle(to.angle - from.angle) };
+}
+
+function hasGap(g: { x: number; y: number; angle: number }): boolean {
+  return Math.hypot(g.x, g.y) > SETTLE_EPSILON || Math.abs(g.angle) > SETTLE_EPSILON;
+}
+
+/** Same pose: every field a step or a draw reads. */
+function samePose(a: SimBody, b: SimBody): boolean {
+  return a.x === b.x && a.y === b.y && a.angle === b.angle && a.vx === b.vx && a.vy === b.vy && a.angVel === b.angVel;
+}
 
 /**
  * How every remote car is drawn (NR29–NR31), shared by `ArenaScene` and the netsim tick client so
@@ -211,16 +292,22 @@ const SETTLE_EPSILON = 1e-6;
  * - `pose`: interpolated when `R` is bracketed; past the newest snapshot, dead-reckoned with
  *   `stepSim` and capped at `maxExtrapolateMs`, after which it holds. When a frame drawn from
  *   extrapolation is followed by a new snapshot (or by `R` falling back inside the buffer), the gap
- *   between the old drawn pose (plus this frame's motion) and the new path is eased out linearly over
- *   `extrapolateSettleMs` instead of snapped.
+ *   between the old drawn pose (plus this frame's motion and rotation) and the new path is eased out
+ *   linearly over `extrapolateSettleMs` instead of snapped.
+ * - HELD: before the clock syncs (`R` undefined), and while `beginFrame`'s `paused` is set with `R`
+ *   past the newest snapshot, the newest snapshot is drawn as it stands — nothing is reckoned past a
+ *   paused room's frozen tick. The frame that leaves a hold eases like an extrapolated one.
  */
 export class RemoteTimeline {
   readonly delay = new DisplayDelay();
   private readonly reckoner = new RemoteReckoner(msToTicks(NET_CONFIG.maxExtrapolateMs));
+  /** Per remote, the reckoning the last drawn frame used, once a snapshot has replaced it (NR34 rebase gap). */
+  private readonly superseded = new RemoteReckoner(msToTicks(NET_CONFIG.maxExtrapolateMs));
   private readonly tracks = new Map<string, Track>();
   private frame = 0;
   private frameMs = 0;
   private R: number | undefined;
+  private paused = false;
 
   /** The render tick of the current frame (`serverTickNow − delay`); undefined before the clock syncs. */
   get renderTick(): number | undefined {
@@ -249,9 +336,11 @@ export class RemoteTimeline {
         fresh: true,
         drawn: undefined,
         drawnBeyond: false,
+        drawnHeld: false,
         offset: undefined,
         offsetLeftMs: 0,
         blendW: 0,
+        rebased: false,
         anchorTick: 0,
         final: undefined,
         finalOffset: undefined,
@@ -262,18 +351,38 @@ export class RemoteTimeline {
       this.tracks.set(id, track);
     }
     const newest = track.interp.newestTick();
-    if (newest !== undefined && tick <= newest) return;
-    track.interp.push(tick, snap.body);
+    if (newest !== undefined && tick < newest) return;
+    // A patch whose tick did not advance: a re-broadcast of the same pose adds nothing, but a pose
+    // that moved on the same tick (a playground edit while paused) replaces the newest snapshot, so
+    // it is drawn now rather than only once the tick moves (phase E review M2). Lateness is sampled
+    // per tick by `DisplayDelay` and is unaffected.
+    const sameTick = newest !== undefined && tick === newest;
+    if (sameTick && samePose(track.lastBody, snap.body)) return;
+    // The first rebase since the last drawn frame keeps the reckoning that frame drew from.
+    if (!track.rebased) this.reckoner.handOver(id, this.superseded);
+    track.rebased = true;
+    if (sameTick) {
+      track.interp.replaceNewest(snap.body);
+      this.reckoner.forget(id);
+    } else {
+      track.interp.push(tick, snap.body);
+    }
     track.lastBody = copyBody(snap.body);
     track.alive = snap.alive;
     track.fresh = true;
     this.reckoner.update(id, { tick, body: copyBody(snap.body), keys: snap.keys, ctx: snap.ctx });
   }
 
-  /** Fix this frame's render tick. `serverTickNow` is undefined until the clock has synced. */
-  beginFrame(serverTickNow: number | undefined, frameMs: number): void {
+  /**
+   * Fix this frame's render tick. `serverTickNow` is undefined until the clock has synced. `paused`
+   * is the room's sim pause (practice and the playground): its tick stands still while the clock
+   * estimate runs on, so while it is set no remote is drawn past its newest snapshot — the render
+   * tick is held there and the contact blend's anchor tick is clamped to it (phase E review I2).
+   */
+  beginFrame(serverTickNow: number | undefined, frameMs: number, paused = false): void {
     this.frame += 1;
     this.frameMs = frameMs;
+    this.paused = paused;
     const delay = this.delay.ticks(frameMs);
     this.R = serverTickNow === undefined || !Number.isFinite(serverTickNow) ? undefined : serverTickNow - delay;
   }
@@ -289,24 +398,29 @@ export class RemoteTimeline {
   }
 
   private compute(id: string, track: Track, local: LocalAnchor | undefined): SimBody | undefined {
-    // Before the clock syncs there is no render tick: draw the newest snapshot as it stands.
-    const R = this.R ?? track.interp.newestTick();
-    if (R === undefined) return undefined;
+    // HELD at the newest snapshot: before the clock syncs there is no render tick, and while the
+    // room is paused nothing is drawn past the frozen tick (no extrapolation over a pause).
+    const newest = track.interp.newestTick();
+    if (newest === undefined) return undefined;
+    const held = this.R === undefined || (this.paused && this.R > newest);
+    const R = held ? newest : this.R!;
     const s = track.interp.sample(R);
     if (!s) return undefined;
     const target = s.beyond ? (this.reckoner.poseAt(id, R) ?? s.body) : s.body;
 
     const prev = track.drawn;
-    if (prev && track.drawnBeyond && (track.fresh || !s.beyond)) {
-      // The path under an extrapolated frame changed: carry the gap (less this frame's own motion)
-      // and ease it out, rather than jumping onto the new path.
+    const leftExtrapolation = track.drawnBeyond && (track.fresh || !s.beyond);
+    const leftHold = track.drawnHeld && !held;
+    if (prev && (leftExtrapolation || leftHold)) {
+      // The path under an extrapolated (or held) frame changed: carry the gap (less this frame's own
+      // motion and rotation) and ease it out, rather than jumping onto the new path.
       const dt = this.frameMs / 1000;
       const gap = {
         x: prev.x + target.vx * dt - target.x,
         y: prev.y + target.vy * dt - target.y,
-        angle: wrapAngle(prev.angle - target.angle),
+        angle: wrapAngle(prev.angle + target.angVel * dt - target.angle),
       };
-      if (Math.hypot(gap.x, gap.y) > SETTLE_EPSILON || Math.abs(gap.angle) > SETTLE_EPSILON) {
+      if (hasGap(gap)) {
         track.offset = gap;
         track.offsetLeftMs = NET_CONFIG.extrapolateSettleMs;
       }
@@ -326,60 +440,85 @@ export class RemoteTimeline {
         };
       }
     }
-    const wasFresh = track.fresh;
     track.drawn = out;
     track.drawnBeyond = s.beyond;
+    track.drawnHeld = held;
     track.fresh = false;
-    return this.nearLocal(id, track, out, local, wasFresh);
+    const final = this.nearLocal(id, track, out, local, newest);
+    track.rebased = false;
+    return final;
   }
 
   /**
    * NR34: within `contactBlendRangeCars` car lengths of the local car the drawn pose moves toward
    * the remote's dead-reckoned pose at the local car's predicted tick — where the local prediction
    * will meet it — fully at one car length. The settle logic above is fed the un-blended pose.
+   *
+   * The blend target is continuous from frame to frame except when something REPLACES it: a
+   * snapshot rebases the reckoning (a shove the reckoner could not know about), or the anchor tick
+   * jumps (more than `ANCHOR_JUMP_TICKS` off its expected advance). Only then is the final-pose
+   * settle armed, with the gap between the old target and the new one at the SAME tick — so the
+   * car's own motion and rotation are never part of the gap, and a car the reckoner already had right
+   * (every snapshot of a steady turn) arms nothing (phase E review I1). A settle still running when
+   * the next one arms is carried into it, not dropped.
    */
   private nearLocal(
     id: string,
     track: Track,
     pose: SimBody,
     local: LocalAnchor | undefined,
-    wasFresh: boolean,
+    newest: number,
   ): SimBody {
     const dtMs = this.frameMs;
+    const expectedAnchor = track.anchorTick + dtMs / MS_PER_TICK;
     // The weight the anchor asks for; no anchor (death, spectator, cleared prediction) asks for 0.
     let want = 0;
     if (local) {
-      track.anchorTick = local.tick;
+      // Paused: the reckoned target is clamped to the frozen tick, like the render tick.
+      track.anchorTick = this.paused ? Math.min(local.tick, newest) : local.tick;
       want = contactBlendWeight(
         Math.hypot(pose.x - local.pose.x, pose.y - local.pose.y),
         drive().carWidth,
         NET_CONFIG.contactBlendRangeCars,
       );
     } else {
-      track.anchorTick += dtMs / MS_PER_TICK;
+      track.anchorTick = this.paused ? Math.min(expectedAnchor, newest) : expectedAnchor;
     }
+    const prevW = track.blendW;
     // Slewed in time: the weight moves at most one settle-ease's worth per frame.
     const maxStep = NET_CONFIG.extrapolateSettleMs > 0 ? dtMs / NET_CONFIG.extrapolateSettleMs : 1;
     track.blendW += Math.max(-maxStep, Math.min(maxStep, want - track.blendW));
     const w = track.blendW;
-    const prevFinal = track.final;
     let out = pose;
     if (w > 0) {
       const reckoned = this.reckoner.poseAt(id, track.anchorTick);
-      if (reckoned) out = blendPose(pose, reckoned, w);
-    }
-    // A snapshot rebases the reckoning under a blended pose: ease the gap out like an extrapolation
-    // settle rather than snapping to the new path.
-    if (prevFinal && wasFresh && w > 0) {
-      const dt = dtMs / 1000;
-      const gap = {
-        x: prevFinal.x + out.vx * dt - out.x,
-        y: prevFinal.y + out.vy * dt - out.y,
-        angle: wrapAngle(prevFinal.angle - out.angle),
-      };
-      if ((Math.hypot(gap.x, gap.y) > SETTLE_EPSILON || Math.abs(gap.angle) > SETTLE_EPSILON)) {
-        track.finalOffset = gap;
-        track.finalOffsetLeftMs = NET_CONFIG.extrapolateSettleMs;
+      if (reckoned) {
+        out = blendPose(pose, reckoned, w);
+        // What the target would have been without the replacement: the superseded reckoning (when a
+        // snapshot rebased it) at the tick the anchor was expected at (when the anchor jumped).
+        const anchorJumped = Math.abs(track.anchorTick - expectedAnchor) > ANCHOR_JUMP_TICKS;
+        if (track.final && prevW > 0 && (track.rebased || anchorJumped)) {
+          const before = (track.rebased ? this.superseded : this.reckoner).poseAt(
+            id,
+            anchorJumped ? expectedAnchor : track.anchorTick,
+          );
+          if (before) {
+            const gap = gapOf(out, blendPose(pose, before, w));
+            if (hasGap(gap)) {
+              // Carry what is still un-eased of a running settle into the new one.
+              const left = track.finalOffset && NET_CONFIG.extrapolateSettleMs > 0
+                ? Math.max(0, track.finalOffsetLeftMs / NET_CONFIG.extrapolateSettleMs)
+                : 0;
+              const carried = track.finalOffset ?? { x: 0, y: 0, angle: 0 };
+              track.finalOffset = {
+                x: gap.x + carried.x * left,
+                y: gap.y + carried.y * left,
+                angle: wrapAngle(gap.angle + carried.angle * left),
+              };
+              track.finalOffsetLeftMs = NET_CONFIG.extrapolateSettleMs;
+            }
+          }
+        }
       }
     }
     if (track.finalOffset) {
@@ -415,5 +554,6 @@ export class RemoteTimeline {
   forget(id: string): void {
     this.tracks.delete(id);
     this.reckoner.forget(id);
+    this.superseded.forget(id);
   }
 }

@@ -12,6 +12,7 @@ import { modifiersFromRows } from "../sim/status/statuses.js";
 import {
   buildStepContext,
   localModifiers,
+  remotePoseTickFor,
   type ContextPlayer,
   type ContextState,
 } from "./step-context.js";
@@ -233,5 +234,19 @@ describe("buildStepContext places remotes at their reckoned pose (NR32)", () => 
       return undefined;
     });
     expect(asked).toEqual(["a"]);
+  });
+
+  it("asks about the tick serverTick has each remote at: stepped before the local car, or not yet (M1)", () => {
+    // serverTick steps in sorted sessionId order against the others' CURRENT poses: on tick 50, "a"
+    // has already been stepped when "b" is, "c" has not.
+    const asked = new Map<string, number>();
+    const three = state({ a: player(), b: player(), c: player() });
+    buildStepContext(ARENA, three, "b", 50, NEUTRAL_MODIFIERS, (id, tick) => {
+      asked.set(id, tick);
+      return undefined;
+    });
+    expect(Object.fromEntries(asked)).toEqual({ a: 50, c: 49 });
+    expect(remotePoseTickFor("a", "b", 50)).toBe(50);
+    expect(remotePoseTickFor("c", "b", 50)).toBe(49);
   });
 });

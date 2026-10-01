@@ -23,6 +23,24 @@
  *   predicted position and the replayed target, p95.
  * - `inputToServerMs` — mean of (the server time a car's input was simulated − the client time it
  *   was produced), over inputs simulated as their own tick's input.
+ *
+ * Reported with no target (phase E review I3) — they exist so a contact-blend or heading regression
+ * is visible, which none of the metrics above can see:
+ *
+ * - `remoteHeadingErrorP95Deg` — per remote sample, |drawn heading − the true heading at the time
+ *   of the nearest true point| (the same point `remotePathErrorP95` scores against, so the display
+ *   delay is not counted as error), degrees, p95.
+ * - `remoteJumpExcessMax` / `remoteJumpExcessP99` — per remote sample with a previous frame, how
+ *   far the drawn pose moved since that frame beyond how far the true car moved over one frame's
+ *   span ending at the time being drawn (the sample's display delay back from the frame, so a
+ *   remote drawn a delay behind a car that just braked is not read as jumping):
+ *   `max(0, drawn − true)`, u. The Phase E Global Constraint is that this never exceeds the settle
+ *   ease's share of a gap.
+ * - `remoteBlendPathErrorP95` / `remoteBlendHeadingErrorP95Deg` — `remotePathErrorP95` and
+ *   `remoteHeadingErrorP95Deg` over only the samples drawn within `contactBlendRangeCars` car
+ *   lengths of the local car's drawn pose, where the contact blend (NR34) acts; those are a few
+ *   percent of all samples, too few for the all-sample p95 to see. 0 when there are none (the count
+ *   is `NetsimDiagnostics.blendSamples`).
  */
 export interface NetsimMetrics {
   stepsPerTickMax: number;
@@ -32,6 +50,11 @@ export interface NetsimMetrics {
   remoteHoldRate: number;
   reconcileErrorP95: number;
   inputToServerMs: number;
+  remoteHeadingErrorP95Deg: number;
+  remoteJumpExcessMax: number;
+  remoteJumpExcessP99: number;
+  remoteBlendPathErrorP95: number;
+  remoteBlendHeadingErrorP95Deg: number;
 }
 
 /** How far BEFORE the frame the trajectory a drawn remote pose is judged against reaches, ms. */
@@ -97,7 +120,7 @@ export function nearestOnPath(
 }
 
 /** First index in `path` (sorted by t) whose t is >= `t`. */
-export function lowerBound(path: readonly PathPoint[], t: number): number {
+export function lowerBound(path: readonly { t: number }[], t: number): number {
   let lo = 0;
   let hi = path.length;
   while (lo < hi) {
@@ -167,6 +190,45 @@ export function scoreRemoteSample(
   ];
   const hit = nearestOnPath(window, x, y, now);
   return { distance: hit.distance, delayMs: now - hit.t };
+}
+
+/** Wrap an angle into (-PI, PI]. */
+function wrapAngle(a: number): number {
+  return Math.atan2(Math.sin(a), Math.cos(a));
+}
+
+export interface HeadingPoint {
+  t: number;
+  angle: number;
+}
+
+/**
+ * The true heading at time `t`, interpolated the short way between the two tick samples that
+ * bracket it (like `truthAt` for position), clamped to the first and last sample outside them.
+ */
+export function headingAt(path: readonly HeadingPoint[], t: number): number {
+  const i = lowerBound(path, t);
+  if (i === 0) return path[0]!.angle;
+  if (i >= path.length) return path[path.length - 1]!.angle;
+  const a = path[i - 1]!;
+  const b = path[i]!;
+  const u = b.t === a.t ? 1 : (t - a.t) / (b.t - a.t);
+  return a.angle + wrapAngle(b.angle - a.angle) * u;
+}
+
+/** |drawn − true| heading, degrees, the short way round. */
+export function headingErrorDeg(drawn: number, truth: number): number {
+  return (Math.abs(wrapAngle(drawn - truth)) * 180) / Math.PI;
+}
+
+/**
+ * How far the drawn pose moved between two frames beyond how far the true car moved over the same
+ * span, u, never negative: a drawn pose that keeps up with (or lags) its car scores 0.
+ */
+export function jumpExcess(prevDrawn: Point, drawn: Point, prevTrue: Point, trueNow: Point): number {
+  const drawnMoved = Math.hypot(drawn.x - prevDrawn.x, drawn.y - prevDrawn.y);
+  const trueMoved = Math.hypot(trueNow.x - prevTrue.x, trueNow.y - prevTrue.y);
+  return Math.max(0, drawnMoved - trueMoved);
 }
 
 export const mean = (xs: number[]): number =>

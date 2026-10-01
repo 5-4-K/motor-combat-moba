@@ -61,6 +61,19 @@ export class RemoteReckoner {
     return car ? Math.max(0, tick - car.source.tick) : 0;
   }
 
+  /**
+   * Hand this car's current reckoning (its source and its cached steps) to `to`, replacing whatever
+   * `to` held for it, or clearing it there when this reckoner has none. `RemoteTimeline` keeps the
+   * reckoning a new snapshot supersedes this way, so it can measure how far that snapshot moved the
+   * reckoned path (the contact blend's rebase gap, NR34). The steps array is only ever appended to,
+   * so sharing it is safe.
+   */
+  handOver(id: string, to: RemoteReckoner): void {
+    const car = this.cars.get(id);
+    if (car) to.cars.set(id, car);
+    else to.cars.delete(id);
+  }
+
   forget(id: string): void {
     this.cars.delete(id);
   }
