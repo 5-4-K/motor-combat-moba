@@ -41,6 +41,9 @@ repeats for that player (2026-10-01).
 | Local reconcile correction, p95 | ≤ 4 u on `lan` and `net80clean`; on a lossy link, reported (its own player's cost) |
 | A hidden enemy's car or shot present in a client's decoded state | never |
 
+Every netsim target binds the **mean over seeds 1–3** of the 60 s, six-car baseline run
+(`NETSIM_BASELINE=1`); a single seed may sit slightly past it (LAN's worst seed read 34.02 ms at D6).
+
 On LAN (1 ms RTT, 0 jitter): input-to-server delay ≤ 34 ms (today 0–33 ms); remote interpolation
 delay ≤ 50 ms (today 50 ms), and total remote display delay as measured by the harness no worse than
 today's. On `net80clean`: input-to-server delay no more than LAN's plus half the RTT plus one tick
@@ -361,5 +364,5 @@ Each stage merges on its own, green, with its measured numbers recorded in the p
 - 2026-09-29 (D2 fix round 2): NR18 fits offset and drift (least squares, slope clamped to the slew rate) over the lowest-RTT half, since a median of old low-RTT samples leaves a 1 % drift 40-70 ms stale under jitter.
 - 2026-09-29 (D2 fix round 3): NR18 trims RTT outliers from the fit (robust to 20 % spiked legs) and extrapolates at the fitted drift between pongs.
 - 2026-09-30 (D2 fix round 4): NR18 replaces the trimmed fit with RTT-weighted fits (24 s drift, 6 s offset), keeps the drift when data is thin, slews continuously from the folded running value, detects server clock steps, and takes `rttMs` from 2 s bucket minima; held to an acceptance envelope (jitter 0-30 ms, ±1 % drift, 0-20 % spiked legs, route steps) in tests.
-- 2026-10-01 (D6): NR21 floors a late slack sample at −2 ticks, so a long stall's backlog cannot pin the safety margin; gain 0.03 → 0.015 and `slackSpreadK` 1 → 8 (net80 repeats 3.53 % at D5 → 1.84 %, input-to-server 80.4 → 112.4 ms; LAN 33.9 ms).
+- 2026-10-01 (D6, superseded by fix round 1 below): NR21 floors a late slack sample at −2 ticks, so a long stall's backlog cannot pin the safety margin; gain 0.03 → 0.015 and `slackSpreadK` 1 → 8 (net80 repeats 3.53 % at D5 → 1.84 %, input-to-server 80.4 → 112.4 ms; LAN 33.9 ms).
 - 2026-10-01 (D6 fix round 1, user ruling): latency first, and a bad connection must not punish others. §1 splits the targets: strict on `lan` and the new `net80clean` netsim link (80 ms RTT, ±2 ms, no loss); a lossy link degrades at its own player's cost, net80 repeats ≤ 4 %. NR21 back to gain 0.03 and `slackSpreadK` 1, the late-sample floor re-derived at that gain to −1 and its lossy-link cost stated (D6 final: lan 33.99 ms; net80clean 74.3 ms / 0.39 %; net80 78.3 ms / 3.69 %; net150 118.0 ms / 8.14 %). NR36's allowance must not grow with a bad link; `shotCompCapMs` is sized in Phase F from an honest `net80clean` client's need.
