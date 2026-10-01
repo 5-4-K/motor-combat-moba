@@ -156,8 +156,20 @@ function rotateInto(x: number, y: number, angle: number, forward: number, latera
   return { x: x + forward * cos - lateral * sin, y: y + forward * sin + lateral * cos };
 }
 
-function ring(segments: number): number[] {
-  return Array.from({ length: segments }, (_, i) => (i / segments) * Math.PI * 2);
+/**
+ * The angles of a `segments`-gon, built once per segment count and shared: a projectile's shape is
+ * rebuilt on every resolution (twice — world and cars), and since NR37 up to `1 + k` times per shot
+ * on a compensated press's birth tick, so regenerating the same few numbers each time was most of
+ * the cost of a pellet. Same values as before, computed the same way.
+ */
+const RINGS = new Map<number, readonly number[]>();
+function ring(segments: number): readonly number[] {
+  let angles = RINGS.get(segments);
+  if (!angles) {
+    angles = Object.freeze(Array.from({ length: segments }, (_, i) => (i / segments) * Math.PI * 2));
+    RINGS.set(segments, angles);
+  }
+  return angles;
 }
 
 /**

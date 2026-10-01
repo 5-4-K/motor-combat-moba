@@ -2411,3 +2411,204 @@ describe("magma blast detonation (spec P13-P21)", () => {
     expect(result.instances).toHaveLength(0);
   });
 });
+
+describe("shot fast-forward (NR37, NR38)", () => {
+  const MIRAGE_HP = hpOf("mirage");
+  const T = 200;
+  const MAGMA = 0b0010; // mirage fire slot 1: magmablast (exploding projectile)
+  const THUNDERCLAP = 0b0100; // mirage fire slot 2: a maneuver
+  const AFTERBURNER = 0b1000; // mirage fire slot 3: an attached beam
+  const LANCE = 0b1000; // bullseye fire slot 3: an attached beam with a 700 ms wind-up
+  type Pose = Pick<CombatPlayer, "x" | "y" | "angle">;
+
+  interface Run {
+    /** The tick the shooter presses `mask`. */
+    pressTick: number;
+    /** The last tick simulated; the result is that tick's. */
+    untilTick: number;
+    mask: number;
+    /** The press's budget, passed on `pressTick` only; absent = no `fastForward` at all. */
+    k?: number;
+    pose?: Pose;
+    /** The shooter's pose on ticks after the press (default: `pose`). */
+    laterPose?: Pose;
+    carId?: CarId;
+    others?: CombatPlayer[];
+    obstacles?: CombatWorld["obstacles"];
+  }
+
+  function simulate(o: Run): CombatResult {
+    const pose = o.pose ?? { x: 300, y: OPEN_Y, angle: 0 };
+    const carId = o.carId ?? "mirage";
+    let players: CombatPlayer[] = [
+      player("aaa", { carId, hp: hpOf(carId), fireState: newFireState(carId, 1), ...pose, fireMask: o.mask }),
+      ...(o.others ?? []),
+    ];
+    let instances: readonly WeaponInstance[] = [];
+    let instanceSeq = 0;
+    let result: CombatResult | null = null;
+    for (let tick = o.pressTick; tick <= o.untilTick; tick++) {
+      result = runCombat({
+        world: world({ tick, obstacles: o.obstacles ?? [] }),
+        players,
+        instances,
+        instanceSeq,
+        fastForward: tick === o.pressTick && o.k !== undefined ? new Map([["aaa", o.k]]) : undefined,
+      });
+      players = result.players.map((p) =>
+        p.sessionId === "aaa" ? { ...p, fireMask: 0, ...(o.laterPose ?? pose) } : p,
+      );
+      instances = result.instances;
+      instanceSeq = result.instanceSeq;
+    }
+    return result!;
+  }
+
+  const shells = (r: CombatResult) => r.instances.filter((i) => !i.isExplosion);
+  const bursts = (r: CombatResult) => r.instances.filter((i) => i.isExplosion);
+  /** Everything about an instance but which press threw it, which names the press tick. */
+  const sansPress = (i: WeaponInstance) => ({ ...i, pressId: "" });
+  /** Where the shell is born on an uncompensated press from the default pose. */
+  const muzzleX = () => shells(simulate({ pressTick: T, untilTick: T, mask: MAGMA }))[0]!.x;
+  const STEP = WEAPON_TABLE.magmablast.speed * DT;
+  const SHELL_R = (WEAPON_TABLE.magmablast.hitbox as { radius: number }).radius;
+  const HALF_CAR = DRIVE_CONFIG.carWidth / 2;
+
+  it("a projectile fired with k=3 is where one fired 3 ticks earlier is", () => {
+    const a = shells(simulate({ pressTick: T, untilTick: T, mask: MAGMA, k: 3 }))[0]!;
+    const b = shells(simulate({ pressTick: T - 3, untilTick: T, mask: MAGMA }))[0]!;
+    const plain = shells(simulate({ pressTick: T, untilTick: T, mask: MAGMA }))[0]!;
+    expect({ x: a.x, y: a.y, angle: a.angle, distance: a.distance }).toEqual({
+      x: b.x,
+      y: b.y,
+      angle: b.angle,
+      distance: b.distance,
+    });
+    expect(a.x).toBeCloseTo(plain.x + 3 * STEP, 9);
+    // Its clocks stay at the press: on the wire it is a shot fired on tick T.
+    expect(a.spawnTick).toBe(T);
+  });
+
+  it("hits a target inside the first k ticks of travel on the spawn tick", () => {
+    // Near edge of the target's hull sits between 1 and 2 ticks of shell travel past the muzzle.
+    const targetX = muzzleX() + SHELL_R + HALF_CAR + 1.5 * STEP;
+    const target = () => player("bbb", { x: targetX, y: OPEN_Y, hp: MIRAGE_HP });
+    const hpAfter = (k: number | undefined) =>
+      find(simulate({ pressTick: T, untilTick: T, mask: MAGMA, k, others: [target()] }), "bbb").hp;
+    expect(hpAfter(undefined)).toBe(MIRAGE_HP);
+    expect(hpAfter(1)).toBe(MIRAGE_HP);
+    const hit = hpAfter(4);
+    expect(hit).toBeLessThan(MIRAGE_HP);
+    // The same hp an earlier-fired shell (and its burst) has taken by tick T — contact AND splash,
+    // each once.
+    const earlier = simulate({ pressTick: T - 4, untilTick: T, mask: MAGMA, others: [target()] });
+    expect(hit).toBe(find(earlier, "bbb").hp);
+    expect(hit).toBeLessThan(MIRAGE_HP - weaponDamageOf("mirage", "magmablast"));
+    expect(find(earlier, "bbb").lastDamagerSessionId).toBe("aaa");
+  });
+
+  it("ends at a wall inside the first k ticks, like an earlier shot would", () => {
+    // A wall half a tick of travel past the shell's leading edge at the muzzle: it dies on step 1.
+    const wall = { x: muzzleX() + SHELL_R + STEP / 2, y: OPEN_Y - 100, w: 40, h: 200 };
+    const a = simulate({ pressTick: T, untilTick: T, mask: MAGMA, k: 4, obstacles: [wall] });
+    const b = simulate({ pressTick: T - 4, untilTick: T, mask: MAGMA, obstacles: [wall] });
+    expect(shells(a)).toHaveLength(0);
+    expect(shells(b)).toHaveLength(0);
+    expect(bursts(a)).toHaveLength(1);
+    // The burst is the earlier shell's burst exactly: same place (the PRE-step pose, P14), same
+    // birth tick (backdated by the 3 loop ticks it outlived the shell), so the same linger window.
+    expect(sansPress(bursts(a)[0]!)).toEqual(sansPress(bursts(b)[0]!));
+    expect(bursts(a)[0]!.spawnTick).toBe(T - 3);
+    expect(bursts(a)[0]!.x).toBeLessThan(wall.x);
+  });
+
+  it("an explosion born mid-loop is advanced by the ticks left, so it expires with the earlier shell's", () => {
+    const wall = { x: muzzleX() + SHELL_R + STEP / 2, y: OPEN_Y - 100, w: 40, h: 200 };
+    const ticks = weaponTicksOf("magmablast");
+    const life = ticks.explosion!.flight + ticks.explosion!.lifetime;
+    const lastAlive = T - 3 + life - 1;
+    for (const until of [lastAlive, lastAlive + 1]) {
+      const a = simulate({ pressTick: T, untilTick: until, mask: MAGMA, k: 4, obstacles: [wall] });
+      const b = simulate({ pressTick: T - 4, untilTick: until, mask: MAGMA, obstacles: [wall] });
+      expect(bursts(a)).toHaveLength(until === lastAlive ? 1 : 0);
+      expect(bursts(b)).toHaveLength(bursts(a).length);
+    }
+  });
+
+  it("a car inside a burst born mid-loop is splashed this tick, once", () => {
+    // The wall stops the shell on step 1; the car stands on the wall's far side inside the 60 u disc
+    // (P17), so only the burst can reach it.
+    const wall = { x: muzzleX() + SHELL_R + STEP / 2, y: OPEN_Y - 100, w: 20, h: 200 };
+    const victim = () => player("bbb", { x: wall.x + wall.w + HALF_CAR + 5, y: OPEN_Y, hp: MIRAGE_HP });
+    const splash = damageFor(CAR_TABLE.mirage.attack, WEAPON_TABLE.magmablast.explosion!.damage);
+    const a = simulate({ pressTick: T, untilTick: T, mask: MAGMA, k: 9, obstacles: [wall], others: [victim()] });
+    expect(find(a, "bbb").hp).toBe(MIRAGE_HP - splash);
+    expect(find(a, "bbb").statuses.some((s) => s.statusId === "corroded")).toBe(true);
+  });
+
+  it("k = 0 or absent changes nothing", () => {
+    // A rich tick: a press, a shell already in flight from an earlier press, and a target.
+    const setup = simulate({ pressTick: T - 5, untilTick: T - 1, mask: MAGMA, others: [player("bbb", { x: 900, y: OPEN_Y })] });
+    const input = (fastForward?: ReadonlyMap<string, number>): CombatInput => ({
+      world: world({ tick: T }),
+      players: setup.players.map((p) => (p.sessionId === "aaa" ? { ...p, fireMask: AFTERBURNER } : p)),
+      instances: setup.instances,
+      instanceSeq: setup.instanceSeq,
+      fastForward,
+    });
+    const plain = runCombat(input());
+    expect(plain.instances.length).toBeGreaterThan(1);
+    expect(runCombat(input(new Map([["aaa", 0]])))).toEqual(plain);
+    // An entry for a car that does not press this tick is nothing either.
+    expect(runCombat(input(new Map([["bbb", 9]])))).toEqual(plain);
+    // An existing instance is never advanced, whatever its owner's budget: only a newborn is.
+    const ahead = runCombat(input(new Map([["aaa", 4]])));
+    const old = (r: CombatResult) => r.instances.filter((i) => i.spawnTick < T);
+    expect(old(ahead)).toEqual(old(plain));
+  });
+
+  it("an attached beam's growth is fast-forwarded, welded to the car's CURRENT pose (NR38)", () => {
+    const now: Pose = { x: 320, y: OPEN_Y + 10, angle: 0.3 };
+    const a = simulate({ pressTick: T, untilTick: T, mask: AFTERBURNER, k: 4, pose: now });
+    const b = simulate({
+      pressTick: T - 4,
+      untilTick: T,
+      mask: AFTERBURNER,
+      pose: { x: 300, y: OPEN_Y, angle: 0 },
+      laterPose: now,
+    });
+    const plain = simulate({ pressTick: T, untilTick: T, mask: AFTERBURNER, pose: now });
+    const beam = (r: CombatResult) => r.instances.find((i) => i.weaponId === "afterburner")!;
+    expect(beam(a).extent).toBeGreaterThan(beam(plain).extent);
+    expect(sansPress(beam(a))).toEqual({ ...sansPress(beam(b)), spawnTick: T });
+    // Anchored where the car IS, not where an earlier press would have left it.
+    expect(beam(a).angle).toBeCloseTo(now.angle + beam(a).muzzleDir, 9);
+    expect({ x: beam(a).x, y: beam(a).y }).toEqual({ x: beam(plain).x, y: beam(plain).y });
+  });
+
+  it("a beam swept over a target for several loop ticks damages it once", () => {
+    const victim = player("bbb", { x: 300 + 120, y: OPEN_Y, hp: MIRAGE_HP });
+    const a = simulate({ pressTick: T, untilTick: T, mask: AFTERBURNER, k: 9, others: [victim] });
+    expect(find(a, "bbb").hp).toBe(MIRAGE_HP - weaponDamageOf("mirage", "afterburner"));
+  });
+
+  it("a wind-up press keeps its budget until the shot is released", () => {
+    const windUp = weaponTicksOf("lance").startUp;
+    expect(windUp).toBeGreaterThan(0);
+    const pose = { x: 100, y: OPEN_Y, angle: 0 };
+    const lance = (r: CombatResult) => r.instances.find((i) => i.weaponId === "lance")!;
+    const a = simulate({ pressTick: T, untilTick: T + windUp, mask: LANCE, k: 2, carId: "bullseye", pose });
+    const b = simulate({ pressTick: T - 2, untilTick: T + windUp, mask: LANCE, carId: "bullseye", pose });
+    const plain = simulate({ pressTick: T, untilTick: T + windUp, mask: LANCE, carId: "bullseye", pose });
+    expect(lance(a).spawnTick).toBe(T + windUp);
+    expect(lance(a).extent).toBeGreaterThan(lance(plain).extent);
+    expect(lance(a).extent).toBe(lance(b).extent);
+  });
+
+  it("never fast-forwards a maneuver", () => {
+    const at = (k: number | undefined) => find(simulate({ pressTick: T, untilTick: T, mask: THUNDERCLAP, k }), "aaa");
+    const plain = at(undefined);
+    expect(plain.maneuver).not.toBe(ManeuverKind.NONE);
+    expect(at(9)).toEqual(plain);
+  });
+});

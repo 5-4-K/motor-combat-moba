@@ -184,6 +184,22 @@ export interface CombatInput {
    * Observation only. Nothing in the sim may ever read an event back (B1).
    */
   events?: CombatEvents;
+  /**
+   * Shot compensation (NR37, NR38): owner session id -> how many EXTRA ticks the instances spawned by
+   * the press that owner begins THIS tick are stepped, inside this same call, so a shot lands where
+   * it would have been had it been fired that many ticks ago. The server prices it per press from
+   * the frame's `viewTick` (NR36, `packages/server/src/net/shot-comp.ts`) and already clamps it.
+   *
+   * Read once, at press time, and frozen onto the press (`PendingFire.compTicks`), so a wind-up
+   * weapon's instance is advanced by its own press's budget on the tick it is finally released, and
+   * an entry for a session that does not begin a press this tick does nothing. Absent, or 0, or a
+   * value that is not a positive integer, is no fast-forward — which is every bot, every harness, and
+   * the whole of the k = 0 path, which is byte-for-byte the pre-NR37 tick.
+   *
+   * Projectile and beam instances only. A maneuver press spawns no instance and is never advanced
+   * (the car is driven by `stepSim`, not here), nor is any status, contact hit or spike hit.
+   */
+  fastForward?: ReadonlyMap<string, number>;
 }
 
 export interface CombatResult {
@@ -203,9 +219,11 @@ export interface CombatResult {
  * or an hp change: a mispredicted bullet is a phantom kill, and there is no reconciliation story for
  * "you were dead for 80ms". Prediction covers the local car's motion and nothing else.
  *
- * Hits are tested against the current tick with no lag compensation. A shooter on 80ms therefore has
- * to lead a moving target by roughly their own latency. Rewind-and-replay hit testing is the
- * standard fix and is deliberately out of scope for v1.
+ * Hits are tested against the current tick; cars are never rewound. What a shooter's latency is
+ * compensated with instead is shot FAST-FORWARD (NR37): an instance born from a press carrying
+ * `fastForward` budget `k` is resolved at the muzzle as usual and then advanced `k` more times —
+ * step, then resolve — through exactly the per-instance code every other tick uses
+ * (`advanceInstance` and phase 4's `resolveInstance`), against the present world. See phase 4.
  *
  * Everything iterates in sorted `sessionId` order for the same reason `serverTick` does: an
  * instance that could hit two overlapping cars must always pick the same one.
@@ -412,34 +430,14 @@ export function runCombat(input: CombatInput): CombatResult {
   const previous = new Map(input.instances.map((i) => [i.id, i]));
   const stepped: WeaponInstance[] = [];
   for (const instance of input.instances) {
-    const owner = byId.get(instance.ownerSessionId);
-    // An attached beam dies with its owner: a wreck does not shoot. Everything already frozen at
-    // birth — projectiles, detached beams — finishes its life regardless.
-    if (instance.attached && (!owner || !isFighting(owner))) continue;
-    // The homing target's LIVE pose, looked up fresh every tick. The target is not known at
-    // spawn: it is chosen HERE, where the pose list is, so `instances.ts` keeps its rule that it
-    // never reads player state (spec P1).
-    let targetId = instance.homingTargetId;
-    if (targetId === "") {
-      targetId = acquireByProximity(instance, players, world.mode, isTargetable);
-    }
-    const homingOwner = targetId !== "" ? byId.get(targetId) : undefined;
-    stepped.push({
-      ...stepInstance(instance, {
-        dt: world.dt,
-        tick: world.tick,
-        obstacles: world.obstacles,
-        bounds: world.bounds,
-        ownerPose: owner ? { x: owner.x, y: owner.y, angle: owner.angle } : null,
-        homingTarget:
-          homingOwner && isFighting(homingOwner) ? { x: homingOwner.x, y: homingOwner.y } : null,
-      }),
-      // Commit: once chosen the shot keeps this target for life, and flies straight if it dies
-      // (spec P5). Written back here rather than inside `stepInstance` for the same reason the
-      // scan is here — the choice is the caller's, the steering is the instance's.
-      homingTargetId: targetId,
-    });
+    const next = advanceInstance(instance, world, players, byId, isTargetable);
+    if (next) stepped.push(next);
   }
+
+  // Instance id -> the shot-compensation ticks it is owed (NR37), filled in phase 3 for instances
+  // born this tick from a press that carried a budget, and spent in phase 4. Empty on every tick
+  // nobody's press was compensated, which is every tick of every bot match and harness run.
+  const fastForwardOf = new Map<string, number>();
 
   // 3. New presses, then whatever they (or an earlier tick's press) have scheduled for this tick.
   for (const player of players) {
@@ -467,6 +465,13 @@ export function runCombat(input: CombatInput): CombatResult {
       // wind-up + growth + linger, released early only by wreck or stun.
       const pending = player.fireState.pending;
       if (pending !== null && prevPending === null) {
+        // A press begun this tick freezes its shot-compensation budget onto itself (NR37), so a
+        // wind-up row's instance is advanced by it on whichever tick it is finally released.
+        // Written only when positive, so an uncompensated press's state is exactly what it was.
+        const comp = input.fastForward?.get(player.sessionId) ?? 0;
+        if (Number.isInteger(comp) && comp > 0) {
+          player.fireState = { ...player.fireState, pending: { ...pending, compTicks: comp } };
+        }
         input.events?.fired.push({
           tick: world.tick,
           shooterSessionId: player.sessionId,
@@ -487,6 +492,9 @@ export function runCombat(input: CombatInput): CombatResult {
     // TR11/TR15: the turret turns every tick a turret press is pending, disarmed or not — a turn in
     // progress finishes like a wind-up does.
     player.fireState = turnTurret(player.fireState, player.angle, world.tick);
+    // Read before `releaseShots`, which clears `pending` once its last volley goes out. One press is
+    // pending at a time, so every order released below belongs to it.
+    const pressComp = player.fireState.pending?.compTicks ?? 0;
     const released = releaseShots(player.fireState, world.tick, mods.weaponCooldown);
     player.fireState = released.state;
     for (const order of released.orders) {
@@ -514,6 +522,7 @@ export function runCombat(input: CombatInput): CombatResult {
       );
       instanceSeq = spawned.seq;
       stepped.push(...spawned.instances);
+      if (pressComp > 0) for (const born of spawned.instances) fastForwardOf.set(born.id, pressComp);
       // `self` statuses land when a shot actually goes OUT, not when the key went down: a press that
       // a cooldown rejected buys nothing, and a wind-up pays off at the end of the wind-up. No hit
       // test is involved, so a self-buff works whether or not the weapon connects with anything.
@@ -537,34 +546,36 @@ export function runCombat(input: CombatInput): CombatResult {
   // not an ordering rule; see `detonate`'s own guard for how that one is actually enforced.)
   const survivors: WeaponInstance[] = [];
   const bursts: WeaponInstance[] = [];
-  for (const instance of stepped) {
-    // The pose to sweep from, shared by the world test and the car test so they cannot disagree
-    // about where this tick's path started. `?? instance` covers one born this tick, which has no
-    // previous pose: its smear collapses to its shape at the muzzle. Moved above the expiry check,
-    // along with `owner`, since all three removal sites below need them.
-    const before = previous.get(instance.id) ?? instance;
+
+  /**
+   * One instance's resolution for this tick, given the pose it swept from: expiry, the world, then
+   * cars. Returns what stays in the world — the instance itself while it lives, or the burst it
+   * left behind when it died (`detonate` returns `null` for a weapon with no explosion), never both.
+   * Every damage and status it lands goes through `recordDamage`/`applyOpponentStatuses` at
+   * `world.tick`, the one path every hit in this file takes.
+   */
+  const resolveInstance = (
+    instance: WeaponInstance,
+    before: WeaponInstance,
+  ): { survivor: WeaponInstance | null; burst: WeaponInstance | null } => {
     const owner = byId.get(instance.ownerSessionId);
     const damageMult = owner ? modsOf(owner.sessionId).damageDealt : 1;
     const carId = owner ? carIdOf(owner) : DEFAULT_CAR_ID;
+    const blastAt = (x: number, y: number): WeaponInstance | null => {
+      const blast = detonate(instance, x, y, world.tick, instanceSeq, damageMult, carId);
+      if (!blast) return null;
+      instanceSeq = blast.seq;
+      return blast.burst;
+    };
 
     if (instanceExpired(instance, world.tick)) {
-      const blast = detonate(instance, instance.x, instance.y, world.tick, instanceSeq, damageMult, carId);
-      if (blast) {
-        bursts.push(blast.burst);
-        instanceSeq = blast.seq;
-      }
-      continue;
+      return { survivor: null, burst: blastAt(instance.x, instance.y) };
     }
     if (hitsWorld(instance, before, world)) {
       // P14: the PRE-step pose. `hitsWorld` fires when the swept hull CROSSED a boundary, so the
       // post-step point can be inside a wall or off the field entirely — the shell blows up where
       // it last legitimately was.
-      const blast = detonate(instance, before.x, before.y, world.tick, instanceSeq, damageMult, carId);
-      if (blast) {
-        bursts.push(blast.burst);
-        instanceSeq = blast.seq;
-      }
-      continue;
+      return { survivor: null, burst: blastAt(before.x, before.y) };
     }
 
     const outcome = resolveInstanceHits(
@@ -612,15 +623,73 @@ export function runCombat(input: CombatInput): CombatResult {
     // application, so both kinds of rider land at the same point of the tick and take hold on the
     // next one like every other status.
     applyOwnerInsideStatuses(instance, byId, world.tick);
-    if (outcome.instance.alive) {
-      survivors.push(outcome.instance);
-    } else {
-      const blast = detonate(instance, instance.x, instance.y, world.tick, instanceSeq, damageMult, carId);
-      if (blast) {
-        bursts.push(blast.burst);
-        instanceSeq = blast.seq;
-      }
+    if (outcome.instance.alive) return { survivor: outcome.instance, burst: null };
+    return { survivor: null, burst: blastAt(instance.x, instance.y) };
+  };
+
+  /**
+   * Shot fast-forward (NR37, NR38): advance an already-resolved instance `ticks` more times, each a
+   * step (`advanceInstance`, phase 2's body) followed by a resolution (`resolveInstance`, this
+   * phase's body), stopping the moment it dies. Returns it if it is still alive at the end.
+   *
+   * It runs against the PRESENT world, and that is the whole contract:
+   *
+   * - Cars are not rewound. Hits, and a homing shot's proximity acquisition and steering, read every
+   *   car where it stands this tick — the shooter's latency is paid back by moving the SHOT, never
+   *   the targets (NR37).
+   * - The clock is `world.tick` throughout. Damage and statuses land once, this tick, through the
+   *   ordinary path, so kill attribution and the per-target damage clock (`damageMode` included) are
+   *   untouched: a target swept on two loop steps is still hit once, because the clock reads the same
+   *   tick both times. A shell's own clocks stay anchored at its press — `spawnTick` is the press
+   *   tick on the wire, which the client matches its provisional shot against (NR39), and a held
+   *   beam's linger matches the HOLD its press started — so only its TRAVEL (position, `distance`,
+   *   bounces, an attached beam's `extent`) is advanced. A row whose life is clock-limited
+   *   (`lifetimeMs`, a beam's linger) therefore keeps its full clock from the press.
+   * - An attached beam re-anchors to its owner's CURRENT pose on every step (NR38); only its growth
+   *   is advanced.
+   *
+   * A burst born at loop step `j` of `ticks` is treated as what it is: an event ON the advanced path,
+   * which an earlier shell would have produced `ticks - j` ticks ago. Its `spawnTick` is backdated by
+   * that remainder and it is advanced by the same remainder (`settleBurst`), so its linger window ends
+   * exactly where the earlier shell's burst's would, and a car inside it is resolved this tick (once,
+   * for the same clock reason) rather than first next tick. A burst born on the last step (remainder
+   * 0) is pushed as-is, exactly like one born on an ordinary tick.
+   */
+  const runAhead = (instance: WeaponInstance, ticks: number): WeaponInstance | null => {
+    let current = instance;
+    for (let step = 1; step <= ticks; step++) {
+      const next = advanceInstance(current, world, players, byId, isTargetable);
+      if (!next) return null;
+      const resolved = resolveInstance(next, current);
+      if (resolved.burst) settleBurst(resolved.burst, ticks - step);
+      if (!resolved.survivor) return null;
+      current = resolved.survivor;
     }
+    return current;
+  };
+  /** Keep a burst born `remaining` ticks before the end of a fast-forward; see `runAhead`. */
+  const settleBurst = (burst: WeaponInstance, remaining: number): void => {
+    if (remaining <= 0) {
+      bursts.push(burst);
+      return;
+    }
+    const aged = runAhead({ ...burst, spawnTick: burst.spawnTick - remaining }, remaining);
+    if (aged) bursts.push(aged);
+  };
+
+  for (const instance of stepped) {
+    // The pose to sweep from, shared by the world test and the car test so they cannot disagree
+    // about where this tick's path started. `?? instance` covers one born this tick, which has no
+    // previous pose: its smear collapses to its shape at the muzzle.
+    const before = previous.get(instance.id) ?? instance;
+    const resolved = resolveInstance(instance, before);
+    // 0 for everything but an instance born this tick from a compensated press (phase 3), which
+    // continues from its muzzle resolution into `runAhead`. For 0 both lines below are exactly the
+    // pre-NR37 bookkeeping: the burst to `bursts`, the survivor to `survivors`.
+    const ahead = fastForwardOf.get(instance.id) ?? 0;
+    if (resolved.burst) settleBurst(resolved.burst, ahead);
+    const kept = resolved.survivor && ahead > 0 ? runAhead(resolved.survivor, ahead) : resolved.survivor;
+    if (kept) survivors.push(kept);
   }
   survivors.push(...bursts);
 
@@ -654,6 +723,52 @@ export function runCombat(input: CombatInput): CombatResult {
   );
 
   return { players, instances: kept, instanceSeq };
+}
+
+/**
+ * One instance's step for one tick — phase 2's per-instance body, shared with the shot fast-forward
+ * in phase 4 (NR37) so a compensated shot moves through exactly the code every other tick does.
+ * `undefined` when the instance is gone before it moves: an attached beam whose owner is wrecked or
+ * absent.
+ *
+ * The homing target's pose is the LIVE one, looked up here on every call — including every step of
+ * a fast-forward, where it is therefore the target's CURRENT pose, not where it stood the ticks the
+ * shot is being advanced through: cars are never rewound (NR37).
+ */
+function advanceInstance(
+  instance: WeaponInstance,
+  world: CombatWorld,
+  players: readonly CombatPlayer[],
+  byId: ReadonlyMap<string, CombatPlayer>,
+  isTargetable: (player: CombatPlayer) => boolean,
+): WeaponInstance | undefined {
+  const owner = byId.get(instance.ownerSessionId);
+  // An attached beam dies with its owner: a wreck does not shoot. Everything already frozen at
+  // birth — projectiles, detached beams — finishes its life regardless.
+  if (instance.attached && (!owner || !isFighting(owner))) return undefined;
+  // The homing target's LIVE pose, looked up fresh every tick. The target is not known at
+  // spawn: it is chosen HERE, where the pose list is, so `instances.ts` keeps its rule that it
+  // never reads player state (spec P1).
+  let targetId = instance.homingTargetId;
+  if (targetId === "") {
+    targetId = acquireByProximity(instance, players, world.mode, isTargetable);
+  }
+  const homingOwner = targetId !== "" ? byId.get(targetId) : undefined;
+  return {
+    ...stepInstance(instance, {
+      dt: world.dt,
+      tick: world.tick,
+      obstacles: world.obstacles,
+      bounds: world.bounds,
+      ownerPose: owner ? { x: owner.x, y: owner.y, angle: owner.angle } : null,
+      homingTarget:
+        homingOwner && isFighting(homingOwner) ? { x: homingOwner.x, y: homingOwner.y } : null,
+    }),
+    // Commit: once chosen the shot keeps this target for life, and flies straight if it dies
+    // (spec P5). Written back here rather than inside `stepInstance` for the same reason the
+    // scan is here — the choice is the caller's, the steering is the instance's.
+    homingTargetId: targetId,
+  };
 }
 
 /**
@@ -851,10 +966,26 @@ function hitsWorld(instance: WeaponInstance, previous: WeaponInstance, world: Co
   // Any vertex of the swept hull off the field ends the shot: the hull covers the whole path, so a
   // shot whose hitbox crossed the boundary at any point this tick is out. `pointOutsideBounds` is
   // the one spelling of that rule, shared with the beam clip.
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
   for (const point of swept.points) {
     if (pointOutsideBounds(point.x, point.y, world.bounds)) return true;
+    if (point.x < minX) minX = point.x;
+    if (point.x > maxX) maxX = point.x;
+    if (point.y < minY) minY = point.y;
+    if (point.y > maxY) maxY = point.y;
   }
   for (const obstacle of world.obstacles) {
+    // Broadphase, and exact rather than approximate: an obstacle the swept hull's own bounding box
+    // does not reach is separated along one of the obstacle's own face normals, which `convexOverlap`
+    // tests, by at least the gap measured here — and SAT counts anything up to `MIN_OVERLAP` (1e-6)
+    // of overlap as separated, which dwarfs the last-bit rounding of `aabbCorners`. So it only skips
+    // calls that would have returned false. It exists because this test now runs up to
+    // `1 + k` times per shot on a compensated press's birth tick (NR37), against every strip.
+    if (obstacle.x >= maxX || obstacle.x + obstacle.w <= minX) continue;
+    if (obstacle.y >= maxY || obstacle.y + obstacle.h <= minY) continue;
     if (convexOverlap(swept.points, aabbCorners(obstacle))) return true;
   }
   return false;

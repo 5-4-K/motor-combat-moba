@@ -936,15 +936,29 @@ would make the order instances happen to iterate in a balance decision. Accepted
 
 ### Hit test
 
-Still current-tick, with **no lag compensation**: hits are tested against the poses cars actually
-hold this tick, with no rewind, so a shooter on 80 ms leads a moving target by roughly their own
-latency. This design changes how much that costs, not whether it exists — `startUpMs` adds the
-wind-up to the lead a player must carry, while a beam (area, lingering) is far more forgiving of it
-than a fast projectile, so weapon tuning is now part of the fairness story on a real network. See
-the design spec's Future work section
-(`docs/superpowers/specs/2026-08-27-weapon-system-design.md#future-work`) for the rewind approach
-being deferred and the two rules it will need deciding — lingering/attached beams, and spawn-time
-catch-up.
+Still current-tick, with **no rewind**: hits are tested against the poses cars actually hold this
+tick. What compensates a shooter's latency instead is **shot fast-forward** (NR37, NR38, online
+netcode redesign): the server prices each press a budget `k` (NR36, at most
+`NET_CONFIG.shotCompCapMs`), freezes it onto the press (`PendingFire.compTicks`, so a wind-up row
+gets its press's budget on the tick it releases), and `runCombat` advances every instance that
+press spawns `k` extra times on its birth tick — the muzzle resolution, then `k` × (step, resolve)
+through the same `advanceInstance`/`resolveInstance` every other tick uses — so it is where it
+would have been had it been fired `k` ticks earlier. The rules:
+
+- Projectile and beam instances only; never a maneuver, a status, a contact or a spike hit.
+- Against the **present** world: cars are not rewound, and a homing shot acquires and steers toward
+  where its target stands now.
+- At the present tick: damage and statuses land once, this tick, through the ordinary path — kill
+  attribution and the per-target damage clock (`damageMode` included) are unchanged. A shell's own
+  clocks (`spawnTick`, `lifetimeMs`, a beam's linger) stay anchored at its press; only its travel —
+  position, `distance`, bounces, an attached beam's `extent` — is advanced.
+- An attached beam re-anchors to its owner's **current** pose on every step.
+- An explosion born on loop step `j` of `k` is backdated `k − j` ticks and advanced by them, so its
+  linger window ends exactly where an earlier-fired shell's burst's would, and a car inside it is
+  resolved this tick.
+
+A bot or harness carries no budget, and `k = 0` is the unchanged tick. See
+`docs/superpowers/specs/2026-09-29-online-netcode-redesign-design.md` (NR35–NR41).
 
 ## Authoring a weapon
 

@@ -186,8 +186,8 @@ function combatTick(
   // every turret press's bearing onto `toCombatPlayers`'s own default. `toCombatPlayers` keeps its
   // own default — its many direct callers in tests and the playtest harness do not care about aim.
   aims: ReadonlyMap<string, number>,
-  // Per pressing session, how many ticks its newly born shots are owed (NR36). Priced here and
-  // carried to the seam below; nothing consumes it yet. NR37's fast-forward (F2) is what spends it.
+  // Per pressing session, how many ticks its newly born shots are owed (NR36), spent by
+  // `runCombat`'s shot fast-forward (NR37).
   compTicks: ReadonlyMap<string, number>,
 ): CombatResultPlayer[] | null {
   const state = ctx.state;
@@ -212,8 +212,9 @@ function combatTick(
     spikeHits: contact.spikeHits,
     statusRequests: contact.statusRequests,
     events: ctx.events,
-    // F2 seam (NR37): `compTicks` becomes `runCombat`'s fast-forward input here. Until then it is
-    // priced and returned by `runPipeline`, but no shot is stepped ahead.
+    // NR37: each compensated press's newborn shots are stepped `k` extra ticks inside this call.
+    // Empty for every bot and harness, which is the unchanged k = 0 tick.
+    fastForward: compTicks,
   });
 
   applyCombatResult(state, result, ctx.combat);

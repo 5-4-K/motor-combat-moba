@@ -83,6 +83,13 @@ export interface PendingFire {
    * release until it is true (TR14). Absent means aligned — every fixed-muzzle press.
    */
   aligned?: boolean;
+  /**
+   * Shot compensation owed to every instance this press spawns (NR37), frozen at press time by
+   * `runCombat` from `CombatInput.fastForward`, so a wind-up row released ticks later is advanced by
+   * its own press's budget. Sim-only, never networked, like `pressId`. Absent means 0 — and it is
+   * only ever written when positive, so an uncompensated press is exactly what it always was.
+   */
+  compTicks?: number;
 }
 
 export interface FireState {

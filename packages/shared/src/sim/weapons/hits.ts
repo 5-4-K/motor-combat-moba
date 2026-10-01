@@ -2,7 +2,7 @@ import { explosionDamageModeOf, instanceDefOf } from "../../config/weapon-config
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import type { Obb } from "../collide.js";
 import type { WeaponInstance } from "./instances.js";
-import { beamShapeAt, projectileShapeAt, shapeHitsObb, smear } from "./shapes.js";
+import { beamShapeAt, projectileShapeAt, shapeHitsObb, smear, type WorldShape } from "./shapes.js";
 import { canDamage } from "./targets.js";
 
 /** One damageable car as the hit test sees it. Poses only — no hp, no status, no schema. */
@@ -68,6 +68,7 @@ export function resolveInstanceHits(
         )
       : beamShapeAt(def.hitbox, instance.x, instance.y, instance.angle, instance.extent);
 
+  const reach = shapeReach(shape);
   const clock = new Map(instance.damageClock);
   const damaged: { sessionId: string; amount: number }[] = [];
   let pierceLeft = instance.pierceLeft;
@@ -85,7 +86,7 @@ export function resolveInstanceHits(
       // The shape test runs FIRST here, where every other mode checks the clock first. That
       // inversion IS the feature: this mode has to learn that a car is OUTSIDE, and a clock check
       // that `continue`s never reaches the test that could tell it.
-      if (!shapeHitsObb(shape, entry.hull)) {
+      if (!reach.touches(entry.hull)) {
         // Re-armed. Note this only fires for a car actually IN the snapshot: one that died or went
         // `phased` inside the field was dropped by `isTargetable` and keeps its entry (LZ11).
         clock.delete(entry.sessionId);
@@ -102,7 +103,7 @@ export function resolveInstanceHits(
     }
 
     if (tick < (clock.get(entry.sessionId) ?? 0)) continue;
-    if (!shapeHitsObb(shape, entry.hull)) continue;
+    if (!reach.touches(entry.hull)) continue;
 
     damaged.push({ sessionId: entry.sessionId, amount: instance.damage });
     clock.set(entry.sessionId, interval === Number.POSITIVE_INFINITY ? interval : tick + interval);
@@ -116,3 +117,46 @@ export function resolveInstanceHits(
 }
 
 export { canDamage };
+
+/**
+ * Clearance below which the broadphase in `shapeReach` defers to the exact test. Far larger than any
+ * rounding in the narrowphase and far smaller than anything a hitbox or a hull is measured in, so a
+ * car the broadphase rejects is one the exact test would also have missed.
+ */
+const BROADPHASE_CLEARANCE = 1e-3;
+
+/**
+ * `shapeHitsObb`, behind an exact broadphase: a hull whose bounding circle sits clear of the shape's
+ * bounding box cannot overlap it, so the SAT is skipped. Built once per instance per resolution and
+ * asked once per car. It exists because a compensated press resolves each of its shots up to
+ * `1 + k` times on its birth tick (NR37), against every car; the answer is unchanged.
+ */
+function shapeReach(shape: WorldShape): { touches(hull: Obb): boolean } {
+  let minX: number;
+  let minY: number;
+  let maxX: number;
+  let maxY: number;
+  if (shape.kind === "circle") {
+    minX = shape.x - shape.radius;
+    maxX = shape.x + shape.radius;
+    minY = shape.y - shape.radius;
+    maxY = shape.y + shape.radius;
+  } else {
+    minX = minY = Number.POSITIVE_INFINITY;
+    maxX = maxY = Number.NEGATIVE_INFINITY;
+    for (const point of shape.points) {
+      if (point.x < minX) minX = point.x;
+      if (point.x > maxX) maxX = point.x;
+      if (point.y < minY) minY = point.y;
+      if (point.y > maxY) maxY = point.y;
+    }
+  }
+  return {
+    touches(hull: Obb): boolean {
+      const r = Math.hypot(hull.w, hull.h) / 2 + BROADPHASE_CLEARANCE;
+      if (hull.x - r > maxX || hull.x + r < minX) return false;
+      if (hull.y - r > maxY || hull.y + r < minY) return false;
+      return shapeHitsObb(shape, hull);
+    },
+  };
+}
