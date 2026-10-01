@@ -153,7 +153,10 @@ export function axisOfWire(value: number): -1 | 0 | 1 {
 export interface LocalAnchor {
   /** The local car's drawn (predicted) pose. */
   pose: { x: number; y: number };
-  /** The tick the local car's prediction has reached. */
+  /**
+   * The (fractional) tick the local car is DRAWN at: its predicted tick plus the render phase the
+   * drawn pose is blended at, so the reckoned target moves smoothly as prediction advances.
+   */
   tick: number;
 }
 
@@ -179,6 +182,12 @@ interface Track {
   /** The gap being eased out (drawn − path), and how much of `extrapolateSettleMs` is left of it. */
   offset: { x: number; y: number; angle: number } | undefined;
   offsetLeftMs: number;
+  /** Contact blend (NR34): the slewed weight, the tick it samples at, the final drawn pose, and its settle gap. */
+  blendW: number;
+  anchorTick: number;
+  final: SimBody | undefined;
+  finalOffset: { x: number; y: number; angle: number } | undefined;
+  finalOffsetLeftMs: number;
   /** The frame `cached` was computed on. */
   frame: number;
   cached: SimBody | undefined;
@@ -242,6 +251,11 @@ export class RemoteTimeline {
         drawnBeyond: false,
         offset: undefined,
         offsetLeftMs: 0,
+        blendW: 0,
+        anchorTick: 0,
+        final: undefined,
+        finalOffset: undefined,
+        finalOffsetLeftMs: 0,
         frame: -1,
         cached: undefined,
       };
@@ -312,10 +326,11 @@ export class RemoteTimeline {
         };
       }
     }
+    const wasFresh = track.fresh;
     track.drawn = out;
     track.drawnBeyond = s.beyond;
     track.fresh = false;
-    return local ? this.nearLocal(id, out, local) : out;
+    return this.nearLocal(id, track, out, local, wasFresh);
   }
 
   /**
@@ -323,15 +338,65 @@ export class RemoteTimeline {
    * the remote's dead-reckoned pose at the local car's predicted tick — where the local prediction
    * will meet it — fully at one car length. The settle logic above is fed the un-blended pose.
    */
-  private nearLocal(id: string, pose: SimBody, local: LocalAnchor): SimBody {
-    const w = contactBlendWeight(
-      Math.hypot(pose.x - local.pose.x, pose.y - local.pose.y),
-      drive().carWidth,
-      NET_CONFIG.contactBlendRangeCars,
-    );
-    if (w <= 0) return pose;
-    const reckoned = this.reckoner.poseAt(id, local.tick);
-    return reckoned ? blendPose(pose, reckoned, w) : pose;
+  private nearLocal(
+    id: string,
+    track: Track,
+    pose: SimBody,
+    local: LocalAnchor | undefined,
+    wasFresh: boolean,
+  ): SimBody {
+    const dtMs = this.frameMs;
+    // The weight the anchor asks for; no anchor (death, spectator, cleared prediction) asks for 0.
+    let want = 0;
+    if (local) {
+      track.anchorTick = local.tick;
+      want = contactBlendWeight(
+        Math.hypot(pose.x - local.pose.x, pose.y - local.pose.y),
+        drive().carWidth,
+        NET_CONFIG.contactBlendRangeCars,
+      );
+    } else {
+      track.anchorTick += dtMs / MS_PER_TICK;
+    }
+    // Slewed in time: the weight moves at most one settle-ease's worth per frame.
+    const maxStep = NET_CONFIG.extrapolateSettleMs > 0 ? dtMs / NET_CONFIG.extrapolateSettleMs : 1;
+    track.blendW += Math.max(-maxStep, Math.min(maxStep, want - track.blendW));
+    const w = track.blendW;
+    const prevFinal = track.final;
+    let out = pose;
+    if (w > 0) {
+      const reckoned = this.reckoner.poseAt(id, track.anchorTick);
+      if (reckoned) out = blendPose(pose, reckoned, w);
+    }
+    // A snapshot rebases the reckoning under a blended pose: ease the gap out like an extrapolation
+    // settle rather than snapping to the new path.
+    if (prevFinal && wasFresh && w > 0) {
+      const dt = dtMs / 1000;
+      const gap = {
+        x: prevFinal.x + out.vx * dt - out.x,
+        y: prevFinal.y + out.vy * dt - out.y,
+        angle: wrapAngle(prevFinal.angle - out.angle),
+      };
+      if ((Math.hypot(gap.x, gap.y) > SETTLE_EPSILON || Math.abs(gap.angle) > SETTLE_EPSILON)) {
+        track.finalOffset = gap;
+        track.finalOffsetLeftMs = NET_CONFIG.extrapolateSettleMs;
+      }
+    }
+    if (track.finalOffset) {
+      track.finalOffsetLeftMs -= dtMs;
+      const k = NET_CONFIG.extrapolateSettleMs > 0 ? Math.max(0, track.finalOffsetLeftMs / NET_CONFIG.extrapolateSettleMs) : 0;
+      if (k <= 0) track.finalOffset = undefined;
+      else {
+        out = {
+          ...out,
+          x: out.x + track.finalOffset.x * k,
+          y: out.y + track.finalOffset.y * k,
+          angle: wrapAngle(out.angle + track.finalOffset.angle * k),
+        };
+      }
+    }
+    track.final = out;
+    return out;
   }
 
   /**

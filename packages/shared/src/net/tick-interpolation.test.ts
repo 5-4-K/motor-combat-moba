@@ -8,7 +8,7 @@ import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { NEUTRAL_MODIFIERS } from "../sim/status/modifiers.js";
 import { stepSim, type SimBody, type StepContext } from "../sim/step.js";
 import type { InputKeys } from "./tick-input.js";
-import { DisplayDelay, RemoteTimeline, TickInterpolation, axisOfWire } from "./tick-interpolation.js";
+import { DisplayDelay, RemoteTimeline, type LocalAnchor, TickInterpolation, axisOfWire } from "./tick-interpolation.js";
 
 installMode(modeConfigOf(DEFAULT_GAME_MODE));
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
@@ -302,9 +302,13 @@ describe("RemoteTimeline contact blend (NR34)", () => {
     const p = path(moving(1000), GO, 1);
     tl.push("a", 10, { body: p[0]!, keys: GO, ctx: OPEN, alive: true });
     tl.push("a", 11, { body: p[1]!, keys: GO, ctx: OPEN, alive: true });
-    frameAt(tl, 10.5);
     const interpolated = (p[0]!.x + p[1]!.x) / 2;
-    const pose = tl.pose("a", localDx === undefined ? undefined : { pose: { x: interpolated + localDx, y: 1000 }, tick })!;
+    // The weight slews in time (one settle-ease per frame at most): hold the scene still until it settles.
+    let pose!: SimBody;
+    for (let f = 0; f < 12; f++) {
+      frameAt(tl, 10.5);
+      pose = tl.pose("a", localDx === undefined ? undefined : { pose: { x: interpolated + localDx, y: 1000 }, tick })!;
+    }
     return { x: pose.x, interpolated, reckoned: tl.reckonedPose("a", tick)!.x };
   }
   const carLength = () => drive().carWidth;
@@ -325,6 +329,91 @@ describe("RemoteTimeline contact blend (NR34)", () => {
   it("is halfway between at one and a half car lengths", () => {
     const mid = drawnWith(1.5 * carLength());
     expect(mid.x).toBeCloseTo((mid.interpolated + mid.reckoned) / 2, 6);
+  });
+});
+
+describe("RemoteTimeline contact blend is continuous (NR34, no drawn-pose jump)", () => {
+  const TICKS_PER_FRAME = FRAME_MS / MS_PER_TICK;
+  /** A remote that drives straight, then brakes hard at tick 45 (so a snapshot rebases its reckoning). */
+  const BRAKE: InputKeys = { steer: 0, throttle: -1, fireSlots: 0 };
+  const keysAt = (t: number): InputKeys => (t < 45 ? GO : BRAKE);
+  const remotePath = (() => {
+    const out = [moving(1000, 150)];
+    for (let t = 0; t < 400; t++) {
+      const next = stepSim(out[t]!, keysAt(t), DT, OPEN);
+      // A ram at tick 45: a shove the reckoner cannot know until the next snapshot (a rebase).
+      out.push(t === 45 ? { ...next, vx: next.vx - 250 } : next);
+    }
+    return out;
+  })();
+  const stepLen = Math.max(...remotePath.slice(1).map((b, i) => Math.hypot(b.x - remotePath[i]!.x, b.y - remotePath[i]!.y)));
+
+  /**
+   * Frame-by-frame drawn positions of remote "a" while `anchorAt(frame, remoteDrawn)` supplies the
+   * local car (undefined = none). Snapshots arrive every 2 ticks on time; the local car is
+   * predicted `ahead` ticks beyond the server clock.
+   */
+  function run(
+    frames: number,
+    anchorAt: (frame: number, nearX: number, serverTick: number) => LocalAnchor | undefined,
+  ): { dx: number[]; ease: number } {
+    const tl = new RemoteTimeline();
+    const pts: { x: number; y: number }[] = [];
+    let pushed = -1;
+    let near = remotePath[0]!.x;
+    for (let f = 0; f < frames; f++) {
+      const server = 20 + f * TICKS_PER_FRAME;
+      for (let t = pushed + 2; t <= Math.floor(server); t += 2) {
+        tl.push("a", t, { body: remotePath[t]!, keys: keysAt(t), ctx: OPEN, alive: true });
+        // Late by LATE ticks, so the render tick sits well behind the predicted one.
+        tl.onSnapshot(t + LATE, t);
+        pushed = t;
+      }
+      tl.beginFrame(server, FRAME_MS);
+      const pose = tl.pose("a", anchorAt(f, near, server))!;
+      near = pose.x;
+      pts.push({ x: pose.x, y: pose.y });
+    }
+    const dx = pts.slice(1).map((p, i) => Math.hypot(p.x - pts[i]!.x, p.y - pts[i]!.y));
+    return { dx, ease: FRAME_MS / NET_CONFIG.extrapolateSettleMs };
+  }
+  /** The bound: the car's own motion over one frame plus the ease's share of a (generous) gap. */
+  const bound = (ease: number, gap: number) => stepLen * TICKS_PER_FRAME * 1.05 + gap * ease;
+  const GAP = 40; // u: the most the blend target ever sits from the interpolated path in these runs
+  const AHEAD = 3;
+  const LATE = 5;
+  const nearTo = (x: number, server: number): LocalAnchor => ({
+    pose: { x: x + drive().carWidth * 0.5, y: 1000 },
+    tick: server + AHEAD,
+  });
+
+  it("holds through a snapshot that rebases the reckoning while near", () => {
+    const r = run(60, (_f, x, s) => nearTo(x, s));
+    // Only the shove's rebase (about 20 u) is in play here, not the blend's full target gap.
+    expect(Math.max(...r.dx.slice(20))).toBeLessThanOrEqual(bound(r.ease, 25));
+  });
+
+  it("holds as the predicted tick advances at full weight (no whole-tick steps)", () => {
+    const r = run(60, (_f, x, s) => nearTo(x, s));
+    // Steady stretch before the turn: only the advancing P could add motion beyond the car's own.
+    const steady = r.dx.slice(8, 24);
+    expect(Math.max(...steady)).toBeLessThanOrEqual(stepLen * TICKS_PER_FRAME * 1.05 + 1);
+  });
+
+  it("fades when the anchor turns off and on (local death, respawn)", () => {
+    const r = run(80, (f, x, s) => (f >= 10 && f < 22 ? undefined : nearTo(x, s)));
+    expect(Math.max(...r.dx)).toBeLessThanOrEqual(bound(r.ease, GAP));
+  });
+
+  it("holds crossing the range edge in and out", () => {
+    const L = drive().carWidth;
+    const r = run(120, (f, x, s) => {
+      // Fast in and out (three frames each way), at a steady stretch of the remote's path.
+      const k = f < 8 ? 0 : f < 11 ? (f - 8) / 3 : f < 18 ? 1 : f < 21 ? 1 - (f - 18) / 3 : 0;
+      const sep = 3 * L - k * 2.5 * L;
+      return { pose: { x: x + sep, y: 1000 }, tick: s + AHEAD };
+    });
+    expect(Math.max(...r.dx)).toBeLessThanOrEqual(bound(r.ease, GAP));
   });
 });
 

@@ -3130,7 +3130,10 @@ export class ArenaScene extends Phaser.Scene {
     if (!room || !this.predicted || tick === undefined) return undefined;
     const local = room.state.players.get(this.drivenSid(room));
     if (!local?.alive) return undefined;
-    return { pose: this.localRenderPose(bodyOf(local)), tick };
+    // The tick the drawn pose stands at: `predicted` is the end of `tick`, `predictedPrev` the end of the
+    // one before, and `localRenderPose` blends between them at the clock's phase.
+    const phase = this.predictedPrev ? (this.inputClock?.blendAlpha(performance.now()) ?? 1) : 1;
+    return { pose: this.localRenderPose(bodyOf(local)), tick: tick - 1 + phase };
   }
 
   private syncCar(sessionId: string, player: ArenaPlayer, pose: SimBody): void {
