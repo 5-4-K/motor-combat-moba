@@ -21,14 +21,14 @@ phase's own acceptance lines.
 | A — Colyseus 0.18, schema 5, Node 22, monitor gate | [`A-colyseus-upgrade.md`](A-colyseus-upgrade.md) | NR50, NR53 | Landed | `playtest:lan` smoke passed in A2; lockfile on a single schema 5.0.34 |
 | B — netsim harness and today's baseline | [`B-netsim-harness.md`](B-netsim-harness.md) | NR57–NR59 | Landed | Baseline recorded below (legacy client, 60 s, six cars, mean of seeds 1–3) |
 | C — 60 Hz and per-tick snapshots | [`C-sixty-hz.md`](C-sixty-hz.md) | NR11–NR16 | Landed | 60 Hz, one snapshot per tick; handling unchanged in closed form (radius 89.9 u, 90% top speed 1.79/2.21/2.59 s), slip −1.1 to −1.6°; TTK ±0.1 s; planner bench: P33 budget raised to 37 ms by user decision 2026-09-30 (resolved, see In flight) |
-| D — time and inputs | [`D-time-and-inputs.md`](D-time-and-inputs.md) | NR17–NR28, NR54–NR56 | Landed (final review pending) | Tick-stamped inputs, one per car per tick (speed hack closed, steps/tick 1 on every link), `ClockSync` + slack-steered `InputScheduler`, hardening; numbers in the table below |
+| D — time and inputs | [`D-time-and-inputs.md`](D-time-and-inputs.md) | NR17–NR28, NR54–NR56 | Landed (final review clean, `648bf4a3`) | Tick-stamped inputs, one per car per tick (speed hack closed, steps/tick 1 on every link), `ClockSync` + slack-steered `InputScheduler`, hardening; numbers in the table below |
 | E — remotes and prediction | [`E-remotes.md`](E-remotes.md) | NR29–NR34 | Not started | |
 | F — combat under latency | [`F-combat.md`](F-combat.md) | NR35–NR41 | Not started | |
 | G — interest management, docs | [`G-interest.md`](G-interest.md) | NR42–NR49, NR68 | Not started | |
 
 ## In flight
 
-**Phase D is landed; the whole-phase final review is pending** (run by the controller next). Then **Phase E** (remotes and prediction, NR29–NR34) is next. `development/main` is clean and unpushed past the D6 commits; known failures: the two G12 bot tests only (the P33 planner bench passes since the user raised its budget to 37 ms per simulated second, `08c3d82b`).
+**Phase D is landed and its whole-phase final review is clean** (one Important fixed: every scene now answers the server's ping, `648bf4a3`). **Next: Phase E** (remotes and prediction, NR29–NR34). `development/main` is pushed; known failures: the two G12 bot tests only (the P33 planner bench passes since the user raised its budget to 37 ms per simulated second, `08c3d82b`).
 
 Phase D (each task reviewed):
 - **D1** tick-stamped `InputFrame`s, hardened `isInputPacket`, `TickInputBuffer`.
@@ -40,6 +40,7 @@ Phase D (each task reviewed):
 
 **Carried into Phase E and later:**
 - **Uplink-only stall defect (estimator).** When only the uplink stalls, the server keeps re-reporting a stale slack window (`inputSlack`/`inputSlackStd` are a 30-sample window refreshed every tick) and the client integrates it as if each snapshot carried a NEW sample. Needs a per-sample sequence / "new samples only" fix (e.g. a sample counter on the schema the client differences). Not fixed in D.
+- **Phase D final-review parked items** (all Minor): prediction reads the snapshot tick's statuses rather than the frame's tick (→ E, prediction); `ArenaScene.prediction` is not cleared on a practice/playground resume, so the first 1–3 post-resume frames are refused as non-ascending and self-heal in < 50 ms (→ E3, call `prediction.clear()` on the resume edge); owner-only slack fields reach every client (→ G); Colyseus ROOM_REQUEST frames bypass the unknown-type disconnect; after a stall the input bucket keeps the oldest frames (that player's cost only); Colyseus times its frame delta with `Date.now()`, so a host clock step costs one 16 ms tick backward or a ≤ 5-tick catch-up forward; the slack gain/deadband/window are named consts outside `NET_CONFIG`.
 - **NR36's compensation cap** must be sized in Phase F from an honest `net80clean` client (its measured input-to-server 74.3 ms), not from net80, and must not grow with a bad link.
 
 **Open questions for the user (playtest probes are theirs to change):**
