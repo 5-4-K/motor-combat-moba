@@ -11,8 +11,9 @@ import type {
   WeaponSlotState,
 } from "@motor-combat-moba/shared";
 import {
-  InterpolationBuffer,
+  RemoteTimeline,
   TickPrediction,
+  axisOfWire,
   blendPose,
   buildStepContext,
   localModifiers,
@@ -778,7 +779,18 @@ function visualKeyOf(player: ArenaPlayer): string {
 export class ArenaScene extends Phaser.Scene {
   private room: Room<ArenaState> | undefined;
   private readonly prediction = new TickPrediction();
-  private readonly interps = new Map<string, InterpolationBuffer>();
+  /**
+   * How every remote car is drawn (NR29–NR31): tick-keyed interpolation at render tick
+   * `R = serverTick − adaptive delay`, dead reckoning capped at `maxExtrapolateMs` past the newest
+   * snapshot, and a settle ease when a late snapshot lands. Rebuilt per match (`resetMatchState`), so
+   * the adaptive delay re-learns the link with the room.
+   */
+  private remotes = new RemoteTimeline();
+  /**
+   * The render tick the remotes were drawn at this frame, floored (Phase F's `viewTick`, NR35);
+   * undefined until the clock has synced. Recorded only — nothing sends it yet.
+   */
+  lastRenderTick: number | undefined;
   private readonly cars = new Map<string, Phaser.GameObjects.Container>();
   private readonly visualKeys = new Map<string, string>();
   /**
@@ -1102,7 +1114,7 @@ export class ArenaScene extends Phaser.Scene {
    * Wall-clock deadline (`performance.now()`) for the camera's post-kill hit-stop. Deliberately NOT
    * `this.time.timeScale`: that Clock only scales Timer Events belonging to it (`delayedCall`,
    * `addEvent`) — it does not touch the `delta` the Scene's own `update` receives, `this.tweens`, or
-   * `this.time.now` (the epoch `remotePose`'s interpolation sampling reads). Nothing in this scene
+   * `this.time.now`. Nothing in this scene
    * currently listens to that Clock for anything visual, so scaling it would compile, run, and do
    * nothing on screen. This field instead scales `followCamera`'s own `delta` for the window below —
    * real, visible easing-slowdown, entirely decoupled from `pumpInput`'s tick clock (see
@@ -1844,7 +1856,8 @@ export class ArenaScene extends Phaser.Scene {
     this.lastDrawnPose.clear();
     this.visualKeys.clear();
     this.turretShown.clear();
-    this.interps.clear();
+    this.remotes = new RemoteTimeline();
+    this.lastRenderTick = undefined;
     this.arenaGfx?.destroy();
     this.arenaGfx = undefined;
     this.zoneGfx?.destroy();
@@ -2003,6 +2016,9 @@ export class ArenaScene extends Phaser.Scene {
 
     this.syncMatchHud();
     this.pumpPauseKey(room);
+    // The remotes' render tick, fixed once per frame (the adaptive delay slews per call) and before
+    // `pumpInput`, so the tick Phase F stamps on an input is the one this frame draws (NR35).
+    this.beginRemoteFrame(delta);
     this.pumpInput(room, delta);
     this.updateSpectate(room, delta);
     // Before `renderCars`, which is where `followCamera` actually runs: the frame your car comes
@@ -2878,7 +2894,7 @@ export class ArenaScene extends Phaser.Scene {
       this.dropCarShadow(sessionId);
       this.visualKeys.delete(sessionId);
       this.turretShown.delete(sessionId);
-      this.interps.delete(sessionId);
+      this.remotes.forget(sessionId);
     }
   }
 
@@ -3011,32 +3027,52 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * One snapshot per state patch, taken on patch arrival rather than per frame. Pushing every frame
-   * would fill the window with copies of the same unchanged pose, and the buffer would then
-   * "interpolate" between identical entries and jump a whole patch in one frame — a delayed snap
-   * wearing interpolation's clothes.
+   * One snapshot per state patch, taken on patch arrival rather than per frame, keyed by the patch's
+   * SERVER TICK (NR29) — arrival time only measures lateness, for the adaptive delay (NR30). Pushing
+   * the same tick twice is a no-op, so a patch that did not advance the tick adds nothing.
+   *
+   * Each remote also hands the reckoner its last consumed input (`lastSteer`/`lastThrottle`, NR33)
+   * and a step context of its OWN — its chassis, its own status modifiers, and no other cars — so
+   * extrapolating it runs the same `stepSim` the server does against walls and obstacles (NR31).
    */
   private pushRemoteSnapshots(room: Room<ArenaState>): void {
-    // Arrival time, not `this.time.now`. Phaser's clock only advances once per frame in `preUpdate`,
-    // while this fires from the websocket callback *between* frames, so two patches landing in the
-    // same frame would share a timestamp and the earlier pose would be silently shadowed. Phaser's
-    // own clock is driven from `performance.now()`, so `sample` reads the same epoch.
-    const now = performance.now();
+    const tick = room.state.tick;
+    // `performance.now()`, not `this.time.now`: this fires from the websocket callback BETWEEN
+    // frames, and Phaser's clock only advances once per frame in `preUpdate`.
+    const clock = this.inputClock?.clock;
+    this.remotes.onSnapshot(clock?.ready ? clock.serverTick(performance.now()) : undefined, tick);
     // The DRIVEN car is the one excluded, not the connection's own seat: it is the car prediction
     // owns, and `renderCars`'s `isLocal` splits the two the same way. If these two picked different
-    // cars, one car would be drawn from an interpolation buffer nothing fills and the other from a
-    // prediction nothing runs.
+    // cars, one car would be drawn from a timeline nothing fills and the other from a prediction
+    // nothing runs.
     const driven = this.drivenSid(room);
+    const arena = this.arena ?? getArena(room.state.arenaId);
     room.state.players.forEach((player, sessionId) => {
       if (sessionId === driven) return;
       if (player.status !== PlayerStatus.IN_MATCH) return;
-      let buf = this.interps.get(sessionId);
-      if (!buf) {
-        buf = new InterpolationBuffer();
-        this.interps.set(sessionId, buf);
-      }
-      buf.push(now, bodyOf(player));
+      this.remotes.push(sessionId, tick, {
+        body: bodyOf(player),
+        keys: { steer: axisOfWire(player.lastSteer), throttle: axisOfWire(player.lastThrottle), fireSlots: 0 },
+        ctx: {
+          ...buildStepContext(arena, room.state, sessionId, tick, localModifiers(room.state, sessionId, tick)),
+          others: [],
+        },
+        // Death and respawn reset the remote's interpolation and reckoning (no slide from the wreck
+        // to the spawn); so does a jump of more than `remoteTeleportCars` car lengths.
+        alive: player.alive,
+      });
     });
+  }
+
+  /**
+   * Fix this frame's remote render tick `R = serverTick − delay` (NR29, NR30) and record it for
+   * Phase F. Before the clock's first pong there is no `R`: remotes draw their newest snapshot.
+   */
+  private beginRemoteFrame(delta: number): void {
+    const clock = this.inputClock?.clock;
+    this.remotes.beginFrame(clock?.ready ? clock.serverTick(performance.now()) : undefined, delta);
+    const R = this.remotes.renderTick;
+    this.lastRenderTick = R === undefined ? undefined : Math.floor(R);
   }
 
   /**
@@ -3051,8 +3087,14 @@ export class ArenaScene extends Phaser.Scene {
     return blendPose(this.predictedPrev, this.predicted, this.inputClock?.blendAlpha(performance.now()) ?? 1);
   }
 
+  /**
+   * A remote's pose this frame: interpolated at the render tick, extrapolated (capped) past the
+   * newest snapshot, eased in after a late one (`RemoteTimeline`). Computed once per frame, so
+   * `renderCars` and `renderFx` get the same pose. Falls back to the patched pose for a car the
+   * timeline has not seen.
+   */
   private remotePose(sessionId: string, pose: SimBody): SimBody {
-    return this.interps.get(sessionId)?.sample(this.time.now) ?? pose;
+    return this.remotes.pose(sessionId) ?? pose;
   }
 
   private syncCar(sessionId: string, player: ArenaPlayer, pose: SimBody): void {
@@ -3841,7 +3883,7 @@ export class ArenaScene extends Phaser.Scene {
    *
    * The POSES are the ones the cars are actually drawn at — `localRenderPose` and `remotePose`, the
    * same two helpers `renderCars` picks between — never the raw schema fields. A remote car is
-   * drawn `NET_CONFIG.interpolationDelayMs` behind the state it is holding, and the local car is
+   * drawn the adaptive remote delay (NR30, 33 ms or more) behind the state it is holding, and the local car is
    * drawn ahead of it; at Mirage's top speed that is tens of world units. Decals laid at the schema
    * pose land beside the tyres that are supposed to have laid them, and the smoke eraser punches
    * its hole beside the car it is supposed to keep visible. Runs after `renderCars`, so both

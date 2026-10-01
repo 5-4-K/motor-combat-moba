@@ -19,7 +19,6 @@ export const NET_CONFIG = {
   reconcileEaseRate: 0.25,
   /** The wall-clock span `reconcileEaseRate` is authored over, in ms (one 20 Hz snapshot). */
   reconcileEaseReferenceMs: 50,
-  interpolationDelayMs: 50,
   /**
    * How far past its last snapshot the client may extrapolate a live weapon instance before it
    * freezes it in place, so a stalled connection cannot fling a stale shot across the arena while
@@ -109,4 +108,10 @@ export const NET_CONFIG = {
   extrapolateSettleMs: 100,
   /** Distance, in car lengths, within which a remote's contact is blended into the local car (NR32). */
   contactBlendRangeCars: 2,
+  /**
+   * A remote that moves more than this many car lengths between two snapshots has teleported (a
+   * respawn, a reset): its interpolation and dead reckoning are dropped rather than blended across
+   * the jump (NR29, NR31).
+   */
+  remoteTeleportCars: 3,
 } as const;

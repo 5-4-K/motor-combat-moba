@@ -42,6 +42,9 @@ export interface SnapshotCar {
   inputSlack: number;
   /** Owner-only on the wire (D5 ruling E): the spread of those same slack samples, in ticks. */
   inputSlackStd: number;
+  /** The input the server consumed for this car on this tick (NR33): what dead reckoning steps with. */
+  lastSteer: number;
+  lastThrottle: number;
   /** Beyond the plan's minimum: what `buildStepContext`/`localModifiers` read off a patched player. */
   carId: string;
   status: number;
@@ -210,6 +213,8 @@ export class ServerWorld {
           ackRepeated: p.ackRepeated,
           inputSlack: p.inputSlack,
           inputSlackStd: p.inputSlackStd,
+          lastSteer: p.lastSteer,
+          lastThrottle: p.lastThrottle,
           carId: p.carId,
           status: p.status,
           statuses: p.statuses.map((s) => ({

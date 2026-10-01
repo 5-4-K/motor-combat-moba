@@ -7,7 +7,7 @@
 | **Tick** | Sim step at `TICK_RATE_HZ` (30). `ArenaState.tick` increments each interval. |
 | **Patch** | State broadcast to clients — one snapshot of exactly one tick, at `SNAPSHOT_RATE_HZ` (60). Not the same as tick: no client code may assume one per tick. |
 | **Prediction** | Client applying `stepSim` locally ahead of patches, reconciled by replay against each patch. |
-| **Interpolation** | Smoothing remote poses between patches, sampled `interpolationDelayMs` behind now. |
+| **Interpolation** | Smoothing remote poses between snapshots, keyed by server tick and drawn an adaptive delay (`minDelayMs`–`maxDelayMs`) behind the synced server clock (NR29, NR30). |
 | **Lockstep** | Server and client use the same `stepSim` on the same inputs. |
 | **Game mode** | A `GameMode` wire value with a row in `MODE_TABLE` (`modes/registry.ts`): a display name, an `isActive` publish gate, and its own `ModeConfig`. `rulesOf(mode)` carries its shape (`sides`, `respawns`, `hasMatchClock`, `winRuleLabel`, `canStart`, `claimsChassis`); what actually ends a match is that mode's `ModeController` (`controllerOf(mode)` on the server). |
 | **Mode bundle** (`ModeConfig`) | One mode's whole configuration, frozen: thirteen tables authored in `packages/shared/src/modes/<mode>/`, plus the eight artifacts `assembleModeConfig` derives from them (weapon/ram/turret/spike/deathmatch/status-pulse ticks, chassis drive, burst defs), plus that mode's `arenas` and `maxPlayers`. Two modes never share a sub-object. |

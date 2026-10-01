@@ -17,9 +17,9 @@ import {
  *
  * **The two poses this compares do not share a timebase, and the mismatch is not corrected.** `self`
  * is the local car's PREDICTED pose (this frame, no delay); every entry in `others` is a remote's
- * INTERPOLATED pose, rendered `NET_CONFIG.interpolationDelayMs` (50 ms) in the past, and the local
+ * INTERPOLATED pose, rendered the adaptive remote delay (NR30, `minDelayMs` 33 ms or more) in the past, and the local
  * car itself is typically running roughly RTT/2 ahead of the server's own view of it. The two clocks
- * can therefore disagree by on the order of 50-100+ ms depending on latency. At a closing speed
+ * can therefore disagree by on the order of 33-100+ ms depending on latency. At a closing speed
  * around 1152 u/s (two top-speed mirages head-on) that is on the order of 50-100+ units of
  * positional disagreement — enough that this can spark on a near-miss or miss a real graze.
  *

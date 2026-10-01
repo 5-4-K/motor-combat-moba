@@ -1,10 +1,11 @@
 import {
   ClockSync,
   InputScheduler,
-  InterpolationBuffer,
   NET_CONFIG,
   PlayerStatus,
+  RemoteTimeline,
   TickPrediction,
+  axisOfWire,
   buildStepContext,
   localModifiers,
   type ArenaDef,
@@ -52,8 +53,9 @@ function viewOf(snap: Snapshot): StateView {
  * pongs, a burst on join then the steady rate), `pumpInput` → `sendInputTick` (the shared
  * `InputScheduler` deciding which server ticks to send a frame for, a `TickPrediction` predicting
  * each one, and the packet carrying `inputRedundancy` older frames), `reconcileLocal` and
- * `pushRemoteSnapshots` (on each patch, in that order) and `remotePose`. No Phaser, no Colyseus: the
- * "room state" is the last `Snapshot` this client decoded, and every config read happens inside the
+ * `pushRemoteSnapshots` (on each patch, in that order) and `remotePose` — the same shared
+ * `RemoteTimeline` the scene draws remotes through, its render tick fixed once per frame. No Phaser,
+ * no Colyseus: the "room state" is the last `Snapshot` this client decoded, and every config read happens inside the
  * caller's mode scope.
  *
  * The only logic written here is the plumbing between those shared modules: the slack sample is
@@ -75,7 +77,8 @@ export class TickClient {
   private readonly clock = new ClockSync();
   private readonly scheduler = new InputScheduler(this.clock);
   private readonly prediction = new TickPrediction();
-  private readonly interps = new Map<string, InterpolationBuffer>();
+  /** Every remote's tick-keyed interpolation, adaptive delay and capped extrapolation (NR29–NR31). */
+  private readonly remotes = new RemoteTimeline();
   private last: Snapshot | undefined;
   private lastById = new Map<string, SnapshotCar>();
   private view: StateView | undefined;
@@ -136,6 +139,8 @@ export class TickClient {
 
   /** One render frame at harness time nowMs; returns the input packets to send this frame. */
   frame(nowMs: number, deltaMs: number): InputPacket[] {
+    // `ArenaScene.update`: the remote render tick is fixed once per frame, before anything draws.
+    this.remotes.beginFrame(this.clock.ready ? this.clock.serverTick(this.local(nowMs)) : undefined, deltaMs);
     // `pumpInput`: a client that cannot drive sends nothing, and its pending slack sample is dropped.
     if (!this.canDrive()) {
       this.freshSlack = undefined;
@@ -193,14 +198,20 @@ export class TickClient {
   }
 
   private pushRemoteSnapshots(nowMs: number): void {
-    for (const car of this.last!.cars) {
+    const snap = this.last!;
+    const view = this.view!;
+    this.remotes.onSnapshot(this.clock.ready ? this.clock.serverTick(this.local(nowMs)) : undefined, snap.tick);
+    for (const car of snap.cars) {
       if (car.id === this.id || car.status !== PlayerStatus.IN_MATCH) continue;
-      let buf = this.interps.get(car.id);
-      if (!buf) {
-        buf = new InterpolationBuffer();
-        this.interps.set(car.id, buf);
-      }
-      buf.push(nowMs, car.body);
+      this.remotes.push(car.id, snap.tick, {
+        body: car.body,
+        keys: { steer: axisOfWire(car.lastSteer), throttle: axisOfWire(car.lastThrottle), fireSlots: 0 },
+        ctx: {
+          ...buildStepContext(this.arena, view, car.id, snap.tick, localModifiers(view, car.id, snap.tick)),
+          others: [],
+        },
+        alive: car.alive,
+      });
     }
   }
 
@@ -208,11 +219,11 @@ export class TickClient {
    * What this client would draw for a remote car right now (undefined if unknown): `renderCars`'
    * pose choice — a wreck at its patched pose (`wreck: true`), a live car through `remotePose`.
    */
-  drawnRemote(id: string, nowMs: number): { x: number; y: number; wreck: boolean } | undefined {
+  drawnRemote(id: string, _nowMs: number): { x: number; y: number; wreck: boolean } | undefined {
     const car = this.lastById.get(id);
     if (!car || car.status !== PlayerStatus.IN_MATCH) return undefined;
     if (!car.alive) return { x: car.body.x, y: car.body.y, wreck: true };
-    const pose = this.interps.get(id)?.sample(nowMs) ?? car.body;
+    const pose = this.remotes.pose(id) ?? car.body;
     return { x: pose.x, y: pose.y, wreck: false };
   }
 }

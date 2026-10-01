@@ -1247,7 +1247,7 @@ CB3). Meaningful only on a layout that maps onto itself under that rotation, whi
 
 ## NET_CONFIG
 
-Every key of `config/net-config.ts`. Global, not per mode. Deleted by Phase D: `pendingInputCap` and `maxInputsPerTick` (the server takes one input per car per tick; the client's pending list is pruned by snapshot tick).
+Every key of `config/net-config.ts`. Global, not per mode. Deleted by Phase D: `pendingInputCap` and `maxInputsPerTick` (the server takes one input per car per tick; the client's pending list is pruned by snapshot tick). Deleted by Phase E: `interpolationDelayMs` (remotes are drawn at an adaptive delay between `minDelayMs` and `maxDelayMs`, NR30).
 
 | Knob | Value | Meaning |
 |---|---|---|
@@ -1256,8 +1256,12 @@ Every key of `config/net-config.ts`. Global, not per mode. Deleted by Phase D: `
 | `reconcileSnapAngle` | 0.6 | Wrapped angle error, in rad, past which it snaps |
 | `reconcileEaseRate` | 0.25 | Fraction of the reconcile error eased per `reconcileEaseReferenceMs` (one 20 Hz snapshot, the rate it was tuned at). Applied per snapshot through `reconcileEasePerSnapshot()` (`net/prediction.ts`) as `1 - (1 - rate) ** ((1000 / SNAPSHOT_RATE_HZ) / reconcileEaseReferenceMs)` — ~0.0914 per snapshot at 60 Hz, three of which ease exactly 0.25 |
 | `reconcileEaseReferenceMs` | 50 | The span `reconcileEaseRate` is authored over |
-| `interpolationDelayMs` | 50 | How far in the past remotes are drawn (arrival-timed until Phase E) |
 | `shotExtrapolationCapMs` | 50 | How far past its last snapshot the client extrapolates a live shot before freezing it; one patch interval until NR12 deleted the patch rate, kept at its old wall-clock value |
+| `minDelayMs` | 33 | Floor of the adaptive remote render delay (NR30) |
+| `maxDelayMs` | 250 | Ceiling of the adaptive remote render delay (NR30) |
+| `maxExtrapolateMs` | 100 | Longest a remote is dead-reckoned past its newest snapshot before it holds (NR31) |
+| `extrapolateSettleMs` | 100 | How long a remote's drawn pose eases onto the new path when a snapshot lands under an extrapolated frame (NR31) |
+| `remoteTeleportCars` | 3 | A remote that moves more than this many car lengths in one snapshot has teleported: its interpolation and reckoning reset rather than blend across the jump |
 | `targetSlackTicks` | 1.5 | Where the client's slack feedback steers the mean input lead, in ticks (NR21) |
 | `slackSpreadK` | 1 | Ticks of target added per tick of `inputSlackStd` beyond the 0.5-tick quantisation floor (`SLACK_QUANTISATION_STD_TICKS`). D6 measured K 8 (with gain 0.015) at net80 1.84 % repeats / 112 ms input-to-server against K 1's 3.69 % / 78 ms and kept 1: latency first, a lossy link's repeats land on its own player |
 | `maxDilation` | 0.04 | Most the client's tick clock may run faster or slower than nominal while steering slack (NR21) |
