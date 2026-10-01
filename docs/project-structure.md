@@ -114,8 +114,11 @@ motor-combat-MOBA/
 │   │   ├── ram-bridge.ts         # ArenaState ↔ applyRams POJOs
 │   │   └── combat-bridge.ts      # ArenaState ↔ runCombat POJOs
 │   └── net/
-│       ├── input-message.ts      # wire validation
-│       └── latency-injector.ts
+│       ├── offer-input.ts        # in-process producers (bots, parked seats, harnesses) into the same TickInputBuffer; wire validation lives in shared net/tick-input.ts
+│       ├── net-session.ts        # per-client time sync: MSG_TIME/MSG_PING, server-side RTT, ping-stamp validation
+│       ├── rate-limit.ts         # ClientLimits — per-kind token buckets, kick after 5 s over
+│       ├── protocol-gate.ts      # PROTOCOL_VERSION check at join
+│       └── latency-injector.ts   # SIM_LATENCY_MS / SIM_JITTER_MS / SIM_LOSS_PCT, two-way, in order
 └── packages/client/
     ├── index.html
     ├── public/art/                # copied to the dist root unbundled — no rebuild to change art

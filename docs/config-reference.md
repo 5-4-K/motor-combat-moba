@@ -35,8 +35,8 @@ tables.
 | `DEPLOY_MODE` | server `mode.ts` | `lan` (`cloud` is CORS-only; no hosting) |
 | `PORT` | server `mode.ts` | `2567` |
 | `SIM_LATENCY_MS` | latency injector (`mode.ts`, `net/latency-injector.ts`) | `0` — dev only; **one-way** delay in ms, applied in both directions (client→server inputs and server→client snapshots, pongs, pings and errors), in order. Practice and arena rooms only; the playground never injects (PG9). Never set in a release |
-| `SIM_JITTER_MS` | latency injector | `0` — one-way jitter, in ms, on each message's delay; delivery stays in order |
-| `SIM_LOSS_PCT` | latency injector | `0` — percent chance a message is "lost"; it is retransmitted `2 × SIM_LATENCY_MS` later with everything behind it held (the netsim `Link` model of a TCP retransmit) |
+| `SIM_JITTER_MS` | latency injector | `0` — one-way jitter, in ms: each message's delay is drawn uniformly within ± this of `SIM_LATENCY_MS`; delivery stays in order |
+| `SIM_LOSS_PCT` | latency injector | `0` — percent chance a message is "lost"; it is retransmitted `2 × SIM_LATENCY_MS` later with everything behind it held (the netsim `Link` model of a TCP retransmit). Ignored unless `SIM_LATENCY_MS` or `SIM_JITTER_MS` is above 0 |
 | `CLIENT_ORIGIN` | server CORS (`http-app.ts`, Vite) | unset; `npm run dev` sets `http://localhost:5173`. When set, matchmaker routes' `Access-Control-Allow-Origin` is pinned to it (`restrictMatchmakerCors`); unset (the same-origin LAN release) the origin is reflected |
 | `MONITOR_PASSWORD` | server `monitor.ts` | unset; without it (and without `DEV_TOOLS=1`) `/colyseus` is not mounted |
 | `MAX_PRACTICE_ROOMS` | server `mode.ts` (`getMaxPracticeRooms`) | `PRACTICE_CONFIG.maxConcurrentRooms` (`6`) |
