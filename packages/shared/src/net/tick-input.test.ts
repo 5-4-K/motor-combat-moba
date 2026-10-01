@@ -1,6 +1,6 @@
 // packages/shared/src/net/tick-input.test.ts
 import { describe, expect, it } from "vitest";
-import { NEUTRAL_KEYS, TickInputBuffer, isInputPacket, type InputFrame } from "./tick-input.js";
+import { LATE_SLACK_FLOOR_TICKS, NEUTRAL_KEYS, TickInputBuffer, isInputPacket, type InputFrame } from "./tick-input.js";
 
 const f = (tick: number, over: Partial<InputFrame> = {}): InputFrame => ({ tick, steer: 0, throttle: 1, fireSlots: 0, ...over });
 
@@ -73,6 +73,14 @@ describe("TickInputBuffer", () => {
     b.offer(f(13), 13); // never accepted, arrives late: slack 13 - 14 = -1
     b.offer(f(13), 14); // its redundant copy in the next packet: not a sample
     expect(b.slackMeanTicks()).toBe(0); // (1 + -1) / 2
+  });
+
+  it("floors a late sample at LATE_SLACK_FLOOR_TICKS, so a stall's backlog cannot read hundreds of ticks late (D6)", () => {
+    expect(LATE_SLACK_FLOOR_TICKS).toBe(-2);
+    const b = new TickInputBuffer(15, 15);
+    b.offer(f(13), 600); // first copy, 588 ticks late: one floored sample, not -588
+    expect(b.slackMeanTicks()).toBe(LATE_SLACK_FLOOR_TICKS);
+    expect(b.slackStdTicks()).toBe(0);
   });
 });
 

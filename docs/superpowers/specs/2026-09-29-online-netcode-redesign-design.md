@@ -121,7 +121,9 @@ today's.
   over the last 30 received inputs of (input tick − server tick at arrival). The client steers
   `safetyMs` so slack sits at `NET_CONFIG.targetSlackTicks` (1.5), by running its tick clock up to
   `NET_CONFIG.maxDilation` (4 %) faster or slower — never by jumping. The integrator runs once per NEW
-  slack sample (not per frame) with gain 0.03 and a ±0.25-tick deadband around the target.
+  slack sample (not per frame) with gain 0.015 (0.03 until D6) and a ±0.25-tick deadband around the
+  target. A late input's sample is floored at `LATE_SLACK_FLOOR_TICKS` (−2): how far a frame missed
+  measures a stall, not the lead, and at the floor the integrator already out-runs `maxDilation`.
 - **NR22 Input buffer.** A shared `TickInputBuffer` per player, keyed by tick. On tick `T`:
   input for `T` present → consume it; absent → repeat the last consumed input with its fire bits
   held (a repeat can never create a press, because press detection compares against the previous
@@ -336,3 +338,4 @@ Each stage merges on its own, green, with its measured numbers recorded in the p
 - 2026-09-29 (D2 fix round 2): NR18 fits offset and drift (least squares, slope clamped to the slew rate) over the lowest-RTT half, since a median of old low-RTT samples leaves a 1 % drift 40-70 ms stale under jitter.
 - 2026-09-29 (D2 fix round 3): NR18 trims RTT outliers from the fit (robust to 20 % spiked legs) and extrapolates at the fitted drift between pongs.
 - 2026-09-30 (D2 fix round 4): NR18 replaces the trimmed fit with RTT-weighted fits (24 s drift, 6 s offset), keeps the drift when data is thin, slews continuously from the folded running value, detects server clock steps, and takes `rttMs` from 2 s bucket minima; held to an acceptance envelope (jitter 0-30 ms, ±1 % drift, 0-20 % spiked legs, route steps) in tests.
+- 2026-10-01 (D6): NR21 floors a late slack sample at −2 ticks, so a long stall's backlog cannot pin the safety margin; gain 0.03 → 0.015 and `slackSpreadK` 1 → 8 (net80 repeats 3.7 % → 1.84 %, LAN input-to-server 33.9 ms).

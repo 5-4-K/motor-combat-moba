@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { MS_PER_TICK } from "../constants.js";
+import { MS_PER_TICK, SNAPSHOT_RATE_HZ } from "../constants.js";
 import { NET_CONFIG } from "../config/net-config.js";
 import { ClockSync } from "./clock-sync.js";
 import { InputScheduler, SLACK_QUANTISATION_STD_TICKS } from "./input-scheduler.js";
+import { LATE_SLACK_FLOOR_TICKS, newTickInputBuffer } from "./tick-input.js";
 
 /** A pong's tick and phase from ONE server time, so a tick boundary cannot round into an extra tick. */
 function pongFields(serverMs: number): { t: number; p: number } {
@@ -208,4 +209,74 @@ describe("InputScheduler closed-loop acceptance envelope (NR18, NR20, NR21)", ()
       }
     },
   );
+});
+
+/**
+ * Closed loop against the REAL server buffer (`TickInputBuffer`, so its slack statistics and the
+ * late-sample rule are the ones under test): one-way 40 ms both ways, and at `STALL_AT` both
+ * directions stall for `STALL_MS`, then everything held is delivered at once, in order — the netsim
+ * `Link` model of a TCP outage. Returns the scheduler's lead sampled per frame.
+ */
+function stallLoop(): { at: number; lead: number }[] {
+  const oneWay = 40;
+  const sched = new InputScheduler(syncedClock(oneWay));
+  const buf = newTickInputBuffer();
+  const up: { at: number; tick: number }[] = [];
+  const down: { at: number; slack: number; std: number }[] = [];
+  const held = (at: number) => (at >= STALL_AT && at < STALL_AT + STALL_MS ? STALL_AT + STALL_MS : at);
+  const leads: { at: number; lead: number }[] = [];
+  let serverTick = 0;
+  let nextTickAt = MS_PER_TICK;
+  let nextFrame = 2000;
+  let fresh: { slack: number; std: number } | undefined;
+  for (let now = 0; now < STALL_AT + STALL_MS + 10_000; now++) {
+    while (now >= nextTickAt) {
+      serverTick++;
+      buf.take(serverTick);
+      down.push({ at: held(now + oneWay), slack: buf.slackMeanTicks(), std: buf.slackStdTicks() });
+      nextTickAt += MS_PER_TICK;
+    }
+    while (up.length && up[0]!.at <= now) buf.offer({ tick: up.shift()!.tick, steer: 0, throttle: 0, fireSlots: 0 }, serverTick);
+    while (down.length && down[0]!.at <= now) fresh = down.shift()!;
+    if (now < nextFrame) continue;
+    nextFrame += 1000 / 60;
+    const sample = fresh;
+    fresh = undefined;
+    for (const tick of sched.due(now, 1000 / 60, sample?.slack, sample?.std ?? 0)) up.push({ at: held(now + oneWay), tick });
+    leads.push({ at: now, lead: sched.leadMs });
+  }
+  return leads;
+}
+
+const STALL_AT = 20_000;
+const STALL_MS = 10_000;
+/**
+ * How long after a 10 s outage ends the lead may take to settle back within one tick of before it.
+ * Measured at D6: 2.05 s with late samples floored at LATE_SLACK_FLOOR_TICKS, 7.7 s unfloored (and
+ * the same 7.7 s floored at -maxLeadTicks). What remains is the lead's own maxDilation slew.
+ */
+const STALL_RECOVERY_MS = 2_500;
+
+describe("InputScheduler after a long stall (D6)", () => {
+  it("returns to its pre-stall lead within STALL_RECOVERY_MS: the backlog's late frames cannot pin the safety", () => {
+    const leads = stallLoop();
+    const before = leads.filter((l) => l.at > STALL_AT - 5_000 && l.at < STALL_AT).map((l) => l.lead);
+    const settled = before.reduce((a, l) => a + l, 0) / before.length;
+    const end = STALL_AT + STALL_MS;
+    const lastOff = Math.max(end, ...leads.filter((l) => l.at > end && Math.abs(l.lead - settled) > MS_PER_TICK).map((l) => l.at));
+    expect(lastOff - end).toBeLessThanOrEqual(STALL_RECOVERY_MS);
+  });
+
+  it("a window of floored late samples still drives the lead at the full maxDilation (the floor loses no speed)", () => {
+    // At the floor, the integrator must out-run the lead's own slew limit, so flooring a sample can
+    // never make a genuinely short lead recover slower than an unfloored one would.
+    const s = new InputScheduler(syncedClock(40));
+    const frame = 1000 / SNAPSHOT_RATE_HZ;
+    s.due(2000, frame, NET_CONFIG.targetSlackTicks);
+    const start = s.leadMs;
+    const calls = SNAPSHOT_RATE_HZ;
+    for (let k = 1; k <= calls; k++) s.due(2000 + k * frame, frame, LATE_SLACK_FLOOR_TICKS, 0);
+    // The first call only starts the integrator off equilibrium; every one after it is slew-limited.
+    expect(s.leadMs - start).toBeGreaterThanOrEqual(NET_CONFIG.maxDilation * frame * (calls - 1) - 1e-6);
+  });
 });

@@ -78,6 +78,19 @@ export interface TakenInput {
 const SLACK_WINDOW = 30;
 
 /**
+ * The deepest a recorded late slack sample may read, in ticks (D6). A late first copy says "this
+ * input missed its tick"; how FAR it missed measures how long the path stalled, not how short the
+ * client's lead is — after a 10 s outage the backlog's oldest frames read ~600 ticks late, and
+ * thirty such samples held the client's safety margin at its clamp for seconds after the path was
+ * well again (`NET_CONFIG.maxInputLeadMs` as the floor, 15 ticks, changed nothing: one window of it
+ * still pins the margin). Flooring them loses no recovery speed: at -2 the client's integrator still
+ * moves its safety faster than `NET_CONFIG.maxDilation` lets the lead follow (pinned by the
+ * scheduler's "full maxDilation" test, which fails if a gain or target retune breaks that), so a
+ * deeper reading could only wind the margin up further. -1 would not keep up at the 0.015 gain.
+ */
+export const LATE_SLACK_FLOOR_TICKS = -2;
+
+/**
  * One player's inputs, keyed by the tick they are for (NR22). The server takes exactly one per tick,
  * so no amount of sending moves a car further than one step per tick (F1). A missing tick repeats
  * the last real input — held keys stay held, and because press detection compares against the
@@ -106,7 +119,7 @@ export class TickInputBuffer {
       // above everything seen so far is a first copy.
       if (frame.tick > this.highestSeenTick) {
         this.highestSeenTick = frame.tick;
-        this.recordSlack(frame.tick - next);
+        this.recordSlack(Math.max(LATE_SLACK_FLOOR_TICKS, frame.tick - next));
       }
       return "late";
     }
