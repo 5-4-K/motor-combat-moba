@@ -60,7 +60,7 @@ import {
 } from "./tick-pipeline.js";
 import { scoped } from "./mode-scope.js";
 import { newRoomStepper } from "./fixed-step.js";
-import { NetSessions, installNetHandlers } from "../net/net-session.js";
+import { NetSessions, installNetHandlers, netNowMs } from "../net/net-session.js";
 import { assertProtocol } from "../net/protocol-gate.js";
 import { ClientLimits, MAX_MESSAGES_PER_SECOND, limited, refuseUnknownMessages } from "../net/rate-limit.js";
 
@@ -495,7 +495,7 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
     this.stepper.advance(deltaMs, () => scoped(this.modeConfig, () => this.tick()));
     // Date the last tick to the steady tick grid, not to this callback: the banked remainder is how far
     // past that tick's due time `wallNow` already is. One mark per callback, even after a catch-up.
-    this.netSessions.markTick(this.state.tick, Date.now() - this.stepper.remainderMs);
+    this.netSessions.markTick(this.state.tick, netNowMs() - this.stepper.remainderMs);
   }
 
   /**

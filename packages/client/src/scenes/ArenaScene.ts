@@ -25,7 +25,6 @@ import {
   ManeuverKind,
   MAX_PLAYERS,
   MS_PER_TICK,
-  MSG_PING,
   MSG_TIME,
   NET_CONFIG,
   MSG_PRACTICE_IDLE_WARNING,
@@ -1801,9 +1800,10 @@ export class ArenaScene extends Phaser.Scene {
   /**
    * Time sync (NR18, NR19): a fresh `InputClock` per join, polled every `timeSyncBurstMs` for its
    * `MSG_TIME` schedule (on join, every `timeSyncBurstMs` for `timeSyncBurstWindowMs`, then every
-   * `timeSyncIntervalMs`, and the burst again after a pause's resume); each pong fed back to it; the
-   * server's `MSG_PING` echoed. The poll timer is cleared through `unbind`, which every scene shutdown
-   * and every rebind runs, so nothing outlives the room.
+   * `timeSyncIntervalMs`, and the burst again after a pause's resume); each pong fed back to it. The
+   * server's `MSG_PING` is NOT echoed here: `bindTimeEcho` (`net/connection.ts`) binds that once per
+   * room join so every scene answers it (phase D review I1). The poll timer is cleared through
+   * `unbind`, which every scene shutdown and every rebind runs, so nothing outlives the room.
    */
   private bindTimeSync(room: Room<ArenaState>): void {
     const inputClock = new InputClock(performance.now());
@@ -1816,7 +1816,6 @@ export class ArenaScene extends Phaser.Scene {
     const timer = setInterval(poll, NET_CONFIG.timeSyncBurstMs);
     this.unbind.push(() => clearInterval(timer));
     this.unbind.push(room.onMessage(MSG_TIME, (p) => inputClock.onPong(performance.now(), p)));
-    this.unbind.push(room.onMessage(MSG_PING, (m) => room.send(MSG_PING, m)));
   }
 
   private unbindAll(): void {

@@ -362,8 +362,7 @@ describe("TickPrediction", () => {
     const target = replay2(authoritative, [12, 13]);
     const out = tp.reconcile(authoritative, 11, farFrom(cur), ctx);
     for (const k of ["x", "y", "angle", "vx", "vy", "angVel"] as const) expect(out[k]).toBeCloseTo(target[k], 9);
-    expect(tp.frameAt(11)).toBeUndefined();
-    expect(tp.frameAt(12)).toBeDefined();
+    expect(tp.recent(10).map((f) => f.tick)).toEqual([12, 13]);
     expect(tp.replayTarget(authoritative, 11, ctx).x).toBeCloseTo(target.x, 9);
   });
 
@@ -399,7 +398,32 @@ describe("TickPrediction", () => {
     const tp = new TickPrediction();
     let cur = START;
     for (let t = 1; t <= 60; t++) cur = tp.predict(cur, frame(t), ctx);
-    expect(tp.frameAt(1)).toBeDefined();
+    expect(tp.recent(60)[0]?.tick).toBe(1);
+  });
+
+  it("refuses a frame whose tick is not above the newest predicted one (review M9)", () => {
+    const tp = new TickPrediction();
+    let cur = START;
+    for (const t of [11, 12, 13]) cur = tp.predict(cur, frame(t), ctx);
+    // A duplicate and an out-of-order tick: neither recorded, neither stepped.
+    const dupe = { ...frame(13), throttle: -1 as const };
+    expect(tp.predict(cur, dupe, ctx)).toBe(cur);
+    expect(tp.predict(cur, frame(12), ctx)).toBe(cur);
+    expect(tp.recent(10).map((f) => f.tick)).toEqual([11, 12, 13]);
+    // The replay still consumes every real frame (a duplicate used to stall the index walk).
+    const authoritative = stepSim(START, frame(11), DT, ctx);
+    const out = tp.replayTarget(authoritative, 11, ctx);
+    const want = replay2(authoritative, [12, 13]);
+    for (const k of ["x", "y", "angle", "vx", "vy"] as const) expect(out[k]).toBeCloseTo(want[k], 9);
+    // ... and a tick already acked and pruned is refused too, not re-recorded below the snapshot.
+    expect(tp.predict(cur, frame(11), ctx)).toBe(cur);
+    expect(tp.recent(10).map((f) => f.tick)).toEqual([12, 13]);
+    // A later tick is accepted, and clear() resets the guard.
+    tp.predict(cur, frame(14), ctx);
+    expect(tp.recent(10).map((f) => f.tick)).toEqual([12, 13, 14]);
+    tp.clear();
+    tp.predict(START, frame(1), ctx);
+    expect(tp.recent(10).map((f) => f.tick)).toEqual([1]);
   });
 
   it("recent() returns the newest frames last, and clear() empties", () => {

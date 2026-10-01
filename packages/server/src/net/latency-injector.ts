@@ -108,17 +108,6 @@ export class InputDelay<T> {
   }
 }
 
-/** `InputDelay` as a bare function: `deliver` itself, unwrapped, when no latency is configured. */
-export function withSimulatedLatency<T>(
-  deliver: (msg: T) => void,
-  cfg: LatencyConfig,
-  keyOf: (msg: T) => string = () => "",
-): (msg: T) => void {
-  if (!latencyActive(cfg)) return deliver;
-  const delay = new InputDelay(deliver, cfg, keyOf);
-  return (msg: T) => delay.offer(msg);
-}
-
 /** The part of a Colyseus `Client` every outgoing frame goes through. */
 export interface RawClient {
   readonly sessionId: string;

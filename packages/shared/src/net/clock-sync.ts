@@ -6,12 +6,13 @@ export interface TimePong {
   c: number;
   /** The server's last completed tick when it answered. */
   t: number;
-  /** Milliseconds the server was into the next tick when it answered, in [0, MS_PER_TICK). */
+  /**
+   * Milliseconds since tick `t`'s due time when the server answered, `>= 0`. Usually under one tick, but
+   * not capped there: the server's interval can run late enough that tick `t + 1` is already due, and
+   * `t * MS_PER_TICK + p` is the server time either way.
+   */
   p: number;
 }
-
-/** How many of the newest RTTs `jitterMs` spreads over. */
-const JITTER_SAMPLES = 16;
 
 interface Sample {
   rtt: number;
@@ -218,16 +219,5 @@ export class ClockSync {
       if (b === undefined || s.rtt < b) byBucket.set(k, s.rtt);
     }
     return median([...byBucket.values()]);
-  }
-
-  /** Half the 10th-90th percentile spread of the newest 16 RTTs, spikes included. */
-  jitterMs(): number {
-    const r = this.samples
-      .slice(-JITTER_SAMPLES)
-      .map((s) => s.rtt)
-      .sort((a, b) => a - b);
-    if (r.length < 2) return 0;
-    const at = (q: number) => r[Math.min(r.length - 1, Math.floor(q * (r.length - 1)))]!;
-    return (at(0.9) - at(0.1)) / 2;
   }
 }

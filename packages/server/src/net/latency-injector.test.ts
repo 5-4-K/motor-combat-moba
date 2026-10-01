@@ -4,30 +4,30 @@ import {
   InputDelay,
   OutgoingDelay,
   latencyActive,
-  withSimulatedLatency,
   type LatencyConfig,
 } from "./latency-injector.js";
 
 const OFF: LatencyConfig = { latencyMs: 0, jitterMs: 0, lossPct: 0 };
 
-describe("withSimulatedLatency", () => {
+describe("InputDelay (NR56: client -> server)", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it("returns the same function when latencyMs and jitterMs are 0", () => {
-    const deliver = (_msg: string) => {};
-    expect(withSimulatedLatency(deliver, OFF)).toBe(deliver);
+  it("delivers straight through, synchronously, when latencyMs and jitterMs are 0", () => {
+    const deliver = vi.fn();
+    new InputDelay(deliver, OFF).offer("a");
     // Loss alone, with no latency to retransmit over, is still off.
-    expect(withSimulatedLatency(deliver, { ...OFF, lossPct: 50 })).toBe(deliver);
+    new InputDelay(deliver, { ...OFF, lossPct: 50 }).offer("b");
+    expect(deliver.mock.calls).toEqual([["a"], ["b"]]);
   });
 
   it("delays delivery by latencyMs when jitter is 0", () => {
     vi.useFakeTimers();
     const deliver = vi.fn();
-    const wrapped = withSimulatedLatency(deliver, { latencyMs: 20, jitterMs: 0, lossPct: 0 });
+    const delay = new InputDelay(deliver, { latencyMs: 20, jitterMs: 0, lossPct: 0 });
 
-    wrapped("hello");
+    delay.offer("hello");
     expect(deliver).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(20);
@@ -38,14 +38,14 @@ describe("withSimulatedLatency", () => {
   it("keeps each key's messages in order under jitter, like one WebSocket per client", () => {
     vi.useFakeTimers();
     const got: string[] = [];
-    const wrapped = withSimulatedLatency<{ k: string; n: number }>(
+    const delay = new InputDelay<{ k: string; n: number }>(
       (m) => got.push(`${m.k}${m.n}`),
       { latencyMs: 30, jitterMs: 25, lossPct: 0 },
       (m) => m.k,
     );
     for (let n = 0; n < 50; n++) {
-      wrapped({ k: "a", n });
-      wrapped({ k: "b", n });
+      delay.offer({ k: "a", n });
+      delay.offer({ k: "b", n });
       vi.advanceTimersByTime(1);
     }
     vi.advanceTimersByTime(1000);

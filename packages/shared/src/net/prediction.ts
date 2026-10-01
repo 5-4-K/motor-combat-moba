@@ -103,8 +103,19 @@ export class TickPrediction {
   private frames: InputFrame[] = []; // ascending by tick
   /** The newest frame at or before the last acknowledged tick: what the server would repeat from. */
   private base: InputFrame | undefined;
+  /** The newest tick `predict` ever accepted since the last `clear`, pruned or not. */
+  private newestTick = Number.NEGATIVE_INFINITY;
 
+  /**
+   * Steps `state` through `frame` and records it for replay. Frames must arrive strictly ascending by
+   * tick (`replayTarget` walks them with one index), so a frame at or below the newest tick already
+   * predicted is REFUSED: not recorded, and `state` comes back unchanged, since that tick was already
+   * stepped (phase D review M9). No current path produces one; this keeps the invariant local rather
+   * than resting on `InputScheduler` internals across a rebuild.
+   */
   predict(state: SimBody, frame: InputFrame, ctx: StepContext): SimBody {
+    if (!(frame.tick > this.newestTick)) return state;
+    this.newestTick = frame.tick;
     this.frames.push(frame);
     // A safety bound only: the ack prunes in `replayTarget`. Long enough for any lead plus a second
     // of snapshot silence.
@@ -144,10 +155,6 @@ export class TickPrediction {
     return settle(this.replayTarget(authoritative, snapshotTick, ctx), current);
   }
 
-  frameAt(tick: number): InputFrame | undefined {
-    return this.frames.find((f) => f.tick === tick);
-  }
-
   /** Newest last, for packet redundancy. */
   recent(count: number): InputFrame[] {
     return this.frames.slice(-count);
@@ -156,5 +163,6 @@ export class TickPrediction {
   clear(): void {
     this.frames = [];
     this.base = undefined;
+    this.newestTick = Number.NEGATIVE_INFINITY;
   }
 }

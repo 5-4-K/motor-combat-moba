@@ -1,6 +1,8 @@
 import { Client, type Room } from "@colyseus/sdk";
 import {
   ArenaState,
+  MSG_PING,
+  MSG_TIME,
   PLAYGROUND_ROOM_NAME,
   PROTOCOL_VERSION,
   PlaygroundState,
@@ -25,9 +27,30 @@ export function joinOptions<T extends object>(options: T): T & { protocol: numbe
   return { ...options, protocol: PROTOCOL_VERSION };
 }
 
+/** Rooms whose time echo is already bound, so a second call is a no-op rather than a second echo. */
+const echoBound = new WeakSet<object>();
+
+/**
+ * Binds the room-lifetime half of time sync (NR19) once per join: the server's `MSG_PING` is echoed
+ * straight back, and a stray `MSG_TIME` pong is swallowed. The server pings every client in every phase,
+ * so this lives on the ROOM rather than on `ArenaScene`: the lobby, car select, reveal, results and the
+ * practice/playground setup screens all answer, the server has an RTT before the arena starts, and the
+ * SDK never warns about an unhandled `"ping"` (or about a pong still in flight when `ArenaScene` shuts
+ * down). `ArenaScene` adds its own `MSG_TIME` listener beside the sink for its `InputClock`; the SDK
+ * fans a message out to every listener. The bindings die with the room — the SDK drops every handler on
+ * leave — and a rejoin is a new `Room`, bound afresh.
+ */
+export function bindTimeEcho(room: Room): void {
+  if (echoBound.has(room)) return;
+  echoBound.add(room);
+  room.onMessage(MSG_PING, (m: unknown) => room.send(MSG_PING, m));
+  room.onMessage(MSG_TIME, () => {});
+}
+
 async function noReconnect<T extends Room>(joining: Promise<T>): Promise<T> {
   const room = await joining;
   room.reconnection.enabled = false;
+  bindTimeEcho(room);
   return room;
 }
 

@@ -1,6 +1,5 @@
 import type { Client, Room } from "@colyseus/core";
 import {
-  MS_PER_TICK,
   MSG_PING,
   MSG_TIME,
   isPingEcho,
@@ -19,6 +18,18 @@ const PING_INTERVAL_MS = 1000;
  */
 const OUTSTANDING_PINGS = 4;
 
+/**
+ * The time-sync clock (phase D review M2): every time the server stamps or compares for time sync — the
+ * tick grid's due times (`markTick`), a pong's asking time, the ping stamps and their echoes — reads
+ * THIS, a monotonic clock. `Date.now()` can step (w32time step-corrects a LAN host's clock), which would
+ * shift every pong's grid at once and read as a server clock step on every client, and turn that
+ * second's echo RTT negative or inflated. None of these times is ever compared with another machine's
+ * clock — a ping stamp only comes back to be subtracted from — so the origin does not matter.
+ */
+export function netNowMs(): number {
+  return performance.now();
+}
+
 function median(xs: readonly number[]): number {
   const s = [...xs].sort((a, b) => a - b);
   const n = s.length;
@@ -28,10 +39,10 @@ function median(xs: readonly number[]): number {
 /**
  * A room's time-sync state (NR18, NR19): the tick grid a pong describes and each session's measured RTT.
  *
- * The grid is set by `markTick(tick, dueWallMs)` with the DUE time of the last completed tick — not the
- * wall time the interval callback happened to run — so `t` and `p` in a pong describe the steady 60 Hz
- * grid and not the jitter of the timer. Both come from that one pair and the asking time, never from
- * separately rounded values.
+ * Every time here is on `netNowMs()`'s monotonic clock. The grid is set by `markTick(tick, dueWallMs)`
+ * with the DUE time of the last completed tick — not the time the interval callback happened to run —
+ * so `t` and `p` in a pong describe the steady 60 Hz grid and not the jitter of the timer. Both come
+ * from that one pair and the asking time, never from separately rounded values.
  */
 export class NetSessions {
   private lastTick = 0;
@@ -45,9 +56,16 @@ export class NetSessions {
     this.lastDueMs = dueWallMs;
   }
 
+  /**
+   * `p` is the ms since tick `t`'s due time, floored at 0 and deliberately NOT capped at one tick (phase
+   * D review M1). The room's interval fires every ~16 ms while ticks fall due every 16.67 ms, so between
+   * callbacks a pong can be asked for after tick `t + 1` was already due; capping `p` below
+   * `MS_PER_TICK` reported those pongs up to a tick early, biasing every client's clock estimate ~2.5 ms
+   * early. `ClockSync.onPong` computes `t * MS_PER_TICK + p`, which is right for any `p >= 0`.
+   */
   pong(c: number, wallMs: number): TimePong {
     if (Number.isNaN(this.lastDueMs)) return { c, t: this.lastTick, p: 0 };
-    const p = Math.min(MS_PER_TICK - 0.001, Math.max(0, wallMs - this.lastDueMs));
+    const p = Math.max(0, wallMs - this.lastDueMs);
     return { c, t: this.lastTick, p };
   }
 
@@ -114,7 +132,7 @@ export function installNetHandlers(
     limited(limits, "time", (client: Client, msg: unknown) =>
       scope(() => {
         if (!isTimeRequest(msg)) return;
-        client.send(MSG_TIME, sessions.pong(msg.c, Date.now()));
+        client.send(MSG_TIME, sessions.pong(msg.c, netNowMs()));
       }),
     ),
   );
@@ -123,13 +141,13 @@ export function installNetHandlers(
     limited(limits, "time", (client: Client, msg: unknown) =>
       scope(() => {
         if (!isPingEcho(msg)) return;
-        sessions.onPingEcho(client.sessionId, msg.s, Date.now());
+        sessions.onPingEcho(client.sessionId, msg.s, netNowMs());
       }),
     ),
   );
   room.clock.setInterval(() => {
     scope(() => {
-      const now = Date.now();
+      const now = netNowMs();
       for (const client of room.clients) client.send(MSG_PING, sessions.pingPayload(client.sessionId, now));
     });
   }, PING_INTERVAL_MS);
