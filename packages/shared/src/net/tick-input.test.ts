@@ -76,9 +76,9 @@ describe("TickInputBuffer", () => {
   });
 
   it("floors a late sample at LATE_SLACK_FLOOR_TICKS, so a stall's backlog cannot read hundreds of ticks late (D6)", () => {
-    expect(LATE_SLACK_FLOOR_TICKS).toBe(-2);
     const b = new TickInputBuffer(15, 15);
     b.offer(f(13), 600); // first copy, 588 ticks late: one floored sample, not -588
+    expect(LATE_SLACK_FLOOR_TICKS).toBeLessThan(0);
     expect(b.slackMeanTicks()).toBe(LATE_SLACK_FLOOR_TICKS);
     expect(b.slackStdTicks()).toBe(0);
   });

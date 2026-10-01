@@ -13,7 +13,7 @@ describe("netsim — tick client (Phase D netcode)", () => {
     expect(a).toEqual(b);
   });
 
-  for (const link of [LINKS.lan, LINKS.net80, LINKS.net150]) {
+  for (const link of [LINKS.lan, LINKS.net80clean, LINKS.net80, LINKS.net150]) {
     it(`produces finite metrics on ${link.name}`, () => {
       const { metrics: m, diagnostics } = runNetsimDetailed({ link, model: "tick", seconds: 20, seed: 1 });
       report(`tick/${link.name}`, m);

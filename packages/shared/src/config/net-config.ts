@@ -39,14 +39,14 @@ export const NET_CONFIG = {
    * `SLACK_QUANTISATION_STD_TICKS`), so a jittery input path aims its mean further from the late edge
    * instead of landing its slow tail late. A steady path keeps the plain target.
    *
-   * 1 until D6, which measured it (netsim, six cars, 60 s, mean of seeds 1-3) with the scheduler's
-   * gain at 0.015: at 1, net80 repeated 3.7 % of car-ticks against a 2 % target — its 1 % loss holds
-   * every input behind a lost one for 80 ms, and only spread tells that path from LAN, whose slack is
-   * steady. At 8, net80 repeats 1.84 % (input-to-server 80 -> 112 ms) while LAN stays at 33.9 ms;
-   * 10 and 12 buy 1.54 % and 1.32 % for 122 and 133 ms. `targetSlackTicks` cannot do this job: it
-   * moves LAN as much as net80, and below 1.5 the clock-jitter acceptance envelope lands inputs late.
+   * D6 measured it (netsim, six cars, 60 s, mean of seeds 1–3; D5 baseline net80 3.53 % repeats at
+   * 80.45 ms input-to-server). Raising it buys a lossy link fewer repeats with more latency: at K 8
+   * with the gain halved to 0.015, net80 repeated 1.84 % at 112.35 ms. It stays 1 by ruling — latency
+   * first, and a lossy link's repeats land only on that link's own player. At K 1 (gain 0.03, late
+   * samples floored at -1): lan 33.99 ms, net80clean 74.32 ms / 0.39 %, net80 78.28 ms / 3.69 %,
+   * net150 117.96 ms / 8.14 %.
    */
-  slackSpreadK: 8,
+  slackSpreadK: 1,
   /** Most the client's tick clock may run faster or slower than nominal while steering slack (NR21). */
   maxDilation: 0.04,
   /** How long a missing input repeats the last real one before the car goes neutral (NR22). */

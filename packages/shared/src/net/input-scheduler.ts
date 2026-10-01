@@ -3,14 +3,11 @@ import { NET_CONFIG } from "../config/net-config.js";
 import type { ClockSync } from "./clock-sync.js";
 
 /**
- * Ticks of safety per tick of slack error, per NEW slack sample (one per snapshot). 0.03 until D6,
- * halved to 0.015 with `slackSpreadK` raised to 8: a spread-driven target moves with every loss
- * burst, and at 0.03 the integrator chased those moves hard enough to overshoot on LAN (input-to-
- * server crept past 34 ms) and to wind up after a stall. The route-step settle test and the
- * clock-jitter envelope (input-scheduler.test.ts) still pass at 0.015; at 0.01 the route step does
- * not settle in time.
+ * Ticks of safety per tick of slack error, per NEW slack sample (one per snapshot). D6 tried 0.015
+ * (with `slackSpreadK` 8, to meet a 2 % net80 repeat target) and returned to 0.03 when latency was
+ * ruled the priority; `LATE_SLACK_FLOOR_TICKS` is derived from this value (see its comment).
  */
-const SAFETY_GAIN = 0.015;
+const SAFETY_GAIN = 0.03;
 /**
  * The worst-case slack spread that integer quantisation alone produces, in ticks (fix round I3).
  * Slack samples are whole ticks, so a perfectly steady path whose true lead is fractional reads as a

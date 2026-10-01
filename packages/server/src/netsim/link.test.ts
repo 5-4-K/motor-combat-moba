@@ -33,6 +33,7 @@ describe("Link", () => {
 
   it("the named profiles are the spec's", () => {
     expect(LINKS.lan).toMatchObject({ oneWayMs: 0.5, jitterMs: 0, lossPct: 0 });
+    expect(LINKS.net80clean).toMatchObject({ oneWayMs: 40, jitterMs: 2, lossPct: 0 });
     expect(LINKS.net80).toMatchObject({ oneWayMs: 40, jitterMs: 10, lossPct: 1 });
     expect(LINKS.net150).toMatchObject({ oneWayMs: 75, jitterMs: 15, lossPct: 1 });
   });

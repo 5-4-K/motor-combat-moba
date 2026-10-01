@@ -216,6 +216,11 @@ describe("InputScheduler closed-loop acceptance envelope (NR18, NR20, NR21)", ()
  * late-sample rule are the ones under test): one-way 40 ms both ways, and at `STALL_AT` both
  * directions stall for `STALL_MS`, then everything held is delivered at once, in order — the netsim
  * `Link` model of a TCP outage. Returns the scheduler's lead sampled per frame.
+ *
+ * The client keeps only the NEWEST snapshot that arrived since its last frame (`fresh` is
+ * overwritten), so the burst of held snapshots a stall releases reads as one slack sample — the
+ * per-frame rule `TickClient` and the browser's `InputClock` follow. A client that integrated every
+ * held snapshot would see the burst as many samples.
  */
 function stallLoop(): { at: number; lead: number }[] {
   const oneWay = 40;
@@ -252,10 +257,10 @@ const STALL_AT = 20_000;
 const STALL_MS = 10_000;
 /**
  * How long after a 10 s outage ends the lead may take to settle back within one tick of before it.
- * Measured at D6: 2.05 s with late samples floored at LATE_SLACK_FLOOR_TICKS, 7.7 s unfloored (and
- * the same 7.7 s floored at -maxLeadTicks). What remains is the lead's own maxDilation slew.
+ * Measured at D6's final settings (gain 0.03, `slackSpreadK` 1): 0.62 s with late samples floored at
+ * LATE_SLACK_FLOOR_TICKS (-1), 4.57 s unfloored.
  */
-const STALL_RECOVERY_MS = 2_500;
+const STALL_RECOVERY_MS = 1_000;
 
 describe("InputScheduler after a long stall (D6)", () => {
   it("returns to its pre-stall lead within STALL_RECOVERY_MS: the backlog's late frames cannot pin the safety", () => {

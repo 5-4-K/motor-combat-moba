@@ -22,20 +22,29 @@ or practice feel worse than today, and close the cheats a modified client can us
 
 ### Success criteria (measured by the netsim harness, §10)
 
-At 80 ms RTT, ±10 ms jitter, 1 % loss, six cars, one minute of scripted driving and firing:
+Six cars, one minute of scripted driving and firing, on the netsim links (§10): `lan`, `net80clean`
+(80 ms RTT, ±2 ms jitter, no loss — the good connection), `net80` (NR1's ±10 ms, 1 % loss) and
+`net150`. **The strict targets protect LAN and a good connection**: input-to-server delay, repeated
+inputs and reconcile correction are held on `lan` and `net80clean`. **A lossy link (`net80`,
+`net150`) is judged by a different criterion: it degrades at its own player's cost.** Its repeated
+inputs, extra latency and corrections land on the player whose link it is, never on the others —
+nothing the server does for one client (NR21's slack loop is per player; NR36's allowance must not
+grow with a bad link) may spend another player's experience to cover it. D6 chose latency over
+repeats for that player (2026-10-01).
 
 | Metric | Target |
 |---|---|
-| Server steps per car per tick | exactly 1, always (speed hack closed) |
-| Ticks a car is simulated on a repeated (missing) input | ≤ 2 % |
+| Server steps per car per tick | exactly 1, always, on every link (speed hack closed) |
+| Ticks a car is simulated on a repeated (missing) input | `lan`, `net80clean`: ≤ 2 % (0.11 % and 0.39 % at D6). `net80`: ≤ 4 % (3.69 % at D6), paid by that player alone |
 | Remote path error p95 (drawn pose to the car's true trajectory from 400 ms before to 100 ms after the frame) | ≤ 12 u |
 | Frames a remote is held/frozen (buffer starvation) | ≤ 1 % |
-| Local reconcile correction, p95 | ≤ 4 u |
+| Local reconcile correction, p95 | ≤ 4 u on `lan` and `net80clean`; on a lossy link, reported (its own player's cost) |
 | A hidden enemy's car or shot present in a client's decoded state | never |
 
 On LAN (1 ms RTT, 0 jitter): input-to-server delay ≤ 34 ms (today 0–33 ms); remote interpolation
 delay ≤ 50 ms (today 50 ms), and total remote display delay as measured by the harness no worse than
-today's.
+today's. On `net80clean`: input-to-server delay no more than LAN's plus half the RTT plus one tick
+(≤ 34 + 40 + 16.7 ≈ 91 ms; 74.3 ms at D6).
 
 ## 2. What is wrong today (findings)
 
@@ -121,9 +130,14 @@ today's.
   over the last 30 received inputs of (input tick − server tick at arrival). The client steers
   `safetyMs` so slack sits at `NET_CONFIG.targetSlackTicks` (1.5), by running its tick clock up to
   `NET_CONFIG.maxDilation` (4 %) faster or slower — never by jumping. The integrator runs once per NEW
-  slack sample (not per frame) with gain 0.015 (0.03 until D6) and a ±0.25-tick deadband around the
-  target. A late input's sample is floored at `LATE_SLACK_FLOOR_TICKS` (−2): how far a frame missed
-  measures a stall, not the lead, and at the floor the integrator already out-runs `maxDilation`.
+  slack sample (not per frame) with gain 0.03 and a ±0.25-tick deadband around the target. A late
+  input's sample is floored at `LATE_SLACK_FLOOR_TICKS` (−1), so a long stall's backlog cannot pin
+  the safety margin: how far a frame missed mostly measures a stall, not the lead. −1 is the shallowest
+  floor at which a window of floored samples still moves the safety faster than `maxDilation` lets the
+  lead follow at gain 0.03 (held by test; a gain or target retune must re-derive it). It is not free
+  on a lossy link: it also clips a loss burst's 2–5-tick-late samples, lifting the window mean and
+  narrowing the spread, so that player's margin sits lower (net80: 3.53 % → 3.69 % repeats, 80.4 →
+  78.3 ms input-to-server) — a cost on the lossy player only.
 - **NR22 Input buffer.** A shared `TickInputBuffer` per player, keyed by tick. On tick `T`:
   input for `T` present → consume it; absent → repeat the last consumed input with its fire bits
   held (a repeat can never create a press, because press detection compares against the previous
@@ -189,6 +203,12 @@ today's.
   with `serverRttMs` from NR19, `slackMs` from NR21's measurement and `allowedDelayMs = 2 snapshot
   intervals + 2 × the server-measured input-arrival jitter`. A lying client gains at most the gap
   between its true staleness and `allowedTicks`, never more than `capTicks`.
+  **The allowance must not grow with a bad link (D6 ruling).** Compensation is paid by the victim,
+  and a bad connection must not punish others: the `slackMs` and jitter terms may not let a lossy or
+  jittery client earn more rewind than an honest `net80clean` client needs. `shotCompCapMs` is
+  therefore sized in Phase F from that need — Phase F measures what an honest `net80clean` client's
+  staleness actually is and sets the cap (and bounds the slack/jitter terms) from it; the 100 ms
+  above is a placeholder until then, not a target.
 - **NR37 Shot fast-forward.** A weapon instance born this tick from a press with `k > 0` is stepped
   `k` extra times inside the same `runCombat`, against the current world — walls, obstacles,
   bounces, cars, hits and detonations all resolve through the same per-instance step as a normal
@@ -298,7 +318,10 @@ today's.
   from the real client net modules — clock sync, input scheduler, prediction, interpolation — with no
   Phaser. A `Link` models one-way delay, jitter and loss per direction with in-order delivery (loss
   delays everything behind it by one RTT). Scripted drivers produce inputs. It records every metric
-  in §1's table and the LAN numbers.
+  in §1's table and the LAN numbers, on four links: `lan` (0.5 ms one way), `net80clean` (40 ms ±2,
+  no loss), `net80` (40 ms ±10, 1 % loss) and `net150` (75 ms ±15, 1 % loss). §1's strict targets
+  are judged on `lan` and `net80clean`; `net80` and `net150` are judged by whether their cost stays
+  on their own player.
 - **NR58** The harness lands **before** any netcode change and records today's baseline, so every
   stage is judged against a number, not a feeling.
 - **NR59** To make the client net modules runnable there, the pure logic moves out of
@@ -338,4 +361,5 @@ Each stage merges on its own, green, with its measured numbers recorded in the p
 - 2026-09-29 (D2 fix round 2): NR18 fits offset and drift (least squares, slope clamped to the slew rate) over the lowest-RTT half, since a median of old low-RTT samples leaves a 1 % drift 40-70 ms stale under jitter.
 - 2026-09-29 (D2 fix round 3): NR18 trims RTT outliers from the fit (robust to 20 % spiked legs) and extrapolates at the fitted drift between pongs.
 - 2026-09-30 (D2 fix round 4): NR18 replaces the trimmed fit with RTT-weighted fits (24 s drift, 6 s offset), keeps the drift when data is thin, slews continuously from the folded running value, detects server clock steps, and takes `rttMs` from 2 s bucket minima; held to an acceptance envelope (jitter 0-30 ms, ±1 % drift, 0-20 % spiked legs, route steps) in tests.
-- 2026-10-01 (D6): NR21 floors a late slack sample at −2 ticks, so a long stall's backlog cannot pin the safety margin; gain 0.03 → 0.015 and `slackSpreadK` 1 → 8 (net80 repeats 3.7 % → 1.84 %, LAN input-to-server 33.9 ms).
+- 2026-10-01 (D6): NR21 floors a late slack sample at −2 ticks, so a long stall's backlog cannot pin the safety margin; gain 0.03 → 0.015 and `slackSpreadK` 1 → 8 (net80 repeats 3.53 % at D5 → 1.84 %, input-to-server 80.4 → 112.4 ms; LAN 33.9 ms).
+- 2026-10-01 (D6 fix round 1, user ruling): latency first, and a bad connection must not punish others. §1 splits the targets: strict on `lan` and the new `net80clean` netsim link (80 ms RTT, ±2 ms, no loss); a lossy link degrades at its own player's cost, net80 repeats ≤ 4 %. NR21 back to gain 0.03 and `slackSpreadK` 1, the late-sample floor re-derived at that gain to −1 and its lossy-link cost stated (D6 final: lan 33.99 ms; net80clean 74.3 ms / 0.39 %; net80 78.3 ms / 3.69 %; net150 118.0 ms / 8.14 %). NR36's allowance must not grow with a bad link; `shotCompCapMs` is sized in Phase F from an honest `net80clean` client's need.

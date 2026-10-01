@@ -5,9 +5,14 @@ export interface LinkProfile {
   lossPct: number;
 }
 
-/** Spec NR1's link and the two it is judged beside. RTT = 2 × oneWayMs. */
+/**
+ * Spec NR1's link and the ones it is judged beside. RTT = 2 × oneWayMs. `net80clean` is the good
+ * connection the strict targets protect (§1, D6 fix round): NR1's RTT with low jitter and no loss,
+ * so what a lossy link costs its own player can be told apart from what an honest one pays.
+ */
 export const LINKS = {
   lan: { name: "lan", oneWayMs: 0.5, jitterMs: 0, lossPct: 0 },
+  net80clean: { name: "net80clean", oneWayMs: 40, jitterMs: 2, lossPct: 0 },
   net80: { name: "net80", oneWayMs: 40, jitterMs: 10, lossPct: 1 },
   net150: { name: "net150", oneWayMs: 75, jitterMs: 15, lossPct: 1 },
 } as const satisfies Record<string, LinkProfile>;

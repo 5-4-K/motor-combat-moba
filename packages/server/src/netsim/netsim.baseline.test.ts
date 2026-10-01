@@ -12,13 +12,13 @@ import { runNetsimDetailed } from "./run.js";
 const BASELINE_SECONDS = 60;
 const BASELINE_CARS = 6;
 const BASELINE_SEEDS = [1, 2, 3] as const;
-/** Three 60 s six-car runs; each takes a few seconds, so this is generous. */
+/** Three 60 s six-car runs; each takes a few to ~12 seconds, so this is generous. */
 const BASELINE_TIMEOUT_MS = 180_000;
 
 const title = "netsim baseline — tick client, 60 s, six cars, seeds 1–3";
 
 describe.skipIf(!process.env.NETSIM_BASELINE)(title, () => {
-  for (const link of [LINKS.lan, LINKS.net80, LINKS.net150]) {
+  for (const link of [LINKS.lan, LINKS.net80clean, LINKS.net80, LINKS.net150]) {
     it(
       `records ${link.name}`,
       () => {

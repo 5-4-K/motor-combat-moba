@@ -79,16 +79,25 @@ const SLACK_WINDOW = 30;
 
 /**
  * The deepest a recorded late slack sample may read, in ticks (D6). A late first copy says "this
- * input missed its tick"; how FAR it missed measures how long the path stalled, not how short the
- * client's lead is — after a 10 s outage the backlog's oldest frames read ~600 ticks late, and
- * thirty such samples held the client's safety margin at its clamp for seconds after the path was
- * well again (`NET_CONFIG.maxInputLeadMs` as the floor, 15 ticks, changed nothing: one window of it
- * still pins the margin). Flooring them loses no recovery speed: at -2 the client's integrator still
- * moves its safety faster than `NET_CONFIG.maxDilation` lets the lead follow (pinned by the
- * scheduler's "full maxDilation" test, which fails if a gain or target retune breaks that), so a
- * deeper reading could only wind the margin up further. -1 would not keep up at the 0.015 gain.
+ * input missed its tick"; how FAR it missed mostly measures how long the path stalled, not how short
+ * the client's lead is — after a 10 s outage the backlog's oldest frames read ~600 ticks late, and a
+ * window of them held the client's safety margin at its clamp for seconds after the path was well
+ * again (`NET_CONFIG.maxInputLeadMs` as the floor, 15 ticks, barely helped: a window of -15 still
+ * pins the margin). -1 is the shallowest floor at which a window of floored samples still moves the
+ * safety faster than `NET_CONFIG.maxDilation` lets the lead follow at the scheduler's gain (0.03:
+ * 1.125 ms per sample against a 0.67 ms slew; 0 would give 0.625) — pinned by the scheduler's "full
+ * maxDilation" test, which fails if a gain or target retune breaks it. So recovery from a genuinely
+ * short lead is no slower than unfloored.
+ *
+ * It is NOT free in steady state on a lossy link: a loss burst's held inputs land 2–5 ticks late on
+ * net80 (more on net150), and flooring them lifts the window mean and narrows `slackStdTicks`, so
+ * that player's own margin sits lower. Measured at D6 (gain 0.03, `slackSpreadK` 1, netsim seeds 1–3):
+ * net80 3.53 % repeats at 80.45 ms input-to-server unfloored, 3.69 % at 78.28 ms floored; net150
+ * 7.62 % / 127.1 ms against 8.14 % / 118.0 ms. LAN and the clean 80 ms link have no late samples and
+ * are unchanged. That trade — less latency, more repeats, paid only by the lossy player — is the one
+ * D6 chose.
  */
-export const LATE_SLACK_FLOOR_TICKS = -2;
+export const LATE_SLACK_FLOOR_TICKS = -1;
 
 /**
  * One player's inputs, keyed by the tick they are for (NR22). The server takes exactly one per tick,
