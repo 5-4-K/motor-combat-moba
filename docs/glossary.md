@@ -15,7 +15,7 @@
 | **Raw global** | A table still exported from `packages/shared/src/config/` (`CAR_TABLE`, `WEAPON_TABLE`, `DRIVE_CONFIG`, …). The game reads **none** of them directly; they assemble `BASE_TABLES` (`modes/base.ts`), which every mode's `config.ts` overrides merge over. No non-test file outside `config/` and `modes/base.ts` may name one directly. |
 | **LAN** | Default deploy: host serves client dist; others join via LAN IP. |
 | **hostSessionId** | Session of the room host (first joiner; reassigned on leave). |
-| **InputMessage** | `{ seq, steer, throttle, fire }` sent as `"input"`. |
+| **InputFrame** | `{ tick, steer, throttle, fireSlots, aimAngle? }`: one tick's input, stamped with the tick it is FOR. Sent as an `InputPacket` (`{ inputs }`, newest plus three previous) on `"input"`. |
 | **Wreck** | A car at 0 HP: `alive = false`. Still solid, no longer fires or can be shot. |
 | **Spectate** | What a dead player does: a local camera following a living car, or free roam. Server has no notion of it. |
 | **Death fade** | A dead car is intangible and frozen from the tick its hp hits 0 — there is no wreck. The client fades it out over `DEATH_FADE_MS` from the networked `diedAtTick`, then stops drawing it. |

@@ -58,7 +58,7 @@ motor-combat-MOBA/
 │   │   ├── arena-02.ts           # second arena layout
 │   │   ├── registry.ts           # ARENAS map, ArenaId, isArenaId, getArena, ARENA_IDS
 │   │   └── art-keys.ts           # arena.<id>.<slot> namespace parser, used by client and release script
-│   ├── net/                      # InputMessage (fireSlots bitmask), lobby message names
+│   ├── net/                      # InputFrame/InputPacket (fireSlots bitmask), ClockSync, InputScheduler, TickPrediction, lobby message names
 │   │   ├── playground-messages.ts # MSG_PLAYGROUND_*, PlaygroundSetup + validator, defaultPlaygroundSetup (PG13)
 │   │   └── practice-messages.ts  # PRACTICE_ROOM_NAME, close codes 4006–4009, PracticeSetup + validator (PR3, PR7)
 │   ├── lobby/                    # names, teams, start rules, status → view, chat text validation (LC13)
@@ -103,13 +103,13 @@ motor-combat-MOBA/
 │   │   ├── PracticeRoom.ts       # shipped room ("practice"), no DEV_TOOLS gate, maxClients=1; runs runPipeline verbatim, never calls installMode (PR1, PR10)
 │   │   ├── practice-rules.ts     # pure predicates: room-cap refusal, playground-busy refusal, opponent roll, idle timeout/warning (PR26–PR29)
 │   │   ├── chat.ts               # canSendChat/pushChatMessage/formatClockTime: lobby chat's send gate, retention cap, clock formatting (LC19)
-│   │   ├── bot.ts                # the synthetic client's InputMessage: chase-and-fire steering, pulsed fire mask (PG10; renamed from playground-bot.ts when PracticeRoom took it too)
+│   │   ├── bot.ts                # the synthetic client's input (an `InputKeys` offered through `offerForTick`): chase-and-fire steering, pulsed fire mask (PG10; renamed from playground-bot.ts when PracticeRoom took it too)
 │   │   ├── flow-map.ts           # schema enums ↔ flow reducer strings
 │   │   ├── match-helpers.ts
 │   │   ├── select-next-host.ts
 │   │   └── singleton-arena.ts
 │   ├── sim/
-│   │   ├── tick.ts               # serverTick: drain queues into stepSim
+│   │   ├── tick.ts               # serverTick: one TickInputBuffer input per car per tick into stepSim
 │   │   ├── status-bridge.ts      # ArenaState ↔ status lists; expiry + the tick's modifiers
 │   │   ├── ram-bridge.ts         # ArenaState ↔ applyRams POJOs
 │   │   └── combat-bridge.ts      # ArenaState ↔ runCombat POJOs

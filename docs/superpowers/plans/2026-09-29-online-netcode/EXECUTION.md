@@ -21,53 +21,31 @@ phase's own acceptance lines.
 | A — Colyseus 0.18, schema 5, Node 22, monitor gate | [`A-colyseus-upgrade.md`](A-colyseus-upgrade.md) | NR50, NR53 | Landed | `playtest:lan` smoke passed in A2; lockfile on a single schema 5.0.34 |
 | B — netsim harness and today's baseline | [`B-netsim-harness.md`](B-netsim-harness.md) | NR57–NR59 | Landed | Baseline recorded below (legacy client, 60 s, six cars, mean of seeds 1–3) |
 | C — 60 Hz and per-tick snapshots | [`C-sixty-hz.md`](C-sixty-hz.md) | NR11–NR16 | Landed | 60 Hz, one snapshot per tick; handling unchanged in closed form (radius 89.9 u, 90% top speed 1.79/2.21/2.59 s), slip −1.1 to −1.6°; TTK ±0.1 s; planner bench: P33 budget raised to 37 ms by user decision 2026-09-30 (resolved, see In flight) |
-| D — time and inputs | [`D-time-and-inputs.md`](D-time-and-inputs.md) | NR17–NR28, NR54–NR56 | In progress — D1–D5 landed; D6 (measure + docs) next | see In flight |
+| D — time and inputs | [`D-time-and-inputs.md`](D-time-and-inputs.md) | NR17–NR28, NR54–NR56 | Landed (final review pending) | Tick-stamped inputs, one per car per tick (speed hack closed, steps/tick 1 on every link), `ClockSync` + slack-steered `InputScheduler`, hardening; numbers in the table below |
 | E — remotes and prediction | [`E-remotes.md`](E-remotes.md) | NR29–NR34 | Not started | |
 | F — combat under latency | [`F-combat.md`](F-combat.md) | NR35–NR41 | Not started | |
 | G — interest management, docs | [`G-interest.md`](G-interest.md) | NR42–NR49, NR68 | Not started | |
 
 ## In flight
 
-**CHECKPOINT (2026-10-01, stopped at the user's request after D5).** `development/main` is at
-`c5ae5243` plus this note, clean and pushed. Known failures: the two G12 bot tests only (the P33
-planner bench passes since the user raised its budget to 37 ms per simulated second, `08c3d82b`).
+**Phase D is landed; the whole-phase final review is pending** (run by the controller next). Then **Phase E** (remotes and prediction, NR29–NR34) is next. `development/main` is clean and unpushed past the D6 commits; known failures: the two G12 bot tests only (the P33 planner bench passes since the user raised its budget to 37 ms per simulated second, `08c3d82b`).
 
-Phase D so far (each task reviewed):
+Phase D (each task reviewed):
 - **D1** tick-stamped `InputFrame`s, hardened `isInputPacket`, `TickInputBuffer`.
-- **D2** `ClockSync` (weighted offset+drift fit, held to an acceptance envelope), `InputScheduler`,
-  `TickPrediction`. Client knob is `NET_CONFIG.clientMaxCatchUpTicks: 8`; the server stepper's is
-  `maxCatchUpTicks: 5`. `ClockSync.rttMs()` ≈ min RTT — never show it as "ping".
+- **D2** `ClockSync` (weighted offset+drift fit, held to an acceptance envelope), `InputScheduler`, `TickPrediction`. Client knob is `NET_CONFIG.clientMaxCatchUpTicks: 8`; the server stepper's is `maxCatchUpTicks: 5`. `ClockSync.rttMs()` ≈ min RTT — never show it as "ping".
 - **D3** `MSG_TIME`/`MSG_PING` on every room; pongs describe the steady tick grid.
-- **D4** one input per car per tick — the speed hack is closed (`stepsPerTickMax` = 1 on every link);
-  client blends on the server tick phase; clock and scheduler rebuilt on a practice/playground resume.
-- **D5** hardening: per-kind token buckets (`ClientLimits`, kick after 5 s continuously over), 4 KiB
-  `maxPayload`, Colyseus `maxMessagesPerSecond` backstop 1000 (sized for the burst a 10 s stall
-  releases), unknown message types disconnect at once, `PROTOCOL_VERSION` 1 refuses stale clients with
-  a "refresh the page" message, all app close codes moved to 4100–4112 (clear of Colyseus's),
-  matchmaker CORS pinned to `CLIENT_ORIGIN` when set, ping echoes accepted only for server-issued
-  stamps, ClockSync guarded after a ≥ 6 s pong gap, slack target gains a spread term above the 0.5-tick
-  quantisation floor, first-copy late frames now feed the slack statistics, and the two-way latency/loss
-  injector (`SIM_LATENCY_MS`, `SIM_JITTER_MS`, `SIM_LOSS_PCT`) delivers in order.
+- **D4** one input per car per tick — the speed hack is closed; client blends on the server tick phase; clock and scheduler rebuilt on a practice/playground resume.
+- **D5** hardening: per-kind token buckets (kick after 5 s over), 4 KiB `maxPayload`, `maxMessagesPerSecond` 1000, unknown message types disconnect, `PROTOCOL_VERSION` 1, close codes 4100–4112, matchmaker CORS pinned to `CLIENT_ORIGIN`, ping echo validation, two-way in-order latency/loss injector.
+- **D6** (a) tuning: late slack samples floored at `LATE_SLACK_FLOOR_TICKS` (-1), `SAFETY_GAIN` 0.03, `slackSpreadK` 1 — the user ruled **latency over repeats** on a lossy link — and the `net80clean` link added; the spec's §1 targets were revised to match (strict on `lan` and `net80clean`; a lossy link degrades at its own player's cost; targets bind the mean over seeds 1–3). (b) docs: `networking.md`, `config-reference.md` (`NET_CONFIG` table, env knobs), `schema-reference.md` and the stale `InputMessage`/`seq` mentions rewritten.
 
-Netsim "after D" (60 s, six cars, seeds 1–3, mean): steps per tick 1; net80 repeated inputs
-**3.53 % (target ≤ 2 % — not yet met)**; lan input-to-server 33.99 ms (target ≤ 34); net150
-input-to-server 127 ms (was 111; traded for fewer repeats, 8.67 → 7.62 %).
-
-**Next: D6 (measure and document)**, carrying:
-- net80 repeated inputs above target — tune `targetSlackTicks`/`slackSpreadK`/gain against the netsim;
-- clamp a recorded late slack sample (e.g. to −maxLeadTicks): after a 10 s stall the late frames
-  otherwise pin the client's safety margin at its clamp for seconds;
-- rewrite `docs/networking.md`, `config-reference.md`, `schema-reference.md` and the package
-  CLAUDE.md files that still name `InputMessage`, `lastProcessedInputSeq`, `maxInputsPerTick`, etc.
-Then phases E, F, G.
+**Carried into Phase E and later:**
+- **Uplink-only stall defect (estimator).** When only the uplink stalls, the server keeps re-reporting a stale slack window (`inputSlack`/`inputSlackStd` are a 30-sample window refreshed every tick) and the client integrates it as if each snapshot carried a NEW sample. Needs a per-sample sequence / "new samples only" fix (e.g. a sample counter on the schema the client differences). Not fixed in D.
+- **NR36's compensation cap** must be sized in Phase F from an honest `net80clean` client (its measured input-to-server 74.3 ms), not from net80, and must not grow with a bad link.
 
 **Open questions for the user (playtest probes are theirs to change):**
-- Probe W6 (fire-rate exploit) no longer exercises its flood arm since D4 (one input per tick) —
-  re-express or retire it? The `collision` probe's comments still cite the deleted silent-coast path.
-- `playtest/lan.ts`'s `PHASE` table predates this work (prints "COUNTDOWN" during a live match and
-  starts its trials during REVEAL) — fix it?
-- Recommended: `npm run playtest -- --scope=all` — every probe now measures a 60 Hz sim with
-  one-input-per-tick buffers.
+- Probe W6 (fire-rate exploit) no longer exercises its flood arm since D4 (one input per tick) — re-express or retire it? The `collision` probe's comments still cite the deleted silent-coast path.
+- `playtest/lan.ts`'s `PHASE` table predates this work (prints "COUNTDOWN" during a live match and starts its trials during REVEAL) — fix it?
+- **Recommended: `npm run playtest -- --scope=all`** — the input path every probe drives changed (one input per tick through `TickInputBuffer`) on top of Phase C's 60 Hz.
 
 Tooling notes for the executor:
 - Plan task headings are numeric (`### Task 1 (A1): …`) so `task-brief PLAN_FILE N` finds them;
@@ -94,20 +72,28 @@ Filled in by Phase B and after each later phase. Link profile names: `lan` (1 ms
 
 | Metric | Target | Baseline | after D | after E | after F | after G |
 |---|---|---|---|---|---|---|
-| Server steps per car per tick (max) | 1 | 4 (4–4) (net80; lan 1) | 1 (1–1) (lan, net80, net150) | | | |
-| Repeated-input ticks, net80 | ≤ 2 % | n/a | 3.53 % (3.37–3.79 %) | | | |
-| Remote path error p95, net80 (u) | ≤ 12 | 0.13 (0.12–0.13) | 0.00 | | | |
-| Remote hold frames, net80 | ≤ 1 % | 3.62 % (2.75–4.73 %) | 1.20 % (1.09–1.37 %) | | | |
-| Local reconcile correction p95, net80 (u) | ≤ 4 | 0.86 (0.47–1.51) | 1.37 (0.81–2.11) | | | |
-| Input-to-server delay, lan (ms) | ≤ 34 | 21.7 (20.7–23.3) | 34.0 (33.95–34.02) | | | |
+| Server steps per car per tick (max) | 1 | 4 (4–4) (net80; lan 1) | 1 (1–1) (lan, net80clean, net80, net150) | | | |
+| Repeated-input ticks | `lan`, `net80clean` ≤ 2 %; `net80` ≤ 4 % (its own player's cost) | n/a | lan 0.11 % (0.11–0.11); net80clean 0.39 % (0.37–0.42); net80 3.69 % (3.46–3.93); net150 8.14 % (7.83–8.44) | | | |
+| Remote path error p95, net80 (u) | ≤ 12 | 0.13 (0.12–0.13) | 0.00 (0.00–0.00) | | | |
+| Remote hold frames, net80 | ≤ 1 % | 3.62 % (2.75–4.73 %) | 1.28 % (1.21–1.39 %) | | | |
+| Local reconcile correction p95 (u) | ≤ 4 on `lan` and `net80clean`; lossy links reported | net80 0.86 (0.47–1.51) | lan 0.28 (0.13–0.49); net80clean 1.07 (0.45–1.85); net80 1.22 (0.60–2.15); net150 2.01 (1.18–2.63) | | | |
+| Input-to-server delay, lan (ms) | ≤ 34 | 21.7 (20.7–23.3) | 33.99 (33.95–34.02) | | | |
+| Input-to-server delay, net80clean (ms) | ≤ 91 (lan's 34 + half RTT + 1 tick) | n/a | 74.3 (74.2–74.4) | | | |
 | Remote display delay, lan (ms) | no worse than baseline; interpolation component ≤ 50 | 67.4 (66.8–67.9) | 50.4 (49.9–50.8) | | | |
 | Hidden enemy present in decoded state | never | n/a | n/a | n/a | n/a | |
 
 Each Baseline cell is the MEAN over seeds 1–3, with the min–max across the three seeds in
-brackets. The "after D" column is the D5 fix-round build (spread term with the 0.5-tick quantisation
-floor, plus late first-copy slack samples), 2026-10-01; net150 on it: repeated-input 7.62 %
-(7.27–8.01 %), input-to-server 127.1 ms. **Phases C–G compare on this shape: `NETSIM_BASELINE=1`, 60 s, six cars, seeds 1–3,
-mean.** (The 20 s seed-1 runs in `netsim.test.ts` are a smoke test, not a comparison point.)
+brackets. The "after D" column is the Phase D close build, `development/main` at `76df1343`
+(D6 tuning: late slack floor −1, gain 0.03, `slackSpreadK` 1, `targetSlackTicks` 1.5), measured
+2026-10-01 with the command below. The Baseline column has no `net80clean` or per-link repeat data
+(the link and the metric came later); the baseline's net80 is a 30 Hz legacy-client run, so its
+reconcile and hold figures move with the message rate as explained below. `net80clean` is 80 ms RTT,
+±2 ms jitter, 0 % loss (the good connection); the strict targets bind it and `lan`. Other "after D"
+rows not in the table: net80 input-to-server 78.3 ms (78.1–78.6), display delay 91.6 ms; net150
+input-to-server 118.0 ms (117.8–118.2), hold frames 3.88 % (3.73–4.06 %), display delay 131.4 ms.
+Net150 and net80 repeated inputs, extra latency and corrections are the cost of that player's own
+lossy link, by design (spec §1). **Phases C–G compare on this shape: `NETSIM_BASELINE=1`, 60 s, six
+cars, seeds 1–3, mean.** (The 20 s seed-1 runs in `netsim.test.ts` are a smoke test, not a comparison point.)
 
 Baseline at net150 (same run shape, mean and min–max): steps per tick max 5 (5–5), remote path error
 p95 0.12 u (0.11–0.12), remote hold frames 7.09 % (6.15–8.06 %), local reconcile correction p95

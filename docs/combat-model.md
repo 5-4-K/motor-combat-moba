@@ -497,7 +497,7 @@ trigger therefore fires exactly once; the player must release and press again. T
 on the server, not the client, because a hand-rolled client could otherwise pulse the mask and buy
 back auto-fire — and the weapon cooldown still bounds the rate on top of it.
 
-`InputMessage.fireSlots` is a **uint8 bitmask** (bit 0 = fire slot 0, the basic attack), the
+`InputFrame.fireSlots` is a **uint8 bitmask** (bit 0 = fire slot 0, the basic attack), the
 successor to the old single `fire: boolean`. The server masks it to `maxFireSlots` bits
 (`SLOT_MASK` in `packages/server/src/sim/tick.ts`) and to the car's actual slot count
 before the sim ever sees it, so a hand-rolled client cannot fire a slot it does not own. Multiple
@@ -507,8 +507,8 @@ downward (VS12), which is what keeps the basic attack at index 0 losing a tie to
 change with no protocol consequence.
 
 Firing still rides the same gate as movement: `serverTick` reports which session ids asked to fire
-on an input it actually **simulated**, so an input past `NET_CONFIG.maxInputsPerTick` cannot buy a
-shot the sim never ran, and a lobby player spamming a fire key spawns nothing.
+on an input it actually **simulated**, so a frame the sim never consumed cannot buy a
+shot, and a lobby player spamming a fire key spawns nothing.
 
 ### Shot direction: the heading, or the turret
 

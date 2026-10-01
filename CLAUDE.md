@@ -227,7 +227,7 @@ every chassis, and a config test asserts exactly that over the live roster rathe
 two edits separately. None of the machinery below is deleted; it is dormant, and putting `turret`
 back on one ability row or flipping the flag brings all of it back. A row carrying
 `WeaponBase.turret` fires along
-the world bearing the player clicked (`InputMessage.aimAngle`, from the turret pivot to the
+the world bearing the player clicked (`InputFrame.aimAngle`, from the turret pivot to the
 crosshair), frozen at the press; the turret (`FireState.turretAngle`, sim state, mirrored
 render-only to `PlayerState.turretAngle`) turns to it at `TURRET_CONFIG.turnRateDegPerSec` before
 the wind-up starts, and the shot spawns from `turretPivotOf` plus `defaultOffset`, clamped so it is

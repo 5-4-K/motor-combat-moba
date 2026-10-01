@@ -34,9 +34,10 @@ tables.
 |---|---|---|
 | `DEPLOY_MODE` | server `mode.ts` | `lan` (`cloud` is CORS-only; no hosting) |
 | `PORT` | server `mode.ts` | `2567` |
-| `SIM_LATENCY_MS` | latency injector | `0` |
-| `SIM_JITTER_MS` | latency injector | `0` |
-| `CLIENT_ORIGIN` | server CORS (Vite) | unset; `npm run dev` sets `http://localhost:5173` |
+| `SIM_LATENCY_MS` | latency injector (`mode.ts`, `net/latency-injector.ts`) | `0` — dev only; **one-way** delay in ms, applied in both directions (client→server inputs and server→client snapshots, pongs, pings and errors), in order. Practice and arena rooms only; the playground never injects (PG9). Never set in a release |
+| `SIM_JITTER_MS` | latency injector | `0` — one-way jitter, in ms, on each message's delay; delivery stays in order |
+| `SIM_LOSS_PCT` | latency injector | `0` — percent chance a message is "lost"; it is retransmitted `2 × SIM_LATENCY_MS` later with everything behind it held (the netsim `Link` model of a TCP retransmit) |
+| `CLIENT_ORIGIN` | server CORS (`http-app.ts`, Vite) | unset; `npm run dev` sets `http://localhost:5173`. When set, matchmaker routes' `Access-Control-Allow-Origin` is pinned to it (`restrictMatchmakerCors`); unset (the same-origin LAN release) the origin is reflected |
 | `MONITOR_PASSWORD` | server `monitor.ts` | unset; without it (and without `DEV_TOOLS=1`) `/colyseus` is not mounted |
 | `MAX_PRACTICE_ROOMS` | server `mode.ts` (`getMaxPracticeRooms`) | `PRACTICE_CONFIG.maxConcurrentRooms` (`6`) |
 
@@ -562,7 +563,7 @@ beside `CROSSHAIR_STYLE` (the crosshair's look, screen pixels). Spec TR56.
 
 Read at use time (`input/aim-offset.ts`'s defaults) and deliberately not `as const`, so a live
 retune lands on the next frame. The sim never sees it: the server only ever receives the bearing
-the crosshair produces (`InputMessage.aimAngle`).
+the crosshair produces (`InputFrame.aimAngle`).
 
 ## COMBAT_CONFIG
 
@@ -1246,17 +1247,38 @@ CB3). Meaningful only on a layout that maps onto itself under that rotation, whi
 
 ## NET_CONFIG
 
-| Knob | Value |
-|---|---|
-| `pendingInputCap` | 48 (doubled from 24 with the 60 Hz flip; Phase D deletes it) |
-| `reconcileSnapPos` | 24 |
-| `reconcileSnapAngle` | 0.6 |
-| `reconcileEaseRate` | 0.25 — fraction of the reconcile error eased per `reconcileEaseReferenceMs` (one 20 Hz snapshot, the rate it was tuned at). Applied per snapshot through `reconcileEasePerSnapshot()` (`net/prediction.ts`) as `1 - (1 - rate) ** ((1000 / SNAPSHOT_RATE_HZ) / reconcileEaseReferenceMs)` — ~0.0914 per snapshot at 60 Hz, three of which ease exactly 0.25 — so the wall-clock correction speed does not move with the snapshot rate |
-| `reconcileEaseReferenceMs` | 50 — the span `reconcileEaseRate` is authored over |
-| `maxInputsPerTick` | 10 (doubled from 5 with the 60 Hz flip). Catch-up coverage in ms is unchanged, but the per-second flood ceiling doubled (5x → 10x an honest car's steps); accepted because LAN-only, and Phase D deletes it |
-| `maxCatchUpTicks` | 5 — most ticks a room runs in one wall-clock frame of its simulation interval; a stall past that drops the backlog rather than spiralling (`rooms/fixed-step.ts`) |
-| `interpolationDelayMs` | 50 |
-| `shotExtrapolationCapMs` | 50 — how far past its last snapshot the client extrapolates a live shot before freezing it; one patch interval until NR12 deleted the patch rate, kept at its old wall-clock value |
+Every key of `config/net-config.ts`. Global, not per mode. Deleted by Phase D: `pendingInputCap` and `maxInputsPerTick` (the server takes one input per car per tick; the client's pending list is pruned by snapshot tick).
+
+| Knob | Value | Meaning |
+|---|---|---|
+| `maxCatchUpTicks` | 5 | Most ticks a room runs in one wall-clock frame; a stall past that drops the backlog rather than spiralling (`rooms/fixed-step.ts`, ~83 ms at 60 Hz) |
+| `reconcileSnapPos` | 24 | Positional reconcile error, in u, past which the client snaps to the replayed target |
+| `reconcileSnapAngle` | 0.6 | Wrapped angle error, in rad, past which it snaps |
+| `reconcileEaseRate` | 0.25 | Fraction of the reconcile error eased per `reconcileEaseReferenceMs` (one 20 Hz snapshot, the rate it was tuned at). Applied per snapshot through `reconcileEasePerSnapshot()` (`net/prediction.ts`) as `1 - (1 - rate) ** ((1000 / SNAPSHOT_RATE_HZ) / reconcileEaseReferenceMs)` — ~0.0914 per snapshot at 60 Hz, three of which ease exactly 0.25 |
+| `reconcileEaseReferenceMs` | 50 | The span `reconcileEaseRate` is authored over |
+| `interpolationDelayMs` | 50 | How far in the past remotes are drawn (arrival-timed until Phase E) |
+| `shotExtrapolationCapMs` | 50 | How far past its last snapshot the client extrapolates a live shot before freezing it; one patch interval until NR12 deleted the patch rate, kept at its old wall-clock value |
+| `targetSlackTicks` | 1.5 | Where the client's slack feedback steers the mean input lead, in ticks (NR21) |
+| `slackSpreadK` | 1 | Ticks of target added per tick of `inputSlackStd` beyond the 0.5-tick quantisation floor (`SLACK_QUANTISATION_STD_TICKS`). D6 measured K 8 (with gain 0.015) at net80 1.84 % repeats / 112 ms input-to-server against K 1's 3.69 % / 78 ms and kept 1: latency first, a lossy link's repeats land on its own player |
+| `maxDilation` | 0.04 | Most the client's tick clock may run faster or slower than nominal while steering slack (NR21) |
+| `inputRepeatMs` | 250 | How long a missing input repeats the last real one before the car goes neutral (NR22) |
+| `maxInputLeadMs` | 250 | Frames stamped further ahead than this past the next tick are dropped (`early`); also bounds the client's lead to this minus one tick (NR22) |
+| `inputRedundancy` | 3 | Previous frames each input packet repeats beside the newest (NR24); the packet cap is 4 frames |
+| `clientMaxCatchUpTicks` | 8 | Most ticks the client scheduler runs in one frame after a stall before it resyncs and skips (NR20) |
+| `clockSlewMsPerSec` | 20 | Fastest the clock-sync offset may slew, ms per second; also caps the fitted drift at ±2 % (NR18) |
+| `clockSnapMs` | 50 | A correction larger than this snaps instead of slewing; two pongs in a row more than twice this off read as a server clock step |
+| `clockFitWindowMs` | 24000 | Pong history the drift fit covers |
+| `clockMinFitSamples` | 6 | The drift fit keeps its previous slope until it has this many samples... |
+| `clockMinFitSpanMs` | 4000 | ...spanning at least this long |
+| `clockOffsetWindowMs` | 6000 | Newest span whose weighted samples set the offset (also how long an asymmetric route change takes to be believed) |
+| `clockWeightFloorMs` | 10 | A pong's weight is `1 / (floor + excess/2)²`; the floor keeps near-minimum pongs about equal |
+| `clockRttWindowMs` | 12000 | `ClockSync.rttMs()` is the median of per-bucket minimum RTTs over this span... |
+| `clockRttBucketMs` | 2000 | ...in buckets this wide. It is ≈ the minimum RTT and is never shown as a ping |
+| `timeSyncIntervalMs` | 500 | Steady `MSG_TIME` ping interval |
+| `timeSyncBurstMs` | 100 | Ping interval during the join burst |
+| `timeSyncBurstWindowMs` | 1000 | How long after joining the burst interval applies |
+
+Not in the table, because they are module constants rather than config: the scheduler's safety gain `SAFETY_GAIN` (0.03 ticks of safety per tick of slack error, per new sample; `net/input-scheduler.ts`), its deadband (0.25 tick), `SLACK_QUANTISATION_STD_TICKS` (0.5) and `LATE_SLACK_FLOOR_TICKS` (-1, `net/tick-input.ts`; derived from the gain, see its comment). Also in shared: `PROTOCOL_VERSION` (1, bump on every wire change) and `CLOSE_CODES` (4100–4112). Server-side limits live in `net/rate-limit.ts` (`input` 120/s burst 30, `time` 20/s burst 20, `lobby` 10/s burst 10, kick after 5 s continuously over; `MAX_MESSAGES_PER_SECOND` 1000) and `http-app.ts` (`MAX_WS_PAYLOAD_BYTES` 4096); see [`networking.md`](networking.md#hardening-nr54nr56).
 
 ## PRACTICE_CONFIG
 

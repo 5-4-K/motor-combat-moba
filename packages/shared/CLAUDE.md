@@ -4,7 +4,7 @@ Lockstep constants, Colyseus schema, input types, and `stepSim`. Server and clie
 
 **Local invariant:** only this package owns sim math. Do not duplicate `stepSim` or tick constants in server/client.
 
-P0: `TICK_RATE_HZ` / `MS_PER_TICK` / `SNAPSHOT_RATE_HZ` / `MAX_PLAYERS` / `ROOM_NAME`, enums (`RoomPhase`, `GameMode`, `PlayerStatus`), `PlayerState` / `ArenaState`, `INPUT_MESSAGE` + `InputMessage`, identity `stepSim`.
+P0: `TICK_RATE_HZ` / `MS_PER_TICK` / `SNAPSHOT_RATE_HZ` / `MAX_PLAYERS` / `ROOM_NAME`, enums (`RoomPhase`, `GameMode`, `PlayerStatus`), `PlayerState` / `ArenaState`, `INPUT_MESSAGE` + `InputFrame`/`InputPacket`, identity `stepSim`.
 
 **`modes/` owns configuration; `config/` owns its TYPES and its BASE values.** `modes/base.ts`
 assembles `BASE_TABLES` straight from the `config/` globals (hull stripped from `drive`) — these are

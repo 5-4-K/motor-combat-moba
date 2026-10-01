@@ -84,7 +84,9 @@ field at all, so the check is always false there. See root `CLAUDE.md` and
 | `sessionId` | string | `""` | Colyseus session |
 | `x`, `y`, `angle` | number | `0` | Canonical world pose |
 | `status` | uint8 `PlayerStatus` | `READY` | READY=0, IN_MATCH=1, POST_MATCH=2 |
-| `lastProcessedInputSeq` | uint32 | `0` | Last applied `InputMessage.seq` |
+| `ackRepeated` | boolean | `false` | Whether this snapshot's tick ran the car on a repeated or neutral input because its owner's frame had not arrived (NR22). Written by `serverTick`; a client diagnostic, never fed to `stepSim` |
+| `inputSlack` | float32 | `0` | Mean over the owner's last 30 frames of (frame tick − the tick the server was about to run on arrival), in ticks; late first copies count, floored at −1. The client's input scheduler steers it to `targetSlackTicks` (NR21). Replaces `lastProcessedInputSeq`: there is no per-input ack, a snapshot's own `tick` says what has run |
+| `inputSlackStd` | float32 | `0` | Population standard deviation of the same 30 samples; the scheduler adds `slackSpreadK × max(0, std − 0.5)` to its target (D5 ruling E) |
 | `name` | string | `""` | Display name |
 | `colorId` | uint8 | `0` | Index into `COLOR_TABLE` |
 | `team` | uint8 | `0` | 0 = A, 1 = B (FFA unused) |
@@ -121,7 +123,7 @@ field at all, so the check is always false there. See root `CLAUDE.md` and
 `vx`, `vy`, and `angVel` are the ram knock state as of the 2026-09-06 vector-drive rework (see
 [`combat-model.md`](combat-model.md#ramming)). A ram now adds its knock directly into `vx`/`vy` as a
 temporary shim rather than writing a separate field. All three sit in
-`PredictionBuffer.reconcile`'s always-**snap** set rather than the ease path — they feed the
+`TickPrediction.reconcile`'s always-**snap** set rather than the ease path — they feed the
 next `stepSim` integration directly, so a half-eased value would poison every subsequent step rather
 than merely look wrong. Net effect on the wire, against the pre-rework schema: **four fields removed**
 (`speed`, `shoveX`, `shoveY`, `authority`) and **two added** (`vx`, `vy`). `authority` has no schema
@@ -135,7 +137,7 @@ for the tuning that produces the knock.
 `maneuver`, `maneuverTicksLeft`, `maneuverAngle`, and `maneuverSpeed` are the maneuver state behind
 dash/hold/charge (see [`combat-model.md`](combat-model.md#maneuvers-and-the-contact-pass)) —
 networked for the same reason as the ram knock fields (`stepDrive` reads all four, invariant 8) and
-snapped, never eased, on `PredictionBuffer.reconcile` for the same reason: they are rules for the
+snapped, never eased, on `TickPrediction.reconcile` for the same reason: they are rules for the
 next integration, not a drawn pose. `maneuverWeaponId` — which maneuver-kind weapon is running — is
 **not** one of the four: it stays server-only, carried in `CombatMemory` alongside `fireState`,
 because `stepSim` itself only ever reads the `ManeuverKind` and the two locked numbers, never the
@@ -249,7 +251,7 @@ through recovery, and a mid-volley slot — `stocks` already spent at press time
 not written until the volley's last shot — reads as locked rather than as a full-brightness "ready"
 slot with nothing left to fire.
 
-## InputMessage.fireSlots
+## InputFrame.fireSlots
 
 `fireSlots: number` — a uint8 bitmask, bit 0 = **fire slot 0, the basic attack** — replaced the
 single `fire: boolean`. The server masks it to `WEAPON_SLOT_CONFIG.maxFireSlots` bits (`SLOT_MASK`
