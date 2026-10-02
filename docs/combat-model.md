@@ -13,9 +13,11 @@ resolved every car, so hit tests read the poses cars actually ended the tick at.
 `packages/server/src/sim/combat-bridge.ts` is the only file that knows about the Colyseus schema; it
 maps `ArenaState` onto the POJOs and writes the answer back. No rules live there.
 
-Combat is **server-only**. The client draws `state.weapons` and never predicts a shot or an HP
+Combat is **server-only**. The client draws `state.weapons` and never predicts a hit or an HP
 change: a mispredicted bullet is a phantom kill, and there is no honest way to reconcile "you were
-dead for 80 ms". Prediction covers the local car's motion and nothing else.
+dead for 80 ms". Prediction covers the local car's motion — and, for drawing only, your own shot the
+moment you fire it (a provisional shot, NR39, see [What the client shows](#what-the-client-shows)),
+which never damages, never spawns FX and is replaced by the server's instance.
 
 ## Ramming
 
@@ -1513,7 +1515,16 @@ apply in both directions inside `otherCarHulls`.
 ## What the client shows
 
 `ArenaScene` draws every live instance from `state.weapons` — projectile and beam rows in one map,
-discriminated by `kind` — and never predicts a shot or an HP change. Every instance is drawn at the
+discriminated by `kind` — and never predicts a hit or an HP change. Your own press is drawn at once
+as a **provisional shot** (NR39, `packages/shared/src/net/provisional-shots.ts`): `LocalFire` runs the
+press through the shared `tickRecharge → beginFire → turnTurret → releaseShots` seeded from your
+networked slots, `spawnInstances` births it at the predicted muzzle on the release tick (wind-up
+included) aged by your own `min(P − viewTick, capTicks)` through `bornOlder`, and it flies with the
+same `ShotView` motion in the same look. The first server instance with your id, the same weapon and
+a `spawnTick` within `provisionalShotMatchTicks` (2) confirms it and takes over with a
+`provisionalShotEaseMs` (100 ms) ease; an unconfirmed one fades and is gone `rtt +
+provisionalShotGraceMs` (100 ms) after it was drawn. It is never in `state.weapons`, so it never
+damages, never spawns impact FX and never feeds prediction. Every instance is drawn at the
 **local present** (NR40): `ShotView` (`packages/shared/src/net/shot-view.ts`) advances it from its
 newest snapshot to the fractional tick the local car is drawn at, with the shared `stepInstance` —
 walls and `bounceOffWorld` bounces included, cars ignored — capped at `maxExtrapolateMs +

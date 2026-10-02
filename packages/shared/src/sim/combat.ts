@@ -216,9 +216,10 @@ export interface CombatResult {
  * This runs *after* driving has resolved for the tick, so every hit test reads the poses cars
  * actually ended up at.
  *
- * The whole step is server-only. The client draws the resulting instances and never predicts a shot
+ * The whole step is server-only. The client draws the resulting instances and never predicts a hit
  * or an hp change: a mispredicted bullet is a phantom kill, and there is no reconciliation story for
- * "you were dead for 80ms". Prediction covers the local car's motion and nothing else.
+ * "you were dead for 80ms". Prediction covers the local car's motion; the shooter's own shot is drawn
+ * at once as a provisional (NR39, `net/provisional-shots.ts`), for drawing only.
  *
  * Hits are tested against the current tick; cars are never rewound. What a shooter's latency is
  * compensated with instead is shot FAST-FORWARD (NR37): an instance born from a press carrying
@@ -837,8 +838,11 @@ export function startManeuver(player: CombatPlayer, def: ManeuverWeaponDef, pres
   }
 }
 
-/** Bitmask of slots whose weapon starts a maneuver or a hold — the presses masked out mid-maneuver. */
-function maneuverSlotMask(fireState: FireState): number {
+/**
+ * Bitmask of slots whose weapon starts a maneuver or a hold — the presses masked out mid-maneuver.
+ * Exported for the client's predicted fire state (NR39, `LocalFire`), which masks the same presses.
+ */
+export function maneuverSlotMask(fireState: FireState): number {
   let mask = 0;
   fireState.slots.forEach((slot, index) => {
     const def = weaponDefOf(slot.weaponId);

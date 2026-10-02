@@ -8,11 +8,16 @@ import type {
   PlayerState,
   SimBody,
   StepContext,
+  WeaponInstanceState,
   WeaponSlotState,
 } from "@motor-combat-moba/shared";
 import {
   RemoteTimeline,
   ShotView,
+  LocalFire,
+  ProvisionalShots,
+  provisionalOf,
+  WeaponKind,
   boundsOf,
   shotFromWire,
   shotViewMaxTicks,
@@ -697,6 +702,23 @@ const FLAME_UNIT_POINTS: ReadonlyArray<{ readonly x: number; readonly y: number 
  */
 const flameScratch: Phaser.Math.Vector2[] = FLAME_UNIT_POINTS.map(() => new Phaser.Math.Vector2());
 
+/** What `drawShot` reads off a shot besides where it is drawn: a `WeaponInstanceState` row, or a provisional's. */
+interface ShotStyleRow {
+  kind: number;
+  weaponId: string;
+  spawnTick: number;
+  isExplosion: boolean;
+  lifeOffsetTicks: number;
+}
+
+/** One provisional shot as this frame draws it (`beginShotFrame`), pooled across frames. */
+interface DrawnProvisional extends DrawableInstance {
+  row: ShotStyleRow;
+  visible: boolean;
+  alpha: number;
+  bornAtMs: number;
+}
+
 /** The subset of `PlayerState` the arena renders and predicts from. */
 interface ArenaPlayer {
   x: number;
@@ -1033,6 +1055,21 @@ export class ArenaScene extends Phaser.Scene {
   private shotDrawTick = 0;
   /** The arena's bounds, built once per arena rather than per frame. */
   private shotBounds: { arena: ArenaDef; bounds: Bounds } | undefined;
+  /**
+   * Your own shots drawn the moment you fire (NR39): spawned in `sendInputTick`, confirmed by (and
+   * eased into) the server's instance in `beginShotFrame`, dropped `rtt + provisionalShotGraceMs`
+   * after they were drawn if nothing confirms them. Drawing only — never damage, FX or prediction.
+   */
+  private provisionals = new ProvisionalShots();
+  /** The driven car's predicted fire state, deciding which presses get a provisional shot. */
+  private localFire: { sessionId: string; fire: LocalFire } | undefined;
+  private provisionalSeq = 0;
+  /** This frame's drawn provisional shots, pooled; `beginShotFrame` fills, `renderShots` draws. */
+  private readonly drawnProvisionals: DrawnProvisional[] = [];
+  /** Scratch: this frame's instances owned by the driven car, offered to `ProvisionalShots.confirm`. */
+  private readonly ownShotRows: WeaponInstanceState[] = [];
+  /** Provisionals confirmed this frame: server id -> where the provisional was drawn, for the ease. */
+  private readonly handoverFrom = new Map<string, { x: number; y: number }>();
   private mismatchOverlay: ScreenOverlay | undefined;
   /** `P`, the menu toggle (spec TR35): the practice pause, or the arena's own menu. Inert in the
    *  playground, whose overlay owns P (`pumpPauseKey`). */
@@ -1889,6 +1926,10 @@ export class ArenaScene extends Phaser.Scene {
     this.lastRenderTick = undefined;
     this.shotView = new ShotView(shotViewMaxTicks());
     this.drawnShots.clear();
+    this.provisionals = new ProvisionalShots();
+    this.localFire = undefined;
+    this.drawnProvisionals.length = 0;
+    this.handoverFrom.clear();
     this.shotBounds = undefined;
     this.arenaGfx?.destroy();
     this.arenaGfx = undefined;
@@ -2673,9 +2714,55 @@ export class ArenaScene extends Phaser.Scene {
     const from = this.predicted ?? bodyOf(local);
     this.predictedPrev = from;
     this.predicted = this.prediction.predict(from, input, this.stepContext(room));
+    this.fireProvisional(room, local, input, this.predicted);
     // The newest frame plus the previous `inputRedundancy`, so one lost or late packet costs nothing:
     // the next one re-carries it, and the server drops the copies it already holds (NR24).
     room.send(INPUT_MESSAGE, { inputs: this.prediction.recent(1 + NET_CONFIG.inputRedundancy) });
+  }
+
+  /**
+   * NR39: run this frame through the driven car's predicted fire state and, for every shot it
+   * releases on this tick, add a provisional shot born with `spawnInstances` at the predicted pose
+   * (`body`: the end of this tick, where `runCombat` reads it after driving), aged by the client's own
+   * shot compensation for the press. The fire state asks the server's own gates, so a press it lets
+   * through is one the server fires unless something it cannot see (a lost input, a status not yet
+   * patched) intervenes — and that costs one unconfirmed shot, gone after `rtt + 100 ms`.
+   */
+  private fireProvisional(room: Room<ArenaState>, local: PlayerState, input: InputFrame, body: SimBody): void {
+    const sid = this.drivenSid(room);
+    const fire = this.localFireOf(sid);
+    const mods = localModifiers(room.state, sid, input.tick);
+    const step = fire.step({
+      tick: input.tick,
+      mask: input.fireSlots,
+      aimAngle: input.aimAngle,
+      carAngle: body.angle,
+      viewTick: input.viewTick,
+      disarmed: mods.disarmed,
+      weaponCooldown: mods.weaponCooldown,
+      maneuvering: body.maneuver !== ManeuverKind.NONE,
+    });
+    if (step.orders.length === 0) return;
+    const world = this.shotWorld(this.arena ?? getArena(room.state.arenaId));
+    const owner = { sessionId: sid, team: local.team === 1 ? 1 : 0, carId: local.carId, x: body.x, y: body.y, angle: body.angle } as const;
+    const nowMs = performance.now();
+    for (const order of step.orders) {
+      for (const p of provisionalOf(order, owner, input.tick, step.compTicks, `prov-${++this.provisionalSeq}`, nowMs, world)) {
+        this.provisionals.add(p, world);
+      }
+    }
+  }
+
+  /** The driven car's `LocalFire`, rebuilt when the driven car changes (a playground seat switch). */
+  private localFireOf(sessionId: string): LocalFire {
+    if (this.localFire?.sessionId !== sessionId) this.localFire = { sessionId, fire: new LocalFire(sessionId) };
+    return this.localFire.fire;
+  }
+
+  /** The arena a shot flies in, its bounds built once per arena. */
+  private shotWorld(arena: ArenaDef): { obstacles: ArenaDef["obstacles"]; bounds: Bounds } {
+    if (this.shotBounds?.arena !== arena) this.shotBounds = { arena, bounds: boundsOf(arena) };
+    return { obstacles: arena.obstacles, bounds: this.shotBounds.bounds };
   }
 
   /**
@@ -2744,8 +2831,19 @@ export class ArenaScene extends Phaser.Scene {
       this.prediction.clear();
       this.predicted = undefined;
       this.predictedPrev = undefined;
+      this.localFire = undefined;
       return;
     }
+    // NR39: the networked slots reseed the predicted fire state whenever no press is in flight.
+    this.localFireOf(this.drivenSid(room)).resync({
+      tick: room.state.tick,
+      weapons: local.weapons.map((w) => w),
+      switchLockUntilTick: local.switchLockUntilTick,
+      pendingUntilTick: local.pendingUntilTick,
+      lastFiredSlot: local.lastFiredSlot,
+      level: local.level,
+      turretAngle: local.turretAngle,
+    });
 
     const authoritative = bodyOf(local);
     if (!this.predicted) {
@@ -3817,9 +3915,19 @@ export class ArenaScene extends Phaser.Scene {
     const carsTick = R === undefined || (isSimPaused(room.state) && R > snapTick) ? snapTick : R;
     const drawTick = this.localAnchor()?.tick ?? carsTick;
     this.shotDrawTick = drawTick;
-    if (this.shotBounds?.arena !== arena) this.shotBounds = { arena, bounds: boundsOf(arena) };
-    const bounds = this.shotBounds.bounds;
+    const bounds = this.shotWorld(arena).bounds;
     const drivenSid = this.drivenSid(room);
+    const nowMs = performance.now();
+    // NR39: your own instances confirm the provisional shots they stand for (same owner and weapon,
+    // spawn tick within ±2), each recording where its provisional was drawn so the hand-over eases.
+    const own = this.ownShotRows;
+    own.length = 0;
+    room.state.weapons.forEach((instance) => {
+      if (instance.ownerSessionId === drivenSid) own.push(instance);
+    });
+    for (const pair of this.provisionals.confirm(own, drawTick)) {
+      if (pair.from) this.handoverFrom.set(pair.serverId, pair.from);
+    }
     room.state.weapons.forEach((instance, id) => {
       if (!this.shotView.isCurrent(id, snapTick)) {
         const sim = shotFromWire(instance, snapTick);
@@ -3851,10 +3959,61 @@ export class ArenaScene extends Phaser.Scene {
         rec.y = at.y;
         rec.angle = at.angle;
         rec.extent = at.extent;
+        const from = this.handoverFrom.get(id);
+        if (from) {
+          this.provisionals.beginHandover(id, from, rec, nowMs);
+          this.handoverFrom.delete(id);
+        }
+        this.provisionals.applyHandover(id, rec, nowMs);
       }
     });
     this.shotView.forgetAllBut(live);
     for (const id of this.drawnShots.keys()) if (!live.has(id)) this.drawnShots.delete(id);
+    this.provisionals.forgetHandoversBut(live);
+    this.handoverFrom.clear();
+    this.beginProvisionalFrame(room, drawTick, drivenSid, nowMs);
+  }
+
+  /**
+   * This frame's provisional shots (NR39) into `drawnProvisionals`: an unconfirmed one past
+   * `rtt + provisionalShotGraceMs` is dropped, the rest are drawn at the same tick as every other shot
+   * (`ProvisionalShots.at`, the shared `ShotView` motion, hidden past its range, lifetime or wall end)
+   * and faded over the end of that window. An attached beam welds to your car's drawn pose.
+   */
+  private beginProvisionalFrame(room: Room<ArenaState>, drawTick: number, drivenSid: string, nowMs: number): void {
+    const clock = this.inputClock?.clock;
+    const ttlMs = (clock?.ready ? clock.rttMs() : 0) + NET_CONFIG.provisionalShotGraceMs;
+    this.provisionals.expire(nowMs, ttlMs);
+    const list = this.provisionals.list();
+    const pool = this.drawnProvisionals;
+    pool.length = Math.min(pool.length, list.length);
+    const ownerPose = list.length > 0 ? this.drawnPoseOf(room, drivenSid, drivenSid) : undefined;
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i]!;
+      let rec = pool[i];
+      if (!rec) {
+        rec = {
+          row: { kind: 0, weaponId: "", spawnTick: 0, isExplosion: false, lifeOffsetTicks: 0 },
+          weaponId: "", isExplosion: false, x: 0, y: 0, angle: 0, extent: 0, visible: false, alpha: 1, bornAtMs: 0,
+        };
+        pool.push(rec);
+      }
+      const at = this.provisionals.at(p.key, drawTick, p.instance.attached ? ownerPose : undefined);
+      rec.visible = at !== undefined;
+      if (!at) continue;
+      rec.row.kind = p.instance.kind === "beam" ? WeaponKind.BEAM : WeaponKind.PROJECTILE;
+      rec.row.weaponId = p.instance.weaponId;
+      // The fade reads `spawnTick + lifeOffsetTicks` as the age the server gives it: the same shot.
+      rec.row.spawnTick = p.spawnTick;
+      rec.row.lifeOffsetTicks = p.instance.lifeOffsetTicks ?? 0;
+      rec.weaponId = p.instance.weaponId;
+      rec.x = at.x;
+      rec.y = at.y;
+      rec.angle = at.angle;
+      rec.extent = at.extent;
+      rec.alpha = this.provisionals.alpha(p, nowMs, ttlMs);
+      rec.bornAtMs = p.bornAtMs;
+    }
   }
 
   /**
@@ -3882,10 +4041,12 @@ export class ArenaScene extends Phaser.Scene {
   /**
    * Every live weapon instance, drawn from `state.weapons` and nothing else.
    *
-   * The client deliberately does not spawn a local instance on the keypress. A predicted shot that
-   * the server never fired — because the cooldown had not actually expired, or the input arrived a
-   * tick late — is a phantom that either vanishes or, worse, reads as a hit that never happened.
-   * Shots are cheap to draw late and expensive to draw wrongly.
+   * Your own press is drawn the moment you make it, as a PROVISIONAL shot (NR39, `ProvisionalShots`,
+   * built in `sendInputTick`): the shared fire state decides that the press fires, `spawnInstances`
+   * births it at the predicted muzzle, and it flies with the same `ShotView` motion. It is drawn in
+   * exactly the look below (`drawShot`) but is never in `state.weapons`, so it never damages, never
+   * spawns impact FX and is never outlined as a hitbox; the server's own instance replaces it with a
+   * 100 ms ease, and one the server refused fades out `rtt + 100 ms` after it was drawn.
    *
    * Each instance draws as its own hitbox (D19, `instanceDrawShape`) in its WEAPON's colour, so
    * what a player sees is exactly what can hurt them and every fireball shot in the arena looks
@@ -3916,120 +4077,21 @@ export class ArenaScene extends Phaser.Scene {
       if (this.instanceHidden(room, id, instance)) return;
       // Where it is drawn: advanced to the local present (NR40), or nothing when it has ended by
       // then. The beam fade is read at that same drawn tick; the muzzle flare's age stays on the
-      // snapshot clock (see below).
+      // snapshot clock (see `drawShot`).
       const drawn = this.drawnShot(id, instance);
       if (!drawn) return;
-      const shape = instanceDrawShape(drawn);
-      const alpha = beamFadeAlpha(
-        instance.kind,
-        instance.weaponId,
-        instance.spawnTick,
-        // At the tick it is DRAWN at, so it fades out on the drawn tick its life ends — the same tick
-        // `ShotView` stops drawing it.
-        this.shotDrawTick,
-        instance.isExplosion,
-        instance.lifeOffsetTicks,
-      );
-      if (shape.kind === "circle" && isAuraInstance(instance)) {
-        // The crust the fx layer stamps underneath is the field's body now, so the flat wash that
-        // used to stand in for it is gone. The RING stays, and stays here rather than moving to the
-        // fx layer with the crust: it is a hitbox statement, and it belongs beside the D19 logic
-        // that draws every other instance as exactly the thing that can hit you.
-        const fill = weaponFillOf(instance.weaponId);
-        (glow ?? gfx).lineStyle(AURA_RING_WIDTH, fill, alpha);
-        (glow ?? gfx).strokeCircle(shape.x, shape.y, shape.radius);
-        return;
-      }
-      if (shape.kind !== "circle") {
-        if (shape.points.length === 0) return;
-        // The shaped additive bloom, outside the hitbox and in its own layer, drawn BEFORE the solid
-        // layers so the shot reads over its own glow. The polygon counterpart to the disc branch's
-        // `instanceHaloBands` below — see `ProjectileHaloBand` for why it offsets rather than scales.
-        if (glow) {
-          for (const band of projectileHaloShapes(drawn)) {
-            glow.fillStyle(band.fill, alpha * band.alpha);
-            glow.fillPoints(pts(band.points), true);
-          }
-        }
-        // Nested layers, outermost first, each filled over the last -- the beam counterpart to the
-        // bands below. An empty list is a beam with no authored look, which falls back to the one
-        // flat fill of its own `color` that this method drew for every beam before styles existed.
-        //
-        // A polygon here is a beam OR one of the three non-circular projectiles, and the two have
-        // separate tables: whichever the weapon is not returns `[]`, so the flat-fill fallback below
-        // still covers a weapon with no authored look in either.
-        const layers = isProjectileWeapon(instance.weaponId)
-          ? projectileDrawLayers(drawn)
-          : beamDrawLayers(
-              instance.weaponId,
-              drawn.x,
-              drawn.y,
-              drawn.angle,
-              drawn.extent,
-              // The free-running clock, not anything patch-relative: a rect beam whose style sets
-              // `crackleHz` animates off this, and a patch clock saws back to zero every patch,
-              // which would tie the crackle to the network instead of to the shot.
-              nowMs,
-            );
-        if (layers.length === 0) {
-          gfx.fillStyle(weaponFillOf(instance.weaponId), alpha);
-          gfx.fillPoints(pts(shape.points), true);
-          return;
-        }
-        // The layer's own opacity multiplies INTO the fade rather than replacing it, so a
-        // translucent layer still disappears with the beam it belongs to. A style authoring none
-        // resolves to 1 and draws exactly what it drew before `BeamLayer.alpha` existed.
-        for (const layer of layers) {
-          gfx.fillStyle(layer.fill, alpha * layer.alpha);
-          // A flame or bolt layer is a ribbon, and a ribbon is filled as the strip it was built
-          // as rather than handed to Phaser's per-frame triangulator. See `scenes/ribbon-fill.ts`.
-          if (layer.ribbon !== undefined) fillRibbon(gfx, layer.points, layer.ribbon);
-          else gfx.fillPoints(pts(layer.points), true);
-        }
-        // The muzzle starburst, OVER every layer and outside the hitbox — the one shape here that
-        // is neither. See `BeamStyle.flare`. Drawn from the instance's own age so the flash lands
-        // on the frame the shot leaves rather than on whatever frame the client happened to join.
-        //
-        // The age is the SNAPSHOT's, not the drawn present's: a shot is drawn up to a round trip
-        // ahead of its newest snapshot, and aging the flash by that would have it spent before your
-        // own beam's first frame arrives.
-        for (const burst of beamFlareShapes(
-          instance.weaponId,
-          drawn.x,
-          drawn.y,
-          drawn.angle,
-          (room.state.tick - instance.spawnTick) * MS_PER_TICK + sincePatchMs,
-        )) {
-          gfx.fillStyle(burst.fill, alpha * burst.alpha);
-          if (burst.kind === "disc") fillDisc(gfx, burst.x, burst.y, burst.radius);
-          else gfx.fillPoints(pts(burst.points), true);
-        }
-        return;
-      }
-
-      // Additive bloom outside the hitbox, in its own layer. Drawn before the solid bands so the
-      // core reads over its own glow. See `HaloBand` for why this is allowed past the hitbox.
-      if (glow) {
-        for (const band of instanceHaloBands(instance.weaponId, shape.radius)) {
-          glow.fillStyle(band.fill, alpha * (band.alpha ?? 1));
-          fillDisc(glow, shape.x, shape.y, band.radius);
-        }
-      }
-
-      // Bands, outermost first, each filled over the last. An empty list is a weapon with no
-      // authored look — it falls back to the one flat fill of its own `color` that this method
-      // drew for everything before styles existed.
-      const bands = instanceGlowBands(instance.weaponId, shape.radius, instance.spawnTick, nowMs);
-      if (bands.length === 0) {
-        gfx.fillStyle(weaponFillOf(instance.weaponId), alpha);
-        fillDisc(gfx, shape.x, shape.y, shape.radius);
-        return;
-      }
-      for (const band of bands) {
-        gfx.fillStyle(band.fill, alpha * band.alpha);
-        fillDisc(gfx, shape.x, shape.y, band.radius);
-      }
+      // The age is the SNAPSHOT's, not the drawn present's: a shot is drawn up to a round trip ahead
+      // of its newest snapshot, and aging the flash by that would have it spent before your own
+      // beam's first frame arrives.
+      this.drawShot(gfx, glow, instance, drawn, 1, (room.state.tick - instance.spawnTick) * MS_PER_TICK + sincePatchMs, nowMs);
     });
+
+    // Your own provisional shots (NR39), in exactly the same look. Their flash is aged from the
+    // moment they were drawn, which is the moment they left the muzzle on your screen.
+    for (const prov of this.drawnProvisionals) {
+      if (!prov.visible) continue;
+      this.drawShot(gfx, glow, prov.row, prov, prov.alpha, nowMs - prov.bornAtMs, nowMs);
+    }
 
     // A SECOND pass, on purpose. Outlining inside the loop above would bury each shot's hitbox
     // under the next shot's fill, and the branches there all return early, so there is nowhere
@@ -4058,6 +4120,125 @@ export class ArenaScene extends Phaser.Scene {
     // the other shape in this method that sits outside the thing it belongs to — the two are the
     // whole list, and `beamDrawLayers` covers everything else vertex by vertex.
     this.renderChargeOrbs(room, gfx);
+  }
+
+  /**
+   * One shot, drawn at `drawn` in its weapon's look — the body `renderShots` runs for a server
+   * instance and for a provisional shot alike, so the two can never look different. `alphaMult`
+   * scales every fill (a provisional's fade); `flareAgeMs` is how old the beam's muzzle flash is.
+   */
+  private drawShot(
+    gfx: Phaser.GameObjects.Graphics,
+    glow: Phaser.GameObjects.Graphics | undefined,
+    instance: ShotStyleRow,
+    drawn: DrawableInstance,
+    alphaMult: number,
+    flareAgeMs: number,
+    nowMs: number,
+  ): void {
+    const shape = instanceDrawShape(drawn);
+    const alpha =
+      alphaMult *
+      beamFadeAlpha(
+        instance.kind,
+        instance.weaponId,
+        instance.spawnTick,
+        // At the tick it is DRAWN at, so it fades out on the drawn tick its life ends — the same tick
+        // `ShotView` stops drawing it.
+        this.shotDrawTick,
+        instance.isExplosion,
+        instance.lifeOffsetTicks,
+      );
+    if (shape.kind === "circle" && isAuraInstance(drawn)) {
+      // The crust the fx layer stamps underneath is the field's body now, so the flat wash that
+      // used to stand in for it is gone. The RING stays, and stays here rather than moving to the
+      // fx layer with the crust: it is a hitbox statement, and it belongs beside the D19 logic
+      // that draws every other instance as exactly the thing that can hit you.
+      const fill = weaponFillOf(instance.weaponId);
+      (glow ?? gfx).lineStyle(AURA_RING_WIDTH, fill, alpha);
+      (glow ?? gfx).strokeCircle(shape.x, shape.y, shape.radius);
+      return;
+    }
+    if (shape.kind !== "circle") {
+      if (shape.points.length === 0) return;
+      // The shaped additive bloom, outside the hitbox and in its own layer, drawn BEFORE the solid
+      // layers so the shot reads over its own glow. The polygon counterpart to the disc branch's
+      // `instanceHaloBands` below — see `ProjectileHaloBand` for why it offsets rather than scales.
+      if (glow) {
+        for (const band of projectileHaloShapes(drawn)) {
+          glow.fillStyle(band.fill, alpha * band.alpha);
+          glow.fillPoints(pts(band.points), true);
+        }
+      }
+      // Nested layers, outermost first, each filled over the last -- the beam counterpart to the
+      // bands below. An empty list is a beam with no authored look, which falls back to the one
+      // flat fill of its own `color` that this method drew for every beam before styles existed.
+      //
+      // A polygon here is a beam OR one of the three non-circular projectiles, and the two have
+      // separate tables: whichever the weapon is not returns `[]`, so the flat-fill fallback below
+      // still covers a weapon with no authored look in either.
+      const layers = isProjectileWeapon(instance.weaponId)
+        ? projectileDrawLayers(drawn)
+        : beamDrawLayers(
+            instance.weaponId,
+            drawn.x,
+            drawn.y,
+            drawn.angle,
+            drawn.extent,
+            // The free-running clock, not anything patch-relative: a rect beam whose style sets
+            // `crackleHz` animates off this, and a patch clock saws back to zero every patch,
+            // which would tie the crackle to the network instead of to the shot.
+            nowMs,
+          );
+      if (layers.length === 0) {
+        gfx.fillStyle(weaponFillOf(instance.weaponId), alpha);
+        gfx.fillPoints(pts(shape.points), true);
+        return;
+      }
+      // The layer's own opacity multiplies INTO the fade rather than replacing it, so a
+      // translucent layer still disappears with the beam it belongs to. A style authoring none
+      // resolves to 1 and draws exactly what it drew before `BeamLayer.alpha` existed.
+      for (const layer of layers) {
+        gfx.fillStyle(layer.fill, alpha * layer.alpha);
+        // A flame or bolt layer is a ribbon, and a ribbon is filled as the strip it was built
+        // as rather than handed to Phaser's per-frame triangulator. See `scenes/ribbon-fill.ts`.
+        if (layer.ribbon !== undefined) fillRibbon(gfx, layer.points, layer.ribbon);
+        else gfx.fillPoints(pts(layer.points), true);
+      }
+      // The muzzle starburst, OVER every layer and outside the hitbox — the one shape here that
+      // is neither. See `BeamStyle.flare`. Drawn from the instance's own age (`flareAgeMs`) so the
+      // flash lands on the frame the shot leaves rather than on whatever frame the client happened
+      // to join.
+      for (const burst of beamFlareShapes(instance.weaponId, drawn.x, drawn.y, drawn.angle, flareAgeMs)) {
+        gfx.fillStyle(burst.fill, alpha * burst.alpha);
+        if (burst.kind === "disc") fillDisc(gfx, burst.x, burst.y, burst.radius);
+        else gfx.fillPoints(pts(burst.points), true);
+      }
+      return;
+    }
+
+    // Additive bloom outside the hitbox, in its own layer. Drawn before the solid bands so the
+    // core reads over its own glow. See `HaloBand` for why this is allowed past the hitbox.
+    if (glow) {
+      for (const band of instanceHaloBands(instance.weaponId, shape.radius)) {
+        glow.fillStyle(band.fill, alpha * (band.alpha ?? 1));
+        fillDisc(glow, shape.x, shape.y, band.radius);
+      }
+    }
+
+    // Bands, outermost first, each filled over the last. An empty list is a weapon with no
+    // authored look — it falls back to the one flat fill of its own `color` that this method
+    // drew for everything before styles existed.
+    const bands = instanceGlowBands(instance.weaponId, shape.radius, instance.spawnTick, nowMs);
+    if (bands.length === 0) {
+      gfx.fillStyle(weaponFillOf(instance.weaponId), alpha);
+      fillDisc(gfx, shape.x, shape.y, shape.radius);
+      return;
+    }
+    for (const band of bands) {
+      gfx.fillStyle(band.fill, alpha * band.alpha);
+      fillDisc(gfx, shape.x, shape.y, band.radius);
+    }
   }
 
   /**

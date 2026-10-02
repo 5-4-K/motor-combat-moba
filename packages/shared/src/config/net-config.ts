@@ -136,4 +136,18 @@ export const NET_CONFIG = {
    * cap, not this term, is what bounds a jittery link (D6 ruling).
    */
   shotCompSlackStds: 2,
+  /**
+   * NR39: a server instance confirms the shooter's provisional shot when its `spawnTick` is within
+   * this many ticks of the tick the client expected it on (same owner, same weapon).
+   */
+  provisionalShotMatchTicks: 2,
+  /** NR39: the drawn gap between a provisional shot and the instance that confirms it eases out over this. */
+  provisionalShotEaseMs: 100,
+  /**
+   * NR39: a provisional shot no server instance has confirmed is gone `rtt + provisionalShotGraceMs`
+   * after it was drawn — a press the server refused leaves nothing behind longer than that.
+   */
+  provisionalShotGraceMs: 100,
+  /** NR39: the last part of that window, in which an unconfirmed provisional shot fades out. */
+  provisionalShotFadeMs: 50,
 } as const;

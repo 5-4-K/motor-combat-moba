@@ -260,6 +260,19 @@ describe("ShotView", () => {
     // Born on SNAP (first seen on its spawn tick): before that it did not exist.
     expect(view.at("s", SNAP - 0.5)).toBeUndefined();
   });
+
+  it("never draws a shot behind the tick it was first seen, even one first seen after its spawn tick", () => {
+    // A late joiner, or a burst `settleBurst` backdated inside a compensated shell's fast-forward:
+    // the first snapshot holding it is later than its spawn tick. A spectator drawing behind that
+    // snapshot must not see it before it was there.
+    const start = shot("pepperbox", 200, 300, 0);
+    const w = world();
+    const view = new ShotView(20);
+    view.update("s", SNAP + 3, serverSteps(start, 3, w), w);
+    expect(view.at("s", SNAP + 2)).toBeUndefined();
+    expect(view.at("s", SNAP + 2.9)).toBeUndefined();
+    expect(view.at("s", SNAP + 3)!.x).toBeCloseTo(serverSteps(start, 3, w).x, 9);
+  });
 });
 
 describe("ShotView against the server's own combat loop", () => {

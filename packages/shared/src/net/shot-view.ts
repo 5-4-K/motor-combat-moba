@@ -155,8 +155,11 @@ interface Entry {
   /** The newest snapshot's instance (with re-derived clocks). */
   source: WeaponInstance;
   newest: number;
-  /** Was this shot first seen on its own spawn tick? Then it did not exist before it. */
-  bornSeen: boolean;
+  /**
+   * The tick this shot was first seen on. It is never drawn before it — not even when that is later
+   * than its spawn tick (a late joiner; a burst `settleBurst` backdated inside a compensated shell's
+   * fast-forward): a spectator drawing behind the snapshots must never see a shot before it was there.
+   */
   firstTick: number;
   world: { obstacles: StepInstanceContext["obstacles"]; bounds: StepInstanceContext["bounds"] };
   ownerPose: OwnerPose | null;
@@ -188,8 +191,8 @@ interface Entry {
  * on a car is not foreseen (cars ignored): that end is the server's removal alone.
  *
  * A tick BEHIND the newest snapshot (a spectator draws at the remotes' render tick) is read off the
- * snapshot history instead, the server's own poses interpolated, and a shot first seen on its spawn
- * tick is not drawn before it — so a spectator's shots stand where the cars they fly among are drawn.
+ * snapshot history instead, the server's own poses interpolated, and a shot is never drawn before the
+ * tick it was first seen — so a spectator's shots stand where the cars they fly among are drawn.
  *
  * - **Homing**: held on its heading. The target is chosen and steered at on the server (never
  *   networked); a client guess could curve the drawn shot AWAY from the server's, which straight
@@ -231,7 +234,6 @@ export class ShotView {
         def,
         source: instance,
         newest: tick,
-        bornSeen: tick <= instance.spawnTick,
         firstTick: tick,
         world: { obstacles: world.obstacles, bounds: world.bounds },
         ownerPose: world.ownerPose,
@@ -394,7 +396,7 @@ export class ShotView {
   private extendLine(entry: Entry, path: LinePath, need: number): void {
     if (need <= path.clearTo || path.stop !== Infinity) return;
     const to = need + this.maxTicks;
-    const probe = scratchA;
+    const probe = clockProbe;
     probe.weaponId = entry.source.weaponId;
     probe.isExplosion = false;
     probe.kind = "projectile";
@@ -478,6 +480,8 @@ export class ShotView {
 /** Two scratch instances the wall test reads, reused across every call. */
 const scratchA = scratchInstance();
 const scratchB = scratchInstance();
+/** The scratch instance `extendLine` asks the range/lifetime clock with — never the wall test's. */
+const clockProbe = scratchInstance();
 
 function scratchInstance(): WeaponInstance {
   return {
@@ -547,9 +551,9 @@ function record(entry: Entry, tick: number, instance: WeaponInstance): void {
   entry.hCount = Math.min(HISTORY, entry.hCount + 1);
 }
 
-/** The snapshot history at `tick` (≤ newest) into `out`; false before the shot existed. */
+/** The snapshot history at `tick` (≤ newest) into `out`; false before the shot was first seen. */
 function fromHistory(entry: Entry, tick: number, out: ShotPose): boolean {
-  if (tick < entry.firstTick && entry.bornSeen) return false;
+  if (tick < entry.firstTick) return false;
   // Newest first: the bracketing pair is near the head for any sane delay.
   let later = -1;
   for (let k = 1; k <= entry.hCount; k++) {
@@ -571,7 +575,7 @@ function fromHistory(entry: Entry, tick: number, out: ShotPose): boolean {
     }
     later = i;
   }
-  // Older than everything kept: the oldest kept pose (or nothing, if it was born then).
+  // Older than everything still kept in the ring (but not before it was first seen): the oldest kept pose.
   return later >= 0 && copyHistory(entry, later, out);
 }
 

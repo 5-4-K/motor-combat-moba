@@ -1262,6 +1262,10 @@ Every key of `config/net-config.ts`. Global, not per mode. Deleted by Phase D: `
 | `extrapolateSettleMs` | 100 | The remote settle ease. Times three things: a remote's drawn pose easing onto the new path when a snapshot lands under an extrapolated frame, or when a held frame (clock not yet synced, room paused) ends (NR31); the contact blend's final-pose settle after a snapshot rebases the reckoning or the anchor tick jumps; and the contact blend weight's slew, at most `frameMs / extrapolateSettleMs` per frame (NR34) |
 | `contactBlendRangeCars` | 2 | A remote within this many car lengths of the local car is drawn blended toward its dead-reckoned pose (full weight at one car length), so what you see is where prediction meets it (NR34, `net/contact-blend.ts`) |
 | `remoteTeleportCars` | 3 | A remote that moves more than this many car lengths in one snapshot has teleported: its interpolation and reckoning reset rather than blend across the jump |
+| `provisionalShotMatchTicks` | 2 | NR39: a server instance (same owner, same weapon) confirms your provisional shot when its `spawnTick` is within this many ticks of the expected one (`net/provisional-shots.ts`) |
+| `provisionalShotEaseMs` | 100 | NR39: the drawn gap between a provisional shot and its confirming instance eases out over this |
+| `provisionalShotGraceMs` | 100 | NR39: an unconfirmed provisional shot is gone `rtt + provisionalShotGraceMs` after it was drawn (a refused press leaves nothing behind longer) |
+| `provisionalShotFadeMs` | 50 | NR39: the end of that window, over which an unconfirmed provisional shot fades out |
 | `targetSlackTicks` | 1.5 | Where the client's slack feedback steers the mean input lead, in ticks (NR21) |
 | `slackSpreadK` | 1 | Ticks of target added per tick of `inputSlackStd` beyond the 0.5-tick quantisation floor (`SLACK_QUANTISATION_STD_TICKS`). D6 measured K 8 (with gain 0.015) at net80 1.84 % repeats / 112 ms input-to-server against K 1's 3.69 % / 78 ms and kept 1: latency first, a lossy link's repeats land on its own player |
 | `maxDilation` | 0.04 | Most the client's tick clock may run faster or slower than nominal while steering slack (NR21) |
