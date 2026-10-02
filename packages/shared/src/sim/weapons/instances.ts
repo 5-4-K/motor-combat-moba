@@ -246,10 +246,7 @@ export function spawnInstances(
   // Any row authoring a lifetime expires on the clock, bouncing or not (spec P28a). Read straight
   // off `def` rather than `weaponTicksOf(def.id)`: `def` is an injectable test seam whose `id` need
   // not be a real weapon-table key.
-  const expiresAt =
-    def.kind === "projectile" && def.lifetimeMs !== undefined
-      ? tick + msToTicks(def.lifetimeMs)
-      : 0;
+  const expiresAt = lifetimeExpiryTick(def, tick);
 
   // One exit per fixed muzzle, or the turret's single exit along the frozen bearing (spec TR18).
   const exits: { x: number; y: number; axis: number; dir: number }[] = [];
@@ -322,6 +319,62 @@ export function spawnInstances(
 }
 
 /**
+ * The tick a projectile born at `spawnTick` expires on its flight clock (`expiresAtTick`), or 0 for a
+ * row authoring no `lifetimeMs` (it expires at `range` instead). The one spelling `spawnInstances`
+ * freezes and the client's `ShotView` re-derives from a wire row (NR40).
+ */
+export function lifetimeExpiryTick(def: WeaponDef, spawnTick: number): number {
+  return def.kind === "projectile" && def.lifetimeMs !== undefined ? spawnTick + msToTicks(def.lifetimeMs) : 0;
+}
+
+/**
+ * A projectile's `distance` after `ticks` more steps of `dt` from `from`, accumulated one step at a
+ * time exactly as `stepInstance` accumulates it (`distance + def.speed * dt`, per tick) — so a range
+ * expiry decided from it lands on the same tick, bit for bit, as the server's. For `ShotView` (NR40).
+ */
+export function travelledAfter(def: WeaponDef, ticks: number, dt: number, from = 0): number {
+  let distance = from;
+  for (let i = 0; i < ticks; i++) distance += def.speed * dt;
+  return distance;
+}
+
+/**
+ * Where a beam's origin is this tick: re-anchored to its owner through its own frozen muzzle direction
+ * when it is attached and the owner's pose is known, otherwise where it already is. `stepInstance`'s
+ * beam branch, and the client's `ShotView` welding a beam to its owner's DRAWN pose (NR40).
+ */
+export function beamOriginOf(instance: WeaponInstance, def: WeaponDef, ownerPose: OwnerPose | null): OwnerPose {
+  // A centre-origin beam (an aura) grows from the car itself rather than from its nose. That single
+  // offset is the whole geometric difference between an aura and every other beam in the game.
+  const nose = def.kind === "beam" && def.origin === "center" ? 0 : muzzleOffset();
+  if (!instance.attached || !ownerPose) return { x: instance.x, y: instance.y, angle: instance.angle };
+  // Re-anchored through the instance's OWN frozen muzzle direction, not the car's nose: a rear
+  // flame (muzzleDir == pi) stays welded to the tail as the car turns, rather than snapping to
+  // whichever direction happens to be dead ahead.
+  const anchorAngle = ownerPose.angle + instance.muzzleDir;
+  return {
+    x: ownerPose.x + Math.cos(anchorAngle) * nose,
+    y: ownerPose.y + Math.sin(anchorAngle) * nose,
+    angle: anchorAngle,
+  };
+}
+
+/**
+ * How far a beam from `origin` may reach: its full `range` for a disc, else its centre-axis wall clip.
+ *
+ * A disc has no direction, so there is nothing for a raycast to follow: it grows to its full range
+ * and passes through level geometry. That is a deliberate consequence of the shape rather than an
+ * omission — clipping a radial field would have to mean an occlusion test per target, which is a
+ * different feature. An aura is a field around a car, not a line of fire.
+ */
+export function beamReachOf(def: WeaponDef, origin: OwnerPose, obstacles: readonly Aabb[], bounds: Bounds): number {
+  if (def.kind === "maneuver") return 0;
+  return def.hitbox.shape === "disc"
+    ? def.range
+    : wallClipDistance(origin.x, origin.y, origin.angle, def.range, obstacles, bounds);
+}
+
+/**
  * One tick of existence. Pure: the input is never mutated.
  *
  * A projectile integrates a straight line from its own frozen heading and never reads its owner. A
@@ -376,30 +429,8 @@ export function stepInstance(
     };
   }
 
-  // A centre-origin beam (an aura) grows from the car itself rather than from its nose. That single
-  // offset is the whole geometric difference between an aura and every other beam in the game.
-  const nose = def.kind === "beam" && def.origin === "center" ? 0 : muzzleOffset();
-  // Re-anchored through the instance's OWN frozen muzzle direction, not the car's nose: a rear
-  // flame (muzzleDir == pi) stays welded to the tail as the car turns, rather than snapping to
-  // whichever direction happens to be dead ahead.
-  const anchorAngle = ctx.ownerPose ? ctx.ownerPose.angle + instance.muzzleDir : instance.angle;
-  const origin =
-    instance.attached && ctx.ownerPose
-      ? {
-          x: ctx.ownerPose.x + Math.cos(anchorAngle) * nose,
-          y: ctx.ownerPose.y + Math.sin(anchorAngle) * nose,
-          angle: anchorAngle,
-        }
-      : { x: instance.x, y: instance.y, angle: instance.angle };
-
-  // A disc has no direction, so there is nothing for a raycast to follow: it grows to its full range
-  // and passes through level geometry. That is a deliberate consequence of the shape rather than an
-  // omission — clipping a radial field would have to mean an occlusion test per target, which is a
-  // different feature. An aura is a field around a car, not a line of fire.
-  const reach =
-    def.hitbox.shape === "disc"
-      ? def.range
-      : wallClipDistance(origin.x, origin.y, origin.angle, def.range, ctx.obstacles, ctx.bounds);
+  const origin = beamOriginOf(instance, def, ctx.ownerPose);
+  const reach = beamReachOf(def, origin, ctx.obstacles, ctx.bounds);
   return {
     ...instance,
     x: origin.x,

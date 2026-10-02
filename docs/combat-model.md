@@ -1517,12 +1517,16 @@ discriminated by `kind` — and never predicts a shot or an HP change. Every ins
 **local present** (NR40): `ShotView` (`packages/shared/src/net/shot-view.ts`) advances it from its
 newest snapshot to the fractional tick the local car is drawn at, with the shared `stepInstance` —
 walls and `bounceOffWorld` bounces included, cars ignored — capped at `maxExtrapolateMs +
-maxDelayMs`. A non-bouncing shot is drawn no further than the wall the server's own `hitsWorld`
-would end it on; a homing shot holds its heading (the target is the server's, never networked) and
-a newer snapshot that moves its path is eased in, never snapping more than one tick of its own
-motion; an attached beam is re-anchored to its owner's DRAWN pose rather than extrapolated; an
-explosion stays put. A shot's end (hit, expiry) is the server's: the row's removal removes it. The
-beam fade and the muzzle flare's age stay on the snapshot's clock. The advance is the server's own
+maxDelayMs` (a straight shot in closed form, a bouncing or homing one stepped). Its end is the
+server's rule on the server's numbers: from the tick its range or lifetime clock (`instanceExpired`,
+with `distance`/`expiresAtTick` re-derived from `spawnTick` and `lifeOffsetTicks`) or the wall test
+(`hitsWorld`) ends it, it is hidden until the removal arrives; a hit on a car is foreseen by nothing
+and ends with the removal. A homing shot holds its heading (the target is the server's, never
+networked) and a newer snapshot that moves its path is eased in, never snapping more than one tick
+of its own motion; an attached beam is re-anchored to its owner's DRAWN pose rather than
+extrapolated; an explosion stays put. A spectator draws shots at the cars' render tick, read off the
+snapshot history. The beam fade is read at the drawn tick; the muzzle flare's age stays on the
+snapshot clock. The advance is the server's own
 motion rather than a guess, and nothing it produces feeds back into state. An instance is drawn from its own hitbox shape and dimensions, never a
 sprite — what you see is the hitbox, so a new weapon is playable with no art at all.
 

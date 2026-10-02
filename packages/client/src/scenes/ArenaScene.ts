@@ -1021,10 +1021,16 @@ export class ArenaScene extends Phaser.Scene {
    * motion. Rebuilt per snapshot, extended per frame by `beginShotFrame`.
    */
   private shotView = new ShotView(shotViewMaxTicks());
-  /** This frame's drawn pose of each instance, keyed by id — `beginShotFrame`'s output. */
-  private readonly drawnShots = new Map<string, DrawableInstance>();
+  /**
+   * This frame's drawn pose of each instance, keyed by id — `beginShotFrame`'s output. One record per
+   * live id, rewritten in place every frame; `visible: false` is a shot past its end (or not yet
+   * fired at the drawn tick), which is not drawn at all.
+   */
+  private readonly drawnShots = new Map<string, DrawableInstance & { visible: boolean }>();
   /** Scratch for `beginShotFrame`'s forget sweep, reused so the frame allocates no set. */
   private readonly liveShotIds = new Set<string>();
+  /** The tick shots are drawn at this frame (`beginShotFrame`), which a beam's fade is read at. */
+  private shotDrawTick = 0;
   /** The arena's bounds, built once per arena rather than per frame. */
   private shotBounds: { arena: ArenaDef; bounds: Bounds } | undefined;
   private mismatchOverlay: ScreenOverlay | undefined;
@@ -3040,7 +3046,7 @@ export class ArenaScene extends Phaser.Scene {
     const obstacles = this.arena?.obstacles ?? [];
     const blocked = camera().fov.blockedByObstacles;
     const hidden = this.hiddenEnemy(room, instance.ownerSessionId, () =>
-      shotSamplePoints(instanceDrawShape(this.drawnShot(id, instance))).some((p) =>
+      shotSamplePoints(instanceDrawShape(this.drawnShot(id, instance) ?? instance)).some((p) =>
         inVision(p, this.vision.shapes, obstacles, blocked),
       ),
     );
@@ -3788,28 +3794,36 @@ export class ArenaScene extends Phaser.Scene {
    *
    * The tick is the one the local car is drawn at (`localAnchor`: `newestPredictedTick − 1 + phase`),
    * so a dodge is judged against where the shot is relative to your car on screen — enemy shots and
-   * your own alike, since your own are the shooter's present. With no local car (a spectator, a
-   * wreck) it is the remotes' render tick, so shots agree with the cars they are drawn among; before
-   * the clock syncs, the snapshot itself.
+   * your own alike, since your own are the shooter's present. Both that tick and `state.tick` name
+   * the END of a server tick (the room increments `state.tick`, then steps it; a predicted frame for
+   * tick T is the input the server consumes on T), so a shot is drawn on the same tick grid as the
+   * car (pinned in `shot-view.test.ts`, "tick convention").
+   *
+   * With no local car (a spectator, a wreck) the tick is the one the CARS are drawn at — the remotes'
+   * render tick R, or the newest snapshot before the clock syncs or while a paused room holds them —
+   * and `ShotView` reads a tick behind its newest snapshot off the snapshot history, so the shots
+   * stand where the cars they fly among are drawn.
    *
    * Each instance is stepped from its newest snapshot by the shared motion (`ShotView`, walls and
    * bounces included, cars ignored); an attached beam is re-anchored to its owner's DRAWN pose. An id
-   * the server removed is forgotten here, so it vanishes with the row and leaves no ghost.
+   * the server removed is forgotten here, so it vanishes with the row and leaves no ghost; one whose
+   * range, lifetime or wall ends it before the drawn tick is hidden until that removal arrives.
    */
   private beginShotFrame(room: Room<ArenaState>, arena: ArenaDef): void {
-    this.drawnShots.clear();
     const live = this.liveShotIds;
     live.clear();
     const snapTick = room.state.tick;
-    const drawTick = this.localAnchor()?.tick ?? this.remotes.renderTick ?? snapTick;
+    const R = this.remotes.renderTick;
+    const carsTick = R === undefined || (isSimPaused(room.state) && R > snapTick) ? snapTick : R;
+    const drawTick = this.localAnchor()?.tick ?? carsTick;
+    this.shotDrawTick = drawTick;
     if (this.shotBounds?.arena !== arena) this.shotBounds = { arena, bounds: boundsOf(arena) };
     const bounds = this.shotBounds.bounds;
     const drivenSid = this.drivenSid(room);
     room.state.weapons.forEach((instance, id) => {
-      live.add(id);
       if (!this.shotView.isCurrent(id, snapTick)) {
-        const sim = shotFromWire(instance);
-        // An id this build does not know draws where the server put it.
+        const sim = shotFromWire(instance, snapTick);
+        // An id this build does not know draws where the server put it (no record, see `drawnShot`).
         if (!sim) return;
         const owner = room.state.players.get(instance.ownerSessionId);
         this.shotView.update(id, snapTick, sim, {
@@ -3821,26 +3835,36 @@ export class ArenaScene extends Phaser.Scene {
           homingTarget: null,
         });
       }
+      live.add(id);
       const ownerPose = this.shotView.isAttached(id)
         ? this.drawnPoseOf(room, instance.ownerSessionId, drivenSid)
         : undefined;
       const at = this.shotView.at(id, drawTick, ownerPose);
-      if (!at) return;
-      this.drawnShots.set(id, {
-        weaponId: instance.weaponId,
-        isExplosion: instance.isExplosion,
-        x: at.x,
-        y: at.y,
-        angle: at.angle,
-        extent: at.extent,
-      });
+      let rec = this.drawnShots.get(id);
+      if (!rec) {
+        rec = { weaponId: instance.weaponId, isExplosion: instance.isExplosion, x: 0, y: 0, angle: 0, extent: 0, visible: false };
+        this.drawnShots.set(id, rec);
+      }
+      rec.visible = at !== undefined;
+      if (at) {
+        rec.x = at.x;
+        rec.y = at.y;
+        rec.angle = at.angle;
+        rec.extent = at.extent;
+      }
     });
-    for (const id of [...this.shotView.ids()]) if (!live.has(id)) this.shotView.forget(id);
+    this.shotView.forgetAllBut(live);
+    for (const id of this.drawnShots.keys()) if (!live.has(id)) this.drawnShots.delete(id);
   }
 
-  /** An instance's drawn pose this frame, or the row itself for one `beginShotFrame` could not advance. */
-  private drawnShot(id: string, instance: DrawableInstance): DrawableInstance {
-    return this.drawnShots.get(id) ?? instance;
+  /**
+   * An instance's drawn pose this frame; `undefined` for one not drawn this frame (past its end, or
+   * not yet fired at the drawn tick); the row itself for one `beginShotFrame` could not advance.
+   */
+  private drawnShot(id: string, instance: DrawableInstance): DrawableInstance | undefined {
+    const rec = this.drawnShots.get(id);
+    if (!rec) return instance;
+    return rec.visible ? rec : undefined;
   }
 
   /**
@@ -3890,16 +3914,19 @@ export class ArenaScene extends Phaser.Scene {
       if (!instance.alive) return;
       // FOV (CB27, CB28): an enemy's shot wholly out of sight is not drawn at all.
       if (this.instanceHidden(room, id, instance)) return;
-      // Where it is drawn: advanced to the local present (NR40). Everything about its TIME — the
-      // beam fade, the flare's age — stays on the server's clock below, since its end is the
-      // server's to report.
+      // Where it is drawn: advanced to the local present (NR40), or nothing when it has ended by
+      // then. The beam fade is read at that same drawn tick; the muzzle flare's age stays on the
+      // snapshot clock (see below).
       const drawn = this.drawnShot(id, instance);
+      if (!drawn) return;
       const shape = instanceDrawShape(drawn);
       const alpha = beamFadeAlpha(
         instance.kind,
         instance.weaponId,
         instance.spawnTick,
-        room.state.tick,
+        // At the tick it is DRAWN at, so it fades out on the drawn tick its life ends — the same tick
+        // `ShotView` stops drawing it.
+        this.shotDrawTick,
         instance.isExplosion,
         instance.lifeOffsetTicks,
       );
@@ -4017,7 +4044,9 @@ export class ArenaScene extends Phaser.Scene {
       gfx.lineStyle(HITBOX_PX, HITBOX_STROKE, 1);
       room.state.weapons.forEach((instance, id) => {
         if (!instance.alive) return;
-        const shape = instanceDrawShape(this.drawnShot(id, instance));
+        const drawn = this.drawnShot(id, instance);
+        if (!drawn) return;
+        const shape = instanceDrawShape(drawn);
         if (shape.kind === "circle") gfx.strokeCircle(shape.x, shape.y, shape.radius);
         else if (shape.points.length > 0) gfx.strokePoints(pts(shape.points), true);
       });

@@ -747,8 +747,10 @@ export function runCombat(input: CombatInput): CombatResult {
  * A newborn instance aged `ticks` ticks (NR37): the life and homing clocks frozen into it at spawn are
  * moved back, and `lifeOffsetTicks` carries the age a beam's `spawnTick`-relative life reads. A clock
  * of 0 means "none" (no `lifetimeMs`, not homing) and stays 0.
+ *
+ * Exported for the client's `ShotView` (NR40), which re-derives these clocks from a wire row.
  */
-function bornOlder(instance: WeaponInstance, ticks: number): WeaponInstance {
+export function bornOlder(instance: WeaponInstance, ticks: number): WeaponInstance {
   return {
     ...instance,
     expiresAtTick: instance.expiresAtTick > 0 ? instance.expiresAtTick - ticks : 0,
