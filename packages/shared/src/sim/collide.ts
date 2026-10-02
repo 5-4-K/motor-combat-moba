@@ -519,7 +519,7 @@ export function pointsBoundsOf(points: readonly Vec2[]): PointBounds {
  * separated along one of the box's own face normals — which the SAT tests — by at least the gap
  * measured here, and the SAT counts anything up to `MIN_OVERLAP` of overlap as separated, which
  * dwarfs the last-bit rounding of `aabbCorners`. So it only skips calls that would have returned
- * false. Pinned by a seeded property test in `collide.test.ts`.
+ * false. Pinned by a seeded property test in `broadphase.test.ts`.
  */
 export function convexOverlapsAabb(points: readonly Vec2[], bounds: PointBounds, box: Aabb): boolean {
   if (box.x >= bounds.maxX || box.x + box.w <= bounds.minX) return false;
