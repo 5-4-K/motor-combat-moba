@@ -11,7 +11,6 @@ import {
   WeaponKind,
   withMode,
   hpOf,
-  NET_CONFIG,
   msToTicks,
   weaponTicksOf,
   type CarId,
@@ -23,7 +22,6 @@ import {
   allegianceOf,
   BEAM_FADE_OUT_MS,
   beamFadeAlpha,
-  extrapolateShot,
   hpBarColor,
   hpBarPoints,
   hpFraction,
@@ -177,51 +175,13 @@ describe("hpBarPoints", () => {
   });
 });
 
-describe("extrapolateShot", () => {
-  const SPEED = WEAPON_TABLE.magmablast.speed;
-
-  it("does not move a shot reported this instant", () => {
-    expect(extrapolateShot(100, 100, 0, SPEED, 0)).toEqual({ x: 100, y: 100 });
-  });
-
-  it("advances along the shot's own heading", () => {
-    const moved = extrapolateShot(100, 100, 0, SPEED, 10);
-    expect(moved.x).toBeCloseTo(100 + SPEED * 0.01, 6);
-    expect(moved.y).toBeCloseTo(100, 6);
-  });
-
-  it("follows the angle", () => {
-    const moved = extrapolateShot(100, 100, Math.PI / 2, SPEED, 10);
-    expect(moved.x).toBeCloseTo(100, 6);
-    expect(moved.y).toBeCloseTo(100 + SPEED * 0.01, 6);
-  });
-
-  it("caps at NET_CONFIG.shotExtrapolationCapMs, so a stall cannot fling a stale shot away", () => {
-    const patchMs = NET_CONFIG.shotExtrapolationCapMs;
-    const capped = extrapolateShot(100, 100, 0, SPEED, 5000);
-    expect(capped).toEqual(extrapolateShot(100, 100, 0, SPEED, patchMs));
-  });
-
-  it("never runs a shot backwards on a negative elapsed time", () => {
-    expect(extrapolateShot(100, 100, 0, SPEED, -50)).toEqual({ x: 100, y: 100 });
-  });
-});
-
 describe("instance drawing", () => {
   const projectile = { weaponId: "magmablast", isExplosion: false, x: 100, y: 100, angle: 0, extent: 0 };
 
-  it("extrapolates a projectile along its own heading between patches", () => {
-    const still = instanceDrawShape(projectile, 0);
-    const later = instanceDrawShape(projectile, 25);
-    if (still.kind !== "circle" || later.kind !== "circle") throw new Error("magmablast draws as a circle");
-    expect(later.x).toBeGreaterThan(still.x);
-  });
-
-  it("caps extrapolation at one patch interval so a stalled patch cannot fling a shot", () => {
-    const capped = instanceDrawShape(projectile, 5000);
-    const oneInterval = instanceDrawShape(projectile, 1000 / 20);
-    if (capped.kind !== "circle" || oneInterval.kind !== "circle") throw new Error("circle expected");
-    expect(capped.x).toBeCloseTo(oneInterval.x);
+  it("draws a projectile exactly at the pose it is handed: ShotView (NR40) moved it, nothing here does", () => {
+    const shape = instanceDrawShape(projectile);
+    if (shape.kind !== "circle") throw new Error("magmablast draws as a circle");
+    expect(shape).toMatchObject({ x: 100, y: 100 });
   });
 
   it("draws by the weapon's own kind, so a stale row byte cannot pick the wrong shape", () => {
@@ -240,14 +200,14 @@ describe("instance drawing", () => {
       angle: 0,
       extent: 200,
     };
-    const shape = instanceDrawShape(claimingBeam, 0);
+    const shape = instanceDrawShape(claimingBeam);
     expect(shape.kind).toBe("circle");
     if (shape.kind !== "circle") throw new Error("circle expected");
     expect(shape.radius).toBe(WEAPON_TABLE.magmablast.hitbox.radius);
   });
 
   it("falls back to a small dot for an unrecognised weapon id rather than blanking the layer", () => {
-    const shape = instanceDrawShape({ ...projectile, weaponId: "not-a-weapon" }, 0);
+    const shape = instanceDrawShape({ ...projectile, weaponId: "not-a-weapon" });
     expect(shape.kind).toBe("circle");
   });
 
@@ -255,7 +215,7 @@ describe("instance drawing", () => {
     const burst: DrawableInstance = {
       weaponId: "magmablast", isExplosion: true, x: 100, y: 100, angle: 0, extent: 60,
     };
-    const shape = instanceDrawShape(burst, 0);
+    const shape = instanceDrawShape(burst);
     expect(shape.kind).toBe("circle");
     expect(shape).toMatchObject({ x: 100, y: 100, radius: 60 });
     expect(isAuraInstance(burst)).toBe(true);
@@ -404,12 +364,12 @@ describe("beamDrawLayers", () => {
   // Fired from the origin along +x, so vertices come back axis-aligned and containment is
   // checkable with arithmetic rather than a point-in-polygon routine.
   const EXTENT = 220;
-  const layers = () => beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0);
+  const layers = () => beamDrawLayers("afterburner", 0, 0, 0, EXTENT);
   /** How many of the returned polygons are the flame itself. The rest are its embers. */
   const LAYER_COUNT = WEAPON_BEAM_STYLES.afterburner!.layers.length;
   /** The nested flame layers only, without the ember flecks appended after them. */
   const flame = (nowMs = 0) =>
-    beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0, nowMs).slice(0, LAYER_COUNT);
+    beamDrawLayers("afterburner", 0, 0, 0, EXTENT, nowMs).slice(0, LAYER_COUNT);
   /**
    * Five seconds of rendered frames at 60fps. The flame animates, so anything asserted about its
    * SHAPE has to be asserted about the shape over time — one frozen frame catches a lick at
@@ -436,13 +396,13 @@ describe("beamDrawLayers", () => {
     // the magmablast explosion mechanic — but as a BURST instance, reached through `isAuraInstance`
     // (which resolves the def via `instanceDefOf`), never through this function: `beamDrawLayers`
     // takes a bare `weaponId`, and magmablast's own row is still this projectile.
-    expect(beamDrawLayers("magmablast", 0, 0, 0, 100, 0)).toEqual([]);
-    expect(beamDrawLayers("not-a-weapon", 0, 0, 0, 100, 0)).toEqual([]);
+    expect(beamDrawLayers("magmablast", 0, 0, 0, 100)).toEqual([]);
+    expect(beamDrawLayers("not-a-weapon", 0, 0, 0, 100)).toEqual([]);
   });
 
   it("drops a layer that has grown to nothing rather than filling a degenerate polygon", () => {
     // On its spawn tick a beam has zero extent, and `fillPoints` must never see that.
-    expect(beamDrawLayers("afterburner", 0, 0, 0, 0, 0)).toEqual([]);
+    expect(beamDrawLayers("afterburner", 0, 0, 0, 0)).toEqual([]);
   });
 
   /**
@@ -458,7 +418,7 @@ describe("beamDrawLayers", () => {
   it("never draws past the cone hitbox, at any vertex of any layer, at any moment of the flame", () => {
     const tanHalf = Math.tan(coneHalfAngle());
     for (const nowMs of FRAMES) {
-      for (const layer of beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0, nowMs)) {
+      for (const layer of beamDrawLayers("afterburner", 0, 0, 0, EXTENT, nowMs)) {
         for (const point of layer.points) {
           expect(point.x, `t=${nowMs}`).toBeGreaterThanOrEqual(-1e-9);
           expect(point.x, `t=${nowMs}`).toBeLessThanOrEqual(EXTENT + 1e-9);
@@ -473,7 +433,7 @@ describe("beamDrawLayers", () => {
     for (let grown = 1; grown <= EXTENT; grown += 7) {
       // A different phase at every length, so growth and flicker are exercised together rather than
       // the whole growth ramp being checked on one frozen frame of the flame.
-      for (const layer of beamDrawLayers("afterburner", 0, 0, 0, grown, 0, grown * 13)) {
+      for (const layer of beamDrawLayers("afterburner", 0, 0, 0, grown, grown * 13)) {
         for (const point of layer.points) {
           expect(Math.abs(point.y)).toBeLessThanOrEqual(tanHalf * point.x + 1e-9);
           expect(point.x).toBeLessThanOrEqual(grown + 1e-9);
@@ -518,7 +478,7 @@ describe("beamDrawLayers", () => {
     let worstAxial = Infinity;
     let worstWidth = Infinity;
     for (const nowMs of FRAMES) {
-      const outer = beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0, nowMs)[0]!;
+      const outer = beamDrawLayers("afterburner", 0, 0, 0, EXTENT, nowMs)[0]!;
       let axial = 0;
       let width = 0;
       for (const p of outer.points) {
@@ -627,7 +587,7 @@ describe("beamDrawLayers", () => {
     expect(ceiling).toBe(13);
     // At most, since an ember that has shrunk to nothing is dropped rather than filled empty.
     for (const nowMs of [0, 137, 640, 1500]) {
-      const drawn = beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0, nowMs).length;
+      const drawn = beamDrawLayers("afterburner", 0, 0, 0, EXTENT, nowMs).length;
       expect(drawn).toBeLessThanOrEqual(ceiling);
       expect(drawn).toBeGreaterThanOrEqual(style.layers.length);
     }
@@ -643,18 +603,18 @@ describe("beamDrawLayers", () => {
    * draw path re-entrant, this is what fails, and the fix is a buffer pool rather than these.
    */
   it("does not leak its shared scratch buffers between flames drawn back to back", () => {
-    const alone = beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0, 640);
-    beamDrawLayers("afterburner", 90, -40, 1.7, 137, 0, 2100);
-    beamDrawLayers("tremor", 0, 0, 0, 400, 0, 640);
-    const afterOthers = beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0, 640);
+    const alone = beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 640);
+    beamDrawLayers("afterburner", 90, -40, 1.7, 137, 2100);
+    beamDrawLayers("tremor", 0, 0, 0, 400, 640);
+    const afterOthers = beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 640);
     expect(afterOthers).toEqual(alone);
   });
 
   it("draws the same flame twice for the same clock, so a frame never fizzes against itself", () => {
     // The reason the noise is a hash of the station index rather than `Math.random`: two calls at
     // one instant — the two mirrored cones of a single press, or a re-render — must agree.
-    expect(beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0, 1234.5)).toEqual(
-      beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0, 1234.5),
+    expect(beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 1234.5)).toEqual(
+      beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 1234.5),
     );
   });
 
@@ -676,7 +636,7 @@ describe("beamDrawLayers", () => {
 
     /** The flame's half-width at each station down the axis, as a profile to correlate. */
     const profile = (nowMs: number): number[] => {
-      const points = beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0, nowMs)[0]!.points;
+      const points = beamDrawLayers("afterburner", 0, 0, 0, EXTENT, nowMs)[0]!.points;
       // One edge out, the other back: the first half is the near edge, station 0 to the tip.
       const half = points.length / 2;
       return points.slice(0, half).map((p) => Math.abs(p.y));
@@ -763,8 +723,8 @@ describe("beamDrawLayers", () => {
     // `tremor` is the roster's other cone beam and asks for none of it. Identical at two clocks a
     // long way apart is the whole claim: a weapon opts INTO burning, and one that has not is not
     // quietly animated by the machinery being there.
-    expect(beamDrawLayers("tremor", 0, 0, 0, 400, 0, 9999)).toEqual(
-      beamDrawLayers("tremor", 0, 0, 0, 400, 0, 0),
+    expect(beamDrawLayers("tremor", 0, 0, 0, 400, 9999)).toEqual(
+      beamDrawLayers("tremor", 0, 0, 0, 400, 0),
     );
   });
 
@@ -782,7 +742,7 @@ describe("beamDrawLayers", () => {
   });
 
   it("anchors the flame to the muzzle and follows the car's heading", () => {
-    const turned = beamDrawLayers("afterburner", 50, 60, Math.PI / 2, EXTENT, 0)[0]!;
+    const turned = beamDrawLayers("afterburner", 50, 60, Math.PI / 2, EXTENT)[0]!;
     // The apex is the muzzle itself.
     expect(turned.points[0]!.x).toBeCloseTo(50, 6);
     expect(turned.points[0]!.y).toBeCloseTo(60, 6);
@@ -890,7 +850,7 @@ describe("lance beam layers", () => {
    * the nesting has to be asserted about the nesting.
    */
   const shaft = (nowMs = 0) =>
-    beamDrawLayers("lance", 0, 0, 0, REACH, 0, nowMs).slice(0, LAYER_COUNT);
+    beamDrawLayers("lance", 0, 0, 0, REACH, nowMs).slice(0, LAYER_COUNT);
 
   it("nests by WIDTH, since narrowing a rect's length would hide it inside itself", () => {
     const layers = shaft();
@@ -965,7 +925,7 @@ describe("lance beam layers", () => {
     const escapes: string[] = [];
     for (const nowMs of [0, 37, 250, 1000, 98765.4]) {
       for (const grown of [1, 60, 400, REACH]) {
-        for (const [i, layer] of beamDrawLayers("lance", 0, 0, 0, grown, 0, nowMs).entries()) {
+        for (const [i, layer] of beamDrawLayers("lance", 0, 0, 0, grown, nowMs).entries()) {
           for (const p of layer.points) {
             if (
               Math.abs(p.y) > HALF + 1e-9 ||
@@ -1098,7 +1058,7 @@ describe("lance beam layers", () => {
     // style whose shards all failed their birth guard would pass containment trivially.
     const seen = new Set<number>();
     for (let f = 0; f < 400; f++) {
-      const all = beamDrawLayers("lance", 0, 0, 0, REACH, 0, f * (1000 / 60));
+      const all = beamDrawLayers("lance", 0, 0, 0, REACH, f * (1000 / 60));
       seen.add(all.length - LAYER_COUNT);
     }
     // Never more than the authored count, and at some frame the beam carries several at once.
@@ -1113,7 +1073,7 @@ describe("lance beam layers", () => {
     // continuity test above takes when it excludes them.
     const worstAtTip = { alpha: 0 };
     for (let f = 0; f < 600; f++) {
-      const all = beamDrawLayers("lance", 0, 0, 0, REACH, 0, f * (1000 / 60));
+      const all = beamDrawLayers("lance", 0, 0, 0, REACH, f * (1000 / 60));
       for (const shard of all.slice(LAYER_COUNT)) {
         const along = Math.max(...shard.points.map((p) => p.x));
         if (along > REACH * 0.9) worstAtTip.alpha = Math.max(worstAtTip.alpha, shard.alpha);
@@ -1128,14 +1088,14 @@ describe("lance beam layers", () => {
     // lives on the hitbox shape.
     expect(WEAPON_BEAM_STYLES.afterburner!.shards).toBeUndefined();
     expect(WEAPON_BEAM_STYLES.lance!.embers).toBeUndefined();
-    const cone = beamDrawLayers("afterburner", 0, 0, 0, 200, 0, 500);
+    const cone = beamDrawLayers("afterburner", 0, 0, 0, 200, 500);
     expect(cone.length).toBeGreaterThan(WEAPON_BEAM_STYLES.afterburner!.layers.length);
   });
 
   it("still draws a plain nested bar for a rect beam that asks for no bolt", () => {
     // The fallback every other rect beam keeps. Verified through `rectPoints`' own inputs rather
     // than through a real weapon, since `lance` is the roster's only rect beam today.
-    const plain = beamDrawLayers("afterburner", 0, 0, 0, 200, 0);
+    const plain = beamDrawLayers("afterburner", 0, 0, 0, 200);
     expect(plain.length).toBeGreaterThan(0);
   });
 });
@@ -1159,11 +1119,8 @@ describe("every drawn layer resolves a usable alpha", () => {
    */
   const drawn = (weaponId: WeaponId) =>
     isProjectileWeapon(weaponId)
-      ? projectileDrawLayers(
-          { weaponId, isExplosion: false, x: 0, y: 0, angle: 0, extent: 0 },
-          0,
-        )
-      : beamDrawLayers(weaponId, 0, 0, 0, 400, 0, 1234);
+      ? projectileDrawLayers({ weaponId, isExplosion: false, x: 0, y: 0, angle: 0, extent: 0 })
+      : beamDrawLayers(weaponId, 0, 0, 0, 400, 1234);
 
   const ids = Object.keys(WEAPON_TABLE) as WeaponId[];
 
@@ -1189,7 +1146,7 @@ describe("every drawn layer resolves a usable alpha", () => {
 
   it("resolves an absent alpha to fully opaque rather than to nothing", () => {
     // What every style authored before `BeamLayer.alpha` existed relies on.
-    const tremor = beamDrawLayers("tremor", 0, 0, 0, 400, 0);
+    const tremor = beamDrawLayers("tremor", 0, 0, 0, 400);
     expect(tremor.length).toBeGreaterThan(0);
     for (const layer of tremor) expect(layer.alpha).toBe(1);
   });
@@ -1435,10 +1392,9 @@ describe("projectile halos — a halo shaped like its own shot", () => {
 
   it("draws nothing for a weapon that authors no halo", () => {
     // The fallback every weapon gets for free, exactly as `instanceHaloBands` gives the disc side.
-    expect(projectileHaloShapes(
-      { weaponId: "predator", isExplosion: false, x: 0, y: 0, angle: 0, extent: 0 },
-      0,
-    )).toEqual([]);
+    expect(
+      projectileHaloShapes({ weaponId: "predator", isExplosion: false, x: 0, y: 0, angle: 0, extent: 0 }),
+    ).toEqual([]);
   });
 
   it("puts every vertex OUTSIDE the hitbox — that is what makes it a halo", () => {
@@ -1447,7 +1403,7 @@ describe("projectile halos — a halo shaped like its own shot", () => {
     // along one axis would pass at angle 0 and fail in play.
     if (!HITBOX || HITBOX.shape !== "ellipse") throw new Error("pepperbox is no longer an ellipse");
     for (const angle of [0, 0.4, Math.PI / 2, 2.1, Math.PI, -1.3]) {
-      const shapes = projectileHaloShapes(shot(angle), 0);
+      const shapes = projectileHaloShapes(shot(angle));
       expect(shapes.length).toBeGreaterThan(0);
       for (const s of shapes) {
         for (const p of s.points) {
@@ -1465,7 +1421,7 @@ describe("projectile halos — a halo shaped like its own shot", () => {
     // adds three times more length than width, so the glow stops following the shot's shape and
     // reads as a smear. An equal offset on both radii is what keeps it a halo around THIS silhouette.
     if (!HITBOX || HITBOX.shape !== "ellipse") throw new Error("pepperbox is no longer an ellipse");
-    const shapes = projectileHaloShapes(shot(0), 0);
+    const shapes = projectileHaloShapes(shot(0));
     for (const s of shapes) {
       const alongs = s.points.map((p) => local(p, 0).along);
       const acrosses = s.points.map((p) => local(p, 0).across);
@@ -1477,7 +1433,7 @@ describe("projectile halos — a halo shaped like its own shot", () => {
   });
 
   it("orders bands outermost first, so each fills over the last", () => {
-    const shapes = projectileHaloShapes(shot(0), 0);
+    const shapes = projectileHaloShapes(shot(0));
     const reach = shapes.map((s) => Math.max(...s.points.map((p) => local(p, 0).along)));
     for (let i = 1; i < reach.length; i += 1) expect(reach[i]!).toBeLessThan(reach[i - 1]!);
   });
@@ -1498,6 +1454,6 @@ describe("projectile halos — a halo shaped like its own shot", () => {
     // The halo is purely additive to what ships today. `layers: []` means `projectileDrawLayers`
     // returns nothing and `ArenaScene` falls through to the one flat `weaponFillOf` fill, which the
     // roster notes call pepperbox's correct look rather than a placeholder.
-    expect(projectileDrawLayers(shot(0), 0)).toEqual([]);
+    expect(projectileDrawLayers(shot(0))).toEqual([]);
   });
 });

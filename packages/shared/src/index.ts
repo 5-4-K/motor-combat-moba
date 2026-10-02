@@ -374,6 +374,7 @@ export * from "./net/input-scheduler.js";
 export * from "./net/interpolation.js";
 export * from "./net/contact-blend.js";
 export * from "./net/remote-reckoner.js";
+export * from "./net/shot-view.js";
 export * from "./net/tick-interpolation.js";
 export * from "./net/step-context.js";
 export * from "./net/tick-input.js";

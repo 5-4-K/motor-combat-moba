@@ -12,6 +12,11 @@ import type {
 } from "@motor-combat-moba/shared";
 import {
   RemoteTimeline,
+  ShotView,
+  boundsOf,
+  shotFromWire,
+  shotViewMaxTicks,
+  type Bounds,
   localAnchorOf,
   type LocalAnchor,
   TickPrediction,
@@ -176,6 +181,7 @@ import {
   isAuraInstance,
   hpFraction,
   instanceDrawShape,
+  type DrawableInstance,
   beamDrawLayers,
   beamFlareShapes,
   chargeOrbBands,
@@ -1004,10 +1010,23 @@ export class ArenaScene extends Phaser.Scene {
    */
   private visionMaskGfx: Phaser.GameObjects.Graphics | undefined;
   /**
-   * When the last state patch landed, for drawing shots between patches. `performance.now()` rather
-   * than Phaser's clock, for the reason spelled out in `pushRemoteSnapshots`.
+   * When the last state patch landed, for a beam's muzzle-flare age between patches (the one shot
+   * clock still read off the snapshot rather than the drawn present — see `renderShots`).
+   * `performance.now()` rather than Phaser's clock, for the reason spelled out in
+   * `pushRemoteSnapshots`.
    */
   private lastPatchMs = 0;
+  /**
+   * Every live instance advanced to the local present (NR40), stepped with the shared instance
+   * motion. Rebuilt per snapshot, extended per frame by `beginShotFrame`.
+   */
+  private shotView = new ShotView(shotViewMaxTicks());
+  /** This frame's drawn pose of each instance, keyed by id — `beginShotFrame`'s output. */
+  private readonly drawnShots = new Map<string, DrawableInstance>();
+  /** Scratch for `beginShotFrame`'s forget sweep, reused so the frame allocates no set. */
+  private readonly liveShotIds = new Set<string>();
+  /** The arena's bounds, built once per arena rather than per frame. */
+  private shotBounds: { arena: ArenaDef; bounds: Bounds } | undefined;
   private mismatchOverlay: ScreenOverlay | undefined;
   /** `P`, the menu toggle (spec TR35): the practice pause, or the arena's own menu. Inert in the
    *  playground, whose overlay owns P (`pumpPauseKey`). */
@@ -1862,6 +1881,9 @@ export class ArenaScene extends Phaser.Scene {
     this.turretShown.clear();
     this.remotes = new RemoteTimeline();
     this.lastRenderTick = undefined;
+    this.shotView = new ShotView(shotViewMaxTicks());
+    this.drawnShots.clear();
+    this.shotBounds = undefined;
     this.arenaGfx?.destroy();
     this.arenaGfx = undefined;
     this.zoneGfx?.destroy();
@@ -2036,6 +2058,8 @@ export class ArenaScene extends Phaser.Scene {
     this.computeVision(room);
     this.renderCars(room, delta);
     this.syncCrosshair(room);
+    // After `renderCars`, so an attached beam reads the pose its owner was drawn at this frame.
+    this.beginShotFrame(room, this.arena);
     this.renderShots(room);
     this.renderFx(room, delta);
     this.renderVisionDim();
@@ -3009,7 +3033,6 @@ export class ArenaScene extends Phaser.Scene {
     room: Room<ArenaState>,
     id: string,
     instance: Parameters<typeof instanceDrawShape>[0] & { ownerSessionId: string },
-    elapsedMs: number,
   ): boolean {
     if (!this.vision.active) return false;
     const memo = this.hiddenInstanceMemo.get(id);
@@ -3017,7 +3040,7 @@ export class ArenaScene extends Phaser.Scene {
     const obstacles = this.arena?.obstacles ?? [];
     const blocked = camera().fov.blockedByObstacles;
     const hidden = this.hiddenEnemy(room, instance.ownerSessionId, () =>
-      shotSamplePoints(instanceDrawShape(instance, elapsedMs)).some((p) =>
+      shotSamplePoints(instanceDrawShape(this.drawnShot(id, instance))).some((p) =>
         inVision(p, this.vision.shapes, obstacles, blocked),
       ),
     );
@@ -3761,6 +3784,78 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
+   * Advance every live instance to the local present (NR40), once a frame, into `drawnShots`.
+   *
+   * The tick is the one the local car is drawn at (`localAnchor`: `newestPredictedTick − 1 + phase`),
+   * so a dodge is judged against where the shot is relative to your car on screen — enemy shots and
+   * your own alike, since your own are the shooter's present. With no local car (a spectator, a
+   * wreck) it is the remotes' render tick, so shots agree with the cars they are drawn among; before
+   * the clock syncs, the snapshot itself.
+   *
+   * Each instance is stepped from its newest snapshot by the shared motion (`ShotView`, walls and
+   * bounces included, cars ignored); an attached beam is re-anchored to its owner's DRAWN pose. An id
+   * the server removed is forgotten here, so it vanishes with the row and leaves no ghost.
+   */
+  private beginShotFrame(room: Room<ArenaState>, arena: ArenaDef): void {
+    this.drawnShots.clear();
+    const live = this.liveShotIds;
+    live.clear();
+    const snapTick = room.state.tick;
+    const drawTick = this.localAnchor()?.tick ?? this.remotes.renderTick ?? snapTick;
+    if (this.shotBounds?.arena !== arena) this.shotBounds = { arena, bounds: boundsOf(arena) };
+    const bounds = this.shotBounds.bounds;
+    const drivenSid = this.drivenSid(room);
+    room.state.weapons.forEach((instance, id) => {
+      live.add(id);
+      if (!this.shotView.isCurrent(id, snapTick)) {
+        const sim = shotFromWire(instance);
+        // An id this build does not know draws where the server put it.
+        if (!sim) return;
+        const owner = room.state.players.get(instance.ownerSessionId);
+        this.shotView.update(id, snapTick, sim, {
+          dt: MS_PER_TICK / 1000,
+          tick: snapTick,
+          obstacles: arena.obstacles,
+          bounds,
+          ownerPose: owner ? { x: owner.x, y: owner.y, angle: owner.angle } : null,
+          homingTarget: null,
+        });
+      }
+      const ownerPose = this.shotView.isAttached(id)
+        ? this.drawnPoseOf(room, instance.ownerSessionId, drivenSid)
+        : undefined;
+      const at = this.shotView.at(id, drawTick, ownerPose);
+      if (!at) return;
+      this.drawnShots.set(id, {
+        weaponId: instance.weaponId,
+        isExplosion: instance.isExplosion,
+        x: at.x,
+        y: at.y,
+        angle: at.angle,
+        extent: at.extent,
+      });
+    });
+    for (const id of [...this.shotView.ids()]) if (!live.has(id)) this.shotView.forget(id);
+  }
+
+  /** An instance's drawn pose this frame, or the row itself for one `beginShotFrame` could not advance. */
+  private drawnShot(id: string, instance: DrawableInstance): DrawableInstance {
+    return this.drawnShots.get(id) ?? instance;
+  }
+
+  /**
+   * The pose a car is drawn at this frame — the same three-way choice `renderCars` and `renderFx`
+   * make — for an attached beam to weld to. Undefined for a car not in the room.
+   */
+  private drawnPoseOf(room: Room<ArenaState>, sessionId: string, drivenSid: string): SimBody | undefined {
+    const player = room.state.players.get(sessionId);
+    if (!player) return undefined;
+    const serverPose = bodyOf(player);
+    if (!player.alive) return serverPose;
+    return sessionId === drivenSid ? this.localRenderPose(serverPose) : this.remotePose(sessionId, serverPose);
+  }
+
+  /**
    * Every live weapon instance, drawn from `state.weapons` and nothing else.
    *
    * The client deliberately does not spawn a local instance on the keypress. A predicted shot that
@@ -3790,12 +3885,16 @@ export class ArenaScene extends Phaser.Scene {
     glow?.clear();
 
     const nowMs = performance.now();
-    const elapsedMs = this.lastPatchMs === 0 ? 0 : nowMs - this.lastPatchMs;
+    const sincePatchMs = this.lastPatchMs === 0 ? 0 : nowMs - this.lastPatchMs;
     room.state.weapons.forEach((instance, id) => {
       if (!instance.alive) return;
       // FOV (CB27, CB28): an enemy's shot wholly out of sight is not drawn at all.
-      if (this.instanceHidden(room, id, instance, elapsedMs)) return;
-      const shape = instanceDrawShape(instance, elapsedMs);
+      if (this.instanceHidden(room, id, instance)) return;
+      // Where it is drawn: advanced to the local present (NR40). Everything about its TIME — the
+      // beam fade, the flare's age — stays on the server's clock below, since its end is the
+      // server's to report.
+      const drawn = this.drawnShot(id, instance);
+      const shape = instanceDrawShape(drawn);
       const alpha = beamFadeAlpha(
         instance.kind,
         instance.weaponId,
@@ -3820,7 +3919,7 @@ export class ArenaScene extends Phaser.Scene {
         // layers so the shot reads over its own glow. The polygon counterpart to the disc branch's
         // `instanceHaloBands` below — see `ProjectileHaloBand` for why it offsets rather than scales.
         if (glow) {
-          for (const band of projectileHaloShapes(instance, elapsedMs)) {
+          for (const band of projectileHaloShapes(drawn)) {
             glow.fillStyle(band.fill, alpha * band.alpha);
             glow.fillPoints(pts(band.points), true);
           }
@@ -3833,17 +3932,16 @@ export class ArenaScene extends Phaser.Scene {
         // separate tables: whichever the weapon is not returns `[]`, so the flat-fill fallback below
         // still covers a weapon with no authored look in either.
         const layers = isProjectileWeapon(instance.weaponId)
-          ? projectileDrawLayers(instance, elapsedMs)
+          ? projectileDrawLayers(drawn)
           : beamDrawLayers(
               instance.weaponId,
-              instance.x,
-              instance.y,
-              instance.angle,
-              instance.extent,
-              elapsedMs,
-              // The free-running clock, not the patch-relative `elapsedMs` beside it: a rect beam
-              // whose style sets `crackleHz` animates off this, and `elapsedMs` saws back to zero
-              // every patch, which would tie the crackle to the network instead of to the shot.
+              drawn.x,
+              drawn.y,
+              drawn.angle,
+              drawn.extent,
+              // The free-running clock, not anything patch-relative: a rect beam whose style sets
+              // `crackleHz` animates off this, and a patch clock saws back to zero every patch,
+              // which would tie the crackle to the network instead of to the shot.
               nowMs,
             );
         if (layers.length === 0) {
@@ -3864,12 +3962,16 @@ export class ArenaScene extends Phaser.Scene {
         // The muzzle starburst, OVER every layer and outside the hitbox — the one shape here that
         // is neither. See `BeamStyle.flare`. Drawn from the instance's own age so the flash lands
         // on the frame the shot leaves rather than on whatever frame the client happened to join.
+        //
+        // The age is the SNAPSHOT's, not the drawn present's: a shot is drawn up to a round trip
+        // ahead of its newest snapshot, and aging the flash by that would have it spent before your
+        // own beam's first frame arrives.
         for (const burst of beamFlareShapes(
           instance.weaponId,
-          instance.x,
-          instance.y,
-          instance.angle,
-          (room.state.tick - instance.spawnTick) * MS_PER_TICK + elapsedMs,
+          drawn.x,
+          drawn.y,
+          drawn.angle,
+          (room.state.tick - instance.spawnTick) * MS_PER_TICK + sincePatchMs,
         )) {
           gfx.fillStyle(burst.fill, alpha * burst.alpha);
           if (burst.kind === "disc") fillDisc(gfx, burst.x, burst.y, burst.radius);
@@ -3913,9 +4015,9 @@ export class ArenaScene extends Phaser.Scene {
     // real and is the reason the toggle exists.
     if (this.hitboxesVisible()) {
       gfx.lineStyle(HITBOX_PX, HITBOX_STROKE, 1);
-      room.state.weapons.forEach((instance) => {
+      room.state.weapons.forEach((instance, id) => {
         if (!instance.alive) return;
-        const shape = instanceDrawShape(instance, elapsedMs);
+        const shape = instanceDrawShape(this.drawnShot(id, instance));
         if (shape.kind === "circle") gfx.strokeCircle(shape.x, shape.y, shape.radius);
         else if (shape.points.length > 0) gfx.strokePoints(pts(shape.points), true);
       });
@@ -4042,12 +4144,11 @@ export class ArenaScene extends Phaser.Scene {
       this.lastHiddenInstances = new Set();
       return NOTHING_HIDDEN;
     }
-    const elapsedMs = this.lastPatchMs === 0 ? 0 : performance.now() - this.lastPatchMs;
     const currentIds = new Set<string>();
     const instances = new Set<string>();
     room.state.weapons.forEach((instance, id) => {
       currentIds.add(id);
-      if (this.instanceHidden(room, id, instance, elapsedMs)) instances.add(id);
+      if (this.instanceHidden(room, id, instance)) instances.add(id);
     });
     const carried = carryHiddenInstances(this.lastHiddenInstances, currentIds, instances);
     this.lastHiddenInstances = instances;

@@ -51,8 +51,8 @@ function polygonArea(points: readonly { x: number; y: number }[]): number {
 
 // A flame and a bolt at full reach, at a heading that is not axis-aligned, on an animated clock —
 // the frozen `nowMs = 0` frame is the one case where a tear could hide.
-const LANCE = beamDrawLayers("lance", 300, 200, 0.7, 1200, 0, 12_345);
-const FLAME = beamDrawLayers("afterburner", 300, 200, 2.1, 220, 0, 12_345);
+const LANCE = beamDrawLayers("lance", 300, 200, 0.7, 1200, 12_345);
+const FLAME = beamDrawLayers("afterburner", 300, 200, 2.1, 220, 12_345);
 
 describe("fillRibbon", () => {
   it("tiles a plain two-station ribbon with exactly its two triangles", () => {
@@ -203,10 +203,10 @@ describe("every shot polygon is either small or a ribbon", () => {
             const layers =
               def.kind === "beam"
                 ? [
-                    ...beamDrawLayers(def.id, 300, 200, heading, extent, 0, nowMs),
+                    ...beamDrawLayers(def.id, 300, 200, heading, extent, nowMs),
                     ...beamFlareShapes(def.id, 300, 200, heading, 40).flatMap((s) => (s.kind === "poly" ? [s] : [])),
                   ]
-                : [...projectileDrawLayers(instance, 40), ...projectileHaloShapes(instance, 40)];
+                : [...projectileDrawLayers(instance), ...projectileHaloShapes(instance)];
             for (const layer of layers) {
               const ribbon = "ribbon" in layer ? layer.ribbon : undefined;
               if (ribbon !== undefined) {

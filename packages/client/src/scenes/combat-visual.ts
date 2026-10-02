@@ -18,7 +18,6 @@ import {
   type WeaponDef,
   type WeaponId,
   type WorldShape,
-  NET_CONFIG,
 } from "@motor-combat-moba/shared";
 import { memoOnBundle } from "../net/mode-memo.js";
 
@@ -157,31 +156,9 @@ export function hpBarPoints(
 }
 
 /**
- * How far a shot has travelled since the patch that reported it, for drawing only.
- *
- * Shots arrive at the snapshot rate (`SNAPSHOT_RATE_HZ`, jittered by the link) but move at up to
- * 900 u/s, so a raw draw steps them 15 units at a time at best, and far more across a late snapshot. Advancing along the shot's own constant velocity is exact rather than a guess — the
- * server integrates the identical straight line — so this smooths the picture without inventing
- * motion. It is still *only* the picture: hits are decided on the server against the server's
- * positions, and nothing here feeds back into state.
- *
- * Capped at `NET_CONFIG.shotExtrapolationCapMs` so a stalled connection cannot fling a stale shot
- * across the arena while the client waits for the delete that already happened.
- */
-export function extrapolateShot(
-  x: number,
-  y: number,
-  angle: number,
-  speed: number,
-  elapsedMs: number,
-): { x: number; y: number } {
-  const maxMs = NET_CONFIG.shotExtrapolationCapMs;
-  const dt = Math.min(Math.max(elapsedMs, 0), maxMs) / 1000;
-  return { x: x + Math.cos(angle) * speed * dt, y: y + Math.sin(angle) * speed * dt };
-}
-
-/**
- * A live instance, as it arrives on the wire (`WeaponInstanceState`) — the fields drawing needs.
+ * A live instance AS DRAWN — the fields drawing needs. `x`/`y`/`angle`/`extent` are already the pose
+ * it is drawn at: `ArenaScene` advances every instance to the local present with the shared
+ * `ShotView` (NR40) before handing it here, so nothing in this module moves a shot.
  * The row's `kind` byte is not among them: the weapon's own definition decides which lifecycle it
  * is, and `spawnInstances` copies that byte from the same definition anyway.
  */
@@ -1651,9 +1628,9 @@ export const WEAPON_PROJECTILE_STYLES: Partial<Record<WeaponId, ProjectileStyle>
  * The concentric bands to fill for one instance, outermost first, or `[]` for a weapon with no
  * style — whose caller falls back to the single flat `weaponFillOf` disc.
  *
- * `nowMs` is a free-running clock (`performance.now()`), not the patch-relative `elapsedMs` the
- * position extrapolation uses: that one saws back to zero every patch, which would turn a smooth
- * flicker into a snapshot-rate (60 Hz) stutter locked to the network rather than to the fire.
+ * `nowMs` is a free-running clock (`performance.now()`), never anything tied to the snapshot: a
+ * patch-relative clock saws back to zero every patch, which would turn a smooth flicker into a
+ * snapshot-rate (60 Hz) stutter locked to the network rather than to the fire.
  *
  * Pure, and pure on purpose — `ArenaScene` cannot be unit tested without a browser, so everything
  * that decides what a shot looks like has to be decidable here.
@@ -1703,10 +1680,7 @@ export function instanceGlowBands(
  *
  * Takes no clock — halos do not flicker (LZ25), same as the disc side.
  */
-export function projectileHaloShapes(
-  instance: DrawableInstance,
-  elapsedMs: number,
-): DrawBeamLayer[] {
+export function projectileHaloShapes(instance: DrawableInstance): DrawBeamLayer[] {
   const def = drawDefOf(instance);
   if (!def || def.kind !== "projectile") return [];
   const style = WEAPON_PROJECTILE_STYLES[def.id];
@@ -1717,9 +1691,8 @@ export function projectileHaloShapes(
   // keeps for the same reason.
   if (hitbox.shape === "circle") return [];
 
-  // The same extrapolation the body uses, so the halo and the shot it belongs to cannot separate
-  // mid-flight — two copies of this would let the glow lag the pellet at speed.
-  const { x, y } = extrapolateShot(instance.x, instance.y, instance.angle, def.speed, elapsedMs);
+  // The drawn pose the body uses, so the halo and the shot it belongs to cannot separate mid-flight.
+  const { x, y } = instance;
 
   const out: DrawBeamLayer[] = [];
   for (const band of style.halo) {
@@ -1757,22 +1730,19 @@ export function instanceHaloBands(weaponId: string, radius: number): DrawBand[] 
 }
 
 /**
- * How far a beam has grown by draw time: its last reported extent, advanced along its own expansion
- * speed and clamped to the weapon's `range`.
+ * How far a beam reaches as drawn: its extent (already advanced to the present by `ShotView`, NR40),
+ * clamped to the weapon's `range`.
  *
  * Shared by `instanceDrawShape` and `beamDrawLayers` rather than written out in both, because the
  * outer silhouette and the layers inside it must agree on the beam's length exactly — two copies of
- * this would let a flame creep past its own hitbox the moment one of them was tuned.
- *
- * A burst is spawned at full extent, and its synthesized `speed` (`instanceDefOf`) exists only to
- * make its expiry clock read one tick — extrapolating growth from it would creep the drawn disc
- * outward for no reason, so growth is skipped entirely for `instance.isExplosion`.
+ * this would let a flame creep past its own hitbox the moment one of them was tuned. A burst is
+ * spawned at full extent and drawn as it is.
  */
-export function beamGrownExtent(instance: DrawableInstance, elapsedMs: number): number {
+export function beamDrawnExtent(instance: DrawableInstance): number {
   if (instance.isExplosion) return instance.extent;
   const def = drawDefOf(instance);
   if (!def || def.kind !== "beam") return Math.max(0, instance.extent);
-  return Math.min(def.range, instance.extent + (def.speed * capMs(elapsedMs)) / 1000);
+  return Math.min(def.range, Math.max(0, instance.extent));
 }
 
 /**
@@ -1840,15 +1810,10 @@ export function clampToHull(
  * The polygons to fill for one non-circular projectile, in draw order, or `[]` for a weapon with no
  * style — whose caller falls back to the single flat `weaponFillOf` hull.
  *
- * Takes the instance and `elapsedMs` rather than a resolved position so it extrapolates through the
- * same `extrapolateShot` that `instanceDrawShape` uses. Handing it an already-extrapolated point
- * would let the markings and the hull drift apart by a frame's worth of travel — real distance for
- * a fast styled projectile, not a rounding error.
+ * Takes the drawn instance, the same one `instanceDrawShape` is handed, so the markings and the
+ * hull are placed from one pose and cannot drift apart.
  */
-export function projectileDrawLayers(
-  instance: DrawableInstance,
-  elapsedMs: number,
-): DrawBeamLayer[] {
+export function projectileDrawLayers(instance: DrawableInstance): DrawBeamLayer[] {
   const def = drawDefOf(instance);
   if (!def || def.kind !== "projectile") return [];
   const style = WEAPON_PROJECTILE_STYLES[def.id];
@@ -1857,7 +1822,7 @@ export function projectileDrawLayers(
   // says what it looks like. Reaching here with one would mean two tables owning the same weapon.
   if (def.hitbox.shape === "circle") return [];
 
-  const { x, y } = extrapolateShot(instance.x, instance.y, instance.angle, def.speed, elapsedMs);
+  const { x, y } = instance;
   const a = instance.angle;
 
   // A bar has no ellipse-ish half-width, so hull/tip/band/disc/spikes cannot describe it. `poly`
@@ -1978,13 +1943,13 @@ export function beamDrawLayers(
   x: number,
   y: number,
   angle: number,
+  /** As drawn: already advanced to the present by `ShotView` (NR40). */
   extent: number,
-  elapsedMs: number,
   /**
-   * A free-running clock (`performance.now()`), for a rect beam whose style asks to animate. Not
-   * the patch-relative `elapsedMs` beside it: that one saws back to zero every patch, which would
-   * tie the crackle to the network rather than to the shot. Defaulted so every existing caller and
-   * test keeps drawing the frozen frame it drew before.
+   * A free-running clock (`performance.now()`), for a rect beam whose style asks to animate. Never
+   * a patch-relative clock: that saws back to zero every patch, which would tie the crackle to the
+   * network rather than to the shot. Defaulted so every existing caller and test keeps drawing the
+   * frozen frame it drew before.
    */
   nowMs = 0,
 ): DrawBeamLayer[] {
@@ -1998,10 +1963,10 @@ export function beamDrawLayers(
   // A disc has no cross-section to nest layers inside, and it is drawn as a ring rather than as a
   // filled solid — see `isAuraInstance`. Layered styles are a directional-beam idea. A burst instance
   // always carries a disc hitbox, so this refusal is also what keeps one from ever reaching the
-  // `beamGrownExtent` call below — the `isExplosion: false` there is never actually load-bearing.
+  // `beamDrawnExtent` call below — the `isExplosion: false` there is never actually load-bearing.
   if (def.hitbox.shape === "disc") return [];
 
-  const grown = beamGrownExtent({ weaponId, isExplosion: false, x, y, angle, extent }, elapsedMs);
+  const grown = beamDrawnExtent({ weaponId, isExplosion: false, x, y, angle, extent });
   const layers: DrawBeamLayer[] = [];
   for (const [index, layer] of style.layers.entries()) {
     const outline =
@@ -2807,7 +2772,7 @@ function rectPoints(
 
 /**
  * Local rather than shared's `rotateInto`, which is not exported. Duplicating a rotation is safe in
- * a way duplicating `beamGrownExtent` would not be: there is no tuning knob in it to drift, and it
+ * a way duplicating `beamDrawnExtent` would not be: there is no tuning knob in it to drift, and it
  * is draw-only — the sim never sees these vertices.
  */
 function rotateBy(
@@ -2845,14 +2810,6 @@ function hexToFill(hex: string): number {
 
 
 /**
- * Extrapolation is capped at `NET_CONFIG.shotExtrapolationCapMs`, so a stalled connection cannot
- * fling a stale instance across the arena while the client waits for the delete that already happened.
- */
-function capMs(elapsedMs: number): number {
-  return Math.min(Math.max(elapsedMs, 0), NET_CONFIG.shotExtrapolationCapMs);
-}
-
-/**
  * What to draw for one live instance, in world space. The silhouette is the weapon's own hitbox
  * (D19), so what a player sees is exactly what can hurt them — and a new weapon needs no art.
  *
@@ -2866,7 +2823,7 @@ function capMs(elapsedMs: number): number {
  * An unrecognised `weaponId` still draws something (a small dot) rather than throwing, since a stale
  * or forward-incompatible id must never blank the whole shot layer.
  */
-export function instanceDrawShape(instance: DrawableInstance, elapsedMs: number): WorldShape {
+export function instanceDrawShape(instance: DrawableInstance): WorldShape {
   const def = drawDefOf(instance);
   // A maneuver moves the car instead of spawning an instance (Task 10's real branch), so
   // `state.weapons` never carries one — same fallback as an unrecognised id, since neither should
@@ -2881,11 +2838,10 @@ export function instanceDrawShape(instance: DrawableInstance, elapsedMs: number)
       instance.x,
       instance.y,
       instance.angle,
-      beamGrownExtent(instance, elapsedMs),
+      beamDrawnExtent(instance),
     );
   }
-  const at = extrapolateShot(instance.x, instance.y, instance.angle, def.speed, elapsedMs);
-  return projectileShapeAt(def.hitbox, at.x, at.y, instance.angle);
+  return projectileShapeAt(def.hitbox, instance.x, instance.y, instance.angle);
 }
 
 /**

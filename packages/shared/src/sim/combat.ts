@@ -979,8 +979,15 @@ function detonate(
  * Beams are never destroyed by the world; they are CLIPPED by `wallClipDistance` as they grow, so
  * they leave here untouched by either reckoning of "is this a beam" — the instance's own kind or its
  * weapon def's.
+ *
+ * Exported for the client's `ShotView` (NR40), which stops drawing a shot at the wall the server
+ * ends it on by asking this same predicate rather than a copy of it.
  */
-function hitsWorld(instance: WeaponInstance, previous: WeaponInstance, world: CombatWorld): boolean {
+export function hitsWorld(
+  instance: WeaponInstance,
+  previous: WeaponInstance,
+  world: Pick<CombatWorld, "obstacles" | "bounds">,
+): boolean {
   const def = instanceDefOf(instance.weaponId, instance.isExplosion);
   // A bouncing projectile is never destroyed by the world — `stepInstance` reflected it instead,
   // and testing the pre-reflection smear here would kill it on the very wall it just bounced off.

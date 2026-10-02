@@ -95,7 +95,7 @@ describe("projectile markings", () => {
     for (const id of styled) {
       for (const angle of ANGLES) {
         const instance = instanceAt(id, angle);
-        const layers = projectileDrawLayers(instance, 0);
+        const layers = projectileDrawLayers(instance);
         expect(layers.length).toBeGreaterThan(0);
         const cos = Math.cos(angle);
         const sin = Math.sin(angle);
@@ -190,7 +190,7 @@ describe("projectile markings", () => {
   it("draws roadblock's spikes to both long edges of its bar", () => {
     const def = weaponDefOf("roadblock");
     if (def.kind !== "projectile" || def.hitbox.shape !== "bar") throw new Error("shape moved");
-    const layers = projectileDrawLayers(instanceAt("roadblock", 0), 0);
+    const layers = projectileDrawLayers(instanceAt("roadblock", 0));
     const xs = layers.flatMap((l) => l.points.map((p) => p.x));
     const ys = layers.flatMap((l) => l.points.map((p) => p.y));
     // Heading 0, so `along` is +x (thickness) and `across` is +y (width).
@@ -206,7 +206,7 @@ describe("projectile markings", () => {
     // be hitbox that hurts and draws nothing -- exactly what D19 exists to prevent.
     const def = weaponDefOf("predator");
     if (def.kind !== "projectile" || def.hitbox.shape !== "capsule") throw new Error("shape moved");
-    const layers = projectileDrawLayers(instanceAt("predator", 0), 0);
+    const layers = projectileDrawLayers(instanceAt("predator", 0));
     const minX = Math.min(...layers.flatMap((l) => l.points.map((p) => p.x)));
     // Heading 0, so `along` is +x and the tail sits at `x - radiusAlong`.
     expect(minX).toBeCloseTo(500 - def.hitbox.radiusAlong, 6);
@@ -217,13 +217,10 @@ describe("projectile markings", () => {
     // it twice. `lance` is a beam, `magmablast` is a circle with a `GlowStyle` (the table it belongs
     // to regardless).
     for (const id of ["lance", "magmablast"] as WeaponId[]) {
-      expect(projectileDrawLayers(instanceAt(id, 0.5), 0)).toEqual([]);
+      expect(projectileDrawLayers(instanceAt(id, 0.5))).toEqual([]);
     }
     expect(
-      projectileDrawLayers(
-        { weaponId: "not-a-weapon", isExplosion: false, x: 0, y: 0, angle: 0, extent: 0 },
-        0,
-      ),
+      projectileDrawLayers({ weaponId: "not-a-weapon", isExplosion: false, x: 0, y: 0, angle: 0, extent: 0 }),
     ).toEqual([]);
   });
 
@@ -234,18 +231,15 @@ describe("projectile markings", () => {
     expect(isProjectileWeapon("not-a-weapon")).toBe(false);
   });
 
-  it("carries the markings along with the shot as it is extrapolated", () => {
-    // The markings must ride the same extrapolation as the hull. A thumper covers real, visible
-    // distance in one patch interval (~15 units at its 450 u/s in 33ms), so a mark left at the
-    // un-extrapolated position would visibly detach.
-    const still = projectileDrawLayers(instanceAt("thumper", 0), 0);
-    const moved = projectileDrawLayers(instanceAt("thumper", 0), 33);
-    const dx = moved[0]!.points[0]!.x - still[0]!.points[0]!.x;
-    expect(dx).toBeGreaterThan(0);
+  it("carries the markings along with the shot, from the one pose it is drawn at", () => {
+    // ShotView (NR40) moves the instance; the markings must ride whatever pose the hull is drawn at.
+    const still = projectileDrawLayers(instanceAt("thumper", 0));
+    const moved = projectileDrawLayers({ ...instanceAt("thumper", 0), x: instanceAt("thumper", 0).x + 15 });
     for (const [i, layer] of moved.entries()) {
       for (const [j, point] of layer.points.entries()) {
-        expect(point.x - still[i]!.points[j]!.x).toBeCloseTo(dx, 9);
+        expect(point.x - still[i]!.points[j]!.x).toBeCloseTo(15, 9);
       }
     }
   });
+
 });

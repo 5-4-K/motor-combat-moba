@@ -1256,10 +1256,9 @@ Every key of `config/net-config.ts`. Global, not per mode. Deleted by Phase D: `
 | `reconcileSnapAngle` | 0.6 | Wrapped angle error, in rad, past which it snaps |
 | `reconcileEaseRate` | 0.25 | Fraction of the reconcile error eased per `reconcileEaseReferenceMs` (one 20 Hz snapshot, the rate it was tuned at). Applied per snapshot through `reconcileEasePerSnapshot()` (`net/prediction.ts`) as `1 - (1 - rate) ** ((1000 / SNAPSHOT_RATE_HZ) / reconcileEaseReferenceMs)` — ~0.0914 per snapshot at 60 Hz, three of which ease exactly 0.25 |
 | `reconcileEaseReferenceMs` | 50 | The span `reconcileEaseRate` is authored over |
-| `shotExtrapolationCapMs` | 50 | How far past its last snapshot the client extrapolates a live shot before freezing it; one patch interval until NR12 deleted the patch rate, kept at its old wall-clock value |
 | `minDelayMs` | 33 | Floor of the adaptive remote render delay (NR30) |
 | `maxDelayMs` | 250 | Ceiling of the adaptive remote render delay (NR30) |
-| `maxExtrapolateMs` | 100 | Longest a remote is dead-reckoned past its newest snapshot before it holds (NR31) |
+| `maxExtrapolateMs` | 100 | Longest a remote is dead-reckoned past its newest snapshot before it holds (NR31); with `maxDelayMs`, also how far a shot is drawn past its newest snapshot (`shotViewMaxTicks`, NR40) |
 | `extrapolateSettleMs` | 100 | The remote settle ease. Times three things: a remote's drawn pose easing onto the new path when a snapshot lands under an extrapolated frame, or when a held frame (clock not yet synced, room paused) ends (NR31); the contact blend's final-pose settle after a snapshot rebases the reckoning or the anchor tick jumps; and the contact blend weight's slew, at most `frameMs / extrapolateSettleMs` per frame (NR34) |
 | `contactBlendRangeCars` | 2 | A remote within this many car lengths of the local car is drawn blended toward its dead-reckoned pose (full weight at one car length), so what you see is where prediction meets it (NR34, `net/contact-blend.ts`) |
 | `remoteTeleportCars` | 3 | A remote that moves more than this many car lengths in one snapshot has teleported: its interpolation and reckoning reset rather than blend across the jump |

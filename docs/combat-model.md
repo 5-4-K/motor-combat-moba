@@ -1513,14 +1513,17 @@ apply in both directions inside `otherCarHulls`.
 ## What the client shows
 
 `ArenaScene` draws every live instance from `state.weapons` — projectile and beam rows in one map,
-discriminated by `kind` — and never predicts a shot or an HP change. A projectile is extrapolated
-along its own constant velocity between patches (`extrapolateShot`, capped at one patch interval); a
-beam's `extent` is extrapolated the same way under the same cap. An attached beam's origin is
-re-anchored to its owner's pose by the **server**, every tick, and reaches the client on the row like
-any other instance — the client does no owner lookup of its own, so a welded beam carries the same
-patch-to-patch lag as the car it is welded to. Both extrapolations are exact
-rather than a guess, because the server integrates the identical motion, and nothing either produces
-feeds back into state. An instance is drawn from its own hitbox shape and dimensions, never a
+discriminated by `kind` — and never predicts a shot or an HP change. Every instance is drawn at the
+**local present** (NR40): `ShotView` (`packages/shared/src/net/shot-view.ts`) advances it from its
+newest snapshot to the fractional tick the local car is drawn at, with the shared `stepInstance` —
+walls and `bounceOffWorld` bounces included, cars ignored — capped at `maxExtrapolateMs +
+maxDelayMs`. A non-bouncing shot is drawn no further than the wall the server's own `hitsWorld`
+would end it on; a homing shot holds its heading (the target is the server's, never networked) and
+a newer snapshot that moves its path is eased in, never snapping more than one tick of its own
+motion; an attached beam is re-anchored to its owner's DRAWN pose rather than extrapolated; an
+explosion stays put. A shot's end (hit, expiry) is the server's: the row's removal removes it. The
+beam fade and the muzzle flare's age stay on the snapshot's clock. The advance is the server's own
+motion rather than a guess, and nothing it produces feeds back into state. An instance is drawn from its own hitbox shape and dimensions, never a
 sprite — what you see is the hitbox, so a new weapon is playable with no art at all.
 
 A weapon may additionally carry a **look**, held in one of three tables in `scenes/combat-visual.ts`,
