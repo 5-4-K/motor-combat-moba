@@ -1301,6 +1301,17 @@ describe("beamFadeAlpha", () => {
     }
   });
 
+  it("reaches 0 lifeOffsetTicks earlier for a shot-compensated beam, as instanceExpired does (NR37)", () => {
+    for (const id of beams) {
+      const death = deathTickOf(id) - 4;
+      expect(beamFadeAlpha(WeaponKind.BEAM, id, SPAWN, death, false, 4)).toBe(0);
+      expect(beamFadeAlpha(WeaponKind.BEAM, id, SPAWN, death - 1, false, 4)).toBeGreaterThan(0);
+      expect(beamFadeAlpha(WeaponKind.BEAM, id, SPAWN, death - 1, false, 4)).toBe(
+        beamFadeAlpha(WeaponKind.BEAM, id, SPAWN, death + 3),
+      );
+    }
+  });
+
   it("is still visible on the last tick it is drawn, so nothing ever draws at alpha 0", () => {
     // The sim stops the instance hitting anything ON the death tick (`instanceExpired`), so the
     // last frame that carries a live beam is one tick earlier — and it must still be on screen.

@@ -6,6 +6,7 @@ import { DEFAULT_GAME_MODE } from "../modes/registry.js";
 import type { CarId } from "../config/types.js";
 import { WEAPON_TABLE, weaponDefOf } from "../config/weapon-config.js";
 import { SPIKE_CONFIG } from "../config/spike-config.js";
+import { NET_CONFIG } from "../config/net-config.js";
 import { TURRET_CONFIG, TURRET_TICKS } from "../config/turret-config.js";
 import { MS_PER_TICK, TICK_RATE_HZ } from "../constants.js";
 import { installMode } from "../modes/active.js";
@@ -2580,7 +2581,7 @@ describe("shot fast-forward (NR37, NR38)", () => {
     const plain = simulate({ pressTick: T, untilTick: T, mask: AFTERBURNER, pose: now });
     const beam = (r: CombatResult) => r.instances.find((i) => i.weaponId === "afterburner")!;
     expect(beam(a).extent).toBeGreaterThan(beam(plain).extent);
-    expect(sansPress(beam(a))).toEqual({ ...sansPress(beam(b)), spawnTick: T });
+    expect(sansPress(beam(a))).toEqual({ ...sansPress(beam(b)), spawnTick: T, lifeOffsetTicks: 4 });
     // Anchored where the car IS, not where an earlier press would have left it.
     expect(beam(a).angle).toBeCloseTo(now.angle + beam(a).muzzleDir, 9);
     expect({ x: beam(a).x, y: beam(a).y }).toEqual({ x: beam(plain).x, y: beam(plain).y });
@@ -2603,6 +2604,60 @@ describe("shot fast-forward (NR37, NR38)", () => {
     expect(lance(a).spawnTick).toBe(T + windUp);
     expect(lance(a).extent).toBeGreaterThan(lance(plain).extent);
     expect(lance(a).extent).toBe(lance(b).extent);
+  });
+
+  it("a lifetimeMs projectile expires on exactly the tick the k-earlier shot does", () => {
+    // thumper: bastion fire slot 1, a bouncing shell on a 2900 ms flight clock.
+    const run = (pressTick: number, untilTick: number, k?: number) =>
+      shells(simulate({ pressTick, untilTick, mask: MAGMA, k, carId: "bastion" })).filter(
+        (i) => i.weaponId === "thumper",
+      );
+    const a0 = run(T, T, 4)[0]!;
+    const b0 = run(T - 4, T)[0]!;
+    expect(a0.expiresAtTick).toBe(b0.expiresAtTick);
+    expect({ x: a0.x, y: a0.y, angle: a0.angle }).toEqual({ x: b0.x, y: b0.y, angle: b0.angle });
+    const lastAlive = b0.expiresAtTick - 1;
+    for (const until of [lastAlive, lastAlive + 1]) {
+      expect(run(T, until, 4)).toHaveLength(until === lastAlive ? 1 : 0);
+      expect(run(T - 4, until)).toHaveLength(until === lastAlive ? 1 : 0);
+    }
+    // Uncompensated, it lives 4 ticks longer — the extra reach a laggier shooter must NOT get.
+    expect(run(T, lastAlive + 1)).toHaveLength(1);
+  });
+
+  it("homing guidance ends on the k-earlier shot's tick", () => {
+    // predator: bullseye fire slot 1, proximity homing on a 2000 ms window.
+    const shell = (pressTick: number, k?: number) =>
+      shells(simulate({ pressTick, untilTick: T, mask: MAGMA, k, carId: "bullseye" }))[0]!;
+    const a = shell(T, 6);
+    const b = shell(T - 6);
+    expect(a.weaponId).toBe("predator");
+    expect(a.homingUntilTick).toBeGreaterThan(0);
+    expect(a.homingUntilTick).toBe(b.homingUntilTick);
+    expect(a.expiresAtTick).toBe(b.expiresAtTick);
+    expect(shell(T).homingUntilTick).toBe(a.homingUntilTick + 6);
+  });
+
+  it("a beam's life (and its interval damage) ends on the k-earlier beam's tick", () => {
+    const t = weaponTicksOf("afterburner");
+    const lastAlive = T - 4 + t.flight + t.lifetime - 1;
+    const beam = (r: CombatResult) => r.instances.filter((i) => i.weaponId === "afterburner");
+    for (const until of [lastAlive, lastAlive + 1]) {
+      const a = beam(simulate({ pressTick: T, untilTick: until, mask: AFTERBURNER, k: 4 })).length;
+      const b = beam(simulate({ pressTick: T - 4, untilTick: until, mask: AFTERBURNER })).length;
+      expect(a > 0).toBe(until === lastAlive);
+      expect(a).toBe(b);
+    }
+    // `spawnTick` stays the press tick (NR39); the age rides in `lifeOffsetTicks`.
+    const a = beam(simulate({ pressTick: T, untilTick: T, mask: AFTERBURNER, k: 4 }))[0]!;
+    expect({ spawnTick: a.spawnTick, lifeOffsetTicks: a.lifeOffsetTicks }).toEqual({ spawnTick: T, lifeOffsetTicks: 4 });
+  });
+
+  it("clamps a budget past the cap to the cap", () => {
+    const cap = msToTicks(NET_CONFIG.shotCompCapMs);
+    const at = (k: number) => shells(simulate({ pressTick: T, untilTick: T, mask: MAGMA, k }))[0]!;
+    expect(at(10_000)).toEqual(at(cap));
+    expect(at(10_000).x).toBeCloseTo(at(0).x + cap * STEP, 9);
   });
 
   it("never fast-forwards a maneuver", () => {

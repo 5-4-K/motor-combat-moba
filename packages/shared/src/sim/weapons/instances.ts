@@ -102,6 +102,18 @@ export interface WeaponInstance {
    * is credited to the press that threw the shell rather than reading as its own free shot.
    */
   pressId: string;
+  /**
+   * How many ticks OLDER this instance is than its `spawnTick` says (NR37): the shot compensation
+   * its press carried, so a beam's life — counted from `spawnTick` by `instanceExpired` — ends on
+   * the tick a shot fired that many ticks earlier would. `spawnTick` itself stays the press tick,
+   * which the shooter's client matches its provisional shot against (NR39). Absent means 0, which
+   * is every uncompensated shot and every burst (a burst's `spawnTick` is backdated directly).
+   *
+   * Networked (`WeaponInstanceState.lifeOffsetTicks`): the client's beam fade (`beamFadeAlpha`)
+   * computes the same death tick, so it must know the offset or it would fade a compensated beam
+   * out up to `k` ticks after the server had already removed it.
+   */
+  lifeOffsetTicks?: number;
 }
 
 /** One group of instances to emit: which weapon, from which slot. */
@@ -418,7 +430,7 @@ export function instanceExpired(
   const life = instance.isExplosion
     ? ticks.explosion!.flight + ticks.explosion!.lifetime
     : ticks.flight + ticks.lifetime;
-  return tick - instance.spawnTick >= life;
+  return tick - instance.spawnTick + (instance.lifeOffsetTicks ?? 0) >= life;
 }
 
 /**

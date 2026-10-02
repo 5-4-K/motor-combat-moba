@@ -1,6 +1,7 @@
 import { DEFAULT_CAR_ID, hpOf } from "../config/car-config.js";
 import { isStatusId } from "../config/status-config.js";
 import type { StatusId } from "../config/status-types.js";
+import { NET_CONFIG } from "../config/net-config.js";
 import { instanceDefOf, isWeaponId, weaponDefOf } from "../config/weapon-config.js";
 import { msToTicks, weaponTicksOf } from "../config/weapon-ticks.js";
 import type { ManeuverWeaponDef, WeaponId } from "../config/weapon-types.js";
@@ -8,9 +9,9 @@ import type { CarId } from "../config/types.js";
 import { TICK_RATE_HZ } from "../constants.js";
 import { cars, spike } from "../modes/active.js";
 import {
-  aabbCorners,
-  convexOverlap,
+  convexOverlapsAabb,
   pointOutsideBounds,
+  pointsBoundsOf,
   type Aabb,
   type Bounds,
 } from "./collide.js";
@@ -468,7 +469,12 @@ export function runCombat(input: CombatInput): CombatResult {
         // A press begun this tick freezes its shot-compensation budget onto itself (NR37), so a
         // wind-up row's instance is advanced by it on whichever tick it is finally released.
         // Written only when positive, so an uncompensated press's state is exactly what it was.
-        const comp = input.fastForward?.get(player.sessionId) ?? 0;
+        // Clamped to the cap defensively: the server prices it already clamped (NR36), but a caller
+        // bug must never turn into an unbounded loop or a shot from further back than the cap.
+        const comp = Math.min(
+          input.fastForward?.get(player.sessionId) ?? 0,
+          msToTicks(NET_CONFIG.shotCompCapMs),
+        );
         if (Number.isInteger(comp) && comp > 0) {
           player.fireState = { ...player.fireState, pending: { ...pending, compTicks: comp } };
         }
@@ -483,6 +489,10 @@ export function runCombat(input: CombatInput): CombatResult {
         const pendingDef = weaponDefOf(pending.weaponId);
         if (pendingDef.kind === "beam" && pendingDef.holdsDuringFire && player.maneuver === ManeuverKind.NONE) {
           const t = weaponTicksOf(pendingDef.id);
+          // Counted from the press, NOT shortened by the press's shot compensation: a compensated
+          // beam's life is backdated by `k` (`lifeOffsetTicks`, NR37) while maneuvers are never
+          // fast-forwarded (Phase F), so a lagging shooter's HOLD can outlast their own beam by up
+          // to `k` ticks. Accepted — it costs only the lagging shooter, never anyone they shoot at.
           player.maneuver = ManeuverKind.HOLD;
           player.maneuverTicksLeft = t.startUp + t.flight + t.lifetime;
           player.maneuverWeaponId = pendingDef.id;
@@ -521,8 +531,16 @@ export function runCombat(input: CombatInput): CombatResult {
         { obstacles: world.obstacles, bounds: world.bounds },
       );
       instanceSeq = spawned.seq;
-      stepped.push(...spawned.instances);
-      if (pressComp > 0) for (const born of spawned.instances) fastForwardOf.set(born.id, pressComp);
+      // A compensated press's shots are born `pressComp` ticks OLD (NR37): every clock that ends
+      // their life or their guidance is backdated with their travel, so they fly, steer and linger
+      // for exactly as long as a shot fired that many ticks earlier — never longer, which would hand
+      // a laggier shooter more reach and damage window than a LAN one. `spawnTick` is the one clock
+      // left at the press, because the shooter's client matches its provisional shot on it (NR39);
+      // a beam's life, which `instanceExpired` counts from `spawnTick`, takes the offset instead.
+      stepped.push(...(pressComp > 0 ? spawned.instances.map((i) => bornOlder(i, pressComp)) : spawned.instances));
+      if (pressComp > 0) {
+        for (const born of spawned.instances) fastForwardOf.set(born.id, pressComp);
+      }
       // `self` statuses land when a shot actually goes OUT, not when the key went down: a press that
       // a cooldown rejected buys nothing, and a wind-up pays off at the end of the wind-up. No hit
       // test is involved, so a self-buff works whether or not the weapon connects with anything.
@@ -640,11 +658,11 @@ export function runCombat(input: CombatInput): CombatResult {
    * - The clock is `world.tick` throughout. Damage and statuses land once, this tick, through the
    *   ordinary path, so kill attribution and the per-target damage clock (`damageMode` included) are
    *   untouched: a target swept on two loop steps is still hit once, because the clock reads the same
-   *   tick both times. A shell's own clocks stay anchored at its press — `spawnTick` is the press
-   *   tick on the wire, which the client matches its provisional shot against (NR39), and a held
-   *   beam's linger matches the HOLD its press started — so only its TRAVEL (position, `distance`,
-   *   bounces, an attached beam's `extent`) is advanced. A row whose life is clock-limited
-   *   (`lifetimeMs`, a beam's linger) therefore keeps its full clock from the press.
+   *   tick both times. The shot's OWN clocks, though, were backdated by `ticks` when it was born
+   *   (`bornOlder`): `expiresAtTick`, `homingUntilTick`, and a beam's life through
+   *   `lifeOffsetTicks` — so a `lifetimeMs` row, a homing window and a beam's linger (and with it
+   *   its interval damage) all end on the tick they would for a shot fired `ticks` earlier. Only
+   *   `spawnTick` stays at the press, for the client's provisional-shot match (NR39).
    * - An attached beam re-anchors to its owner's CURRENT pose on every step (NR38); only its growth
    *   is advanced.
    *
@@ -723,6 +741,20 @@ export function runCombat(input: CombatInput): CombatResult {
   );
 
   return { players, instances: kept, instanceSeq };
+}
+
+/**
+ * A newborn instance aged `ticks` ticks (NR37): the life and homing clocks frozen into it at spawn are
+ * moved back, and `lifeOffsetTicks` carries the age a beam's `spawnTick`-relative life reads. A clock
+ * of 0 means "none" (no `lifetimeMs`, not homing) and stays 0.
+ */
+function bornOlder(instance: WeaponInstance, ticks: number): WeaponInstance {
+  return {
+    ...instance,
+    expiresAtTick: instance.expiresAtTick > 0 ? instance.expiresAtTick - ticks : 0,
+    homingUntilTick: instance.homingUntilTick > 0 ? instance.homingUntilTick - ticks : 0,
+    lifeOffsetTicks: ticks,
+  };
 }
 
 /**
@@ -966,27 +998,14 @@ function hitsWorld(instance: WeaponInstance, previous: WeaponInstance, world: Co
   // Any vertex of the swept hull off the field ends the shot: the hull covers the whole path, so a
   // shot whose hitbox crossed the boundary at any point this tick is out. `pointOutsideBounds` is
   // the one spelling of that rule, shared with the beam clip.
-  let minX = Number.POSITIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
   for (const point of swept.points) {
     if (pointOutsideBounds(point.x, point.y, world.bounds)) return true;
-    if (point.x < minX) minX = point.x;
-    if (point.x > maxX) maxX = point.x;
-    if (point.y < minY) minY = point.y;
-    if (point.y > maxY) maxY = point.y;
   }
+  // `convexOverlapsAabb` puts an exact broadphase in front of the SAT; it matters because this test
+  // runs up to `1 + k` times per shot on a compensated press's birth tick (NR37), against every strip.
+  const reach = pointsBoundsOf(swept.points);
   for (const obstacle of world.obstacles) {
-    // Broadphase, and exact rather than approximate: an obstacle the swept hull's own bounding box
-    // does not reach is separated along one of the obstacle's own face normals, which `convexOverlap`
-    // tests, by at least the gap measured here — and SAT counts anything up to `MIN_OVERLAP` (1e-6)
-    // of overlap as separated, which dwarfs the last-bit rounding of `aabbCorners`. So it only skips
-    // calls that would have returned false. It exists because this test now runs up to
-    // `1 + k` times per shot on a compensated press's birth tick (NR37), against every strip.
-    if (obstacle.x >= maxX || obstacle.x + obstacle.w <= minX) continue;
-    if (obstacle.y >= maxY || obstacle.y + obstacle.h <= minY) continue;
-    if (convexOverlap(swept.points, aabbCorners(obstacle))) return true;
+    if (convexOverlapsAabb(swept.points, reach, obstacle)) return true;
   }
   return false;
 }

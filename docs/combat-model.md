@@ -949,9 +949,15 @@ would have been had it been fired `k` ticks earlier. The rules:
 - Against the **present** world: cars are not rewound, and a homing shot acquires and steers toward
   where its target stands now.
 - At the present tick: damage and statuses land once, this tick, through the ordinary path — kill
-  attribution and the per-target damage clock (`damageMode` included) are unchanged. A shell's own
-  clocks (`spawnTick`, `lifetimeMs`, a beam's linger) stay anchored at its press; only its travel —
-  position, `distance`, bounces, an attached beam's `extent` — is advanced.
+  attribution and the per-target damage clock (`damageMode` included) are unchanged.
+- The shot is born `k` ticks OLD: `expiresAtTick` and `homingUntilTick` are backdated by `k`, and a
+  beam's life reads `lifeOffsetTicks` (`k`, networked so the client's fade ends on the same tick), so
+  a `lifetimeMs` row, a homing window and a beam's linger all end exactly when the earlier shot's
+  would — a laggier shooter never gets more reach or damage window than a LAN one. `spawnTick` alone
+  stays at the press, because the shooter's client matches its provisional shot on it (NR39). A
+  held beam's HOLD maneuver is not shortened (maneuvers are never fast-forwarded), so it can outlast
+  its beam by up to `k` ticks — a cost only the lagging shooter pays.
+- `runCombat` clamps each budget to `msToTicks(NET_CONFIG.shotCompCapMs)` defensively.
 - An attached beam re-anchors to its owner's **current** pose on every step.
 - An explosion born on loop step `j` of `k` is backdated `k − j` ticks and advanced by them, so its
   linger window ends exactly where an earlier-fired shell's burst's would, and a car inside it is

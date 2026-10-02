@@ -491,6 +491,42 @@ export function convexOverlap(a: readonly Vec2[], b: readonly Vec2[]): boolean {
   return true;
 }
 
+/** The axis-aligned box around a point set; inverted (min > max) for none. */
+export interface PointBounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+export function pointsBoundsOf(points: readonly Vec2[]): PointBounds {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const point of points) {
+    if (point.x < minX) minX = point.x;
+    if (point.x > maxX) maxX = point.x;
+    if (point.y < minY) minY = point.y;
+    if (point.y > maxY) maxY = point.y;
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+/**
+ * `convexOverlap(points, aabbCorners(box))` behind a broadphase, and EXACT rather than approximate:
+ * `bounds` must be `pointsBoundsOf(points)`. A box the polygon's own bounding box does not reach is
+ * separated along one of the box's own face normals — which the SAT tests — by at least the gap
+ * measured here, and the SAT counts anything up to `MIN_OVERLAP` of overlap as separated, which
+ * dwarfs the last-bit rounding of `aabbCorners`. So it only skips calls that would have returned
+ * false. Pinned by a seeded property test in `collide.test.ts`.
+ */
+export function convexOverlapsAabb(points: readonly Vec2[], bounds: PointBounds, box: Aabb): boolean {
+  if (box.x >= bounds.maxX || box.x + box.w <= bounds.minX) return false;
+  if (box.y >= bounds.maxY || box.y + box.h <= bounds.minY) return false;
+  return convexOverlap(points, aabbCorners(box));
+}
+
 /** Outward normals of each edge, the candidate separating axes for a convex polygon. */
 function edgeNormals(points: readonly Vec2[]): Vec2[] {
   const axes: Vec2[] = [];

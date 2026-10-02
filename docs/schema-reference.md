@@ -186,6 +186,7 @@ shared `modifiersFromRows`. See [`combat-model.md`](combat-model.md#statuses) fo
 | `spawnTick` | uint32 | `0` | Tick spawned |
 | `alive` | boolean | `true` | False when spent |
 | `isExplosion` | boolean | `false` | True when this row is its weapon's explosion, not its shell |
+| `lifeOffsetTicks` | uint8 | `0` | Ticks older than `spawnTick` says: the press's shot compensation (NR37). A beam dies at `spawnTick + flight + lifetime - lifeOffsetTicks`. Protocol 4 |
 
 `ArenaState.weapons` is a `MapSchema`, not an array, keyed by instance id — the bridge **diffs**
 live instances by id, and a collection cleared and refilled every tick would patch every instance to

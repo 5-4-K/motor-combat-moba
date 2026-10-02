@@ -2934,6 +2934,7 @@ export function beamFadeAlpha(
   spawnTick: number,
   tick: number,
   isExplosion = false,
+  lifeOffsetTicks = 0,
 ): number {
   if (kind !== WeaponKind.BEAM || !isWeaponId(weaponId)) return 1;
   const ticks = weaponTicksOf(weaponId);
@@ -2942,9 +2943,11 @@ export function beamFadeAlpha(
   const lifetime = burst ? burst.lifetime : ticks.lifetime;
   if (lifetime <= 0) return 1;
 
-  // The same boundary `instanceExpired` uses (`tick - spawnTick >= flight + lifetime`), so the
-  // alpha reaches 0 on exactly the tick the sim stops the instance hitting anything.
-  const deathTick = spawnTick + flight + lifetime;
+  // The same boundary `instanceExpired` uses (`tick - spawnTick + lifeOffsetTicks >= flight +
+  // lifetime`), so the alpha reaches 0 on exactly the tick the sim stops the instance hitting
+  // anything — a shot-compensated beam (NR37) included, whose life started `lifeOffsetTicks` before
+  // its `spawnTick`.
+  const deathTick = spawnTick + flight + lifetime - lifeOffsetTicks;
   // Clamped to the linger: a window longer than the lifetime would otherwise start the fade while
   // the beam is still growing, which is the one thing the "full opacity until the end" rule exists
   // to prevent.

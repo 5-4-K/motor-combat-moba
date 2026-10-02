@@ -275,6 +275,7 @@ export function applyCombatResult(state: ArenaState, result: CombatResult, memor
       row.kind = instance.kind === "beam" ? WeaponKind.BEAM : WeaponKind.PROJECTILE;
       row.isExplosion = instance.isExplosion;
       row.spawnTick = instance.spawnTick;
+      row.lifeOffsetTicks = instance.lifeOffsetTicks ?? 0;
       state.weapons.set(instance.id, row);
     }
     row.x = instance.x;

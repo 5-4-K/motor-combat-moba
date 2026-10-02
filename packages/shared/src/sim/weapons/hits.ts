@@ -128,10 +128,10 @@ const BROADPHASE_CLEARANCE = 1e-3;
 /**
  * `shapeHitsObb`, behind an exact broadphase: a hull whose bounding circle sits clear of the shape's
  * bounding box cannot overlap it, so the SAT is skipped. Built once per instance per resolution and
- * asked once per car. It exists because a compensated press resolves each of its shots up to
+ * asked once per car. Exported for its seeded property test (`hits.test.ts`). It exists because a compensated press resolves each of its shots up to
  * `1 + k` times on its birth tick (NR37), against every car; the answer is unchanged.
  */
-function shapeReach(shape: WorldShape): { touches(hull: Obb): boolean } {
+export function shapeReach(shape: WorldShape): { touches(hull: Obb): boolean } {
   let minX: number;
   let minY: number;
   let maxX: number;

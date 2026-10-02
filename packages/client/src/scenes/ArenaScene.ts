@@ -3802,6 +3802,7 @@ export class ArenaScene extends Phaser.Scene {
         instance.spawnTick,
         room.state.tick,
         instance.isExplosion,
+        instance.lifeOffsetTicks,
       );
       if (shape.kind === "circle" && isAuraInstance(instance)) {
         // The crust the fx layer stamps underneath is the field's body now, so the flat wash that

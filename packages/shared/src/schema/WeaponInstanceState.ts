@@ -30,4 +30,11 @@ export class WeaponInstanceState extends Schema {
    * Frozen at spawn, so it is written on row creation and never patched after.
    */
   @type("boolean") isExplosion = false;
+  /**
+   * Ticks this instance is older than `spawnTick` says (NR37 shot compensation; 0 for an
+   * uncompensated shot). Appended in protocol 4. The client's beam fade reads it so its death tick
+   * matches `instanceExpired`'s: `spawnTick + flight + lifetime - lifeOffsetTicks`. `spawnTick` is
+   * left at the press tick because NR39's provisional-shot match keys on it. Frozen at spawn.
+   */
+  @type("uint8") lifeOffsetTicks = 0;
 }
