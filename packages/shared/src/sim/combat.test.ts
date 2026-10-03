@@ -2547,6 +2547,95 @@ describe("shot fast-forward (NR37, NR38)", () => {
     expect(ended[0]!.x).toBeCloseTo(bursts(r)[0]!.x, 9);
   });
 
+  it("I1: a shot dead at its own muzzle on an uncompensated press (k = 0) is reported in `ended`", () => {
+    // The target's hull already covers the muzzle: the shell's birth-tick resolution, with no
+    // fast-forward at all, is where it ends (the point-blank case).
+    const targetX = muzzleX() + HALF_CAR;
+    const r = simulate({ pressTick: T, untilTick: T, mask: MAGMA, others: [player("bbb", { x: targetX, y: OPEN_Y, hp: MIRAGE_HP })] });
+    expect(shells(r)).toHaveLength(0);
+    expect(find(r, "bbb").hp).toBeLessThan(MIRAGE_HP);
+    const ended = r.ended.filter((i) => !i.isExplosion);
+    expect(ended).toHaveLength(1);
+    expect(ended[0]!).toMatchObject({ weaponId: "magmablast", ownerSessionId: "aaa", alive: false, spawnTick: T });
+    expect(ended[0]!.x).toBeCloseTo(muzzleX(), 9);
+  });
+
+  it("I1: a fresh attached beam whose owner dies before its fast-forward is reported in `ended`", () => {
+    // bbb's shell, already in flight, kills aaa (1 hp) on the tick aaa presses afterburner with a
+    // budget. The shell resolves first (existing instances step and resolve before newborns), so the
+    // beam's first fast-forward step finds its owner wrecked and the beam gone.
+    const shooter = () =>
+      player("bbb", { x: 100, y: OPEN_Y, angle: 0, hp: MIRAGE_HP, fireState: newFireState("mirage", 1) });
+    const victim = (over: Partial<CombatPlayer> = {}) =>
+      player("aaa", { x: 420, y: OPEN_Y, angle: 0, hp: 1, fireState: newFireState("mirage", 1), ...over });
+    // Fly bbb's shell until the tick it would kill aaa, then replay that tick with aaa pressing.
+    let players: CombatPlayer[] = [shooter(), victim()];
+    players[0]!.fireMask = MAGMA;
+    let instances: readonly WeaponInstance[] = [];
+    let instanceSeq = 0;
+    let hitTick = -1;
+    let before = { players, instances, instanceSeq };
+    for (let tick = T - 40; tick <= T && hitTick < 0; tick++) {
+      before = { players: players.map((p) => ({ ...p })), instances, instanceSeq };
+      const r = runCombat({ world: world({ tick }), players, instances, instanceSeq });
+      if (!find(r, "aaa").alive) hitTick = tick;
+      players = r.players.map((p) => ({ ...p, fireMask: 0 }));
+      instances = r.instances;
+      instanceSeq = r.instanceSeq;
+    }
+    expect(hitTick).toBeGreaterThan(T - 40);
+    const replay = (k?: number) =>
+      runCombat({
+        world: world({ tick: hitTick }),
+        players: before.players.map((p) => (p.sessionId === "aaa" ? { ...p, fireMask: AFTERBURNER } : { ...p })),
+        instances: before.instances,
+        instanceSeq: before.instanceSeq,
+        fastForward: k === undefined ? undefined : new Map([["aaa", k]]),
+      });
+    const beamEnded = (r: CombatResult) => r.ended.filter((i) => i.weaponId === "afterburner");
+    // Every beam the press releases (one per muzzle), as the uncompensated replay keeps them.
+    const beams = replay().instances.filter((i) => i.weaponId === "afterburner").length;
+    expect(beams).toBeGreaterThan(0);
+    const r = replay(3);
+    expect(find(r, "aaa").alive).toBe(false);
+    expect(r.instances.some((i) => i.weaponId === "afterburner")).toBe(false);
+    expect(beamEnded(r)).toHaveLength(beams);
+    for (const end of beamEnded(r)) {
+      expect(end).toMatchObject({ ownerSessionId: "aaa", alive: false, spawnTick: hitTick, lifeOffsetTicks: 3 });
+    }
+    // Uncompensated, the beam is not fast-forwarded: it survives its tick and its row leaving next
+    // tick is its end, so nothing is reported.
+    expect(beamEnded(replay())).toEqual([]);
+  });
+
+  it("I1: a fresh attached beam cut off by its owner's same-tick stun is reported in `ended`", () => {
+    // A stun requested this tick lands after the press read the car's modifiers (0d), so the press
+    // fires, and the end-of-tick interruption sweep (O8) then removes the beam born this tick.
+    const run = (stun: boolean) =>
+      runCombat({
+        world: world({ tick: T }),
+        players: [
+          player("aaa", { x: 300, y: OPEN_Y, hp: MIRAGE_HP, fireState: newFireState("mirage", 1), fireMask: AFTERBURNER }),
+          player("bbb", { x: 1200, y: OPEN_Y, hp: MIRAGE_HP }),
+        ],
+        instances: [],
+        instanceSeq: 0,
+        statusRequests: stun ? [{ targetSessionId: "aaa", statusId: "stunned", durationTicks: 14, sourceSessionId: "bbb" }] : [],
+      });
+    const free = run(false);
+    // One beam per muzzle.
+    const beams = free.instances.filter((i) => i.weaponId === "afterburner").length;
+    expect(beams).toBeGreaterThan(0);
+    expect(free.ended).toEqual([]);
+    const stunned = run(true);
+    expect(stunned.instances.some((i) => i.weaponId === "afterburner")).toBe(false);
+    const ended = stunned.ended.filter((i) => i.weaponId === "afterburner");
+    expect(ended).toHaveLength(beams);
+    for (const end of ended) {
+      expect(end).toMatchObject({ ownerSessionId: "aaa", alive: false, spawnTick: T, attached: true });
+    }
+  });
+
   it("ends at a wall inside the first k ticks, like an earlier shot would", () => {
     // A wall half a tick of travel past the shell's leading edge at the muzzle: it dies on step 1.
     const wall = { x: muzzleX() + SHELL_R + STEP / 2, y: OPEN_Y - 100, w: 40, h: 200 };

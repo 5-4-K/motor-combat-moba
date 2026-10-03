@@ -151,10 +151,13 @@ export const NET_CONFIG = {
    * NR37/NR39 (Phase F final review I1): how long a shot that ended on its own birth tick — at the
    * muzzle or inside its shot fast-forward, so it never stood in a snapshot alive — stays on the wire
    * as an ENDED row (`alive: false`, its end pose) before it is removed. Every client draws its
-   * impact from that row, and the shooter's provisional confirms against it and ends. It must still
-   * be there in the first snapshot the shooter's client applies at or past `spawnTick +
-   * provisionalShotMatchTicks` (when an unconfirmed provisional is dropped), and a frame can apply
-   * several queued patches at once on a jittery link, so it spans six per-tick patches rather than one.
+   * impact from that row, and the shooter's provisional confirms against it and ends. `confirm` reads
+   * the applied room state every frame, before the unconfirmed-provisional drop reads that same
+   * state, so the requirement is only that the row is still present on SOME frame the client draws
+   * after its snapshot arrives — not on any particular snapshot. A frame can apply several queued
+   * patches at once on a jittery link and sees only the last of them, so the row spans six per-tick
+   * patches rather than one. A client that draws no frame with the row present (a stall longer than
+   * this) misses the impact, and its provisional is dropped unconfirmed.
    */
   endedShotRowMs: 100,
 } as const;
