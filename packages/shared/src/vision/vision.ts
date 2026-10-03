@@ -36,6 +36,9 @@ export interface VisionShape {
 
 const ANGLE_EPSILON = 1e-9;
 
+/** Below this half-angle (radians) `marginShape` gives up on the cone and keeps the ellipse only. */
+export const MIN_MARGIN_HALF_ANGLE = 0.01;
+
 /** One car's vision: an ellipse at the car-frame offset, cut to a cone from its centre (CB25). */
 export function visionShapeOf(pose: Pose, fov: FovConfig): VisionShape {
   const cos = Math.cos(pose.angle);
@@ -78,8 +81,15 @@ export function inShape(p: Pt, s: VisionShape): boolean {
  * edges and is unchanged. The client keeps drawing the unmargined shape.
  */
 export function marginShape(shape: VisionShape, margin: number): VisionShape {
-  const grown = { ...shape, rangeX: shape.rangeX + margin, rangeY: shape.rangeY + margin };
-  if (shape.full) return grown;
+  // Scale, do not add: E grown by +margin per axis does not contain the margin-neighbourhood of a
+  // non-circular ellipse (the offset curve bulges past it on the diagonals). A convex set that
+  // holds a disc of radius r about its centre, scaled by s, holds its own (s-1)*r neighbourhood,
+  // and the ellipse holds a disc of radius min(rangeX, rangeY).
+  const scale = 1 + margin / Math.min(shape.rangeX, shape.rangeY);
+  const grown = { ...shape, rangeX: shape.rangeX * scale, rangeY: shape.rangeY * scale };
+  // A cone narrower than this has a setback of margin / sin(halfAngle) that explodes; the safe
+  // superset is to drop the cone and keep the (margined) ellipse alone.
+  if (shape.full || shape.halfAngle < MIN_MARGIN_HALF_ANGLE) return { ...grown, full: true };
   return { ...grown, apexBack: (shape.apexBack ?? 0) + margin / Math.sin(shape.halfAngle) };
 }
 

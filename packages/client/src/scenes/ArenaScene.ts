@@ -1,17 +1,15 @@
 import Phaser from "phaser";
 import type { Room } from "@colyseus/sdk";
-import type {
-  ArenaDef,
-  ArenaState,
-  InputFrame,
-  InputKeys,
-  PlayerState,
-  SimBody,
-  StepContext,
-  WeaponInstanceState,
-  WeaponSlotState,
-} from "@motor-combat-moba/shared";
 import {
+  type ArenaDef,
+  type ArenaState,
+  type InputFrame,
+  type InputKeys,
+  type PlayerState,
+  type SimBody,
+  type StepContext,
+  type WeaponInstanceState,
+  type WeaponSlotState,
   RemoteTimeline,
   ShotView,
   LocalFire,
@@ -63,6 +61,23 @@ import {
   isWeaponId,
   weaponDefOf,
   weaponTicksOf,
+  clampFreeCamFocus,
+  cycleSpectate,
+  isSpectating,
+  panFreeCam,
+  resolveSpectateTarget,
+  smoothFollow,
+  spectatableIds,
+  spectateBanner,
+  type SpectateCandidate,
+  carVisible,
+  inVision,
+  shotSamplePoints,
+  visionPolygon,
+  visionPoses,
+  visionShapeOf,
+  type VisionPlayer,
+  type VisionShape,
 } from "@motor-combat-moba/shared";
 import { floorTintOf, phaserFloorTextures, resolveArenaFloor } from "../assets/arena-floor.js";
 import {
@@ -200,17 +215,6 @@ import {
   type Allegiance,
 } from "./combat-visual.js";
 import {
-  clampFreeCamFocus,
-  cycleSpectate,
-  isSpectating,
-  panFreeCam,
-  resolveSpectateTarget,
-  smoothFollow,
-  spectatableIds,
-  spectateBanner,
-  type SpectateCandidate,
-} from "@motor-combat-moba/shared";
-import {
   abilityCountOf,
   abilitySlotOffset,
   HUD_DIM,
@@ -269,16 +273,6 @@ import {
   showKilledBy,
 } from "./match-hud.js";
 import { hudOf } from "../modes/registry.js";
-import {
-  carVisible,
-  inVision,
-  shotSamplePoints,
-  visionPolygon,
-  visionPoses,
-  visionShapeOf,
-  type VisionPlayer,
-  type VisionShape,
-} from "@motor-combat-moba/shared";
 import { carryHiddenInstances, NOTHING_HIDDEN, type FxHidden } from "../fx/hidden.js";
 import type { GutterHost, ModeGutter } from "../modes/types.js";
 

@@ -5,6 +5,7 @@ import {
   inShape,
   inVision,
   marginShape,
+  MIN_MARGIN_HALF_ANGLE,
   segmentHitsRect,
   shotSamplePoints,
   visionPolygon,
@@ -213,12 +214,48 @@ describe("marginShape (NR46)", () => {
   it("leaves a full shape's cone alone and grows the ellipse", () => {
     const m = marginShape(visionShapeOf(pose, shapes.full!), MARGIN);
     expect(m.apexBack ?? 0).toBe(0);
-    expect(m.rangeX).toBe(FOV.rangeX + MARGIN);
+    expect(m.rangeX).toBeCloseTo(FOV.rangeX * (1 + MARGIN / FOV.rangeY));
   });
   it("does not mutate the input and margin 0 is a no-op", () => {
     const s = visionShapeOf(pose, FOV);
     const m = marginShape(s, 0);
     expect(m.rangeX).toBe(s.rangeX);
     expect(s.apexBack).toBeUndefined();
+  });
+
+  it("contains the outward-normal neighbourhood of the ellipse boundary (any aspect ratio)", () => {
+    for (const [rx, ry] of [[400, 200], [400, 400], [500, 40], [600, 10], [100, 300]] as const) {
+      const fov: FovConfig = { ...FOV, angleDeg: 360, rangeX: rx, rangeY: ry };
+      const s = visionShapeOf(pose, fov);
+      const m = marginShape(s, MARGIN);
+      const c = Math.cos(pose.angle);
+      const sn = Math.sin(pose.angle);
+      for (let i = 0; i < 720; i++) {
+        const t = (i / 720) * Math.PI * 2;
+        const lx = rx * Math.cos(t);
+        const ly = ry * Math.sin(t);
+        // Outward normal of x²/a²+y²/b²=1 is (x/a², y/b²) normalised.
+        let nx = lx / (rx * rx);
+        let ny = ly / (ry * ry);
+        const len = Math.hypot(nx, ny);
+        nx /= len;
+        ny /= len;
+        const reach = MARGIN - 1e-6; // exact-boundary hits are float noise
+        const px = lx + nx * reach;
+        const py = ly + ny * reach;
+        const world = { x: s.cx + px * c - py * sn, y: s.cy + px * sn + py * c };
+        expect(inShape(world, m), `${rx}x${ry} t=${t}`).toBe(true);
+      }
+    }
+  });
+  it("drops a needle-thin cone to the ellipse alone rather than exploding", () => {
+    const s = visionShapeOf(pose, { ...FOV, angleDeg: 0.1 });
+    expect(s.halfAngle).toBeLessThan(MIN_MARGIN_HALF_ANGLE);
+    const m = marginShape(s, MARGIN);
+    expect(Number.isFinite(m.apexBack ?? 0)).toBe(true);
+    expect(m.full).toBe(true);
+    // A point beside the needle but within margin of it is inside.
+    const side = { x: s.cx - Math.sin(pose.angle) * 10, y: s.cy + Math.cos(pose.angle) * 10 };
+    expect(inShape(side, m)).toBe(true);
   });
 });
