@@ -33,18 +33,21 @@ export class TokenBucket {
 }
 
 /** Which budget a message is charged to (NR54). */
-export type MessageKind = "input" | "time" | "lobby";
+export type MessageKind = "input" | "time" | "lobby" | "spectate";
 
 /**
  * NR54's budgets, per client. `input` is twice the tick rate — an honest client sends one packet per
  * tick, and the burst of 30 (half a second of them) covers a scheduler catch-up after a frame stall and
  * a TCP retransmit releasing a held run of packets at once. `time` covers `MSG_TIME` requests (10/s at
  * most, during the join burst) plus the 1/s `MSG_PING` echo. `lobby` is every other message: clicks.
+ * `spectate` is `MSG_SPECTATE_TARGET` (NR45): a wreck's `[`/`]` presses plus the automatic re-pick when
+ * the watched car dies — a key-press rate, kept off `lobby` so cycling the camera never costs a click.
  */
 export const RATE_BUDGETS: Readonly<Record<MessageKind, { ratePerSec: number; burst: number }>> = {
   input: { ratePerSec: 2 * TICK_RATE_HZ, burst: 30 },
   time: { ratePerSec: 20, burst: 20 },
   lobby: { ratePerSec: 10, burst: 10 },
+  spectate: { ratePerSec: 10, burst: 10 },
 };
 
 /** A client continuously over any one limit for longer than this is disconnected (NR54). */
@@ -85,7 +88,7 @@ export class ClientLimits {
         runStart: Number.NaN,
         lastRefusalMs: Number.NaN,
       });
-      s = { input: kind("input"), time: kind("time"), lobby: kind("lobby") };
+      s = { input: kind("input"), time: kind("time"), lobby: kind("lobby"), spectate: kind("spectate") };
       this.sessions.set(sessionId, s);
     }
     return s;
@@ -108,7 +111,7 @@ export class ClientLimits {
     const s = this.sessions.get(sessionId);
     if (s === undefined) return 0;
     let worst = 0;
-    for (const k of [s.input, s.time, s.lobby]) {
+    for (const k of [s.input, s.time, s.lobby, s.spectate]) {
       if (Number.isNaN(k.runStart) || nowMs - k.lastRefusalMs > RUN_GAP_MS) continue;
       worst = Math.max(worst, nowMs - k.runStart);
     }

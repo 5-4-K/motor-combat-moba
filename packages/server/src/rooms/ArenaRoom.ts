@@ -24,6 +24,7 @@ import {
   MSG_PREVIEW_CAR,
   MSG_RETURN_TO_LOBBY,
   MSG_CHAT,
+  MSG_SPECTATE_TARGET,
   CHAT_CONFIG,
   isChatPayload,
   validateChatText,
@@ -62,7 +63,7 @@ import {
 } from "../mode.js";
 import { InputDelay, OutgoingDelay } from "../net/latency-injector.js";
 import { assertProtocol } from "../net/protocol-gate.js";
-import { ensureView, syncViews } from "../net/full-view.js";
+import { ViewManager, ensureView, viewersOf } from "../net/view-manager.js";
 import { ClientLimits, MAX_MESSAGES_PER_SECOND, limited, refuseUnknownMessages } from "../net/rate-limit.js";
 import {
   clearInstances,
@@ -152,6 +153,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   private readonly netSessions = new NetSessions();
   /** Per-client message budgets (NR54); every handler below is charged to one. */
   private readonly limits = new ClientLimits();
+  /** Who receives what (NR44–NR47): each client's `StateView`, recomputed every snapshot. */
+  private readonly views = new ViewManager();
   /** Server → client latency injection (NR56); inactive, and never installed, unless SIM_LATENCY_MS is set. */
   private readonly outgoing = new OutgoingDelay(getSimulatedLatency());
   /** Client → server latency injection (NR56), one in-order line per session; built in `onCreate`. */
@@ -366,6 +369,17 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
           });
         })),
       );
+
+      /**
+       * NR45: the car this client's spectate camera shows. `pickSpectate` validates it against the
+       * mode's spectate cycle for this client's car and ignores anything else; its own budget, so a
+       * wreck cycling the camera never spends a lobby click.
+       */
+      this.onMessage(MSG_SPECTATE_TARGET, limited(this.limits, "spectate", (client, msg: unknown) =>
+        scoped(this.modeConfig, () => {
+          this.views.pickSpectate(this.state, { sessionId: client.sessionId }, msg);
+        })),
+      );
     });
   }
 
@@ -411,7 +425,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       // joiner's view is filled here, before Colyseus sends it the full state; everyone else's picks
       // the new car up before the next patch.
       ensureView(client);
-      syncViews([client], this.state, (c) => c.sessionId, camera().spectate.target);
+      this.views.update(this.state, viewersOf([client], (c) => c.sessionId), this.state.tick);
     });
   }
 
@@ -431,6 +445,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       this.chatLastSentAt.delete(client.sessionId);
       this.netSessions.drop(client.sessionId);
       this.limits.drop(client.sessionId);
+      this.views.forget(client.sessionId);
       this.outgoing.drop(client.sessionId);
       this.inputDelay?.drop(client.sessionId);
       forgetSpikeState(this.ram.spikes, client.sessionId);
@@ -471,9 +486,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     if (isSnapshotTick(this.state.tick)) this.sendSnapshot();
   }
 
-  /** Every client's view brought up to date (G2: everything, own car `VIEW_OWNER`), then the patch. */
+  /** Every client's view brought up to date (NR44–NR47), then the patch. */
   private sendSnapshot(): void {
-    syncViews(this.clients, this.state, (c) => c.sessionId, camera().spectate.target);
+    this.views.update(this.state, viewersOf(this.clients, (c) => c.sessionId), this.state.tick);
     this.broadcastPatch();
   }
 

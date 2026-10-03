@@ -99,6 +99,7 @@ export {
   isPracticeSetup,
 } from "./net/practice-messages.js";
 export type { PracticeOpponent, PracticeSetup } from "./net/practice-messages.js";
+export * from "./net/spectate-messages.js";
 
 export { StatusState } from "./schema/StatusState.js";
 export { PlayerState } from "./schema/PlayerState.js";

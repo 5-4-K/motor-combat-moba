@@ -160,4 +160,17 @@ export const NET_CONFIG = {
    * this) misses the impact, and its provisional is dropped unconfirmed.
    */
   endedShotRowMs: 100,
+  /**
+   * NR47: an enemy car or shot that has been in a client's view leaves it only after it has been
+   * outside the viewer's MARGINED vision for this long without a break, so the view does not churn
+   * on the edge. Read as `msToTicks(visionExitMs)` by the server's `ViewManager`.
+   */
+  visionExitMs: 250,
+  /**
+   * NR46: how far ahead of the drawn vision edge the server's interest test reaches, as TIME at the
+   * fastest active chassis's top speed: `visionMarginUnits = ceil(max maxSpeed × visionMarginLeadMs /
+   * 1000)`, derived per mode inside a mode scope (`visionMarginUnits()` in the server's
+   * `net/view-manager.ts`), never typed as a distance — a speed retune moves it on its own.
+   */
+  visionMarginLeadMs: 250,
 } as const;

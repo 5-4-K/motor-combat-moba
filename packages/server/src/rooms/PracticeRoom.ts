@@ -1,6 +1,5 @@
 import { Room, ServerError, matchMaker, type Client } from "@colyseus/core";
 import {
-  camera,
   BOT_SESSION_ID,
   GameMode,
   INPUT_MESSAGE,
@@ -8,6 +7,7 @@ import {
   newTickInputBuffer,
   MSG_PRACTICE_IDLE_WARNING,
   MSG_PRACTICE_PAUSE,
+  MSG_SPECTATE_TARGET,
   PLAYGROUND_ROOM_NAME,
   PRACTICE_CONFIG,
   PRACTICE_FULL_CLOSE_CODE,
@@ -42,7 +42,7 @@ import { getMaxPracticeRooms, getSimulatedLatency } from "../mode.js";
 import { offerForTick } from "../net/offer-input.js";
 import { InputDelay, OutgoingDelay } from "../net/latency-injector.js";
 import { assertProtocol } from "../net/protocol-gate.js";
-import { ensureView, syncViews } from "../net/full-view.js";
+import { ViewManager, ensureView, viewersOf } from "../net/view-manager.js";
 import { ClientLimits, MAX_MESSAGES_PER_SECOND, limited, refuseUnknownMessages } from "../net/rate-limit.js";
 import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
@@ -187,6 +187,8 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
   private readonly netSessions = new NetSessions();
   /** Per-client message budgets (NR54); every handler below is charged to one. */
   private readonly limits = new ClientLimits();
+  /** Who receives what (NR44–NR47), the same manager every room kind runs. */
+  private readonly views = new ViewManager();
   /** Server → client latency injection (NR56), mirroring `ArenaRoom` (PR11); inactive unless SIM_LATENCY_MS is set. */
   private readonly outgoing = new OutgoingDelay(getSimulatedLatency());
   /** Client → server latency injection (NR56), one in-order line per session; built in `onCreate`. */
@@ -311,6 +313,17 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
           this.warnedOfIdle = false;
         })),
       );
+
+      /**
+       * NR45: the car this client's spectate camera shows. `pickSpectate` validates it against the
+       * mode's spectate cycle for this client's car and ignores anything else. Registered here too
+       * because the arena scene sends it from every room kind, and an unregistered type is a kick.
+       */
+      this.onMessage(MSG_SPECTATE_TARGET, limited(this.limits, "spectate", (client, msg: unknown) =>
+        scoped(this.modeConfig, () => {
+          this.views.pickSpectate(this.state, { sessionId: client.sessionId }, msg);
+        })),
+      );
     });
   }
 
@@ -378,7 +391,7 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
     // is not a client and has no view: it reads the room's state directly (NR49).
     ensureView(client);
     scoped(this.modeConfig, () =>
-      syncViews([client], this.state, (c) => c.sessionId, camera().spectate.target),
+      this.views.update(this.state, viewersOf([client], (c) => c.sessionId), this.state.tick),
     );
   }
 
@@ -390,6 +403,7 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
     scoped(this.modeConfig, () => {
       this.netSessions.drop(client.sessionId);
       this.limits.drop(client.sessionId);
+      this.views.forget(client.sessionId);
       this.outgoing.drop(client.sessionId);
       this.inputDelay?.drop(client.sessionId);
       this.closing = true;
@@ -459,9 +473,9 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
     if (this.state.paused || isSnapshotTick(this.state.tick)) this.sendSnapshot();
   }
 
-  /** The human's view brought up to date (G2: everything, own car `VIEW_OWNER`), then the patch. */
+  /** The human's view brought up to date (NR44–NR47), then the patch. */
   private sendSnapshot(): void {
-    syncViews(this.clients, this.state, (c) => c.sessionId, camera().spectate.target);
+    this.views.update(this.state, viewersOf(this.clients, (c) => c.sessionId), this.state.tick);
     this.broadcastPatch();
   }
 

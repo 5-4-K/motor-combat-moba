@@ -27,8 +27,12 @@ export const ROOM_NAME = "arena";
  * tags the schema for interest management (NR42, NR52): car state, `statuses` and the instance map
  * are `@view()`, the owner-only fields and slot timers `@view(VIEW_OWNER)`, `PlayerState.inView` is
  * appended, and pose, velocity, the maneuver angle and speed and `turretAngle` go out as `float32`.
+ * 7 adds `MSG_SPECTATE_TARGET` (a spectating wreck names the car it shows, NR45) and gives the view
+ * tags their meaning: under a mode's FOV the server sends an enemy's car state and shots only while
+ * the enemy is (nearly) in the viewer's vision (NR44–NR47); a server of 6 would kick the new message
+ * as an unknown type.
  */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 export enum RoomPhase {
   LOBBY = 0,

@@ -276,8 +276,9 @@ remote display delay as measured by the harness no worse than today's. On `net80
     wind-up telegraph opponents act on, so anyone who sees the car reads it), `lastSteer`,
     `lastThrottle`, and a new `inView: boolean` that is always `true` on the server — so a client reads `inView === true` as
     "this car is visible to me" and never has to guess from a pose of `undefined`.
-  - **`@view(OWNER)` (owner, teammates in team modes, and every car a wreck may spectate — its slot
-    HUD reads them):** each slot's `stocks`, `rechargeEndsTick`, `refireLockUntilTick`;
+  - **`@view(OWNER)` (owner, teammates in team modes, and the one car a wreck is spectating — its
+    slot HUD reads them; G2 tagged the wreck's whole spectate cycle until G3's `MSG_SPECTATE_TARGET`
+    told the server the exact car):** each slot's `stocks`, `rechargeEndsTick`, `refireLockUntilTick`;
     `switchLockUntilTick`, `ackRepeated`, `inputSlack`, `inputSlackStd`.
   - `ArenaState.weapons` (instances) becomes a `@view()` map.
 - **NR43 Tags are the whole mechanism.** No field is duplicated, the server keeps reading and
@@ -289,7 +290,12 @@ remote display delay as measured by the harness no worse than today's. On `net80
   `fov.enabled` false, every car and instance is in vision, and the same code path runs.
 - **NR45 Spectators.** A wreck (or a spectator) sees what its perspective player sees
   (`spectate.target`/`noTargetVision`, camera spec CB19/CB26). A `"none"` target in an FOV mode sees
-  only its own frozen death vision (`"pov"`) or nothing (`"blind"`).
+  only its own frozen death vision (`"pov"`) or nothing (`"blind"`). The server learns which car the wreck is
+  showing from `MSG_SPECTATE_TARGET` (client → server, sent when the `[`/`]` pick changes and on
+  the wreck's first frame; validated against `spectatableIds` under the mode's `camera().spectate`,
+  invalid targets ignored; its own `ClientLimits` budget, `spectate`; `PROTOCOL_VERSION` 7). Until
+  one arrives it uses `resolveSpectateTarget`'s default — the front of the sorted cycle, which is
+  the client's own starting pick.
 - **NR46 Vision on the server.** `camera/vision.ts`'s pure functions (`visionShapeOf`, `inVision`,
   `carVisible`, `shotSamplePoints`) move to shared (`packages/shared/src/vision/`) and the client
   and server both import them. The server evaluates vision every tick from the viewer's

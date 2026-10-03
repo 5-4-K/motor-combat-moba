@@ -41,6 +41,7 @@ import {
   MSG_PRACTICE_IDLE_WARNING,
   MSG_PLAYGROUND_PAUSE,
   MSG_PRACTICE_PAUSE,
+  MSG_SPECTATE_TARGET,
   PlayerStatus,
   PRACTICE_CONFIG,
   PRACTICE_IDLE_CLOSE_CODE,
@@ -243,6 +244,7 @@ import {
 } from "./status-hud.js";
 import { arrowBlinkOn, arrowBobOffset, countdownArrowPoints } from "./countdown-arrow.js";
 import { boundsAlignedFor, resolveViewRotation } from "../camera/rotation.js";
+import { SpectateReport } from "../camera/spectate-report.js";
 import {
   ACTION_LABEL,
   MOVEMENT_ARROWS,
@@ -967,6 +969,8 @@ export class ArenaScene extends Phaser.Scene {
   private keys: SpectateKeys | undefined;
   /** Session id of the car the spectate camera is watching. `""` means "nobody left to watch". */
   private spectateTarget = "";
+  /** When to tell the server which car `spectateTarget` is (NR45). */
+  private readonly spectateReport = new SpectateReport();
   private freeRoam = false;
   /** Last frame's `alive` for the driven car, so `syncRespawnCamera` can see the edge. Starts true:
    *  a match opens with everyone alive, and a false start would cut the camera on the first frame. */
@@ -5143,10 +5147,17 @@ export class ArenaScene extends Phaser.Scene {
   /**
    * Spectator controls, once you are a wreck: cycle who you are watching, or pan freely.
    *
-   * Nothing here sends anything. A dead player is a viewer, and giving the camera its own local
-   * state is what keeps that true — the server has no notion of who anyone is watching.
+   * The pick is the camera's own local state, but it is REPORTED (`MSG_SPECTATE_TARGET`, NR45):
+   * under a mode's field of vision the server sends a wreck exactly what its watched car sees, so it
+   * has to know which car that is. It is an intent the server validates, never state it trusts.
    */
   private updateSpectate(room: Room<ArenaState>, delta: number): void {
+    this.updateSpectatePick(room, delta);
+    const report = this.spectateReport.next(this.isSpectating(room) && !this.freeRoam, this.spectateTarget);
+    if (report !== undefined) room.send(MSG_SPECTATE_TARGET, { target: report });
+  }
+
+  private updateSpectatePick(room: Room<ArenaState>, delta: number): void {
     if (!this.isSpectating(room)) {
       // Still alive, or not in a live match. Clearing the state means the next death starts a fresh
       // cycle rather than resuming one from a previous match.

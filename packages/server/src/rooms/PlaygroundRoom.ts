@@ -1,12 +1,12 @@
 import { Room, ServerError, matchMaker, type Client } from "@colyseus/core";
 import {
-  camera,
   CLOSE_CODES,
   INPUT_MESSAGE,
   isInputPacket,
   newTickInputBuffer,
   MSG_PLAYGROUND_BOT_DEBUG,
   MSG_PLAYGROUND_PAUSE,
+  MSG_SPECTATE_TARGET,
   MSG_PLAYGROUND_SETUP,
   MSG_PLAYGROUND_TUNING,
   PLAYGROUND_ROOM_NAME,
@@ -63,7 +63,7 @@ import { scoped } from "./mode-scope.js";
 import { newRoomStepper } from "./fixed-step.js";
 import { NetSessions, installNetHandlers, netNowMs } from "../net/net-session.js";
 import { assertProtocol } from "../net/protocol-gate.js";
-import { ensureView, syncViews } from "../net/full-view.js";
+import { ViewManager, ensureView, viewersOf } from "../net/view-manager.js";
 import { ClientLimits, MAX_MESSAGES_PER_SECOND, limited, refuseUnknownMessages } from "../net/rate-limit.js";
 
 /**
@@ -240,6 +240,8 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
    * would only make a feel test lie (PG9).
    */
   private readonly limits = new ClientLimits();
+  /** Who receives what (NR44–NR47), the same manager every room kind runs. */
+  private readonly views = new ViewManager();
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -309,6 +311,18 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
           this.applySetup(msg);
         })),
       );
+
+      /**
+       * NR45: the car this client's spectate camera shows. `pickSpectate` validates it against the
+       * mode's spectate cycle for this client's car and ignores anything else. Registered here too
+       * because the arena scene sends it from every room kind, and an unregistered type is a kick.
+       */
+      this.onMessage(MSG_SPECTATE_TARGET, limited(this.limits, "spectate", (client, msg: unknown) =>
+        scoped(this.modeConfig, () => {
+          const owned = this.ownedSeatOf() ?? null;
+          this.views.pickSpectate(this.state, { sessionId: client.sessionId, owned }, msg);
+        })),
+      );
     });
   }
 
@@ -328,7 +342,7 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
     // Every client has a view (NR42), filled before Colyseus sends the joiner its full state.
     ensureView(client);
     scoped(this.modeConfig, () =>
-      syncViews([client], this.state, this.ownedSeatOf, camera().spectate.target),
+      this.views.update(this.state, viewersOf([client], this.ownedSeatOf), this.state.tick),
     );
   }
 
@@ -343,6 +357,7 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
     scoped(this.modeConfig, () => {
       this.netSessions.drop(client.sessionId);
       this.limits.drop(client.sessionId);
+      this.views.forget(client.sessionId);
       this.disconnect();
     });
   }
@@ -539,9 +554,9 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
     if (this.state.paused || isSnapshotTick(this.state.tick)) this.sendSnapshot();
   }
 
-  /** The human's view brought up to date (G2: every seat, the driven one `VIEW_OWNER`), then patch. */
+  /** The human's view brought up to date (NR44–NR47; the driven seat is its car), then the patch. */
   private sendSnapshot(): void {
-    syncViews(this.clients, this.state, this.ownedSeatOf, camera().spectate.target);
+    this.views.update(this.state, viewersOf(this.clients, this.ownedSeatOf), this.state.tick);
     this.broadcastPatch();
   }
 

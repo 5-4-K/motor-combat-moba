@@ -2,17 +2,35 @@ import { describe, expect, it } from "vitest";
 import { Encoder, Reflection, type StateView } from "@colyseus/schema";
 import {
   ArenaState,
+  GameMode,
   PlayerState,
   PlayerStatus,
   RoomPhase,
   StatusState,
   WeaponInstanceState,
   WeaponSlotState,
+  assembleModeConfig,
+  modeConfigOf,
+  withMode,
+  type ModeConfig,
   type SpectateTarget,
 } from "@motor-combat-moba/shared";
-import { ensureView, syncViews, type ViewClient } from "./full-view.js";
+import { ViewManager, ensureView, viewersOf, type ViewClient } from "./view-manager.js";
+
+/** A shipped (FOV-off) bundle with its spectate target replaced. */
+function bundle(spectate: SpectateTarget): ModeConfig {
+  const base = modeConfigOf(GameMode.FFA_LAST_STANDING);
+  expect(base.camera.fov.enabled).toBe(false);
+  return assembleModeConfig(GameMode.FFA_LAST_STANDING, {
+    ...base,
+    camera: { ...base.camera, spectate: { ...base.camera.spectate, target: spectate } },
+  });
+}
 
 /**
+ * The G2 full-visibility rules, now run through `ViewManager` with FOV off (every shipped mode):
+ * every car and instance in every view, owner-only fields to the owner, nested rows delivered.
+ *
  * A two-client room over the real encoder, shaped like Colyseus's `SchemaSerializer`: a joiner
  * decodes `encodeAll` + `encodeAllView(view)`, then every patch is the shared `encode` plus
  * `encodeView(view)`. `sync` runs where the rooms run it — at join and before each patch.
@@ -24,10 +42,13 @@ function room(
   const state = new ArenaState();
   const enc = new Encoder(state);
   const clients: (ViewClient & { decoded: ArenaState })[] = [];
-  const sync = () => syncViews(clients, state, owned, spectate);
+  const vm = new ViewManager();
+  const config = bundle(spectate);
+  const sync = () => withMode(config, () => vm.update(state, viewersOf(clients, owned), state.tick));
   return {
     state,
     clients,
+    sync,
     join(sessionId: string, car = true) {
       if (car) {
         const p = new PlayerState();
@@ -76,7 +97,7 @@ function shot(id: string, owner: string, alive = true): WeaponInstanceState {
   return w;
 }
 
-describe("full views (G2: every car and instance in every view)", () => {
+describe("ViewManager with FOV off (G2's full views)", () => {
   it("gives every client every car, and the owner-only fields of its own car alone", () => {
     const r = room();
     const a = r.join("a");
@@ -183,11 +204,11 @@ describe("full views (G2: every car and instance in every view)", () => {
     const r = room();
     const a = r.join("a");
     r.patch();
-    syncViews(r.clients, r.state, (c) => c.sessionId, "anyone");
+    r.sync();
     expect((a.view as StateView).changes.size).toBe(0);
   });
 
-  describe("a spectating wreck (G2 fix round 1, I2)", () => {
+  describe("a spectating wreck (G2 fix round 1, I2; narrowed to the exact target in G3)", () => {
     /** A live match: `a` the viewer, `x` and `y` two other cars, each with one slot and timers. */
     function match(spectate: SpectateTarget = "anyone") {
       const r = room((c) => c.sessionId, spectate);
@@ -257,13 +278,14 @@ describe("full views (G2: every car and instance in every view)", () => {
       expect(timers(a, "x").stocks).toBeUndefined();
     });
 
-    it("loses every watched car's timers on respawn, and keeps its own throughout", () => {
+    it("loses the watched car's timers on respawn, and keeps its own throughout", () => {
       const { r, a } = match();
       const own = r.state.players.get("a")!;
       own.alive = false;
       r.patch();
+      // Only the car it is showing: x, the front of the sorted cycle, until the client names another.
       expect(timers(a, "x")).toEqual(SET);
-      expect(timers(a, "y")).toEqual(SET);
+      expect(timers(a, "y")).toEqual(UNSET);
       expect(a.decoded.players.get("a")!.inputSlack).toBe(1.5);
       own.alive = true;
       r.patch();

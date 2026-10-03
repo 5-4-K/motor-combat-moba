@@ -121,7 +121,8 @@ function rng(seed: number): () => number {
  * 60 s of what `ArenaScene` sends, as the SERVER sees it arrive: an input packet per tick from a
  * 144 fps render loop (so 0-2 packets per frame), an 8-tick catch-up burst after each of a few
  * frame stalls, the `MSG_TIME` join burst then the steady rate, one `MSG_PING` echo a second, and
- * lobby clicking at a human's fastest (car-preview cycling, a chat line, pause toggles). Arrival
+ * lobby clicking at a human's fastest (car-preview cycling, a chat line, pause toggles), and a wreck
+ * cycling its spectate camera as fast as a key repeats (NR45). Arrival
  * times carry +-10 ms of network jitter and a TCP retransmit stall (every message held 300 ms,
  * then delivered together) twice a minute.
  */
@@ -155,6 +156,9 @@ function honestArrivals(): { at: number; kind: MessageKind }[] {
   // Lobby: a car-preview click every 120 ms for 3 s, twice; a chat line and a pause toggle now and then.
   for (const from of [2_000, 30_000]) for (let t = from; t < from + 3_000; t += 120) sends.push({ at: t, kind: "lobby" });
   for (let t = 1_000; t < DURATION; t += 4_000) sends.push({ at: t, kind: "lobby" }, { at: t + 150, kind: "lobby" });
+  // Spectate (NR45): a wreck mashing `]` every 120 ms for 3 s, then a re-pick each time its target dies.
+  for (let t = 45_000; t < 48_000; t += 120) sends.push({ at: t, kind: "spectate" });
+  for (let t = 48_000; t < DURATION; t += 2_000) sends.push({ at: t, kind: "spectate" });
 
   // The wire: jitter on every message, in order, with two retransmit stalls.
   const retransmits = [12_000, 41_000];
