@@ -1064,6 +1064,9 @@ export class ArenaScene extends Phaser.Scene {
   /** The driven car's predicted fire state, deciding which presses get a provisional shot. */
   private localFire: { sessionId: string; fire: LocalFire } | undefined;
   private provisionalSeq = 0;
+  /** `ClockSync.rttMs()`, cached per snapshot tick for the provisional ttl. */
+  private provisionalRttMs = 0;
+  private provisionalRttTick = -1;
   /** This frame's drawn provisional shots, pooled; `beginShotFrame` fills, `renderShots` draws. */
   private readonly drawnProvisionals: DrawnProvisional[] = [];
   /** Scratch: this frame's instances owned by the driven car, offered to `ProvisionalShots.confirm`. */
@@ -2837,7 +2840,7 @@ export class ArenaScene extends Phaser.Scene {
     // NR39: the networked slots reseed the predicted fire state whenever no press is in flight.
     this.localFireOf(this.drivenSid(room)).resync({
       tick: room.state.tick,
-      weapons: local.weapons.map((w) => w),
+      weapons: local.weapons,
       switchLockUntilTick: local.switchLockUntilTick,
       pendingUntilTick: local.pendingUntilTick,
       lastFiredSlot: local.lastFiredSlot,
@@ -3925,7 +3928,10 @@ export class ArenaScene extends Phaser.Scene {
     room.state.weapons.forEach((instance) => {
       if (instance.ownerSessionId === drivenSid) own.push(instance);
     });
-    for (const pair of this.provisionals.confirm(own, drawTick)) {
+    // An attached beam's provisional hands over welded to the car as it is DRAWN, exactly as the
+    // confirming instance is, so the ease carries no car motion (F4 review I1).
+    const ownDrawn = own.length > 0 && this.provisionals.list().length > 0 ? this.drawnPoseOf(room, drivenSid, drivenSid) : undefined;
+    for (const pair of this.provisionals.confirm(own, drawTick, ownDrawn)) {
       if (pair.from) this.handoverFrom.set(pair.serverId, pair.from);
     }
     room.state.weapons.forEach((instance, id) => {
@@ -3982,7 +3988,12 @@ export class ArenaScene extends Phaser.Scene {
    */
   private beginProvisionalFrame(room: Room<ArenaState>, drawTick: number, drivenSid: string, nowMs: number): void {
     const clock = this.inputClock?.clock;
-    const ttlMs = (clock?.ready ? clock.rttMs() : 0) + NET_CONFIG.provisionalShotGraceMs;
+    // `rttMs()` builds a map and a median on every call: read once per snapshot, not per frame.
+    if (this.provisionalRttTick !== room.state.tick) {
+      this.provisionalRttTick = room.state.tick;
+      this.provisionalRttMs = clock?.ready ? clock.rttMs() : 0;
+    }
+    const ttlMs = this.provisionalRttMs + NET_CONFIG.provisionalShotGraceMs;
     this.provisionals.expire(nowMs, ttlMs);
     const list = this.provisionals.list();
     const pool = this.drawnProvisionals;

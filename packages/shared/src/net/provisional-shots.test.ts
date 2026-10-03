@@ -10,6 +10,10 @@ import type { Bounds } from "../sim/collide.js";
 import { runCombat, type CombatPlayer } from "../sim/combat.js";
 import { ManeuverKind } from "../sim/maneuver.js";
 import { newFireState, type FireState } from "../sim/weapons/fire.js";
+import { modifiersOf } from "../sim/status/modifiers.js";
+import { assembleModeConfig } from "../modes/build.js";
+import type { ModeTables } from "../modes/types.js";
+import type { StatusDef } from "../config/status-types.js";
 import { spawnInstances, type WeaponInstance } from "../sim/weapons/instances.js";
 import {
   LocalFire,
@@ -168,9 +172,16 @@ const wireOf = (i: WeaponInstance): WireShot => ({
  * `serverTick` finds them, compensation `kServer`), and through `LocalFire` + `provisionalOf` on the
  * client (compensation from `viewTick`, i.e. `kClient`). The shooter drives a fixed curve.
  */
-function race(o: { carId: CarId; held: (t: number) => number; kServer: number; kClient: number; until: number }) {
-  const poseAt = (t: number) => ({ x: 2000 + 3 * (t - T), y: 2500 + 0.02 * (t - T) ** 2, angle: 0.01 * (t - T) });
-  let players = [shooter(o.carId, poseAt(T - 1))];
+function race(o: {
+  carId: CarId; held: (t: number) => number; kServer: number; kClient: number; until: number;
+  /** Statuses the shooter carries the whole run, and the `weaponCooldown` the client reads off them. */
+  statuses?: CombatPlayer["statuses"]; weaponCooldown?: number;
+  /** Called each tick with the server's and the client's fire state after it. */
+  onTick?: (tick: number, server: FireState, client: Readonly<FireState> | undefined) => void;
+  poseAt?: (t: number) => { x: number; y: number; angle: number };
+}) {
+  const poseAt = o.poseAt ?? ((t: number) => ({ x: 2000 + 3 * (t - T), y: 2500 + 0.02 * (t - T) ** 2, angle: 0.01 * (t - T) }));
+  let players = [{ ...shooter(o.carId, poseAt(T - 1)), statuses: o.statuses ?? [] }];
   let instances: readonly WeaponInstance[] = [];
   let seq = 0;
   let prev = 0;
@@ -194,7 +205,8 @@ function race(o: { carId: CarId; held: (t: number) => number; kServer: number; k
     instances = r.instances;
     seq = r.instanceSeq;
     server.set(tick, new Map(r.instances.map((i) => [i.id, i])));
-    const step = fire.step(frame(tick, held, poseAt(tick).angle, tick - o.kClient));
+    const step = fire.step({ ...frame(tick, held, poseAt(tick).angle, tick - o.kClient), weaponCooldown: o.weaponCooldown ?? 1 });
+    o.onTick?.(tick, players[0]!.fireState, fire.current);
     for (const order of step.orders) {
       provisionals.push(
         ...provisionalOf(order, { sessionId: "me", team: 0, carId: o.carId, ...poseAt(tick) }, tick, step.compTicks, `p${tick}`, 0, WORLD),
@@ -236,6 +248,36 @@ describe("LocalFire + provisionalOf against runCombat", () => {
     const { server, provisionals } = race({ carId: "bullseye", held: () => SLOT(1), kServer: 0, kClient: 0, until });
     expect(new Set([...server.values()].flatMap((m) => [...m.keys()])).size).toBe(1);
     expect(provisionals).toHaveLength(1);
+  });
+
+  it("tracks the server's fire state tick for tick under a weaponCooldown status, across held and re-pressed fire", () => {
+    // No shipped status scales `weaponCooldown`, so this run's bundle gives `overheated` one (and no burn).
+    const base = modeConfigOf(DEFAULT_GAME_MODE);
+    const tables = structuredClone(base) as ModeTables;
+    (tables.statusTable as Record<string, StatusDef>).overheated = {
+      ...base.statusTable.overheated, modifiers: { weaponCooldown: 0.5 }, pulse: undefined,
+    };
+    installMode(assembleModeConfig(base.id, tables));
+    const statuses = [{ statusId: "overheated" as const, startTick: 0, endsTick: 1e9, sourceSessionId: "" }];
+    expect(modifiersOf(statuses, T).weaponCooldown).toBe(0.5);
+    // Held for 60 ticks at a time, released for 7: pepperbox, then predator, then both.
+    const held = (t: number) => {
+      const phase = (t - T) % 67;
+      const round = Math.floor((t - T) / 67) % 3;
+      return phase < 60 ? (round === 0 ? SLOT(2) : round === 1 ? SLOT(1) : SLOT(1) | SLOT(2)) : 0;
+    };
+    let compared = 0;
+    let fired = 0;
+    const { provisionals } = race({
+      carId: "bullseye", held, kServer: 4, kClient: 4, until: T + 600, statuses, weaponCooldown: 0.5,
+      onTick: (tick, server, client) => {
+        expect(client, `tick ${tick}`).toEqual(server);
+        compared++;
+      },
+    });
+    fired = provisionals.length;
+    expect(compared).toBe(601);
+    expect(fired).toBeGreaterThan(10);
   });
 
   it("refuses what the server refuses: a press inside the refire lock, a slot with no stock, the disabled basic attack", () => {
@@ -315,6 +357,50 @@ describe("LocalFire + provisionalOf against runCombat", () => {
     expect(measure(9, 9, 8)).toBeLessThan(1e-6);
     // The server clamped one tick lower than the client: one step of pepperbox's flight.
     expect(measure(8, 9, 8)).toBeCloseTo(800 * DT, 6);
+  });
+
+  it("hands an attached beam over welded to the DRAWN car: no car motion in the gap, at top speed and turning", () => {
+    // Mirage's afterburner (fire slot 3) and Bullseye's lance (slot 3, a wind-up): the shooter drives
+    // at Mirage's top speed and turns. The server's instance arrives `lag` ticks after the release and
+    // is drawn `lag` more ticks on, welded to the drawn car — and so is the provisional it replaces.
+    const speed = 283.5 / 60; // u per tick
+    const poseAt = (t: number) => ({ x: 2000 + speed * (t - T) * Math.cos(0.02 * (t - T)), y: 2500 + speed * (t - T) * Math.sin(0.02 * (t - T)), angle: 0.02 * (t - T) });
+    for (const [carId, weaponId] of [["mirage", "afterburner"], ["bullseye", "lance"]] as const) {
+      const lag = 8;
+      const k = 5;
+      const { server, provisionals } = race({ carId, held: (t) => (t === T ? SLOT(3) : 0), kServer: k, kClient: k, until: T + 80, poseAt });
+      expect(provisionals.length).toBeGreaterThan(0);
+      const p = provisionals[0]!; // the first muzzle (afterburner has two)
+      expect(p.instance.weaponId).toBe(weaponId);
+      expect(p.instance.attached).toBe(true);
+      const snap = p.spawnTick + lag;
+      const drawTick = snap + lag + 0.4;
+      const turn = (i: WeaponInstance) => Math.abs(Math.atan2(Math.sin(i.angle - p.instance.angle), Math.cos(i.angle - p.instance.angle)));
+      const row = [...server.get(snap)!.values()].filter((i) => i.weaponId === weaponId).sort((a, b) => turn(a) - turn(b))[0]!;
+      const drawnOwner = poseAt(drawTick);
+      // Without the drawn owner, the provisional would hand over from its release-tick muzzle: tens of units off.
+      const loose = new ProvisionalShots();
+      loose.add(p, WORLD);
+      const unwelded = loose.confirm([row], drawTick)[0]!.from!;
+      const shots = new ProvisionalShots();
+      shots.add(p, WORLD);
+      const pair = shots.confirm([row], drawTick, drawnOwner)[0]!;
+      const view = new ShotView(shotViewMaxTicks());
+      view.update(row.id, snap, shotFromWire(wireOf(row), snap)!, { dt: DT, tick: snap, ...WORLD, ownerPose: poseAt(snap), homingTarget: null });
+      const to = { ...view.at(row.id, drawTick, drawnOwner)! };
+      expect(Math.hypot(unwelded.x - to.x, unwelded.y - to.y)).toBeGreaterThan(20);
+      expect(Math.hypot(pair.from!.x - to.x, pair.from!.y - to.y)).toBeLessThan(1e-6);
+      // Every frame of the ease: the confirmed beam's origin stays on the drawn car's beam origin.
+      shots.beginHandover(row.id, pair.from!, to, 0);
+      for (let ms = 0; ms <= NET_CONFIG.provisionalShotEaseMs; ms += 16) {
+        const frameTick = drawTick + ms / MS_PER_TICK;
+        const owner = poseAt(frameTick);
+        const drawn = { ...view.at(row.id, frameTick, owner)! };
+        const welded = { x: drawn.x, y: drawn.y };
+        shots.applyHandover(row.id, drawn, ms);
+        expect(Math.hypot(drawn.x - welded.x, drawn.y - welded.y), `${weaponId} at ${ms} ms`).toBeLessThan(1e-6);
+      }
+    }
   });
 
   it("sizes the provisional view to fly a shot past the enemy cap by the most compensation", () => {

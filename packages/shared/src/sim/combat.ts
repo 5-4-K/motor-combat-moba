@@ -1,7 +1,6 @@
 import { DEFAULT_CAR_ID, hpOf } from "../config/car-config.js";
 import { isStatusId } from "../config/status-config.js";
 import type { StatusId } from "../config/status-types.js";
-import { NET_CONFIG } from "../config/net-config.js";
 import { instanceDefOf, isWeaponId, weaponDefOf } from "../config/weapon-config.js";
 import { msToTicks, weaponTicksOf } from "../config/weapon-ticks.js";
 import type { ManeuverWeaponDef, WeaponId } from "../config/weapon-types.js";
@@ -22,8 +21,8 @@ import { applyDamage, applyHeal, damageFor, scaleDamage, weaponDamageOf } from "
 import { ManeuverKind, NO_MANEUVER } from "./maneuver.js";
 import { applyStatus, hasStatus, statusPulses, type ActiveStatus } from "./status/statuses.js";
 import { modifiersOf, NEUTRAL_MODIFIERS, type Modifiers } from "./status/modifiers.js";
-import { beginFire, cancelPending, releaseShots, tickRecharge, type FireState } from "./weapons/fire.js";
-import { turnTurret } from "./weapons/turret.js";
+import { cancelPending, tickRecharge, type FireState } from "./weapons/fire.js";
+import { pressPhase } from "./weapons/press.js";
 import { resolveInstanceHits, type PoseSnapshot } from "./weapons/hits.js";
 import {
   instanceExpired,
@@ -445,70 +444,45 @@ export function runCombat(input: CombatInput): CombatResult {
   for (const player of players) {
     if (!isFighting(player)) continue;
     const mods = modsOf(player.sessionId);
-    // `disarmed` blocks a NEW press only; `releaseShots` below still runs. A press is a commitment
-    // (`beginFire` spends the stock at press time because a wind-up cannot be cancelled), so a jam
-    // landing mid-wind-up would otherwise eat a stock and produce nothing — a debuff that is
-    // strictly worse the better your timing was. Jam what has not been committed yet; let what has
-    // finish.
-    // A press that would start a maneuver (or a hold weapon) while one runs is ignored BEFORE the
-    // stock is spent — masked out of the press, not swallowed after commitment.
-    const blocked = player.maneuver !== ManeuverKind.NONE ? maneuverSlotMask(player.fireState) : 0;
-    if (!mods.disarmed) {
-      const prevPending = player.fireState.pending;
-      player.fireState = beginFire(
-        player.sessionId,
-        player.fireState,
-        player.fireMask & ~blocked,
-        world.tick,
-        player.aimBearing ?? null,
-        player.angle,
-      );
+    // The press phase — `beginFire`, the frozen shot compensation, `turnTurret`, `releaseShots` — is
+    // shared with the shooter's client (`pressPhase`, NR39), so the two can never sequence it apart.
+    const phase = pressPhase(player.sessionId, player.fireState, world.tick, {
+      pressed: player.fireMask,
+      maneuvering: player.maneuver !== ManeuverKind.NONE,
+      disarmed: mods.disarmed,
+      weaponCooldown: mods.weaponCooldown,
+      aimBearing: player.aimBearing ?? null,
+      carAngle: player.angle,
+      fastForward: input.fastForward?.get(player.sessionId) ?? 0,
+    });
+    player.fireState = phase.state;
+    const pending = phase.began;
+    if (pending !== null) {
+      input.events?.fired.push({
+        tick: world.tick,
+        shooterSessionId: player.sessionId,
+        carId: carIdOf(player),
+        weaponId: pending.weaponId,
+        slot: pending.slot,
+        pressId: pending.pressId,
+      });
       // A hold weapon commits the car the moment the wind-up starts (O10): press -> HOLD for
-      // wind-up + growth + linger, released early only by wreck or stun.
-      const pending = player.fireState.pending;
-      if (pending !== null && prevPending === null) {
-        // A press begun this tick freezes its shot-compensation budget onto itself (NR37), so a
-        // wind-up row's instance is advanced by it on whichever tick it is finally released.
-        // Written only when positive, so an uncompensated press's state is exactly what it was.
-        // Clamped to the cap defensively: the server prices it already clamped (NR36), but a caller
-        // bug must never turn into an unbounded loop or a shot from further back than the cap.
-        const comp = Math.min(
-          input.fastForward?.get(player.sessionId) ?? 0,
-          msToTicks(NET_CONFIG.shotCompCapMs),
-        );
-        if (Number.isInteger(comp) && comp > 0) {
-          player.fireState = { ...player.fireState, pending: { ...pending, compTicks: comp } };
-        }
-        input.events?.fired.push({
-          tick: world.tick,
-          shooterSessionId: player.sessionId,
-          carId: carIdOf(player),
-          weaponId: pending.weaponId,
-          slot: pending.slot,
-          pressId: pending.pressId,
-        });
-        const pendingDef = weaponDefOf(pending.weaponId);
-        if (pendingDef.kind === "beam" && pendingDef.holdsDuringFire && player.maneuver === ManeuverKind.NONE) {
-          const t = weaponTicksOf(pendingDef.id);
-          // Counted from the press, NOT shortened by the press's shot compensation: a compensated
-          // beam's life is backdated by `k` (`lifeOffsetTicks`, NR37) while maneuvers are never
-          // fast-forwarded (Phase F), so a lagging shooter's HOLD can outlast their own beam by up
-          // to `k` ticks. Accepted — it costs only the lagging shooter, never anyone they shoot at.
-          player.maneuver = ManeuverKind.HOLD;
-          player.maneuverTicksLeft = t.startUp + t.flight + t.lifetime;
-          player.maneuverWeaponId = pendingDef.id;
-        }
+      // wind-up + growth + linger, released early only by wreck or stun. Nothing in the press phase
+      // reads `player.maneuver`, so setting it after the phase is the same tick as before.
+      const pendingDef = weaponDefOf(pending.weaponId);
+      if (pendingDef.kind === "beam" && pendingDef.holdsDuringFire && player.maneuver === ManeuverKind.NONE) {
+        const t = weaponTicksOf(pendingDef.id);
+        // Counted from the press, NOT shortened by the press's shot compensation: a compensated
+        // beam's life is backdated by `k` (`lifeOffsetTicks`, NR37) while maneuvers are never
+        // fast-forwarded (Phase F), so a lagging shooter's HOLD can outlast their own beam by up
+        // to `k` ticks. Accepted — it costs only the lagging shooter, never anyone they shoot at.
+        player.maneuver = ManeuverKind.HOLD;
+        player.maneuverTicksLeft = t.startUp + t.flight + t.lifetime;
+        player.maneuverWeaponId = pendingDef.id;
       }
     }
-    // TR11/TR15: the turret turns every tick a turret press is pending, disarmed or not — a turn in
-    // progress finishes like a wind-up does.
-    player.fireState = turnTurret(player.fireState, player.angle, world.tick);
-    // Read before `releaseShots`, which clears `pending` once its last volley goes out. One press is
-    // pending at a time, so every order released below belongs to it.
-    const pressComp = player.fireState.pending?.compTicks ?? 0;
-    const released = releaseShots(player.fireState, world.tick, mods.weaponCooldown);
-    player.fireState = released.state;
-    for (const order of released.orders) {
+    const pressComp = phase.compTicks;
+    for (const order of phase.orders) {
       const def = weaponDefOf(order.weaponId);
       // A press that would start a maneuver-kind weapon moves the car instead of spawning an
       // instance — no aim, no hit test, just the trigger for `startManeuver`.
@@ -838,18 +812,6 @@ export function startManeuver(player: CombatPlayer, def: ManeuverWeaponDef, pres
   }
 }
 
-/**
- * Bitmask of slots whose weapon starts a maneuver or a hold — the presses masked out mid-maneuver.
- * Exported for the client's predicted fire state (NR39, `LocalFire`), which masks the same presses.
- */
-export function maneuverSlotMask(fireState: FireState): number {
-  let mask = 0;
-  fireState.slots.forEach((slot, index) => {
-    const def = weaponDefOf(slot.weaponId);
-    if (def.kind === "maneuver" || (def.kind === "beam" && def.holdsDuringFire)) mask |= 1 << index;
-  });
-  return mask;
-}
 
 /**
  * The nearest car this shot may grab, or `""` for none (spec P1-P4).

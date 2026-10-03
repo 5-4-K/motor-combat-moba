@@ -2,8 +2,8 @@ import { TICK_RATE_HZ } from "../constants.js";
 import { NET_CONFIG } from "../config/net-config.js";
 import { isWeaponId, weaponDefOf } from "../config/weapon-config.js";
 import { msToTicks } from "../config/weapon-ticks.js";
-import { bornOlder, maneuverSlotMask } from "../sim/combat.js";
-import { beginFire, releaseShots, tickRecharge, type FireState } from "../sim/weapons/fire.js";
+import { bornOlder } from "../sim/combat.js";
+import { tickRecharge, type FireState } from "../sim/weapons/fire.js";
 import {
   spawnInstances,
   type OwnerPose,
@@ -11,7 +11,7 @@ import {
   type StepInstanceContext,
   type WeaponInstance,
 } from "../sim/weapons/instances.js";
-import { turnTurret } from "../sim/weapons/turret.js";
+import { pressPhase } from "../sim/weapons/press.js";
 import { ShotView, shotViewMaxTicks, type ShotPose } from "./shot-view.js";
 
 /**
@@ -36,6 +36,7 @@ import { ShotView, shotViewMaxTicks, type ShotPose } from "./shot-view.js";
  */
 
 const DT = 1 / TICK_RATE_HZ;
+const NONE: readonly string[] = [];
 
 /** One provisional shot: a single instance (one pellet of one volley) the client drew on its own. */
 export interface Provisional {
@@ -90,8 +91,13 @@ interface Handover {
  */
 export class ProvisionalShots {
   private readonly live: Provisional[] = [];
+  private readonly byKey = new Map<string, Provisional>();
   /** Server ids already offered to `confirm`: each instance confirms at most one provisional, once. */
   private seen = new Set<string>();
+  /** The other half of the `seen` swap, so a frame's `confirm` allocates no set. */
+  private seenNext = new Set<string>();
+  /** `confirm`'s result, reused: valid until the next `confirm`. */
+  private readonly confirmed: Confirmed[] = [];
   private readonly view = new ShotView(provisionalViewMaxTicks());
   private readonly handovers = new Map<string, Handover>();
 
@@ -102,6 +108,7 @@ export class ProvisionalShots {
    */
   add(p: Provisional, world?: ShotWorld): void {
     this.live.push(p);
+    this.byKey.set(p.key, p);
     if (!world) return;
     const k = p.instance.lifeOffsetTicks ?? 0;
     this.view.update(p.key, p.spawnTick - k, p.instance, {
@@ -117,15 +124,19 @@ export class ProvisionalShots {
   /**
    * Server instances seen this frame. A provisional with the same owner and weapon whose `spawnTick`
    * is within `provisionalShotMatchTicks` of the instance's is confirmed and removed; returns the
-   * pairs. Each server instance is considered on the first call that lists it and never again, and
-   * confirms at most one provisional (one pellet each); among several candidates the nearest tick
-   * wins, then the nearest heading, then the oldest. With `drawTick`, each pair carries where the
-   * provisional stood at that tick, for the hand-over.
+   * pairs (a reused array, valid until the next call). Each server instance is considered on the
+   * first call that lists it and never again, and confirms at most one provisional (one pellet
+   * each); among several candidates the nearest tick wins, then the nearest heading, then the
+   * oldest. With `drawTick`, each pair carries where the provisional stood at that tick — an attached
+   * beam welded to `ownerPose`, the owner's DRAWN pose, exactly as the confirming instance is drawn,
+   * so the hand-over carries no car motion.
    */
-  confirm(serverInstances: readonly ServerShot[], drawTick?: number): Confirmed[] {
+  confirm(serverInstances: readonly ServerShot[], drawTick?: number, ownerPose?: OwnerPose): readonly Confirmed[] {
     const window = NET_CONFIG.provisionalShotMatchTicks;
-    const out: Confirmed[] = [];
-    const seen = new Set<string>();
+    const out = this.confirmed;
+    out.length = 0;
+    const seen = this.seenNext;
+    seen.clear();
     for (const s of serverInstances) {
       seen.add(s.id);
       if (this.seen.has(s.id) || s.isExplosion || this.live.length === 0) continue;
@@ -148,28 +159,27 @@ export class ProvisionalShots {
       const p = this.live[best]!;
       const pair: Confirmed = { provisionalKey: p.key, serverId: s.id };
       if (drawTick !== undefined) {
-        const at = this.at(p.key, drawTick);
+        const at = this.at(p.key, drawTick, p.instance.attached ? ownerPose : undefined);
         if (at) pair.from = { x: at.x, y: at.y };
       }
-      this.live.splice(best, 1);
-      this.view.forget(p.key);
+      this.remove(best);
       out.push(pair);
     }
+    this.seenNext = this.seen;
     this.seen = seen;
     return out;
   }
 
   /** Drop provisionals older than `ttlMs`; returns their keys. */
-  expire(nowMs: number, ttlMs: number): string[] {
-    const gone: string[] = [];
+  expire(nowMs: number, ttlMs: number): readonly string[] {
+    let gone: string[] | undefined;
     for (let i = this.live.length - 1; i >= 0; i--) {
       const p = this.live[i]!;
       if (nowMs - p.bornAtMs < ttlMs) continue;
-      gone.push(p.key);
-      this.live.splice(i, 1);
-      this.view.forget(p.key);
+      (gone ??= []).push(p.key);
+      this.remove(i);
     }
-    return gone;
+    return gone ?? NONE;
   }
 
   list(): readonly Provisional[] {
@@ -181,12 +191,19 @@ export class ProvisionalShots {
    * (past its range, lifetime or wall end — the server's own end rules, through `ShotView`). Never
    * drawn before the tick its `ShotView` snapshot stands on: a press drawn the frame it is made, at a
    * draw tick a fraction behind its spawn tick, sits at that snapshot (the muzzle for an
-   * uncompensated press). The returned record is reused; copy it.
+   * uncompensated press). `ownerPose` welds an attached beam to the owner's drawn car. The returned
+   * record is reused; copy it.
    */
   at(key: string, tick: number, ownerPose?: OwnerPose): Readonly<ShotPose> | undefined {
-    const p = this.live.find((q) => q.key === key);
+    const p = this.byKey.get(key);
     const floor = p ? p.spawnTick - (p.instance.lifeOffsetTicks ?? 0) : tick;
     return this.view.at(key, Math.max(tick, floor), ownerPose);
+  }
+
+  private remove(index: number): void {
+    const [p] = this.live.splice(index, 1);
+    this.byKey.delete(p!.key);
+    this.view.forget(p!.key);
   }
 
   /**
@@ -229,6 +246,7 @@ export class ProvisionalShots {
   clear(): void {
     for (const p of this.live) this.view.forget(p.key);
     this.live.length = 0;
+    this.byKey.clear();
     this.seen.clear();
     this.handovers.clear();
   }
@@ -365,12 +383,19 @@ export class LocalFire {
   private prevMask = 0;
   private lastTick = Number.NEGATIVE_INFINITY;
   private lastPressTick = Number.NEGATIVE_INFINITY;
+  /** The newest frame stepped: a gap tick repeats its held keys and its modifiers, as the server does. */
+  private lastFrame: FireFrame | undefined;
   /** Frames stepped since the newest snapshot, oldest first: replayed over a reseed. */
   private frames: FireFrame[] = [];
   /** The held mask of the newest frame at or before the newest snapshot (the server's `prevFireMasks`). */
   private maskAtSnapshot = 0;
 
   constructor(private readonly sessionId: string) {}
+
+  /** The predicted fire state after the newest stepped tick, or undefined before the first seed. Read-only. */
+  get current(): Readonly<FireState> | undefined {
+    return this.state;
+  }
 
   /** A snapshot of the local player arrived: prune, and reseed if nothing is in flight. */
   resync(view: FireView): void {
@@ -381,10 +406,12 @@ export class LocalFire {
     if (!seed) return;
     this.state = seed;
     this.prevMask = this.maskAtSnapshot;
+    this.lastFrame = undefined;
     let tick = view.tick;
     for (const f of this.frames) {
       this.fill(tick, f.tick);
-      this.advance(f);
+      this.lastFrame = f;
+      this.tickOnce(f);
       tick = f.tick;
     }
     this.lastTick = Math.max(tick, this.lastTick);
@@ -394,14 +421,15 @@ export class LocalFire {
   step(frame: FireFrame): FireStep {
     if (!(frame.tick > this.lastTick)) return NO_STEP;
     this.frames.push(frame);
-    if (this.frames.length > FRAME_CAP) this.frames.shift();
+    if (this.frames.length > localFireFrameCap()) this.frames.shift();
     if (!this.state) {
       this.lastTick = frame.tick;
       return NO_STEP;
     }
     if (Number.isFinite(this.lastTick)) this.fill(this.lastTick, frame.tick);
     this.lastTick = frame.tick;
-    return this.advance(frame);
+    this.lastFrame = frame;
+    return this.tickOnce(frame);
   }
 
   clear(): void {
@@ -409,47 +437,71 @@ export class LocalFire {
     this.prevMask = 0;
     this.lastTick = Number.NEGATIVE_INFINITY;
     this.lastPressTick = Number.NEGATIVE_INFINITY;
+    this.lastFrame = undefined;
     this.frames = [];
     this.maskAtSnapshot = 0;
   }
 
-  /** Ticks with no frame between `from` and `to` (exclusive): the server repeats the held keys — no press. */
+  /**
+   * Ticks with no frame between `from` and `to` (exclusive): the server repeats the newest frame's
+   * keys for `inputRepeatMs` and then releases them (NR22) — a repeat can never make a press, a
+   * release lets the next real press be one. Each is an ordinary tick of the same shared sequence,
+   * with the newest frame's modifiers.
+   */
   private fill(from: number, to: number): void {
-    if (to - from > FRAME_CAP) {
+    if (to - from > localFireFrameCap()) {
       this.state = undefined;
       return;
     }
+    const last = this.lastFrame;
+    const repeatTicks = msToTicks(NET_CONFIG.inputRepeatMs);
     for (let t = from + 1; t < to && this.state; t++) {
-      this.state = tickRecharge(this.state, t);
-      this.state = releaseShots(this.state, t).state;
+      // With no frame yet since a reseed, the held mask at the snapshot is what the server repeats.
+      const mask = last === undefined ? this.prevMask : t - last.tick <= repeatTicks ? last.mask : 0;
+      this.tickOnce({
+        tick: t,
+        mask,
+        carAngle: last?.carAngle ?? 0,
+        aimAngle: last?.aimAngle,
+        disarmed: last?.disarmed ?? false,
+        weaponCooldown: last?.weaponCooldown ?? 1,
+        maneuvering: last?.maneuvering ?? false,
+      });
     }
   }
 
-  private advance(f: FireFrame): FireStep {
-    let state = this.state;
+  /**
+   * One tick of the server's fire sequence for this car: `tickRecharge` (`runCombat`'s phase 1), then
+   * the shared `pressPhase` (its phase 3) — the very function `runCombat` calls.
+   */
+  private tickOnce(f: FireFrame): FireStep {
+    const state = this.state;
     if (!state) return NO_STEP;
     // `serverTick`: only a bit that was not down on the previous simulated input is a press.
     const pressed = f.mask & ~this.prevMask;
     this.prevMask = f.mask;
-    state = tickRecharge(state, f.tick, f.weaponCooldown);
-    if (!f.disarmed) {
-      const before = state.pending;
-      const blocked = f.maneuvering ? maneuverSlotMask(state) : 0;
-      state = beginFire(this.sessionId, state, pressed & ~blocked, f.tick, f.aimAngle ?? null, f.carAngle);
-      const pending = state.pending;
-      if (pending !== null && before === null) {
-        this.lastPressTick = f.tick;
-        const comp = clientCompTicks(f.tick, f.viewTick);
-        if (comp > 0) state = { ...state, pending: { ...pending, compTicks: comp } };
-      }
-    }
-    state = turnTurret(state, f.carAngle, f.tick);
-    const compTicks = state.pending?.compTicks ?? 0;
-    const released = releaseShots(state, f.tick, f.weaponCooldown);
-    this.state = released.state;
-    return { orders: released.orders, compTicks };
+    const phase = pressPhase(this.sessionId, tickRecharge(state, f.tick, f.weaponCooldown), f.tick, {
+      pressed,
+      maneuvering: f.maneuvering,
+      disarmed: f.disarmed,
+      weaponCooldown: f.weaponCooldown,
+      aimBearing: f.aimAngle ?? null,
+      carAngle: f.carAngle,
+      fastForward: clientCompTicks(f.tick, f.viewTick),
+    });
+    if (phase.began !== null) this.lastPressTick = f.tick;
+    this.state = phase.state;
+    return phase.orders.length === 0 ? NO_STEP : { orders: phase.orders, compTicks: phase.compTicks };
   }
 }
 
-/** How many frames `LocalFire` keeps for a replay: any input lead plus a second of snapshot silence. */
-const FRAME_CAP = msToTicks(NET_CONFIG.maxInputLeadMs + 1000);
+/**
+ * How many frames `LocalFire` keeps for a replay, and the longest gap it steps across rather than
+ * dropping its state: the longest input lead plus `LOCAL_FIRE_SILENCE_MS` of snapshot silence.
+ */
+export function localFireFrameCap(): number {
+  return msToTicks(NET_CONFIG.maxInputLeadMs + LOCAL_FIRE_SILENCE_MS);
+}
+
+/** The snapshot silence `LocalFire` rides out before it gives up and waits for a quiet reseed. */
+const LOCAL_FIRE_SILENCE_MS = 1000;
