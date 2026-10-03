@@ -272,13 +272,15 @@ describe("truncateName", () => {
 });
 
 describe("rosterRows under interest management (NR48)", () => {
-  it("lists a hidden enemy from its scoreboard facts alone — no tagged field is read", () => {
+  it("lists a hidden enemy from its scoreboard facts alone, and carries no field a hidden car lacks", () => {
     // A hidden enemy as the client decodes it: every `@view()` field (pose, hp, statuses, inView)
-    // absent, every public one present. The row must not need any of the absent ones.
+    // absent, every public one present.
     const hiddenEnemy = { ...player({ sessionId: "b", name: "Bea", kills: 2, alive: false }), x: undefined, hp: undefined, inView: undefined };
     const rows = rosterRows([player({ sessionId: "a" }), hiddenEnemy]);
     expect(rows.map((r) => r.sessionId)).toEqual(["a", "b"]);
-    expect(rows[1]).toEqual({ sessionId: "b", name: "Bea", colorId: rows[1]!.colorId, alive: false, kills: 2 });
-    expect(Object.keys(rows[1]!)).not.toContain("hp");
+    expect(rows[1]).toMatchObject({ name: "Bea", alive: false, kills: 2 });
+    // NR48 holds because the roster reads public fields ONLY. Pinned as the exact field list, so a row
+    // that grows a field (an hp column, which would then owe a `?` for a hidden enemy) fails here.
+    expect(Object.keys(rows[1]!).sort()).toEqual(["alive", "colorId", "kills", "name", "sessionId"]);
   });
 });

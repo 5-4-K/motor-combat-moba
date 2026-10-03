@@ -23,9 +23,7 @@ import {
   localAnchorOf,
   type LocalAnchor,
   TickPrediction,
-  axisOfWire,
   blendPose,
-  buildStepContext,
   localModifiers,
   modifiersFromRows,
   ARENA_IDS,
@@ -245,7 +243,13 @@ import {
 import { arrowBlinkOn, arrowBobOffset, countdownArrowPoints } from "./countdown-arrow.js";
 import { boundsAlignedFor, resolveViewRotation } from "../camera/rotation.js";
 import { SpectateReport } from "../camera/spectate-report.js";
-import { carInView, feedRemoteTimeline, inViewRoster, ownerWirePose } from "../net/in-view.js";
+import {
+  carInView,
+  feedRemoteTimeline,
+  ownerWirePose,
+  predictionStepContext,
+  remoteSnapshotOf,
+} from "../net/in-view.js";
 import { fxCarViews } from "../fx/car-views.js";
 import {
   ACTION_LABEL,
@@ -2818,9 +2822,8 @@ export class ArenaScene extends Phaser.Scene {
     const arena = this.arena ?? getArena(room.state.arenaId);
     // Only the cars in view (NR48): a hidden enemy has no pose to collide against, and a stale one
     // would shove the prediction off a car that is not there. The server resolves any real contact.
-    const state = { players: inViewRoster(room.state.players, self) };
     return (tick) =>
-      buildStepContext(arena, state, self, tick, localModifiers(room.state, self, tick), (id, at) =>
+      predictionStepContext(arena, room.state.players, self, tick, localModifiers(room.state, self, tick), (id, at) =>
         this.remotes.reckonedPose(id, at),
       );
   }
@@ -3106,6 +3109,13 @@ export class ArenaScene extends Phaser.Scene {
     const watching = this.isSpectating(room) && this.spectateTarget !== "" ? this.spectateTarget : "";
     const perspectiveSid = watching || localSid;
     const perspective = room.state.players.get(perspectiveSid);
+    // A freshly picked spectate target is out of this client's view for one round trip, until the
+    // server has the report (NR45) — and so has no pose to see from. Keep last frame's vision (the
+    // previous perspective's, consistent with `this.vision.perspective`) rather than dropping the
+    // overlay to no shape at all; the new perspective's vision follows the moment it arrives.
+    if (watching !== "" && this.vision.active && (!perspective || !carInView(perspectiveSid, perspective, localSid))) {
+      return;
+    }
     const players: VisionPlayer[] = [];
     room.state.players.forEach((p, sessionId) => {
       if (p.status !== PlayerStatus.IN_MATCH) return;
@@ -3229,17 +3239,9 @@ export class ArenaScene extends Phaser.Scene {
     const arena = this.arena ?? getArena(room.state.arenaId);
     // A remote out of view (NR48) is forgotten rather than pushed, so it restarts from its first
     // visible snapshot when it comes back.
-    feedRemoteTimeline(this.remotes, room.state.players, driven, tick, (player, sessionId) => ({
-      body: bodyOf(player),
-      keys: { steer: axisOfWire(player.lastSteer), throttle: axisOfWire(player.lastThrottle), fireSlots: 0 },
-      ctx: {
-        ...buildStepContext(arena, room.state, sessionId, tick, localModifiers(room.state, sessionId, tick)),
-        others: [],
-      },
-      // Death and respawn reset the remote's interpolation and reckoning (no slide from the wreck
-      // to the spawn); so does a jump of more than `remoteTeleportCars` car lengths.
-      alive: player.alive,
-    }));
+    feedRemoteTimeline(this.remotes, room.state.players, driven, tick, (player, sessionId) =>
+      remoteSnapshotOf(arena, player, sessionId, tick),
+    );
   }
 
   /**

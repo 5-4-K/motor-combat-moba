@@ -1,4 +1,16 @@
-import { PlayerStatus, type RemoteSnapshot } from "@motor-combat-moba/shared";
+import {
+  PlayerStatus,
+  axisOfWire,
+  buildStepContext,
+  modifiersFromRows,
+  type ArenaDef,
+  type ContextPlayer,
+  type Modifiers,
+  type PoseOf,
+  type RemoteSnapshot,
+  type SimBody,
+  type StepContext,
+} from "@motor-combat-moba/shared";
 
 /**
  * What this client may know about a car under interest management (NR44, NR48).
@@ -87,4 +99,66 @@ export function ownerWirePose(
 ): { x: number; y: number; angle: number } | null {
   if (!owner || owner.inView !== true) return null;
   return { x: owner.x, y: owner.y, angle: owner.angle };
+}
+
+/**
+ * The local car's prediction context (NR32) over the cars in view only (`inViewRoster`). Every client
+ * `StepContext` is built from visible rows: `buildStepContext` runs `otherCarHulls` over every row it
+ * is handed, and a hidden row's `statuses` is `undefined` — `isSolid` would throw on it.
+ */
+export function predictionStepContext<P extends ViewTagged & ContextPlayer>(
+  arena: ArenaDef,
+  players: Roster<P>,
+  selfSid: string,
+  tick: number,
+  modifiers: Readonly<Modifiers>,
+  poseOf?: PoseOf,
+): StepContext {
+  return buildStepContext(arena, { players: inViewRoster(players, selfSid) }, selfSid, tick, modifiers, poseOf);
+}
+
+/** What `remoteSnapshotOf` reads off an in-view remote's row. */
+export interface RemoteRow extends ContextPlayer {
+  readonly vx: number;
+  readonly vy: number;
+  readonly angVel: number;
+  readonly maneuver: number;
+  readonly maneuverTicksLeft: number;
+  readonly maneuverAngle: number;
+  readonly maneuverSpeed: number;
+  readonly lastSteer: number;
+  readonly lastThrottle: number;
+}
+
+/**
+ * One in-view remote's snapshot for the timeline (NR31, NR33): its pose, its last consumed input, and
+ * a step context of its OWN — its chassis and status modifiers, and no other cars. Built from a
+ * roster holding only that remote: the reckoner discards `others` anyway, and the full roster would
+ * hand `buildStepContext` every hidden row too (G4 review C1). Call it only for a car in view.
+ */
+export function remoteSnapshotOf(arena: ArenaDef, player: RemoteRow, sessionId: string, tick: number): RemoteSnapshot {
+  const body: SimBody = {
+    x: player.x,
+    y: player.y,
+    angle: player.angle,
+    vx: player.vx,
+    vy: player.vy,
+    angVel: player.angVel,
+    maneuver: player.maneuver,
+    maneuverTicksLeft: player.maneuverTicksLeft,
+    maneuverAngle: player.maneuverAngle,
+    maneuverSpeed: player.maneuverSpeed,
+  };
+  const alone: Roster<RemoteRow> = { forEach: (callback) => callback(player, sessionId) };
+  return {
+    body,
+    keys: { steer: axisOfWire(player.lastSteer), throttle: axisOfWire(player.lastThrottle), fireSlots: 0 },
+    ctx: {
+      ...buildStepContext(arena, { players: alone }, sessionId, tick, modifiersFromRows(player.statuses, tick)),
+      others: [],
+    },
+    // Death and respawn reset the remote's interpolation and reckoning (no slide from the wreck to
+    // the spawn); so does a jump of more than `remoteTeleportCars` car lengths.
+    alive: player.alive,
+  };
 }
