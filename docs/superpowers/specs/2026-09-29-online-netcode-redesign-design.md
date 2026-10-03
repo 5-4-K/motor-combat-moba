@@ -44,9 +44,13 @@ repeats for that player (2026-10-01).
 Every netsim target binds the **mean over seeds 1–3** of the 60 s, six-car baseline run
 (`NETSIM_BASELINE=1`); a single seed may sit slightly past it (LAN's worst seed read 34.02 ms at D6).
 
-On LAN (1 ms RTT, 0 jitter): input-to-server delay ≤ 34 ms (today 0–33 ms); remote interpolation
-delay ≤ 50 ms (today 50 ms), and total remote display delay as measured by the harness no worse than
-today's. On `net80clean`: input-to-server delay no more than LAN's plus half the RTT plus one tick
+On LAN (1 ms RTT, 0 jitter): input-to-server delay ≤ 35 ms (today 0–33 ms), judged as the
+**equal-weighted mean per car** (each car's own mean, then the mean of those) **with every client's
+frame phase drifting against the server tick**, as a real display's does. The ~25 ms input safety
+margin (NR21's 1.5-tick target slack) plus the 0–16.7 ms wait for the next tick is the design, and
+averages about 34 ms; the earlier ≤ 34 was set tighter than the harness, with six fixed frame
+phases, could resolve (about ±1.4 ms). Remote interpolation delay ≤ 50 ms (today 50 ms), and total
+remote display delay as measured by the harness no worse than today's. On `net80clean`: input-to-server delay no more than LAN's plus half the RTT plus one tick
 (≤ 34 + 40 + 16.7 ≈ 91 ms; 74.3 ms at D6).
 
 ## 2. What is wrong today (findings)
@@ -404,3 +408,4 @@ Each stage merges on its own, green, with its measured numbers recorded in the p
 - 2026-10-01 (F1 fix round 1): NR36's RTT is `min(appRtt, wsRtt)` — a WebSocket ping/pong RTT bounds the app `MSG_PING` RTT, so echoes held back by page JS cannot buy compensation; the two allowance multipliers are named (`shotCompDelaySnapshots`, `shotCompSlackStds`, both 2).
 - 2026-10-03 (F5): the netsim drivers fire (an ability press every 1–3 s), so the baseline is now §1's "driving and firing" shape. Measured (mean of seeds 1–3): shot compensation mean `k` lan 4.5, net80clean 8.5, net80 9.0, net150 8.9 ticks (at the cap on 0 / 54 / 98 / 99 % of presses); own shot drawn the frame it is pressed on every link; non-homing hand-over p95 0.5 u on net80clean; 17–39 % of provisional pellets expire unconfirmed, almost all shots the server resolved inside their own fast-forward and never sent. LAN input-to-server reads 34.05 ms with firing on (33.99 driving-only). §11's NR60 states Phase F's residuals.
 - 2026-10-03 (Phase F final review fixes): a shot that ends on its birth tick (inside its fast-forward, or at the muzzle) is sent as an ended row (`alive: false` at its end pose, `endedShotRowMs` 100 ms, `PROTOCOL_VERSION` 5) so every client draws its impact and the shooter's provisional ends against it (NR37, NR39); an unconfirmed provisional is dropped at the first applied snapshot at or past `spawnTick + provisionalShotMatchTicks`, replacing the `rtt + 100 ms` ttl (`provisionalShotGraceMs`, `provisionalShotFadeMs` deleted), so a confirm is never late and a press moved past the window is never drawn twice; NR60 states the no-rewind hit consequence. §1's LAN input-to-server target is NOT amended: excluding respawn re-entry frames does not explain the firing run's 34.05 ms (see EXECUTION, Phase F final review I3).
+- 2026-10-03 (Phase F close, user decision): §1's LAN input-to-server target becomes ≤ 35 ms, the equal-weighted mean per car, with every client's frame phase drifting against the tick. Recorded honestly: LAN input-to-server has measured ~34.1 ms since Phase D (D6), never under 34 — the 33.99 ms recorded at D and E was a weighting artifact (the metric weighted every applied frame alike, each netsim car sat at one fixed frame phase with its own delay of 27–41 ms, and the mean moved with which cars spent time dead). No gameplay change. The netsim's clients now each run a seeded 0.1–0.3 % off 60 Hz from a seeded phase, so each car averages over the tick; measured 34.25 ms (34.10–34.43, seeds 1–3), each car's own mean 33.6–34.9 ms.
