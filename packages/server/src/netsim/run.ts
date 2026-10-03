@@ -57,10 +57,25 @@ export interface NetsimOptions {
   fire?: boolean;
 }
 
-/** Display refresh of every headless client, Hz. */
+/** Nominal display refresh of every headless client, Hz. */
 const FRAME_HZ = 60;
-/** Each client's frame clock is offset by `index * FRAME_PHASE_MS`, so they do not render in step. */
-const FRAME_PHASE_MS = 2.7;
+/**
+ * Each client's display runs a seeded few parts per thousand off `FRAME_HZ` — at least
+ * `FRAME_DRIFT_MIN`, at most `FRAME_DRIFT_MAX`, fast or slow at random — and starts at a seeded phase
+ * within its first frame (Phase F close). A browser's frames are vsync-locked, evenly spaced, and
+ * paced by the display's own clock, which is never the server's: a "60 Hz" panel is commonly
+ * 59.94 Hz (0.1 % slow), and VESA timings allow ±0.5 %. So a real client's frame phase against the
+ * 16.7 ms tick grid slides steadily, and its wait for the next tick averages over every phase. A
+ * fixed phase per car (2.7 ms × index, until Phase F close) pinned each car's input-to-server delay
+ * to one point between 27 and 41 ms, so the run's mean was a six-point estimate of that average,
+ * good to about ±1.4 ms. A random phase every frame was rejected: it would make frame intervals
+ * 0–33 ms, which no vsync-locked client produces. At 0.1–0.3 % a car's phase sweeps the whole tick
+ * every 5.6–16.7 s, 3.6–10.8 times in the baseline's 60 s.
+ */
+const FRAME_DRIFT_MIN = 0.001;
+const FRAME_DRIFT_MAX = 0.003;
+/** Frame-clock stream seed = driver seed XOR this, so the drift draws nothing from the master. */
+const FRAME_SEED_SALT = 0x85ebca6b;
 /**
  * Each client's own clock reads `index * CLOCK_OFFSET_MS + CLOCK_BASE_MS` ahead of the harness clock,
  * so `ClockSync` has a real offset to earn from its pongs rather than starting on the answer.
@@ -134,12 +149,16 @@ export interface NetsimDiagnostics {
   serverPresses: number;
   /**
    * Input-to-server delay without the sender's first `REENTRY_TICKS` ticks after each respawn
-   * (Phase F final review I3), and the same delay as the mean of each car's own mean — the metric
-   * weights every applied frame alike, so a car alive longer counts for more, and each car's own
-   * delay is set by its frame clock's phase against the tick grid (`FRAME_PHASE_MS`).
+   * (Phase F final review I3), frame-weighted like `inputToServerFrameWeightedMs`.
    */
   inputToServerExReentryMs: number;
-  inputToServerPerCarMeanMs: number;
+  /**
+   * The lowest and highest of the per-car means `inputToServerMs` averages: how far apart the cars'
+   * own delays sit. With every frame clock drifting (`FRAME_DRIFT_MIN`) they converge on one value;
+   * with the fixed phases before Phase F close they spread 27–41 ms on `lan`.
+   */
+  inputToServerPerCarMinMs: number;
+  inputToServerPerCarMaxMs: number;
   /**
    * M1: the drawn-jump max split by whether the remote was kicked within `KICK_WINDOW_MS` (maneuver
    * start/end, a one-tick velocity change past `KICK_DV`), the count of jumps over `JUMP_REPORT_U` in
@@ -190,8 +209,6 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
   const master = mulberry32(opts.seed);
   const nextSeed = (): number => Math.floor(master() * 0x1_0000_0000);
   const arena = getArena(NETSIM_ARENA_ID);
-  const frameMs = 1000 / FRAME_HZ;
-
   const clients = world.ids.map((id, i) => {
     // Drawn in a fixed order per client, so each stream is a pure function of (seed, index).
     const driverSeed = nextSeed();
@@ -199,12 +216,17 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
     const upRng = mulberry32(nextSeed());
     const downRng = mulberry32(nextSeed());
     const fireRng = opts.fire === false ? undefined : mulberry32((driverSeed ^ FIRE_SEED_SALT) >>> 0);
+    const frameRng = mulberry32((driverSeed ^ FRAME_SEED_SALT) >>> 0);
+    const drift = FRAME_DRIFT_MIN + frameRng() * (FRAME_DRIFT_MAX - FRAME_DRIFT_MIN);
+    const frameMs = 1000 / (FRAME_HZ * (frameRng() < 0.5 ? 1 - drift : 1 + drift));
     return {
       id,
       client: new TickClient(id, makeDriver(driverRng, fireRng), arena, CLOCK_BASE_MS + i * CLOCK_OFFSET_MS, 0),
       up: new Link<UpMessage>(opts.link, upRng),
       down: new Link<DownMessage>(opts.link, downRng),
-      nextFrameAt: i * FRAME_PHASE_MS,
+      /** This client's own frame period, ms (its display's refresh, a little off `FRAME_HZ`). */
+      frameMs,
+      nextFrameAt: frameRng() * frameMs,
       /** Per remote, the previous frame's sample (dropped while that remote is dead). */
       prev: new Map<string, RemoteSample>(),
     };
@@ -267,8 +289,8 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
     // 3. Clients: a frame each whenever its own frame clock comes due.
     for (const c of clients) {
       if (now < c.nextFrameAt) continue;
-      c.nextFrameAt += frameMs;
-      for (const packet of c.client.frame(now, frameMs)) c.up.send(now, { kind: "input", packet });
+      c.nextFrameAt += c.frameMs;
+      for (const packet of c.client.frame(now, c.frameMs)) c.up.send(now, { kind: "input", packet });
       c.client.drawShots(now);
 
       // 4. Sample every other car that is alive on the server AND drawn alive by this client: a car
@@ -354,8 +376,9 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
   let droppedInputs = 0;
   let unackedAtEnd = 0;
   const lastTick = world.state.tick;
-  // Phase F final review I3: the same delays without the frames for the first `REENTRY_TICKS` ticks
-  // after the sender's respawn, and the mean of each car's own mean (every car weighted alike).
+  // `inputToServerMs` is the mean of each car's own mean (every car weighted alike, Phase F close);
+  // the frame-weighted mean and the I3 diagnostic (without the frames for the first `REENTRY_TICKS`
+  // ticks after the sender's respawn) are reported beside it.
   const delaysExReentry: number[] = [];
   const perCarMeans: number[] = [];
   for (const c of clients) {
@@ -415,7 +438,10 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
   const late = clients.reduce((n, c) => n + c.client.lateConfirms, 0);
   const endedConfirms = clients.reduce((n, c) => n + c.client.endedConfirms, 0);
   // An expired provisional never confirmed: did the server commit its press (same slot, pressed
-  // between its wind-up before the spawn tick and the spawn tick)? Then its instance either reached
+  // between its wind-up before the spawn tick and `PRESS_MATCH_TICKS` after it — a press edge moved
+  // later by a repeated pressing frame counts as committed, as it does for `firedPresses`; until
+  // Phase F close the window ended at `spawnTick + provisionalShotMatchTicks`, so an edge moved by
+  // 3–4 ticks read as refused)? Then its instance either reached
   // no snapshot this client applied (a shot ended on its birth tick is sent as an ended row now, so
   // this is a press moved past the match window, or a row lost between frames — an inference from
   // the press, not an observation), or the server refused the press `LocalFire` let through.
@@ -426,7 +452,7 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
       if (e.confirmedLate) continue;
       const startUp = isWeaponId(e.weaponId) ? weaponTicksOf(e.weaponId).startUp : 0;
       const from = e.spawnTick - startUp - NET_CONFIG.provisionalShotMatchTicks;
-      const to = e.spawnTick + NET_CONFIG.provisionalShotMatchTicks;
+      const to = e.spawnTick + PRESS_MATCH_TICKS;
       if (serverPresses.get(`${c.id}:${e.slot}`)?.some((t) => t >= from && t <= to)) unseen++;
       else refused++;
     }
@@ -438,7 +464,8 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
     remoteDisplayDelayMs: mean(displayDelays),
     remoteHoldRate: samples.length === 0 ? 0 : holds / samples.length,
     reconcileErrorP95: percentile(clients.flatMap((c) => c.client.reconcileErrors), 95),
-    inputToServerMs: mean(inputDelays),
+    inputToServerMs: mean(perCarMeans),
+    inputToServerFrameWeightedMs: mean(inputDelays),
     remoteHeadingErrorP95Deg: percentile(headingErrors, 95),
     remoteJumpExcessMax: jumpExcesses.reduce((m, v) => Math.max(m, v), 0),
     remoteJumpExcessP99: percentile(jumpExcesses, 99),
@@ -483,7 +510,8 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
       compensatedPresses: comp.filter((k) => k > 0).length,
       serverPresses: comp.length,
       inputToServerExReentryMs: mean(delaysExReentry),
-      inputToServerPerCarMeanMs: mean(perCarMeans),
+      inputToServerPerCarMinMs: perCarMeans.length === 0 ? 0 : Math.min(...perCarMeans),
+      inputToServerPerCarMaxMs: perCarMeans.length === 0 ? 0 : Math.max(...perCarMeans),
       jumpMaxKicked: jumpKicked.max,
       jumpMaxUnkicked: jumpPlain.max,
       jumpsOverKicked: jumpKicked.over,

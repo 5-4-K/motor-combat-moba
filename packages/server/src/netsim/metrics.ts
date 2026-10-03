@@ -21,8 +21,14 @@
  *   on the tick rate.
  * - `reconcileErrorP95` — at each snapshot the client reconciles, distance between its current
  *   predicted position and the replayed target, p95.
- * - `inputToServerMs` — mean of (the server time a car's input was simulated − the client time it
- *   was produced), over inputs simulated as their own tick's input.
+ * - `inputToServerMs` — per car, the mean of (the server time its input was simulated − the client
+ *   time it was produced) over inputs simulated as their own tick's input; then the mean of those
+ *   per-car means, every car weighted alike (Phase F close, spec §1). Each client's frame clock
+ *   drifts against the tick grid (`run.ts`, `FRAME_DRIFT_MIN`), so each car's own mean already
+ *   averages over the 0–16.7 ms wait for the next tick.
+ * - `inputToServerFrameWeightedMs` — the same delay as one mean over every applied frame of every
+ *   car, the figure `inputToServerMs` was until Phase F close: a car alive longer counts for more,
+ *   so it moves with which cars spent time dead. Kept for continuity.
  *
  * Reported with no target (phase E review I3) — they exist so a contact-blend or heading regression
  * is visible, which none of the metrics above can see:
@@ -82,7 +88,8 @@
  *   sum to it): `lateConfirmRate` — its confirming instance arrived AFTER the drop, impossible by
  *   construction now that confirm and expiry read the same snapshot (kept as the check; it was the
  *   `rtt + 100 ms` ttl's failure before); `provisionalUnseenRate` — the server committed the press
- *   (inferred from a server press on the slot near the spawn tick) but no instance confirmed it: a
+ *   (inferred from a server press on the slot from the shot's wind-up before its spawn tick to
+ *   `PRESS_MATCH_TICKS` (4) after it) but no instance confirmed it: a
  *   press edge moved past the match window by a repeated frame (its instance then draws itself and
  *   counts in `unpredictedShots`), or a row this client never applied; `provisionalRefusedRate` — the
  *   server committed no press for it (`LocalFire` let through a press the server refused).
@@ -98,6 +105,7 @@ export interface NetsimMetrics {
   remoteHoldRate: number;
   reconcileErrorP95: number;
   inputToServerMs: number;
+  inputToServerFrameWeightedMs: number;
   remoteHeadingErrorP95Deg: number;
   remoteJumpExcessMax: number;
   remoteJumpExcessP99: number;
