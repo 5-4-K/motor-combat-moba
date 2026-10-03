@@ -173,4 +173,11 @@ export const NET_CONFIG = {
    * `net/view-manager.ts`), never typed as a distance — a speed retune moves it on its own.
    */
   visionMarginLeadMs: 250,
+  /**
+   * NR45: how often a spectating wreck re-sends its current pick (`MSG_SPECTATE_TARGET`) while the
+   * pick has not changed. The report is sent on every change; this repeat is what recovers one the
+   * link dropped, which would otherwise leave the server showing the wreck its previous target's
+   * vision until the next `[`/`]` press. Well inside the `spectate` `ClientLimits` budget (10/s).
+   */
+  spectateResendMs: 1000,
 } as const;

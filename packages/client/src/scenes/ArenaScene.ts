@@ -245,6 +245,8 @@ import {
 import { arrowBlinkOn, arrowBobOffset, countdownArrowPoints } from "./countdown-arrow.js";
 import { boundsAlignedFor, resolveViewRotation } from "../camera/rotation.js";
 import { SpectateReport } from "../camera/spectate-report.js";
+import { carInView, feedRemoteTimeline, inViewRoster, ownerWirePose } from "../net/in-view.js";
+import { fxCarViews } from "../fx/car-views.js";
 import {
   ACTION_LABEL,
   MOVEMENT_ARROWS,
@@ -2814,8 +2816,11 @@ export class ArenaScene extends Phaser.Scene {
   private stepContext(room: Room<ArenaState>): (tick: number) => StepContext {
     const self = this.drivenSid(room);
     const arena = this.arena ?? getArena(room.state.arenaId);
+    // Only the cars in view (NR48): a hidden enemy has no pose to collide against, and a stale one
+    // would shove the prediction off a car that is not there. The server resolves any real contact.
+    const state = { players: inViewRoster(room.state.players, self) };
     return (tick) =>
-      buildStepContext(arena, room.state, self, tick, localModifiers(room.state, self, tick), (id, at) =>
+      buildStepContext(arena, state, self, tick, localModifiers(room.state, self, tick), (id, at) =>
         this.remotes.reckonedPose(id, at),
       );
   }
@@ -2911,6 +2916,19 @@ export class ArenaScene extends Phaser.Scene {
     room.state.players.forEach((player, sessionId) => {
       if (player.status !== PlayerStatus.IN_MATCH) return;
       seen.add(sessionId);
+
+      // NR48: a car the server keeps out of this client's view has no pose, hp or statuses here at
+      // all — only its scoreboard facts. It is drawn as nothing: its objects are kept but hidden (so
+      // a reappearing car reuses them), it lends no pose to vision, sparks or the camera, and it is
+      // in `hiddenCars` so the charge orbs and the fx filter treat it exactly as a CB27-hidden car.
+      // Its remote timeline is forgotten per patch (`feedRemoteTimeline`), so it comes back at its
+      // first visible snapshot rather than sliding there.
+      if (!carInView(sessionId, player, this.drivenSid(room))) {
+        this.hiddenCars.add(sessionId);
+        this.setCarVisible(sessionId, false);
+        this.lastDrawnPose.delete(sessionId);
+        return;
+      }
 
       const serverPose = bodyOf(player);
       const isLocal = sessionId === this.drivenSid(room);
@@ -3091,6 +3109,9 @@ export class ArenaScene extends Phaser.Scene {
     const players: VisionPlayer[] = [];
     room.state.players.forEach((p, sessionId) => {
       if (p.status !== PlayerStatus.IN_MATCH) return;
+      // A car out of this client's view (NR48) has no pose; it is an enemy of the perspective, which
+      // `visionPoses` never reads, since the perspective and its allies are always in view.
+      if (!carInView(sessionId, p, localSid)) return;
       const pose = this.lastDrawnPose.get(sessionId) ?? bodyOf(p);
       players.push({ sessionId, team: p.team, alive: p.alive, pose });
     });
@@ -3206,21 +3227,19 @@ export class ArenaScene extends Phaser.Scene {
     // nothing runs.
     const driven = this.drivenSid(room);
     const arena = this.arena ?? getArena(room.state.arenaId);
-    room.state.players.forEach((player, sessionId) => {
-      if (sessionId === driven) return;
-      if (player.status !== PlayerStatus.IN_MATCH) return;
-      this.remotes.push(sessionId, tick, {
-        body: bodyOf(player),
-        keys: { steer: axisOfWire(player.lastSteer), throttle: axisOfWire(player.lastThrottle), fireSlots: 0 },
-        ctx: {
-          ...buildStepContext(arena, room.state, sessionId, tick, localModifiers(room.state, sessionId, tick)),
-          others: [],
-        },
-        // Death and respawn reset the remote's interpolation and reckoning (no slide from the wreck
-        // to the spawn); so does a jump of more than `remoteTeleportCars` car lengths.
-        alive: player.alive,
-      });
-    });
+    // A remote out of view (NR48) is forgotten rather than pushed, so it restarts from its first
+    // visible snapshot when it comes back.
+    feedRemoteTimeline(this.remotes, room.state.players, driven, tick, (player, sessionId) => ({
+      body: bodyOf(player),
+      keys: { steer: axisOfWire(player.lastSteer), throttle: axisOfWire(player.lastThrottle), fireSlots: 0 },
+      ctx: {
+        ...buildStepContext(arena, room.state, sessionId, tick, localModifiers(room.state, sessionId, tick)),
+        others: [],
+      },
+      // Death and respawn reset the remote's interpolation and reckoning (no slide from the wreck
+      // to the spawn); so does a jump of more than `remoteTeleportCars` car lengths.
+      alive: player.alive,
+    }));
   }
 
   /**
@@ -3948,7 +3967,8 @@ export class ArenaScene extends Phaser.Scene {
           tick: snapTick,
           obstacles: arena.obstacles,
           bounds,
-          ownerPose: owner ? { x: owner.x, y: owner.y, angle: owner.angle } : null,
+          // A hidden owner (NR48) has no pose: its beam draws at its own snapshot pose.
+          ownerPose: ownerWirePose(owner),
           homingTarget: null,
         });
       }
@@ -4039,7 +4059,7 @@ export class ArenaScene extends Phaser.Scene {
    */
   private drawnPoseOf(room: Room<ArenaState>, sessionId: string, drivenSid: string): SimBody | undefined {
     const player = room.state.players.get(sessionId);
-    if (!player) return undefined;
+    if (!player || !carInView(sessionId, player, drivenSid)) return undefined;
     const serverPose = bodyOf(player);
     if (!player.alive) return serverPose;
     return sessionId === drivenSid ? this.localRenderPose(serverPose) : this.remotePose(sessionId, serverPose);
@@ -4267,31 +4287,17 @@ export class ArenaScene extends Phaser.Scene {
     const fx = this.fx;
     if (!fx) return;
     const drivenSid = this.drivenSid(room);
-    const cars = [...room.state.players.entries()]
-      .filter(([, player]) => player.status === PlayerStatus.IN_MATCH)
-      .map(([sessionId, player]) => {
-        const serverPose = bodyOf(player);
-        // The same three-way choice `renderCars` makes, for the same reasons: a wreck is not moving,
-        // so there is nothing to smooth and nothing to predict.
-        const pose = !player.alive
-          ? serverPose
-          : sessionId === drivenSid
-            ? this.localRenderPose(serverPose)
-            : this.remotePose(sessionId, serverPose);
-        return {
-          sessionId,
-          x: pose.x,
-          y: pose.y,
-          angle: pose.angle,
-          hp: player.hp,
-          alive: player.alive,
-          carId: player.carId,
-          // Velocity stays AUTHORITATIVE — it is not a position, `speedOf` wants the server's
-          // answer, and a render pose carries no velocity of its own to take it from.
-          vx: player.vx,
-          vy: player.vy,
-        };
-      });
+    // Only the cars in view (NR48, `fxCarViews`): a hidden car is absent, so it can spawn no fx.
+    const cars = fxCarViews(room.state.players, drivenSid, (player, sessionId) => {
+      const serverPose = bodyOf(player);
+      // The same three-way choice `renderCars` makes, for the same reasons: a wreck is not moving,
+      // so there is nothing to smooth and nothing to predict.
+      return !player.alive
+        ? serverPose
+        : sessionId === drivenSid
+          ? this.localRenderPose(serverPose)
+          : this.remotePose(sessionId, serverPose);
+    });
     const instances = [...room.state.weapons.entries()].map(([id, instance]) => ({
       id,
       weaponId: instance.weaponId,
@@ -4508,7 +4514,10 @@ export class ArenaScene extends Phaser.Scene {
   private hudTargetPlayer(room: Room<ArenaState>): PlayerState | undefined {
     if (this.isSpectating(room)) {
       if (this.freeRoam || this.spectateTarget === "") return undefined;
-      return room.state.players.get(this.spectateTarget);
+      // The watched car is in this client's view (NR45) — except for the round trip after a `[`/`]`
+      // pick, before the server has added it: no slot bar for that moment rather than `undefined`s.
+      const watched = room.state.players.get(this.spectateTarget);
+      return watched && carInView(this.spectateTarget, watched, this.drivenSid(room)) ? watched : undefined;
     }
     return room.state.players.get(this.drivenSid(room));
   }
@@ -5153,7 +5162,11 @@ export class ArenaScene extends Phaser.Scene {
    */
   private updateSpectate(room: Room<ArenaState>, delta: number): void {
     this.updateSpectatePick(room, delta);
-    const report = this.spectateReport.next(this.isSpectating(room) && !this.freeRoam, this.spectateTarget);
+    const report = this.spectateReport.next(
+      this.isSpectating(room) && !this.freeRoam,
+      this.spectateTarget,
+      performance.now(),
+    );
     if (report !== undefined) room.send(MSG_SPECTATE_TARGET, { target: report });
   }
 
