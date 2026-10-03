@@ -56,6 +56,20 @@ describe("deriveFxEvents", () => {
     expect(events).toEqual([{ kind: "shotEnded", weaponId: "magmablast", x: 700, y: 800, angle: 0.5, instanceId: "s1" }]);
   });
 
+  it("I1: an ENDED row (a shot that ended inside its fast-forward) fires its shotEnded once, at its end pose, and no muzzle flash", () => {
+    const ended = { ...shot("s1", "magmablast", 700, 800), alive: false };
+    const before = view([car("a", 100)]);
+    const arrived = view([car("a", 100)], [ended]);
+    expect(deriveFxEvents(before, arrived)).toEqual([
+      { kind: "shotEnded", weaponId: "magmablast", x: 700, y: 800, angle: 0.5, instanceId: "s1" },
+    ]);
+    // Held on the wire for a few patches, then removed: neither fires it again.
+    expect(deriveFxEvents(arrived, arrived)).toEqual([]);
+    expect(deriveFxEvents(arrived, before)).toEqual([]);
+    // An ended burst is not a second blast.
+    expect(deriveFxEvents(before, view([car("a", 100)], [{ ...ended, isExplosion: true }]))).toEqual([]);
+  });
+
   it("fires a damaged event carrying the amount when hp drops", () => {
     const events = deriveFxEvents(view([car("a", 100)]), view([car("a", 72)]));
     expect(events).toEqual([{ kind: "damaged", sessionId: "a", x: 100, y: 200, amount: 28 }]);
@@ -141,8 +155,11 @@ describe("deriveFxEvents", () => {
   });
 
   it("gives no muzzle flash to an instance that arrives already dead", () => {
+    // Since protocol 5 such a row is a shot that ended on its birth tick: it gets its impact (see the
+    // I1 case above), never a flash — its pose is where it ended, not the muzzle.
     const born = { ...shot("s1", "lance", 10, 20), alive: false };
-    expect(deriveFxEvents(view([car("a", 100)]), view([car("a", 100)], [born]))).toEqual([]);
+    const events = deriveFxEvents(view([car("a", 100)]), view([car("a", 100)], [born]));
+    expect(events.map((e) => e.kind)).toEqual(["shotEnded"]);
   });
 
   it("does not fire shotEnded when a lava field expires — the fade is the visual end", () => {

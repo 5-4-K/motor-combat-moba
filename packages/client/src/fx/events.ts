@@ -52,14 +52,13 @@ export interface FxInstanceView {
    * lava layer could not tell a field on the ground from the shell that made it.
    */
   readonly isExplosion: boolean;
-  // Mirrors WeaponInstanceState.alive — which, as of this writing, is never actually false on a row
-  // the client can see: the server drops a dying instance from `combat.ts`'s `survivors` the same
-  // tick it dies and never writes it back to `state.weapons` at all (verified against
-  // `stepCombat`/`combat-bridge.ts`), so a client only ever observes a row go from present to
-  // absent, never from `alive: true` to `alive: false`. `deriveFxEvents` below still keys
-  // `shotEnded` off `alive` rather than the id vanishing, both because that is the same predicate
-  // `renderShots` already draws by and as a safety net should a future path ever leave a dead row
-  // behind for a tick — see its own comment for how that stays exactly-once either way.
+  // Mirrors WeaponInstanceState.alive. A shot that lived on the wire ends by its row VANISHING: the
+  // server drops a dying instance the tick it dies and never writes `alive: false` onto a row a
+  // client has seen alive. `alive: false` is only ever an ENDED row (protocol 5): a shot that ended
+  // on its own birth tick — at the muzzle, or inside its NR37 shot fast-forward — and so never stood
+  // in a snapshot alive; the server sends it once, at its end pose, for `endedShotRowMs`
+  // (`combat-bridge.ts`, `CombatResult.ended`). `deriveFxEvents` turns the first sight of one into
+  // its `shotEnded`, and both paths stay exactly-once — see its own comments.
   readonly alive: boolean;
 }
 
@@ -94,9 +93,10 @@ export function deriveFxEvents(prev: FxWorldView | undefined, next: FxWorldView)
 
   for (const [id, instance] of nextInstances) {
     const before = prevInstances.get(id);
-    // shotFired only for an instance that is new AND alive: one that arrives already dead (e.g. it
-    // fired and ended within a single tick boundary the client observed) gets no muzzle flash.
-    if (!before && instance.alive) {
+    if (before) continue;
+    // shotFired only for an instance that is new AND alive: one that arrives already dead gets no
+    // muzzle flash — its pose is where it ENDED, nowhere near the muzzle.
+    if (instance.alive) {
       events.push({
         kind: "shotFired",
         weaponId: instance.weaponId,
@@ -105,17 +105,26 @@ export function deriveFxEvents(prev: FxWorldView | undefined, next: FxWorldView)
         angle: instance.angle,
         instanceId: id,
       });
+      continue;
     }
+    // An ENDED row, first seen: a shot that ended on its own birth tick (a close hit or a wall inside
+    // its fast-forward, Phase F final review I1). It never flew on anyone's screen, but it hit
+    // something, so every client gets its impact at its end pose, exactly as for a shot whose row
+    // vanished. A burst is skipped for the reason given below. On later frames `before` holds it,
+    // so it never fires twice, and its removal is skipped by the `!instance.alive` guard below.
+    if (instance.isExplosion) continue;
+    const end = shotEndPoint(instance, next.cars);
+    events.push({ kind: "shotEnded", weaponId: instance.weaponId, x: end.x, y: end.y, angle: instance.angle, instanceId: id });
   }
   for (const [id, instance] of prevInstances) {
     if (!instance.alive) continue; // already ended last frame; do not fire again on deletion
     const after = nextInstances.get(id);
     // shotEnded fires the moment an instance that was alive goes away OR goes not-alive. Keying off
     // `alive` rather than the id vanishing from the map matches the client's own renderShots, which
-    // stops drawing at !instance.alive. In practice the server deletes a dying instance from
-    // `state.weapons` the SAME tick it dies (see the `alive` field comment above) rather than
-    // flipping it false first and deleting it later, so today this branch fires almost entirely off
-    // `!after` — the `!after.alive` half is a safety net for a row that does arrive already dead.
+    // stops drawing at !instance.alive. The server deletes a dying instance from `state.weapons` the
+    // SAME tick it dies (see the `alive` field comment above) rather than flipping it false first,
+    // so this branch fires off `!after`; the `!after.alive` half is a safety net. (A row that ARRIVES
+    // dead is the first loop's.)
     //
     // This check is stateless yet still fires exactly once: on the frame `alive` flips false, `prev`
     // has it alive and `next` has it dead (or gone), so the event fires. On the following frame

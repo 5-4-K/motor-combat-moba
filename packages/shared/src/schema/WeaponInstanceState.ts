@@ -18,6 +18,13 @@ export class WeaponInstanceState extends Schema {
   /** Beams: current reach. Projectiles: always 0. */
   @type("number") extent = 0;
   @type("uint32") spawnTick = 0;
+  /**
+   * `true` on every row in flight. `false` only on an ENDED row (protocol 5): a shot that ended on
+   * its own birth tick — at the muzzle, or inside its NR37 fast-forward — and so never stood in a
+   * snapshot alive. The server sends it at its end pose for `NET_CONFIG.endedShotRowMs` and then
+   * removes it; it is never drawn as a shot, only as the impact (`shotEnded`) and as the confirm that
+   * ends the shooter's provisional (NR39). Written on row creation and never patched after.
+   */
   @type("boolean") alive = true;
   /**
    * This row is its weapon's explosion rather than its shell (spec P27).

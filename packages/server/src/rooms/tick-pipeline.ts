@@ -84,9 +84,11 @@ export interface PipelineCtx {
    */
   events?: CombatEvents;
   /**
-   * The server's measured RTT of a session (`NetSessions.rttMs`, NR19), for pricing a press's shot
-   * compensation (NR36). The rooms pass their `NetSessions`; a harness leaves it undefined, and every
-   * press then gets no compensation — as does a bot, whose frames carry no `viewTick`.
+   * The RTT a session's shot compensation is priced from (NR36): every room passes its
+   * `NetSessions.compRttMs` — the app `MSG_PING` RTT (NR19) bounded by the transport ws ping RTT,
+   * `min(app, ws)`, so echoes held back by page JS cannot buy compensation. A harness leaves it
+   * undefined, and every press then gets no compensation — as does a bot, whose frames carry no
+   * `viewTick`.
    */
   rttMsOf?: (sessionId: string) => number | undefined;
 }

@@ -1544,8 +1544,10 @@ networked slots, `spawnInstances` births it at the predicted muzzle on the relea
 included) aged by your own `min(P − viewTick, capTicks)` through `bornOlder`, and it flies with the
 same `ShotView` motion in the same look. The first server instance with your id, the same weapon and
 a `spawnTick` within `provisionalShotMatchTicks` (2) confirms it and takes over with a
-`provisionalShotEaseMs` (100 ms) ease; an unconfirmed one fades and is gone `rtt +
-provisionalShotGraceMs` (100 ms) after it was drawn. It is never in `state.weapons`, so it never
+`provisionalShotEaseMs` (100 ms) ease — or, when the server ended the shot on its birth tick (inside
+its fast-forward), its ENDED row (`alive: false` at the end pose, sent for `endedShotRowMs`) confirms
+and ends it, and every client draws that row's impact. One still unconfirmed when the client has
+applied a snapshot at or past its `spawnTick + provisionalShotMatchTicks` is dropped. It is never in `state.weapons`, so it never
 damages, never spawns impact FX and never feeds prediction. Every instance is drawn at the
 **local present** (NR40): `ShotView` (`packages/shared/src/net/shot-view.ts`) advances it from its
 newest snapshot to the fractional tick the local car is drawn at, with the shared `stepInstance` —

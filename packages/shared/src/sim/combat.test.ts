@@ -2508,6 +2508,45 @@ describe("shot fast-forward (NR37, NR38)", () => {
     expect(find(earlier, "bbb").lastDamagerSessionId).toBe("aaa");
   });
 
+  it("I1: a shot that ends inside its fast-forward is reported in `ended`, dead, at its end pose", () => {
+    const targetX = muzzleX() + SHELL_R + HALF_CAR + 1.5 * STEP;
+    const target = () => player("bbb", { x: targetX, y: OPEN_Y, hp: MIRAGE_HP });
+    const r = simulate({ pressTick: T, untilTick: T, mask: MAGMA, k: 4, others: [target()] });
+    // Never on the wire alive: not among the instances…
+    expect(shells(r)).toHaveLength(0);
+    // …but reported, once, where it struck: its hitbox touching the target's near face, not past it.
+    const ended = r.ended.filter((i) => !i.isExplosion);
+    expect(ended).toHaveLength(1);
+    const end = ended[0]!;
+    expect(end.alive).toBe(false);
+    expect(end.spawnTick).toBe(T);
+    expect(end.lifeOffsetTicks).toBe(4);
+    expect(end.x).toBeGreaterThan(muzzleX());
+    expect(end.x).toBeLessThanOrEqual(targetX);
+    expect(targetX - end.x).toBeLessThanOrEqual(HALF_CAR + SHELL_R);
+    // An uncompensated press, or one whose shell outlives the tick, reports nothing.
+    expect(simulate({ pressTick: T, untilTick: T, mask: MAGMA, others: [target()] }).ended).toEqual([]);
+    expect(simulate({ pressTick: T, untilTick: T, mask: MAGMA, k: 4 }).ended).toEqual([]);
+  });
+
+  it("I1: a shot that lived on an earlier tick is never in `ended` — its row leaving is its end", () => {
+    const targetX = muzzleX() + SHELL_R + HALF_CAR + 1.5 * STEP;
+    const target = () => player("bbb", { x: targetX, y: OPEN_Y, hp: MIRAGE_HP });
+    for (let until = T + 1; until <= T + 4; until++) {
+      const r = simulate({ pressTick: T, untilTick: until, mask: MAGMA, others: [target()] });
+      expect(r.ended).toEqual([]);
+    }
+  });
+
+  it("I1: a wall end inside the fast-forward is reported at the pre-step pose (where its blast is)", () => {
+    const wall = { x: muzzleX() + SHELL_R + STEP / 2, y: OPEN_Y - 100, w: 40, h: 200 };
+    const r = simulate({ pressTick: T, untilTick: T, mask: MAGMA, k: 4, obstacles: [wall] });
+    const ended = r.ended.filter((i) => !i.isExplosion);
+    expect(ended).toHaveLength(1);
+    expect(ended[0]!.x).toBeLessThan(wall.x);
+    expect(ended[0]!.x).toBeCloseTo(bursts(r)[0]!.x, 9);
+  });
+
   it("ends at a wall inside the first k ticks, like an earlier shot would", () => {
     // A wall half a tick of travel past the shell's leading edge at the muzzle: it dies on step 1.
     const wall = { x: muzzleX() + SHELL_R + STEP / 2, y: OPEN_Y - 100, w: 40, h: 200 };

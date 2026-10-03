@@ -78,6 +78,19 @@ const FIRE_SEED_SALT = 0x9e3779b9;
  * still holds the key (`PRESS_HOLD_MIN_MS` in the driver).
  */
 const PRESS_MATCH_TICKS = 4;
+/**
+ * The re-entry window the I3 diagnostic leaves out: a car's frames for this many ticks after it
+ * respawned (its client resumes sending only once it sees itself alive, from a cold slack sample).
+ */
+const REENTRY_TICKS = 60;
+/**
+ * M1 diagnostic: a drawn-jump sample is "kicked" when its remote's motion was kicked (`ServerWorld.kicks`)
+ * within this many ms of the frame — wider than the farthest a remote is drawn from its own truth
+ * time (the adaptive delay on one side, the contact blend's lead on the other).
+ */
+const KICK_WINDOW_MS = 300;
+/** M1 diagnostic: drawn jumps above this (the driving-only max, ~5–7 u) are counted. */
+const JUMP_REPORT_U = 8;
 
 /**
  * What a run saw beyond the metric table — printed under `NETSIM_REPORT`, never compared as a
@@ -119,6 +132,25 @@ export interface NetsimDiagnostics {
   /** Server presses with a shot compensation above 0, and all server presses. */
   compensatedPresses: number;
   serverPresses: number;
+  /**
+   * Input-to-server delay without the sender's first `REENTRY_TICKS` ticks after each respawn
+   * (Phase F final review I3), and the same delay as the mean of each car's own mean — the metric
+   * weights every applied frame alike, so a car alive longer counts for more, and each car's own
+   * delay is set by its frame clock's phase against the tick grid (`FRAME_PHASE_MS`).
+   */
+  inputToServerExReentryMs: number;
+  inputToServerPerCarMeanMs: number;
+  /**
+   * M1: the drawn-jump max split by whether the remote was kicked within `KICK_WINDOW_MS` (maneuver
+   * start/end, a one-tick velocity change past `KICK_DV`), the count of jumps over `JUMP_REPORT_U` in
+   * each, and the max inside and outside the contact blend's range.
+   */
+  jumpMaxKicked: number;
+  jumpMaxUnkicked: number;
+  jumpsOverKicked: number;
+  jumpsOverUnkicked: number;
+  jumpMaxInBlend: number;
+  jumpMaxOutOfBlend: number;
 }
 
 export interface NetsimRun {
@@ -184,6 +216,8 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
   let stepsPerTickMax = 0;
   let deaths = 0;
   const wasAlive = new Map(world.ids.map((id) => [id, true]));
+  /** Per car, every tick it came back onto the field on (a respawn): the I3 re-entry diagnostic. */
+  const respawnTicks = new Map<string, number[]>(world.ids.map((id) => [id, []]));
 
   const endMs = opts.seconds * 1000;
   let nextTickAt = MS_PER_TICK;
@@ -198,6 +232,7 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
       for (const id of world.ids) {
         const alive = world.state.players.get(id)!.alive;
         if (wasAlive.get(id) && !alive) deaths++;
+        if (!wasAlive.get(id) && alive) respawnTicks.get(id)!.push(world.state.tick);
         wasAlive.set(id, alive);
       }
       if (isSnapshotTick(world.state.tick)) {
@@ -271,6 +306,10 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
   const blendIntendedErrors: number[] = [];
   const blendIntendedHeadingErrors: number[] = [];
   let holds = 0;
+  const jumpKicked = { max: 0, over: 0 };
+  const jumpPlain = { max: 0, over: 0 };
+  let jumpInBlendMax = 0;
+  let jumpOutBlendMax = 0;
   for (const s of samples) {
     const path = world.truth.get(s.otherId)!;
     const scored = scoreRemoteSample(path, s.now, s.x, s.y);
@@ -297,7 +336,15 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
       // shared test "resets on death and respawn: no slide…" (net/tick-interpolation.test.ts) is
       // what catches that, not this metric.
       if (aliveThrough(path, drawnAt - span, drawnAt)) {
-        jumpExcesses.push(jumpExcess(s.prev, s, truthAt(path, drawnAt - span), truthAt(path, drawnAt)));
+        const jump = jumpExcess(s.prev, s, truthAt(path, drawnAt - span), truthAt(path, drawnAt));
+        jumpExcesses.push(jump);
+        // M1: was this remote kicked (maneuver change, impulse, stun) near this frame?
+        const kicked = (world.kicks.get(s.otherId) ?? []).some((t) => Math.abs(t - s.now) <= KICK_WINDOW_MS);
+        const bucket = kicked ? jumpKicked : jumpPlain;
+        bucket.max = Math.max(bucket.max, jump);
+        if (jump > JUMP_REPORT_U) bucket.over++;
+        if (s.inBlendRange) jumpInBlendMax = Math.max(jumpInBlendMax, jump);
+        else jumpOutBlendMax = Math.max(jumpOutBlendMax, jump);
       }
     }
   }
@@ -307,15 +354,27 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
   let droppedInputs = 0;
   let unackedAtEnd = 0;
   const lastTick = world.state.tick;
+  // Phase F final review I3: the same delays without the frames for the first `REENTRY_TICKS` ticks
+  // after the sender's respawn, and the mean of each car's own mean (every car weighted alike).
+  const delaysExReentry: number[] = [];
+  const perCarMeans: number[] = [];
   for (const c of clients) {
     const applied = world.appliedAt.get(c.id)!;
+    const respawns = respawnTicks.get(c.id)!;
+    const own: number[] = [];
     for (const [tick, producedMs] of c.client.producedAt) {
       producedInputs++;
       const appliedMs = applied.get(tick);
-      if (appliedMs !== undefined) inputDelays.push(appliedMs - producedMs);
+      if (appliedMs !== undefined) {
+        const delay = appliedMs - producedMs;
+        inputDelays.push(delay);
+        own.push(delay);
+        if (!respawns.some((r) => tick >= r && tick < r + REENTRY_TICKS)) delaysExReentry.push(delay);
+      }
       else if (tick <= lastTick) droppedInputs++;
       else unackedAtEnd++;
     }
+    if (own.length > 0) perCarMeans.push(mean(own));
   }
 
   const staleness = clients.flatMap((c) => c.client.staleness);
@@ -354,10 +413,12 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
   const provisionals = clients.reduce((n, c) => n + c.client.provisionalsMade, 0);
   const expired = clients.reduce((n, c) => n + c.client.provisionalsExpired, 0);
   const late = clients.reduce((n, c) => n + c.client.lateConfirms, 0);
+  const endedConfirms = clients.reduce((n, c) => n + c.client.endedConfirms, 0);
   // An expired provisional never confirmed: did the server commit its press (same slot, pressed
-  // between its wind-up before the spawn tick and the spawn tick)? Then the server's instance ended
-  // before any snapshot carried it — a hit or a wall inside its own fast-forward, or a pellet
-  // stopped on its first ticks. Otherwise the server refused the press `LocalFire` let through.
+  // between its wind-up before the spawn tick and the spawn tick)? Then its instance either reached
+  // no snapshot this client applied (a shot ended on its birth tick is sent as an ended row now, so
+  // this is a press moved past the match window, or a row lost between frames — an inference from
+  // the press, not an observation), or the server refused the press `LocalFire` let through.
   let unseen = 0;
   let refused = 0;
   for (const c of clients) {
@@ -394,6 +455,7 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
     shotConfirmJumpHomingP95: percentile(clients.flatMap((c) => c.client.confirmJumpsHoming), 95),
     provisionalExpiredRate: provisionals === 0 ? 0 : expired / provisionals,
     lateConfirmRate: provisionals === 0 ? 0 : late / provisionals,
+    provisionalEndedRate: provisionals === 0 ? 0 : endedConfirms / provisionals,
     provisionalUnseenRate: provisionals === 0 ? 0 : unseen / provisionals,
     provisionalRefusedRate: provisionals === 0 ? 0 : refused / provisionals,
     shotCompMeanTicks: mean(comp),
@@ -420,6 +482,14 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
       unpredictedShots: clients.reduce((n, c) => n + c.client.unpredictedShots, 0),
       compensatedPresses: comp.filter((k) => k > 0).length,
       serverPresses: comp.length,
+      inputToServerExReentryMs: mean(delaysExReentry),
+      inputToServerPerCarMeanMs: mean(perCarMeans),
+      jumpMaxKicked: jumpKicked.max,
+      jumpMaxUnkicked: jumpPlain.max,
+      jumpsOverKicked: jumpKicked.over,
+      jumpsOverUnkicked: jumpPlain.over,
+      jumpMaxInBlend: jumpInBlendMax,
+      jumpMaxOutOfBlend: jumpOutBlendMax,
     },
   };
 }

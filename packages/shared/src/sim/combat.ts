@@ -206,6 +206,19 @@ export interface CombatResult {
   players: CombatPlayer[];
   instances: WeaponInstance[];
   instanceSeq: number;
+  /**
+   * Instances born THIS tick that also ended this tick — at the muzzle, or inside their own shot
+   * fast-forward (NR37): a close hit, a wall, an expiry, a burst whose short life ran out inside it.
+   * None of them is in `instances`, so without this list no client would ever learn they existed
+   * (Phase F final review I1). Each is the instance at its END pose — where `detonate` would put its
+   * blast: the hit pose for a car, the pre-step pose for a wall — with `alive: false`.
+   *
+   * Server output only, for the room to show every client for a moment as an ended row
+   * (`applyCombatResult`). Never an input to anything: `runCombat` does not take it back, and
+   * `stepSim` never reads it (invariant 8 untouched). An instance that lived on an earlier tick is
+   * never here — its removal from `instances` is its end, as it always was.
+   */
+  ended: WeaponInstance[];
 }
 
 /**
@@ -539,6 +552,8 @@ export function runCombat(input: CombatInput): CombatResult {
   // not an ordering rule; see `detonate`'s own guard for how that one is actually enforced.)
   const survivors: WeaponInstance[] = [];
   const bursts: WeaponInstance[] = [];
+  // Born this tick and already over (see `CombatResult.ended`).
+  const ended: WeaponInstance[] = [];
 
   /**
    * One instance's resolution for this tick, given the pose it swept from: expiry, the world, then
@@ -550,7 +565,7 @@ export function runCombat(input: CombatInput): CombatResult {
   const resolveInstance = (
     instance: WeaponInstance,
     before: WeaponInstance,
-  ): { survivor: WeaponInstance | null; burst: WeaponInstance | null } => {
+  ): { survivor: WeaponInstance | null; burst: WeaponInstance | null; end: WeaponInstance | null } => {
     const owner = byId.get(instance.ownerSessionId);
     const damageMult = owner ? modsOf(owner.sessionId).damageDealt : 1;
     const carId = owner ? carIdOf(owner) : DEFAULT_CAR_ID;
@@ -562,13 +577,17 @@ export function runCombat(input: CombatInput): CombatResult {
     };
 
     if (instanceExpired(instance, world.tick)) {
-      return { survivor: null, burst: blastAt(instance.x, instance.y) };
+      return { survivor: null, burst: blastAt(instance.x, instance.y), end: { ...instance, alive: false } };
     }
     if (hitsWorld(instance, before, world)) {
       // P14: the PRE-step pose. `hitsWorld` fires when the swept hull CROSSED a boundary, so the
       // post-step point can be inside a wall or off the field entirely — the shell blows up where
       // it last legitimately was.
-      return { survivor: null, burst: blastAt(before.x, before.y) };
+      return {
+        survivor: null,
+        burst: blastAt(before.x, before.y),
+        end: { ...instance, x: before.x, y: before.y, angle: before.angle, extent: before.extent, alive: false },
+      };
     }
 
     const outcome = resolveInstanceHits(
@@ -616,8 +635,8 @@ export function runCombat(input: CombatInput): CombatResult {
     // application, so both kinds of rider land at the same point of the tick and take hold on the
     // next one like every other status.
     applyOwnerInsideStatuses(instance, byId, world.tick);
-    if (outcome.instance.alive) return { survivor: outcome.instance, burst: null };
-    return { survivor: null, burst: blastAt(instance.x, instance.y) };
+    if (outcome.instance.alive) return { survivor: outcome.instance, burst: null, end: null };
+    return { survivor: null, burst: blastAt(instance.x, instance.y), end: { ...outcome.instance, alive: false } };
   };
 
   /**
@@ -652,10 +671,16 @@ export function runCombat(input: CombatInput): CombatResult {
     let current = instance;
     for (let step = 1; step <= ticks; step++) {
       const next = advanceInstance(current, world, players, byId, isTargetable);
-      if (!next) return null;
+      if (!next) {
+        ended.push({ ...current, alive: false });
+        return null;
+      }
       const resolved = resolveInstance(next, current);
       if (resolved.burst) settleBurst(resolved.burst, ticks - step);
-      if (!resolved.survivor) return null;
+      if (!resolved.survivor) {
+        if (resolved.end) ended.push(resolved.end);
+        return null;
+      }
       current = resolved.survivor;
     }
     return current;
@@ -676,6 +701,8 @@ export function runCombat(input: CombatInput): CombatResult {
     // previous pose: its smear collapses to its shape at the muzzle.
     const before = previous.get(instance.id) ?? instance;
     const resolved = resolveInstance(instance, before);
+    // Born this tick and dead at its muzzle resolution: it never reaches `instances` alive.
+    if (resolved.end && !previous.has(instance.id)) ended.push(resolved.end);
     // 0 for everything but an instance born this tick from a compensated press (phase 3), which
     // continues from its muzzle resolution into `runAhead`. For 0 both lines below are exactly the
     // pre-NR37 bookkeeping: the burst to `bursts`, the survivor to `survivors`.
@@ -711,11 +738,17 @@ export function runCombat(input: CombatInput): CombatResult {
   // parent's), not the burst's own synthesized def — but `&&` short-circuits on `i.attached` first,
   // and a burst is never `attached` (P22, `buildBurstDefs`), so this is never reached for one. Safe
   // as written; do not reorder the `&&` operands without swapping this back to `instanceDefOf`.
-  const kept = survivors.filter(
-    (i) => !(interrupted.has(i.ownerSessionId) && i.attached && !weaponDefOf(i.weaponId).isUnInterruptable),
-  );
+  const kept: WeaponInstance[] = [];
+  for (const i of survivors) {
+    if (interrupted.has(i.ownerSessionId) && i.attached && !weaponDefOf(i.weaponId).isUnInterruptable) {
+      // A beam born this tick and cut off by its owner's stun the same tick ends here, unseen too.
+      if (!previous.has(i.id)) ended.push({ ...i, alive: false });
+      continue;
+    }
+    kept.push(i);
+  }
 
-  return { players, instances: kept, instanceSeq };
+  return { players, instances: kept, instanceSeq, ended };
 }
 
 /**

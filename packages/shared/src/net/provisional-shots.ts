@@ -17,8 +17,10 @@ import { ShotView, shotViewMaxTicks, type ShotPose } from "./shot-view.js";
 /**
  * Provisional own shots (NR39). The moment the local player presses a slot the client predicts will
  * fire, the shot is drawn at the predicted muzzle and flown with the SHARED motion (`ShotView`), until
- * the server's own instance arrives and replaces it — or, for a press the server refused, until
- * `rtt + provisionalShotGraceMs` has passed and it is dropped.
+ * the server's own instance arrives and replaces it — a live one by a hand-over, an ENDED one (a shot
+ * that ended on its birth tick, sent once as `alive: false` at its end pose) by simply ending it —
+ * or, for a press the server refused or moved, until the client has applied a snapshot at or past its
+ * `spawnTick + provisionalShotMatchTicks` with nothing confirming it (`expireBySnapshot`).
  *
  * Nothing here is ever handed to anything that decides a hit: a provisional shot never damages,
  * never spawns impact FX (it is not in `state.weapons`, which is all the fx layer reads) and never
@@ -68,6 +70,12 @@ export interface ServerShot {
   isExplosion?: boolean;
   /** Breaks a tie between the pellets of one volley: the provisional on the nearest heading wins. */
   angle?: number;
+  /**
+   * `false` for an ENDED row: the shot ended on its own birth tick (at the muzzle or inside its
+   * fast-forward, NR37) and the server sends it once at its end pose. It confirms like any other —
+   * the provisional ends there, with no hand-over. Absent is a live row.
+   */
+  alive?: boolean;
 }
 
 export interface Confirmed {
@@ -75,6 +83,8 @@ export interface Confirmed {
   serverId: string;
   /** Where the provisional was drawn at the `drawTick` handed to `confirm`, if it was drawn there. */
   from?: { x: number; y: number };
+  /** Confirmed by an ended row: the shot is over, nothing takes over its drawing. */
+  ended?: boolean;
 }
 
 /** The arena a provisional flies in: the slice of `StepInstanceContext` the motion reads. */
@@ -129,7 +139,10 @@ export class ProvisionalShots {
    * each); among several candidates the nearest tick wins, then the nearest heading, then the
    * oldest. With `drawTick`, each pair carries where the provisional stood at that tick — an attached
    * beam welded to `ownerPose`, the owner's DRAWN pose, exactly as the confirming instance is drawn,
-   * so the hand-over carries no car motion.
+   * so the hand-over carries no car motion. An ENDED row (`alive: false`) confirms the same way and
+   * ends the provisional: the pair is marked `ended` and carries no `from`, since nothing is drawn
+   * after it — the impact is the ended row's own (`shotEnded`, from `state.weapons`), never the
+   * provisional's.
    */
   confirm(serverInstances: readonly ServerShot[], drawTick?: number, ownerPose?: OwnerPose): readonly Confirmed[] {
     const window = NET_CONFIG.provisionalShotMatchTicks;
@@ -158,7 +171,8 @@ export class ProvisionalShots {
       if (best < 0) continue;
       const p = this.live[best]!;
       const pair: Confirmed = { provisionalKey: p.key, serverId: s.id };
-      if (drawTick !== undefined) {
+      if (s.alive === false) pair.ended = true;
+      else if (drawTick !== undefined) {
         const at = this.at(p.key, drawTick, p.instance.attached ? ownerPose : undefined);
         if (at) pair.from = { x: at.x, y: at.y };
       }
@@ -170,12 +184,24 @@ export class ProvisionalShots {
     return out;
   }
 
-  /** Drop provisionals older than `ttlMs`; returns their keys. */
-  expire(nowMs: number, ttlMs: number): readonly string[] {
+  /**
+   * The client has applied the snapshot of `snapshotTick` (and `confirm` has already seen it): drop
+   * every provisional with `spawnTick + provisionalShotMatchTicks <= snapshotTick`; returns their keys.
+   *
+   * Snapshots are per tick and applied in order, and an instance is on the wire from its spawn tick
+   * on — alive, or as an ended row if it ended that same tick — so by that snapshot every instance
+   * that could confirm the provisional has been offered to `confirm`. One that did not is a press the
+   * server refused, or moved more than the match window (a pressing frame lost and repeated over, so
+   * the edge landed on a later frame's tick): either way no later instance will match it, and the
+   * server's own instance, if any, draws itself — never beside a provisional still standing for it.
+   * The confirm and the expiry read the same snapshot, so a confirm can never arrive "late".
+   */
+  expireBySnapshot(snapshotTick: number): readonly string[] {
+    const window = NET_CONFIG.provisionalShotMatchTicks;
     let gone: string[] | undefined;
     for (let i = this.live.length - 1; i >= 0; i--) {
       const p = this.live[i]!;
-      if (nowMs - p.bornAtMs < ttlMs) continue;
+      if (snapshotTick < p.spawnTick + window) continue;
       (gone ??= []).push(p.key);
       this.remove(i);
     }
@@ -204,16 +230,6 @@ export class ProvisionalShots {
     const [p] = this.live.splice(index, 1);
     this.byKey.delete(p!.key);
     this.view.forget(p!.key);
-  }
-
-  /**
-   * An unconfirmed provisional's opacity: 1, then down to 0 over the last `provisionalShotFadeMs`
-   * of its `ttlMs`.
-   */
-  alpha(p: Provisional, nowMs: number, ttlMs: number): number {
-    const left = ttlMs - (nowMs - p.bornAtMs);
-    const fade = NET_CONFIG.provisionalShotFadeMs;
-    return fade <= 0 ? (left > 0 ? 1 : 0) : Math.max(0, Math.min(1, left / fade));
   }
 
   /**
@@ -255,7 +271,7 @@ export class ProvisionalShots {
 /**
  * How far past its `ShotView` snapshot a provisional may be flown: the enemy-shot cap plus the most
  * shot compensation it can carry, since its snapshot stands `k` ticks behind its spawn tick. Past
- * it, the shot holds; an unconfirmed one is gone by `rtt + provisionalShotGraceMs` anyway.
+ * it, the shot holds; an unconfirmed one is dropped by the snapshot of `spawnTick + provisionalShotMatchTicks` anyway.
  */
 export function provisionalViewMaxTicks(): number {
   return shotViewMaxTicks() + msToTicks(NET_CONFIG.shotCompCapMs);
@@ -376,7 +392,7 @@ const NO_STEP: FireStep = { orders: [], compTicks: 0 };
  * after the snapshot are replayed on top. Between reseeds it runs on its own, so a second press
  * before the server has answered the first is gated by the first. A press the server refuses anyway
  * (a status the client had not seen, a lost input) costs one provisional shot that is never
- * confirmed, gone after `rtt + provisionalShotGraceMs`.
+ * confirmed, dropped at the snapshot of `spawnTick + provisionalShotMatchTicks` (`expireBySnapshot`).
  */
 export class LocalFire {
   private state: FireState | undefined;

@@ -21,9 +21,11 @@ export const ROOM_NAME = "arena";
  * `inputSlack` and `inputSlackStd`); a client older than it sends no `protocol` at all. 2 adds
  * `PlayerState.lastSteer`/`lastThrottle` (NR33). 3 gives every input frame's `viewTick` a meaning:
  * the server prices a press's shot compensation from it (NR35, NR36). 4 appends
- * `WeaponInstanceState.lifeOffsetTicks`, a compensated shot's age beyond its `spawnTick` (NR37).
+ * `WeaponInstanceState.lifeOffsetTicks`, a compensated shot's age beyond its `spawnTick` (NR37). 5
+ * gives `WeaponInstanceState.alive: false` a meaning: a shot that ended on its own birth tick (at the
+ * muzzle or inside its fast-forward) is sent for `endedShotRowMs` as an ended row at its end pose.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 export enum RoomPhase {
   LOBBY = 0,

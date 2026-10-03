@@ -73,15 +73,19 @@
  *   `shotConfirmJumpHomingP95` is the same for homing shots, kept apart because both drawings hold
  *   the shot's heading (NR40) while the server's instance steers: the gap is the steering done
  *   between the press and the confirm.
- * - `provisionalExpiredRate` — share of provisionals (one per pellet) dropped unconfirmed at
- *   `rtt + provisionalShotGraceMs`, split three ways (the three sum to it):
- *   `lateConfirmRate` — its confirming instance arrived AFTER the drop (the provisional had faded
- *   out, and the instance pops in without a hand-over: the ttl undershot this link's own
- *   press-to-snapshot time); `provisionalUnseenRate` — the server committed the press but no
- *   snapshot ever carried the instance (it hit a car or a wall inside its fast-forward or before
- *   the next snapshot, so the provisional flew on through what it hit until it faded);
- *   `provisionalRefusedRate` — the server committed no press for it (`LocalFire` let through a
- *   press the server refused).
+ * - `provisionalEndedRate` — share of provisionals confirmed by an ENDED row (Phase F final review
+ *   I1): the server's shot ended on its own birth tick — a close hit or a wall inside its fast-forward
+ *   — and was sent once at its end pose, so the provisional ended there and every client drew the
+ *   impact. Observed on the wire, not inferred.
+ * - `provisionalExpiredRate` — share of provisionals (one per pellet) dropped unconfirmed at the first
+ *   applied snapshot at or past `spawnTick + provisionalShotMatchTicks`, split three ways (the three
+ *   sum to it): `lateConfirmRate` — its confirming instance arrived AFTER the drop, impossible by
+ *   construction now that confirm and expiry read the same snapshot (kept as the check; it was the
+ *   `rtt + 100 ms` ttl's failure before); `provisionalUnseenRate` — the server committed the press
+ *   (inferred from a server press on the slot near the spawn tick) but no instance confirmed it: a
+ *   press edge moved past the match window by a repeated frame (its instance then draws itself and
+ *   counts in `unpredictedShots`), or a row this client never applied; `provisionalRefusedRate` — the
+ *   server committed no press for it (`LocalFire` let through a press the server refused).
  * - `shotCompMeanTicks` / `shotCompP50Ticks` / `shotCompP95Ticks` / `shotCompMaxTicks` — per press
  *   the server committed, the shot compensation `k` it was priced (NR36; 0 when none); and
  *   `shotCompAtCapRate`, the share priced at the cap (`shotCompCapMs`, 9 ticks).
@@ -110,6 +114,7 @@ export interface NetsimMetrics {
   shotConfirmJumpHomingP95: number;
   provisionalExpiredRate: number;
   lateConfirmRate: number;
+  provisionalEndedRate: number;
   provisionalUnseenRate: number;
   provisionalRefusedRate: number;
   shotCompMeanTicks: number;

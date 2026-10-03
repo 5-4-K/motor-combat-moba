@@ -88,17 +88,60 @@ describe("ProvisionalShots", () => {
     expect(next.map((p) => p.provisionalKey)).toEqual(["later"]);
   });
 
-  it("expires an unconfirmed provisional after ttl, fading over the end of it", () => {
+  it("drops an unconfirmed provisional at the first snapshot at or past spawnTick + provisionalShotMatchTicks", () => {
     const shots = new ProvisionalShots();
-    const p = provisional({ key: "p", bornAtMs: 1000 });
-    shots.add(p, WORLD);
-    const ttl = 80 + NET_CONFIG.provisionalShotGraceMs; // rtt + grace
-    expect(shots.expire(1000 + ttl - 1, ttl)).toEqual([]);
-    expect(shots.alpha(p, 1000, ttl)).toBe(1);
-    expect(shots.alpha(p, 1000 + ttl - NET_CONFIG.provisionalShotFadeMs / 2, ttl)).toBeCloseTo(0.5, 9);
-    expect(shots.expire(1000 + ttl, ttl)).toEqual(["p"]);
+    shots.add(provisional({ key: "p" }), WORLD);
+    const W = NET_CONFIG.provisionalShotMatchTicks;
+    for (let snap = T - 3; snap < T + W; snap++) {
+      shots.confirm([]);
+      expect(shots.expireBySnapshot(snap)).toEqual([]);
+    }
+    expect(shots.expireBySnapshot(T + W)).toEqual(["p"]);
     expect(shots.list()).toHaveLength(0);
     expect(shots.at("p", T + 5)).toBeUndefined();
+    // A snapshot that skipped ahead (several patches applied in one frame) drops it just the same.
+    shots.add(provisional({ key: "q" }), WORLD);
+    expect(shots.expireBySnapshot(T + W + 7)).toEqual(["q"]);
+  });
+
+  it("confirms on the very snapshot that would expire it: confirm runs first, so no confirm is ever late", () => {
+    const shots = new ProvisionalShots();
+    shots.add(provisional({ key: "p" }), WORLD);
+    const W = NET_CONFIG.provisionalShotMatchTicks;
+    const pairs = shots.confirm([{ id: "s", ownerSessionId: "me", weaponId: "predator", spawnTick: T + W }]);
+    expect(pairs.map((x) => x.provisionalKey)).toEqual(["p"]);
+    expect(shots.expireBySnapshot(T + W)).toEqual([]);
+  });
+
+  it("an ENDED row (a shot that ended inside its fast-forward) confirms and ends its provisional, with no hand-over", () => {
+    const shots = new ProvisionalShots();
+    shots.add(provisional({ key: "p" }), WORLD);
+    const pairs = shots.confirm(
+      [{ id: "s", ownerSessionId: "me", weaponId: "predator", spawnTick: T, alive: false }],
+      T + 4,
+    );
+    expect(pairs).toEqual([{ provisionalKey: "p", serverId: "s", ended: true }]);
+    expect(shots.list()).toHaveLength(0);
+    expect(shots.at("p", T + 4)).toBeUndefined();
+  });
+
+  it("I2: a press the server moved past the window (its pressing frame repeated over) is never drawn twice", () => {
+    // The client predicted the release on T; the server simulated T..T+3 on a repeated frame and
+    // took the press edge from the next real frame, T+4. Snapshots T..T+3 carry no instance for it.
+    const shots = new ProvisionalShots();
+    shots.add(provisional({ key: "p" }), WORLD);
+    const W = NET_CONFIG.provisionalShotMatchTicks;
+    let dropped: readonly string[] = [];
+    for (let snap = T; snap <= T + W; snap++) {
+      shots.confirm([]);
+      dropped = shots.expireBySnapshot(snap);
+      if (dropped.length > 0) expect(snap).toBe(T + W);
+    }
+    expect(dropped).toEqual(["p"]);
+    // The server's instance arrives two snapshots later: there is nothing left for it to stand beside.
+    const late = { id: "s", ownerSessionId: "me", weaponId: "predator", spawnTick: T + W + 2 };
+    expect(shots.confirm([late])).toEqual([]);
+    expect(shots.list()).toHaveLength(0);
   });
 
   it("eases a confirmed instance from where its provisional was drawn, closing linearly over provisionalShotEaseMs", () => {
@@ -405,5 +448,58 @@ describe("LocalFire + provisionalOf against runCombat", () => {
 
   it("sizes the provisional view to fly a shot past the enemy cap by the most compensation", () => {
     expect(provisionalViewMaxTicks()).toBe(shotViewMaxTicks() + msToTicks(NET_CONFIG.shotCompCapMs));
+  });
+});
+
+describe("I1: a point-blank shot that ends inside its fast-forward (k > 0)", () => {
+  // Mirage's fire slot 1, magmablast: a 10 u/tick shell, aimed at a car about two ticks of travel off
+  // its muzzle, pressed with k = 6 — the server ends it on its birth tick, inside its fast-forward.
+  const MAGMA = 0b0010;
+  const K = 6;
+  const pose = { x: 1000, y: 1000, angle: 0 };
+  function fire(target: boolean) {
+    const victim: CombatPlayer = { ...shooter("bastion", { x: 1100, y: 1000, angle: Math.PI / 2 }), sessionId: "them" };
+    return runCombat({
+      world: { tick: T, dt: DT, mode: "ffa", obstacles: [], bounds: OPEN },
+      players: [{ ...shooter("mirage", pose), fireMask: MAGMA }, ...(target ? [victim] : [])],
+      instances: [],
+      instanceSeq: 0,
+      fastForward: new Map([["me", K]]),
+    });
+  }
+
+  it("is sent as an ended row the shooter's provisional confirms against, ending it at the server's end point", () => {
+    const r = fire(true);
+    expect(r.instances.filter((i) => !i.isExplosion)).toHaveLength(0);
+    const end = r.ended.find((i) => !i.isExplosion)!;
+    expect(end.alive).toBe(false);
+    // The shooter's provisional for the same press, born the same k ticks old.
+    const order = { weaponId: "magmablast" as const, slot: 1, finalVolley: true, pressId: "" };
+    const provs = provisionalOf(order, { sessionId: "me", team: 0, carId: "mirage", ...pose }, T, K, "p", 0, WORLD);
+    const shots = new ProvisionalShots();
+    for (const p of provs) shots.add(p, WORLD);
+    // Two ticks later (the confirm cannot arrive sooner) the provisional — which knows no cars — is
+    // drawn past the server's end point, through the car it hit…
+    const drawTick = T + 2;
+    expect(shots.at(provs[0]!.key, drawTick)!.x).toBeGreaterThan(end.x);
+    // …until the ended row confirms it, which ends it: nothing is drawn after, and nothing lingers.
+    const pairs = shots.confirm([{ ...wireOf(end), alive: end.alive }], drawTick);
+    expect(pairs).toEqual([{ provisionalKey: provs[0]!.key, serverId: end.id, ended: true }]);
+    expect(shots.list()).toHaveLength(0);
+    expect(shots.at(provs[0]!.key, drawTick)).toBeUndefined();
+    expect(shots.expireBySnapshot(T + 100)).toEqual([]);
+  });
+
+  it("with no ended row (the pre-fix wire) the provisional still goes at spawnTick + provisionalShotMatchTicks", () => {
+    const r = fire(true);
+    const order = { weaponId: "magmablast" as const, slot: 1, finalVolley: true, pressId: "" };
+    const shots = new ProvisionalShots();
+    for (const p of provisionalOf(order, { sessionId: "me", team: 0, carId: "mirage", ...pose }, T, K, "p", 0, WORLD)) shots.add(p, WORLD);
+    const live = r.instances.map(wireOf);
+    for (let snap = T; snap < T + NET_CONFIG.provisionalShotMatchTicks; snap++) {
+      shots.confirm(live);
+      expect(shots.expireBySnapshot(snap)).toEqual([]);
+    }
+    expect(shots.expireBySnapshot(T + NET_CONFIG.provisionalShotMatchTicks)).toHaveLength(1);
   });
 });

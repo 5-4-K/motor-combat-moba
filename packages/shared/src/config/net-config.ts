@@ -138,16 +138,23 @@ export const NET_CONFIG = {
   shotCompSlackStds: 2,
   /**
    * NR39: a server instance confirms the shooter's provisional shot when its `spawnTick` is within
-   * this many ticks of the tick the client expected it on (same owner, same weapon).
+   * this many ticks of the tick the client expected it on (same owner, same weapon). It is also the
+   * provisional's whole life without one: once the client has applied a snapshot at or past
+   * `spawnTick + provisionalShotMatchTicks` and nothing confirmed it, no instance the server could
+   * still send would match (snapshots arrive in order), so it is dropped there (Phase F final review
+   * I1, I2 — this replaced a wall-clock `rtt + 100 ms` ttl).
    */
   provisionalShotMatchTicks: 2,
   /** NR39: the drawn gap between a provisional shot and the instance that confirms it eases out over this. */
   provisionalShotEaseMs: 100,
   /**
-   * NR39: a provisional shot no server instance has confirmed is gone `rtt + provisionalShotGraceMs`
-   * after it was drawn — a press the server refused leaves nothing behind longer than that.
+   * NR37/NR39 (Phase F final review I1): how long a shot that ended on its own birth tick — at the
+   * muzzle or inside its shot fast-forward, so it never stood in a snapshot alive — stays on the wire
+   * as an ENDED row (`alive: false`, its end pose) before it is removed. Every client draws its
+   * impact from that row, and the shooter's provisional confirms against it and ends. It must still
+   * be there in the first snapshot the shooter's client applies at or past `spawnTick +
+   * provisionalShotMatchTicks` (when an unconfirmed provisional is dropped), and a frame can apply
+   * several queued patches at once on a jittery link, so it spans six per-tick patches rather than one.
    */
-  provisionalShotGraceMs: 100,
-  /** NR39: the last part of that window, in which an unconfirmed provisional shot fades out. */
-  provisionalShotFadeMs: 50,
+  endedShotRowMs: 100,
 } as const;

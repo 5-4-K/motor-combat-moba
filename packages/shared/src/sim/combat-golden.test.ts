@@ -23,7 +23,9 @@ import type { WeaponInstance } from "./weapons/instances.js";
  * maneuver, and every live instance (id, pose, clocks) is folded into a hash. The hashes below were
  * captured at `0e602b6e`, whose press phase (`sim/weapons/press.ts`) and fast-forward (`runAhead`)
  * had been reviewed. A reordered or dropped gate in `pressPhase`, a fast-forward that steps once too
- * often or resolves out of order, a backdated clock that moved — any of them moves a hash.
+ * often or resolves out of order, a backdated clock that moved — any of them moves a hash. No shell
+ * in THIS scenario detonates inside its fast-forward, so the burst-ageing path (`settleBurst`) is the
+ * second scenario's, below (M3).
  *
  * Pinned against a FROZEN bundle, `__fixtures__/combat-golden.tables.json`, not the live tables —
  * the same rule `golden.test.ts` follows for drive: a balance edit to a weapon, a car or a status can
@@ -252,6 +254,99 @@ describe("golden: runCombat press phase and shot fast-forward", () => {
     expect(again.whole).toBe(trace.whole);
   });
 });
+
+/**
+ * M3 (Phase F final review): the six-car scenario above never detonates a shell INSIDE a fast-forward
+ * (a planted `settleBurst(burst, 0)` left it green), so this second scenario aims an explosive shell
+ * (`magmablast`, Mirage's fire slot 1) point-blank: three targets 100–180 u off the muzzle, one
+ * pressed at a time with a random `k` in [1, 9], so most shells hit inside their own fast-forward and
+ * their bursts are born mid-loop and aged the ticks that remain. It hashes the instances AND the
+ * shots `runCombat` reports as ended on their birth tick (`CombatResult.ended`, I1), and counts the
+ * bursts born mid-fast-forward (first seen with a `spawnTick` before the tick), so an un-advanced
+ * burst — or an ended list that lost its dead shells — moves it.
+ */
+const BLAST_TICKS = 1800;
+const BLAST_SLOT_BIT = 0b0010;
+const BLAST_TARGETS: readonly { distance: number; bearing: number }[] = [
+  { distance: 100, bearing: 0 },
+  { distance: 140, bearing: (2 * Math.PI) / 3 },
+  { distance: 180, bearing: (4 * Math.PI) / 3 },
+];
+const BLAST_ORIGIN = { x: 640, y: 360 };
+
+interface BlastTrace {
+  whole: string;
+  fired: number;
+  ended: number;
+  midLoopBursts: number;
+}
+
+function runBlastScenario(seed: number): BlastTrace {
+  const rng = mulberry32(seed);
+  const base = (sessionId: string, carId: CarId, x: number, y: number, angle: number): CombatPlayer => ({
+    sessionId, x, y, angle, team: 0, carId, hp: hpOf(carId), alive: true, inRoster: true, fireMask: 0,
+    fireState: newFireState(carId, 1), statuses: [], maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0,
+    maneuverSpeed: 0, maneuverWeaponId: "", maneuverPressId: "", lastDamagerSessionId: "",
+  });
+  let players: CombatPlayer[] = [
+    base("shooter", "mirage", BLAST_ORIGIN.x, BLAST_ORIGIN.y, 0),
+    ...BLAST_TARGETS.map((t, i) =>
+      base(`target${i}`, "bastion", BLAST_ORIGIN.x + t.distance * Math.cos(t.bearing), BLAST_ORIGIN.y + t.distance * Math.sin(t.bearing), t.bearing + Math.PI / 2),
+    ),
+  ];
+  let instances: WeaponInstance[] = [];
+  let instanceSeq = 0;
+  const seen = new Set<string>();
+  const whole = createHash("sha256");
+  let fired = 0;
+  let ended = 0;
+  let midLoopBursts = 0;
+  for (let tick = 1; tick <= BLAST_TICKS; tick++) {
+    const aimAt = BLAST_TARGETS[Math.floor(tick / 40) % BLAST_TARGETS.length]!;
+    const k = 1 + Math.floor(rng() * 9);
+    players = players.map((p) => {
+      if (p.sessionId === "shooter") return { ...p, angle: aimAt.bearing, fireMask: BLAST_SLOT_BIT, statuses: expireStatuses([...p.statuses], tick) };
+      // A target the scenario keeps on the field: a wreck comes straight back at full hp.
+      return p.alive ? { ...p, statuses: expireStatuses([...p.statuses], tick) } : { ...p, alive: true, hp: hpOf(p.carId as CarId), statuses: [] };
+    });
+    const events = newCombatEvents();
+    const world: CombatWorld = { tick, dt: DT, mode: "ffa", obstacles: [], bounds: BOUNDS };
+    const result = runCombat({ world, players, instances, instanceSeq, events, fastForward: new Map([["shooter", k]]) });
+    players = result.players;
+    instances = result.instances;
+    instanceSeq = result.instanceSeq;
+    fired += events.fired.length;
+    ended += result.ended.length;
+    for (const inst of instances) {
+      if (seen.has(inst.id)) continue;
+      seen.add(inst.id);
+      if (inst.isExplosion && inst.spawnTick < tick) midLoopBursts++;
+    }
+    whole.update(
+      JSON.stringify(
+        canon({ tick, instances, ended: result.ended, hp: players.map((p) => [p.sessionId, p.hp, p.alive]), instanceSeq }),
+      ),
+    );
+  }
+  return { whole: whole.digest("hex"), fired, ended, midLoopBursts };
+}
+
+describe("golden: an explosive shell detonating inside its own fast-forward (M3)", () => {
+  const trace = withMode(fixtureBundle(), () => runBlastScenario(20261003));
+
+  it("exercises what it pins: bursts born mid-fast-forward and shots ended on their birth tick", () => {
+    expect({ fired: trace.fired, ended: trace.ended, midLoopBursts: trace.midLoopBursts }).toEqual(BLAST_COUNTS);
+    expect(trace.midLoopBursts).toBeGreaterThan(0);
+    expect(trace.ended).toBeGreaterThan(0);
+  });
+
+  it("matches the recorded trace", () => {
+    expect(trace.whole).toBe(BLAST_WHOLE);
+  });
+});
+
+const BLAST_COUNTS = { fired: 19, ended: 5, midLoopBursts: 4 };
+const BLAST_WHOLE = "3797440333549a6452d5dbcc7e57278e02ee5d59ce2e1945a52ae6480d3ee156";
 
 const GOLDEN_COUNTS = { fired: 168, firedWithK: 154, spawned: 319, hpLost: 4163, deaths: 2 };
 const GOLDEN_CHECKPOINTS: readonly string[] = [

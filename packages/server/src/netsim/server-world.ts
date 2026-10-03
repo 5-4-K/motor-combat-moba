@@ -31,6 +31,12 @@ import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
 export const NETSIM_ARENA_ID = "arena-01";
 /** Chassis handed out round-robin by seat. */
 const NETSIM_CARS: readonly CarId[] = ["mirage", "bullseye", "bastion"];
+/**
+ * A one-tick velocity change, u/s, past anything the drive model makes on its own (a car's whole
+ * engine accel is a few u/s per tick): a ram, a slam, a dash start or a stun (M1 diagnostic).
+ */
+const KICK_DV = 40;
+
 /** The mode every netsim run plays: respawns, so a spike death does not end the measurement. */
 export const NETSIM_MODE = GameMode.FFA_DEATHMATCH;
 
@@ -75,6 +81,8 @@ export interface SnapshotShot {
   spawnTick: number;
   isExplosion: boolean;
   lifeOffsetTicks: number;
+  /** `false` on an ENDED row: a shot that ended on its own birth tick, sent at its end pose (protocol 5). */
+  alive: boolean;
 }
 
 /** One patch, as the client decodes it: every player's networked fields at the last completed tick. */
@@ -131,6 +139,14 @@ export class ServerWorld {
   lastTickMaxSteps = 0;
   /** For each car, the tick → server ms at which the client's own frame for that tick was simulated. */
   readonly appliedAt = new Map<string, Map<number, number>>();
+  /**
+   * Per car, the tick times its motion was KICKED (Phase F final review M1 diagnostic): its maneuver
+   * kind changed (a dash, slam or HOLD starting or ending), or its velocity changed by more than
+   * `KICK_DV` in one tick (a ram or slam impulse, a stun stopping it dead) — the events a remote's
+   * dead reckoning cannot foresee.
+   */
+  readonly kicks = new Map<string, number[]>();
+  private readonly lastMotion = new Map<string, { vx: number; vy: number; maneuver: number }>();
   /** Car-ticks that stepped a car, and how many of those ran on a repeated or neutral input (NR22). */
   steppedCarTicks = 0;
   repeatedCarTicks = 0;
@@ -245,6 +261,13 @@ export class ServerWorld {
       for (const id of this.ids) {
         const p = this.state.players.get(id)!;
         this.truth.get(id)!.push({ t, x: p.x, y: p.y, angle: p.angle, alive: p.alive });
+        const was = this.lastMotion.get(id);
+        if (was && p.alive && (was.maneuver !== p.maneuver || Math.hypot(p.vx - was.vx, p.vy - was.vy) > KICK_DV)) {
+          let list = this.kicks.get(id);
+          if (!list) this.kicks.set(id, (list = []));
+          list.push(t);
+        }
+        this.lastMotion.set(id, { vx: p.vx, vy: p.vy, maneuver: p.maneuver });
         const n = steps.get(id) ?? 0;
         max = Math.max(max, n);
         if (n === 0) continue;
@@ -272,6 +295,7 @@ export class ServerWorld {
         spawnTick: w.spawnTick,
         isExplosion: w.isExplosion,
         lifeOffsetTicks: w.lifeOffsetTicks,
+        alive: w.alive,
       });
     });
     return {

@@ -715,7 +715,6 @@ interface ShotStyleRow {
 interface DrawnProvisional extends DrawableInstance {
   row: ShotStyleRow;
   visible: boolean;
-  alpha: number;
   bornAtMs: number;
 }
 
@@ -1013,7 +1012,9 @@ export class ArenaScene extends Phaser.Scene {
   /**
    * Last frame's OWN hidden-instance ids — never the carried result — so `fxHidden` can carry one
    * forward for exactly the one tick the server deletes it (CB27, I1). It deletes a dead instance
-   * the same tick it dies rather than writing `alive: false` first, so a hidden enemy's `shotEnded`
+   * the same tick it dies rather than writing `alive: false` first (only a shot that ended on its
+   * birth tick ever arrives as an `alive: false` row, and that row is present, so it is tested like
+   * any other), so a hidden enemy's `shotEnded`
    * would otherwise resolve unhidden the instant the id leaves `state.weapons`. Holding the carried
    * set here instead of the raw one would re-add a vanished id on every later frame too, since it
    * never returns to `state.weapons` to fall back out of `lastHiddenInstances` on its own.
@@ -1057,16 +1058,14 @@ export class ArenaScene extends Phaser.Scene {
   private shotBounds: { arena: ArenaDef; bounds: Bounds } | undefined;
   /**
    * Your own shots drawn the moment you fire (NR39): spawned in `sendInputTick`, confirmed by (and
-   * eased into) the server's instance in `beginShotFrame`, dropped `rtt + provisionalShotGraceMs`
-   * after they were drawn if nothing confirms them. Drawing only — never damage, FX or prediction.
+   * eased into) the server's instance in `beginShotFrame` — or ended by its ENDED row, for a shot the
+   * server ended on its birth tick — and dropped at the first snapshot at or past `spawnTick +
+   * provisionalShotMatchTicks` if nothing confirms them. Drawing only — never damage, FX or prediction.
    */
   private provisionals = new ProvisionalShots();
   /** The driven car's predicted fire state, deciding which presses get a provisional shot. */
   private localFire: { sessionId: string; fire: LocalFire } | undefined;
   private provisionalSeq = 0;
-  /** `ClockSync.rttMs()`, cached per snapshot tick for the provisional ttl. */
-  private provisionalRttMs = 0;
-  private provisionalRttTick = -1;
   /** This frame's drawn provisional shots, pooled; `beginShotFrame` fills, `renderShots` draws. */
   private readonly drawnProvisionals: DrawnProvisional[] = [];
   /** Scratch: this frame's instances owned by the driven car, offered to `ProvisionalShots.confirm`. */
@@ -2729,7 +2728,8 @@ export class ArenaScene extends Phaser.Scene {
    * (`body`: the end of this tick, where `runCombat` reads it after driving), aged by the client's own
    * shot compensation for the press. The fire state asks the server's own gates, so a press it lets
    * through is one the server fires unless something it cannot see (a lost input, a status not yet
-   * patched) intervenes — and that costs one unconfirmed shot, gone after `rtt + 100 ms`.
+   * patched) intervenes — and that costs one unconfirmed shot, dropped at the snapshot of its
+   * `spawnTick + provisionalShotMatchTicks`.
    */
   private fireProvisional(room: Room<ArenaState>, local: PlayerState, input: InputFrame, body: SimBody): void {
     const sid = this.drivenSid(room);
@@ -3923,6 +3923,8 @@ export class ArenaScene extends Phaser.Scene {
     const nowMs = performance.now();
     // NR39: your own instances confirm the provisional shots they stand for (same owner and weapon,
     // spawn tick within ±2), each recording where its provisional was drawn so the hand-over eases.
+    // An ENDED row (`alive: false`: the shot ended on its birth tick, inside its fast-forward)
+    // confirms too and simply ends its provisional; its impact is the fx layer's `shotEnded`.
     const own = this.ownShotRows;
     own.length = 0;
     room.state.weapons.forEach((instance) => {
@@ -3935,6 +3937,9 @@ export class ArenaScene extends Phaser.Scene {
       if (pair.from) this.handoverFrom.set(pair.serverId, pair.from);
     }
     room.state.weapons.forEach((instance, id) => {
+      // An ended row is never drawn as a shot (`renderShots` skips it too): it is an impact, not a
+      // flight, and the fx layer reads it straight off `state.weapons`.
+      if (!instance.alive) return;
       if (!this.shotView.isCurrent(id, snapTick)) {
         const sim = shotFromWire(instance, snapTick);
         // An id this build does not know draws where the server put it (no record, see `drawnShot`).
@@ -3977,24 +3982,18 @@ export class ArenaScene extends Phaser.Scene {
     for (const id of this.drawnShots.keys()) if (!live.has(id)) this.drawnShots.delete(id);
     this.provisionals.forgetHandoversBut(live);
     this.handoverFrom.clear();
-    this.beginProvisionalFrame(room, drawTick, drivenSid, nowMs);
+    this.beginProvisionalFrame(room, drawTick, drivenSid);
   }
 
   /**
-   * This frame's provisional shots (NR39) into `drawnProvisionals`: an unconfirmed one past
-   * `rtt + provisionalShotGraceMs` is dropped, the rest are drawn at the same tick as every other shot
-   * (`ProvisionalShots.at`, the shared `ShotView` motion, hidden past its range, lifetime or wall end)
-   * and faded over the end of that window. An attached beam welds to your car's drawn pose.
+   * This frame's provisional shots (NR39) into `drawnProvisionals`: one still unconfirmed by the
+   * snapshot of its `spawnTick + provisionalShotMatchTicks` is dropped (`expireBySnapshot` — after
+   * `confirm` has read the same snapshot, so a confirm is never late), the rest are drawn at the same
+   * tick as every other shot (`ProvisionalShots.at`, the shared `ShotView` motion, hidden past its
+   * range, lifetime or wall end). An attached beam welds to your car's drawn pose.
    */
-  private beginProvisionalFrame(room: Room<ArenaState>, drawTick: number, drivenSid: string, nowMs: number): void {
-    const clock = this.inputClock?.clock;
-    // `rttMs()` builds a map and a median on every call: read once per snapshot, not per frame.
-    if (this.provisionalRttTick !== room.state.tick) {
-      this.provisionalRttTick = room.state.tick;
-      this.provisionalRttMs = clock?.ready ? clock.rttMs() : 0;
-    }
-    const ttlMs = this.provisionalRttMs + NET_CONFIG.provisionalShotGraceMs;
-    this.provisionals.expire(nowMs, ttlMs);
+  private beginProvisionalFrame(room: Room<ArenaState>, drawTick: number, drivenSid: string): void {
+    this.provisionals.expireBySnapshot(room.state.tick);
     const list = this.provisionals.list();
     const pool = this.drawnProvisionals;
     pool.length = Math.min(pool.length, list.length);
@@ -4005,7 +4004,7 @@ export class ArenaScene extends Phaser.Scene {
       if (!rec) {
         rec = {
           row: { kind: 0, weaponId: "", spawnTick: 0, isExplosion: false, lifeOffsetTicks: 0 },
-          weaponId: "", isExplosion: false, x: 0, y: 0, angle: 0, extent: 0, visible: false, alpha: 1, bornAtMs: 0,
+          weaponId: "", isExplosion: false, x: 0, y: 0, angle: 0, extent: 0, visible: false, bornAtMs: 0,
         };
         pool.push(rec);
       }
@@ -4022,7 +4021,6 @@ export class ArenaScene extends Phaser.Scene {
       rec.y = at.y;
       rec.angle = at.angle;
       rec.extent = at.extent;
-      rec.alpha = this.provisionals.alpha(p, nowMs, ttlMs);
       rec.bornAtMs = p.bornAtMs;
     }
   }
@@ -4057,7 +4055,8 @@ export class ArenaScene extends Phaser.Scene {
    * births it at the predicted muzzle, and it flies with the same `ShotView` motion. It is drawn in
    * exactly the look below (`drawShot`) but is never in `state.weapons`, so it never damages, never
    * spawns impact FX and is never outlined as a hitbox; the server's own instance replaces it with a
-   * 100 ms ease, and one the server refused fades out `rtt + 100 ms` after it was drawn.
+   * 100 ms ease (or, ended on its birth tick, ends it where its impact is drawn), and one the server
+   * refused is dropped at the snapshot of its `spawnTick + provisionalShotMatchTicks`.
    *
    * Each instance draws as its own hitbox (D19, `instanceDrawShape`) in its WEAPON's colour, so
    * what a player sees is exactly what can hurt them and every fireball shot in the arena looks
@@ -4094,14 +4093,14 @@ export class ArenaScene extends Phaser.Scene {
       // The age is the SNAPSHOT's, not the drawn present's: a shot is drawn up to a round trip ahead
       // of its newest snapshot, and aging the flash by that would have it spent before your own
       // beam's first frame arrives.
-      this.drawShot(gfx, glow, instance, drawn, 1, (room.state.tick - instance.spawnTick) * MS_PER_TICK + sincePatchMs, nowMs);
+      this.drawShot(gfx, glow, instance, drawn, (room.state.tick - instance.spawnTick) * MS_PER_TICK + sincePatchMs, nowMs);
     });
 
     // Your own provisional shots (NR39), in exactly the same look. Their flash is aged from the
     // moment they were drawn, which is the moment they left the muzzle on your screen.
     for (const prov of this.drawnProvisionals) {
       if (!prov.visible) continue;
-      this.drawShot(gfx, glow, prov.row, prov, prov.alpha, nowMs - prov.bornAtMs, nowMs);
+      this.drawShot(gfx, glow, prov.row, prov, nowMs - prov.bornAtMs, nowMs);
     }
 
     // A SECOND pass, on purpose. Outlining inside the loop above would bury each shot's hitbox
@@ -4135,31 +4134,28 @@ export class ArenaScene extends Phaser.Scene {
 
   /**
    * One shot, drawn at `drawn` in its weapon's look — the body `renderShots` runs for a server
-   * instance and for a provisional shot alike, so the two can never look different. `alphaMult`
-   * scales every fill (a provisional's fade); `flareAgeMs` is how old the beam's muzzle flash is.
+   * instance and for a provisional shot alike, so the two can never look different. `flareAgeMs` is
+   * how old the beam's muzzle flash is.
    */
   private drawShot(
     gfx: Phaser.GameObjects.Graphics,
     glow: Phaser.GameObjects.Graphics | undefined,
     instance: ShotStyleRow,
     drawn: DrawableInstance,
-    alphaMult: number,
     flareAgeMs: number,
     nowMs: number,
   ): void {
     const shape = instanceDrawShape(drawn);
-    const alpha =
-      alphaMult *
-      beamFadeAlpha(
-        instance.kind,
-        instance.weaponId,
-        instance.spawnTick,
-        // At the tick it is DRAWN at, so it fades out on the drawn tick its life ends — the same tick
-        // `ShotView` stops drawing it.
-        this.shotDrawTick,
-        instance.isExplosion,
-        instance.lifeOffsetTicks,
-      );
+    const alpha = beamFadeAlpha(
+      instance.kind,
+      instance.weaponId,
+      instance.spawnTick,
+      // At the tick it is DRAWN at, so it fades out on the drawn tick its life ends — the same tick
+      // `ShotView` stops drawing it.
+      this.shotDrawTick,
+      instance.isExplosion,
+      instance.lifeOffsetTicks,
+    );
     if (shape.kind === "circle" && isAuraInstance(drawn)) {
       // The crust the fx layer stamps underneath is the field's body now, so the flat wash that
       // used to stand in for it is gone. The RING stays, and stays here rather than moving to the
@@ -4304,8 +4300,9 @@ export class ArenaScene extends Phaser.Scene {
       x: instance.x,
       y: instance.y,
       angle: instance.angle,
-      // Carried because `shotEnded` keys off this flip, not off the row leaving the map: the server
-      // clears `alive` a tick or more before it deletes the instance.
+      // Carried because `shotEnded` keys off it: a row that ARRIVES with `alive: false` is a shot that
+      // ended on its own birth tick (protocol 5) and is its own impact; any other shot's end is its
+      // row leaving the map.
       alive: instance.alive,
       // The two `fx/contact.ts` needs to place a burst on the point a weapon actually touched: a
       // beam's reach (so its impact lands at the tip rather than on the shooter's nose) and whether
@@ -4347,8 +4344,9 @@ export class ArenaScene extends Phaser.Scene {
    * mode has no FOV.
    *
    * The server deletes a dead instance the same tick it dies rather than writing `alive: false`
-   * into a row a client still holds (verified against `stepCombat`/`combat-bridge.ts`: a dying
-   * instance is dropped from `survivors` and never reaches `state.weapons` with `alive: false`), so
+   * into a row a client still holds (a dying instance is dropped from `survivors`; the only
+   * `alive: false` rows are shots that ended on their birth tick, which arrive dead and are present
+   * while their `shotEnded` fires), so
    * an id that was hidden last frame and is gone from `state.weapons` this frame is carried forward
    * for exactly that one frame (I1) — otherwise a hidden enemy's `shotEnded` would resolve against an
    * empty hidden set on the very frame the id vanishes, and its impact burst/scorch would show for a

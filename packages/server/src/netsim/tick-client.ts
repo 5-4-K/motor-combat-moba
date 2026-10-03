@@ -56,7 +56,10 @@ export interface ClientPress {
  */
 const PRESS_ASSOC_TICKS = 8;
 
-/** One provisional dropped unconfirmed at `rtt + provisionalShotGraceMs` (F5). */
+/**
+ * One provisional dropped unconfirmed (F5): at the first snapshot at or past its `spawnTick +
+ * provisionalShotMatchTicks` since the Phase F final review (`ProvisionalShots.expireBySnapshot`).
+ */
 export interface ExpiredProvisional {
   slot: number;
   weaponId: string;
@@ -156,10 +159,16 @@ export class TickClient {
   readonly confirmJumps: number[] = [];
   /** The same, for homing shots alone, kept apart: both are drawn on a held heading (NR40). */
   readonly confirmJumpsHoming: number[] = [];
-  /** Provisional shots added (one per pellet), dropped unconfirmed at `rtt + grace`, and confirmed after that. */
+  /**
+   * Provisional shots added (one per pellet), dropped unconfirmed, and confirmed after that — the
+   * last can no longer happen by construction (confirm and expiry read the same snapshot) and is
+   * kept as the check that it does not.
+   */
   provisionalsMade = 0;
   provisionalsExpired = 0;
   lateConfirms = 0;
+  /** Provisionals ended by an ENDED row: the server's shot ended on its birth tick (Phase F final review I1). */
+  endedConfirms = 0;
   /** Own non-burst instances that confirmed no provisional, live or expired (a press `LocalFire` did not predict). */
   unpredictedShots = 0;
 
@@ -340,9 +349,9 @@ export class TickClient {
 
   /**
    * `ArenaScene.beginShotFrame` + `beginProvisionalFrame` for this client's OWN shots (enemy shots
-   * are not measured): own instances confirm provisionals, each instance is drawn at the local car's
-   * tick through `ShotView`, unconfirmed provisionals past `rtt + provisionalShotGraceMs` are dropped,
-   * and the rest are drawn. Records the hand-over distance, the first drawn frame of each press, and
+   * are not measured): own instances (ended rows included) confirm provisionals, each live instance
+   * is drawn at the local car's tick through `ShotView`, provisionals still unconfirmed by the
+   * snapshot of their `spawnTick + provisionalShotMatchTicks` are dropped, and the rest are drawn. Records the hand-over distance, the first drawn frame of each press, and
    * the expiry and late-confirm counts. Called once per frame, after `frame`.
    */
   drawShots(nowMs: number): void {
@@ -360,6 +369,7 @@ export class TickClient {
     // Confirm (before anything is drawn, as the scene does), then sort the newly seen instances.
     const handover = new Map<string, { x: number; y: number }>();
     for (const pair of this.provisionals.confirm(own, drawTick, ownDrawn)) {
+      if (pair.ended) this.endedConfirms++;
       if (pair.from) handover.set(pair.serverId, pair.from);
       const press = this.provisionalPress.get(pair.provisionalKey);
       if (press) this.shotPress.set(pair.serverId, press);
@@ -395,6 +405,8 @@ export class TickClient {
     const live = new Set<string>();
     const self = this.lastById.get(this.id);
     for (const row of own) {
+      // An ended row is an impact, never a drawn shot (`ArenaScene.beginShotFrame` skips it too).
+      if (!row.alive) continue;
       if (!this.shotView.isCurrent(row.id, snap.tick)) {
         const sim = shotFromWire(row, snap.tick);
         if (!sim) continue;
@@ -422,10 +434,9 @@ export class TickClient {
     this.shotView.forgetAllBut(live);
     for (const id of this.shotPress.keys()) if (!live.has(id)) this.shotPress.delete(id);
 
-    // Expire, then draw what is left.
-    const ttlMs = (this.clock.ready ? this.clock.rttMs() : 0) + NET_CONFIG.provisionalShotGraceMs;
+    // Expire (by the snapshot `confirm` just read), then draw what is left.
     const before = new Map(this.provisionals.list().map((p) => [p.key, p]));
-    for (const key of this.provisionals.expire(nowMs, ttlMs)) {
+    for (const key of this.provisionals.expireBySnapshot(snap.tick)) {
       const p = before.get(key)!;
       this.provisionalsExpired++;
       this.expiredProvisionals.push({ slot: p.slot, weaponId: p.instance.weaponId, spawnTick: p.spawnTick, atMs: nowMs, confirmedLate: false });

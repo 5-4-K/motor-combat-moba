@@ -184,7 +184,7 @@ shared `modifiersFromRows`. See [`combat-model.md`](combat-model.md#statuses) fo
 | `x`, `y`, `angle` | number | `0` | Canonical world pose |
 | `extent` | number | `0` | Beams: current reach. Projectiles: always 0 |
 | `spawnTick` | uint32 | `0` | Tick spawned |
-| `alive` | boolean | `true` | False when spent |
+| `alive` | boolean | `true` | `false` only on an ENDED row (protocol 5): a shot that ended on its own birth tick — at the muzzle or inside its NR37 fast-forward — sent once at its end pose and held for `NET_CONFIG.endedShotRowMs`, then removed. Never drawn as a flying shot: clients draw its impact (`shotEnded`) and the shooter's provisional ends against it. A shot that lived on the wire ends by its row being removed, never by this flag |
 | `isExplosion` | boolean | `false` | True when this row is its weapon's explosion, not its shell |
 | `lifeOffsetTicks` | uint8 | `0` | Ticks older than `spawnTick` says: the press's shot compensation (NR37). A beam dies at `spawnTick + flight + lifetime - lifeOffsetTicks`. Protocol 4 |
 

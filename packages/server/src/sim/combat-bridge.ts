@@ -1,5 +1,7 @@
 import {
   ManeuverKind,
+  NET_CONFIG,
+  msToTicks,
   WeaponInstanceState,
   WeaponKind,
   WeaponSlotState,
@@ -71,6 +73,13 @@ export interface CombatMemory {
    * tick.
    */
   loadouts: Map<string, readonly WeaponId[]>;
+  /**
+   * Ended rows still on the wire (Phase F final review I1): instance id -> the tick its row is
+   * removed on. A shot that ended on its own birth tick (`CombatResult.ended`) is written once as an
+   * `alive: false` row and held for `NET_CONFIG.endedShotRowMs`, so every client sees it end and the
+   * shooter's provisional confirms against it. Never in `instances`: nothing simulates it again.
+   */
+  endedRows: Map<string, number>;
 }
 
 /**
@@ -88,6 +97,7 @@ export function newCombatMemory(): CombatMemory {
     maneuverPressIds: new Map(),
     lastDamagers: new Map(),
     loadouts: new Map(),
+    endedRows: new Map(),
   };
 }
 
@@ -256,34 +266,48 @@ export function applyCombatResult(state: ArenaState, result: CombatResult, memor
   }
 
   memory.instances = new Map(result.instances.map((i) => [i.id, i]));
+  for (const [id, removeAt] of memory.endedRows) if (state.tick >= removeAt) memory.endedRows.delete(id);
 
   const stale: string[] = [];
   state.weapons.forEach((_, id) => {
-    if (!memory.instances.has(id)) stale.push(id);
+    if (!memory.instances.has(id) && !memory.endedRows.has(id)) stale.push(id);
   });
   for (const id of stale) state.weapons.delete(id);
 
   // Diffed, never cleared and refilled: a collection emptied each tick patches every instance to
   // every client every tick, which is exactly the bandwidth the patch rate exists to avoid.
-  for (const instance of result.instances) {
-    let row = state.weapons.get(instance.id);
-    if (!row) {
-      row = new WeaponInstanceState();
-      row.id = instance.id;
-      row.ownerSessionId = instance.ownerSessionId;
-      row.weaponId = instance.weaponId;
-      row.kind = instance.kind === "beam" ? WeaponKind.BEAM : WeaponKind.PROJECTILE;
-      row.isExplosion = instance.isExplosion;
-      row.spawnTick = instance.spawnTick;
-      row.lifeOffsetTicks = instance.lifeOffsetTicks ?? 0;
-      state.weapons.set(instance.id, row);
-    }
-    row.x = instance.x;
-    row.y = instance.y;
-    row.angle = instance.angle;
-    row.extent = instance.extent;
-    row.alive = instance.alive;
+  for (const instance of result.instances) writeInstanceRow(state, instance);
+
+  // Shots that ended on their own birth tick never stood in a snapshot alive: without this row no
+  // client would ever learn they were fired (Phase F final review I1). One row, at the end pose,
+  // `alive: false`, held for `endedShotRowMs` and then removed by the sweep above. A shot that lived
+  // on an earlier tick needs none — its row leaving is its end, as it always was.
+  const holdTicks = msToTicks(NET_CONFIG.endedShotRowMs);
+  for (const instance of result.ended) {
+    writeInstanceRow(state, { ...instance, alive: false });
+    memory.endedRows.set(instance.id, state.tick + holdTicks);
   }
+}
+
+/** One instance onto its row: created with the fields frozen at spawn, then its pose and `alive`. */
+function writeInstanceRow(state: ArenaState, instance: WeaponInstance): void {
+  let row = state.weapons.get(instance.id);
+  if (!row) {
+    row = new WeaponInstanceState();
+    row.id = instance.id;
+    row.ownerSessionId = instance.ownerSessionId;
+    row.weaponId = instance.weaponId;
+    row.kind = instance.kind === "beam" ? WeaponKind.BEAM : WeaponKind.PROJECTILE;
+    row.isExplosion = instance.isExplosion;
+    row.spawnTick = instance.spawnTick;
+    row.lifeOffsetTicks = instance.lifeOffsetTicks ?? 0;
+    state.weapons.set(instance.id, row);
+  }
+  row.x = instance.x;
+  row.y = instance.y;
+  row.angle = instance.angle;
+  row.extent = instance.extent;
+  row.alive = instance.alive;
 }
 
 /** Slot rows are positional: index is the slot, so they are resized rather than rebuilt. */
@@ -308,6 +332,7 @@ export function clearInstances(state: ArenaState, memory: CombatMemory): void {
   state.weapons.forEach((_, id) => ids.push(id));
   for (const id of ids) state.weapons.delete(id);
   memory.instances.clear();
+  memory.endedRows.clear();
   memory.fireStates.clear();
   memory.maneuverWeapons.clear();
   // Not observable today — every path that zeroes hp stamps a fresh source before `alive` flips, so

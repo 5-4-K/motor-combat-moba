@@ -227,13 +227,21 @@ today's. On `net80clean`: input-to-server delay no more than LAN's plus half the
   bounces, cars, hits and detonations all resolve through the same per-instance step as a normal
   tick. It is therefore where it would be had it been fired `k` ticks ago, which is what a shooter
   leading a target they see `k` ticks late needs. Maneuvers (the car itself moves) and statuses are
-  never fast-forwarded.
+  never fast-forwarded. A shot that ends on its birth tick — inside its fast-forward, or at the
+  muzzle — never stands in a snapshot alive, so the server sends it as an **ended row**
+  (`WeaponInstanceState.alive: false` at its end pose, for `NET_CONFIG.endedShotRowMs`, protocol 5):
+  every client draws its impact from it and the shooter's provisional confirms against it (NR39). A
+  shooter's latency must not hide their shot's impact from the player it hit (§1).
 - **NR38** Attached beams fast-forward their `extent` growth the same way; they stay attached.
 - **NR39 Own shot drawn at once.** When the local client presses a slot whose local state says it
   can fire (stock available, no refire or switch lock, not pending), it draws a **provisional**
   shot at the predicted muzzle, stepped each frame with the shared instance motion (no hits). The
-  first server instance with the same owner and `spawnTick` within ±2 ticks of `P` replaces it; an
-  unconfirmed provisional fades out after `rtt + 100 ms`. The client applies the same fast-forward
+  first server instance with the same owner and `spawnTick` within ±2 ticks of `P` replaces it (an
+  ended row, NR37, ends it instead); a provisional still unconfirmed once the client has applied a
+  snapshot at or past `spawnTick + 2` is dropped — snapshots arrive in order, so no instance that
+  could confirm it is still to come, and a press the server moved later is never drawn twice
+  (Phase F final review I1, I2; this replaced an `rtt + 100 ms` ttl, which undershot a lossy link's
+  own press-to-snapshot time). The client applies the same fast-forward
   the server will (NR37) using its own `staleTicks` clamped to `capTicks`, so a confirmed shot does
   not jump; any difference from the server's clamp eases out over 100 ms. The expected spawn tick
   includes the weapon's wind-up (`pendingUntilTick`). Provisional shots never deal damage, never
@@ -353,10 +361,16 @@ today's. On `net80clean`: input-to-server delay no more than LAN's plus half the
   lengths a high-ping shooter's shot is slightly over-led (the target is drawn near its present pose
   yet the shot is still advanced the full `k`; the hit lands because the shot sweeps it inside its
   first `k` ticks); homing shots are drawn on a held heading between snapshots, so a provisional
-  homing shot hands over with a visible ease; a shot that ends inside its fast-forward never reaches
-  the wire and its provisional flies on through what it hit until it fades; on a slow lossy link
-  the provisional's `rtt + 100 ms` life can end before its confirm arrives (that player's cost); a
-  non-browser client can delay its WebSocket pongs as well as its `MSG_PING` echoes and so reach
+  homing shot hands over with a visible ease; a shot that ends inside its fast-forward is seen by
+  every client only as its impact (an ended row, NR37) — it never flies on anyone's screen, and the
+  shooter's provisional is drawn on through what it hit for about a round trip before that row ends
+  it. **Cars are not rewound, so a fast-forwarded shot's hits read every car at its CURRENT pose
+  along its first `k` ticks of travel**: a car that crossed that segment during the last `k` ticks
+  (after an honestly earlier shot would have passed) is hit; a car that stood in it `k` ticks ago
+  and has left is missed; a homing shot acquires and steers at its target's present pose for all `k`
+  steps, better guidance than the earlier-fired shot it stands for. The first `k·v` of a compensated
+  shot is undodgeable — 135 u for a 900 u/s shot at the 9-tick cap — a victim-side cost the cap
+  bounds (NR37 intends hits against the current world). A non-browser client can delay its WebSocket pongs as well as its `MSG_PING` echoes and so reach
   `capTicks` on any link — the cap, not the allowance, is the guarantee; rams are not compensated
   (NR41).
 - **NR61 Not prevented.** Aim assistance and trigger bots (the client has to know where visible
@@ -389,3 +403,4 @@ Each stage merges on its own, green, with its measured numbers recorded in the p
 - 2026-10-01 (F1): netsim measures honest shot staleness `P − viewTick` (ticks, p50 / p95 / max, six cars, 60 s, seeds 1–3): lan 4 / 5 / 5, net80clean 9 / 9 / 9, net80 10 / 12 / 13–14, net150 16–17 / 20–21 / 22–23. `shotCompCapMs` = net80clean's p95, 9 ticks = 150 ms. NR36's `allowedTicks` takes the full `serverRttMs`, not half: with rtt/2 an honest net80clean client (slack 1.54 ± 0.34) was allowed 7 of its 9 while net80 and net150 reached the cap; with the full RTT net80clean is allowed ~10 and every lossy link is held to the same 9-tick cap.
 - 2026-10-01 (F1 fix round 1): NR36's RTT is `min(appRtt, wsRtt)` — a WebSocket ping/pong RTT bounds the app `MSG_PING` RTT, so echoes held back by page JS cannot buy compensation; the two allowance multipliers are named (`shotCompDelaySnapshots`, `shotCompSlackStds`, both 2).
 - 2026-10-03 (F5): the netsim drivers fire (an ability press every 1–3 s), so the baseline is now §1's "driving and firing" shape. Measured (mean of seeds 1–3): shot compensation mean `k` lan 4.5, net80clean 8.5, net80 9.0, net150 8.9 ticks (at the cap on 0 / 54 / 98 / 99 % of presses); own shot drawn the frame it is pressed on every link; non-homing hand-over p95 0.5 u on net80clean; 17–39 % of provisional pellets expire unconfirmed, almost all shots the server resolved inside their own fast-forward and never sent. LAN input-to-server reads 34.05 ms with firing on (33.99 driving-only). §11's NR60 states Phase F's residuals.
+- 2026-10-03 (Phase F final review fixes): a shot that ends on its birth tick (inside its fast-forward, or at the muzzle) is sent as an ended row (`alive: false` at its end pose, `endedShotRowMs` 100 ms, `PROTOCOL_VERSION` 5) so every client draws its impact and the shooter's provisional ends against it (NR37, NR39); an unconfirmed provisional is dropped at the first applied snapshot at or past `spawnTick + provisionalShotMatchTicks`, replacing the `rtt + 100 ms` ttl (`provisionalShotGraceMs`, `provisionalShotFadeMs` deleted), so a confirm is never late and a press moved past the window is never drawn twice; NR60 states the no-rewind hit consequence. §1's LAN input-to-server target is NOT amended: excluding respawn re-entry frames does not explain the firing run's 34.05 ms (see EXECUTION, Phase F final review I3).
