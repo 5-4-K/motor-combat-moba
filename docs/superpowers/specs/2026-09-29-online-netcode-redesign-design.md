@@ -51,7 +51,7 @@ margin (NR21's 1.5-tick target slack) plus the 0–16.7 ms wait for the next tic
 averages about 34 ms; the earlier ≤ 34 was set tighter than the harness, with six fixed frame
 phases, could resolve (about ±1.4 ms). Remote interpolation delay ≤ 50 ms (today 50 ms), and total
 remote display delay as measured by the harness no worse than today's. On `net80clean`: input-to-server delay no more than LAN's plus half the RTT plus one tick
-(≤ 34 + 40 + 16.7 ≈ 91 ms; 74.3 ms at D6).
+(≤ 35 + 40 + 16.7 ≈ 92 ms; 74.3 ms at D6).
 
 ## 2. What is wrong today (findings)
 
