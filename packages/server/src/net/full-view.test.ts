@@ -3,9 +3,12 @@ import { Encoder, Reflection, type StateView } from "@colyseus/schema";
 import {
   ArenaState,
   PlayerState,
+  PlayerStatus,
+  RoomPhase,
   StatusState,
   WeaponInstanceState,
   WeaponSlotState,
+  type SpectateTarget,
 } from "@motor-combat-moba/shared";
 import { ensureView, syncViews, type ViewClient } from "./full-view.js";
 
@@ -14,11 +17,14 @@ import { ensureView, syncViews, type ViewClient } from "./full-view.js";
  * decodes `encodeAll` + `encodeAllView(view)`, then every patch is the shared `encode` plus
  * `encodeView(view)`. `sync` runs where the rooms run it — at join and before each patch.
  */
-function room(owned: (c: ViewClient) => string | undefined = (c) => c.sessionId) {
+function room(
+  owned: (c: ViewClient) => string | undefined = (c) => c.sessionId,
+  spectate: SpectateTarget = "anyone",
+) {
   const state = new ArenaState();
   const enc = new Encoder(state);
   const clients: (ViewClient & { decoded: ArenaState })[] = [];
-  const sync = () => syncViews(clients, state, owned);
+  const sync = () => syncViews(clients, state, owned, spectate);
   return {
     state,
     clients,
@@ -177,7 +183,101 @@ describe("full views (G2: every car and instance in every view)", () => {
     const r = room();
     const a = r.join("a");
     r.patch();
-    syncViews(r.clients, r.state, (c) => c.sessionId);
+    syncViews(r.clients, r.state, (c) => c.sessionId, "anyone");
     expect((a.view as StateView).changes.size).toBe(0);
+  });
+
+  describe("a spectating wreck (G2 fix round 1, I2)", () => {
+    /** A live match: `a` the viewer, `x` and `y` two other cars, each with one slot and timers. */
+    function match(spectate: SpectateTarget = "anyone") {
+      const r = room((c) => c.sessionId, spectate);
+      r.state.phase = RoomPhase.MATCH;
+      for (const id of ["x", "y"]) {
+        const p = new PlayerState();
+        p.sessionId = id;
+        p.name = id;
+        p.status = PlayerStatus.IN_MATCH;
+        p.x = 300;
+        p.switchLockUntilTick = 70;
+        const slot = new WeaponSlotState();
+        slot.weaponId = "predator";
+        slot.stocks = 2;
+        slot.rechargeEndsTick = 80;
+        p.weapons.push(slot);
+        r.state.players.set(id, p);
+      }
+      const a = r.join("a");
+      r.state.players.get("a")!.status = PlayerStatus.IN_MATCH;
+      r.patch();
+      return { r, a };
+    }
+    const timers = (c: { decoded: ArenaState }, id: string) => {
+      const p = c.decoded.players.get(id)!;
+      return {
+        stocks: p.weapons[0]!.stocks,
+        rechargeEndsTick: p.weapons[0]!.rechargeEndsTick,
+        switchLockUntilTick: p.switchLockUntilTick,
+      };
+    };
+    const SET = { stocks: 2, rechargeEndsTick: 80, switchLockUntilTick: 70 };
+    const UNSET = { stocks: undefined, rechargeEndsTick: undefined, switchLockUntilTick: undefined };
+
+    it("a living player reads no other car's timers", () => {
+      const { a } = match();
+      expect(timers(a, "x")).toEqual(UNSET);
+      expect(timers(a, "y")).toEqual(UNSET);
+    });
+
+    it("reads the watched car's timers, and follows the target from X to Y", () => {
+      const { r, a } = match();
+      r.state.players.get("y")!.alive = false; // only X is watchable
+      r.state.players.get("a")!.alive = false; // a is wrecked: spectating X
+      r.patch();
+      expect(timers(a, "x")).toEqual(SET);
+      expect(timers(a, "y")).toEqual(UNSET);
+
+      // X dies and Y comes back: `resolveSpectateTarget` falls to Y.
+      r.state.players.get("x")!.alive = false;
+      r.state.players.get("y")!.alive = true;
+      r.patch();
+      expect(timers(a, "y")).toEqual(SET);
+      expect(timers(a, "x")).toEqual(UNSET);
+      // Dropping the owner tag leaves X's public and `@view()` fields where they were: no flicker.
+      const x = a.decoded.players.get("x")!;
+      expect(x.name).toBe("x");
+      expect(x.x).toBe(300);
+      expect(x.inView).toBe(true);
+      expect(x.weapons[0]!.weaponId).toBe("predator");
+
+      // Later timer changes reach the wreck for the car it watches, never for the one it left.
+      r.state.players.get("y")!.weapons[0]!.stocks = 1;
+      r.state.players.get("x")!.weapons[0]!.stocks = 0;
+      r.patch();
+      expect(timers(a, "y").stocks).toBe(1);
+      expect(timers(a, "x").stocks).toBeUndefined();
+    });
+
+    it("loses every watched car's timers on respawn, and keeps its own throughout", () => {
+      const { r, a } = match();
+      const own = r.state.players.get("a")!;
+      own.alive = false;
+      r.patch();
+      expect(timers(a, "x")).toEqual(SET);
+      expect(timers(a, "y")).toEqual(SET);
+      expect(a.decoded.players.get("a")!.inputSlack).toBe(1.5);
+      own.alive = true;
+      r.patch();
+      expect(timers(a, "x")).toEqual(UNSET);
+      expect(timers(a, "y")).toEqual(UNSET);
+      expect(a.decoded.players.get("a")!.inputSlack).toBe(1.5);
+    });
+
+    it("a mode that does not spectate gives a wreck nobody's timers", () => {
+      const { r, a } = match("none");
+      r.state.players.get("a")!.alive = false;
+      r.patch();
+      expect(timers(a, "x")).toEqual(UNSET);
+      expect(timers(a, "y")).toEqual(UNSET);
+    });
   });
 });

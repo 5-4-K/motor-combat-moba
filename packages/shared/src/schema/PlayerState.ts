@@ -100,8 +100,11 @@ export class PlayerState extends Schema {
    * Tick the car's committed press next puts a shot out — a wind-up or the next volley of a burst.
    * `0` means nothing is pending, and so does any tick already passed: the HUD reads "this car is
    * mid-press" as `tick < pendingUntilTick`, which stays right between two snapshots.
+   *
+   * `@view()`, not owner-only (NR42 as amended in G2's fix round): the charge orb is a wind-up
+   * telegraph opponents are meant to act on, so anyone who can see the car reads it.
    */
-  @view(VIEW_OWNER) @type("uint32") pendingUntilTick = 0;
+  @view() @type("uint32") pendingUntilTick = 0;
   /**
    * Slot index the car most recently committed to firing, or `-1` before its first shot — hence
    * `int8` rather than a uint8 sentinel: -1 is the natural "never" for an index, and `beginFire`

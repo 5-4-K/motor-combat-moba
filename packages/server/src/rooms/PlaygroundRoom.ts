@@ -1,5 +1,6 @@
 import { Room, ServerError, matchMaker, type Client } from "@colyseus/core";
 import {
+  camera,
   CLOSE_CODES,
   INPUT_MESSAGE,
   isInputPacket,
@@ -326,7 +327,9 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
     });
     // Every client has a view (NR42), filled before Colyseus sends the joiner its full state.
     ensureView(client);
-    syncViews([client], this.state, this.ownedSeatOf);
+    scoped(this.modeConfig, () =>
+      syncViews([client], this.state, this.ownedSeatOf, camera().spectate.target),
+    );
   }
 
   /**
@@ -538,7 +541,7 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
 
   /** The human's view brought up to date (G2: every seat, the driven one `VIEW_OWNER`), then patch. */
   private sendSnapshot(): void {
-    syncViews(this.clients, this.state, this.ownedSeatOf);
+    syncViews(this.clients, this.state, this.ownedSeatOf, camera().spectate.target);
     this.broadcastPatch();
   }
 

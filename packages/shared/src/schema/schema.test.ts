@@ -345,15 +345,18 @@ describe("view tags (NR42, NR43)", () => {
     maneuverSpeed: 300,
     hp: 90,
     turretAngle: 0.75,
+    pendingUntilTick: 22,
     lastFiredSlot: 1,
     lastSteer: -1,
     lastThrottle: 1,
     inView: true,
   };
-  /** NR42's `@view(VIEW_OWNER)` list on the player itself (plus `inputSlackStd`, Phase D). */
+  /**
+   * NR42's `@view(VIEW_OWNER)` list on the player itself (plus `inputSlackStd`, Phase D; minus
+   * `pendingUntilTick`, which the charge-orb telegraph needs on every visible car).
+   */
   const OWNER: Record<string, unknown> = {
     switchLockUntilTick: 21,
-    pendingUntilTick: 22,
     ackRepeated: true,
     inputSlack: 1.5,
     inputSlackStd: 0.5,

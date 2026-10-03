@@ -1,5 +1,6 @@
 import { Room, ServerError, matchMaker, type Client } from "@colyseus/core";
 import {
+  camera,
   BOT_SESSION_ID,
   GameMode,
   INPUT_MESSAGE,
@@ -376,7 +377,9 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
     // Every client has a view (NR42), filled before Colyseus sends the joiner its full state. The bot
     // is not a client and has no view: it reads the room's state directly (NR49).
     ensureView(client);
-    syncViews([client], this.state, (c) => c.sessionId);
+    scoped(this.modeConfig, () =>
+      syncViews([client], this.state, (c) => c.sessionId, camera().spectate.target),
+    );
   }
 
   /**
@@ -458,7 +461,7 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
 
   /** The human's view brought up to date (G2: everything, own car `VIEW_OWNER`), then the patch. */
   private sendSnapshot(): void {
-    syncViews(this.clients, this.state, (c) => c.sessionId);
+    syncViews(this.clients, this.state, (c) => c.sessionId, camera().spectate.target);
     this.broadcastPatch();
   }
 

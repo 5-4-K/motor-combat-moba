@@ -1,5 +1,14 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import { Encoder, Reflection, StateView } from "@colyseus/schema";
+import {
+  ArenaState,
+  DEFAULT_GAME_MODE,
+  PlayerState,
+  VIEW_OWNER,
+  WeaponSlotState,
+  installMode,
+  modeConfigOf,
+} from "@motor-combat-moba/shared";
 import {
   weaponDefOf,
   basicAttackOf,
@@ -793,6 +802,39 @@ describe("chargeOrbBands", () => {
     const span = CHARGE.maxRadius - CHARGE.minRadius;
     // Halfway through the wind-up is halfway through the growth.
     expect(at(PRESS + WINDUP / 2)).toBeCloseTo(CHARGE.minRadius + span / 2, 6);
+  });
+
+  it("reaches an opponent's client: an enemy car in view decodes its own orb (G2, NR42)", () => {
+    // An enemy's lance, mid wind-up, encoded through a viewer's StateView exactly as the room's
+    // serializer does: the viewer holds the enemy car without VIEW_OWNER, and `renderChargeOrbs`
+    // reads `lastFiredSlot`, the slot's `weaponId` and `pendingUntilTick` off the decoded copy.
+    const state = new ArenaState();
+    const me = new PlayerState();
+    me.sessionId = "me";
+    const enemy = new PlayerState();
+    enemy.sessionId = "enemy";
+    const slot = new WeaponSlotState();
+    slot.weaponId = "lance";
+    enemy.weapons.push(slot);
+    enemy.lastFiredSlot = 0;
+    enemy.pendingUntilTick = EXIT;
+    state.players.set("me", me);
+    state.players.set("enemy", enemy);
+    const enc = new Encoder(state);
+    const dec = Reflection.decode<ArenaState>(Reflection.encode(enc));
+    const view = new StateView();
+    view.add(me, VIEW_OWNER);
+    view.add(enemy);
+    const it = { offset: 0 };
+    const shared = enc.encodeAll(it);
+    const buf = new Uint8Array(64 * 1024);
+    buf.set(shared.slice(0, it.offset));
+    dec.decode(enc.encodeAllView(view, it.offset, { ...it }, buf));
+
+    const seen = dec.state.players.get("enemy")!;
+    expect(seen.pendingUntilTick).toBe(EXIT);
+    const weaponId = seen.weapons[seen.lastFiredSlot]!.weaponId;
+    expect(chargeOrbBands(weaponId, seen.pendingUntilTick, PRESS)).toHaveLength(CHARGE.bands.length);
   });
 
   it("vanishes on the tick the shot exits, so the orb never overlaps its own beam", () => {

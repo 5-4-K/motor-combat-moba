@@ -1,5 +1,6 @@
 import { Room, ServerError, matchMaker, type Client } from "@colyseus/core";
 import {
+  camera,
   ArenaState,
   CLOSE_CODES,
   PlayerState,
@@ -410,7 +411,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       // joiner's view is filled here, before Colyseus sends it the full state; everyone else's picks
       // the new car up before the next patch.
       ensureView(client);
-      syncViews([client], this.state, (c) => c.sessionId);
+      syncViews([client], this.state, (c) => c.sessionId, camera().spectate.target);
     });
   }
 
@@ -472,7 +473,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
 
   /** Every client's view brought up to date (G2: everything, own car `VIEW_OWNER`), then the patch. */
   private sendSnapshot(): void {
-    syncViews(this.clients, this.state, (c) => c.sessionId);
+    syncViews(this.clients, this.state, (c) => c.sessionId, camera().spectate.target);
     this.broadcastPatch();
   }
 
