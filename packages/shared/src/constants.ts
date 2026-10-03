@@ -23,9 +23,12 @@ export const ROOM_NAME = "arena";
  * the server prices a press's shot compensation from it (NR35, NR36). 4 appends
  * `WeaponInstanceState.lifeOffsetTicks`, a compensated shot's age beyond its `spawnTick` (NR37). 5
  * gives `WeaponInstanceState.alive: false` a meaning: a shot that ended on its own birth tick (at the
- * muzzle or inside its fast-forward) is sent for `endedShotRowMs` as an ended row at its end pose.
+ * muzzle or inside its fast-forward) is sent for `endedShotRowMs` as an ended row at its end pose. 6
+ * tags the schema for interest management (NR42, NR52): car state, `statuses` and the instance map
+ * are `@view()`, the owner-only fields and slot timers `@view(VIEW_OWNER)`, `PlayerState.inView` is
+ * appended, and pose, velocity, the maneuver angle and speed and `turretAngle` go out as `float32`.
  */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 export enum RoomPhase {
   LOBBY = 0,

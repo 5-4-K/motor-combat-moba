@@ -62,6 +62,7 @@ import { scoped } from "./mode-scope.js";
 import { newRoomStepper } from "./fixed-step.js";
 import { NetSessions, installNetHandlers, netNowMs } from "../net/net-session.js";
 import { assertProtocol } from "../net/protocol-gate.js";
+import { ensureView, syncViews } from "../net/full-view.js";
 import { ClientLimits, MAX_MESSAGES_PER_SECOND, limited, refuseUnknownMessages } from "../net/rate-limit.js";
 
 /**
@@ -310,7 +311,7 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
     });
   }
 
-  onJoin(_client: Client, options?: { name?: unknown; protocol?: unknown }): void {
+  onJoin(client: Client, options?: { name?: unknown; protocol?: unknown }): void {
     assertProtocol(options);
     scoped(this.modeConfig, () => {
       // No car is created here. `applySetup` is the one path that adds, removes and configures cars
@@ -323,7 +324,17 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
       // three-second freeze between the tester and every edit.
       beginCountdown(this.state);
     });
+    // Every client has a view (NR42), filled before Colyseus sends the joiner its full state.
+    ensureView(client);
+    syncViews([client], this.state, this.ownedSeatOf);
   }
+
+  /**
+   * The car a client's view carries with `VIEW_OWNER` (F1's driven-seat / human-session split): the
+   * human drives `controlledSessionId`, a seat id their own session id never names (PG57).
+   */
+  private readonly ownedSeatOf = (): string | undefined =>
+    this.state.controlledSessionId || undefined;
 
   onLeave(client: Client): void {
     scoped(this.modeConfig, () => {
@@ -522,7 +533,13 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
     this.step();
     // Paused: broadcast regardless of `isSnapshotTick` — the frozen tick number may never be a
     // snapshot tick, and the pause flag and paused edits must still reach the client.
-    if (this.state.paused || isSnapshotTick(this.state.tick)) this.broadcastPatch();
+    if (this.state.paused || isSnapshotTick(this.state.tick)) this.sendSnapshot();
+  }
+
+  /** The human's view brought up to date (G2: every seat, the driven one `VIEW_OWNER`), then patch. */
+  private sendSnapshot(): void {
+    syncViews(this.clients, this.state, this.ownedSeatOf);
+    this.broadcastPatch();
   }
 
   private step(): void {

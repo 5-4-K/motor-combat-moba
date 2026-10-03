@@ -103,18 +103,26 @@ export interface ServerPress {
   k: number;
 }
 
+/**
+ * A `float32` schema field as the client decodes it (NR52). The netsim hands snapshots over as plain
+ * objects rather than through the schema encoder, so it narrows each `float32` field itself, exactly
+ * where the wire would: the server's own state keeps full precision.
+ */
+const f32 = Math.fround;
+
+/** The car's `SimBody` as a patch carries it: pose, velocity and the maneuver angle/speed float32. */
 function bodyOf(p: PlayerState): SimBody {
   return {
-    x: p.x,
-    y: p.y,
-    angle: p.angle,
-    vx: p.vx,
-    vy: p.vy,
-    angVel: p.angVel,
+    x: f32(p.x),
+    y: f32(p.y),
+    angle: f32(p.angle),
+    vx: f32(p.vx),
+    vy: f32(p.vy),
+    angVel: f32(p.angVel),
     maneuver: p.maneuver,
     maneuverTicksLeft: p.maneuverTicksLeft,
-    maneuverAngle: p.maneuverAngle,
-    maneuverSpeed: p.maneuverSpeed,
+    maneuverAngle: f32(p.maneuverAngle),
+    maneuverSpeed: f32(p.maneuverSpeed),
   };
 }
 
@@ -308,8 +316,8 @@ export class ServerWorld {
           body: bodyOf(p),
           alive: p.alive,
           ackRepeated: p.ackRepeated,
-          inputSlack: p.inputSlack,
-          inputSlackStd: p.inputSlackStd,
+          inputSlack: f32(p.inputSlack),
+          inputSlackStd: f32(p.inputSlackStd),
           lastSteer: p.lastSteer,
           lastThrottle: p.lastThrottle,
           carId: p.carId,
@@ -332,7 +340,7 @@ export class ServerWorld {
             pendingUntilTick: p.pendingUntilTick,
             lastFiredSlot: p.lastFiredSlot,
             level: p.level,
-            turretAngle: p.turretAngle,
+            turretAngle: f32(p.turretAngle),
           },
         };
       }),

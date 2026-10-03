@@ -1,33 +1,34 @@
-import { ArraySchema, Schema, type } from "@colyseus/schema";
+import { ArraySchema, Schema, type, view } from "@colyseus/schema";
 import { PlayerStatus } from "../constants.js";
 import { StatusState } from "./StatusState.js";
 import { WeaponSlotState } from "./WeaponSlotState.js";
+import { VIEW_OWNER } from "./view-tags.js";
 
 export class PlayerState extends Schema {
   @type("string") sessionId = "";
-  @type("number") x = 0;
-  @type("number") y = 0;
-  @type("number") angle = 0;
+  @view() @type("float32") x = 0;
+  @view() @type("float32") y = 0;
+  @view() @type("float32") angle = 0;
   @type("uint8") status: PlayerStatus = PlayerStatus.READY;
   /**
-   * Owner-only in intent (NR26, NR42): whether this snapshot's tick ran this car on a repeated or
+   * Owner-only (NR26, NR42): whether this snapshot's tick ran this car on a repeated or
    * neutral input because its owner's frame for the tick had not arrived (NR22). Written by
    * `serverTick`; the client reads it only as a diagnostic, never feeds it to `stepSim`.
    */
-  @type("boolean") ackRepeated = false;
+  @view(VIEW_OWNER) @type("boolean") ackRepeated = false;
   /**
-   * Owner-only in intent (NR21, NR42): the mean, over the last 30 frames this car's owner sent, of
+   * Owner-only (NR21, NR42): the mean, over the last 30 frames this car's owner sent, of
    * (frame tick - the tick the server was about to run when it arrived). The client's input
    * scheduler steers its lead so this sits at `NET_CONFIG.targetSlackTicks`. Never read by `stepSim`.
    */
-  @type("float32") inputSlack = 0;
+  @view(VIEW_OWNER) @type("float32") inputSlack = 0;
   /**
-   * Owner-only in intent, beside `inputSlack` (NR21, D5 ruling E): the population standard deviation
+   * Owner-only (NR42), beside `inputSlack` (NR21, D5 ruling E): the population standard deviation
    * of the same 30 slack samples, in ticks. A separate field rather than folded into `inputSlack`, so
    * the mean keeps meaning what NR21 says and the client owns how much margin a spread is worth
    * (`NET_CONFIG.slackSpreadK`). Never read by `stepSim`.
    */
-  @type("float32") inputSlackStd = 0;
+  @view(VIEW_OWNER) @type("float32") inputSlackStd = 0;
   @type("string") name = "";
   @type("uint8") colorId = 0;
   @type("uint8") team = 0;
@@ -43,23 +44,23 @@ export class PlayerState extends Schema {
    * car-physics stage 3b as the `reeling` status, which rides `statuses` (already networked) and
    * reaches `stepDrive` through `Modifiers.turnRate`/`accel` like every other debuff.
    */
-  @type("number") vx = 0;
-  @type("number") vy = 0;
+  @view() @type("float32") vx = 0;
+  @view() @type("float32") vy = 0;
   /**
    * Injected rotation, rad/s, decaying toward 0 — a ram's spin. Networked because `stepDrive` reads
    * it (invariant 8), and reconciled by snapping rather than easing, same reason as `vx`/`vy`.
    */
-  @type("number") angVel = 0;
+  @view() @type("float32") angVel = 0;
   /**
    * Maneuver state (spec S3, arch O13). Networked because `stepDrive` reads all four (invariant
    * 8) — server-written like the ram knock, integrated by both halves of the lockstep, snapped on
    * reconcile. `maneuver` holds a `ManeuverKind` value; values are stable, never renumbered.
    */
-  @type("uint8") maneuver = 0;
-  @type("uint16") maneuverTicksLeft = 0;
-  @type("number") maneuverAngle = 0;
-  @type("number") maneuverSpeed = 0;
-  @type("uint16") hp = 0;
+  @view() @type("uint8") maneuver = 0;
+  @view() @type("uint16") maneuverTicksLeft = 0;
+  @view() @type("float32") maneuverAngle = 0;
+  @view() @type("float32") maneuverSpeed = 0;
+  @view() @type("uint16") hp = 0;
   @type("boolean") alive = true;
   /**
    * The tick this car's hp reached 0, or 0 while it lives. Drives the client's death fade.
@@ -93,27 +94,27 @@ export class PlayerState extends Schema {
    */
   @type("string") lockedCarId = "";
   @type([WeaponSlotState]) weapons = new ArraySchema<WeaponSlotState>();
-  @type("uint32") switchLockUntilTick = 0;
+  @view(VIEW_OWNER) @type("uint32") switchLockUntilTick = 0;
   @type("uint8") level = 1;
   /**
    * Tick the car's committed press next puts a shot out — a wind-up or the next volley of a burst.
    * `0` means nothing is pending, and so does any tick already passed: the HUD reads "this car is
    * mid-press" as `tick < pendingUntilTick`, which stays right between two snapshots.
    */
-  @type("uint32") pendingUntilTick = 0;
+  @view(VIEW_OWNER) @type("uint32") pendingUntilTick = 0;
   /**
    * Slot index the car most recently committed to firing, or `-1` before its first shot — hence
    * `int8` rather than a uint8 sentinel: -1 is the natural "never" for an index, and `beginFire`
    * writes fire-slot indices here, capped at `WEAPON_SLOT_CONFIG.maxFireSlots` (4), nowhere near the
    * type's range.
    */
-  @type("int8") lastFiredSlot = -1;
+  @view() @type("int8") lastFiredSlot = -1;
   /**
    * The turret's angle relative to the heading, radians (spec TR10). Mirrored from the server-only
    * `FireState.turretAngle`. Render-only: `stepSim` never reads it, so invariant 8 does not apply and
    * the client does not predict it.
    */
-  @type("number") turretAngle = 0;
+  @view() @type("float32") turretAngle = 0;
   /**
    * The statuses this car is currently in, capped at `STATUS_CONFIG.maxActive`.
    *
@@ -127,12 +128,19 @@ export class PlayerState extends Schema {
    * of which commute — but the sim keeps them sorted by `statusId` so a patch carries a diff rather
    * than a reshuffle.
    */
-  @type([StatusState]) statuses = new ArraySchema<StatusState>();
+  @view() @type([StatusState]) statuses = new ArraySchema<StatusState>();
   /**
    * The steer and throttle axes (-1, 0, 1) of the input the server consumed for this car on the tick
    * (NR33). Networked because remote dead reckoning steps `stepSim` with them (invariant 8); written
    * every tick for every car, neutral when none was taken. Appended last: never reorder fields.
    */
-  @type("int8") lastSteer = 0;
-  @type("int8") lastThrottle = 0;
+  @view() @type("int8") lastSteer = 0;
+  @view() @type("int8") lastThrottle = 0;
+  /**
+   * Always `true` on the server (NR42). A `@view()` field, so a client holds `true` exactly while this
+   * car is in its `StateView` and `undefined` once it leaves — "is this car visible to me" read off
+   * one field rather than guessed from a pose of `undefined`. Never read by `stepSim`. Appended last
+   * (protocol 6): never reorder fields.
+   */
+  @view() @type("boolean") inView = true;
 }

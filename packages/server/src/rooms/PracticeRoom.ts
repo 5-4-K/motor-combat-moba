@@ -41,6 +41,7 @@ import { getMaxPracticeRooms, getSimulatedLatency } from "../mode.js";
 import { offerForTick } from "../net/offer-input.js";
 import { InputDelay, OutgoingDelay } from "../net/latency-injector.js";
 import { assertProtocol } from "../net/protocol-gate.js";
+import { ensureView, syncViews } from "../net/full-view.js";
 import { ClientLimits, MAX_MESSAGES_PER_SECOND, limited, refuseUnknownMessages } from "../net/rate-limit.js";
 import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
@@ -372,6 +373,10 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
       // duration and `combatTick` skips combat, so this is a real countdown and not a caption.
       beginCountdown(this.state);
     });
+    // Every client has a view (NR42), filled before Colyseus sends the joiner its full state. The bot
+    // is not a client and has no view: it reads the room's state directly (NR49).
+    ensureView(client);
+    syncViews([client], this.state, (c) => c.sessionId);
   }
 
   /**
@@ -448,7 +453,13 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
     if (this.step() === "closing") return;
     // Paused: broadcast regardless of `isSnapshotTick` — the frozen tick number may never be a
     // snapshot tick, and the pause flag and paused edits must still reach the client.
-    if (this.state.paused || isSnapshotTick(this.state.tick)) this.broadcastPatch();
+    if (this.state.paused || isSnapshotTick(this.state.tick)) this.sendSnapshot();
+  }
+
+  /** The human's view brought up to date (G2: everything, own car `VIEW_OWNER`), then the patch. */
+  private sendSnapshot(): void {
+    syncViews(this.clients, this.state, (c) => c.sessionId);
+    this.broadcastPatch();
   }
 
   private step(): "closing" | "ran" {

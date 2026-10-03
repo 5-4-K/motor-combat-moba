@@ -1,4 +1,4 @@
-import { Schema, MapSchema, ArraySchema, type } from "@colyseus/schema";
+import { Schema, MapSchema, ArraySchema, type, view } from "@colyseus/schema";
 import { RoomPhase, GameMode } from "../constants.js";
 import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
 import { DEFAULT_GAME_MODE } from "../modes/registry.js";
@@ -40,7 +40,11 @@ export class ArenaState extends Schema {
   @type("boolean") zoneContested = false;
   @type("boolean") overtime = false;
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
-  @type({ map: WeaponInstanceState }) weapons = new MapSchema<WeaponInstanceState>();
+  /**
+   * Live weapon instances. A `@view()` map (NR42): a client receives only the rows its `StateView`
+   * holds, so the server adds every row to every view that may see it (G2: all of them).
+   */
+  @view() @type({ map: WeaponInstanceState }) weapons = new MapSchema<WeaponInstanceState>();
   /**
    * The lobby chat buffer, capped at `CHAT_CONFIG.maxMessages` by the server (LC4). Oldest first.
    * Display-only — `stepSim` never reads it. Never cleared by any phase transition (LC5): a message

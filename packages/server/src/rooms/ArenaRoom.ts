@@ -61,6 +61,7 @@ import {
 } from "../mode.js";
 import { InputDelay, OutgoingDelay } from "../net/latency-injector.js";
 import { assertProtocol } from "../net/protocol-gate.js";
+import { ensureView, syncViews } from "../net/full-view.js";
 import { ClientLimits, MAX_MESSAGES_PER_SECOND, limited, refuseUnknownMessages } from "../net/rate-limit.js";
 import {
   clearInstances,
@@ -405,6 +406,11 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
         this.state.hostSessionId = client.sessionId;
       }
       this.outgoing.wrapClient(client);
+      // Every client has a view (NR42): without one it would receive none of the tagged fields. The
+      // joiner's view is filled here, before Colyseus sends it the full state; everyone else's picks
+      // the new car up before the next patch.
+      ensureView(client);
+      syncViews([client], this.state, (c) => c.sessionId);
     });
   }
 
@@ -461,7 +467,13 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   /** One sim tick, then the snapshot of it when this is a snapshot tick (NR12). */
   private tick(): void {
     this.step();
-    if (isSnapshotTick(this.state.tick)) this.broadcastPatch();
+    if (isSnapshotTick(this.state.tick)) this.sendSnapshot();
+  }
+
+  /** Every client's view brought up to date (G2: everything, own car `VIEW_OWNER`), then the patch. */
+  private sendSnapshot(): void {
+    syncViews(this.clients, this.state, (c) => c.sessionId);
+    this.broadcastPatch();
   }
 
   private step(): void {

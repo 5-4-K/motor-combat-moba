@@ -106,6 +106,7 @@ export { WeaponInstanceState } from "./schema/WeaponInstanceState.js";
 export { WeaponSlotState } from "./schema/WeaponSlotState.js";
 export { ArenaState } from "./schema/ArenaState.js";
 export { ChatMessageState } from "./schema/ChatMessageState.js";
+export { VIEW_OWNER } from "./schema/view-tags.js";
 export { PlaygroundState } from "./schema/PlaygroundState.js";
 export { PracticeState } from "./schema/PracticeState.js";
 
