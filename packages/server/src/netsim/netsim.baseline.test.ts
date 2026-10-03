@@ -8,14 +8,18 @@ import { runNetsimDetailed } from "./run.js";
  * `NETSIM_BASELINE=1`; Phases C–G record their numbers from this, not from the 20 s default tests:
  *
  *     NETSIM_BASELINE=1 npx vitest run --root packages/server src/netsim/netsim.baseline.test.ts
+ *
+ * Since Phase F (F5) every car also presses an ability slot every 1–3 s; `NETSIM_NO_FIRE=1` runs the
+ * pre-F driving-only shape, which the "after E" column was recorded with.
  */
+const FIRE = !process.env.NETSIM_NO_FIRE;
 const BASELINE_SECONDS = 60;
 const BASELINE_CARS = 6;
 const BASELINE_SEEDS = [1, 2, 3] as const;
 /** Three 60 s six-car runs; each takes a few to ~12 seconds, so this is generous. */
 const BASELINE_TIMEOUT_MS = 180_000;
 
-const title = "netsim baseline — tick client, 60 s, six cars, seeds 1–3";
+const title = `netsim baseline — tick client, 60 s, six cars, seeds 1–3${FIRE ? ", firing" : ", no firing"}`;
 
 describe.skipIf(!process.env.NETSIM_BASELINE)(title, () => {
   for (const link of [LINKS.lan, LINKS.net80clean, LINKS.net80, LINKS.net150]) {
@@ -29,6 +33,7 @@ describe.skipIf(!process.env.NETSIM_BASELINE)(title, () => {
             seconds: BASELINE_SECONDS,
             seed,
             cars: BASELINE_CARS,
+            fire: FIRE,
           });
           console.log(`baseline/${link.name}/seed${seed}`, JSON.stringify(run.metrics));
           console.log(`baseline/${link.name}/seed${seed} diagnostics`, JSON.stringify(run.diagnostics));

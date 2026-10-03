@@ -196,7 +196,8 @@ deliberately minimal: speed, range, shape, dimensions, colour and icon all come 
 naming, because it used to come from somewhere else: an instance draws in its weapon's own
 `WEAPON_TABLE.color`, not its owner's `PlayerState.colorId`. `ownerSessionId` is a **sim** field —
 `canDamage` reads it for friendly fire, and an attached beam is re-anchored to (and killed with)
-its owner through it. The client does not read it at all; drawing a shot needs only `weaponId`. `runCombat` spawns, moves and
+its owner through it. The shooter's own client reads it to find its own instances, which confirm
+its provisional shots (NR39); drawing a shot otherwise needs only `weaponId`. `runCombat` spawns, moves and
 drops instances; `combat-bridge.ts`'s `applyCombatResult` is the only writer, and the whole map is
 cleared when a match starts or ends. `damageClock` and `pierceLeft` are server-only sim state
 (`WeaponInstance` in `sim/weapons/instances.ts`) and never reach the wire. Clients read this map to
@@ -264,6 +265,18 @@ it; multiple bits set on one tick resolve to the **highest** slot the car can fi
 
 It carries **key state, not presses**. The server derives the press edge itself from its own
 `prevFireMasks`, so holding the trigger fires once — see [`combat-model.md`](combat-model.md).
+
+## InputFrame.viewTick
+
+`viewTick?: number` — the floored render tick the client was drawing remotes at when it produced the
+frame (NR35, `PROTOCOL_VERSION` 3 gave it its meaning). Not a schema field: it rides the input
+message, validated by `isInputPacket` (an absent or safe-integer value ≥ 0) and copied by the input
+buffer's whitelist. The server reads it only off a frame whose mask carried a NEW press, and prices
+that press's shot compensation from it, `k = clamp(tick − viewTick, 0, min(capTicks, allowedTicks))`
+(NR36, `packages/server/src/net/shot-comp.ts`). Omitted before the client's clock syncs and below
+tick 0; a frame without it (every bot and harness) gets `k = 0`. Untrusted like everything else a
+client sends: a client that lies gains at most the cap — see
+[`networking.md`](networking.md#client--combat).
 
 ## Join options
 

@@ -1,9 +1,21 @@
 import {
   ClockSync,
   InputScheduler,
+  LocalFire,
+  ManeuverKind,
+  ProvisionalShots,
+  ShotView,
+  boundsOf,
+  isWeaponId,
+  provisionalOf,
+  shotFromWire,
+  shotViewMaxTicks,
+  weaponDefOf,
+  weaponTicksOf,
   NET_CONFIG,
   PlayerStatus,
   RemoteTimeline,
+  TICK_RATE_HZ,
   TickPrediction,
   axisOfWire,
   buildStepContext,
@@ -19,7 +31,44 @@ import {
   type TimePong,
 } from "@motor-combat-moba/shared";
 import type { ScriptedDriver } from "./drivers.js";
-import type { Snapshot, SnapshotCar } from "./server-world.js";
+import type { Snapshot, SnapshotCar, SnapshotShot } from "./server-world.js";
+
+/** One fire press this client made (F5): a fire bit that rose in a frame it produced. */
+export interface ClientPress {
+  /** The server tick the pressing frame is for. */
+  tick: number;
+  slot: number;
+  /** The weapon in that slot per the newest snapshot of this car when it pressed. */
+  weaponId: string;
+  /** Harness ms the pressing frame was produced. */
+  pressMs: number;
+  /** Harness ms of the first frame this press's shot was drawn — provisional or confirmed. */
+  drawnMs?: number;
+  /** `LocalFire` released a provisional shot for it. */
+  predicted?: boolean;
+}
+
+/**
+ * A shot belongs to a press on its slot (or weapon) no more than this many ticks before its release
+ * tick, beyond the weapon's wind-up: the server's press edge can land a few ticks after the client's
+ * (a late pressing frame is repeated over) and a confirm matches within `provisionalShotMatchTicks`.
+ * Without it, a shot nothing predicted would be credited to an old press that was never drawn.
+ */
+const PRESS_ASSOC_TICKS = 8;
+
+/** One provisional dropped unconfirmed at `rtt + provisionalShotGraceMs` (F5). */
+export interface ExpiredProvisional {
+  slot: number;
+  weaponId: string;
+  spawnTick: number;
+  /** Harness ms it was dropped. */
+  atMs: number;
+  /** Its confirming instance arrived after the drop (counted in `lateConfirms` too). */
+  confirmedLate: boolean;
+}
+
+/** How long an expired provisional is remembered, to recognise a confirm that arrives after it. */
+const EXPIRED_MEMORY_MS = 5000;
 
 /** One remote as a client drew it this frame (`TickClient.drawnRemote`). */
 export interface DrawnRemote {
@@ -97,6 +146,35 @@ export class TickClient {
    * clock synced carry no `viewTick` and are not recorded.
    */
   readonly staleness: number[] = [];
+  /** Every fire press, in order (F5, `ownShotDelayMs`). */
+  readonly presses: ClientPress[] = [];
+  /**
+   * Every hand-over (NR39), F5's `shotConfirmJumpP95`: the distance between where a provisional was
+   * drawn and where its confirming instance is drawn on the frame the confirm arrives — the gap the
+   * hand-over ease then closes.
+   */
+  readonly confirmJumps: number[] = [];
+  /** The same, for homing shots alone, kept apart: both are drawn on a held heading (NR40). */
+  readonly confirmJumpsHoming: number[] = [];
+  /** Provisional shots added (one per pellet), dropped unconfirmed at `rtt + grace`, and confirmed after that. */
+  provisionalsMade = 0;
+  provisionalsExpired = 0;
+  lateConfirms = 0;
+  /** Own non-burst instances that confirmed no provisional, live or expired (a press `LocalFire` did not predict). */
+  unpredictedShots = 0;
+
+  private readonly localFire: LocalFire;
+  private readonly provisionals = new ProvisionalShots();
+  /** This client's own server instances, drawn at the local present (`ArenaScene.shotView`). */
+  private readonly shotView = new ShotView(shotViewMaxTicks());
+  private provisionalSeq = 0;
+  private prevFireMask = 0;
+  private readonly provisionalPress = new Map<string, ClientPress>();
+  private readonly shotPress = new Map<string, ClientPress>();
+  private readonly seenOwnShots = new Set<string>();
+  /** Every provisional dropped unconfirmed, for the run to sort into late, unseen and refused. */
+  readonly expiredProvisionals: ExpiredProvisional[] = [];
+  private shotBounds: ReturnType<typeof boundsOf> | undefined;
 
   private readonly clock = new ClockSync();
   private readonly scheduler = new InputScheduler(this.clock);
@@ -125,6 +203,7 @@ export class TickClient {
   ) {
     this.joinedAt = joinMs;
     this.nextTimeSyncAt = joinMs;
+    this.localFire = new LocalFire(id);
   }
 
   /** The newest predicted pose, for tests and diagnostics. */
@@ -185,7 +264,8 @@ export class TickClient {
   }
 
   /**
-   * `sendInputTick`, less the aim bearing (no firing in the baseline) and the idle-warning UI. The
+   * `sendInputTick`, less the aim bearing (no turret weapon fires in a shipped mode) and the
+   * idle-warning UI, plus `fireProvisional` (NR39) on the predicted pose. The
    * frame carries `viewTick`, the floored render tick this frame's remotes were drawn at
    * (`ArenaScene.lastRenderTick`, NR35), exactly as the scene sends it.
    */
@@ -203,7 +283,160 @@ export class TickClient {
     const from = this.predicted ?? self.body;
     this.predictedPrev = from;
     this.predicted = this.prediction.predict(from, frame, this.stepContext());
+    this.fireProvisional(nowMs, frame, self, this.predicted);
     return { inputs: this.prediction.recent(1 + NET_CONFIG.inputRedundancy) };
+  }
+
+  /** The arena a shot flies in, as `ArenaScene.shotWorld` builds it. */
+  private shotWorld() {
+    this.shotBounds ??= boundsOf(this.arena);
+    return { obstacles: this.arena.obstacles, bounds: this.shotBounds };
+  }
+
+  /**
+   * `ArenaScene.fireProvisional` (NR39): the frame through the predicted fire state, and every shot
+   * it releases on this tick added as a provisional at the predicted pose. Also records the frame's
+   * presses for `ownShotDelayMs`, which the scene has no need to.
+   */
+  private fireProvisional(nowMs: number, frame: InputFrame, self: SnapshotCar, body: SimBody): void {
+    const rising = frame.fireSlots & ~this.prevFireMask;
+    this.prevFireMask = frame.fireSlots;
+    for (let slot = 0; rising >> slot !== 0; slot++) {
+      if ((rising & (1 << slot)) === 0) continue;
+      this.presses.push({ tick: frame.tick, slot, weaponId: self.fire.weapons[slot]?.weaponId ?? "", pressMs: nowMs });
+    }
+    const mods = localModifiers(this.view!, this.id, frame.tick);
+    const step = this.localFire.step({
+      tick: frame.tick,
+      mask: frame.fireSlots,
+      aimAngle: frame.aimAngle,
+      carAngle: body.angle,
+      viewTick: frame.viewTick,
+      disarmed: mods.disarmed,
+      weaponCooldown: mods.weaponCooldown,
+      maneuvering: body.maneuver !== ManeuverKind.NONE,
+    });
+    if (step.orders.length === 0) return;
+    const world = this.shotWorld();
+    const owner = { sessionId: this.id, team: self.team === 1 ? 1 : 0, carId: self.carId, x: body.x, y: body.y, angle: body.angle } as const;
+    for (const order of step.orders) {
+      const earliest = frame.tick - (isWeaponId(order.weaponId) ? weaponTicksOf(order.weaponId).startUp : 0) - PRESS_ASSOC_TICKS;
+      const press = this.latestPress((p) => p.slot === order.slot && p.tick <= frame.tick && p.tick >= earliest);
+      for (const p of provisionalOf(order, owner, frame.tick, step.compTicks, `prov-${++this.provisionalSeq}`, nowMs, world)) {
+        this.provisionals.add(p, world);
+        this.provisionalsMade++;
+        if (press) {
+          this.provisionalPress.set(p.key, press);
+          press.predicted = true;
+        }
+      }
+    }
+  }
+
+  private latestPress(match: (p: ClientPress) => boolean): ClientPress | undefined {
+    for (let i = this.presses.length - 1; i >= 0; i--) if (match(this.presses[i]!)) return this.presses[i];
+    return undefined;
+  }
+
+  /**
+   * `ArenaScene.beginShotFrame` + `beginProvisionalFrame` for this client's OWN shots (enemy shots
+   * are not measured): own instances confirm provisionals, each instance is drawn at the local car's
+   * tick through `ShotView`, unconfirmed provisionals past `rtt + provisionalShotGraceMs` are dropped,
+   * and the rest are drawn. Records the hand-over distance, the first drawn frame of each press, and
+   * the expiry and late-confirm counts. Called once per frame, after `frame`.
+   */
+  drawShots(nowMs: number): void {
+    const snap = this.last;
+    if (!snap) return;
+    const anchor = this.localAnchor(nowMs);
+    const R = this.remotes.renderTick;
+    const drawTick = anchor?.tick ?? (R === undefined ? snap.tick : R);
+    // The local car as drawn (`ArenaScene.drawnPoseOf` for the driven car): `localAnchorOf`'s pose is
+    // `predicted` or `blendPose` of it, a whole `SimBody`, typed down to x/y for the contact blend.
+    const drawnBody = anchor?.pose as SimBody | undefined;
+    const ownDrawn = drawnBody ? { x: drawnBody.x, y: drawnBody.y, angle: drawnBody.angle } : undefined;
+    const own: SnapshotShot[] = snap.shots.filter((w) => w.ownerSessionId === this.id);
+
+    // Confirm (before anything is drawn, as the scene does), then sort the newly seen instances.
+    const handover = new Map<string, { x: number; y: number }>();
+    for (const pair of this.provisionals.confirm(own, drawTick, ownDrawn)) {
+      if (pair.from) handover.set(pair.serverId, pair.from);
+      const press = this.provisionalPress.get(pair.provisionalKey);
+      if (press) this.shotPress.set(pair.serverId, press);
+      this.provisionalPress.delete(pair.provisionalKey);
+    }
+    const window = NET_CONFIG.provisionalShotMatchTicks;
+    for (const row of own) {
+      if (this.seenOwnShots.has(row.id)) continue;
+      this.seenOwnShots.add(row.id);
+      if (row.isExplosion || this.shotPress.has(row.id)) continue;
+      const late = this.expiredProvisionals.find(
+        (e) =>
+          !e.confirmedLate &&
+          nowMs - e.atMs < EXPIRED_MEMORY_MS &&
+          e.weaponId === row.weaponId &&
+          Math.abs(e.spawnTick - row.spawnTick) <= window,
+      );
+      if (late) {
+        late.confirmedLate = true;
+        this.lateConfirms++;
+      } else {
+        this.unpredictedShots++;
+      }
+      const earliest = row.spawnTick - (isWeaponId(row.weaponId) ? weaponTicksOf(row.weaponId).startUp : 0) - PRESS_ASSOC_TICKS;
+      const press = this.latestPress(
+        (p) => p.weaponId === row.weaponId && p.tick <= row.spawnTick && p.tick >= earliest && p.drawnMs === undefined,
+      );
+      if (press) this.shotPress.set(row.id, press);
+    }
+
+    // Own instances, drawn at the local present.
+    const world = this.shotWorld();
+    const live = new Set<string>();
+    const self = this.lastById.get(this.id);
+    for (const row of own) {
+      if (!this.shotView.isCurrent(row.id, snap.tick)) {
+        const sim = shotFromWire(row, snap.tick);
+        if (!sim) continue;
+        this.shotView.update(row.id, snap.tick, sim, {
+          dt: 1 / TICK_RATE_HZ,
+          tick: snap.tick,
+          obstacles: world.obstacles,
+          bounds: world.bounds,
+          ownerPose: self ? { x: self.body.x, y: self.body.y, angle: self.body.angle } : null,
+          homingTarget: null,
+        });
+      }
+      live.add(row.id);
+      const at = this.shotView.at(row.id, drawTick, this.shotView.isAttached(row.id) ? ownDrawn : undefined);
+      if (!at) continue;
+      const from = handover.get(row.id);
+      if (from) {
+        const def = isWeaponId(row.weaponId) ? weaponDefOf(row.weaponId) : undefined;
+        const homing = def?.kind === "projectile" && def.homing !== undefined;
+        (homing ? this.confirmJumpsHoming : this.confirmJumps).push(Math.hypot(from.x - at.x, from.y - at.y));
+      }
+      const press = this.shotPress.get(row.id);
+      if (press && press.drawnMs === undefined) press.drawnMs = nowMs;
+    }
+    this.shotView.forgetAllBut(live);
+    for (const id of this.shotPress.keys()) if (!live.has(id)) this.shotPress.delete(id);
+
+    // Expire, then draw what is left.
+    const ttlMs = (this.clock.ready ? this.clock.rttMs() : 0) + NET_CONFIG.provisionalShotGraceMs;
+    const before = new Map(this.provisionals.list().map((p) => [p.key, p]));
+    for (const key of this.provisionals.expire(nowMs, ttlMs)) {
+      const p = before.get(key)!;
+      this.provisionalsExpired++;
+      this.expiredProvisionals.push({ slot: p.slot, weaponId: p.instance.weaponId, spawnTick: p.spawnTick, atMs: nowMs, confirmedLate: false });
+      this.provisionalPress.delete(key);
+    }
+    for (const p of this.provisionals.list()) {
+      const at = this.provisionals.at(p.key, drawTick, p.instance.attached ? ownDrawn : undefined);
+      if (!at) continue;
+      const press = this.provisionalPress.get(p.key);
+      if (press && press.drawnMs === undefined) press.drawnMs = nowMs;
+    }
   }
 
   /** A snapshot arrived at harness time nowMs: `pushRemoteSnapshots`, then `reconcileLocal`. */
@@ -225,8 +458,11 @@ export class TickClient {
       this.prediction.clear();
       this.predicted = undefined;
       this.predictedPrev = undefined;
+      this.localFire.clear();
       return;
     }
+    // NR39: the networked slots reseed the predicted fire state whenever no press is in flight.
+    this.localFire.resync({ tick: this.last!.tick, ...self.fire });
     const authoritative = { ...self.body };
     if (!this.predicted) {
       this.predicted = authoritative;

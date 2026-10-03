@@ -348,7 +348,17 @@ today's. On `net80clean`: input-to-server delay no more than LAN's plus half the
   `k + rttTarget + safety` ticks into its flight (NR37 + transport). At 80 ms against a 1–2 s flight
   that is ≈ 10–20 % of the dodge window; for the 6000 u/s beam it is most of it (it is a flash by
   design). Rams: a high-ping player sees an approaching car ≈ `rtt/2 + delay` late (≈ 90 ms at
-  80 ms RTT). The shooter comp cap (100 ms) is the dial.
+  80 ms RTT). The shooter comp cap (`shotCompCapMs`, 150 ms = 9 ticks since F1) is the dial.
+  Phase F's own residuals (F5, also in `docs/networking.md`): within the contact blend's two car
+  lengths a high-ping shooter's shot is slightly over-led (the target is drawn near its present pose
+  yet the shot is still advanced the full `k`; the hit lands because the shot sweeps it inside its
+  first `k` ticks); homing shots are drawn on a held heading between snapshots, so a provisional
+  homing shot hands over with a visible ease; a shot that ends inside its fast-forward never reaches
+  the wire and its provisional flies on through what it hit until it fades; on a slow lossy link
+  the provisional's `rtt + 100 ms` life can end before its confirm arrives (that player's cost); a
+  non-browser client can delay its WebSocket pongs as well as its `MSG_PING` echoes and so reach
+  `capTicks` on any link — the cap, not the allowance, is the guarantee; rams are not compensated
+  (NR41).
 - **NR61 Not prevented.** Aim assistance and trigger bots (the client has to know where visible
   enemies are), input macros, reading visible enemies' exact numbers, and seeing the vision margin
   band (≈ one car length beyond the drawn edge). The design removes position, HP and status of
@@ -378,3 +388,4 @@ Each stage merges on its own, green, with its measured numbers recorded in the p
 - 2026-10-01 (D6 fix round 1, user ruling): latency first, and a bad connection must not punish others. §1 splits the targets: strict on `lan` and the new `net80clean` netsim link (80 ms RTT, ±2 ms, no loss); a lossy link degrades at its own player's cost, net80 repeats ≤ 4 %. NR21 back to gain 0.03 and `slackSpreadK` 1, the late-sample floor re-derived at that gain to −1 and its lossy-link cost stated (D6 final: lan 33.99 ms; net80clean 74.3 ms / 0.39 %; net80 78.3 ms / 3.69 %; net150 118.0 ms / 8.14 %). NR36's allowance must not grow with a bad link; `shotCompCapMs` is sized in Phase F from an honest `net80clean` client's need.
 - 2026-10-01 (F1): netsim measures honest shot staleness `P − viewTick` (ticks, p50 / p95 / max, six cars, 60 s, seeds 1–3): lan 4 / 5 / 5, net80clean 9 / 9 / 9, net80 10 / 12 / 13–14, net150 16–17 / 20–21 / 22–23. `shotCompCapMs` = net80clean's p95, 9 ticks = 150 ms. NR36's `allowedTicks` takes the full `serverRttMs`, not half: with rtt/2 an honest net80clean client (slack 1.54 ± 0.34) was allowed 7 of its 9 while net80 and net150 reached the cap; with the full RTT net80clean is allowed ~10 and every lossy link is held to the same 9-tick cap.
 - 2026-10-01 (F1 fix round 1): NR36's RTT is `min(appRtt, wsRtt)` — a WebSocket ping/pong RTT bounds the app `MSG_PING` RTT, so echoes held back by page JS cannot buy compensation; the two allowance multipliers are named (`shotCompDelaySnapshots`, `shotCompSlackStds`, both 2).
+- 2026-10-03 (F5): the netsim drivers fire (an ability press every 1–3 s), so the baseline is now §1's "driving and firing" shape. Measured (mean of seeds 1–3): shot compensation mean `k` lan 4.5, net80clean 8.5, net80 9.0, net150 8.9 ticks (at the cap on 0 / 54 / 98 / 99 % of presses); own shot drawn the frame it is pressed on every link; non-homing hand-over p95 0.5 u on net80clean; 17–39 % of provisional pellets expire unconfirmed, almost all shots the server resolved inside their own fast-forward and never sent. LAN input-to-server reads 34.05 ms with firing on (33.99 driving-only). §11's NR60 states Phase F's residuals.

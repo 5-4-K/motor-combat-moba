@@ -57,6 +57,34 @@
  *   frame is for the client was drawing remotes, i.e. the input lead plus the remote display delay.
  *   It is the rewind an HONEST client on this link would ask for on a press (NR36); Phase F sized
  *   `NET_CONFIG.shotCompCapMs` from `net80clean`'s p95. Ticks, nearest-rank percentiles.
+ *
+ * Phase F's own shots (F5) — the drivers press an ability slot every 1–3 s, reported with no target:
+ *
+ * - `ownShotDelayMs` / `ownShotDelayP95Ms` — per press the server committed for a projectile or beam
+ *   weapon, from the frame the press was produced to the first frame any shot of it was drawn
+ *   (provisional or confirmed, NR39), less the weapon's own wind-up; mean and p95, ms. A press
+ *   `LocalFire` predicts is drawn the frame it is made (0); one it did not predict waits for its
+ *   confirmed instance, a round trip and more.
+ * - `shotConfirmJumpP95` — per hand-over, the distance between where the provisional was drawn and
+ *   where its confirming instance is drawn on the frame the confirm arrives, u, p95: the gap the
+ *   hand-over ease closes over `provisionalShotEaseMs`. Non-homing shots only: non-zero mostly
+ *   from the server pricing a lower `k` than the client's own (`allowedTicks` below the cap — one
+ *   tick of a shot's travel) and from the server's press edge landing a tick late on a lossy link.
+ *   `shotConfirmJumpHomingP95` is the same for homing shots, kept apart because both drawings hold
+ *   the shot's heading (NR40) while the server's instance steers: the gap is the steering done
+ *   between the press and the confirm.
+ * - `provisionalExpiredRate` — share of provisionals (one per pellet) dropped unconfirmed at
+ *   `rtt + provisionalShotGraceMs`, split three ways (the three sum to it):
+ *   `lateConfirmRate` — its confirming instance arrived AFTER the drop (the provisional had faded
+ *   out, and the instance pops in without a hand-over: the ttl undershot this link's own
+ *   press-to-snapshot time); `provisionalUnseenRate` — the server committed the press but no
+ *   snapshot ever carried the instance (it hit a car or a wall inside its fast-forward or before
+ *   the next snapshot, so the provisional flew on through what it hit until it faded);
+ *   `provisionalRefusedRate` — the server committed no press for it (`LocalFire` let through a
+ *   press the server refused).
+ * - `shotCompMeanTicks` / `shotCompP50Ticks` / `shotCompP95Ticks` / `shotCompMaxTicks` — per press
+ *   the server committed, the shot compensation `k` it was priced (NR36; 0 when none); and
+ *   `shotCompAtCapRate`, the share priced at the cap (`shotCompCapMs`, 9 ticks).
  */
 export interface NetsimMetrics {
   stepsPerTickMax: number;
@@ -76,6 +104,19 @@ export interface NetsimMetrics {
   shotStalenessP50Ticks: number;
   shotStalenessP95Ticks: number;
   shotStalenessMaxTicks: number;
+  ownShotDelayMs: number;
+  ownShotDelayP95Ms: number;
+  shotConfirmJumpP95: number;
+  shotConfirmJumpHomingP95: number;
+  provisionalExpiredRate: number;
+  lateConfirmRate: number;
+  provisionalUnseenRate: number;
+  provisionalRefusedRate: number;
+  shotCompMeanTicks: number;
+  shotCompP50Ticks: number;
+  shotCompP95Ticks: number;
+  shotCompMaxTicks: number;
+  shotCompAtCapRate: number;
 }
 
 /** How far BEFORE the frame the trajectory a drawn remote pose is judged against reaches, ms. */

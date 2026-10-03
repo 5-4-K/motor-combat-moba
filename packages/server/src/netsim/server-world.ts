@@ -9,11 +9,13 @@ import {
   getArena,
   hpOf,
   modeConfigOf,
+  newCombatEvents,
   newTickInputBuffer,
   rulesOf,
   toWorld,
   withMode,
   type CarId,
+  type CombatEvents,
   type InputPacket,
   type ModeConfig,
   type SimBody,
@@ -49,12 +51,48 @@ export interface SnapshotCar {
   carId: string;
   status: number;
   statuses: StatusRow[];
+  team: number;
+  /** The fire fields `ArenaScene.reconcileLocal` reseeds `LocalFire` from (NR39). */
+  fire: {
+    weapons: { weaponId: string; stocks: number; rechargeEndsTick: number; refireLockUntilTick: number }[];
+    switchLockUntilTick: number;
+    pendingUntilTick: number;
+    lastFiredSlot: number;
+    level: number;
+    turretAngle: number;
+  };
+}
+
+/** One weapon instance row as a patch carries it (`WeaponInstanceState`). */
+export interface SnapshotShot {
+  id: string;
+  ownerSessionId: string;
+  weaponId: string;
+  x: number;
+  y: number;
+  angle: number;
+  extent: number;
+  spawnTick: number;
+  isExplosion: boolean;
+  lifeOffsetTicks: number;
 }
 
 /** One patch, as the client decodes it: every player's networked fields at the last completed tick. */
 export interface Snapshot {
   tick: number;
   cars: SnapshotCar[];
+  /** `state.weapons`: every live instance (Phase F, F5 — the netsim's cars fire). */
+  shots: SnapshotShot[];
+}
+
+/** One press the server committed (`runCombat`'s `fired` event) and the shot compensation it carried. */
+export interface ServerPress {
+  sessionId: string;
+  tick: number;
+  slot: number;
+  weaponId: string;
+  /** `compTicks` for this press (NR36): 0 when it got none. */
+  k: number;
 }
 
 function bodyOf(p: PlayerState): SimBody {
@@ -96,6 +134,8 @@ export class ServerWorld {
   /** Car-ticks that stepped a car, and how many of those ran on a repeated or neutral input (NR22). */
   steppedCarTicks = 0;
   repeatedCarTicks = 0;
+  /** Every press the server committed, with its shot compensation (F5). */
+  readonly presses: ServerPress[] = [];
   /**
    * The room's time-sync state, answering `MSG_TIME` exactly as `installNetHandlers` does. Each tick is
    * marked at its due time on the harness clock, which here is also the server's wall clock.
@@ -108,6 +148,8 @@ export class ServerWorld {
   private readonly phaseCaps = new Map<string, number>();
   private readonly combat: CombatMemory = newCombatMemory();
   private readonly ram: ContactMemory = newContactMemory();
+  /** This tick's combat observations, read back for `presses` and then dropped. */
+  private events: CombatEvents = newCombatEvents();
   readonly modeConfig: ModeConfig;
 
   constructor(cars: number) {
@@ -169,6 +211,11 @@ export class ServerWorld {
       ram: this.ram,
       hz: TICK_RATE_HZ,
       runPhaseSweep: rulesOf(this.state.mode).respawns,
+      // The room's own pricing seam (NR36): each session's compensation RTT, measured from the
+      // `MSG_PING` echoes the run carries over the links (no transport ping: an honest client's
+      // would read the same, so `compRttMs` is the app RTT).
+      rttMsOf: (id) => this.sessions.compRttMs(id),
+      events: this.events,
     };
   }
 
@@ -182,7 +229,17 @@ export class ServerWorld {
       if (this.state.phase === RoomPhase.MATCH && rulesOf(this.state.mode).respawns) {
         respawnSweep(this.ctx());
       }
-      const { steps } = runPipeline(this.ctx());
+      this.events = newCombatEvents();
+      const { steps, compTicks } = runPipeline(this.ctx());
+      for (const e of this.events.fired) {
+        this.presses.push({
+          sessionId: e.shooterSessionId,
+          tick: e.tick,
+          slot: e.slot,
+          weaponId: e.weaponId,
+          k: compTicks.get(e.shooterSessionId) ?? 0,
+        });
+      }
       const t = this.timeOfTick(this.state.tick);
       let max = 0;
       for (const id of this.ids) {
@@ -202,8 +259,24 @@ export class ServerWorld {
 
   /** The state a patch would carry right now. */
   snapshot(): Snapshot {
+    const shots: SnapshotShot[] = [];
+    this.state.weapons.forEach((w) => {
+      shots.push({
+        id: w.id,
+        ownerSessionId: w.ownerSessionId,
+        weaponId: w.weaponId,
+        x: w.x,
+        y: w.y,
+        angle: w.angle,
+        extent: w.extent,
+        spawnTick: w.spawnTick,
+        isExplosion: w.isExplosion,
+        lifeOffsetTicks: w.lifeOffsetTicks,
+      });
+    });
     return {
       tick: this.state.tick,
+      shots,
       cars: this.ids.map((id) => {
         const p = this.state.players.get(id)!;
         return {
@@ -223,6 +296,20 @@ export class ServerWorld {
             endsTick: s.endsTick,
             sourceSessionId: s.sourceSessionId,
           })),
+          team: p.team,
+          fire: {
+            weapons: p.weapons.map((w) => ({
+              weaponId: w.weaponId,
+              stocks: w.stocks,
+              rechargeEndsTick: w.rechargeEndsTick,
+              refireLockUntilTick: w.refireLockUntilTick,
+            })),
+            switchLockUntilTick: p.switchLockUntilTick,
+            pendingUntilTick: p.pendingUntilTick,
+            lastFiredSlot: p.lastFiredSlot,
+            level: p.level,
+            turretAngle: p.turretAngle,
+          },
         };
       }),
     };

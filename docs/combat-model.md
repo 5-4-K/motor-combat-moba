@@ -1512,6 +1512,28 @@ See [`superpowers/specs/2026-09-01-ffa-game-modes-design.md`](superpowers/specs/
 for the full decision record (M1–M33), including the M15 correction on why the phased filter has to
 apply in both directions inside `otherCarHulls`.
 
+## Latency
+
+A shooter on an online link aims at remotes drawn some ticks in the past, and sees their own shot
+only after a round trip. Phase F of the online netcode redesign (NR35–NR41) answers both without
+ever rewinding a car or predicting a hit:
+
+- **Server: shot fast-forward.** Each press is priced a budget `k` — the shooter's own staleness
+  `P − viewTick`, clamped to `NET_CONFIG.shotCompCapMs` (150 ms, 9 ticks) and to what an honest
+  client on the measured link could need — and every shot it spawns is advanced `k` ticks on its
+  birth tick, born `k` ticks old. The rules are under [Hit test](#hit-test).
+- **Client: your own shot at once, every shot at the present.** A press the shared fire state lets
+  through is drawn immediately as a provisional shot and handed over to the server's instance; every
+  instance is drawn advanced to the tick your car is drawn at. See
+  [What the client shows](#what-the-client-shows).
+- **Rams are not compensated** (NR41): contact is resolved between cars that all stepped the same
+  tick.
+
+The whole of it — `viewTick`, the budget's formula and why its cap is the good connection's need,
+the RTT that prices it, the measured numbers and the known limitations (point-blank over-lead,
+homing shots on a held heading, a shot that ends inside its fast-forward, a non-browser client
+reaching the cap) — is in [`networking.md`](networking.md#client--combat).
+
 ## What the client shows
 
 `ArenaScene` draws every live instance from `state.weapons` — projectile and beam rows in one map,
