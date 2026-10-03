@@ -1,4 +1,6 @@
-import type { FovConfig, Obstacle, WorldShape } from "@motor-combat-moba/shared";
+import type { FovConfig } from "../config/drive-config.js";
+import type { Obstacle } from "../arena/types.js";
+import type { WorldShape } from "../sim/weapons/shapes.js";
 
 /**
  * Field-of-vision geometry (spec 2026-09-28-camera-behaviors-design.md, CB25–CB29). Pure: the
@@ -25,6 +27,11 @@ export interface VisionShape {
   readonly rangeY: number;
   readonly halfAngle: number;
   readonly full: boolean;
+  /**
+   * How far behind the ellipse centre (along −heading) the cone's apex sits. Absent means 0: the
+   * apex is the centre, which is every shape `visionShapeOf` builds. Only `marginShape` sets it.
+   */
+  readonly apexBack?: number;
 }
 
 const ANGLE_EPSILON = 1e-9;
@@ -56,8 +63,24 @@ export function inShape(p: Pt, s: VisionShape): boolean {
   const along = dx * cos + dy * sin;
   const across = -dx * sin + dy * cos;
   if ((along / s.rangeX) ** 2 + (across / s.rangeY) ** 2 > 1) return false;
-  if (s.full || (along === 0 && across === 0)) return true;
-  return Math.abs(Math.atan2(across, along)) <= s.halfAngle + ANGLE_EPSILON;
+  if (s.full) return true;
+  const back = s.apexBack ?? 0;
+  const ax = along + back;
+  if (ax === 0 && across === 0) return true;
+  return Math.abs(Math.atan2(across, ax)) <= s.halfAngle + ANGLE_EPSILON;
+}
+
+/**
+ * The shape grown so it contains every point within `margin` of a point the original contains
+ * (NR46: the server's interest radius must not be tighter than what the client can draw). The
+ * ellipse semi-axes grow by `margin`; the cone apex moves back along −heading by
+ * `margin / sin(halfAngle)` so each cone edge moves out by `margin`. A full (>= 360°) cone has no
+ * edges and is unchanged. The client keeps drawing the unmargined shape.
+ */
+export function marginShape(shape: VisionShape, margin: number): VisionShape {
+  const grown = { ...shape, rangeX: shape.rangeX + margin, rangeY: shape.rangeY + margin };
+  if (shape.full) return grown;
+  return { ...grown, apexBack: (shape.apexBack ?? 0) + margin / Math.sin(shape.halfAngle) };
 }
 
 function containsPoint(r: Obstacle, p: Pt): boolean {

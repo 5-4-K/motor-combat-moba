@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { FovConfig } from "@motor-combat-moba/shared";
+import type { FovConfig } from "../config/drive-config.js";
 import {
   carVisible,
   inShape,
   inVision,
+  marginShape,
   segmentHitsRect,
   shotSamplePoints,
   visionPolygon,
@@ -160,5 +161,64 @@ describe("visionPoses (CB26)", () => {
   it("is empty when dead, blind, and alone", () => {
     const dead = [car("me", 0, false), car("foe", 1, true)];
     expect(visionPoses({ perspective: me, players: dead, sides: "ffa", sharedVision: true, frozenPose: undefined })).toEqual([]);
+  });
+});
+
+describe("marginShape (NR46)", () => {
+  // Seeded LCG so the property test is deterministic.
+  function rng(seed: number): () => number {
+    let s = seed >>> 0;
+    return () => {
+      s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+      return s / 0x100000000;
+    };
+  }
+  const MARGIN = 25;
+  const pose = { x: 100, y: -40, angle: 0.7 };
+  const shapes: Record<string, FovConfig> = {
+    cone90: FOV,
+    narrow: { ...FOV, angleDeg: 20 },
+    wide: { ...FOV, angleDeg: 270 },
+    half: { ...FOV, angleDeg: 180 },
+    full: { ...FOV, angleDeg: 360 },
+    offset: { ...FOV, angleDeg: 60, offsetX: 50, offsetY: -30 },
+    ellipseOnly: { ...FOV, angleDeg: 360, rangeX: 300, rangeY: 120 },
+  };
+  for (const [name, fov] of Object.entries(shapes)) {
+    it(`contains every point within the margin of an in-vision point: ${name}`, () => {
+      const s = visionShapeOf(pose, fov);
+      const m = marginShape(s, MARGIN);
+      const rand = rng(42);
+      let tested = 0;
+      for (let i = 0; i < 20000; i++) {
+        const p = { x: pose.x + (rand() - 0.5) * 1000, y: pose.y + (rand() - 0.5) * 1000 };
+        if (!inShape(p, s)) continue;
+        const r = rand() * MARGIN;
+        const a = rand() * Math.PI * 2;
+        tested++;
+        expect(inShape({ x: p.x + r * Math.cos(a), y: p.y + r * Math.sin(a) }, m)).toBe(true);
+      }
+      expect(tested).toBeGreaterThan(500);
+    });
+    it(`keeps every originally seen point seen: ${name}`, () => {
+      const s = visionShapeOf(pose, fov);
+      const m = marginShape(s, MARGIN);
+      const rand = rng(7);
+      for (let i = 0; i < 5000; i++) {
+        const p = { x: pose.x + (rand() - 0.5) * 1000, y: pose.y + (rand() - 0.5) * 1000 };
+        if (inShape(p, s)) expect(inShape(p, m)).toBe(true);
+      }
+    });
+  }
+  it("leaves a full shape's cone alone and grows the ellipse", () => {
+    const m = marginShape(visionShapeOf(pose, shapes.full!), MARGIN);
+    expect(m.apexBack ?? 0).toBe(0);
+    expect(m.rangeX).toBe(FOV.rangeX + MARGIN);
+  });
+  it("does not mutate the input and margin 0 is a no-op", () => {
+    const s = visionShapeOf(pose, FOV);
+    const m = marginShape(s, 0);
+    expect(m.rangeX).toBe(s.rangeX);
+    expect(s.apexBack).toBeUndefined();
   });
 });

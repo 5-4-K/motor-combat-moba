@@ -379,3 +379,6 @@ export * from "./net/provisional-shots.js";
 export * from "./net/tick-interpolation.js";
 export * from "./net/step-context.js";
 export * from "./net/tick-input.js";
+
+export * from "./vision/vision.js";
+export * from "./vision/spectate.js";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
+import { PlayerStatus, RoomPhase } from "../constants.js";
 import {
   clampFreeCamFocus,
   cycleSpectate,

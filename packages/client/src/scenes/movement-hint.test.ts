@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf, slots } from "@motor-combat-moba/shared";
+import { isSpectating, DEFAULT_GAME_MODE, installMode, modeConfigOf, slots } from "@motor-combat-moba/shared";
 import { PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
-import { isSpectating } from "../camera/spectate.js";
 import { WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
 import { SLOT_KEYS, hintSlotOrder, hintSlotOrderDefault } from "../config/slot-keys.js";
 import {

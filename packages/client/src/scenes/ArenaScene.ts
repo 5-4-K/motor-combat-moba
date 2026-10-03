@@ -209,7 +209,7 @@ import {
   spectatableIds,
   spectateBanner,
   type SpectateCandidate,
-} from "../camera/spectate.js";
+} from "@motor-combat-moba/shared";
 import {
   abilityCountOf,
   abilitySlotOffset,
@@ -278,7 +278,7 @@ import {
   visionShapeOf,
   type VisionPlayer,
   type VisionShape,
-} from "../camera/vision.js";
+} from "@motor-combat-moba/shared";
 import { carryHiddenInstances, NOTHING_HIDDEN, type FxHidden } from "../fx/hidden.js";
 import type { GutterHost, ModeGutter } from "../modes/types.js";
 

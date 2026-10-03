@@ -1,4 +1,5 @@
-import { PlayerStatus, RoomPhase, type SpectateTarget } from "@motor-combat-moba/shared";
+import { PlayerStatus, RoomPhase } from "../constants.js";
+import type { SpectateTarget } from "../config/drive-config.js";
 
 /**
  * Is this player watching rather than playing? True only for a wreck in a live match whose mode's
