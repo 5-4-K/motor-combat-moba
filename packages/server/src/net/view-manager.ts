@@ -36,6 +36,7 @@ import {
   type VisionShape,
   WeaponInstanceState,
   type WorldShape,
+  weapons,
 } from "@motor-combat-moba/shared";
 
 /**
@@ -57,10 +58,15 @@ import {
  *    is shared), each shape grown by `marginUnits` (`marginShape`) and line of sight measured from
  *    each shape's REAL centre (the margin moves only the cone apex) — so an enemy is dropped only
  *    when its centre AND every hull corner are out or blocked (G1 review ruling). An enemy's shot is
- *    in while any of its `shotSamplePoints` is in vision; a shot owned by the viewer's side or the
- *    perspective's side is always in — ended rows (NR37) included (the Phase F M6 seam).
+ *    in while any of its `shotSamplePoints` is in vision — vision grown by the SHOT margin
+ *    (`visionShotMarginUnits`, G5), since a shot outruns every car; a shot owned by the viewer's
+ *    side or the perspective's side is always in — ended rows (NR37) included (the Phase F M6 seam).
  * 4. Hysteresis (NR47): an enemy car or shot enters at once and leaves only once it has been out
- *    for `exitTicks` consecutive ticks, so an enemy on the edge does not flicker.
+ *    for `exitTicks` consecutive ticks of the VIEW CLOCK, so an enemy on the edge does not flicker.
+ *    The view clock is the tick the room passes to `update`: `state.tick` while the sim runs, and
+ *    still advancing one per room tick while a practice or playground room is paused
+ *    (`ViewClock`), so a car that leaves the perspective's vision during a pause (a seat switch, a
+ *    spectate pick, a settings edit that moves it) still leaves the view `visionExitMs` later.
  *
  * A `StateView` is imperative — an object reaches a view only by `view.add`, nested rows included
  * — so the G2 rules stay: every visible car's `statuses` rows and every owner car's slots are
@@ -114,6 +120,28 @@ export function viewersOf(
   return viewers;
 }
 
+/**
+ * The tick a room hands `ViewManager.update` (NR47, G5): `state.tick` plus every room tick spent
+ * paused. A paused practice or playground room freezes `state.tick` but keeps calling `update` once per
+ * room tick; on the frozen tick the hysteresis would never run out, and an object that left vision
+ * during the pause would stay in the view until the room resumed. Holding the clock instead keeps the
+ * exit at `visionExitMs` of wall time either way. Monotone, so the memory's "last wanted" ticks stay
+ * comparable across a pause.
+ */
+export class ViewClock {
+  private heldTicks = 0;
+
+  /** One room tick on which the sim did not advance (`state.paused`). */
+  hold(): void {
+    this.heldTicks += 1;
+  }
+
+  /** The view tick for this `state.tick`. */
+  at(stateTick: number): number {
+    return stateTick + this.heldTicks;
+  }
+}
+
 interface ViewerMemory {
   /** Last tick each object currently in this view was WANTED there (in vision, or always-in). */
   lastWanted: Map<object, number>;
@@ -136,8 +164,36 @@ export function visionMarginUnits(): number {
   return Math.ceil((fastest * NET_CONFIG.visionMarginLeadMs) / 1000);
 }
 
+/**
+ * G5 (G3 review): the margin a SHOT's sample points are tested against —
+ * `ceil(max(fastest projectile in the mode's weapon table, fastest active chassis) × visionMarginLeadMs
+ * / 1000)`. A projectile flies at up to 900 u/s against a car's ~284, so the car margin (~71 u) let a
+ * fast shot cross it in under one round trip and pop into the drawn cone. Every projectile row counts,
+ * carried or not — over-reaching costs a little information, never a pop-in. Beams are not counted: a
+ * beam's reach is drawn from its muzzle, which the owner's own visibility already governs. Mode scope
+ * only, never module scope.
+ */
+export function visionShotMarginUnits(): number {
+  let fastest = 0;
+  for (const id of activeCarIds()) fastest = Math.max(fastest, driveOf(id).maxSpeed);
+  for (const def of Object.values(weapons())) {
+    if (def.kind === "projectile") fastest = Math.max(fastest, def.speed);
+  }
+  return Math.ceil((fastest * NET_CONFIG.visionMarginLeadMs) / 1000);
+}
+
+/** The fields of an instance row its visibility shape is built from. */
+export interface InstanceShapeRow {
+  readonly weaponId: string;
+  readonly isExplosion: boolean;
+  readonly x: number;
+  readonly y: number;
+  readonly angle: number;
+  readonly extent: number;
+}
+
 /** What the server tests a shot's visibility against: its hitbox as the sim sees it now. */
-function instanceWorldShape(instance: WeaponInstanceState): WorldShape {
+export function instanceWorldShape(instance: InstanceShapeRow): WorldShape {
   const point: WorldShape = { kind: "circle", x: instance.x, y: instance.y, radius: 0 };
   if (!isWeaponId(instance.weaponId)) return point;
   if (instance.isExplosion && !derived().burstDefs[instance.weaponId]) return point;
@@ -166,6 +222,8 @@ interface Interest {
   owners: Set<string>;
   /** Undefined when everything is seen (FOV off, or not in a match). */
   shapes: VisionShape[] | undefined;
+  /** The same vision grown by the shot margin, for instances; undefined exactly when `shapes` is. */
+  shotShapes: VisionShape[] | undefined;
 }
 
 export class ViewManager {
@@ -175,13 +233,17 @@ export class ViewManager {
    * Both options are for tests; a room passes neither, and each is derived per update from the
    * installed mode (`visionExitTicks`, `visionMarginUnits`), so a mode switch moves them.
    */
-  constructor(private readonly opts: { exitTicks?: number; marginUnits?: number } = {}) {}
+  constructor(private readonly opts: { exitTicks?: number; marginUnits?: number; shotMarginUnits?: number } = {}) {}
 
   /** Recompute every viewer's membership for this tick and apply adds/removes to their StateViews. */
   update(state: ArenaState, viewers: readonly Viewer[], tick: number): void {
     const exitTicks = this.opts.exitTicks ?? visionExitTicks();
-    let margin: number | undefined;
-    const marginUnits = () => (margin ??= this.opts.marginUnits ?? visionMarginUnits());
+    let margin: { car: number; shot: number } | undefined;
+    const marginUnits = () =>
+      (margin ??= {
+        car: this.opts.marginUnits ?? visionMarginUnits(),
+        shot: this.opts.shotMarginUnits ?? visionShotMarginUnits(),
+      });
     const obstacles: readonly Obstacle[] = isArenaId(state.arenaId)
       ? getArena(state.arenaId).obstacles
       : [];
@@ -234,7 +296,7 @@ export class ViewManager {
       });
 
       state.weapons.forEach((instance) => {
-        const shapes = interest.shapes;
+        const shapes = interest.shotShapes;
         const wanted =
           shapes === undefined ||
           interest.always.has(instance.ownerSessionId) ||
@@ -315,7 +377,7 @@ export class ViewManager {
     state: ArenaState,
     viewer: Viewer,
     mem: ViewerMemory,
-    marginUnits: () => number,
+    marginUnits: () => { car: number; shot: number },
   ): Interest {
     const owned = ownedOf(viewer);
     const sides = rulesOf(state.mode).sides;
@@ -346,12 +408,14 @@ export class ViewManager {
     }
 
     const fov = camera().fov;
-    if (!fov.enabled || state.phase !== RoomPhase.MATCH) return { always, owners, shapes: undefined };
+    if (!fov.enabled || state.phase !== RoomPhase.MATCH) {
+      return { always, owners, shapes: undefined, shotShapes: undefined };
+    }
 
     // CB26's vision set, from authoritative poses. `"pov"` freezes the viewer's own wreck where it
     // lies (the server's pose of a dead car is its death pose) — only while watching nobody.
     const perspective = perspectiveId === undefined ? undefined : state.players.get(perspectiveId);
-    if (perspectiveId === undefined || !perspective) return { always, owners, shapes: [] };
+    if (perspectiveId === undefined || !perspective) return { always, owners, shapes: [], shotShapes: [] };
     const players: VisionPlayer[] = [];
     state.players.forEach((p, sessionId) => {
       if (p.status !== PlayerStatus.IN_MATCH) return;
@@ -369,10 +433,12 @@ export class ViewManager {
       frozenPose: frozen,
     });
     const margin = marginUnits();
+    const drawn = poses.map((pose) => visionShapeOf(pose, fov));
     return {
       always,
       owners,
-      shapes: poses.map((pose) => marginShape(visionShapeOf(pose, fov), margin)),
+      shapes: drawn.map((shape) => marginShape(shape, margin.car)),
+      shotShapes: drawn.map((shape) => marginShape(shape, margin.shot)),
     };
   }
 }

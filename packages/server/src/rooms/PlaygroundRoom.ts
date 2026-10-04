@@ -63,7 +63,7 @@ import { scoped } from "./mode-scope.js";
 import { newRoomStepper } from "./fixed-step.js";
 import { NetSessions, installNetHandlers, netNowMs } from "../net/net-session.js";
 import { assertProtocol } from "../net/protocol-gate.js";
-import { ViewManager, ensureView, viewersOf } from "../net/view-manager.js";
+import { ViewClock, ViewManager, ensureView, viewersOf } from "../net/view-manager.js";
 import { ClientLimits, MAX_MESSAGES_PER_SECOND, limited, refuseUnknownMessages } from "../net/rate-limit.js";
 
 /**
@@ -242,6 +242,8 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
   private readonly limits = new ClientLimits();
   /** Who receives what (NR44–NR47), the same manager every room kind runs. */
   private readonly views = new ViewManager();
+  /** The tick `views` keeps its hysteresis on: still advancing while paused (`ViewClock`, G5). */
+  private readonly viewClock = new ViewClock();
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -342,7 +344,7 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
     // Every client has a view (NR42), filled before Colyseus sends the joiner its full state.
     ensureView(client);
     scoped(this.modeConfig, () =>
-      this.views.update(this.state, viewersOf([client], this.ownedSeatOf), this.state.tick),
+      this.views.update(this.state, viewersOf([client], this.ownedSeatOf), this.viewClock.at(this.state.tick)),
     );
   }
 
@@ -551,12 +553,13 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
     this.step();
     // Paused: broadcast regardless of `isSnapshotTick` — the frozen tick number may never be a
     // snapshot tick, and the pause flag and paused edits must still reach the client.
+    if (this.state.paused) this.viewClock.hold();
     if (this.state.paused || isSnapshotTick(this.state.tick)) this.sendSnapshot();
   }
 
   /** The human's view brought up to date (NR44–NR47; the driven seat is its car), then the patch. */
   private sendSnapshot(): void {
-    this.views.update(this.state, viewersOf(this.clients, this.ownedSeatOf), this.state.tick);
+    this.views.update(this.state, viewersOf(this.clients, this.ownedSeatOf), this.viewClock.at(this.state.tick));
     this.broadcastPatch();
   }
 

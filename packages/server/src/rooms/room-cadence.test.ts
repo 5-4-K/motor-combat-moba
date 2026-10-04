@@ -110,3 +110,28 @@ describe.each(ROOMS.filter((r) => r.name !== "ArenaRoom"))(
     });
   },
 );
+
+describe.each(ROOMS.filter((r) => r.name !== "ArenaRoom"))(
+  "$name keeps the view clock running while paused (G5, NR47)",
+  ({ make }) => {
+    it("hands the view manager a tick that advances one per paused room tick", () => {
+      const room = make() as CadenceHarness & { views: { update: (...args: unknown[]) => void } };
+      room.state.paused = true;
+      const frozen = room.state.tick;
+      vi.spyOn(room, "broadcastPatch").mockImplementation(() => true);
+      const ticks: number[] = [];
+      vi.spyOn(room.views, "update").mockImplementation((_state, _viewers, tick) => {
+        ticks.push(tick as number);
+      });
+      for (let i = 0; i < 4; i++) room.onFrame(MS_PER_TICK);
+      expect(room.state.tick).toBe(frozen);
+      // Without the clock every call would read `frozen` and an enemy that left vision during the
+      // pause would stay in the view until the room resumed.
+      expect(ticks).toEqual([frozen + 1, frozen + 2, frozen + 3, frozen + 4]);
+      // Unpaused: the sim tick moves again and the held ticks stay on top, so the clock never runs back.
+      room.state.paused = false;
+      room.onFrame(MS_PER_TICK);
+      expect(ticks.at(-1)).toBe(room.state.tick + 4);
+    });
+  },
+);

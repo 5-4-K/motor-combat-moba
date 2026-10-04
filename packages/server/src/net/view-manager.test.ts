@@ -14,11 +14,19 @@ import {
   assembleModeConfig,
   driveOf,
   modeConfigOf,
+  weapons,
   msToTicks,
   withMode,
   type ModeConfig,
 } from "@motor-combat-moba/shared";
-import { ViewManager, visionExitTicks, visionMarginUnits, type Viewer } from "./view-manager.js";
+import {
+  ViewClock,
+  ViewManager,
+  visionExitTicks,
+  visionMarginUnits,
+  visionShotMarginUnits,
+  type Viewer,
+} from "./view-manager.js";
 
 /**
  * A mode's shipped bundle with `camera.fov.enabled` turned on (and, optionally, its spectate rule
@@ -47,13 +55,13 @@ const MARGIN = 71;
  * a joiner decodes `encodeAll` + `encodeAllView(view)`, then each patch is the shared `encode` plus
  * `encodeView(view)`. `patch()` runs `ViewManager.update` where the rooms run it — just before.
  */
-function room(config: ModeConfig, opts: { mode?: GameMode } = {}) {
+function room(config: ModeConfig, opts: { mode?: GameMode; shotMarginUnits?: number } = {}) {
   const state = new ArenaState();
   state.mode = opts.mode ?? config.id;
   state.arenaId = "arena-03";
   state.phase = RoomPhase.MATCH;
   const enc = new Encoder(state);
-  const vm = new ViewManager({ exitTicks: EXIT, marginUnits: MARGIN });
+  const vm = new ViewManager({ exitTicks: EXIT, marginUnits: MARGIN, shotMarginUnits: opts.shotMarginUnits });
   type Client = Viewer & { decoded: ArenaState; dec: { decode(b: Uint8Array): void } };
   const clients: Client[] = [];
   const sync = () => withMode(config, () => vm.update(state, clients, state.tick));
@@ -137,6 +145,43 @@ describe("visionMarginUnits / visionExitTicks (NR46, NR47)", () => {
       expect(visionMarginUnits()).toBe(Math.ceil(fastest * 0.25));
       expect(visionExitTicks()).toBe(15);
     });
+  });
+});
+
+describe("visionShotMarginUnits (G5)", () => {
+  it("derives the shot margin from the fastest projectile in the mode (or chassis, if faster), over the same lead", () => {
+    withMode(modeConfigOf(GameMode.FFA_LAST_STANDING), () => {
+      let fastest = Math.max(...activeCarIds().map((id) => driveOf(id).maxSpeed));
+      for (const def of Object.values(weapons())) if (def.kind === "projectile") fastest = Math.max(fastest, def.speed);
+      expect(visionShotMarginUnits()).toBe(Math.ceil((fastest * NET_CONFIG.visionMarginLeadMs) / 1000));
+      // A shot outruns every car: its margin is the wider of the two.
+      expect(visionShotMarginUnits()).toBeGreaterThan(visionMarginUnits());
+    });
+  });
+
+  // Straight ahead of (100, 300) on arena-03, nothing in between: the car-margined cone reaches x 794,
+  // the shot-margined one x 1000.
+  const FAR = { x: 900, y: 300 };
+
+  it("puts an enemy shot in view at a distance its car would not be — a fast shot cannot pop into the cone", () => {
+    const config = fovOn(GameMode.FFA_LAST_STANDING);
+    const r = room(config);
+    r.car("a", 100, 300);
+    r.car("far", FAR.x, FAR.y, Math.PI);
+    r.shot("far-shot", "far", FAR.x, FAR.y);
+    const a = r.join("a");
+    expect(seen(a, "far")).toBe(false);
+    expect(a.decoded.weapons.has("far-shot")).toBe(true);
+  });
+
+  it("left the shot at the car margin before G5 (the explicit override reproduces it)", () => {
+    const config = fovOn(GameMode.FFA_LAST_STANDING);
+    const r = room(config, { shotMarginUnits: MARGIN });
+    r.car("a", 100, 300);
+    r.car("far", FAR.x, FAR.y, Math.PI);
+    r.shot("far-shot", "far", FAR.x, FAR.y);
+    const a = r.join("a");
+    expect(a.decoded.weapons.has("far-shot")).toBe(false);
   });
 });
 
@@ -360,6 +405,16 @@ describe("ViewManager — a spectating wreck with FOV on (NR45)", () => {
     expect(r.pick(a, "d")).toBe(false);
   });
 
+  it("refuses every pick under target \"none\"", () => {
+    const cfg = fovOn(GameMode.FFA_LAST_STANDING, { target: "none", noTargetVision: "pov" });
+    const r = room(cfg);
+    const own = r.car("a", 640, 1100);
+    own.alive = false;
+    r.car("b", 100, 300);
+    const a = r.join("a");
+    expect(r.pick(a, "b")).toBe(false);
+  });
+
   it("with no target, sees its own frozen death vision (\"pov\") or nothing (\"blind\")", () => {
     for (const noTargetVision of ["pov", "blind"] as const) {
       const cfg = fovOn(GameMode.FFA_DEATHMATCH, { target: "none", noTargetVision });
@@ -370,6 +425,66 @@ describe("ViewManager — a spectating wreck with FOV on (NR45)", () => {
       r.join("a");
       expect(r.vm.carsIn("a").has("c"), noTargetVision).toBe(noTargetVision === "pov");
     }
+  });
+});
+
+describe("ViewManager — a team wreck under spectate \"team\"", () => {
+  it("accepts a teammate as its target and refuses an enemy", () => {
+    const cfg = fovOn(GameMode.TEAM, { target: "teammates", noTargetVision: "pov" });
+    const r = room(cfg);
+    const own = r.car("a", 640, 1100, 0, 0);
+    own.alive = false;
+    r.car("mate", 100, 300, 0, 0);
+    r.car("enemy", 1100, 1900, 0, 1);
+    const a = r.join("a");
+    expect(r.pick(a, "enemy")).toBe(false);
+    expect(r.pick(a, "mate")).toBe(true);
+    r.patch();
+    expect(stocksOf(a, "mate")).toBe(2);
+    expect(stocksOf(a, "enemy")).toBeUndefined();
+  });
+});
+
+describe("ViewManager while a room is paused (G5)", () => {
+  it("still lets an enemy that left vision go after exitTicks of a held view clock", () => {
+    const config = fovOn(GameMode.FFA_LAST_STANDING);
+    const r = room(config);
+    r.car("a", 100, 300);
+    const b = r.car("b", OPEN_FRONT.x, OPEN_FRONT.y);
+    r.join("a");
+    expect(r.vm.carsIn("a").has("b")).toBe(true);
+    // Paused: `state.tick` frozen; something (a seat switch, a settings edit) moves b out of sight.
+    b.x = BEHIND.x;
+    const clock = new ViewClock();
+    const update = () => withMode(config, () => r.vm.update(r.state, r.clients, clock.at(r.state.tick)));
+    for (let i = 1; i < EXIT; i++) {
+      clock.hold();
+      update();
+      expect(r.vm.carsIn("a").has("b"), `held ${i}`).toBe(true);
+    }
+    clock.hold();
+    update();
+    expect(r.vm.carsIn("a").has("b")).toBe(false);
+  });
+
+  it("would hold it forever on the frozen state tick — why the rooms pass a ViewClock", () => {
+    const config = fovOn(GameMode.FFA_LAST_STANDING);
+    const r = room(config);
+    r.car("a", 100, 300);
+    const b = r.car("b", OPEN_FRONT.x, OPEN_FRONT.y);
+    r.join("a");
+    b.x = BEHIND.x;
+    for (let i = 0; i < 3 * EXIT; i++) withMode(config, () => r.vm.update(r.state, r.clients, r.state.tick));
+    expect(r.vm.carsIn("a").has("b")).toBe(true);
+  });
+
+  it("ViewClock is state.tick plus the ticks held, and monotone across a pause", () => {
+    const clock = new ViewClock();
+    expect(clock.at(10)).toBe(10);
+    clock.hold();
+    clock.hold();
+    expect(clock.at(10)).toBe(12);
+    expect(clock.at(11)).toBe(13);
   });
 });
 
