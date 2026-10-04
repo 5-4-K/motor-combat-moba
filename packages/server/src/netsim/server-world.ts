@@ -196,10 +196,15 @@ export class ServerWorld {
   /** The FOV run's real wire (`NetsimOptions.fov`); undefined for the FOV-off run. */
   readonly fov: FovWire | undefined;
 
-  constructor(cars: number, opts: { fov?: boolean; shotMarginUnits?: number; noSweep?: boolean } = {}) {
-    this.modeConfig = opts.fov ? fovOnBundle(NETSIM_MODE) : modeConfigOf(NETSIM_MODE);
+  /**
+   * `mode` (default `NETSIM_MODE`) is for a caller that measures another mode's bundle through the
+   * same server — the playtest prediction probe, which takes `--mode`. The netsim itself never sets it.
+   */
+  constructor(cars: number, opts: { fov?: boolean; shotMarginUnits?: number; noSweep?: boolean; mode?: GameMode } = {}) {
+    const mode = opts.mode ?? NETSIM_MODE;
+    this.modeConfig = opts.fov ? fovOnBundle(mode) : modeConfigOf(mode);
     withMode(this.modeConfig, () => {
-      this.state.mode = NETSIM_MODE;
+      this.state.mode = mode;
       this.state.arenaId = NETSIM_ARENA_ID;
       this.state.phase = RoomPhase.MATCH;
       const spawns = getArena(NETSIM_ARENA_ID).ffaSpawns;
