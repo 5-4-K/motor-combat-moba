@@ -10,8 +10,11 @@
  * the scalar `speed` field it read became the `vx`/`vy` pair in stage 1 of the car-physics rework.)
  */
 import {
+  DRIVE_CONFIG,
   TICK_RATE_HZ,
+  boundsOf,
   drive,
+  getArena,
   ram,
   forwardMaxSpeedOf,
   forwardOf,
@@ -268,6 +271,13 @@ function drivenRam(): void {
   );
 }
 
+/** Is a point outside the arena's convex boundary? Shared's `pointOutsideBounds` rule (inclusive on
+ * every plane), which shared does not export from its index. */
+function outsideArena(px: number, py: number, b: ReturnType<typeof boundsOf>): boolean {
+  if (b.planes === undefined) return px <= 0 || py <= 0 || px >= b.width || py >= b.height;
+  return b.planes.some((p) => p.nx * px + p.ny * py - p.d <= 0);
+}
+
 /* ------------------------------------------------------- R5. ram-lock: chase in open space */
 /**
  * Can the roster's heaviest rammer hold the roster's lightest car in a knock loop, or does one
@@ -317,6 +327,7 @@ function chaseRamLock(): void {
         },
         { id: "vic", carId: "bullseye", x: 260, y: 360, angle: 0 },
       ]);
+      const runway = boundsOf(getArena(w.state.arenaId));
       let rams = 0;
       let prevShove = 0;
       let midGap = 0;
@@ -353,8 +364,11 @@ function chaseRamLock(): void {
         if (shove > prevShove + 5) rams++;
         prevShove = shove;
         if (t === Math.floor(ticks / 2)) midGap = w.get("vic").x - w.get("atk").x - 48;
-        // The runway ends where open space does: stop at the far wall, judge what we have.
-        if (w.get("vic").x > 1280 - 60) break;
+        // The runway ends where open space does: stop once the far wall is within one car length of
+        // the victim's centre, judge what we have. Read from the arena's own boundary planes — the
+        // old literal (`1280 - 60`, the image frame) sat past arena-01's octagon wall (a centre
+        // clamps at ~1176), so the break could never fire and every run ended pinned at the wall.
+        if (outsideArena(afterVic.x + DRIVE_CONFIG.carWidth, afterVic.y, runway)) break;
       }
       const finalGap = w.get("vic").x - w.get("atk").x - 48;
       // Escaped = clear separation that is still growing when the runway ends. A locked victim
