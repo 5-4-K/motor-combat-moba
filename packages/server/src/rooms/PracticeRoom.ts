@@ -412,6 +412,7 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
       this.netSessions.drop(client.sessionId);
       this.limits.drop(client.sessionId);
       this.views.forget(client.sessionId);
+      client.view?.dispose();
       this.outgoing.drop(client.sessionId);
       this.inputDelay?.drop(client.sessionId);
       this.closing = true;

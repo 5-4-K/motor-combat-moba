@@ -366,6 +366,7 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
       this.netSessions.drop(client.sessionId);
       this.limits.drop(client.sessionId);
       this.views.forget(client.sessionId);
+      client.view?.dispose();
       this.disconnect();
     });
   }

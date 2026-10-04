@@ -504,6 +504,14 @@ export class ViewManager {
       return { always, owners, shapes: undefined, instanceShapes: undefined };
     }
 
+    // A viewer whose own car is not in the running match (a late joiner sitting READY in the lobby at
+    // a placeholder pose, with a lobby team) has no side and no perspective: it sees itself and
+    // nothing of the match. Empty shapes admit no enemy car and no enemy shot (I1).
+    if (ownCar && ownCar.status !== PlayerStatus.IN_MATCH) {
+      const self = new Set<string>([ownCar.sessionId]);
+      return { always: self, owners: new Set(self), shapes: [], instanceShapes: { shot: [], car: [] } };
+    }
+
     // CB26's vision set, from authoritative poses. `"pov"` freezes the viewer's own wreck where it
     // lies (the server's pose of a dead car is its death pose) — only while watching nobody.
     const perspective = perspectiveId === undefined ? undefined : state.players.get(perspectiveId);

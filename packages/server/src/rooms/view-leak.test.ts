@@ -280,4 +280,33 @@ describe("a real ArenaRoom never sends a hidden enemy to a client (NR43, NR44)",
     r.patch();
     expect(a.decoded.players.get("mate")!.weapons[0]!.rechargeEndsTick).toBe(140);
   });
+  // I1: `ArenaRoom` seats a mid-match joiner READY at a placeholder pose with a lobby team. It is no
+  // one's teammate in the running match and has no vision of it.
+  it("a READY late joiner during a FFA match decodes no in-match car or shot, even inside its placeholder cone", () => {
+    const r = arena(fovOnBundle(GameMode.FFA_LAST_STANDING));
+    r.car("e", 700, 300, Math.PI);
+    r.shot("e-1", "e", 650, 300);
+    const late = r.car("late", 400, 300, 0);
+    late.status = PlayerStatus.READY;
+    const l = r.join("late");
+    r.patch();
+    r.patch();
+    expectHidden(l, "e");
+    expect(l.decoded.players.get("late")!.x).toBe(400); // its own car is whole
+  });
+
+  it("a READY late joiner during a TEAM match decodes nothing of its lobby team's in-match cars", () => {
+    const r = arena(fovOnBundle(GameMode.TEAM));
+    r.car("mate", 400, 530, 0, 0);
+    r.car("enemy", 700, 300, Math.PI, 1);
+    r.shot("mate-1", "mate", 460, 530);
+    const late = r.car("late", 400, 300, 0, 0);
+    late.status = PlayerStatus.READY;
+    const l = r.join("late");
+    r.patch();
+    r.patch();
+    expectHidden(l, "mate");
+    expectHidden(l, "enemy");
+    expect(ids(l.decoded.weapons)).toEqual([]);
+  });
 });

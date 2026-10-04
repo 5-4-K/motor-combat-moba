@@ -452,6 +452,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       this.netSessions.drop(client.sessionId);
       this.limits.drop(client.sessionId);
       this.views.forget(client.sessionId);
+      client.view?.dispose();
       this.outgoing.drop(client.sessionId);
       this.inputDelay?.drop(client.sessionId);
       forgetSpikeState(this.ram.spikes, client.sessionId);
