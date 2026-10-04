@@ -3,8 +3,8 @@
  * WebSockets, driven through the real lobby -> car select -> reveal -> countdown -> match flow.
  *
  * The deterministic probes prove what the sim does. This proves the same thing survives the wire:
- * schema encoding, patch rate (20 Hz against a 30 Hz sim), simulated latency, and the room's own
- * scheduling. Run it against a server started with SIM_LATENCY_MS to model a real LAN.
+ * schema encoding, patch rate (`SNAPSHOT_RATE_HZ` against the `TICK_RATE_HZ` sim), simulated latency,
+ * and the room's own scheduling. Run it against a server started with SIM_LATENCY_MS to model a real LAN.
  */
 import { Client, type Room } from "@colyseus/sdk";
 import {
@@ -15,6 +15,7 @@ import {
   MSG_TIME,
   NET_CONFIG,
   PROTOCOL_VERSION,
+  RoomPhase,
   speedOf,
   type InputFrame,
 } from "@motor-combat-moba/shared";
@@ -119,8 +120,6 @@ async function until(bot: Bot, predicate: () => boolean, ms: number, what: strin
   throw new Error(`timed out waiting for ${what}`);
 }
 
-const PHASE = { LOBBY: 0, CAR_SELECT: 1, REVEAL: 2, COUNTDOWN: 3, MATCH: 4, POST_MATCH: 5 } as const;
-
 async function main(): Promise<void> {
   console.log(`connecting to ${ENDPOINT}`);
   const alice = await join("Alice");
@@ -136,14 +135,16 @@ async function main(): Promise<void> {
   host.room.send("set_mode", { mode: 0 });
   await sleep(200);
   host.room.send("start_match");
-  await until(alice, () => state().phase === PHASE.CAR_SELECT, 5000, "car select");
+  await until(alice, () => state().phase === RoomPhase.CAR_SELECT, 5000, "car select");
   console.log("phase -> CAR_SELECT");
 
   // Alice takes the rammer, Bob takes the glass cannon.
   alice.room.send("select_car", { carId: "bastion" });
   bob.room.send("select_car", { carId: "bullseye" });
 
-  await until(alice, () => state().phase === PHASE.MATCH, 30000, "match start");
+  // The real `RoomPhase` (constants.ts), not a hand table: the old one numbered REVEAL as 2 and MATCH
+  // as 4, so this wait used to release on REVEAL and the trials began before the countdown.
+  await until(alice, () => state().phase === RoomPhase.MATCH, 30000, "match start");
   console.log("phase -> MATCH");
 
   const me = (bot: Bot) => state().players.get(bot.room.sessionId);
@@ -172,6 +173,7 @@ async function main(): Promise<void> {
   let lastShove: number | null = null;
   const ramStart = Date.now();
   while (Date.now() - ramStart < 20000) {
+    if (state().phase !== RoomPhase.MATCH) break;
     const a = me(alice);
     const b = other(alice);
     if (!a || !b) break;
@@ -199,7 +201,7 @@ async function main(): Promise<void> {
     lastShove = shove;
     await sleep(TICK_MS);
   }
-  // Sampled at ~30 Hz against a 20 Hz patch rate, so both counts are approximate — a contact that
+  // Sampled once per sim tick against the room's patch rate, so both counts are approximate — a contact that
   // begins and ends between two samples is invisible to either. The ratio is the signal: it sat
   // near 20% while the ram trigger bug was live and should now track the contact count closely.
   console.log(
@@ -214,11 +216,13 @@ async function main(): Promise<void> {
   const seenWeapons = new Set<string>();
   const fireStart = Date.now();
   while (Date.now() - fireStart < 20000) {
+    if (state().phase !== RoomPhase.MATCH) break;
     const a = me(alice);
     const b = me(bob);
     if (!a?.alive || !b?.alive) break;
-    // Rotate through the three slots so every weapon in both kits actually fires.
-    const slot = 1 << (Math.floor((Date.now() - fireStart) / 2500) % 3);
+    // Rotate through the three ABILITY slots (fire slots 1..3; fire slot 0 is the basic attack, which
+    // every shipped mode switches off) so every weapon in both kits actually fires.
+    const slot = 1 << (1 + (Math.floor((Date.now() - fireStart) / 2500) % 3));
     send(alice, { throttle: 0, fireSlots: slot });
     send(bob, { throttle: 0, fireSlots: slot });
     state().weapons.forEach((w: any) => seenWeapons.add(w.weaponId));
@@ -232,7 +236,7 @@ async function main(): Promise<void> {
   const statusesSeen = new Set<string>();
   state().players.forEach((p: any) => p.statuses.forEach((s: any) => statusesSeen.add(s.statusId)));
   console.log(`statuses on the wire right now: ${[...statusesSeen].join(", ") || "none"}`);
-  console.log(`phase now: ${Object.entries(PHASE).find(([, v]) => v === state().phase)?.[0]}`);
+  console.log(`phase now: ${RoomPhase[state().phase as RoomPhase] ?? state().phase}`);
   if (state().winnerSessionId) {
     console.log(`winner: ${state().players.get(state().winnerSessionId)?.name ?? state().winnerSessionId}`);
   }
