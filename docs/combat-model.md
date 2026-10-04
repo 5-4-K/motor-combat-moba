@@ -1546,7 +1546,8 @@ same `ShotView` motion in the same look. The first server instance with your id,
 a `spawnTick` within `provisionalShotMatchTicks` (2) confirms it and takes over with a
 `provisionalShotEaseMs` (100 ms) ease — or, when the server ended the shot on its birth tick (inside
 its fast-forward), its ENDED row (`alive: false` at the end pose, sent for `endedShotRowMs`) confirms
-and ends it, and every client draws that row's impact. One still unconfirmed when the client has
+and ends it, and every client draws that row's impact. Since protocol 8 every ending is an ended row,
+and a client draws an impact only from one; a row that vanishes has merely left its view (NR44). One still unconfirmed when the client has
 applied a snapshot at or past its `spawnTick + provisionalShotMatchTicks` is dropped. It is never in `state.weapons`, so it never
 damages, never spawns impact FX and never feeds prediction. Every instance is drawn at the
 **local present** (NR40): `ShotView` (`packages/shared/src/net/shot-view.ts`) advances it from its
@@ -1555,8 +1556,8 @@ walls and `bounceOffWorld` bounces included, cars ignored — capped at `maxExtr
 maxDelayMs` (a straight shot in closed form, a bouncing or homing one stepped). Its end is the
 server's rule on the server's numbers: from the tick its range or lifetime clock (`instanceExpired`,
 with `distance`/`expiresAtTick` re-derived from `spawnTick` and `lifeOffsetTicks`) or the wall test
-(`hitsWorld`) ends it, it is hidden until the removal arrives; a hit on a car is foreseen by nothing
-and ends with the removal. A homing shot holds its heading (the target is the server's, never
+(`hitsWorld`) ends it, it is hidden until its ended row arrives; a hit on a car is foreseen by nothing
+and ends with the ended row. A homing shot holds its heading (the target is the server's, never
 networked) and a newer snapshot that moves its path is eased in, never snapping more than one tick
 of its own motion; an attached beam is re-anchored to its owner's DRAWN pose rather than
 extrapolated; an explosion stays put. A spectator draws shots at the cars' render tick, read off the

@@ -6,6 +6,8 @@ Lockstep constants, Colyseus schema, input types, and `stepSim`. Server and clie
 
 P0: `TICK_RATE_HZ` / `MS_PER_TICK` / `SNAPSHOT_RATE_HZ` / `MAX_PLAYERS` / `ROOM_NAME`, enums (`RoomPhase`, `GameMode`, `PlayerStatus`), `PlayerState` / `ArenaState`, `INPUT_MESSAGE` + `InputFrame`/`InputPacket`, identity `stepSim`.
 
+Netcode lives here too, pure and Phaser-free so the server, the client and the netsim run the same code (NR59): `net/` (`TickInputBuffer`, `ClockSync`, `InputScheduler`, `TickPrediction`, `RemoteTimeline`, `ShotView`, `ProvisionalShots`, `isShotEnding`, the message validators) and `vision/` (the field-of-vision geometry and spectate rules both the client's drawn cone and the server's `ViewManager` use). Schema fields carry `@view` tags (`schema/view-tags.ts`'s `VIEW_OWNER`); a field a client may not always see must carry one, and every wire change bumps `PROTOCOL_VERSION`. See [`docs/networking.md`](../../docs/networking.md) and [`docs/schema-reference.md`](../../docs/schema-reference.md#what-each-client-receives).
+
 **`modes/` owns configuration; `config/` owns its TYPES and its BASE values.** `modes/base.ts`
 assembles `BASE_TABLES` straight from the `config/` globals (hull stripped from `drive`) — these are
 now the common defaults, read whenever a mode does not override them, not a pinned baseline nothing
@@ -88,7 +90,7 @@ what preserves the property the original rule protected.
 
 Expiry runs once per tick, before driving; pulses run first inside `runCombat`; new statuses are only
 ever added, at the far end of the tick, and take hold on the next one. `PlayerState.statuses` is
-networked in full — unlike `FireState` and the lock, a status has no server-only half, because the
+networked in full (to every client whose view holds the car — the `statuses` array is `@view()`) — unlike `FireState` and the lock, a status has no server-only half, because the
 client predicts through the same modifiers (invariant 8). See
 [`docs/combat-model.md`](../../docs/combat-model.md#statuses).
 

@@ -13,7 +13,7 @@ motor-combat-MOBA/
 ├── package.json                  # workspaces, npm run dev / build:release
 ├── tsconfig.base.json
 ├── .env.example
-├── .nvmrc                        # 20
+├── .nvmrc                        # 22
 ├── CLAUDE.md
 ├── README.md
 ├── scripts/build-release.mjs
@@ -49,7 +49,8 @@ motor-combat-MOBA/
 │   │   ├── no-mode-branching.test.ts # fails on a GameMode.X literal or win-rule string outside modes/ (a 5-file allow-list)
 │   │   ├── brawl/, team-brawl/, deathmatch/, conquer/  # each: config.ts (ModeOverrides), index.ts (<MODE>_TABLES), rules.ts
 │   │   └── last-standing/        # the rule FAMILY brawl + team-brawl share: rules.ts, outcome.ts
-│   ├── schema/                   # PlayerState, StatusState, WeaponInstanceState, WeaponSlotState, ArenaState, ChatMessageState
+│   ├── schema/                   # PlayerState, StatusState, WeaponInstanceState, WeaponSlotState, ArenaState, ChatMessageState — fields tagged public / @view() / @view(VIEW_OWNER)
+│   │   ├── view-tags.ts          # VIEW_OWNER, the one non-default StateView tag (NR42)
 │   │   ├── PlaygroundState.ts    # extends ArenaState: paused, controlledSessionId, botEnabled, tuningJson (PG5)
 │   │   └── PracticeState.ts      # extends ArenaState: paused only — no controlledSessionId, no tuningJson (PR6)
 │   ├── arena/
@@ -58,9 +59,13 @@ motor-combat-MOBA/
 │   │   ├── arena-02.ts           # second arena layout
 │   │   ├── registry.ts           # ARENAS map, ArenaId, isArenaId, getArena, ARENA_IDS
 │   │   └── art-keys.ts           # arena.<id>.<slot> namespace parser, used by client and release script
-│   ├── net/                      # InputFrame/InputPacket (fireSlots bitmask), ClockSync, InputScheduler, TickPrediction, TickInterpolation/DisplayDelay/RemoteTimeline (remote drawing), RemoteReckoner, contact blend, lobby message names
+│   ├── net/                      # InputFrame/InputPacket (fireSlots bitmask), TickInputBuffer, ClockSync, InputScheduler, TickPrediction, TickInterpolation/DisplayDelay/RemoteTimeline (remote drawing), RemoteReckoner, contact blend, ShotView, ProvisionalShots/LocalFire, isShotEnding, close codes, lobby message names
+│   │   ├── spectate-messages.ts  # MSG_SPECTATE_TARGET + validator (NR45)
 │   │   ├── playground-messages.ts # MSG_PLAYGROUND_*, PlaygroundSetup + validator, defaultPlaygroundSetup (PG13)
 │   │   └── practice-messages.ts  # PRACTICE_ROOM_NAME, close codes 4006–4009, PracticeSetup + validator (PR3, PR7)
+│   ├── vision/                   # shared by the client's drawn cone and the server's ViewManager (NR46)
+│   │   ├── vision.ts             # visionShapeOf, inShape (margined, swept), marginShape, inVision, carVisible, shotSamplePoints, visionPolygon, visionPoses
+│   │   └── spectate.ts           # isSpectating, spectatableIds, cycleSpectate, resolveSpectateTarget, panFreeCam, smoothFollow, clampFreeCamFocus
 │   ├── lobby/                    # names, teams, start rules, status → view, chat text validation (LC13)
 │   ├── flow/                     # match-flow reducer, spawn assignment — genuinely common helpers only;
 │   │   │                         # `modes.ts`'s sidesOf/winRuleOf switches are deleted (GM15) — read `rulesOf(mode)` instead
@@ -113,12 +118,17 @@ motor-combat-MOBA/
 │   │   ├── status-bridge.ts      # ArenaState ↔ status lists; expiry + the tick's modifiers
 │   │   ├── ram-bridge.ts         # ArenaState ↔ applyRams POJOs
 │   │   └── combat-bridge.ts      # ArenaState ↔ runCombat POJOs
-│   └── net/
-│       ├── offer-input.ts        # in-process producers (bots, parked seats, harnesses) into the same TickInputBuffer; wire validation lives in shared net/tick-input.ts
-│       ├── net-session.ts        # per-client time sync: MSG_TIME/MSG_PING, server-side RTT, ping-stamp validation
-│       ├── rate-limit.ts         # ClientLimits — per-kind token buckets, kick after 5 s over
-│       ├── protocol-gate.ts      # PROTOCOL_VERSION check at join
-│       └── latency-injector.ts   # SIM_LATENCY_MS / SIM_JITTER_MS / SIM_LOSS_PCT, two-way, in order
+│   ├── net/
+│   │   ├── offer-input.ts        # in-process producers (bots, parked seats, harnesses) into the same TickInputBuffer; wire validation lives in shared net/tick-input.ts
+│   │   ├── net-session.ts        # per-client time sync: MSG_TIME/MSG_PING, server-side RTT, ping-stamp validation
+│   │   ├── rate-limit.ts         # ClientLimits — per-kind token buckets, kick after 5 s over
+│   │   ├── protocol-gate.ts      # PROTOCOL_VERSION check at join
+│   │   ├── shot-comp.ts          # shotCompTicks: a press's shot compensation k, capped (NR36)
+│   │   ├── ws-rtt.ts             # transport-level WebSocket ping RTT, the bound on the app RTT (NR36)
+│   │   ├── view-manager.ts       # ViewManager: each client's StateView per snapshot — margins, swept cone, hysteresis, spectate target (NR44–NR47)
+│   │   ├── fov-bundle.ts         # fovOnBundle: a mode's bundle with FOV on, for tests and the netsim only
+│   │   └── latency-injector.ts   # SIM_LATENCY_MS / SIM_JITTER_MS / SIM_LOSS_PCT, two-way, in order (dev only)
+│   └── netsim/                   # the netcode measurement harness (NR57): the real pipeline + headless clients over modelled links; NETSIM_BASELINE=1 records EXECUTION.md's numbers
 └── packages/client/
     ├── index.html
     ├── public/art/                # copied to the dist root unbundled — no rebuild to change art
@@ -147,7 +157,7 @@ motor-combat-MOBA/
         │   ├── environment.ts     # ENVIRONMENT_FX: the arena's whole visual ground in one table — grade, vignette, shake, hit-stop, decals, occlusion, floor, markings, carBursts (EV6)
         │   ├── env-tuning.ts      # ENV_FIELDS + resolveEnvironment: the flat, section-based tuning model over EnvironmentFx (EV13–EV19)
         │   ├── env-store.ts       # the playground-only override map + version-cached liveEnvResolver (EV18, EV19, EV34)
-        │   └── hidden.ts          # FxHidden, isHiddenFxEvent, carryHiddenInstances: what FOV (camera/vision.ts) hides from the fx layer (CB27, I1)
+        │   └── hidden.ts          # FxHidden, isHiddenFxEvent, carryHiddenInstances: what FOV (shared vision/vision.ts) hides from the fx layer (CB27, I1)
         ├── practice/
         │   └── storage.ts         # localStorage codec for PracticeSetup under "motor-combat.practice.v1" (PR21) — ships, not stripped
         ├── dev/                   # stripped from release builds, asserted by build-release.mjs
@@ -161,6 +171,7 @@ motor-combat-MOBA/
         │       └── storage.ts     # localStorage codec under "motor-combat.playground.v1" (PG20)
         ├── net/
         │   ├── connection.ts
+        │   ├── in-view.ts        # carInView, inViewRoster, feedRemoteTimeline: a car out of this client's view is absent (NR44, NR48)
         │   ├── (prediction, interpolation, step-context, remote timeline: shared `net/`, not here)
         │   └── view.ts           # status + phase → scene
         ├── scenes/
@@ -179,10 +190,9 @@ motor-combat-MOBA/
         │   ├── status-hud.ts     # pure status badge derivations: order, drain, strip layout
         │   ├── match-hud.ts      # pure match-HUD derivations shared by last-standing, deathmatch and conquer: match clock, respawn countdown, killed-by banner
         │   └── lobby-signature.ts
-        ├── camera/                  # per-mode camera logic, testable with no Phaser (2026-09-28)
+        ├── camera/                  # per-mode camera logic, testable with no Phaser (2026-09-28); vision and spectate rules moved to shared vision/ in Phase G
         │   ├── rotation.ts          # viewRotationForHeading, teamFacingRotation, resolveViewRotation, boundsAlignedFor (I2)
-        │   ├── spectate.ts          # isSpectating, spectatableIds, cycleSpectate, panFreeCam, smoothFollow, clampFreeCamFocus (M3)
-        │   └── vision.ts            # field-of-vision geometry: computeVision (ellipse cone, obstacle occlusion), pure and shared with the fx layer
+        │   └── spectate-report.ts   # SpectateReport: when a wreck sends MSG_SPECTATE_TARGET (NR45)
         ├── ui/                      # also dom.ts, lobby-view.ts, car-select-view.ts, results-view.ts, reveal-view.ts, overlay.ts, organic.css — only chat-view.ts is called out below
         │   └── chat-view.ts         # chatView: a chat row -> {key, label, hex, text, at}; "You" for the local sessionId, colour from COLOR_TABLE (LC24)
         └── ui/screens/
@@ -195,7 +205,7 @@ motor-combat-MOBA/
 
 `ArenaScene` itself cannot be unit-tested without a browser, so its logic lives in the plain modules
 beside it (`arena-input`, `car-visual`, `combat-visual`, `countdown-arrow`, `weapon-hud`,
-`roster-panel`, `status-hud`, and the `camera/` folder's `rotation`/`spectate`/`vision`) and the
+`roster-panel`, `status-hud`, `net/in-view`, and the `camera/` folder's `rotation`/`spectate-report`) and the
 scene stays a thin shell
 over them. `assets/` is the same idea one directory over: the manifest parse, the key namespace, the
 hull fit, and the sprite-or-silhouette decision are all pure modules there, so the only thing left in

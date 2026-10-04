@@ -1,6 +1,6 @@
 # `@motor-combat-moba/server`
 
-Authority: Express + Colyseus, `ArenaRoom`, 60 Hz `serverTick` that drains input queues into shared `stepSim`. Serves client `dist` in LAN mode. Health `GET /health`, monitor `/colyseus`.
+Authority: Express + Colyseus, `ArenaRoom`, 60 Hz `serverTick` that takes one buffered input per car per tick into shared `stepSim`, and one snapshot broadcast per tick. Serves client `dist` in LAN mode. Health `GET /health`, monitor `/colyseus`.
 
 **Local invariant:** never trust client poses. Apply validated `InputPacket`s only, one input per car per tick through `TickInputBuffer`; write `{x, y, angle}` from `stepSim`.
 
@@ -22,5 +22,7 @@ own `this.modeConfig` — each message rebuilt from the room's pristine base, so
 than accumulate. (This replaced `setTuning`, now deleted, which assembled a bundle and installed it
 process-wide; `practice-room.test.ts` keeps a source-text guard against `installMode` where it used
 to guard against `setTuning`.)
+
+**Every room filters what each client receives** (Phase G, NR42–NR47). Each client gets a `StateView` on join (`ensureView`), and `net/view-manager.ts`'s `ViewManager.update` recomputes every view once per snapshot, immediately before the room's `broadcastPatch` — in all three rooms; a client with no view receives no tagged field. Viewers' swept-cone leads come only through `viewerLeadMs`, the one place its cap is enforced. A new schema field a client may not always see needs a `@view` tag (invariant 8); see [`docs/networking.md`](../../docs/networking.md#what-a-client-may-know-nr42nr49).
 
 **Build order matters here.** `tsup` inlines `@motor-combat-moba/shared`'s built `dist` into `dist/index.js`, so shared must be built first. Use root `npm run build` (shared → server → client), never `npm run build --workspaces`, which does not guarantee that order. A stale bundle runs the previous sim while every unit test passes, because tests import `src`.

@@ -31,6 +31,17 @@ Default `DEPLOY_MODE=lan` serves the built client from Express. Do not add cloud
 
 Optional `CAR_SELECT_SECONDS` (positive number) overrides car-select length on the server; default remains `FLOW_CONFIG.carSelectSeconds` (60).
 
+## Running it as a dedicated server
+
+The online-netcode redesign ([spec](superpowers/specs/2026-09-29-online-netcode-redesign-design.md), NR4–NR5) assumes a **dedicated server nobody plays on**, one match per server process. Hosting itself — TLS termination, matchmaking, accounts, multi-room hosting — is out of scope, and nothing in this repo sets up a cloud host. What a server reachable by people you do not know needs from this build:
+
+- **Node 22 or newer.** The release's `package.json` carries `engines: node >=22`, and the server exits at start with a clear message on an older Node (`node-version.ts`). Node 20 has been end-of-life since 2026-04-30.
+- **The monitor stays off, or behind `MONITOR_PASSWORD`.** `/colyseus` shows every room's full state — every car's position whatever a mode's field of vision hides — and can dispose rooms. With neither `DEV_TOOLS=1` nor `MONITOR_PASSWORD` it is not mounted (404). With `MONITOR_PASSWORD` set it is behind HTTP basic auth (any user name, the password compared in constant time) and refuses cross-site requests. **Never set `DEV_TOOLS=1` on a public server**: it opens the monitor without a password and registers the dev-only playground room.
+- **`CLIENT_ORIGIN`, when the client is served from another origin.** It pins the matchmaker's `Access-Control-Allow-Origin` to that one origin (`restrictMatchmakerCors`) instead of reflecting whatever origin asks. Unset — the LAN release, where this server serves the client itself — the reflection stands. `DEPLOY_MODE=cloud` only stops this server serving the client and turns on CORS; it adds no hosting.
+- **`SIM_LATENCY_MS`, `SIM_JITTER_MS` and `SIM_LOSS_PCT` are dev-only.** They inject latency and loss into both directions for testing ([`networking.md`](networking.md#hardening-nr54nr56)); a release never sets them, and a dedicated server must not — every player would get the extra delay on top of their real link.
+- **Client and server must be the same build.** Every join carries `PROTOCOL_VERSION`; a mismatch is refused with "Client and server are different versions … Refresh the page." The release zip ships one build of both.
+- **Every client is untrusted.** Inputs are one per car per tick (a client cannot move faster by sending more), message rates are limited per client (a client continuously over any limit for 5 s is disconnected), frames are capped at 4 KiB, and the server measures each client's RTT itself. What a modified client can still do — and what interest management does and does not hide — is in [`networking.md`](networking.md#what-remains-unfair-nr60nr61).
+
 ## The release ships a real `.env`, and `--port` sets what is in it
 
 `build-release.mjs` generates a `.env` beside `start.bat`, where the server's `dotenv/config` reads

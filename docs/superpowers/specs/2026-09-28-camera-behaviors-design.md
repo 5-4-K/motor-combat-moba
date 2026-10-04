@@ -47,6 +47,7 @@ behaviours on.
   who reads packets or patches the client sees everything. Accepted for a LAN game between
   friends. Server-side interest management is out of scope and would collide with the planned
   netcode rewrite.
+  *Superseded 2026-10-04 by the online netcode redesign's NR44 (server-side vision filters each client's state; [spec](2026-09-29-online-netcode-redesign-design.md)).*
 - **CB7** Heading-up rotation can cause motion sickness for some players. `rotateLerp` softens it;
   it is a design choice the mode author owns. Nothing ships with it on.
 

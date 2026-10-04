@@ -2,29 +2,53 @@
 
 Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId` is server-only — not on the schema. Hidden picks stay off `carId` until reveal.
 
+## What each client receives
+
+Since Phase G (NR42) every field carries one of three **view tags**, and `@colyseus/schema` 5's
+`StateView` filters the one state per client — the server's `ViewManager` decides each client's view
+every snapshot (see [`networking.md`](networking.md#what-a-client-may-know-nr42nr49)). The **Tag**
+column in the tables below is that tag:
+
+| Tag | Reaches | When it leaves |
+|---|---|---|
+| public (untagged) | every client, always | never |
+| `@view()` | a client whose view holds the object (its car, or the instance row) | the client's copy is cleared — decodes as `undefined` — and re-adding the object resends the current values |
+| `@view(VIEW_OWNER)` | a client whose view added the car with the `VIEW_OWNER` tag (`schema/view-tags.ts`): its own car, its teammates' in a team mode, and the car its wreck is spectating | the same; re-tagging drops only these fields, the car's `@view()` fields stay |
+
+The tag reaches nested children: a slot row's `VIEW_OWNER` timers arrive only through a car added
+with that tag, and a car's `statuses` rows only while the car is in view. With FOV off — every
+shipped mode — every car and instance is in every view, so only the `VIEW_OWNER` fields are
+filtered. **A field a client may not always see carries a `@view` tag** (hard invariant 8); a new
+field with no tag reaches every client. Never reorder or retype a field: the order is the wire.
+
+`PROTOCOL_VERSION` 6 tagged the schema and quantised pose, velocity, the maneuver angle and speed and
+`turretAngle` to `float32` (NR52); the client's prediction reads the decoded `float32` values, while
+the server keeps full precision internally and never rounds its own state.
+
 ## ArenaState
 
-| Field | Type | Default | Notes |
-|---|---|---|---|
-| `phase` | uint8 `RoomPhase` | `LOBBY` | LOBBY=0, CAR_SELECT=1, COUNTDOWN=2, MATCH=3 |
-| `tick` | uint32 | `0` | Sim tick counter |
-| `hostSessionId` | string | `""` | First joiner; transfers on leave |
-| `mode` | uint8 `GameMode` | `FFA_LAST_STANDING` | FFA_LAST_STANDING=0 (renamed from FFA; wire value unchanged), TEAM=1, FFA_DEATHMATCH=2, CONQUER=3 |
-| `arenaId` | string | `"arena-01"` | Current arena definition id |
-| `carSelectDeadlineTick` | uint32 | `0` | 0 if not selecting |
-| `countdownEndsTick` | uint32 | `0` | 0 if not counting down |
-| `matchStartedAtTick` | uint32 | `0` | Stamped on the transition into MATCH. Display only — `stepSim` never reads it |
-| `matchEndsTick` | uint32 | `0` | The tick `FFA_DEATHMATCH` or `CONQUER` ends on; `0` in every other mode. Stamped on the same edge as `matchStartedAtTick`, for the same reason: one number patched to everyone beats a local stopwatch per machine |
-| `winnerTeam` | int8 | `-1` | `-1` none/draw, `0` A, `1` B |
-| `winnerSessionId` | string | `""` | FFA winner; else empty |
-| `controlTicksA`, `controlTicksB` | uint16 | `0` | Conquer only: accumulated control-fill ticks per team, toward `derived().conquerTicks.controlTarget`. Written by the room, not read by `stepSim` |
-| `zoneHolder` | int8 | `-1` | Conquer only: the team whose uncontested, unopposed streak is currently running, or `-1` |
-| `zoneStreakTicks` | uint16 | `0` | Conquer only: that streak's length, saturating at `derived().conquerTicks.captureDelay` |
-| `zoneContested` | boolean | `false` | Conquer only: both teams present in the zone this tick |
-| `overtime` | boolean | `false` | Conquer only: the clock has expired with the control bars tied, and the match continues until one team takes uncontested control |
-| `players` | map `PlayerState` | empty | Keyed by sessionId |
-| `weapons` | map `WeaponInstanceState` | empty | Live projectile and beam instances, keyed by instance id |
-| `chat` | array `ChatMessageState` | empty | Last `CHAT_CONFIG.maxMessages` (20) lobby messages, oldest first. Nothing ever clears it — not a phase transition, not a kick — so a returning or late-joining player reads the backlog; dies with the room, since `ArenaRoom` sets no `autoDispose` override |
+| Field | Type | Tag | Default | Notes |
+|---|---|---|---|---|
+| `phase` | uint8 `RoomPhase` | public | `LOBBY` | LOBBY=0, CAR_SELECT=1, COUNTDOWN=2, MATCH=3, REVEAL=4 |
+| `tick` | uint32 | public | `0` | Sim tick counter |
+| `hostSessionId` | string | public | `""` | First joiner; transfers on leave |
+| `mode` | uint8 `GameMode` | public | `FFA_LAST_STANDING` | FFA_LAST_STANDING=0 (renamed from FFA; wire value unchanged), TEAM=1, FFA_DEATHMATCH=2, CONQUER=3 |
+| `arenaId` | string | public | `"arena-01"` | Current arena definition id |
+| `carSelectDeadlineTick` | uint32 | public | `0` | 0 if not selecting |
+| `revealEndsTick` | uint32 | public | `0` | When the reveal grid gives way to the countdown; server-authoritative so every client leaves together |
+| `countdownEndsTick` | uint32 | public | `0` | 0 if not counting down |
+| `matchStartedAtTick` | uint32 | public | `0` | Stamped on the transition into MATCH. Display only — `stepSim` never reads it |
+| `matchEndsTick` | uint32 | public | `0` | The tick `FFA_DEATHMATCH` or `CONQUER` ends on; `0` in every other mode. Stamped on the same edge as `matchStartedAtTick`, for the same reason: one number patched to everyone beats a local stopwatch per machine |
+| `winnerTeam` | int8 | public | `-1` | `-1` none/draw, `0` A, `1` B |
+| `winnerSessionId` | string | public | `""` | FFA winner; else empty |
+| `controlTicksA`, `controlTicksB` | uint16 | public | `0` | Conquer only: accumulated control-fill ticks per team, toward `derived().conquerTicks.controlTarget`. Written by the room, not read by `stepSim` |
+| `zoneHolder` | int8 | public | `-1` | Conquer only: the team whose uncontested, unopposed streak is currently running, or `-1` |
+| `zoneStreakTicks` | uint16 | public | `0` | Conquer only: that streak's length, saturating at `derived().conquerTicks.captureDelay` |
+| `zoneContested` | boolean | public | `false` | Conquer only: both teams present in the zone this tick. Public like every zone field, so under a mode's FOV it still tells every client an enemy is in the zone — intended HUD information |
+| `overtime` | boolean | public | `false` | Conquer only: the clock has expired with the control bars tied, and the match continues until one team takes uncontested control |
+| `players` | map `PlayerState` | public | empty | Keyed by sessionId. Every car's row reaches every client; its fields carry their own tags (below), so a car out of view arrives with its public fields only |
+| `weapons` | map `WeaponInstanceState` | `@view()` | empty | Live projectile and beam instances, keyed by instance id. A `@view()` map: a client receives only the rows added to its view — its own side's always (ended rows included), an enemy's while in its margined vision (NR44, NR46) |
+| `chat` | array `ChatMessageState` | public | empty | Last `CHAT_CONFIG.maxMessages` (20) lobby messages, oldest first. Nothing ever clears it — not a phase transition, not a kick — so a returning or late-joining player reads the backlog; dies with the room, since `ArenaRoom` sets no `autoDispose` override |
 
 ## ChatMessageState
 
@@ -79,41 +103,42 @@ field at all, so the check is always false there. See root `CLAUDE.md` and
 
 ## PlayerState
 
-| Field | Type | Default | Notes |
-|---|---|---|---|
-| `sessionId` | string | `""` | Colyseus session |
-| `x`, `y`, `angle` | number | `0` | Canonical world pose |
-| `status` | uint8 `PlayerStatus` | `READY` | READY=0, IN_MATCH=1, POST_MATCH=2 |
-| `ackRepeated` | boolean | `false` | Whether this snapshot's tick ran the car on a repeated or neutral input because its owner's frame had not arrived (NR22). Written by `serverTick`; a client diagnostic, never fed to `stepSim` |
-| `inputSlack` | float32 | `0` | Mean over the owner's last 30 frames of (frame tick − the tick the server was about to run on arrival), in ticks; late first copies count, floored at −1. The client's input scheduler steers it to `targetSlackTicks` (NR21). Replaces `lastProcessedInputSeq`: there is no per-input ack, a snapshot's own `tick` says what has run |
-| `inputSlackStd` | float32 | `0` | Population standard deviation of the same 30 samples; the scheduler adds `slackSpreadK × max(0, std − 0.5)` to its target (D5 ruling E) |
-| `name` | string | `""` | Display name |
-| `colorId` | uint8 | `0` | Index into `COLOR_TABLE` |
-| `team` | uint8 | `0` | 0 = A, 1 = B (FFA unused) |
-| `joinedAtTick` | uint32 | `0` | Host-succession order |
-| `carId` | string | `""` | `""` until reveal |
-| `vx`, `vy` | number | `0` | World velocity, u/s. Replaces the old scalar `speed` — a magnitude along the heading with a separate `shoveX`/`shoveY` knock vector bolted alongside. There is no successor to `shove`: steering grip keeps a driven car's own motion aligned with its nose, so any *lateral* component of `vx`/`vy` is by definition externally imposed, and a knocked car's motion is just a decomposition of the one velocity rather than a second field |
-| `angVel` | number | `0` | Ram-injected spin, rad/s. Decays toward `0` |
-| `maneuver` | uint8 `ManeuverKind` | `0` | NONE=0, DASH=1, HOLD=2, CHARGE=3 |
-| `maneuverTicksLeft` | uint16 | `0` | Ticks left in the current maneuver; `0` whenever `maneuver` is NONE |
-| `maneuverAngle` | number | `0` | The locked heading a DASH translates along (radians); `0` and unread for HOLD/CHARGE |
-| `maneuverSpeed` | number | `0` | The locked speed a DASH translates at (u/s); `0` and unread for HOLD/CHARGE |
-| `hp` | uint16 | `0` | Actual HP |
-| `alive` | boolean | `true` | False when eliminated |
-| `diedAtTick` | uint32 | `0` | The tick this car's hp reached 0, or `0` while it lives. Drives the client's death fade; also the "has not died" sentinel `isDueToRespawn`/`respawnSeconds` read |
-| `kills` | uint8 | `0` | Counted in every mode; only `FFA_DEATHMATCH` decides a winner from them. `uint8` is ample: six players over a three-minute match cannot approach 255 |
-| `deaths` | uint8 | `0` | Counted in every mode; the tie-break under `deathmatchOutcome` |
-| `killedBySessionId` | string | `""` | Who landed the killing blow, or `""` while alive. Render-only — `stepSim` never reads it. Networked for the same reason `diedAtTick` is: a spectator or a late joiner who never saw the death still needs to be able to name the killer. Cleared on respawn, which is also what dismisses the "killed you" banner |
-| `selectLocked` | boolean | `false` | Car-select lock; pick still hidden |
-| `lockedCarId` | string | `""` | Conquer's car-claims field (CQ4, CQ30): the chassis this player has locked in car select, written only where `uniqueChassisApplies` so teammates can grey out taken cards. `""` in every other mode, since blind pick applies there instead. Not read by `stepSim` |
-| `weapons` | array `WeaponSlotState` | empty | Per-slot state; array **position** is the slot index. `1 + min(kit.length, N)` rows per car: index 0 is the basic attack (BA15) and indices 1..`N` are the ability kit, since the 2026-09-20 index flip — the HUD draws only the kit |
-| `switchLockUntilTick` | uint32 | `0` | Tick a DIFFERENT weapon may fire; the weapon that just fired instead is gated by its own slot's `refireLockUntilTick` |
-| `level` | uint8 | `1` | In-match level; pinned to 1 until the level system exists. Gates `unlocksAt` |
-| `pendingUntilTick` | uint32 | `0` | Tick a committed press next puts a shot out (wind-up, or the next volley of a burst). `0` = nothing pending; the HUD reads mid-press as `tick < pendingUntilTick` |
-| `lastFiredSlot` | int8 | `-1` | Slot the car most recently committed to firing; `-1` = never fired. Signed because `-1` is the natural "never" for an index |
-| `turretAngle` | number | `0` | The turret's angle relative to the car's heading, radians (spec TR10). Mirrored from the server-only `FireState.turretAngle`. Render-only — `stepSim` never reads it, so invariant 8 does not apply and the client does not predict it |
-| `statuses` | array `StatusState` | empty | The statuses this car is in, capped at `STATUS_CONFIG.maxActive` (6). Sorted by `statusId` so a patch carries a diff rather than a reshuffle |
-| `lastSteer`, `lastThrottle` | int8 | `0` | The steer and throttle axes (-1/0/1) of the input the server consumed for this car on the tick, written every tick for every car (neutral when none). Remote dead reckoning feeds them to `stepSim` (NR33, invariant 8) |
+| Field | Type | Tag | Default | Notes |
+|---|---|---|---|---|
+| `sessionId` | string | public | `""` | Colyseus session |
+| `x`, `y`, `angle` | float32 | `@view()` | `0` | Canonical world pose. `float32` on the wire since protocol 6 (NR52); the server keeps full precision |
+| `status` | uint8 `PlayerStatus` | public | `READY` | READY=0, IN_MATCH=1, POST_MATCH=2 |
+| `ackRepeated` | boolean | `@view(VIEW_OWNER)` | `false` | Whether this snapshot's tick ran the car on a repeated or neutral input because its owner's frame had not arrived (NR22). Written by `serverTick`; a client diagnostic, never fed to `stepSim` |
+| `inputSlack` | float32 | `@view(VIEW_OWNER)` | `0` | Mean over the owner's last 30 frames of (frame tick − the tick the server was about to run on arrival), in ticks; late first copies count, floored at −1. The client's input scheduler steers it to `targetSlackTicks` (NR21). Replaces `lastProcessedInputSeq`: there is no per-input ack, a snapshot's own `tick` says what has run |
+| `inputSlackStd` | float32 | `@view(VIEW_OWNER)` | `0` | Population standard deviation of the same 30 samples; the scheduler adds `slackSpreadK × max(0, std − 0.5)` to its target (D5 ruling E) |
+| `name` | string | public | `""` | Display name |
+| `colorId` | uint8 | public | `0` | Index into `COLOR_TABLE` |
+| `team` | uint8 | public | `0` | 0 = A, 1 = B (FFA unused) |
+| `joinedAtTick` | uint32 | public | `0` | Host-succession order |
+| `carId` | string | public | `""` | `""` until reveal |
+| `vx`, `vy` | float32 | `@view()` | `0` | World velocity, u/s. Replaces the old scalar `speed` — a magnitude along the heading with a separate `shoveX`/`shoveY` knock vector bolted alongside. There is no successor to `shove`: steering grip keeps a driven car's own motion aligned with its nose, so any *lateral* component of `vx`/`vy` is by definition externally imposed, and a knocked car's motion is just a decomposition of the one velocity rather than a second field |
+| `angVel` | float32 | `@view()` | `0` | Ram-injected spin, rad/s. Decays toward `0` |
+| `maneuver` | uint8 `ManeuverKind` | `@view()` | `0` | NONE=0, DASH=1, HOLD=2, CHARGE=3 |
+| `maneuverTicksLeft` | uint16 | `@view()` | `0` | Ticks left in the current maneuver; `0` whenever `maneuver` is NONE |
+| `maneuverAngle` | float32 | `@view()` | `0` | The locked heading a DASH translates along (radians); `0` and unread for HOLD/CHARGE |
+| `maneuverSpeed` | float32 | `@view()` | `0` | The locked speed a DASH translates at (u/s); `0` and unread for HOLD/CHARGE |
+| `hp` | uint16 | `@view()` | `0` | Actual HP |
+| `alive` | boolean | public | `true` | False when eliminated |
+| `diedAtTick` | uint32 | public | `0` | The tick this car's hp reached 0, or `0` while it lives. Drives the client's death fade; also the "has not died" sentinel `isDueToRespawn`/`respawnSeconds` read |
+| `kills` | uint8 | public | `0` | Counted in every mode; only `FFA_DEATHMATCH` decides a winner from them. `uint8` is ample: six players over a three-minute match cannot approach 255 |
+| `deaths` | uint8 | public | `0` | Counted in every mode; the tie-break under `deathmatchOutcome` |
+| `killedBySessionId` | string | public | `""` | Who landed the killing blow, or `""` while alive. Render-only — `stepSim` never reads it. Networked for the same reason `diedAtTick` is: a spectator or a late joiner who never saw the death still needs to be able to name the killer. Cleared on respawn, which is also what dismisses the "killed you" banner |
+| `selectLocked` | boolean | public | `false` | Car-select lock; pick still hidden |
+| `lockedCarId` | string | public | `""` | Conquer's car-claims field (CQ4, CQ30): the chassis this player has locked in car select, written only where `uniqueChassisApplies` so teammates can grey out taken cards. `""` in every other mode, since blind pick applies there instead. Not read by `stepSim` |
+| `weapons` | array `WeaponSlotState` | public | empty | Per-slot state; array **position** is the slot index. `1 + min(kit.length, N)` rows per car: index 0 is the basic attack (BA15) and indices 1..`N` are the ability kit, since the 2026-09-20 index flip — the HUD draws only the kit |
+| `switchLockUntilTick` | uint32 | `@view(VIEW_OWNER)` | `0` | Tick a DIFFERENT weapon may fire; the weapon that just fired instead is gated by its own slot's `refireLockUntilTick` |
+| `level` | uint8 | public | `1` | In-match level; pinned to 1 until the level system exists. Gates `unlocksAt` |
+| `pendingUntilTick` | uint32 | `@view()` | `0` | Tick a committed press next puts a shot out (wind-up, or the next volley of a burst). `0` = nothing pending; the HUD reads mid-press as `tick < pendingUntilTick`. `@view()`, not owner-only (NR42 as amended in G2): the charge orb is a wind-up telegraph an opponent who can see the car acts on |
+| `lastFiredSlot` | int8 | `@view()` | `-1` | Slot the car most recently committed to firing; `-1` = never fired. Signed because `-1` is the natural "never" for an index |
+| `turretAngle` | float32 | `@view()` | `0` | The turret's angle relative to the car's heading, radians (spec TR10). Mirrored from the server-only `FireState.turretAngle`. Render-only — `stepSim` never reads it, so invariant 8 does not apply and the client does not predict it |
+| `statuses` | array `StatusState` | `@view()` | empty | The statuses this car is in, capped at `STATUS_CONFIG.maxActive` (6). Sorted by `statusId` so a patch carries a diff rather than a reshuffle |
+| `lastSteer`, `lastThrottle` | int8 | `@view()` | `0` | The steer and throttle axes (-1/0/1) of the input the server consumed for this car on the tick, written every tick for every car (neutral when none). Remote dead reckoning feeds them to `stepSim` (NR33, invariant 8) |
+| `inView` | boolean | `@view()` | `true` | Always `true` on the server (NR42, protocol 6). Being `@view()`, a client holds `true` exactly while this car is in its view and `undefined` once it leaves, so `inView === true` is the one test for "visible to me" (`packages/client/src/net/in-view.ts`) — never guess from an `undefined` pose. Appended last; never read by `stepSim` |
 
 `weaponCooldown` (a single counter for the one pre-weapon-system shot) is gone — replaced by
 `weapons` above, one row per slot.
@@ -147,7 +172,7 @@ weapon yet (Plan 3).
 
 ## StatusState
 
-One running status on one car. Array position carries no meaning — `modifiersOf` multiplies and OR-s,
+One running status on one car. Its fields are untagged, but the row reaches a client only inside its car's `@view()` `statuses` array — while that car is in the client's view. Array position carries no meaning — `modifiersOf` multiplies and OR-s,
 both of which commute — so the sim keeps rows sorted by `statusId` purely to keep patches small.
 
 | Field | Type | Default | Notes |
@@ -175,18 +200,24 @@ shared `modifiersFromRows`. See [`combat-model.md`](combat-model.md#statuses) fo
 
 ## WeaponInstanceState
 
-| Field | Type | Default | Notes |
-|---|---|---|---|
-| `id` | string | `""` | Instance id (map key) |
-| `ownerSessionId` | string | `""` | Shooter session |
-| `weaponId` | string | `""` | Lookup key into `WEAPON_TABLE` |
-| `kind` | uint8 `WeaponKind` | `PROJECTILE` | PROJECTILE=0, BEAM=1 |
-| `x`, `y`, `angle` | number | `0` | Canonical world pose |
-| `extent` | number | `0` | Beams: current reach. Projectiles: always 0 |
-| `spawnTick` | uint32 | `0` | Tick spawned |
-| `alive` | boolean | `true` | `false` only on an ENDED row (protocol 5): a shot that ended on its own birth tick — at the muzzle or inside its NR37 fast-forward — sent once at its end pose and held for `NET_CONFIG.endedShotRowMs`, then removed. Never drawn as a flying shot: clients draw its impact (`shotEnded`) and the shooter's provisional ends against it. A shot that lived on the wire ends by its row being removed, never by this flag |
-| `isExplosion` | boolean | `false` | True when this row is its weapon's explosion, not its shell |
-| `lifeOffsetTicks` | uint8 | `0` | Ticks older than `spawnTick` says: the press's shot compensation (NR37). A beam dies at `spawnTick + flight + lifetime - lifeOffsetTicks`. Protocol 4 |
+| Field | Type | Tag | Default | Notes |
+|---|---|---|---|---|
+| `id` | string | public, inside the `@view()` map | `""` | Instance id (map key) |
+| `ownerSessionId` | string | public, inside the `@view()` map | `""` | Shooter session |
+| `weaponId` | string | public, inside the `@view()` map | `""` | Lookup key into `WEAPON_TABLE` |
+| `kind` | uint8 `WeaponKind` | public, inside the `@view()` map | `PROJECTILE` | PROJECTILE=0, BEAM=1 |
+| `x`, `y`, `angle` | number | public, inside the `@view()` map | `0` | Canonical world pose |
+| `extent` | number | public, inside the `@view()` map | `0` | Beams: current reach. Projectiles: always 0 |
+| `spawnTick` | uint32 | public, inside the `@view()` map | `0` | Tick spawned |
+| `alive` | boolean | public, inside the `@view()` map | `true` | `false` only on an ENDED row: the shot has ended, and the row is held at its end pose for `NET_CONFIG.endedShotRowMs` (100 ms), then removed. Protocol 5 sent a shot that ended on its own birth tick (at the muzzle or inside its NR37 fast-forward) this way; **since protocol 8 (G5) every ending is** — a shot that lived flips its own row to `false`. A client draws an impact only from an ended row (shared `isShotEnding`) and never draws one as a flying shot; the shooter's provisional ends against it (NR39). A row that VANISHES is not an ending: under interest management it may only have left the view. A burst's (`isExplosion`) ending is never an impact |
+| `isExplosion` | boolean | public, inside the `@view()` map | `false` | True when this row is its weapon's explosion, not its shell |
+| `lifeOffsetTicks` | uint8 | public, inside the `@view()` map | `0` | Ticks older than `spawnTick` says: the press's shot compensation (NR37). A beam dies at `spawnTick + flight + lifetime - lifeOffsetTicks`. Protocol 4 |
+
+Every field of the row is untagged, but the map that holds it is `@view()`: a client receives a row
+only while the server's `ViewManager` has added it to that client's view — always for the client's
+own side's shots, ended rows included (the Phase F seam: the shooter's provisional confirms and ends
+against them), and for an enemy's while any of its sample points is in the client's margined vision
+(NR44, NR46). With FOV off (every shipped mode) every row is in every view.
 
 `ArenaState.weapons` is a `MapSchema`, not an array, keyed by instance id — the bridge **diffs**
 live instances by id, and a collection cleared and refilled every tick would patch every instance to
@@ -215,12 +246,12 @@ is created, never patched after.
 
 ## WeaponSlotState
 
-| Field | Type | Default | Notes |
-|---|---|---|---|
-| `weaponId` | string | `""` | Lookup key into `WEAPON_TABLE` |
-| `stocks` | uint8 | `0` | Charges currently held |
-| `rechargeEndsTick` | uint32 | `0` | Tick the running recharge completes; `0` = not recharging |
-| `refireLockUntilTick` | uint32 | `0` | Tick this same weapon may fire again |
+| Field | Type | Tag | Default | Notes |
+|---|---|---|---|---|
+| `weaponId` | string | public | `""` | Lookup key into `WEAPON_TABLE`. Public: the loadout is public in car select |
+| `stocks` | uint8 | `@view(VIEW_OWNER)` | `0` | Charges currently held |
+| `rechargeEndsTick` | uint32 | `@view(VIEW_OWNER)` | `0` | Tick the running recharge completes; `0` = not recharging |
+| `refireLockUntilTick` | uint32 | `@view(VIEW_OWNER)` | `0` | Tick this same weapon may fire again |
 
 `PlayerState.weapons` is an `ArraySchema<WeaponSlotState>` — array **position** is the slot index,
 matching `fireSlotsOf(car)`'s ordering: index 0 is that chassis's basic attack
@@ -280,7 +311,7 @@ client sends: a client that lies gains at most the cap — see
 
 ## Join options
 
-`joinOrCreate(ROOM_NAME, { name })`. `name` is required (1–16 characters after trim). The server rejects invalid names (`4000`) and duplicates (`4001`, `"Name is taken"`). A 7th joiner is rejected by `maxClients`; creating a second `arena` room is rejected with `4003` `"Room is full"` so LAN stays one room.
+`joinOrCreate(ROOM_NAME, { name, protocol })`. `protocol` is the client's `PROTOCOL_VERSION` (8 today); every room refuses a mismatch, or its absence, with `CLOSE_CODES.PROTOCOL_MISMATCH` (NR55, see [`networking.md`](networking.md#hardening-nr54nr56)). `name` is required (1–16 characters after trim). The server rejects invalid names (`4000`) and duplicates (`4001`, `"Name is taken"`). A 7th joiner is rejected by `maxClients`; creating a second `arena` room is rejected with `4003` `"Room is full"` so LAN stays one room.
 
 ## Lobby messages
 
@@ -299,5 +330,16 @@ Server → client:
 | Type | Constant | Payload |
 |---|---|---|
 | `start_error` | `MSG_START_ERROR` | `{ error }` (stable strings from `canStart`) |
+
+## Match messages
+
+Client → server, during a match:
+
+| Type | Constant | Payload | Who |
+|---|---|---|---|
+| `spectate_target` | `MSG_SPECTATE_TARGET` | `{ target }` (a session id, ≤ 64 characters) | A spectating wreck: the car its camera shows (NR45, protocol 7). Sent on the wreck's first frame, on every `[`/`]` change, and every `NET_CONFIG.spectateResendMs` while unchanged. The server ignores a target `spectatableIds` would not let that wreck watch under the mode's `camera().spectate`, and any pick from a car that is not a spectating wreck. Its own rate-limit bucket (`spectate`, 10/s) |
+
+Inputs (`"input"`), clock sync (`MSG_TIME`) and the ping echo (`MSG_PING`) are in
+[`networking.md`](networking.md).
 
 Do not renumber enums.

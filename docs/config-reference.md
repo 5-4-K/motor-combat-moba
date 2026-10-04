@@ -34,7 +34,7 @@ tables.
 |---|---|---|
 | `DEPLOY_MODE` | server `mode.ts` | `lan` (`cloud` is CORS-only; no hosting) |
 | `PORT` | server `mode.ts` | `2567` |
-| `SIM_LATENCY_MS` | latency injector (`mode.ts`, `net/latency-injector.ts`) | `0` — dev only; **one-way** delay in ms, applied in both directions (client→server inputs and server→client snapshots, pongs, pings and errors), in order. Practice and arena rooms only; the playground never injects (PG9). Never set in a release |
+| `SIM_LATENCY_MS` | latency injector (`mode.ts`, `net/latency-injector.ts`) | `0` — dev only, never on a dedicated server; **one-way** delay in ms, applied in both directions (client→server inputs and server→client snapshots, pongs, pings and errors), in order. Practice and arena rooms only; the playground never injects (PG9). Never set in a release |
 | `SIM_JITTER_MS` | latency injector | `0` — one-way jitter, in ms: each message's delay is drawn uniformly within ± this of `SIM_LATENCY_MS`; delivery stays in order |
 | `SIM_LOSS_PCT` | latency injector | `0` — percent chance a message is "lost"; it is retransmitted `2 × SIM_LATENCY_MS` later with everything behind it held (the netsim `Link` model of a TCP retransmit). Ignored unless `SIM_LATENCY_MS` or `SIM_JITTER_MS` is above 0 |
 | `CLIENT_ORIGIN` | server CORS (`http-app.ts`, Vite) | unset; `npm run dev` sets `http://localhost:5173`. When set, matchmaker routes' `Access-Control-Allow-Origin` is pinned to it (`restrictMatchmakerCors`); unset (the same-origin LAN release) the origin is reflected |
@@ -1103,9 +1103,13 @@ the arena, so a one-screen arena simply has no room left to scroll — that repr
 "fixed" camera exactly, with no arena-side flag. `rotate: "heading"` and `fov.enabled` are both
 wired; no shipped mode turns either on yet.
 
-**What `fov.enabled` does (CB25–CB29).** Client-only and purely visual — the server, the sim and
+**What `fov.enabled` does (CB25–CB29, and NR44–NR47 since Phase G).** The client draws it, and the
+server ENFORCES it: since Phase G the server's `ViewManager` sends a client an enemy's car state and
+shots only while they are (nearly) inside that client's margined, swept vision, so a patched client
+cannot see more (see [`networking.md`](networking.md#what-a-client-may-know-nr42nr49)). The sim and
 the bots still see the whole arena (CB5, CB33; the bot guard in `modes/invariants.test.ts` refuses
-FOV on the bundles Practice and the playground seat bots in). Each viewer car sees an ellipse
+FOV on the bundles Practice and the playground seat bots in). Turning it on is a mode-folder edit
+(`camera.fov.enabled` in that mode's `config.ts`): the playground's tuning cannot reach `camera.*`. Each viewer car sees an ellipse
 (`rangeX` ahead, `rangeY` across, centred `offsetX`/`offsetY` off the car) cut to an `angleDeg`
 cone from that centre, and, with `blockedByObstacles`, not through any obstacle. The vision set is
 the perspective player's own car (or its death pose under `"pov"`), plus living teammates when
@@ -1247,7 +1251,7 @@ CB3). Meaningful only on a layout that maps onto itself under that rotation, whi
 
 ## NET_CONFIG
 
-Every key of `config/net-config.ts`. Global, not per mode. Deleted by Phase D: `pendingInputCap` and `maxInputsPerTick` (the server takes one input per car per tick; the client's pending list is pruned by snapshot tick). Deleted by Phase E: `interpolationDelayMs` (remotes are drawn at an adaptive delay between `minDelayMs` and `maxDelayMs`, NR30).
+Every key of `config/net-config.ts`. Global, not per mode — the online-netcode redesign's knobs (Phases D–G, spec [`2026-09-29-online-netcode-redesign-design.md`](superpowers/specs/2026-09-29-online-netcode-redesign-design.md)); how they fit together is [`networking.md`](networking.md). Deleted by Phase D: `pendingInputCap` and `maxInputsPerTick` (the server takes one input per car per tick; the client's pending list is pruned by snapshot tick). Deleted by Phase E: `interpolationDelayMs` (remotes are drawn at an adaptive delay between `minDelayMs` and `maxDelayMs`, NR30). Deleted by Phase F: `shotExtrapolationCapMs`, `provisionalShotGraceMs`, `provisionalShotFadeMs` (shots are drawn at the local present by `ShotView`; an unconfirmed provisional is dropped by snapshot, not by a wall-clock ttl).
 
 | Knob | Value | Meaning |
 |---|---|---|
@@ -1267,7 +1271,11 @@ Every key of `config/net-config.ts`. Global, not per mode. Deleted by Phase D: `
 | `shotCompSlackStds` | 2 | NR36's `allowedTicks`: standard deviations of the server-measured input slack added, so a client whose lead wobbles is not clamped on its slow presses. The cap, not this term, bounds a jittery link |
 | `provisionalShotMatchTicks` | 2 | NR39: a server instance (same owner, same weapon) confirms your provisional shot when its `spawnTick` is within this many ticks of the expected one (`net/provisional-shots.ts`) — and a provisional still unconfirmed once the client has applied a snapshot at or past `spawnTick + provisionalShotMatchTicks` is dropped (snapshots arrive in order, so no match is still to come) |
 | `provisionalShotEaseMs` | 100 | NR39: the drawn gap between a provisional shot and its confirming instance eases out over this |
-| `endedShotRowMs` | 100 | NR37/NR39: a shot that ended on its own birth tick (inside its fast-forward, or at the muzzle) is sent as an ENDED row (`alive: false`, its end pose) for this long, then removed — every client draws its impact from it and the shooter's provisional ends against it. Long enough to still be in the first snapshot the shooter applies at or past `spawnTick + provisionalShotMatchTicks` when a frame applies several queued patches |
+| `endedShotRowMs` | 100 | NR37/NR39: every shot that ends is held on the wire as an ENDED row (`alive: false`, its end pose) for this long, then removed — a shot that ended on its own birth tick (inside its fast-forward, or at the muzzle) since protocol 5, every other ending since protocol 8 (G5). Every client draws its impact only from such a row, and the shooter's provisional ends against it. The requirement is that the row is present on some frame the client draws after its snapshot arrives (a frame can apply several queued patches and sees only the last). Held below `visionExitMs` by a config test, so a row in view cannot leave and come back |
+| `visionExitMs` | 250 | NR47: an enemy car or shot that has been in a client's view leaves it only after it has been outside the viewer's MARGINED vision this long without a break, so the view does not churn on the edge. Read as `msToTicks` of a view clock that keeps advancing while a practice or playground room is paused (`ViewClock`) |
+| `visionMarginLeadMs` | 250 | NR46: how far past the drawn vision edge the server's interest test reaches, as TIME. Car margin = `ceil(fastest active chassis's top speed × this / 1000)` (≈ 71 u); projectile margin = the same at the fastest projectile in the mode (225 u for 900 u/s); a growing beam is sampled at its reach this much later. Derived per mode at call time (`visionMarginUnits`, `visionShotMarginUnits`), never typed as a distance |
+| `visionViewerLeadCapMs` | 134 | NR46 (G5b): the most a viewer's swept cone may assume its client draws its own car ahead of the server. The cone sweeps through `turnRate × L` and its margins grow by `maxSpeed × L`, where `L = min(min(appRtt, wsRtt) + inputSlack + one snapshot interval, this)`. Sized from `net80clean`'s measured p95 of `P − T` at reveal (128–131 ms), rounded up to 8 ticks (133.3 ms) and then whole ms, so no link sweeps wider than the good connection; a config test holds it to a whole number of ticks. Enforced only in `viewerLeadMs` (`packages/server/src/net/view-manager.ts`) |
+| `spectateResendMs` | 1000 | NR45: how often a spectating wreck re-sends an unchanged `MSG_SPECTATE_TARGET`, so a report the link dropped leaves the server on the previous target for at most this long. Well inside the `spectate` rate-limit bucket (10/s) |
 | `targetSlackTicks` | 1.5 | Where the client's slack feedback steers the mean input lead, in ticks (NR21) |
 | `slackSpreadK` | 1 | Ticks of target added per tick of `inputSlackStd` beyond the 0.5-tick quantisation floor (`SLACK_QUANTISATION_STD_TICKS`). D6 measured K 8 (with gain 0.015) at net80 1.84 % repeats / 112 ms input-to-server against K 1's 3.69 % / 78 ms and kept 1: latency first, a lossy link's repeats land on its own player |
 | `maxDilation` | 0.04 | Most the client's tick clock may run faster or slower than nominal while steering slack (NR21) |
@@ -1288,7 +1296,7 @@ Every key of `config/net-config.ts`. Global, not per mode. Deleted by Phase D: `
 | `timeSyncBurstMs` | 100 | Ping interval during the join burst |
 | `timeSyncBurstWindowMs` | 1000 | How long after joining the burst interval applies |
 
-Not in the table, because they are module constants rather than config: the scheduler's safety gain `SAFETY_GAIN` (0.03 ticks of safety per tick of slack error, per new sample; `net/input-scheduler.ts`), its deadband (0.25 tick), `SLACK_QUANTISATION_STD_TICKS` (0.5) and `LATE_SLACK_FLOOR_TICKS` (-1, `net/tick-input.ts`; derived from the gain, see its comment). Also in shared: `PROTOCOL_VERSION` (4, bump on every wire change; 2 added `lastSteer`/`lastThrottle`, 3 gave `viewTick` a meaning, 4 added `WeaponInstanceState.lifeOffsetTicks`) and `CLOSE_CODES` (4100–4112). Server-side limits live in `net/rate-limit.ts` (`input` 120/s burst 30, `time` 20/s burst 20, `lobby` 10/s burst 10, kick after 5 s continuously over; `MAX_MESSAGES_PER_SECOND` 1000) and `http-app.ts` (`MAX_WS_PAYLOAD_BYTES` 4096); see [`networking.md`](networking.md#hardening-nr54nr56).
+Not in the table, because they are module constants rather than config: the scheduler's safety gain `SAFETY_GAIN` (0.03 ticks of safety per tick of slack error, per new sample; `net/input-scheduler.ts`), its deadband (0.25 tick), `SLACK_QUANTISATION_STD_TICKS` (0.5) and `LATE_SLACK_FLOOR_TICKS` (-1, `net/tick-input.ts`; derived from the gain, see its comment). Also in shared `constants.ts`: `SNAPSHOT_RATE_HZ` (60 — how often a room broadcasts; must divide `TICK_RATE_HZ`, a snapshot is the state of exactly one tick and no client code may assume one per tick, NR12/NR13), `PROTOCOL_VERSION` (**8**; bump on every wire change — 1 the Phase D wire, 2 added `lastSteer`/`lastThrottle`, 3 gave `viewTick` a meaning, 4 added `WeaponInstanceState.lifeOffsetTicks`, 5 gave `alive: false` its ended-row meaning for birth-tick endings, 6 tagged the schema for interest management and quantised pose/velocity/maneuver/turret to `float32` and appended `PlayerState.inView`, 7 added `MSG_SPECTATE_TARGET` and gave the tags their FOV meaning, 8 made the ended row the only way a shot ends on the wire) and, in `net/close-codes.ts`, `CLOSE_CODES` (4100–4112). Server-side limits live in `net/rate-limit.ts` (`input` 120/s burst 30, `time` 20/s burst 20, `lobby` 10/s burst 10, `spectate` 10/s burst 10, kick after 5 s continuously over; `MAX_MESSAGES_PER_SECOND` 1000) and `http-app.ts` (`MAX_WS_PAYLOAD_BYTES` 4096); see [`networking.md`](networking.md#hardening-nr54nr56).
 
 ## PRACTICE_CONFIG
 

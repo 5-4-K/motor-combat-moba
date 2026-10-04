@@ -4,7 +4,7 @@
 |---|---|
 | **Arena** | The match space and the Colyseus room name (`ROOM_NAME` = `"arena"`). |
 | **Colyseus room** | Server instance of `ArenaRoom` holding `ArenaState` and clients. |
-| **Tick** | Sim step at `TICK_RATE_HZ` (30). `ArenaState.tick` increments each interval. |
+| **Tick** | Sim step at `TICK_RATE_HZ` (60). `ArenaState.tick` increments each step; every car steps exactly once per tick, with the input stamped for that tick. |
 | **Patch** | State broadcast to clients — one snapshot of exactly one tick, at `SNAPSHOT_RATE_HZ` (60). Not the same as tick: no client code may assume one per tick. |
 | **Prediction** | Client applying `stepSim` locally ahead of patches, reconciled by replay against each patch. |
 | **Interpolation** | Smoothing remote poses between snapshots, keyed by server tick and drawn an adaptive delay (`minDelayMs`–`maxDelayMs`) behind the synced server clock (NR29, NR30). |
@@ -15,9 +15,13 @@
 | **Raw global** | A table still exported from `packages/shared/src/config/` (`CAR_TABLE`, `WEAPON_TABLE`, `DRIVE_CONFIG`, …). The game reads **none** of them directly; they assemble `BASE_TABLES` (`modes/base.ts`), which every mode's `config.ts` overrides merge over. No non-test file outside `config/` and `modes/base.ts` may name one directly. |
 | **LAN** | Default deploy: host serves client dist; others join via LAN IP. |
 | **hostSessionId** | Session of the room host (first joiner; reassigned on leave). |
-| **InputFrame** | `{ tick, steer, throttle, fireSlots, aimAngle? }`: one tick's input, stamped with the tick it is FOR. Sent as an `InputPacket` (`{ inputs }`, newest plus three previous) on `"input"`. |
-| **Wreck** | A car at 0 HP: `alive = false`. Still solid, no longer fires or can be shot. |
-| **Spectate** | What a dead player does: a local camera following a living car, or free roam. Server has no notion of it. |
+| **InputFrame** | `{ tick, steer, throttle, fireSlots, aimAngle?, viewTick? }`: one tick's input, stamped with the tick it is FOR. Sent as an `InputPacket` (`{ inputs }`, newest plus three previous) on `"input"`. |
+| **Wreck** | A car at 0 HP: `alive = false`. Intangible (see Death fade); no longer fires or can be shot. |
+| **View** (interest management) | What one client receives (NR42–NR47): its `StateView`, recomputed every snapshot by the server's `ViewManager`. Public fields reach everyone; `@view()` fields (a car's pose, hp, statuses, its shots) only while the object is in that client's view; `@view(VIEW_OWNER)` fields (slot timers, input slack) only for its own car, teammates and the car its wreck spectates. With FOV off — every shipped mode — every car and shot is in every view. |
+| **`inView`** | `PlayerState.inView`: always `true` on the server, `@view()`, so a client reads `inView === true` as "this car is visible to me". |
+| **Ended row** | A `WeaponInstanceState` with `alive: false`: a shot that has ended, held at its end pose for `endedShotRowMs`. Since protocol 8 the only way a shot ends on the wire; a client draws an impact only from one, never from a row that vanished (which may only have left its view). |
+| **Shot compensation** | The ticks `k` a press's fresh shot is fast-forwarded on its birth tick, `P − viewTick` clamped to the link's honest allowance and to `shotCompCapMs` (150 ms, 9 ticks) (NR36, NR37). Cars are never rewound. |
+| **Spectate** | What a dead player does: a camera following a living car, or free roam. The camera is local, but the client reports the car it watches (`MSG_SPECTATE_TARGET`, NR45) so the server can send the wreck what that car sees under a mode's FOV and that car's slot timers. |
 | **Death fade** | A dead car is intangible and frozen from the tick its hp hits 0 — there is no wreck. The client fades it out over `DEATH_FADE_MS` from the networked `diedAtTick`, then stops drawing it. |
 | **Fire edge** | `fireSlots` carries key state; the server turns it into presses with `prevFireMasks`, so holding the trigger fires once. |
 | **Status** | A timed condition a car is in: a row in the active mode's status table (`statusTable()`) plus a start and end tick. Scales numbers the sim already reads, and may pulse hp or cleanse on arrival. Never moves a car. Its duration belongs to whatever applied it, not to the row. |

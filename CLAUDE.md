@@ -547,6 +547,20 @@ arena, since the art already carries them. The bot also learned the polygon and 
 [`docs/superpowers/specs/2026-09-11-arena-sprite-and-spike-hazard-design.md`](docs/superpowers/specs/2026-09-11-arena-sprite-and-spike-hazard-design.md)
 (AS1–AS31).
 
+**Online netcode (redesign landed 2026-10-04, phases A–G).** Built for a dedicated server up to
+80 ms RTT: clients send **tick-stamped inputs, and every car steps exactly once per tick** with the
+input for that tick (a missing one repeats, then goes neutral — the speed hack is closed); `ClockSync`
+plus a slack-steered `InputScheduler` run each client ahead of the server; remotes are drawn
+**tick-keyed** at an adaptive delay with capped dead reckoning and a contact blend; a press is
+**shot-compensated** by fast-forwarding its shot up to `shotCompCapMs` (150 ms) — cars are never
+rewound and rams are never compensated; and **interest management** (`StateView` field tags, the
+server's `ViewManager`) sends a client an enemy's state only inside its margined, swept vision — a
+no-op today, since FOV is off in every shipped mode. Read
+[`docs/networking.md`](docs/networking.md) (including "What remains unfair"), then the
+[spec](docs/superpowers/specs/2026-09-29-online-netcode-redesign-design.md) (NR1–NR68) and its
+state file [`EXECUTION.md`](docs/superpowers/plans/2026-09-29-online-netcode/EXECUTION.md), which
+holds the measured numbers and the open questions.
+
 ## Reporting a finding: claim first, then offer the evidence
 
 **Lead with the claim, in one plain sentence.** Then say how confident you are and how you checked
@@ -575,7 +589,7 @@ something, discuss it — do not answer with a parameter sweep.
 5. Snapshot rate is its own constant (`SNAPSHOT_RATE_HZ`); no client code may assume one snapshot per tick.
 6. `{x, y, angle}` is canonical world state.
 7. Enum uint8 values are explicit and stable; never renumber.
-8. If `stepSim` reads it, it is a networked schema field.
+8. If `stepSim` reads it, it is a networked schema field — and a field a client may not always see carries a `@view` tag.
 9. Shared is consumed as built `dist`.
 10. Max 6 players.
 
