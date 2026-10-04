@@ -36,6 +36,11 @@ import {
   type VisionShape,
   WeaponInstanceState,
   type WorldShape,
+  MS_PER_TICK,
+  SNAPSHOT_RATE_HZ,
+  isCarId,
+  modifiersFromRows,
+  weaponDefOf,
   weapons,
 } from "@motor-combat-moba/shared";
 
@@ -88,6 +93,47 @@ export interface Viewer {
    * playground. Defaults to `sessionId` when absent; `null` means it drives none.
    */
   owned?: string | null;
+  /**
+   * How far ahead of the authoritative state this client draws its OWN car, ms (`viewerLeadMs`): the
+   * lead its swept cone covers (NR46, G5b). Absent or 0 — a bot, a harness, a client whose RTT is not
+   * measured yet — means no sweep, the plain margined shape.
+   */
+  leadMs?: number;
+}
+
+/**
+ * NR46 (G5b): the lead `L` a viewer's swept cone covers — `min(rtt + inputSlack + one snapshot
+ * interval, visionViewerLeadCapMs)`, where `rtt` is the SERVER-measured `min(appRtt, wsRtt)`
+ * (`NetSessions.compRttMs`, as NR36 prices compensation) and `slackTicks` the car's measured input
+ * slack (`PlayerState.inputSlack`). The client draws its own car at its predicted tick: one down-leg
+ * after the server tested tick T, plus one input-to-server lead (up-leg + slack) ahead of that, plus up
+ * to a snapshot interval of waiting — about one RTT plus the slack. No RTT yet (a fresh joiner, a bot
+ * or harness viewer) is 0. The cap is net80clean's measured lead, so no connection — lossy or lying
+ * about its RTT — is swept wider than the good one.
+ */
+export function viewerLeadMs(rttMs: number | undefined, slackTicks: number | undefined): number {
+  if (rttMs === undefined || !(rttMs >= 0)) return 0;
+  const slack = Number.isFinite(slackTicks) ? Math.max(0, slackTicks!) : 0;
+  const lead = rttMs + slack * MS_PER_TICK + 1000 / SNAPSHOT_RATE_HZ;
+  return Math.min(lead, NET_CONFIG.visionViewerLeadCapMs);
+}
+
+/**
+ * NR46 (G5b): how far a viewer may have turned (`sweep`, radians) and travelled (`travel`, units) in
+ * `leadMs` — its chassis turn rate and top speed as the sim resolves them (`driveOf`) times its
+ * current status modifiers (`turnRate`, `topSpeed`). An external spin (a ram's `spinFree` up to
+ * `ram().spinMaxRate`) or a dash can exceed it; those also mispredict the client's own drawn
+ * cone, so the residual is the client's own correction. Mode scope.
+ */
+export function viewerSweepOf(car: PlayerState, leadMs: number, tick: number): { sweep: number; travel: number } {
+  if (!(leadMs > 0) || !isCarId(car.carId)) return { sweep: 0, travel: 0 };
+  const mods = modifiersFromRows(car.statuses, tick);
+  const chassis = driveOf(car.carId);
+  const seconds = leadMs / 1000;
+  return {
+    sweep: chassis.turnRate * mods.turnRate * seconds,
+    travel: chassis.maxSpeed * mods.topSpeed * seconds,
+  };
 }
 
 /** The part of a Colyseus `Client` a room hands in: its session, and its view once it has one. */
@@ -112,10 +158,17 @@ export function ensureView(client: ViewClient): StateView {
 export function viewersOf(
   clients: Iterable<ViewClient>,
   ownedOf: (client: ViewClient) => string | undefined,
+  leadOf?: (client: ViewClient, owned: string | undefined) => number,
 ): Viewer[] {
   const viewers: Viewer[] = [];
   for (const client of clients) {
-    viewers.push({ sessionId: client.sessionId, view: ensureView(client), owned: ownedOf(client) ?? null });
+    const owned = ownedOf(client);
+    viewers.push({
+      sessionId: client.sessionId,
+      view: ensureView(client),
+      owned: owned ?? null,
+      leadMs: leadOf?.(client, owned) ?? 0,
+    });
   }
   return viewers;
 }
@@ -169,8 +222,10 @@ export function visionMarginUnits(): number {
  * `ceil(max(fastest projectile in the mode's weapon table, fastest active chassis) × visionMarginLeadMs
  * / 1000)`. A projectile flies at up to 900 u/s against a car's ~284, so the car margin (~71 u) let a
  * fast shot cross it in under one round trip and pop into the drawn cone. Every projectile row counts,
- * carried or not — over-reaching costs a little information, never a pop-in. Beams are not counted: a
- * beam's reach is drawn from its muzzle, which the owner's own visibility already governs. Mode scope
+ * carried or not — over-reaching costs a little information, never a pop-in. Beam speeds are not
+ * counted. It is applied PER ROW KIND (`instanceMarginKind`): to projectiles alone; every beam and
+ * burst takes the car margin (their origin moves no faster than a car, and the viewer no faster than
+ * one either), and a beam's growing tip is sampled ahead instead (`instanceInterestShape`). Mode scope
  * only, never module scope.
  */
 export function visionShotMarginUnits(): number {
@@ -190,6 +245,32 @@ export interface InstanceShapeRow {
   readonly y: number;
   readonly angle: number;
   readonly extent: number;
+}
+
+/**
+ * Which margin an instance's sample points are tested against (G5b): `"shot"` for a projectile, which
+ * outruns every car; `"car"` for everything else — an attached beam (welded to its owner, it moves as a
+ * car does), a detached beam or a burst (they do not move, but the VIEWER does, at up to a car's
+ * speed, and the car margin is what covers that), and anything this build cannot resolve. A beam's
+ * growing tip is covered by its sampled shape instead (`instanceInterestShape`).
+ */
+export function instanceMarginKind(instance: Pick<InstanceShapeRow, "weaponId" | "isExplosion">): "shot" | "car" {
+  if (instance.isExplosion || !isWeaponId(instance.weaponId)) return "car";
+  return weaponDefOf(instance.weaponId).kind === "projectile" ? "shot" : "car";
+}
+
+/**
+ * What the server tests an instance's interest against (G5b): its hitbox now (`instanceWorldShape`),
+ * except that a beam still growing is sampled at the reach it will have `visionMarginLeadMs` later
+ * (`extent + speed × lead`, at most its range) — the client draws it advanced to its present (NR40),
+ * so its tip is the part that moves fastest, at the beam's expansion speed rather than any margin's.
+ */
+export function instanceInterestShape(instance: InstanceShapeRow): WorldShape {
+  if (instance.isExplosion || !isWeaponId(instance.weaponId)) return instanceWorldShape(instance);
+  const def = weaponDefOf(instance.weaponId);
+  if (def.kind !== "beam") return instanceWorldShape(instance);
+  const grown = Math.min(def.range, Math.max(0, instance.extent) + (def.speed * NET_CONFIG.visionMarginLeadMs) / 1000);
+  return instanceWorldShape({ ...instance, extent: grown });
 }
 
 /** What the server tests a shot's visibility against: its hitbox as the sim sees it now. */
@@ -222,8 +303,11 @@ interface Interest {
   owners: Set<string>;
   /** Undefined when everything is seen (FOV off, or not in a match). */
   shapes: VisionShape[] | undefined;
-  /** The same vision grown by the shot margin, for instances; undefined exactly when `shapes` is. */
-  shotShapes: VisionShape[] | undefined;
+  /**
+   * The same vision per instance margin kind (`instanceMarginKind`); undefined exactly when `shapes`
+   * is. `car` is `shapes` itself.
+   */
+  instanceShapes: Record<"shot" | "car", VisionShape[]> | undefined;
 }
 
 export class ViewManager {
@@ -254,7 +338,7 @@ export class ViewManager {
     const samplesOf = (instance: WeaponInstanceState) => {
       let points = samples.get(instance);
       if (!points) {
-        points = shotSamplePoints(instanceWorldShape(instance));
+        points = shotSamplePoints(instanceInterestShape(instance));
         samples.set(instance, points);
       }
       return points;
@@ -296,7 +380,7 @@ export class ViewManager {
       });
 
       state.weapons.forEach((instance) => {
-        const shapes = interest.shotShapes;
+        const shapes = interest.instanceShapes?.[instanceMarginKind(instance)];
         const wanted =
           shapes === undefined ||
           interest.always.has(instance.ownerSessionId) ||
@@ -409,13 +493,15 @@ export class ViewManager {
 
     const fov = camera().fov;
     if (!fov.enabled || state.phase !== RoomPhase.MATCH) {
-      return { always, owners, shapes: undefined, shotShapes: undefined };
+      return { always, owners, shapes: undefined, instanceShapes: undefined };
     }
 
     // CB26's vision set, from authoritative poses. `"pov"` freezes the viewer's own wreck where it
     // lies (the server's pose of a dead car is its death pose) — only while watching nobody.
     const perspective = perspectiveId === undefined ? undefined : state.players.get(perspectiveId);
-    if (perspectiveId === undefined || !perspective) return { always, owners, shapes: [], shotShapes: [] };
+    if (perspectiveId === undefined || !perspective) {
+      return { always, owners, shapes: [], instanceShapes: { shot: [], car: [] } };
+    }
     const players: VisionPlayer[] = [];
     state.players.forEach((p, sessionId) => {
       if (p.status !== PlayerStatus.IN_MATCH) return;
@@ -434,11 +520,25 @@ export class ViewManager {
     });
     const margin = marginUnits();
     const drawn = poses.map((pose) => visionShapeOf(pose, fov));
+    // The swept cone (NR46, G5b): only the viewer's OWN living car is drawn ahead of the server (it
+    // is predicted); teammates, a spectate target and a frozen death pose are drawn at or behind it.
+    // `visionPoses` puts the perspective's own pose first when it is alive.
+    const sweeping = watching === "" && ownCar !== undefined && ownCar.alive && ownCar.status === PlayerStatus.IN_MATCH;
+    const own = sweeping ? viewerSweepOf(ownCar, viewer.leadMs ?? 0, state.tick) : { sweep: 0, travel: 0 };
+    // The sweep pivots at the shape's centre; a car-frame offset moves that centre by up to
+    // |offset| × Δθ as the car turns, which the margin absorbs (0 for every shipped FOV).
+    const offsetSweep = Math.hypot(fov.offsetX, fov.offsetY) * own.sweep;
+    const grow = (base: number) =>
+      drawn.map((shape, i) => {
+        if (i !== 0 || own.sweep <= 0) return marginShape(shape, base);
+        return { ...marginShape(shape, base + own.travel + offsetSweep), sweep: own.sweep };
+      });
+    const carShapes = grow(margin.car);
     return {
       always,
       owners,
-      shapes: drawn.map((shape) => marginShape(shape, margin.car)),
-      shotShapes: drawn.map((shape) => marginShape(shape, margin.shot)),
+      shapes: carShapes,
+      instanceShapes: { car: carShapes, shot: grow(margin.shot) },
     };
   }
 }

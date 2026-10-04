@@ -174,6 +174,17 @@ export const NET_CONFIG = {
    */
   visionMarginLeadMs: 250,
   /**
+   * NR46 (G5b): the most a viewer's swept cone may assume it is drawn ahead of the server, ms. The
+   * server sweeps a viewer's cone through `turnRate × L` and grows its margins by `maxSpeed × L`,
+   * where `L = min(min(appRtt, wsRtt) + inputSlack + one snapshot interval, this)` — the lead its
+   * client's predicted, drawn pose has over the authoritative one the server tests. Sized from the
+   * good connection: the netsim's net80clean p95 of `P − T` at reveal (the drawn local tick minus the
+   * revealing snapshot's tick) measured 128.1–130.8 ms over seeds 1–3 (G5b, 60 s, six cars), rounded
+   * up to whole ticks: 8 ticks = 133.3 ms. A lossy or lag-faking client therefore never sweeps wider —
+   * never sees more — than net80clean; it pays its extra lead in its own pop-ins (the D6 rule).
+   */
+  visionViewerLeadCapMs: 134,
+  /**
    * NR45: how often a spectating wreck re-sends its current pick (`MSG_SPECTATE_TARGET`) while the
    * pick has not changed. The report is sent on every change; this repeat is what recovers one the
    * link dropped, which would otherwise leave the server showing the wreck its previous target's

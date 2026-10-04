@@ -32,6 +32,13 @@ export interface VisionShape {
    * apex is the centre, which is every shape `visionShapeOf` builds. Only `marginShape` sets it.
    */
   readonly apexBack?: number;
+  /**
+   * The server's swept cone (NR46, G5b): the shape is the UNION of itself rotated about its centre
+   * through every angle in `[-sweep, +sweep]` radians — the cone a viewer may have turned to by the
+   * time it draws what it is sent. Absent (0) for every shape the client draws; only the server's
+   * `ViewManager` sets it. Ignored on a full (>= 360°) shape: the ruling grows only its distance.
+   */
+  readonly sweep?: number;
 }
 
 const ANGLE_EPSILON = 1e-9;
@@ -63,8 +70,23 @@ export function inShape(p: Pt, s: VisionShape): boolean {
   const dy = p.y - s.cy;
   const cos = Math.cos(s.heading);
   const sin = Math.sin(s.heading);
-  const along = dx * cos + dy * sin;
-  const across = -dx * sin + dy * cos;
+  let along = dx * cos + dy * sin;
+  let across = -dx * sin + dy * cos;
+  const sweep = s.full ? 0 : (s.sweep ?? 0);
+  if (sweep > 0) {
+    // Rotate the point toward the heading by as much of the sweep as its bearing needs. Along any
+    // circle about the centre, membership of the (margined) ellipse-and-cone is one interval of
+    // bearings around 0, so the clamped rotation is the best one: the point is in the union of the
+    // rotated shapes iff this rotated point is in the shape — `|β| ≤ half + Δθ` and
+    // `d ≤ r(max(0, |β| − Δθ))`, the ruling's swept-cone test.
+    const beta = Math.atan2(across, along);
+    const a = Math.max(-sweep, Math.min(sweep, beta));
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    const rotAlong = along * ca + across * sa;
+    across = -along * sa + across * ca;
+    along = rotAlong;
+  }
   if ((along / s.rangeX) ** 2 + (across / s.rangeY) ** 2 > 1) return false;
   if (s.full) return true;
   const back = s.apexBack ?? 0;

@@ -11,6 +11,7 @@ import {
   visionPolygon,
   visionPoses,
   visionShapeOf,
+  type VisionShape,
 } from "./vision.js";
 
 const FOV: FovConfig = {
@@ -257,5 +258,48 @@ describe("marginShape (NR46)", () => {
     // A point beside the needle but within margin of it is inside.
     const side = { x: s.cx - Math.sin(pose.angle) * 10, y: s.cy + Math.cos(pose.angle) * 10 };
     expect(inShape(side, m)).toBe(true);
+  });
+});
+
+describe("swept cone (NR46, G5b)", () => {
+  // A cone at the origin facing +x: 600 × 450 ellipse, 120° (half 60°), no margin.
+  const base: VisionShape = { cx: 0, cy: 0, heading: 0, rangeX: 600, rangeY: 450, halfAngle: Math.PI / 3, full: false };
+  const at = (d: number, bearing: number) => ({ x: d * Math.cos(bearing), y: d * Math.sin(bearing) });
+  /** The unswept shape's reach along a bearing inside the cone: the ellipse radius. */
+  const r = (phi: number) => 1 / Math.hypot(Math.cos(phi) / 600, Math.sin(phi) / 450);
+
+  it("a sweep of 0 is the old shape exactly", () => {
+    for (let i = 0; i < 400; i++) {
+      const p = { x: ((i * 37) % 1400) - 700, y: ((i * 91) % 1000) - 500 };
+      expect(inShape(p, { ...base, sweep: 0 })).toBe(inShape(p, base));
+    }
+  });
+
+  it("widens the cone by the sweep: just inside half + Δθ is in, just outside is out", () => {
+    const sweep = 0.3;
+    const s = { ...base, sweep };
+    expect(inShape(at(200, Math.PI / 3 + sweep - 0.01), s)).toBe(true);
+    expect(inShape(at(200, Math.PI / 3 + sweep + 0.01), s)).toBe(false);
+    expect(inShape(at(200, -(Math.PI / 3 + sweep - 0.01)), s)).toBe(true);
+    // Without the sweep the same point is out.
+    expect(inShape(at(200, Math.PI / 3 + sweep - 0.01), base)).toBe(false);
+  });
+
+  it("reaches r(|β| − Δθ) along a swept bearing: the rotated cone's own range", () => {
+    const sweep = 0.3;
+    const s = { ...base, sweep };
+    const beta = 0.9;
+    const reach = r(beta - sweep);
+    expect(reach).toBeGreaterThan(r(beta));
+    expect(inShape(at(reach - 1, beta), s)).toBe(true);
+    expect(inShape(at(reach + 1, beta), s)).toBe(false);
+    // Inside ±Δθ the full forward range holds.
+    expect(inShape(at(599, 0.2), s)).toBe(true);
+  });
+
+  it("is ignored on a full shape (only its distance grows, through the margin)", () => {
+    const full = { ...base, full: true };
+    const p = at(500, 1.2);
+    expect(inShape(p, { ...full, sweep: 0.5 })).toBe(inShape(p, full));
   });
 });

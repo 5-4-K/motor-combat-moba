@@ -12,6 +12,7 @@ import {
   shotViewMaxTicks,
   weaponDefOf,
   weaponTicksOf,
+  MS_PER_TICK,
   NET_CONFIG,
   PlayerStatus,
   RemoteTimeline,
@@ -201,7 +202,20 @@ export class TickClient {
   shotReveals = 0;
   shotPopIns = 0;
   /** Reveals waiting for the next frame to be judged against the vision drawn on it. */
-  private pendingReveals: ({ kind: "car"; pose: { x: number; y: number; angle: number } } | { kind: "shot"; row: SnapshotShot })[] = [];
+  private pendingReveals: ({ kind: "car"; tick: number; pose: { x: number; y: number; angle: number } } | { kind: "shot"; tick: number; row: SnapshotShot })[] = [];
+  /**
+   * FOV run only (G5b): for every reveal, how far ahead of the revealing snapshot's tick `T` the
+   * client's drawn local tick `P` stood on the frame that first drew it, ms — the lead the server's
+   * swept cone has to cover. `visionViewerLeadCapMs` is sized from net80clean's p95 of this.
+   */
+  readonly revealLeadsMs: number[] = [];
+  /**
+   * FOV run only (G5b), the exposure proxy: enemy car-frames this client held IN VIEW (a decoded pose,
+   * alive) — and, of those, the ones outside the cone it drew that frame. Their share is the extra
+   * information interest management hands out beyond what the player can see.
+   */
+  enemyCarFramesInView = 0;
+  enemyCarFramesUndrawn = 0;
 
   private readonly localFire: LocalFire;
   private readonly provisionals = new ProvisionalShots();
@@ -511,29 +525,37 @@ export class TickClient {
       if (car.id === this.id || wasVisible.has(car.id) || !car.alive) continue;
       // Back on the field this snapshot: a respawn is a teleport, not a reveal.
       if (wasAlive.get(car.id) === false) continue;
-      this.pendingReveals.push({ kind: "car", pose: car.body });
+      this.pendingReveals.push({ kind: "car", tick: snap.tick, pose: car.body });
     }
     for (const row of snap.shots) {
       // An enemy shot that already existed at the previous snapshot this client applied (its spawn
       // tick is its server birth tick, NR37) and was withheld then.
       if (row.ownerSessionId === this.id || before.has(row.id) || row.spawnTick > prev.tick) continue;
-      this.pendingReveals.push({ kind: "shot", row });
+      this.pendingReveals.push({ kind: "shot", tick: snap.tick, row });
     }
   }
 
   /** Judge this frame's pending reveals against the vision drawn on it: the local drawn pose's shape. */
   private judgeReveals(nowMs: number): void {
-    if (this.pendingReveals.length === 0) return;
+    if (this.last?.hidden === undefined) return;
     const reveals = this.pendingReveals;
     this.pendingReveals = [];
     const self = this.lastById.get(this.id);
-    const pose = (this.localAnchor(nowMs)?.pose as SimBody | undefined) ?? self?.body;
+    const anchor = this.localAnchor(nowMs);
+    const pose = (anchor?.pose as SimBody | undefined) ?? self?.body;
     if (!pose) return;
     const fov = camera().fov;
     const shapes = [visionShapeOf({ x: pose.x, y: pose.y, angle: pose.angle }, fov)];
     const hull = { width: drive().carWidth, height: drive().carHeight };
     const obstacles = this.arena.obstacles;
+    // Exposure: every enemy car this client holds this frame, against the cone it draws.
+    for (const car of this.last.cars) {
+      if (car.id === this.id || !car.alive) continue;
+      this.enemyCarFramesInView++;
+      if (!carVisible(car.body, hull, shapes, obstacles, fov.blockedByObstacles)) this.enemyCarFramesUndrawn++;
+    }
     for (const r of reveals) {
+      if (anchor) this.revealLeadsMs.push((anchor.tick - r.tick) * MS_PER_TICK);
       if (r.kind === "car") {
         this.carReveals++;
         if (carVisible(r.pose, hull, shapes, obstacles, fov.blockedByObstacles)) this.carPopIns++;

@@ -326,6 +326,15 @@ describe("weapon / combat / drive / flow knobs exist", () => {
     expect(NET_CONFIG.reconcileEaseRate).toBeGreaterThan(0);
     expect(NET_CONFIG.reconcileEaseRate).toBeLessThanOrEqual(1);
   });
+  it("holds an ended row for less than the vision exit, so it cannot outlive its own view (G5)", () => {
+    // An ended row in view stays in view for its whole hold only if the hold ends before the exit
+    // hysteresis could drop it; a hold past `visionExitMs` would let it leave and come back.
+    expect(NET_CONFIG.endedShotRowMs).toBeLessThan(NET_CONFIG.visionExitMs);
+  });
+  it("caps the swept-cone lead at whole ticks above zero (G5b)", () => {
+    expect(NET_CONFIG.visionViewerLeadCapMs).toBeGreaterThan(0);
+    expect(NET_CONFIG.visionViewerLeadCapMs).toBeLessThan(1000);
+  });
 
 });
 

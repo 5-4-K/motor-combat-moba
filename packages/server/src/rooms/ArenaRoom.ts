@@ -63,7 +63,7 @@ import {
 } from "../mode.js";
 import { InputDelay, OutgoingDelay } from "../net/latency-injector.js";
 import { assertProtocol } from "../net/protocol-gate.js";
-import { ViewManager, ensureView, viewersOf } from "../net/view-manager.js";
+import { ViewManager, ensureView, viewersOf, viewerLeadMs, type ViewClient } from "../net/view-manager.js";
 import { ClientLimits, MAX_MESSAGES_PER_SECOND, limited, refuseUnknownMessages } from "../net/rate-limit.js";
 import {
   clearInstances,
@@ -155,6 +155,12 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   private readonly limits = new ClientLimits();
   /** Who receives what (NR44–NR47): each client's `StateView`, recomputed every snapshot. */
   private readonly views = new ViewManager();
+  /**
+   * The lead each client's swept cone covers (NR46, G5b): its server-measured RTT and its car's
+   * input slack (`viewerLeadMs`), 0 until the RTT is measured.
+   */
+  private readonly viewLeadOf = (client: ViewClient, owned: string | undefined): number =>
+    viewerLeadMs(this.netSessions.compRttMs(client.sessionId), owned === undefined ? undefined : this.state.players.get(owned)?.inputSlack);
   /** Server → client latency injection (NR56); inactive, and never installed, unless SIM_LATENCY_MS is set. */
   private readonly outgoing = new OutgoingDelay(getSimulatedLatency());
   /** Client → server latency injection (NR56), one in-order line per session; built in `onCreate`. */
@@ -425,7 +431,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       // joiner's view is filled here, before Colyseus sends it the full state; everyone else's picks
       // the new car up before the next patch.
       ensureView(client);
-      this.views.update(this.state, viewersOf([client], (c) => c.sessionId), this.state.tick);
+      this.views.update(this.state, viewersOf([client], (c) => c.sessionId, this.viewLeadOf), this.state.tick);
     });
   }
 
@@ -488,7 +494,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
 
   /** Every client's view brought up to date (NR44–NR47), then the patch. */
   private sendSnapshot(): void {
-    this.views.update(this.state, viewersOf(this.clients, (c) => c.sessionId), this.state.tick);
+    this.views.update(this.state, viewersOf(this.clients, (c) => c.sessionId, this.viewLeadOf), this.state.tick);
     this.broadcastPatch();
   }
 

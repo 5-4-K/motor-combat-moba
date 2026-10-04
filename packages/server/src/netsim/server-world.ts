@@ -28,6 +28,7 @@ import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
 import { fovOnBundle } from "../net/fov-bundle.js";
 import { FovWire } from "./fov-wire.js";
+import { viewerLeadMs } from "../net/view-manager.js";
 
 /** The arena every netsim run plays. */
 export const NETSIM_ARENA_ID = "arena-01";
@@ -195,7 +196,7 @@ export class ServerWorld {
   /** The FOV run's real wire (`NetsimOptions.fov`); undefined for the FOV-off run. */
   readonly fov: FovWire | undefined;
 
-  constructor(cars: number, opts: { fov?: boolean; shotMarginUnits?: number } = {}) {
+  constructor(cars: number, opts: { fov?: boolean; shotMarginUnits?: number; noSweep?: boolean } = {}) {
     this.modeConfig = opts.fov ? fovOnBundle(NETSIM_MODE) : modeConfigOf(NETSIM_MODE);
     withMode(this.modeConfig, () => {
       this.state.mode = NETSIM_MODE;
@@ -207,7 +208,15 @@ export class ServerWorld {
         this.add(`p${i}`, NETSIM_CARS[i % NETSIM_CARS.length]!, spawn.x, spawn.y, spawn.angle);
       }
     });
-    this.fov = opts.fov ? new FovWire(this.state, this.ids, { shotMarginUnits: opts.shotMarginUnits }) : undefined;
+    this.fov = opts.fov
+      ? new FovWire(this.state, this.ids, {
+          shotMarginUnits: opts.shotMarginUnits,
+          // The room's `viewLeadOf`: the server-measured RTT and the car's slack (G5b). `noSweep`
+          // reruns the pre-G5b shape for a before/after.
+          leadOf: (id) =>
+            opts.noSweep ? 0 : viewerLeadMs(this.sessions.compRttMs(id), this.state.players.get(id)?.inputSlack),
+        })
+      : undefined;
   }
 
   /**

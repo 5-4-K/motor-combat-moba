@@ -12,6 +12,8 @@ import {
   WeaponSlotState,
   activeCarIds,
   assembleModeConfig,
+  MS_PER_TICK,
+  SNAPSHOT_RATE_HZ,
   driveOf,
   modeConfigOf,
   weapons,
@@ -22,6 +24,10 @@ import {
 import {
   ViewClock,
   ViewManager,
+  instanceInterestShape,
+  instanceMarginKind,
+  viewerLeadMs,
+  viewerSweepOf,
   visionExitTicks,
   visionMarginUnits,
   visionShotMarginUnits,
@@ -182,6 +188,106 @@ describe("visionShotMarginUnits (G5)", () => {
     r.shot("far-shot", "far", FAR.x, FAR.y);
     const a = r.join("a");
     expect(a.decoded.weapons.has("far-shot")).toBe(false);
+  });
+});
+
+describe("the swept cone (NR46, G5b)", () => {
+  const config = fovOn(GameMode.FFA_LAST_STANDING);
+  const CAP = NET_CONFIG.visionViewerLeadCapMs;
+
+  it("viewerLeadMs: rtt + slack + one snapshot interval, 0 with no RTT, capped for a huge one", () => {
+    expect(viewerLeadMs(undefined, 1.5)).toBe(0);
+    expect(viewerLeadMs(1, 1.5)).toBeCloseTo(1 + 1.5 * MS_PER_TICK + 1000 / SNAPSHOT_RATE_HZ, 9);
+    expect(viewerLeadMs(80, 1.5)).toBeLessThanOrEqual(CAP);
+    // A lossy or lag-faking client is held to the good connection's lead.
+    expect(viewerLeadMs(1000, 50)).toBe(CAP);
+    expect(viewerLeadMs(Number.NaN, 1)).toBe(0);
+  });
+
+  /** Viewer `a` (Mirage) at (640, 1100) facing +x on arena-03's open middle; an enemy at bearing β. */
+  function scene(beta: number, leadMs: number, distance = 350) {
+    const r = room(config);
+    const a = r.car("a", 640, 1100, 0);
+    a.carId = "mirage";
+    r.car("b", 640 + distance * Math.cos(beta), 1100 + distance * Math.sin(beta), beta);
+    r.shot("b-shot", "b", 640 + distance * Math.cos(beta), 1100 + distance * Math.sin(beta));
+    const client = r.join("a");
+    client.leadMs = leadMs;
+    r.patch(EXIT + 1);
+    return { r, client, sweep: withMode(config, () => viewerSweepOf(a, leadMs, r.state.tick)).sweep };
+  }
+  const HALF = Math.PI / 3;
+
+  it("takes in an enemy just inside the swept edge that the unswept cone leaves out", () => {
+    const { sweep } = scene(0, CAP);
+    expect(sweep).toBeGreaterThan(0.3); // Mirage, 3.16 rad/s × 134 ms
+    const beta = HALF + 0.8 * sweep;
+    expect(scene(beta, 0).r.vm.carsIn("a").has("b")).toBe(false);
+    const swept = scene(beta, CAP);
+    expect(swept.r.vm.carsIn("a").has("b")).toBe(true);
+    expect(swept.r.vm.shotsIn("a").has("b-shot")).toBe(true);
+  });
+
+  it("still leaves out an enemy past the swept edge", () => {
+    const { sweep } = scene(0, CAP);
+    const { r } = scene(HALF + sweep + 0.9, CAP);
+    expect(r.vm.carsIn("a").has("b")).toBe(false);
+    expect(r.vm.shotsIn("a").has("b-shot")).toBe(false);
+  });
+
+  it("is the old shape for a LAN lead of ~0 and the capped shape for a huge RTT", () => {
+    for (const beta of [0.2, HALF, HALF + 0.1, HALF + 0.3, HALF + 0.5, 1.6]) {
+      expect(scene(beta, 0).r.vm.carsIn("a").has("b"), `lead 0, β ${beta}`).toBe(
+        scene(beta, 0.001).r.vm.carsIn("a").has("b"),
+      );
+      expect(scene(beta, viewerLeadMs(5000, 99)).r.vm.carsIn("a").has("b"), `huge RTT, β ${beta}`).toBe(
+        scene(beta, CAP).r.vm.carsIn("a").has("b"),
+      );
+    }
+  });
+
+  it("never sweeps a wreck's frozen death vision: only a living, predicted own car leads", () => {
+    const { sweep } = scene(0, CAP);
+    const beta = HALF + 0.8 * sweep;
+    const cfg = fovOn(GameMode.FFA_DEATHMATCH, { target: "none", noTargetVision: "pov" });
+    const r = room(cfg);
+    const own = r.car("a", 640, 1100, 0);
+    own.carId = "mirage";
+    own.alive = false;
+    r.car("b", 640 + 350 * Math.cos(beta), 1100 + 350 * Math.sin(beta), beta);
+    const c = r.join("a");
+    c.leadMs = CAP;
+    r.patch(EXIT + 1);
+    expect(r.vm.carsIn("a").has("b")).toBe(false);
+    // The same car alive is swept and sees it.
+    own.alive = true;
+    r.patch();
+    expect(r.vm.carsIn("a").has("b")).toBe(true);
+  });
+
+  it("gives only projectiles the shot margin: beams and bursts take the car's", () => {
+    withMode(config, () => {
+      expect(instanceMarginKind({ weaponId: "predator", isExplosion: false })).toBe("shot");
+      expect(instanceMarginKind({ weaponId: "lance", isExplosion: false })).toBe("car");
+      expect(instanceMarginKind({ weaponId: "afterburner", isExplosion: false })).toBe("car");
+      expect(instanceMarginKind({ weaponId: "magmablast", isExplosion: true })).toBe("car");
+      expect(instanceMarginKind({ weaponId: "tremor", isExplosion: false })).toBe("car");
+    });
+  });
+
+  it("samples a growing beam at the reach it will have visionMarginLeadMs later, never past its range", () => {
+    withMode(config, () => {
+      const row = { weaponId: "lance", isExplosion: false, x: 0, y: 0, angle: 0, extent: 100 };
+      const reach = (shape: ReturnType<typeof instanceInterestShape>) =>
+        shape.kind === "circle" ? shape.x + shape.radius : Math.max(...shape.points.map((p) => p.x));
+      const def = weapons().lance;
+      const grown = reach(instanceInterestShape(row));
+      expect(grown).toBeGreaterThan(100);
+      expect(grown).toBeLessThanOrEqual(def.range + 1e-6 + 50);
+      // A projectile is sampled where it is.
+      const dart = { ...row, weaponId: "predator", x: 300 };
+      expect(instanceInterestShape(dart)).toEqual(instanceInterestShape({ ...dart }));
+    });
   });
 });
 

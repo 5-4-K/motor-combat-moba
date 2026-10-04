@@ -63,7 +63,7 @@ import { scoped } from "./mode-scope.js";
 import { newRoomStepper } from "./fixed-step.js";
 import { NetSessions, installNetHandlers, netNowMs } from "../net/net-session.js";
 import { assertProtocol } from "../net/protocol-gate.js";
-import { ViewClock, ViewManager, ensureView, viewersOf } from "../net/view-manager.js";
+import { ViewClock, ViewManager, ensureView, viewersOf, viewerLeadMs, type ViewClient } from "../net/view-manager.js";
 import { ClientLimits, MAX_MESSAGES_PER_SECOND, limited, refuseUnknownMessages } from "../net/rate-limit.js";
 
 /**
@@ -242,6 +242,12 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
   private readonly limits = new ClientLimits();
   /** Who receives what (NR44–NR47), the same manager every room kind runs. */
   private readonly views = new ViewManager();
+  /**
+   * The lead each client's swept cone covers (NR46, G5b): its server-measured RTT and its car's
+   * input slack (`viewerLeadMs`), 0 until the RTT is measured.
+   */
+  private readonly viewLeadOf = (client: ViewClient, owned: string | undefined): number =>
+    viewerLeadMs(this.netSessions.compRttMs(client.sessionId), owned === undefined ? undefined : this.state.players.get(owned)?.inputSlack);
   /** The tick `views` keeps its hysteresis on: still advancing while paused (`ViewClock`, G5). */
   private readonly viewClock = new ViewClock();
 
@@ -344,7 +350,7 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
     // Every client has a view (NR42), filled before Colyseus sends the joiner its full state.
     ensureView(client);
     scoped(this.modeConfig, () =>
-      this.views.update(this.state, viewersOf([client], this.ownedSeatOf), this.viewClock.at(this.state.tick)),
+      this.views.update(this.state, viewersOf([client], this.ownedSeatOf, this.viewLeadOf), this.viewClock.at(this.state.tick)),
     );
   }
 
@@ -559,7 +565,7 @@ export class PlaygroundRoom extends Room<{ state: PlaygroundState }> {
 
   /** The human's view brought up to date (NR44–NR47; the driven seat is its car), then the patch. */
   private sendSnapshot(): void {
-    this.views.update(this.state, viewersOf(this.clients, this.ownedSeatOf), this.viewClock.at(this.state.tick));
+    this.views.update(this.state, viewersOf(this.clients, this.ownedSeatOf, this.viewLeadOf), this.viewClock.at(this.state.tick));
     this.broadcastPatch();
   }
 

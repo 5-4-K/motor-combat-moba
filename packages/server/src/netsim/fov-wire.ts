@@ -21,7 +21,9 @@ import {
 } from "@motor-combat-moba/shared";
 import {
   ViewManager,
-  instanceWorldShape,
+  instanceMarginKind,
+  instanceInterestShape,
+  viewerSweepOf,
   visionMarginUnits,
   visionShotMarginUnits,
   type Viewer,
@@ -55,7 +57,7 @@ export class FovWire {
   constructor(
     private readonly state: ArenaState,
     private readonly ids: readonly string[],
-    private readonly opts: { shotMarginUnits?: number } = {},
+    private readonly opts: { shotMarginUnits?: number; leadOf?: (id: string) => number } = {},
   ) {
     this.encoder = new Encoder(state);
     this.views = new ViewManager({ shotMarginUnits: opts.shotMarginUnits });
@@ -77,6 +79,8 @@ export class FovWire {
    */
   snapshots(): Map<string, Snapshot> {
     const tick = this.state.tick;
+    // Each viewer's lead as the room computes it (`viewerLeadMs` from the server's RTT and slack).
+    for (const c of this.clients) c.viewer.leadMs = this.opts.leadOf?.(c.viewer.sessionId) ?? 0;
     this.views.update(this.state, this.clients.map((c) => c.viewer), tick);
     if (!this.joined) {
       // Every client joins on the first snapshot: the shared full state plus its own view.
@@ -168,8 +172,15 @@ export class FovWire {
       frozenPose: camera().spectate.noTargetVision === "pov" ? poseOf(self) : undefined,
     });
     const drawn = poses.map((pose) => visionShapeOf(pose, fov));
-    const carShapes: VisionShape[] = drawn.map((s) => marginShape(s, carMargin));
-    const shotShapes: VisionShape[] = drawn.map((s) => marginShape(s, shotMargin));
+    // The swept cone (G5b): the viewer's own living car, swept by its lead.
+    const lead = this.clients.find((c) => c.viewer.sessionId === viewerId)!.viewer.leadMs ?? 0;
+    const own = self.alive && self.status === PlayerStatus.IN_MATCH ? viewerSweepOf(self, lead, tick) : { sweep: 0, travel: 0 };
+    const grow = (base: number): VisionShape[] =>
+      drawn.map((s, i) =>
+        i === 0 && own.sweep > 0 ? { ...marginShape(s, base + own.travel), sweep: own.sweep } : marginShape(s, base),
+      );
+    const carShapes = grow(carMargin);
+    const kindShapes = { car: carShapes, shot: grow(shotMargin) };
     this.state.players.forEach((p, id) => {
       if (id === viewerId || p.status !== PlayerStatus.IN_MATCH || carVisible(poseOf(p), hull, carShapes, obstacles, fov.blockedByObstacles)) {
         memory.set(id, tick);
@@ -177,7 +188,8 @@ export class FovWire {
     });
     this.state.weapons.forEach((w, id) => {
       const mine = w.ownerSessionId === viewerId;
-      if (mine || shotSamplePoints(instanceWorldShape(w)).some((pt) => inVision(pt, shotShapes, obstacles, fov.blockedByObstacles))) {
+      const shapes = kindShapes[instanceMarginKind(w)];
+      if (mine || shotSamplePoints(instanceInterestShape(w)).some((pt) => inVision(pt, shapes, obstacles, fov.blockedByObstacles))) {
         memory.set(`shot:${id}`, tick);
       }
     });

@@ -67,6 +67,8 @@ export interface NetsimOptions {
    * only (G5's before/after: the car margin is what shots had before).
    */
   shotMarginUnits?: number;
+  /** The FOV run without the swept cone (every viewer's lead 0) — G5b's before/after knob only. */
+  noSweep?: boolean;
 }
 
 /** Nominal display refresh of every headless client, Hz. */
@@ -213,6 +215,13 @@ export interface NetsimFovReport {
   /** Enemy shots that newly reached a client after existing at an earlier snapshot, and those already inside its drawn vision. */
   shotReveals: number;
   shotPopIns: number;
+  /** P − T at reveal (ms, every reveal, all clients): p50 / p95 / max — what the swept cone must cover (G5b). */
+  revealLeadP50Ms: number;
+  revealLeadP95Ms: number;
+  revealLeadMaxMs: number;
+  /** Exposure proxy (G5b): enemy car-frames held in view, and the share of them outside the drawn cone. */
+  enemyCarFramesInView: number;
+  undrawnInViewShare: number;
 }
 
 export interface NetsimRun {
@@ -246,7 +255,7 @@ export function runNetsim(opts: NetsimOptions): NetsimMetrics {
 /** `runNetsim`, plus the run's `NetsimDiagnostics`. */
 export function runNetsimDetailed(opts: NetsimOptions): NetsimRun {
   if (opts.model !== "tick") throw new Error(`unknown netsim client model: ${String(opts.model)}`);
-  const world = new ServerWorld(opts.cars ?? DEFAULT_CARS, { fov: opts.fov, shotMarginUnits: opts.shotMarginUnits });
+  const world = new ServerWorld(opts.cars ?? DEFAULT_CARS, { fov: opts.fov, shotMarginUnits: opts.shotMarginUnits, noSweep: opts.noSweep });
   return withMode(world.modeConfig, () => runIn(world, opts));
 }
 
@@ -590,6 +599,14 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
           carPopIns: clients.reduce((n, c) => n + c.client.carPopIns, 0),
           shotReveals: clients.reduce((n, c) => n + c.client.shotReveals, 0),
           shotPopIns: clients.reduce((n, c) => n + c.client.shotPopIns, 0),
+          revealLeadP50Ms: percentile(clients.flatMap((c) => c.client.revealLeadsMs), 50),
+          revealLeadP95Ms: percentile(clients.flatMap((c) => c.client.revealLeadsMs), 95),
+          revealLeadMaxMs: clients.flatMap((c) => c.client.revealLeadsMs).reduce((m, v) => Math.max(m, v), 0),
+          enemyCarFramesInView: clients.reduce((n, c) => n + c.client.enemyCarFramesInView, 0),
+          undrawnInViewShare: (() => {
+            const all = clients.reduce((n, c) => n + c.client.enemyCarFramesInView, 0);
+            return all === 0 ? 0 : clients.reduce((n, c) => n + c.client.enemyCarFramesUndrawn, 0) / all;
+          })(),
         }
       : undefined,
   };

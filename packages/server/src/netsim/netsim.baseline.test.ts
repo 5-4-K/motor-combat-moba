@@ -19,6 +19,8 @@ const FIRE = !process.env.NETSIM_NO_FIRE;
  */
 const FOV = !!process.env.NETSIM_FOV;
 const SHOT_MARGIN = process.env.NETSIM_SHOT_MARGIN ? Number(process.env.NETSIM_SHOT_MARGIN) : undefined;
+/** `NETSIM_NO_SWEEP=1`: the FOV run without the swept cone (G5b's before). */
+const NO_SWEEP = !!process.env.NETSIM_NO_SWEEP;
 const BASELINE_SECONDS = 60;
 const BASELINE_CARS = 6;
 const BASELINE_SEEDS = [1, 2, 3] as const;
@@ -42,6 +44,7 @@ describe.skipIf(!process.env.NETSIM_BASELINE)(title, () => {
             fire: FIRE,
             fov: FOV,
             shotMarginUnits: SHOT_MARGIN,
+            noSweep: NO_SWEEP,
           });
           console.log(`baseline/${link.name}/seed${seed}`, JSON.stringify(run.metrics));
           console.log(`baseline/${link.name}/seed${seed} diagnostics`, JSON.stringify(run.diagnostics));

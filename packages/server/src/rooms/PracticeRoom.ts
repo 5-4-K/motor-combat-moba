@@ -42,7 +42,7 @@ import { getMaxPracticeRooms, getSimulatedLatency } from "../mode.js";
 import { offerForTick } from "../net/offer-input.js";
 import { InputDelay, OutgoingDelay } from "../net/latency-injector.js";
 import { assertProtocol } from "../net/protocol-gate.js";
-import { ViewClock, ViewManager, ensureView, viewersOf } from "../net/view-manager.js";
+import { ViewClock, ViewManager, ensureView, viewersOf, viewerLeadMs, type ViewClient } from "../net/view-manager.js";
 import { ClientLimits, MAX_MESSAGES_PER_SECOND, limited, refuseUnknownMessages } from "../net/rate-limit.js";
 import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
@@ -189,6 +189,12 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
   private readonly limits = new ClientLimits();
   /** Who receives what (NR44–NR47), the same manager every room kind runs. */
   private readonly views = new ViewManager();
+  /**
+   * The lead each client's swept cone covers (NR46, G5b): its server-measured RTT and its car's
+   * input slack (`viewerLeadMs`), 0 until the RTT is measured.
+   */
+  private readonly viewLeadOf = (client: ViewClient, owned: string | undefined): number =>
+    viewerLeadMs(this.netSessions.compRttMs(client.sessionId), owned === undefined ? undefined : this.state.players.get(owned)?.inputSlack);
   /** The tick `views` keeps its hysteresis on: still advancing while paused (`ViewClock`, G5). */
   private readonly viewClock = new ViewClock();
   /** Server → client latency injection (NR56), mirroring `ArenaRoom` (PR11); inactive unless SIM_LATENCY_MS is set. */
@@ -393,7 +399,7 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
     // is not a client and has no view: it reads the room's state directly (NR49).
     ensureView(client);
     scoped(this.modeConfig, () =>
-      this.views.update(this.state, viewersOf([client], (c) => c.sessionId), this.viewClock.at(this.state.tick)),
+      this.views.update(this.state, viewersOf([client], (c) => c.sessionId, this.viewLeadOf), this.viewClock.at(this.state.tick)),
     );
   }
 
@@ -478,7 +484,7 @@ export class PracticeRoom extends Room<{ state: PracticeState }> {
 
   /** The human's view brought up to date (NR44–NR47), then the patch. */
   private sendSnapshot(): void {
-    this.views.update(this.state, viewersOf(this.clients, (c) => c.sessionId), this.viewClock.at(this.state.tick));
+    this.views.update(this.state, viewersOf(this.clients, (c) => c.sessionId, this.viewLeadOf), this.viewClock.at(this.state.tick));
     this.broadcastPatch();
   }
 
