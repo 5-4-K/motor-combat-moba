@@ -5,6 +5,7 @@
  * client would be told about.
  */
 import {
+  DRIVE_CONFIG,
   getArena,
   activeCarIds,
   cars,
@@ -30,7 +31,7 @@ import {
 } from "@motor-combat-moba/shared";
 import { mulberry32 } from "../../src/netsim/rng.js";
 import { installPlaytestMode } from "./mode.js";
-import { PlaytestWorld, statusesOf } from "./world.js";
+import { PlaytestWorld, statusesOf, ticksFor } from "./world.js";
 import { Reporter } from "./reporter.js";
 
 // Mode scope (MC12). `run-all.ts` spawns this file as its own one-shot process (one per probe), so
@@ -134,7 +135,9 @@ function shootAt(opts: {
   );
   const startHp = w.get("target").hp;
   const bit = slotBitFor(shooterCar, opts.weaponId);
-  const ticks = opts.ticks ?? 60;
+  // `ticks` is a wall-time observation window; callers pass `ticksFor(seconds)`. The default is the
+  // 2 s the probe was authored with (60 ticks at 30 Hz).
+  const ticks = opts.ticks ?? ticksFor(2);
   for (let i = 0; i < ticks; i++) {
     // Press on the first tick only, so this measures ONE press unless the caller wants more.
     w.input("shooter", { fireSlots: i === 0 ? bit : 0 });
@@ -186,7 +189,7 @@ function baseline(): void {
     }
     // Half of the weapon's range, but inside a beam's reach.
     const distance = Math.min(def.range * 0.5, def.range - 20);
-    const r = shootAt({ weaponId: id, distance, ticks: 120 });
+    const r = shootAt({ weaponId: id, distance, ticks: ticksFor(4) });
     const expected = weaponDamageOf(carrier, id);
     if (r.damage === 0) broken++;
     rows.push(
@@ -236,7 +239,7 @@ function pointBlank(): void {
     const flushExempt = def.kind === "maneuver";
     const results: string[] = [];
     for (const distance of [40, 48, 56, 64, 80]) {
-      const r = shootAt({ weaponId: id, distance, ticks: 90 });
+      const r = shootAt({ weaponId: id, distance, ticks: ticksFor(3) });
       if (r.damage > 0) results.push(`${distance}:${r.damage}`);
       else if (flushExempt && distance <= HULLS_TOUCH_AT) results.push(`${distance}:none(flush)`);
       else results.push(`${distance}:MISS`);
@@ -255,25 +258,29 @@ function pointBlank(): void {
 }
 
 /* --------------------------------------------------- W3. projectile tunneling through a car */
-/** Skewer moves 33.3 u/tick (speed dropped 1400 -> 1000 with T17's range cut) against a 32u-wide hull. The smear is what must stop it straddling. */
+/**
+ * A projectile covers `speed / TICK_RATE_HZ` per tick against a `DRIVE_CONFIG.carHeight`-deep hull
+ * (both printed per row below rather than typed — this comment used to quote skewer's 33.3 u/tick
+ * against a 32u hull, both long gone). The smear is what must stop it straddling.
+ */
 function projectileTunneling(): void {
   const rows: string[] = [];
   let tunneled = 0;
   for (const id of allWeapons()) {
     const def = weaponDefOf(id);
     if (def.kind !== "projectile") continue;
-    const perTick = def.speed / 30;
+    const perTick = def.speed / TICK_RATE_HZ;
     let misses = 0;
     const samples = 60;
     for (let i = 0; i < samples; i++) {
       // Sweep the target 1u at a time through a whole tick-step, so every sub-tick phase is covered.
       const distance = 300 + i;
-      const r = shootAt({ weaponId: id, distance, ticks: 120 });
+      const r = shootAt({ weaponId: id, distance, ticks: ticksFor(4) });
       if (r.damage === 0) misses++;
     }
     if (misses > 0) tunneled++;
     rows.push(
-      `${id.padEnd(11)} ${perTick.toFixed(1).padStart(5)} u/tick vs a 32u hull: ` +
+      `${id.padEnd(11)} ${perTick.toFixed(1).padStart(5)} u/tick vs a ${DRIVE_CONFIG.carHeight}u hull: ` +
         `${misses}/${samples} sub-tick phases missed ${misses > 0 ? "<- TUNNELING" : ""}`,
     );
   }
@@ -297,8 +304,8 @@ function friendlyFire(): void {
   for (const id of allWeapons()) {
     const def = weaponDefOf(id);
     const distance = Math.min(def.range * 0.4, def.range - 20);
-    const team = shootAt({ weaponId: id, distance, ticks: 120, mode: "team", targetTeam: 0 });
-    const foe = shootAt({ weaponId: id, distance, ticks: 120, mode: "team", targetTeam: 1 });
+    const team = shootAt({ weaponId: id, distance, ticks: ticksFor(4), mode: "team", targetTeam: 0 });
+    const foe = shootAt({ weaponId: id, distance, ticks: ticksFor(4), mode: "team", targetTeam: 1 });
     // Self-damage: shooter's own hp must never move.
     const selfHp = team.world.get("shooter").hp;
     const selfMax = hpOf(carrierOf(id));
@@ -339,10 +346,12 @@ function damageAfterDeath(): void {
   let hpBelowZero = false;
   let deadTookDamage = false;
   let deadAt = -1;
-  for (let i = 0; i < 120; i++) {
-    // Release between presses: a held key is ONE press. predator recharges in 9 ticks, so tapping
-    // every other tick (well inside the recharge window) lands ~13 shots over 120 ticks — enough to
-    // kill a 40 hp target and keep shooting the corpse.
+  // Four seconds (120 ticks as authored at 30 Hz).
+  for (let i = 0; i < ticksFor(4); i++) {
+    // Release between presses: a held key is ONE press. Tapping every other tick asks to fire far
+    // faster than predator's own recharge (`weaponTicksOf("predator")`), so the weapon's rate, not
+    // the tapping, sets how many shots land — enough over four seconds to kill a 40 hp target and
+    // keep shooting the corpse.
     w.input("shooter", { fireSlots: i % 2 === 0 ? bit : 0 });
     w.tick();
     const t = w.get("target");
@@ -396,7 +405,9 @@ function damageAfterDeath(): void {
  * per press and a maneuver spawns none, so instance counts measured neither.
  */
 function fireRateExploit(): void {
-  const WINDOW = 300;
+  // Ten seconds per arm, as authored at 30 Hz (300 ticks). The 6906bc74 rework kept the literal 300
+  // after the tick went to 60 Hz, which quietly halved the window to 5 s.
+  const WINDOW = ticksFor(10);
   const seconds = WINDOW / TICK_RATE_HZ;
   const PACKETS_PER_TICK = 8;
   const maxLead = msToTicks(NET_CONFIG.maxInputLeadMs);
@@ -541,11 +552,12 @@ function statusChain(): void {
   ]);
   const bit = slotBitFor("bastion", "thumper");
   let stunnedTicks = 0;
-  const total = 900; // 30 seconds
+  const total = ticksFor(30); // 30 seconds (900 ticks as authored at 30 Hz)
   for (let i = 0; i < total; i++) {
     // Released on alternate ticks: fire is edge-triggered, so a held mask is ONE press and this
-    // would otherwise measure a single stun rather than a chain. thumper recharges in 90 ticks, so
-    // tapping every other tick asks to fire far more often than the cooldown allows.
+    // would otherwise measure a single stun rather than a chain. thumper's recharge is many ticks
+    // long (`weaponTicksOf("thumper").cooldown`), so tapping every other tick asks to fire far more
+    // often than the cooldown allows.
     const press = i % 2 === 0 ? bit : 0;
     w.input("bastA", { fireSlots: press });
     w.input("bastB", { fireSlots: press });
@@ -567,7 +579,8 @@ function statusChain(): void {
   ]);
   const abBit = slotBitFor("mirage", "afterburner");
   let overheatedTicks = 0;
-  for (let i = 0; i < 900; i++) {
+  const abTotal = ticksFor(30); // 30 seconds (900 ticks as authored at 30 Hz)
+  for (let i = 0; i < abTotal; i++) {
     w2.input("r", { fireSlots: abBit });
     w2.tick();
     if (statusesOf(w2.get("v")).some((s) => s.statusId === "overheated" && s.endsTick > w2.state.tick)) {
@@ -575,8 +588,8 @@ function statusChain(): void {
     }
   }
   rows.push(
-    `one Mirage holding Afterburner on one car for 900 ticks: ` +
-      `overheated for ${overheatedTicks} ticks (${((overheatedTicks / 900) * 100).toFixed(0)}%)`,
+    `one Mirage holding Afterburner on one car for ${abTotal} ticks (30s): ` +
+      `overheated for ${overheatedTicks} ticks (${((overheatedTicks / abTotal) * 100).toFixed(0)}%)`,
   );
 
   // The status cap: can a stack of cheap statuses block a meaningful one?
@@ -654,7 +667,7 @@ function beamsThroughWalls(): void {
     const bit = slotBitFor(carrier, id);
     let maxBeamExtent = 0;
     let projectilePastFar = false;
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < ticksFor(4); i++) {
       w.input("shooter", { fireSlots: i === 0 ? bit : 0 });
       w.tick();
       for (const inst of w.instances()) {
@@ -734,9 +747,10 @@ function auraThroughWall(): void {
   );
   const bit = slotBitFor("mirage", "magmablast");
   const startHp = w.get("victim").hp;
-  // One press: the shell (600u/s) covers the ~25u to the strip in two ticks, dies there, and the
-  // resulting burst lingers `explosion.lingerMs`. 90 ticks leaves the 2 s field time to exist.
-  for (let i = 0; i < 90; i++) {
+  // One press: the shell (600u/s) covers the ~25u to the strip in a few ticks, dies there, and the
+  // resulting burst lingers `explosion.lingerMs`. Three seconds (90 ticks as authored at 30 Hz)
+  // leaves the 2 s field time to exist.
+  for (let i = 0; i < ticksFor(3); i++) {
     w.input("mir", { fireSlots: i === 0 ? bit : 0 });
     w.tick();
   }
@@ -774,7 +788,7 @@ function pierce(): void {
   ]);
   const bit = slotBitFor("bastion", "roadblock");
   const before = ["t1", "t2", "t3"].map((id) => w.get(id).hp);
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < ticksFor(2); i++) {
     w.input("shooter", { fireSlots: i === 0 ? bit : 0 });
     w.tick();
   }
@@ -798,16 +812,17 @@ function instanceLeak(): void {
     const bit = slotBitFor(carrier, id);
     // Fire into empty space, pointing at a wall, and let everything expire.
     const w = new PlaytestWorld([{ id: "shooter", carId: carrier, x: 640, y: 360, angle: 0 }]);
-    for (let i = 0; i < 600; i++) {
+    // 20 s firing then 10 s idle (600 + 300 ticks as authored at 30 Hz).
+    for (let i = 0; i < ticksFor(20); i++) {
       w.input("shooter", { fireSlots: bit });
       w.tick();
     }
     // Stop firing and let the world drain.
-    for (let i = 0; i < 300; i++) w.tick();
+    for (let i = 0; i < ticksFor(10); i++) w.tick();
     const left = w.instances().length;
     const schemaRows = w.state.weapons.size;
     if (left > 0 || schemaRows > 0) leaked = true;
-    rows.push(`${id.padEnd(11)} after 600 ticks firing + 300 idle: ${left} live, ${schemaRows} schema rows`);
+    rows.push(`${id.padEnd(11)} after ${ticksFor(20)} ticks (20 s) firing + ${ticksFor(10)} (10 s) idle: ${left} live, ${schemaRows} schema rows`);
   }
   report("W11. Weapon instance leak", leaked ? "FINDING" : "OK", rows.join("\n"));
 }
@@ -823,7 +838,7 @@ function beamOwnerDeath(): void {
   const spBit = slotBitFor("bullseye", "predator");
   let beamAfterDeath = 0;
   let burnerDeadAt = -1;
-  for (let i = 0; i < 90; i++) {
+  for (let i = 0; i < ticksFor(3); i++) {
     w.input("burner", { fireSlots: i === 0 ? abBit : 0 });
     w.input("killer", { fireSlots: spBit });
     w.tick();

@@ -7,6 +7,7 @@
  * all see what a live match would.
  */
 import {
+  TICK_RATE_HZ,
   activeCarIds,
   derived,
   drive,
@@ -18,7 +19,7 @@ import {
   type CarId,
 } from "@motor-combat-moba/shared";
 import { Reporter } from "../../common/reporter.js";
-import { statusesOf } from "../../common/world.js";
+import { statusesOf, ticksFor } from "../../common/world.js";
 import { readStatuses } from "../../../src/sim/status-bridge.js";
 import {
   ModeWorld,
@@ -130,7 +131,7 @@ function ramWhilePhased(): void {
     forwardMaxSpeedOf(id) > forwardMaxSpeedOf(best) ? id : best,
   );
   const vmax = forwardMaxSpeedOf(rammer);
-  const perTick = vmax / 30;
+  const perTick = vmax / TICK_RATE_HZ;
   const halfLength = drive().carWidth / 2;
   const halfWidth = drive().carHeight / 2;
 
@@ -149,7 +150,8 @@ function ramWhilePhased(): void {
     let bMaxSpeed = 0;
     let phasedThroughout = true;
     const seen = new Set<string>();
-    for (let i = 0; i < 20; i++) {
+    // Two-thirds of a second (20 ticks as authored at 30 Hz).
+    for (let i = 0; i < ticksFor(2 / 3); i++) {
       w.input("a", { throttle: 1 });
       if (!w.isPhased("b")) phasedThroughout = false;
       w.tick();
@@ -217,9 +219,10 @@ function shotsWhilePhased(): void {
   let unmeasured = 0;
   for (const { weaponId, carId, bit } of projectileAbilities()) {
     const def = weaponDefOf(weaponId);
-    const perTick = def.speed / 30;
-    // Close enough that the shot lands well inside the phase window (<= 15 ticks of flight).
-    const base = Math.min(def.range * 0.4, def.range - 20, perTick * 15);
+    const perTick = def.speed / TICK_RATE_HZ;
+    // Close enough that the shot lands well inside the phase window (<= 0.5 s of flight: 15 ticks as
+    // authored at 30 Hz).
+    const base = Math.min(def.range * 0.4, def.range - 20, perTick * ticksFor(0.5));
     const phasedDamage: number[] = [];
     const controlDamage: number[] = [];
     for (const d of subTickOffsets(base, perTick)) {
@@ -236,7 +239,8 @@ function shotsWhilePhased(): void {
       w.teleport("b", 200 + d, Y, 0);
       w.input("a", { fireSlots: bit });
       let stayedPhased = true;
-      for (let i = 0; i < 30; i++) {
+      // One second (30 ticks as authored at 30 Hz), inside the phased floor.
+      for (let i = 0; i < ticksFor(1); i++) {
         if (!w.isPhased("b")) stayedPhased = false;
         w.tick();
       }
@@ -250,7 +254,7 @@ function shotsWhilePhased(): void {
       ]);
       c.start();
       c.input("a", { fireSlots: bit });
-      c.run(30);
+      c.run(ticksFor(1));
       const dealt = hpOf(CAR) - c.get("b").hp;
       controlDamage.push(dealt);
       if (dealt === 0) unmeasured++;

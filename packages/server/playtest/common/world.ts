@@ -47,6 +47,22 @@ import {
 
 export const DT = 1 / TICK_RATE_HZ;
 
+/**
+ * A wall-time duration, in ticks at the current `TICK_RATE_HZ`.
+ *
+ * These probes were authored at 30 Hz with their durations typed as tick counts (`i < 90` for
+ * "three seconds"), and when `TICK_RATE_HZ` went to 60 (NR11) every such scenario silently ran for
+ * half its intended time — long enough to flip verdicts (ram.ts R4's run-up never reached the parked
+ * car; weapons2.ts W17's mover ran out of time before the corpse). A loop that means "run for N
+ * seconds" — a run-up, a settle, an observation window, a shot's flight — goes through this, so the
+ * next tick-rate change cannot halve it again. A count that is deliberately PER-TICK (sub-tick
+ * phases, "the contact tick and the three after it", a duty cycle on alternate ticks, a slack
+ * margin on a config-derived tick value) stays a literal.
+ */
+export function ticksFor(seconds: number): number {
+  return Math.round(seconds * TICK_RATE_HZ);
+}
+
 export interface SpawnSpec {
   id: string;
   carId: CarId;

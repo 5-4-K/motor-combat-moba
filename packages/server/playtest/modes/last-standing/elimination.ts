@@ -9,7 +9,8 @@
  * Team scenarios: wipe team 1; both teams' last cars die on one tick; team 1's last car leaves;
  * friendly fire from every ability projectile, swept over five sub-tick phases.
  */
-import { hpOf, rulesOf, weaponDefOf, type CarId } from "@motor-combat-moba/shared";
+import { TICK_RATE_HZ, hpOf, rulesOf, weaponDefOf, type CarId } from "@motor-combat-moba/shared";
+import { ticksFor } from "../../common/world.js";
 import { Reporter, VERDICT } from "../../common/reporter.js";
 import {
   ModeWorld,
@@ -194,7 +195,7 @@ function teamScenarios(): void {
     for (const { weaponId, carId, bit } of projectileAbilities()) {
       const def = weaponDefOf(weaponId);
       const base = Math.min(def.range * 0.4, def.range - 20);
-      const perTick = def.speed / 30;
+      const perTick = def.speed / TICK_RATE_HZ;
       const shoot = (distance: number, targetTeam: 0 | 1) => {
         const w = new ModeWorld(mode, [
           { id: "shooter", carId, x: 200, y: Y, angle: 0, team: 0 },
@@ -202,7 +203,7 @@ function teamScenarios(): void {
         ]);
         w.start();
         w.input("shooter", { fireSlots: bit });
-        w.run(90);
+        w.run(ticksFor(3)); // three seconds of flight (90 ticks as authored at 30 Hz)
         return { damage: hpOf(CAR) - w.get("target").hp, selfHp: w.get("shooter").hp };
       };
       const mates: number[] = [];

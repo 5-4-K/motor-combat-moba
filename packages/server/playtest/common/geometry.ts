@@ -20,7 +20,7 @@ import {
   type WeaponId,
 } from "@motor-combat-moba/shared";
 import { installPlaytestMode } from "./mode.js";
-import { PlaytestWorld, overlapDepth } from "./world.js";
+import { PlaytestWorld, overlapDepth, ticksFor } from "./world.js";
 import { Reporter } from "./reporter.js";
 
 // Mode scope (MC12). `run-all.ts` spawns this file as its own one-shot process (one per probe), so
@@ -146,7 +146,8 @@ function driveIntoGeometry(): void {
       );
       let maxInside = 0;
       let ejected = false;
-      for (let i = 0; i < 120; i++) {
+      // Four seconds in, four seconds reversing out (120 + 120 ticks as authored at 30 Hz).
+      for (let i = 0; i < ticksFor(4); i++) {
         w.input("c", { throttle: 1 });
         w.tick();
         const p = w.get("c");
@@ -156,7 +157,7 @@ function driveIntoGeometry(): void {
       // Then try to reverse out — a car that cannot escape is wedged. Spike damage is one 80-hp
       // hit on arrival for a self-driven car, so they are still on the field for this.
       const before = { x: w.get("c").x, y: w.get("c").y };
-      for (let i = 0; i < 120; i++) {
+      for (let i = 0; i < ticksFor(4); i++) {
         w.input("c", { throttle: -1 });
         w.tick();
       }
@@ -218,7 +219,9 @@ function pitCorners(): void {
       );
       let maxInside = 0;
       let ejected = false;
-      for (let i = 0; i < 200; i++) {
+      // 6.7 s of grinding (200 ticks as authored at 30 Hz). The steer pulse stays a per-tick duty
+      // cycle (one tick in four): it is the fraction of time steering that sets the average yaw.
+      for (let i = 0; i < ticksFor(20 / 3); i++) {
         w.input("c", { throttle: 1, steer: i % 4 === 0 ? 1 : 0 });
         w.tick();
         const p = w.get("c");
@@ -265,7 +268,8 @@ function crushAgainstObstacle(): void {
     );
     let maxPair = 0;
     let maxGeom = 0;
-    for (let i = 0; i < 150; i++) {
+    // Five seconds (150 ticks as authored at 30 Hz).
+    for (let i = 0; i < ticksFor(5); i++) {
       w.input("atk", { throttle: 1 });
       w.tick();
       const v = w.get("vic");
@@ -325,7 +329,7 @@ function beamInWall(): void {
     );
     const hp0 = w.get("t").hp;
     let maxExtent = 0;
-    for (let i = 0; i < 150; i++) {
+    for (let i = 0; i < ticksFor(5); i++) {
       w.input("s", { fireSlots: i === 0 ? bit : 0 });
       w.tick();
       // afterburner authors muzzles at 0 and 180: the tail cone goes into the open pit and is not

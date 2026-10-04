@@ -22,7 +22,7 @@ import {
   type CarId,
 } from "@motor-combat-moba/shared";
 import { installPlaytestMode } from "./mode.js";
-import { PlaytestWorld, overlapDepth } from "./world.js";
+import { PlaytestWorld, overlapDepth, ticksFor } from "./world.js";
 import { Reporter } from "./reporter.js";
 
 // Mode scope (MC12). `run-all.ts` spawns this file as its own one-shot process (one per probe), so
@@ -55,8 +55,9 @@ const report = reporter.report.bind(reporter);
  * The head-on closing figure this used to quote by hand ("19.2 u/tick", "closes 38.4") predated
  * both T8's restat and the 2026-09-06 heavy-car speed cut. It is DERIVED from `forwardMaxSpeedOf`
  * and `TICK_RATE_HZ` below rather than typed, so it cannot rot again — and it already would have a
- * third time: mirage's per-tick step at top speed was 8.9u after the heavy-car cut, and is 9.5u as
- * of the Unity physics port's stage 5 Task 5 settled speeds (283.5 u/s / 30).
+ * third time: mirage's per-tick step at top speed was 8.9u after the heavy-car cut, 9.5u as of the
+ * Unity physics port's stage 5 Task 5 settled speeds (283.5 u/s / 30), and 4.7u since the tick went
+ * to 60 Hz (283.5 / 60).
  *
  * STILL STALE, and deliberately: "Ram shove ... is not capped by top speed" is no longer true when
  * the victim is also under throttle — `accelerateForward`'s clamp now catches an injected
@@ -81,7 +82,8 @@ function tunneling(): void {
     w.get("A").vx += shove;
     w.get("B").vx -= shove;
     let passedThrough = false;
-    for (let i = 0; i < 20; i++) {
+    // Two-thirds of a second (20 ticks as authored at 30 Hz): at shove 0 the cars meet ~0.25 s in.
+    for (let i = 0; i < ticksFor(2 / 3); i++) {
       w.input("A", { throttle: 1 });
       w.input("B", { throttle: 1 });
       w.tick();
@@ -161,7 +163,8 @@ function wallSandwich(): void {
     ]);
     let maxDepth = 0;
     let minX = Infinity;
-    for (let i = 0; i < 120; i++) {
+    // Four seconds (120 ticks as authored at 30 Hz).
+    for (let i = 0; i < ticksFor(4); i++) {
       w.input("A", { throttle: 1 });
       w.input("B", { throttle: 0 });
       w.tick();
@@ -203,7 +206,9 @@ function pileUp(): void {
   let maxDepth = 0;
   let nan = false;
   let outOfBounds = false;
-  for (let i = 0; i < 300; i++) {
+  // Ten seconds driving in, then 6.7 s reversing out (300 + 200 ticks as authored at 30 Hz).
+  const inTicks = ticksFor(10);
+  for (let i = 0; i < inTicks; i++) {
     for (const id of ids) w.input(id, { throttle: 1, steer: 0 });
     w.tick();
     for (const a of ids) {
@@ -231,7 +236,7 @@ function pileUp(): void {
   };
   let residual = Infinity;
   let clearedAtTick = -1;
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < ticksFor(20 / 3); i++) {
     for (const id of ids) w.input(id, { throttle: -1 });
     w.tick();
     const now = worstNow();
@@ -240,7 +245,7 @@ function pileUp(): void {
   }
 
   report(
-    "3. Six-car corner pile-up (300 ticks in, then reversing out)",
+    `3. Six-car corner pile-up (${inTicks} ticks = ${inTicks / TICK_RATE_HZ} s in, then reversing out)`,
     nan || outOfBounds ? "FINDING" : residual > 1 ? "FINDING" : "OK",
     `peak pairwise overlap ${maxDepth.toFixed(1)}u; NaN ${nan}; centre out of bounds ${outOfBounds}\n` +
       `reversing out: best separation reached was ${residual.toFixed(2)}u overlap` +
@@ -277,7 +282,8 @@ function ramIntoWall(): void {
     let maxX = -Infinity;
     let repeated = 0;
     let neutral = 0;
-    for (let i = 0; i < 90; i++) {
+    // Three seconds (90 ticks as authored at 30 Hz).
+    for (let i = 0; i < ticksFor(3); i++) {
       w.input("attacker", { throttle: 1 });
       // Victim: one real (idle) frame, then silence — the repeat-then-neutral fill from tick 2 on.
       if (i === 0) w.input("victim", {});
@@ -334,7 +340,10 @@ function silentWall(): void {
   let maxDepth = 0;
   let knockWritten = false;
   let quietTicks = 0;
-  for (let i = 0; i < 200; i++) {
+  // 6.7 s (200 ticks as authored at 30 Hz). The throttle pulse below stays a per-tick duty cycle (one
+  // tick in six): the fraction of time on throttle is what sets the hover speed.
+  const nudgeTicks = ticksFor(20 / 3);
+  for (let i = 0; i < nudgeTicks; i++) {
     // Feather the throttle: pulse on/off so speed hovers around 40 u/s. This used to stay below the
     // ram threshold (60 u/s); with minApproachSpeed at 0 (spec R9) there is no threshold to stay
     // below any more.
@@ -355,7 +364,7 @@ function silentWall(): void {
     "5. Slow-nudging a quiet (AFK/alt-tabbed) car — stepped on repeat-then-neutral input",
     maxDepth > 1 ? "FINDING" : "OK",
     `parked car ended at x ${parked.x.toFixed(2)} (started 640); a ram knock was ${knockWritten ? "" : "never "}written; ` +
-      `${quietTicks} of its 200 ticks ran on a repeated or neutral fill\n` +
+      `${quietTicks} of its ${nudgeTicks} ticks ran on a repeated or neutral fill\n` +
       `peak overlap ${maxDepth.toFixed(2)}u — both cars are stepped and resolved every tick, ` +
       `so the pair ${maxDepth > 1 ? "interpenetrates" : "stays separated"}.`,
   );
@@ -374,7 +383,8 @@ function orderDependence(): void {
       { id: idB, carId: "mirage", x: 260, y: 360, angle: 0 },
       { id: idC, carId: "mirage", x: 320, y: 360, angle: 0 },
     ]);
-    for (let i = 0; i < 60; i++) {
+    // Two seconds (60 ticks as authored at 30 Hz).
+    for (let i = 0; i < ticksFor(2); i++) {
       w.input(idA, { throttle: 1 });
       w.input(idB, { throttle: 1 });
       w.input(idC, { throttle: 0 });
@@ -391,7 +401,7 @@ function orderDependence(): void {
     "6. Session-id order dependence in a three-car squeeze",
     worst > 1 ? "KNOWN-BY-DESIGN" : "OK",
     `same geometry, ids sorted the other way: per-car x divergence ` +
-      `[${delta.map((d) => d.toFixed(2)).join(", ")}] after 60 ticks (worst ${worst.toFixed(2)}u).\n` +
+      `[${delta.map((d) => d.toFixed(2)).join(", ")}] after ${ticksFor(2)} ticks = 2 s (worst ${worst.toFixed(2)}u).\n` +
       `Deterministic per room — both halves of the lockstep sort identically — but the car with the ` +
       `lexicographically smaller session id resolves first and keeps its separation.`,
   );
@@ -422,6 +432,8 @@ function energyGain(): void {
     // separate fields; now there is one velocity, so its own magnitude is the direct, more exact
     // successor — no more double-counting a single motion as if it were two.
     const before = speedOf(w.get("A").vx, w.get("A").vy);
+    // Per-tick on purpose: the hulls start overlapping, so the contact tick is tick 1 and these are
+    // that tick and the two after it — reported by tick index, not a wall-time window.
     for (let i = 0; i < 3; i++) {
       w.input("A", { throttle: 0 });
       w.input("B", { throttle: 0 });
@@ -524,9 +536,12 @@ function ramChain(): void {
     { id: "atk2", carId: "bastion", x: 500, y: 400, angle: -Math.PI / 2 },
     { id: "victim", carId: "bullseye", x: 500, y: 360, angle: 0 },
   ]);
-  for (let i = 0; i < 300; i++) {
+  // Ten seconds, pumping on a 2/3 s half-period (300 and 20 ticks as authored at 30 Hz).
+  const chainTicks = ticksFor(10);
+  const pump = ticksFor(2 / 3);
+  for (let i = 0; i < chainTicks; i++) {
     // Both attackers pump the throttle so they separate and re-approach — a real chain attempt.
-    const phase = Math.floor(i / 20) % 2;
+    const phase = Math.floor(i / pump) % 2;
     w.input("atk1", { throttle: phase === 0 ? 1 : -1 });
     w.input("atk2", { throttle: phase === 1 ? 1 : -1 });
     w.input("victim", { throttle: 0 });
@@ -542,7 +557,7 @@ function ramChain(): void {
   // not make on its own; the tick loop above is left in place so the scenario still exercises the
   // ram-chain path, and the verdict below is still a placeholder pending that decision.
   report(
-    "9. Two attackers chain-ramming one victim (300 ticks)",
+    `9. Two attackers chain-ramming one victim (${chainTicks} ticks = ${chainTicks / TICK_RATE_HZ} s)`,
     "KNOWN-BY-DESIGN",
     `Not measured — this probe read \`victim.authority\` to gauge anti-stun-lock pressure from a ` +
       `coordinated 2v1. \`authority\` itself is gone for good, but a successor now exists: the ` +
@@ -566,7 +581,7 @@ function ramChain(): void {
  *
  * Alignment is swept: a pin is never pixel-perfect in play, and an offset pusher is both easier
  * and harder to escape depending on which corner it loads. Escape = the victim's centre moves 80u
- * from where it was pinned (about 1.7 car lengths) inside 300 ticks (10 s) — a pin a player can
+ * from where it was pinned (about 1.3 car lengths) inside 10 s (`ticksFor(10)`) — a pin a player can
  * break in ten seconds of trying is pressure; one they cannot is a cage.
  */
 function wallPin(): void {
@@ -590,7 +605,7 @@ function wallPin(): void {
       const start = { x: w.get("vic").x, y: w.get("vic").y };
       let escapedAt = 0;
       let travelled = 0;
-      for (let t = 1; t <= 300 && escapedAt === 0; t++) {
+      for (let t = 1; t <= ticksFor(10) && escapedAt === 0; t++) {
         w.input("atk", { throttle: 1 });
         w.input("vic", strategy.input);
         w.tick();
@@ -614,7 +629,7 @@ function wallPin(): void {
     ]);
     let escapedAt = 0;
     let travelled = 0;
-    for (let t = 1; t <= 300 && escapedAt === 0; t++) {
+    for (let t = 1; t <= ticksFor(10) && escapedAt === 0; t++) {
       w.input("atk", { throttle: 1 });
       w.input("vic", { throttle: 1 });
       w.tick();
@@ -632,8 +647,8 @@ function wallPin(): void {
     "10. Wall pin: heaviest car holds the lightest against the wall — can it get out?",
     nosePinCaged || broadsideCaged ? "FINDING" : "OK",
     `bastion (ramAttack 70, ramDefence 90) holds full throttle into a bullseye (45/30) on the ` +
-      `right wall for 300 ` +
-      `ticks; the victim drives each escape a player would try. Escape = centre moved 80u.\n` +
+      `right wall for ${ticksFor(10)} ` +
+      `ticks (10 s); the victim drives each escape a player would try. Escape = centre moved 80u.\n` +
       rows.join("\n") +
       (nosePinCaged || broadsideCaged
         ? `\nAt least one geometry left the victim with NO working escape — that is a cage, not ` +

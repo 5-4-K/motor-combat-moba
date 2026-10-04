@@ -20,7 +20,7 @@ import {
   type CarId,
 } from "@motor-combat-moba/shared";
 import { installPlaytestMode } from "./mode.js";
-import { PlaytestWorld } from "./world.js";
+import { PlaytestWorld, ticksFor } from "./world.js";
 import { Reporter } from "./reporter.js";
 
 // Mode scope (MC12). `run-all.ts` spawns this file as its own one-shot process (one per probe), so
@@ -57,6 +57,10 @@ function ramOf(
   atkCar: CarId,
   vicCar: CarId,
   side: "rear" | "front" | "flank",
+  // Left a literal on purpose: this is an impact-capture window, not a wall-time duration. It only
+  // has to contain the contact tick, which at gap <= 20 arrives within ~3 ticks at 60 Hz (a teleported
+  // top-speed start covers 3.4-4.7 u/tick); the reading is the PEAK knock, which a longer window
+  // cannot lower.
   ticks = 8,
 ): { shove: number; angVel: number; approachAtContact: number } {
   // Victim at the origin facing +x. Attacker approaches along +x from behind (rear), from in front
@@ -236,7 +240,9 @@ function drivenRam(): void {
         { id: "vic", carId: "bullseye", x: 640, y: 360, angle: 0 },
       ]);
       let shove = 0;
-      for (let i = 0; i < 90; i++) {
+      // Three seconds of run-up (90 ticks as authored at 30 Hz). Typed as a tick count, this halved
+      // when TICK_RATE_HZ went to 60 and no attacker reached the parked car at all (0/40).
+      for (let i = 0; i < ticksFor(3); i++) {
         w.input("atk", { throttle: 1 });
         w.tick();
         const v = w.get("vic");
@@ -256,7 +262,9 @@ function drivenRam(): void {
   report(
     "R4. A realistic driven ram: accelerate from rest into a parked car",
     worstRate < 0.9 ? "FINDING" : "OK",
-    "The approach a player actually makes — no teleported starting speed.\n" + rows.join("\n"),
+    `The approach a player actually makes — no teleported starting speed. ${ticksFor(3)} ticks (3 s) ` +
+      `of full throttle from 300-339u back.\n` +
+      rows.join("\n"),
   );
 }
 
@@ -312,7 +320,8 @@ function chaseRamLock(): void {
       let rams = 0;
       let prevShove = 0;
       let midGap = 0;
-      const ticks = 240;
+      // Eight seconds of chase (240 ticks as authored at 30 Hz); the far wall usually ends it sooner.
+      const ticks = ticksFor(8);
       let t = 0;
       for (; t < ticks; t++) {
         const v = w.get("vic");

@@ -13,6 +13,7 @@
  */
 import {
   DRIVE_CONFIG,
+  TICK_RATE_HZ,
   forwardMaxSpeedOf,
   activeCarIds,
   cars,
@@ -24,7 +25,7 @@ import {
   type WeaponId,
 } from "@motor-combat-moba/shared";
 import { installPlaytestMode } from "./mode.js";
-import { PlaytestWorld } from "./world.js";
+import { PlaytestWorld, ticksFor } from "./world.js";
 import { Reporter } from "./reporter.js";
 
 // Mode scope (MC12). `run-all.ts` spawns this file as its own one-shot process (one per probe), so
@@ -108,7 +109,8 @@ function pepperboxSpread(): void {
         { id: "t", carId: "bastion", x: 100 + distance, y: 360, angle: 0 },
       ]);
       const hp0 = w.get("t").hp;
-      for (let i = 0; i < 90; i++) {
+      // Three seconds for the volley to land (90 ticks as authored at 30 Hz).
+      for (let i = 0; i < ticksFor(3); i++) {
         w.input("s", { fireSlots: i === 0 ? bit : 0 });
         w.tick();
       }
@@ -167,7 +169,7 @@ function trueTunneling(): void {
         { id: "t", carId: "bastion", x: 100 + distance, y: 360, angle: 0 },
       ]);
       const hp0 = w.get("t").hp;
-      for (let k = 0; k < 90; k++) {
+      for (let k = 0; k < ticksFor(3); k++) {
         w.input("s", { fireSlots: k === 0 ? bit : 0 });
         w.tick();
       }
@@ -175,7 +177,7 @@ function trueTunneling(): void {
     }
     if (misses > 0) bad = true;
     rows.push(
-      `${id.padEnd(10)} ${(def.speed / 30).toFixed(1).padStart(5)} u/tick: ${misses}/${samples} phases missed ` +
+      `${id.padEnd(10)} ${(def.speed / TICK_RATE_HZ).toFixed(1).padStart(5)} u/tick: ${misses}/${samples} phases missed ` +
         `${misses > 0 ? "<- TUNNELING" : ""}`,
     );
   }
@@ -209,7 +211,8 @@ function crossingTarget(): void {
       ]);
       const hp0 = w.get("t").hp;
       let closestApproach = Infinity;
-      for (let k = 0; k < 60; k++) {
+      // Two seconds of crossing (60 ticks as authored at 30 Hz).
+      for (let k = 0; k < ticksFor(2); k++) {
         w.input("s", { fireSlots: k === 0 ? bit : 0 });
         w.input("t", { throttle: 1 });
         w.tick();
@@ -277,7 +280,7 @@ function angledPointBlank(): void {
         { id: "t", carId: "bastion", x: 640, y: 360, angle: 0 },
       ]);
       const hp0 = w.get("t").hp;
-      for (let k = 0; k < 90; k++) {
+      for (let k = 0; k < ticksFor(3); k++) {
         w.input("s", { fireSlots: k === 0 ? bit : 0 });
         w.tick();
       }
@@ -305,7 +308,9 @@ function spinningShooter(): void {
   const bit = slotBitFor("bullseye", "predator");
   let anyNaN = false;
   let maxAngle = 0;
-  for (let i = 0; i < 400; i++) {
+  // 400 ticks as authored at 30 Hz: 13.3 s of spinning, which is what the turn count below measures.
+  const spinTicks = ticksFor(40 / 3);
+  for (let i = 0; i < spinTicks; i++) {
     w.get("s").angVel = ram().spinMaxRate; // hold it spinning
     w.input("s", { fireSlots: bit });
     w.tick();
@@ -317,7 +322,7 @@ function spinningShooter(): void {
     }
   }
   report(
-    "W16. Firing continuously from a car held at the ram spin ceiling (400 ticks)",
+    `W16. Firing continuously from a car held at the ram spin ceiling (${spinTicks} ticks = ${(spinTicks / TICK_RATE_HZ).toFixed(1)} s)`,
     anyNaN ? "FINDING" : "OK",
     `|angle| reached ${maxAngle.toFixed(1)} rad (${(maxAngle / (2 * Math.PI)).toFixed(1)} turns, never wrapped); ` +
       `NaN anywhere: ${anyNaN}; target hp ${w.get("t").hp}\n` +
@@ -351,8 +356,8 @@ function deadCarIsIntangible(): void {
     { id: "t", carId: "bastion", x: 700, y: 360, angle: 0, team: 0 },
   ]);
   const bit = slotBitFor("bullseye", "predator");
-  // Kill the middle car first.
-  for (let i = 0; i < 60; i++) {
+  // Kill the middle car first (a two-second budget: 60 ticks as authored at 30 Hz).
+  for (let i = 0; i < ticksFor(2); i++) {
     w.input("s", { fireSlots: bit });
     w.tick();
     if (!w.get("corpse").alive) break;
@@ -361,7 +366,8 @@ function deadCarIsIntangible(): void {
   const hp0 = w.get("t").hp;
   let shotsFired = 0;
   let live = w.instances().length;
-  for (let i = 0; i < 120; i++) {
+  // Four seconds of tapping (120 ticks as authored at 30 Hz); the alternate-tick release is per-tick.
+  for (let i = 0; i < ticksFor(4); i++) {
     // Release every other tick: the sim fires on a press EDGE, not on a held key.
     w.input("s", { fireSlots: i % 2 === 1 ? 0 : bit });
     w.tick();
@@ -376,7 +382,9 @@ function deadCarIsIntangible(): void {
     { id: "dead", carId: "bastion", x: 500, y: 360, angle: 0, hp: 0 },
   ]);
   mover.get("dead").alive = false;
-  for (let i = 0; i < 60; i++) {
+  // Two seconds of driving (60 ticks as authored at 30 Hz). As a bare 60 this halved at 60 Hz and the
+  // mover stopped at x 426 for want of time, which the `x < 460` test below read as "STILL SOLID".
+  for (let i = 0; i < ticksFor(2); i++) {
     mover.input("m", { throttle: 1 });
     mover.tick();
   }
