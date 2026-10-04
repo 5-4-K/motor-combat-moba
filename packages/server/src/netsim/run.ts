@@ -222,6 +222,15 @@ export interface NetsimFovReport {
   /** Exposure proxy (G5b): enemy car-frames held in view, and the share of them outside the drawn cone. */
   enemyCarFramesInView: number;
   undrawnInViewShare: number;
+  /**
+   * The swept cone's lead `L` (`viewerLeadMs`) every viewer was given, per snapshot once its RTT was
+   * measured (ms, all clients): p50 / p95 / max, and the share of samples AT `visionViewerLeadCapMs`
+   * — how close an honest client on this link sits to the cap (G5b review carry).
+   */
+  viewerLeadP50Ms: number;
+  viewerLeadP95Ms: number;
+  viewerLeadMaxMs: number;
+  viewerLeadAtCapShare: number;
 }
 
 export interface NetsimRun {
@@ -606,6 +615,14 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
           undrawnInViewShare: (() => {
             const all = clients.reduce((n, c) => n + c.client.enemyCarFramesInView, 0);
             return all === 0 ? 0 : clients.reduce((n, c) => n + c.client.enemyCarFramesUndrawn, 0) / all;
+          })(),
+          viewerLeadP50Ms: percentile(world.fov.leadSamplesMs, 50),
+          viewerLeadP95Ms: percentile(world.fov.leadSamplesMs, 95),
+          viewerLeadMaxMs: world.fov.leadSamplesMs.reduce((m, v) => Math.max(m, v), 0),
+          viewerLeadAtCapShare: (() => {
+            const all = world.fov.leadSamplesMs;
+            const cap = NET_CONFIG.visionViewerLeadCapMs;
+            return all.length === 0 ? 0 : all.filter((v) => v >= cap).length / all.length;
           })(),
         }
       : undefined,

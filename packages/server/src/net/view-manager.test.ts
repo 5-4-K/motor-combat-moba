@@ -26,6 +26,7 @@ import {
   ViewManager,
   instanceInterestShape,
   instanceMarginKind,
+  instanceWorldShape,
   viewerLeadMs,
   viewerSweepOf,
   visionExitTicks,
@@ -235,15 +236,37 @@ describe("the swept cone (NR46, G5b)", () => {
     expect(r.vm.shotsIn("a").has("b-shot")).toBe(false);
   });
 
-  it("is the old shape for a LAN lead of ~0 and the capped shape for a huge RTT", () => {
-    for (const beta of [0.2, HALF, HALF + 0.1, HALF + 0.3, HALF + 0.5, 1.6]) {
-      expect(scene(beta, 0).r.vm.carsIn("a").has("b"), `lead 0, β ${beta}`).toBe(
-        scene(beta, 0.001).r.vm.carsIn("a").has("b"),
-      );
-      expect(scene(beta, viewerLeadMs(5000, 99)).r.vm.carsIn("a").has("b"), `huge RTT, β ${beta}`).toBe(
-        scene(beta, CAP).r.vm.carsIn("a").has("b"),
-      );
-    }
+  it("sweeps by the chassis turn rate and grows by its top speed over the lead, and not at all at lead 0", () => {
+    const r = room(config);
+    const a = r.car("a", 640, 1100, 0);
+    a.carId = "mirage";
+    withMode(config, () => {
+      const mirage = driveOf("mirage");
+      expect(viewerSweepOf(a, 0, r.state.tick)).toEqual({ sweep: 0, travel: 0 });
+      const capped = viewerSweepOf(a, CAP, r.state.tick);
+      expect(capped.sweep).toBeCloseTo((mirage.turnRate * CAP) / 1000, 12);
+      expect(capped.travel).toBeCloseTo((mirage.maxSpeed * CAP) / 1000, 12);
+    });
+  });
+
+  it("grows the viewer's own margin by its travel over the lead (an enemy dead ahead, past the car margin)", () => {
+    // Straight ahead, so the sweep alone cannot reach it: rotation keeps distance, and at bearing 0
+    // the reach is the margined ellipse's own. Viewer `a` (Mirage) at (300, 1100) facing +x, a clear
+    // line along y 1100 on arena-03. The enemy faces +x too, so its nearest hull corners sit 30 u
+    // short of its centre: at 720 u from the viewer they are past the 71 u car margin (600 × (1 +
+    // 71/450) ≈ 694.7) but inside the margin grown by Mirage's travel over the cap (≈ 38 u → 745.3).
+    const at = (leadMs: number) => {
+      const r = room(config);
+      const a = r.car("a", 300, 1100, 0);
+      a.carId = "mirage";
+      r.car("b", 300 + 750, 1100, 0);
+      const client = r.join("a");
+      client.leadMs = leadMs;
+      r.patch(EXIT + 1);
+      return r.vm.carsIn("a").has("b");
+    };
+    expect(at(0)).toBe(false);
+    expect(at(CAP)).toBe(true);
   });
 
   it("never sweeps a wreck's frozen death vision: only a living, predicted own car leads", () => {
@@ -283,10 +306,11 @@ describe("the swept cone (NR46, G5b)", () => {
       const def = weapons().lance;
       const grown = reach(instanceInterestShape(row));
       expect(grown).toBeGreaterThan(100);
-      expect(grown).toBeLessThanOrEqual(def.range + 1e-6 + 50);
-      // A projectile is sampled where it is.
+      // 100 + 6000 u/s × 250 ms is far past lance's range: the sample stops AT the range.
+      expect(grown).toBeCloseTo(def.range, 6);
+      // A projectile is sampled where it is: its hitbox now.
       const dart = { ...row, weaponId: "predator", x: 300 };
-      expect(instanceInterestShape(dart)).toEqual(instanceInterestShape({ ...dart }));
+      expect(instanceInterestShape(dart)).toEqual(instanceWorldShape(dart));
     });
   });
 });

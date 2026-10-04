@@ -331,9 +331,15 @@ describe("weapon / combat / drive / flow knobs exist", () => {
     // hysteresis could drop it; a hold past `visionExitMs` would let it leave and come back.
     expect(NET_CONFIG.endedShotRowMs).toBeLessThan(NET_CONFIG.visionExitMs);
   });
-  it("caps the swept-cone lead at whole ticks above zero (G5b)", () => {
-    expect(NET_CONFIG.visionViewerLeadCapMs).toBeGreaterThan(0);
-    expect(NET_CONFIG.visionViewerLeadCapMs).toBeLessThan(1000);
+  it("caps the swept-cone lead at a whole number of ticks, rounded up to whole ms (G5b)", () => {
+    // Authored in ms but sized as ticks: net80clean's p95 lead rounded up to a tick (8 ticks =
+    // 133.3 ms), then up to the next whole ms (134). Anything else is a cap that is not a tick count.
+    const cap = NET_CONFIG.visionViewerLeadCapMs;
+    const msPerTick = 1000 / TICK_RATE_HZ;
+    const ticks = Math.round(cap / msPerTick);
+    expect(ticks).toBeGreaterThanOrEqual(1);
+    expect(cap).toBe(Math.ceil(ticks * msPerTick));
+    expect(cap).toBeLessThan(1000);
   });
 
 });

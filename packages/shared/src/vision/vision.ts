@@ -74,11 +74,17 @@ export function inShape(p: Pt, s: VisionShape): boolean {
   let across = -dx * sin + dy * cos;
   const sweep = s.full ? 0 : (s.sweep ?? 0);
   if (sweep > 0) {
-    // Rotate the point toward the heading by as much of the sweep as its bearing needs. Along any
-    // circle about the centre, membership of the (margined) ellipse-and-cone is one interval of
-    // bearings around 0, so the clamped rotation is the best one: the point is in the union of the
-    // rotated shapes iff this rotated point is in the shape — `|β| ≤ half + Δθ` and
-    // `d ≤ r(max(0, |β| − Δθ))`, the ruling's swept-cone test.
+    // Rotate the point toward the heading by as much of the sweep as its bearing needs. When the
+    // cone's half-angle is at most 90° and `rangeX >= rangeY` (the ellipse is longest along the
+    // heading), membership of the (margined) ellipse-and-cone along any circle about the centre is
+    // one interval of bearings around 0, so the clamped rotation is the best one: the point is in
+    // the union of the rotated shapes iff this rotated point is in the shape — `|β| ≤ half + Δθ` and
+    // `d ≤ r(max(0, |β| − Δθ))`, the ruling's swept-cone test. Every shipped FOV shape meets that
+    // precondition (600 × 450, 120°). Any other shape — a wide-short ellipse (`rangeY > rangeX`,
+    // whose membership on a circle centres on ±90°), a cone wider than 180° over an elongated
+    // ellipse (its back lobe), or a full 360° elongated ellipse (whose sweep is ignored) — is
+    // UNDER-included: the test still never accepts a point outside the union of rotated shapes
+    // (no leak), but misses part of that union, so the client sees pop-ins at the swept edge.
     const beta = Math.atan2(across, along);
     const a = Math.max(-sweep, Math.min(sweep, beta));
     const ca = Math.cos(a);

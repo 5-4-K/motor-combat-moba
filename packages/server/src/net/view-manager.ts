@@ -63,9 +63,13 @@ import {
  *    is shared), each shape grown by `marginUnits` (`marginShape`) and line of sight measured from
  *    each shape's REAL centre (the margin moves only the cone apex) — so an enemy is dropped only
  *    when its centre AND every hull corner are out or blocked (G1 review ruling). An enemy's shot is
- *    in while any of its `shotSamplePoints` is in vision — vision grown by the SHOT margin
- *    (`visionShotMarginUnits`, G5), since a shot outruns every car; a shot owned by the viewer's
- *    side or the perspective's side is always in — ended rows (NR37) included (the Phase F M6 seam).
+ *    in while any of its `shotSamplePoints` is in vision — a projectile's against vision grown by the
+ *    SHOT margin (`visionShotMarginUnits`, G5), since it outruns every car; every beam and burst
+ *    against the car margin, a growing beam sampled at its reach `visionMarginLeadMs` later
+ *    (`instanceMarginKind`, `instanceInterestShape`, G5b); a shot owned by the viewer's side or the
+ *    perspective's side is always in — ended rows (NR37) included (the Phase F M6 seam). The viewer's
+ *    own living car's shape is also SWEPT through the lead its client draws it ahead by (NR46, G5b:
+ *    `viewerLeadMs`, `viewerSweepOf`).
  * 4. Hysteresis (NR47): an enemy car or shot enters at once and leaves only once it has been out
  *    for `exitTicks` consecutive ticks of the VIEW CLOCK, so an enemy on the edge does not flicker.
  *    The view clock is the tick the room passes to `update`: `state.tick` while the sim runs, and
@@ -110,6 +114,10 @@ export interface Viewer {
  * to a snapshot interval of waiting — about one RTT plus the slack. No RTT yet (a fresh joiner, a bot
  * or harness viewer) is 0. The cap is net80clean's measured lead, so no connection — lossy or lying
  * about its RTT — is swept wider than the good one.
+ *
+ * This function is the ONLY place the cap is enforced: `Viewer.leadMs`, `viewerSweepOf` and
+ * `ViewManager.update` trust the lead they are handed. Every room builds it here (`viewLeadOf`), and
+ * a new caller must too — a raw RTT handed straight to a viewer would sweep uncapped.
  */
 export function viewerLeadMs(rttMs: number | undefined, slackTicks: number | undefined): number {
   if (rttMs === undefined || !(rttMs >= 0)) return 0;

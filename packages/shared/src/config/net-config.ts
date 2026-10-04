@@ -148,10 +148,12 @@ export const NET_CONFIG = {
   /** NR39: the drawn gap between a provisional shot and the instance that confirms it eases out over this. */
   provisionalShotEaseMs: 100,
   /**
-   * NR37/NR39 (Phase F final review I1): how long a shot that ended on its own birth tick — at the
-   * muzzle or inside its shot fast-forward, so it never stood in a snapshot alive — stays on the wire
-   * as an ENDED row (`alive: false`, its end pose) before it is removed. Every client draws its
-   * impact from that row, and the shooter's provisional confirms against it and ends. `confirm` reads
+   * NR37/NR39: how long a shot that has ended stays on the wire as an ENDED row (`alive: false`, its
+   * end pose) before it is removed — since protocol 5 a shot that ended on its own birth tick (at the
+   * muzzle or inside its fast-forward, so it never stood in a snapshot alive), and since protocol 8
+   * (G5) EVERY ending: a shot that lived flips its own row. Every client draws its impact only from
+   * such a row (`isShotEnding`), and the shooter's provisional confirms against it and ends. Held
+   * below `visionExitMs` (config test), so a row in view cannot leave the view and come back. `confirm` reads
    * the applied room state every frame, before the unconfirmed-provisional drop reads that same
    * state, so the requirement is only that the row is still present on SOME frame the client draws
    * after its snapshot arrives — not on any particular snapshot. A frame can apply several queued

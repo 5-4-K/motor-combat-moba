@@ -19,11 +19,13 @@ export class WeaponInstanceState extends Schema {
   @type("number") extent = 0;
   @type("uint32") spawnTick = 0;
   /**
-   * `true` on every row in flight. `false` only on an ENDED row (protocol 5): a shot that ended on
-   * its own birth tick — at the muzzle, or inside its NR37 fast-forward — and so never stood in a
-   * snapshot alive. The server sends it at its end pose for `NET_CONFIG.endedShotRowMs` and then
-   * removes it; it is never drawn as a shot, only as the impact (`shotEnded`) and as the confirm that
-   * ends the shooter's provisional (NR39). Written on row creation and never patched after.
+   * `true` on every row in flight. `false` only on an ENDED row: the shot has ended, and the row is
+   * held at its end pose for `NET_CONFIG.endedShotRowMs`, then removed. Protocol 5 sent a shot that
+   * ended on its own birth tick (at the muzzle, or inside its NR37 fast-forward) this way, written on
+   * row creation; since protocol 8 (G5) every ending is — a shot that lived has this flag patched on
+   * its own row. Never drawn as a shot, only as the impact (`isShotEnding`) and as the confirm that
+   * ends the shooter's provisional (NR39). A row that vanishes is not an ending: it may only have left
+   * the client's view.
    */
   @type("boolean") alive = true;
   /**

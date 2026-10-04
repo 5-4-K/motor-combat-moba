@@ -51,6 +51,12 @@ export class FovWire {
   private joined = false;
   /** Client snapshots that decoded a row the oracle did not allow (a leak), over the run. */
   leakSnapshots = 0;
+  /**
+   * Every viewer's swept-cone lead `L` (`viewerLeadMs`) on every snapshot it had one (> 0: its RTT
+   * measured), ms — what an HONEST client on this link actually claims, against the
+   * `visionViewerLeadCapMs` cap (G5b review carry).
+   */
+  readonly leadSamplesMs: number[] = [];
   /** Per viewer, the last snapshot tick each car / shot id was in its margined vision (or always-in). */
   private readonly lastAllowed = new Map<string, Map<string, number>>();
 
@@ -80,7 +86,10 @@ export class FovWire {
   snapshots(): Map<string, Snapshot> {
     const tick = this.state.tick;
     // Each viewer's lead as the room computes it (`viewerLeadMs` from the server's RTT and slack).
-    for (const c of this.clients) c.viewer.leadMs = this.opts.leadOf?.(c.viewer.sessionId) ?? 0;
+    for (const c of this.clients) {
+      c.viewer.leadMs = this.opts.leadOf?.(c.viewer.sessionId) ?? 0;
+      if (c.viewer.leadMs > 0) this.leadSamplesMs.push(c.viewer.leadMs);
+    }
     this.views.update(this.state, this.clients.map((c) => c.viewer), tick);
     if (!this.joined) {
       // Every client joins on the first snapshot: the shared full state plus its own view.
