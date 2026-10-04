@@ -16,9 +16,11 @@ import {
   TICK_RATE_HZ,
   forwardMaxSpeedOf,
   activeCarIds,
+  basicAttackIds,
   cars,
   fireSlotsOf,
   ram,
+  slots,
   weaponDefOf,
   weapons,
   type CarId,
@@ -81,6 +83,20 @@ function slotBitFor(carId: CarId, weaponId: WeaponId): number {
   const i = fireSlotsOf(carId).indexOf(weaponId);
   if (i < 0) throw new Error(`${carId} cannot fire ${weaponId}`);
   return 1 << i;
+}
+/**
+ * A basic-attack row the installed mode refuses to fire — `weapons.ts`'s rule, repeated here as its
+ * carrier helpers are. With `slots().basicAttackEnabled` false (every shipped mode today)
+ * `beginFire` refuses every press on fire slot 0, so a 0 from one is a weapon that never fired, not a
+ * miss: it is left out of the verdict and named on its own line (`refusedLine`). With the flag on,
+ * always false.
+ */
+function refusedHere(id: WeaponId): boolean {
+  return !slots().basicAttackEnabled && basicAttackIds().has(id);
+}
+/** The one report line naming the rows `refusedHere` kept out of a verdict, or nothing. */
+function refusedLine(ids: readonly WeaponId[]): string[] {
+  return ids.length === 0 ? [] : [`not fired: basic attack disabled in this mode — ${ids.join(", ")}`];
 }
 
 /* ------------------------------------ W3b. is pepperbox tunneling, or is it just spread? */
@@ -148,6 +164,7 @@ function pepperboxSpread(): void {
 /* ---------------------------- W3c. real tunneling: sweep every projectile at close range */
 function trueTunneling(): void {
   const rows: string[] = [];
+  const refused: WeaponId[] = [];
   let bad = false;
   for (const id of Object.keys(weapons()) as WeaponId[]) {
     const def = weaponDefOf(id);
@@ -156,6 +173,10 @@ function trueTunneling(): void {
     // A row no active chassis can press has no measurement here — named, not silently dropped.
     if (!hasCarrier(id)) {
       rows.push(`${id.padEnd(10)} ${skipReasonFor(id)}`);
+      continue;
+    }
+    if (refusedHere(id)) {
+      refused.push(id);
       continue;
     }
     const carrier = carrierOf(id);
@@ -181,6 +202,7 @@ function trueTunneling(): void {
         `${misses > 0 ? "<- TUNNELING" : ""}`,
     );
   }
+  rows.push(...refusedLine(refused));
   report("W3c. Single-pellet projectile tunneling (80 sub-tick phases each)", bad ? "FINDING" : "OK", rows.join("\n"));
 }
 
@@ -244,12 +266,17 @@ function crossingTarget(): void {
 /** The muzzle is born 24u ahead of the shooter. Nose-in at an angle puts it inside the victim. */
 function angledPointBlank(): void {
   const rows: string[] = [];
+  const refused: WeaponId[] = [];
   let misses = 0;
   for (const id of Object.keys(weapons()) as WeaponId[]) {
     // A row no active chassis can press — `tremor`, and the unreleased prototypes' basic attacks —
     // cannot reach the real slot pipeline, so it is skipped loudly rather than crashed on.
     if (!hasCarrier(id)) {
       rows.push(`${id.padEnd(11)} ${skipReasonFor(id)}`);
+      continue;
+    }
+    if (refusedHere(id)) {
+      refused.push(id);
       continue;
     }
     // A maneuver row has no muzzle to bury in the victim — the bug this probe exists to catch.
@@ -290,6 +317,7 @@ function angledPointBlank(): void {
     if (missed > 0) misses++;
     rows.push(`${id.padEnd(11)} ${missed}/${total} approach angles dealt nothing at contact range ${missed > 0 ? "<- POINT-BLANK MISS" : ""}`);
   }
+  rows.push(...refusedLine(refused));
   report(
     "W15. Point-blank from 24 approach angles, hulls in contact",
     misses > 0 ? "FINDING" : "OK",

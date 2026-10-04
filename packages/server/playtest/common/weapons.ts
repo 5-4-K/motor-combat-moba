@@ -8,6 +8,7 @@ import {
   DRIVE_CONFIG,
   getArena,
   activeCarIds,
+  basicAttackIds,
   cars,
   spike,
   statusConfig,
@@ -169,12 +170,33 @@ function allWeapons(): WeaponId[] {
 function uncarriedWeapons(): WeaponId[] {
   return (Object.keys(weapons()) as WeaponId[]).filter((id) => !hasCarrier(id));
 }
+/**
+ * A basic-attack row the installed mode refuses to fire. With `slots().basicAttackEnabled` false
+ * (every shipped mode today) `beginFire` refuses every press on fire slot 0, so a scenario pressing
+ * one measures a weapon that never left its slot — a 0 there is not a hit-detection miss and must
+ * not be judged as one. Such a row stays in the sweep (the probes stay structurally unaware of the
+ * flag for carrier lookup), is left out of the scenario's verdict, and is named on its own line
+ * (`refusedLine`). With the flag on this is always false and every row is judged like any weapon.
+ * `basicAttackIds()`, never the id's spelling: a weapon is a basic attack because a chassis slots it.
+ */
+function refusedHere(id: WeaponId): boolean {
+  return !slots().basicAttackEnabled && basicAttackIds().has(id);
+}
+/** The one report line naming the rows `refusedHere` kept out of a verdict, or nothing. */
+function refusedLine(ids: readonly WeaponId[]): string[] {
+  return ids.length === 0 ? [] : [`not fired: basic attack disabled in this mode — ${ids.join(", ")}`];
+}
 
 /* ------------------------------------------------------- W1. baseline: every weapon connects */
 function baseline(): void {
   const rows: string[] = [];
+  const refused: WeaponId[] = [];
   let broken = 0;
   for (const id of allWeapons()) {
+    if (refusedHere(id)) {
+      refused.push(id);
+      continue;
+    }
     const def = weaponDefOf(id);
     const carrier = carrierOf(id);
     // A charge maneuver (`wildcharge`) authors range 0 — "a charge dashes nowhere" — so "half its
@@ -200,6 +222,7 @@ function baseline(): void {
   for (const id of uncarriedWeapons()) {
     rows.push(`${id.padEnd(11)} ${skipReasonFor(id)}`);
   }
+  rows.push(...refusedLine(refused));
   report(
     "W1. Every weapon connects at half its range",
     broken > 0 ? "FINDING" : "OK",
@@ -217,8 +240,13 @@ function pointBlank(): void {
   /** Centres this far apart put the hulls in contact; any closer and they interpenetrate. */
   const HULLS_TOUCH_AT = 48;
   const rows: string[] = [];
+  const refused: WeaponId[] = [];
   let misses = 0;
   for (const id of allWeapons()) {
+    if (refusedHere(id)) {
+      refused.push(id);
+      continue;
+    }
     const def = weaponDefOf(id);
     // Neither maneuver row spawns an instance from a muzzle, so the bug this probe exists to
     // catch — "the shot spawns past the hitbox" — cannot happen to either. What each is still
@@ -248,6 +276,7 @@ function pointBlank(): void {
     if (missed > 0) misses++;
     rows.push(`${id.padEnd(11)} ${results.join("  ")}`);
   }
+  rows.push(...refusedLine(refused));
   report(
     "W2. Point-blank (centres 40-80u apart; hulls touch at 48)",
     misses > 0 ? "FINDING" : "OK",
@@ -265,10 +294,15 @@ function pointBlank(): void {
  */
 function projectileTunneling(): void {
   const rows: string[] = [];
+  const refused: WeaponId[] = [];
   let tunneled = 0;
   for (const id of allWeapons()) {
     const def = weaponDefOf(id);
     if (def.kind !== "projectile") continue;
+    if (refusedHere(id)) {
+      refused.push(id);
+      continue;
+    }
     const perTick = def.speed / TICK_RATE_HZ;
     let misses = 0;
     const samples = 60;
@@ -284,6 +318,7 @@ function projectileTunneling(): void {
         `${misses}/${samples} sub-tick phases missed ${misses > 0 ? "<- TUNNELING" : ""}`,
     );
   }
+  rows.push(...refusedLine(refused));
   // NOT a tunneling verdict: a multi-pellet weapon fans its pellets off the centre line, so a miss
   // here is spread, not a straddle. `weapons2.ts` separates the two — see W3b and W3c.
   report(
@@ -300,8 +335,13 @@ function projectileTunneling(): void {
 /* ------------------------------------------------------------- W4. friendly fire / self harm */
 function friendlyFire(): void {
   const rows: string[] = [];
+  const refused: WeaponId[] = [];
   let leaks = 0;
   for (const id of allWeapons()) {
+    if (refusedHere(id)) {
+      refused.push(id);
+      continue;
+    }
     const def = weaponDefOf(id);
     const distance = Math.min(def.range * 0.4, def.range - 20);
     const team = shootAt({ weaponId: id, distance, ticks: ticksFor(4), mode: "team", targetTeam: 0 });
@@ -316,6 +356,7 @@ function friendlyFire(): void {
         `shooter hp ${selfHp}/${selfMax} ${bad ? "<- LEAK" : ""}`,
     );
   }
+  rows.push(...refusedLine(refused));
   report("W4. Friendly fire and self-damage (team mode)", leaks > 0 ? "FINDING" : "OK", rows.join("\n"));
 }
 
@@ -657,7 +698,12 @@ function beamsThroughWalls(): void {
   const muzzleX = sx + Math.cos(angle) * muzzleOffset();
   const clipDist = muzzleX - inner;
   const rows: string[] = [];
+  const refused: WeaponId[] = [];
   for (const id of allWeapons()) {
+    if (refusedHere(id)) {
+      refused.push(id);
+      continue;
+    }
     const carrier = carrierOf(id);
     const w = new PlaytestWorld(
       [{ id: "shooter", carId: carrier, x: sx, y, angle }],
@@ -706,7 +752,7 @@ function beamsThroughWalls(): void {
   report(
     "W8. Shooting into arena-02's west spike strip",
     rows.some((r) => r.includes("SHOT THROUGH")) ? "FINDING" : "OK",
-    rows.join("\n"),
+    [...rows, ...refusedLine(refused)].join("\n"),
   );
 }
 
@@ -806,8 +852,13 @@ function pierce(): void {
 /** Nothing may survive forever: a leaked instance is bandwidth and a phantom hitbox. */
 function instanceLeak(): void {
   const rows: string[] = [];
+  const refused: WeaponId[] = [];
   let leaked = false;
   for (const id of allWeapons()) {
+    if (refusedHere(id)) {
+      refused.push(id);
+      continue;
+    }
     const carrier = carrierOf(id);
     const bit = slotBitFor(carrier, id);
     // Fire into empty space, pointing at a wall, and let everything expire.
@@ -824,7 +875,7 @@ function instanceLeak(): void {
     if (left > 0 || schemaRows > 0) leaked = true;
     rows.push(`${id.padEnd(11)} after ${ticksFor(20)} ticks (20 s) firing + ${ticksFor(10)} (10 s) idle: ${left} live, ${schemaRows} schema rows`);
   }
-  report("W11. Weapon instance leak", leaked ? "FINDING" : "OK", rows.join("\n"));
+  report("W11. Weapon instance leak", leaked ? "FINDING" : "OK", [...rows, ...refusedLine(refused)].join("\n"));
 }
 
 /* --------------------------------------------------------- W12. attached beam vs owner death */
