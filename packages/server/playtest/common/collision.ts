@@ -17,6 +17,8 @@ import {
   ramDefenceOf,
   speedOf,
   getArena,
+  msToTicks,
+  NET_CONFIG,
   type CarId,
 } from "@motor-combat-moba/shared";
 import { installPlaytestMode } from "./mode.js";
@@ -249,10 +251,21 @@ function pileUp(): void {
 }
 
 /* --------------------------------------- 4. rammed into a wall: can you be pushed out? */
-/** A full-severity ram aimed straight at the boundary — the shove is a velocity the clamp must eat. */
+/**
+ * A full-severity ram aimed straight at the boundary — the shove is a velocity the clamp must eat.
+ *
+ * The victim is a player who has gone quiet (alt-tabbed, frozen tab): it sends ONE real idle frame on
+ * the first tick and nothing after. There is no separate silent-coast branch any more (the old
+ * `NET_CONFIG.silentCoastGraceMs` path is deleted, NR22): every car steps exactly once per tick on
+ * whatever its `TickInputBuffer` hands back — the last real input repeated for
+ * `NET_CONFIG.inputRepeatMs`, then neutral keys. So the victim is stepped, and resolves against the
+ * wall, from the very first tick; the report says how many of its ticks ran on the repeat and how
+ * many on neutral, so a regression that stopped stepping a quiet car would show up as both reading 0.
+ */
 function ramIntoWall(): void {
   const rows: string[] = [];
   let escaped = false;
+  const repeatTicks = msToTicks(NET_CONFIG.inputRepeatMs);
   for (const victim of ["mirage", "bullseye", "bastion"] as CarId[]) {
     // Bastion (the roster's highest ramAttack/ramDefence, 70/90) at top speed rear-ending a victim
     // parked against the right wall.
@@ -262,49 +275,53 @@ function ramIntoWall(): void {
       { id: "victim", carId: victim, x: wallX, y: 360, angle: 0 },
     ]);
     let maxX = -Infinity;
+    let repeated = 0;
+    let neutral = 0;
     for (let i = 0; i < 90; i++) {
       w.input("attacker", { throttle: 1 });
-      // Victim sends nothing: exercises the silent-coast path. Since the drive-model port's
-      // whole-branch review that path waits out `NET_CONFIG.silentCoastGraceMs` of unbroken silence
-      // first (see scenario 5's doc), so the victim is frozen for the first few ticks after the ram
-      // and only then starts resolving. This loop is long enough to cover that, but the tick at
-      // which the wall is reached has moved.
+      // Victim: one real (idle) frame, then silence — the repeat-then-neutral fill from tick 2 on.
+      if (i === 0) w.input("victim", {});
       w.tick();
-      maxX = Math.max(maxX, w.get("victim").x);
+      const v = w.get("victim");
+      if (v.ackRepeated) {
+        if (i <= repeatTicks) repeated++;
+        else neutral++;
+      }
+      maxX = Math.max(maxX, v.x);
     }
     const out = maxX > wallX + 0.01;
     if (out) escaped = true;
     rows.push(
-      `victim ${victim.padEnd(9)} max x ${maxX.toFixed(2)} (wall-flush ${wallX}) ${out ? "<- CLIPPED THROUGH" : "held"}`,
+      `victim ${victim.padEnd(9)} max x ${maxX.toFixed(2)} (wall-flush ${wallX}) ${out ? "<- CLIPPED THROUGH" : "held"}  ` +
+        `[quiet ticks: ${repeated} on the repeated input, ${neutral} on neutral]`,
     );
   }
   report(
-    "4. Rammed into the arena wall (victim silent — the coast path)",
+    "4. Rammed into the arena wall (victim quiet — its input repeats, then goes neutral)",
     escaped ? "FINDING" : "OK",
-    rows.join("\n"),
+    rows.join("\n") +
+      `\nThe victim sends one idle frame and then nothing: its car is stepped every tick on the last ` +
+      `input repeated for ${NET_CONFIG.inputRepeatMs} ms (${repeatTicks} ticks), then on neutral keys (NR22).`,
   );
 }
 
-/* ---------------------------------- 5. silent, un-knocked player as an immovable wall */
+/* ---------------------------------- 5. quiet, un-knocked player as an immovable wall */
 /**
- * **The gate this scenario was written against is gone, and the numbers below move with it.**
- * `serverTick` used to coast a silent player only while `hasKnock` was true — a body-shape test — so
- * a contact below `RAM_CONFIG.minApproachSpeed` wrote no knock at all and the silent car was never
- * stepped, never resolved, and could not be pushed out of an overlap. That was the question here:
- * does it let a driver bury themselves in a parked car?
- *
- * The drive-model port's whole-branch review replaced that predicate with elapsed SILENCE
- * (`NET_CONFIG.silentCoastGraceMs`, `hasMotionToResolve` in `sim/tick.ts`), because under the ported
- * model no property of the body distinguishes imposed motion from ordinary drift. So "parked" here
- * is now stepped from `silentCoastGraceMs` after its last input onwards whenever it carries any
- * motion at all, whatever wrote it. Expect this scenario's depth figures to move; re-read what it
- * reports before trusting the old reading. NOT re-aimed here — that is a judgement call for the
- * user, alongside the `minApproachSpeed` note below.
+ * **The gate this scenario was written against is gone, twice over.** `serverTick` used to coast a
+ * silent player only while `hasKnock` was true — a body-shape test — so a contact below
+ * `RAM_CONFIG.minApproachSpeed` wrote no knock at all and the silent car was never stepped, never
+ * resolved, and could not be pushed out of an overlap. That was the question here: does it let a
+ * driver bury themselves in a parked car? The drive-model port then swapped that predicate for a
+ * silence timer (`NET_CONFIG.silentCoastGraceMs`), and the netcode redesign (NR22) deleted the
+ * silent-coast branch outright: every car now steps exactly once per tick on what its
+ * `TickInputBuffer` hands back — the last real input repeated for `NET_CONFIG.inputRepeatMs`, then
+ * neutral. So the parked car below (one real idle frame, then silence — an alt-tabbed player) is
+ * stepped and resolved on every tick, and the question this scenario still answers is the honest
+ * remainder of the old one: does a slow push bury the mover in a quiet car anyway?
  *
  * As of stage 3 Task 2 (spec R9), `minApproachSpeed` ships at 0 — deliberately inactive — so this
- * gate no longer exercises the path it was written for: any drive-in at all now clears it, and this
- * scenario's own feathered-throttle setup (staying near 40 u/s) no longer stays "under the ram
- * threshold" in any meaningful sense. Left running rather than reworked; stage 5 owns it.
+ * scenario's feathered-throttle setup (staying near 40 u/s) no longer stays "under the ram threshold"
+ * in any meaningful sense. Left running rather than reworked; stage 5 owns it.
  */
 function silentWall(): void {
   // Originally: approach slowly enough to stay under minApproachSpeed (60 u/s) at the moment of
@@ -316,14 +333,18 @@ function silentWall(): void {
   ]);
   let maxDepth = 0;
   let knockWritten = false;
+  let quietTicks = 0;
   for (let i = 0; i < 200; i++) {
     // Feather the throttle: pulse on/off so speed hovers around 40 u/s. This used to stay below the
     // ram threshold (60 u/s); with minApproachSpeed at 0 (spec R9) there is no threshold to stay
     // below any more.
     w.input("mover", { throttle: i % 6 === 0 ? 1 : 0 });
+    // Parked: one real idle frame, then silence (repeat, then neutral — NR22).
+    if (i === 0) w.input("parked", {});
     w.tick();
     const p = w.get("parked");
-    // "parked" never receives an input, so any vx/vy at all is a knock, not driving. `authority` has
+    if (p.ackRepeated) quietTicks++;
+    // "parked" only ever holds idle keys, so any vx/vy at all is a knock, not driving. `authority` has
     // no successor in stage 1 (ram control-loss returns as the `reeling` status in stage 3b), so that
     // check is dropped rather than replaced with a lookalike.
     if (p.vx !== 0 || p.vy !== 0 || p.angVel !== 0) knockWritten = true;
@@ -331,10 +352,11 @@ function silentWall(): void {
   }
   const parked = w.get("parked");
   report(
-    "5. Slow-nudging a silent (AFK/alt-tabbed) car",
+    "5. Slow-nudging a quiet (AFK/alt-tabbed) car — stepped on repeat-then-neutral input",
     maxDepth > 1 ? "FINDING" : "OK",
-    `parked car never moved: x ${parked.x.toFixed(2)}; a ram knock was ${knockWritten ? "" : "never "}written\n` +
-      `peak overlap ${maxDepth.toFixed(2)}u — the mover is pushed out by resolveWorld each tick, ` +
+    `parked car ended at x ${parked.x.toFixed(2)} (started 640); a ram knock was ${knockWritten ? "" : "never "}written; ` +
+      `${quietTicks} of its 200 ticks ran on a repeated or neutral fill\n` +
+      `peak overlap ${maxDepth.toFixed(2)}u — both cars are stepped and resolved every tick, ` +
       `so the pair ${maxDepth > 1 ? "interpenetrates" : "stays separated"}.`,
   );
 }

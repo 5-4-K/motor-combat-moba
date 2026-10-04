@@ -18,10 +18,17 @@ import {
   weaponDamageOf,
   weaponDefOf,
   weaponTicksOf,
+  isInputPacket,
+  msToTicks,
+  slots,
+  NET_CONFIG,
+  TICK_RATE_HZ,
   type ArenaDef,
   type CarId,
+  type InputFrame,
   type WeaponId,
 } from "@motor-combat-moba/shared";
+import { mulberry32 } from "../../src/netsim/rng.js";
 import { installPlaytestMode } from "./mode.js";
 import { PlaytestWorld, statusesOf } from "./world.js";
 import { Reporter } from "./reporter.js";
@@ -358,57 +365,159 @@ function damageAfterDeath(): void {
 
 /* ------------------------------------------------- W6. fire-rate exploit via input flooding */
 /**
- * A hand-rolled client can send many inputs per tick. `serverTick` caps how many are SIMULATED; the
- * weapon cooldown is what must actually bound the rate.
+ * A hand-rolled client can send many frames — many packets, up to `MAX_FRAMES_PER_PACKET` frames
+ * each, stamped for any ticks it likes, with any fire bits. Can it press faster than the weapon is
+ * authored to fire?
  *
- * **The exploit this probe hunts moved on 2026-08-30.** Fire became edge-triggered: `fireSlots` is
- * key state, and only a bit that was NOT down on the previous simulated input counts as a press. The
- * old attack — flood the same held mask and hope the OR buys extra shots — now buys nothing, and
- * comparing 1 held input against 8 held ones would report a meaningless 1.00x with both arms firing
- * exactly once.
+ * Every frame here goes through the room's REAL input path, the same two calls `ArenaRoom`'s
+ * `INPUT_MESSAGE` handler makes: `isInputPacket` on the packet, then `TickInputBuffer.offer(frame,
+ * state.tick)` per frame. (The handler's per-client rate limiter, NR54, is deliberately left out: it
+ * only shrinks what an attacker can deliver, and the bound below has to hold without it.)
  *
- * The new surface is the one edge detection opened: `prev` advances PER INPUT, so a client that
- * ALTERNATES its mask inside a single tick (`bit, 0, bit, 0, ...`) manufactures a press edge every
- * other input — four presses in one tick out of one physically-held key. That is what the flooding
- * arm does here. The cooldown is still the thing that must refuse them.
+ * **The original arm — manufacture press edges INSIDE one tick — is impossible since D4 (NR22).** Fire
+ * is edge-triggered (`clean & ~prev` against the last SIMULATED mask, 2026-08-30), and it used to be
+ * attackable because `prev` advanced per input: alternating `bit, 0, bit, 0` inside one tick bought a
+ * press every other input. The server now takes exactly one frame per car per tick from its
+ * `TickInputBuffer`; the first frame accepted for a tick wins and every later one is a `duplicate`.
+ * That arm is still run, and reported as KNOWN-BY-DESIGN, so a regression that let a second frame
+ * per tick through would show up as accepted offers above one per tick and a press count above the
+ * honest tap's.
+ *
+ * **What is still possible**: choosing WHICH frame is first for each tick — prefilling ticks up to
+ * `NET_CONFIG.maxInputLeadMs` ahead, varying ticks and contents, alternating the fire bit tick to tick.
+ * The best that buys is one press edge every other tick, which is exactly what an honest player
+ * tapping as fast as possible sends. So the bound is the weapon's own fire state, and this probe
+ * checks it against the weapon's AUTHORED ceiling: `stock.max` shots banked plus one per `cooldownMs`
+ * recharge over the window (a slight over-estimate — it ignores start-up and recovery — so it can only
+ * excuse a few presses, never hide a rate exploit).
+ *
+ * Presses are counted from the slot's own fire state (`refireLockUntilTick` is rewritten on every
+ * committed press's final volley), not from spawned instances: a pellet weapon spawns many instances
+ * per press and a maneuver spawns none, so instance counts measured neither.
  */
 function fireRateExploit(): void {
+  const WINDOW = 300;
+  const seconds = WINDOW / TICK_RATE_HZ;
+  const PACKETS_PER_TICK = 8;
+  const maxLead = msToTicks(NET_CONFIG.maxInputLeadMs);
   const rows: string[] = [];
   let exploitable = false;
+  let sameTickLeak = false;
+  let refusedRows = 0;
+  type Arm = "honest" | "sameTick" | "leadFlood" | "random";
+  const arms: Arm[] = ["honest", "sameTick", "leadFlood", "random"];
   for (const id of allWeapons()) {
     const carrier = carrierOf(id);
     const bit = slotBitFor(carrier, id);
-    const counts: number[] = [];
-    for (const perTick of [1, 8]) {
+    const slotIndex = Math.log2(bit);
+    const def = weaponDefOf(id);
+    const ticks = weaponTicksOf(id);
+    const stockMax = def.stock?.max ?? 1;
+    const ceiling = ticks.cooldown > 0 ? stockMax + Math.floor(WINDOW / ticks.cooldown) : WINDOW;
+    const presses: Record<Arm, number> = { honest: 0, sameTick: 0, leadFlood: 0, random: 0 };
+    let sameTickAccepted = 0;
+    let sameTickOffered = 0;
+    for (const arm of arms) {
       const w = new PlaytestWorld([
         { id: "shooter", carId: carrier, x: 200, y: 360, angle: 0 },
-        { id: "target", carId: "bastion", x: 200 + Math.min(weaponDefOf(id).range * 0.5, 300), y: 360, angle: 0 },
+        { id: "target", carId: "bastion", x: 200 + Math.min(def.range * 0.5, 300), y: 360, angle: 0 },
       ]);
-      let spawned = 0;
-      const seen = new Set<string>();
-      for (let i = 0; i < 300; i++) {
-        if (perTick === 1) {
-          // The honest client: one input per tick, releasing between presses — the fastest a real
-          // player can legitimately ask to fire.
-          w.input("shooter", { fireSlots: i % 2 === 0 ? bit : 0 });
+      const buffer = w.buffers.get("shooter")!;
+      const rng = mulberry32(0x5eed + slotIndex);
+      const deliver = (frames: InputFrame[]): void => {
+        const packet: unknown = { inputs: frames };
+        if (!isInputPacket(packet)) return;
+        for (const frame of packet.inputs) {
+          const result = buffer.offer(frame, w.state.tick);
+          if (arm === "sameTick") {
+            sameTickOffered++;
+            if (result === "accepted") sameTickAccepted++;
+          }
+        }
+      };
+      const frame = (tick: number, fire: boolean): InputFrame => ({ tick, steer: 0, throttle: 0, fireSlots: fire ? bit : 0 });
+      let lastLock = w.get("shooter").weapons[slotIndex]?.refireLockUntilTick ?? 0;
+      for (let i = 0; i < WINDOW; i++) {
+        const next = w.state.tick + 1;
+        if (arm === "honest") {
+          // One frame per tick, releasing between presses: the fastest a real player can ask to fire.
+          deliver([frame(next, next % 2 === 0)]);
+        } else if (arm === "sameTick") {
+          // The pre-D4 attack: every frame for the next tick, alternating, many packets of them.
+          for (let k = 0; k < PACKETS_PER_TICK; k++) {
+            deliver([frame(next, true), frame(next, false), frame(next, true), frame(next, false)]);
+          }
+        } else if (arm === "leadFlood") {
+          // Prefill every tick out to the lead cap with the best pattern (press on even ticks), then
+          // send contradicting duplicates for the same ticks behind it.
+          for (let k = 0; k < PACKETS_PER_TICK; k++) {
+            const base = next + ((k * 4) % (maxLead + 1));
+            const out: InputFrame[] = [];
+            for (let j = 0; j < 4; j++) {
+              const t = base + j;
+              out.push(frame(t, k % 2 === 0 ? t % 2 === 0 : t % 2 !== 0));
+            }
+            deliver(out);
+          }
         } else {
-          // The flooder: alternate inside the tick so every other input is a fresh press edge.
-          for (let k = 0; k < perTick; k++) w.input("shooter", { fireSlots: k % 2 === 0 ? bit : 0 });
+          // Seeded noise: ticks from just-late to just-past the lead cap, random fire bits.
+          for (let k = 0; k < PACKETS_PER_TICK; k++) {
+            const out: InputFrame[] = [];
+            for (let j = 0; j < 4; j++) {
+              out.push(frame(next - 2 + Math.floor(rng() * (maxLead + 5)), rng() < 0.5));
+            }
+            deliver(out);
+          }
         }
         w.tick();
-        for (const inst of w.instances()) if (!seen.has(inst.id)) { seen.add(inst.id); spawned++; }
+        const lock = w.get("shooter").weapons[slotIndex]?.refireLockUntilTick ?? 0;
+        if (lock !== lastLock) presses[arm]++;
+        lastLock = lock;
       }
-      counts.push(spawned);
     }
-    const ratio = counts[0]! === 0 ? 0 : counts[1]! / counts[0]!;
-    if (ratio > 1.05) exploitable = true;
+    if (presses.honest === 0) refusedRows++;
+    const flooders = [presses.sameTick, presses.leadFlood, presses.random];
+    const worst = Math.max(...flooders);
+    const overCeiling = flooders.some((n) => n > ceiling);
+    const overHonest = worst > presses.honest;
+    if (overCeiling || overHonest) exploitable = true;
+    if (sameTickAccepted > WINDOW || presses.sameTick > presses.honest) sameTickLeak = true;
+    const ps = (n: number): string => (n / seconds).toFixed(2).padStart(5);
     rows.push(
-      `${id.padEnd(11)} honest tap -> ${String(counts[0]).padStart(3)} shots;  ` +
-        `8 alternating inputs/tick -> ${String(counts[1]).padStart(3)} shots  (${ratio.toFixed(2)}x) ` +
-        `${ratio > 1.05 ? "<- RATE EXPLOIT" : ""}`,
+      `${id.padEnd(21)} authored ceiling ${String(ceiling).padStart(3)} (${ps(ceiling)}/s)  ` +
+        `honest ${String(presses.honest).padStart(3)} (${ps(presses.honest)}/s)  ` +
+        `same-tick ${String(presses.sameTick).padStart(3)}  lead-flood ${String(presses.leadFlood).padStart(3)}  ` +
+        `random ${String(presses.random).padStart(3)}  ` +
+        `[same-tick offers accepted ${sameTickAccepted}/${sameTickOffered}]` +
+        `${overCeiling ? "  <- OVER AUTHORED RATE" : overHonest ? "  <- FLOOD BEATS HONEST TAP" : ""}`,
     );
   }
-  report("W6. Fire-rate exploit by manufacturing press edges (300 ticks = 10s)", exploitable ? "FINDING" : "OK", rows.join("\n"));
+  const note =
+    `\n${WINDOW} ticks (${seconds.toFixed(0)} s) per arm, committed presses counted from the slot's fire state. ` +
+    `Flood arms send ${PACKETS_PER_TICK} packets x 4 frames per tick through isInputPacket + TickInputBuffer.offer.\n` +
+    `same-tick: every frame stamped for the next tick, alternating fire bits (the pre-D4 attack).\n` +
+    `lead-flood: frames prefilled up to maxInputLeadMs (${maxLead} ticks) ahead, best pattern first, contradicting duplicates after.\n` +
+    `random: seeded ticks from 2 late to past the lead cap, random fire bits.\n` +
+    (refusedRows > 0
+      ? `${refusedRows} row(s) read 0 honest presses: a slot this mode refuses (the basic attack while ` +
+        `slots().basicAttackEnabled is ${slots().basicAttackEnabled}) — 0 under flooding too is the pass.\n`
+      : "");
+  report(
+    `W6. Fire-rate exploit by input flooding: presses vs the authored rate (${WINDOW} ticks = ${seconds.toFixed(0)}s)`,
+    exploitable ? "FINDING" : "OK",
+    rows.join("\n") + "\n" + note,
+  );
+  report(
+    "W6b. Manufacturing press edges inside one tick (the pre-D4 attack)",
+    sameTickLeak ? "FINDING" : "KNOWN-BY-DESIGN",
+    sameTickLeak
+      ? `More than one frame per tick was ACCEPTED, or the same-tick arm out-pressed the honest tap — the ` +
+          `one-input-per-tick rule (NR22) has a hole. See the same-tick column in W6.`
+      : `Impossible by construction since D4 (NR22): the server takes exactly one frame per car per tick from its ` +
+          `TickInputBuffer, the first accepted for a tick wins and every later copy is a duplicate, so alternating ` +
+          `fire bits inside one tick collapses to a held key. Accepted offers never exceeded one per tick ` +
+          `(see the same-tick column above), and the arm pressed no more than the honest tap.`,
+  );
 }
 
 /* ------------------------------------------------------------ W7. status chain / perma-CC */
