@@ -14,13 +14,12 @@ export const NOTHING_HIDDEN: FxHidden = { cars: new Set(), instances: new Set() 
 
 /**
  * Adds back an id that was hidden last frame but is gone from the world this frame (CB27, review
- * item I1). The server deletes a dead weapon instance the same tick it dies — it never writes
- * `alive: false` into a row a client has seen alive (an ended row, protocol 5, ARRIVES dead and is
- * present on the frame its `shotEnded` fires, so it needs no carrying) — so `shotEnded` for a hidden enemy's shot fires
- * on the frame the id vanishes from `state.weapons`, not on an `alive` flip a client never
- * observes. `fxHidden` only knows about instances still present in the world, so a hidden shot's
- * `shotEnded` would otherwise resolve against `NOTHING_HIDDEN` and its impact burst/scorch would
- * show for an enemy the player could never see fire it.
+ * item I1). Written when a shot's end WAS its row vanishing: `shotEnded` for a hidden enemy's shot
+ * then fired on the frame the id left `state.weapons`, where `fxHidden` (which only knows instances
+ * still present) could not see it. Since protocol 8 a vanishing row fires nothing — every ending is an
+ * ENDED row, present on the frame its `shotEnded` fires and filtered by `fxHidden` like any other —
+ * so this is no longer load-bearing for impacts; it is kept as a harmless belt for any event a future
+ * change derives from a removal.
  *
  * `currentIds` is every instance id the world still carries this frame (from `state.weapons`),
  * regardless of visibility — that is what tells a "no longer exists" id apart from one that simply

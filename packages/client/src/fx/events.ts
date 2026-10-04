@@ -11,6 +11,7 @@
  * such a change touches.
  */
 
+import { isShotEnding } from "@motor-combat-moba/shared";
 import { damagePoint, shotGeometriesOf, shotEndPoint, type ShotGeometry } from "./contact.js";
 
 export interface FxCarView {
@@ -52,13 +53,12 @@ export interface FxInstanceView {
    * lava layer could not tell a field on the ground from the shell that made it.
    */
   readonly isExplosion: boolean;
-  // Mirrors WeaponInstanceState.alive. A shot that lived on the wire ends by its row VANISHING: the
-  // server drops a dying instance the tick it dies and never writes `alive: false` onto a row a
-  // client has seen alive. `alive: false` is only ever an ENDED row (protocol 5): a shot that ended
-  // on its own birth tick — at the muzzle, or inside its NR37 shot fast-forward — and so never stood
-  // in a snapshot alive; the server sends it once, at its end pose, for `endedShotRowMs`
-  // (`combat-bridge.ts`, `CombatResult.ended`). `deriveFxEvents` turns the first sight of one into
-  // its `shotEnded`, and both paths stay exactly-once — see its own comments.
+  // Mirrors WeaponInstanceState.alive. `alive: false` is an ENDED row, and since protocol 8 it is the
+  // ONLY way a shot ends on the wire: the server writes every ending onto the shot's row at its end
+  // pose and holds it for `endedShotRowMs` (`combat-bridge.ts`) — a row that flips from alive, or one
+  // that arrives already dead (it ended on its birth tick, or while out of this client's view). A row
+  // that VANISHES has left the view (NR44) or finished its hold, and is silent. `deriveFxEvents` fires
+  // `shotEnded` through the shared `isShotEnding`, exactly once per shot.
   readonly alive: boolean;
 }
 
@@ -93,10 +93,9 @@ export function deriveFxEvents(prev: FxWorldView | undefined, next: FxWorldView)
 
   for (const [id, instance] of nextInstances) {
     const before = prevInstances.get(id);
-    if (before) continue;
     // shotFired only for an instance that is new AND alive: one that arrives already dead gets no
     // muzzle flash — its pose is where it ENDED, nowhere near the muzzle.
-    if (instance.alive) {
+    if (!before && instance.alive) {
       events.push({
         kind: "shotFired",
         weaponId: instance.weaponId,
@@ -107,48 +106,22 @@ export function deriveFxEvents(prev: FxWorldView | undefined, next: FxWorldView)
       });
       continue;
     }
-    // An ENDED row, first seen: a shot that ended on its own birth tick (a close hit or a wall inside
-    // its fast-forward, Phase F final review I1). It never flew on anyone's screen, but it hit
-    // something, so every client gets its impact at its end pose, exactly as for a shot whose row
-    // vanished. A burst is skipped for the reason given below. On later frames `before` holds it,
-    // so it never fires twice, and its removal is skipped by the `!instance.alive` guard below.
-    if (instance.isExplosion) continue;
+    // An ENDED row this view and not last view (protocol 8, `isShotEnding`): a shot that was alive
+    // and has ended, or one that arrives already dead — it ended on its birth tick (a close hit or a
+    // wall inside its fast-forward, Phase F final review I1), or ended while out of this client's
+    // view. Its pose is its END pose, written by the server, refined into where the shot actually
+    // terminated: a beam's tip rather than its muzzle, a projectile's entry face rather than wherever
+    // a tick of travel left it. Cars come from `next` — the poses they are drawn at as the burst
+    // spawns — so an effect always lands on the car the player sees.
+    //
+    // Exactly once: on the next view `before` is the ended row itself, and `isShotEnding` refuses a
+    // row that was already ended. A burst never ends this way (its shell's ending is the blast, and a
+    // lava field's expiry is the fade of its stamps), and a row that VANISHES fires nothing — it left
+    // this client's view, or its ended row's hold ran out (G4 review, risk 1: no impact in mid-air for
+    // a shot that is still flying).
+    if (!isShotEnding(before, instance)) continue;
     const end = shotEndPoint(instance, next.cars);
     events.push({ kind: "shotEnded", weaponId: instance.weaponId, x: end.x, y: end.y, angle: instance.angle, instanceId: id });
-  }
-  for (const [id, instance] of prevInstances) {
-    if (!instance.alive) continue; // already ended last frame; do not fire again on deletion
-    const after = nextInstances.get(id);
-    // shotEnded fires the moment an instance that was alive goes away OR goes not-alive. Keying off
-    // `alive` rather than the id vanishing from the map matches the client's own renderShots, which
-    // stops drawing at !instance.alive. The server deletes a dying instance from `state.weapons` the
-    // SAME tick it dies (see the `alive` field comment above) rather than flipping it false first,
-    // so this branch fires off `!after`; the `!after.alive` half is a safety net. (A row that ARRIVES
-    // dead is the first loop's.)
-    //
-    // This check is stateless yet still fires exactly once: on the frame `alive` flips false, `prev`
-    // has it alive and `next` has it dead (or gone), so the event fires. On the following frame
-    // `prev` itself already carries the dead (or absent) instance, so the `if (!instance.alive)
-    // continue` guard above skips it before it can ever fire a second time.
-    if (!after || !after.alive) {
-      // A lava field's expiry is the fade of the stamps, not a second detonation. The shell's own
-      // `shotEnded` is the blast; this instance carries the same `weaponId` and would otherwise
-      // fire magmablast's impact bursts, scorch and camera shake two seconds later.
-      if (instance.isExplosion) continue;
-      // The pose is the instance's LAST KNOWN one (from `prev`), refined into where the shot
-      // actually terminated: a beam's tip rather than its muzzle, a projectile's entry face rather
-      // than wherever a tick of travel happened to leave it. Cars come from `next` — the poses they
-      // are drawn at as the burst spawns — so an effect always lands on the car the player sees.
-      const end = shotEndPoint(instance, next.cars);
-      events.push({
-        kind: "shotEnded",
-        weaponId: instance.weaponId,
-        x: end.x,
-        y: end.y,
-        angle: instance.angle,
-        instanceId: id,
-      });
-    }
   }
 
   const prevCars = new Map(prev.cars.map((c) => [c.sessionId, c]));

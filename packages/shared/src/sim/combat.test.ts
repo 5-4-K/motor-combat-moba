@@ -2529,12 +2529,32 @@ describe("shot fast-forward (NR37, NR38)", () => {
     expect(simulate({ pressTick: T, untilTick: T, mask: MAGMA, k: 4 }).ended).toEqual([]);
   });
 
-  it("I1: a shot that lived on an earlier tick is never in `ended` — its row leaving is its end", () => {
+  it("I1: a shot that lived on an earlier tick is never in `ended` — it is `endedLived`'s (G5)", () => {
     const targetX = muzzleX() + SHELL_R + HALF_CAR + 1.5 * STEP;
     const target = () => player("bbb", { x: targetX, y: OPEN_Y, hp: MIRAGE_HP });
+    let endings = 0;
     for (let until = T + 1; until <= T + 4; until++) {
       const r = simulate({ pressTick: T, untilTick: until, mask: MAGMA, others: [target()] });
       expect(r.ended).toEqual([]);
+      const lived = r.endedLived.filter((i) => !i.isExplosion);
+      if (lived.length === 0) continue;
+      // The tick it struck: reported once, dead, at its end pose touching the target's near face.
+      endings += 1;
+      expect(lived).toHaveLength(1);
+      expect(lived[0]!).toMatchObject({ weaponId: "magmablast", ownerSessionId: "aaa", alive: false, spawnTick: T });
+      expect(lived[0]!.x).toBeLessThanOrEqual(targetX);
+      expect(targetX - lived[0]!.x).toBeLessThanOrEqual(HALF_CAR + SHELL_R);
+      expect(shells(r)).toHaveLength(0);
+    }
+    expect(endings).toBe(1);
+  });
+
+  it("G5: a shot still flying is in neither list", () => {
+    for (let until = T; until <= T + 3; until++) {
+      const r = simulate({ pressTick: T, untilTick: until, mask: MAGMA });
+      expect(shells(r)).toHaveLength(1);
+      expect(r.ended).toEqual([]);
+      expect(r.endedLived).toEqual([]);
     }
   });
 

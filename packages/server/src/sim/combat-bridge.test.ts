@@ -78,6 +78,7 @@ function result(over: Partial<CombatResult> = {}): CombatResult {
     instances: [],
     instanceSeq: 0,
     ended: [],
+    endedLived: [],
     ...over,
   };
 }
@@ -433,6 +434,7 @@ describe("applyCombatResult", () => {
         instances: [],
         instanceSeq: 0,
         ended: [],
+        endedLived: [],
       },
       memory,
     );
@@ -598,6 +600,42 @@ describe("applyCombatResult", () => {
     expect(memory.endedRows.size).toBe(0);
   });
 
+  it("G5: a shot that LIVED ends on its own row — patched to alive:false at its end pose, held, then removed", () => {
+    const state = new ArenaState();
+    const memory = newCombatMemory();
+    const hold = msToTicks(NET_CONFIG.endedShotRowMs);
+    state.tick = 90;
+    const live = liveInstance({ id: "a-3" });
+    applyCombatResult(state, result({ instances: [live] }), memory);
+    const row = state.weapons.get("a-3")!;
+    expect(row.alive).toBe(true);
+    state.tick = 91;
+    applyCombatResult(state, result({ endedLived: [{ ...live, x: 155, alive: false }] }), memory);
+    // The same object, patched in place: a client holding the row sees it END, never vanish.
+    expect(state.weapons.get("a-3")).toBe(row);
+    expect(row.alive).toBe(false);
+    expect(row.x).toBe(155);
+    expect(memory.instances.has("a-3")).toBe(false);
+    for (let t = 92; t < 91 + hold; t++) {
+      state.tick = t;
+      applyCombatResult(state, result(), memory);
+      expect(state.weapons.get("a-3")?.alive, `tick ${t}`).toBe(false);
+    }
+    state.tick = 91 + hold;
+    applyCombatResult(state, result(), memory);
+    expect(state.weapons.has("a-3")).toBe(false);
+  });
+
+  it("G5: a burst that lived ends silently — its row is removed, never written as an ended row", () => {
+    const state = new ArenaState();
+    const memory = newCombatMemory();
+    const lava = liveInstance({ id: "a-4", isExplosion: true });
+    applyCombatResult(state, result({ instances: [lava] }), memory);
+    applyCombatResult(state, result({ endedLived: [{ ...lava, alive: false }] }), memory);
+    expect(state.weapons.has("a-4")).toBe(false);
+    expect(memory.endedRows.size).toBe(0);
+  });
+
   it("I1: clearInstances drops held ended rows too", () => {
     const state = new ArenaState();
     const memory = newCombatMemory();
@@ -630,7 +668,7 @@ describe("maneuver fields across the bridge", () => {
     p.maneuverTicksLeft = 0;
     p.maneuverWeaponId = "";
     p.maneuverPressId = "";
-    applyCombatResult(state, { players: combat, instances: [], instanceSeq: 0, ended: [] }, memory);
+    applyCombatResult(state, { players: combat, instances: [], instanceSeq: 0, ended: [], endedLived: [] }, memory);
     expect(player.maneuver).toBe(0);
     expect(memory.maneuverWeapons.get("p1")).toBe("");
     expect(memory.maneuverPressIds.get("p1")).toBe("");
@@ -688,6 +726,7 @@ describe("kill booking", () => {
       instances: [],
       instanceSeq: 0,
       ended: [],
+      endedLived: [],
     };
 
     applyCombatResult(state, wreck, memory);
@@ -711,6 +750,7 @@ describe("kill booking", () => {
         instances: [],
         instanceSeq: 0,
         ended: [],
+        endedLived: [],
       },
       newCombatMemory(),
     );
@@ -728,6 +768,7 @@ describe("kill booking", () => {
         instances: [],
         instanceSeq: 0,
         ended: [],
+        endedLived: [],
       },
       newCombatMemory(),
     );

@@ -216,9 +216,21 @@ export interface CombatResult {
    * Server output only, for the room to show every client for a moment as an ended row
    * (`applyCombatResult`). Never an input to anything: `runCombat` does not take it back, and
    * `stepSim` never reads it (invariant 8 untouched). An instance that lived on an earlier tick is
-   * never here — its removal from `instances` is its end, as it always was.
+   * never here — that one is `endedLived`'s.
    */
   ended: WeaponInstance[];
+  /**
+   * Instances that lived on an EARLIER tick and ended this one — by a hit, a wall, an expiry, a stun
+   * cutting off an attached beam, or an attached beam's owner leaving the fight — each at its END pose
+   * (the same pose `ended` uses), `alive: false`. Bursts are listed too; the room decides what to send.
+   *
+   * Server output only, like `ended` (G5, protocol 8): the room writes each ending onto the shot's own
+   * row as `alive: false` for `endedShotRowMs`, so a client learns a shot ENDED from the wire rather
+   * than inferring it from the row vanishing — which, under interest management, also means "left
+   * your view". Never an input to anything, and kept apart from `ended` so the golden fingerprint of
+   * `ended` (`combat-golden.test.ts`) still describes the birth-tick list alone.
+   */
+  endedLived: WeaponInstance[];
 }
 
 /**
@@ -443,9 +455,12 @@ export function runCombat(input: CombatInput): CombatResult {
   // than a tick's travel beyond it. Preserved from the pre-weapon-system behaviour.
   const previous = new Map(input.instances.map((i) => [i.id, i]));
   const stepped: WeaponInstance[] = [];
+  // An attached beam whose owner left the fight ends where it stood (`CombatResult.endedLived`).
+  const vanished: WeaponInstance[] = [];
   for (const instance of input.instances) {
     const next = advanceInstance(instance, world, players, byId, isTargetable);
     if (next) stepped.push(next);
+    else vanished.push({ ...instance, alive: false });
   }
 
   // Instance id -> the shot-compensation ticks it is owed (NR37), filled in phase 3 for instances
@@ -554,6 +569,8 @@ export function runCombat(input: CombatInput): CombatResult {
   const bursts: WeaponInstance[] = [];
   // Born this tick and already over (see `CombatResult.ended`).
   const ended: WeaponInstance[] = [];
+  // Lived on an earlier tick and over now (see `CombatResult.endedLived`).
+  const endedLived: WeaponInstance[] = [];
 
   /**
    * One instance's resolution for this tick, given the pose it swept from: expiry, the world, then
@@ -701,8 +718,9 @@ export function runCombat(input: CombatInput): CombatResult {
     // previous pose: its smear collapses to its shape at the muzzle.
     const before = previous.get(instance.id) ?? instance;
     const resolved = resolveInstance(instance, before);
-    // Born this tick and dead at its muzzle resolution: it never reaches `instances` alive.
-    if (resolved.end && !previous.has(instance.id)) ended.push(resolved.end);
+    // Born this tick and dead at its muzzle resolution: it never reaches `instances` alive. One that
+    // lived on an earlier tick ends here too, and the client is told so (`endedLived`).
+    if (resolved.end) (previous.has(instance.id) ? endedLived : ended).push(resolved.end);
     // 0 for everything but an instance born this tick from a compensated press (phase 3), which
     // continues from its muzzle resolution into `runAhead`. For 0 both lines below are exactly the
     // pre-NR37 bookkeeping: the burst to `bursts`, the survivor to `survivors`.
@@ -742,13 +760,14 @@ export function runCombat(input: CombatInput): CombatResult {
   for (const i of survivors) {
     if (interrupted.has(i.ownerSessionId) && i.attached && !weaponDefOf(i.weaponId).isUnInterruptable) {
       // A beam born this tick and cut off by its owner's stun the same tick ends here, unseen too.
-      if (!previous.has(i.id)) ended.push({ ...i, alive: false });
+      (previous.has(i.id) ? endedLived : ended).push({ ...i, alive: false });
       continue;
     }
     kept.push(i);
   }
 
-  return { players, instances: kept, instanceSeq, ended };
+  endedLived.unshift(...vanished);
+  return { players, instances: kept, instanceSeq, ended, endedLived };
 }
 
 /**

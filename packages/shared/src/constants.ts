@@ -30,9 +30,12 @@ export const ROOM_NAME = "arena";
  * 7 adds `MSG_SPECTATE_TARGET` (a spectating wreck names the car it shows, NR45) and gives the view
  * tags their meaning: under a mode's FOV the server sends an enemy's car state and shots only while
  * the enemy is (nearly) in the viewer's vision (NR44–NR47); a server of 6 would kick the new message
- * as an unknown type.
+ * as an unknown type. 8 makes `alive: false` the ONLY way a shot ends on the wire (G5): the server
+ * writes every ending — not only a birth-tick one — onto the shot's row as an ENDED row for
+ * `endedShotRowMs`, and a client draws an impact only from one (`isShotEnding`); a row that vanishes
+ * has merely left the view, so a client of 7 would draw no impact for any shot that lived.
  */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 export enum RoomPhase {
   LOBBY = 0,

@@ -4306,9 +4306,9 @@ export class ArenaScene extends Phaser.Scene {
       x: instance.x,
       y: instance.y,
       angle: instance.angle,
-      // Carried because `shotEnded` keys off it: a row that ARRIVES with `alive: false` is a shot that
-      // ended on its own birth tick (protocol 5) and is its own impact; any other shot's end is its
-      // row leaving the map.
+      // Carried because `shotEnded` keys off it: since protocol 8 every shot ends on the wire as an
+      // ENDED row (`alive: false`, at its end pose) and only that row is an impact; a row leaving the
+      // map has left this client's view (or finished its hold) and is silent.
       alive: instance.alive,
       // The two `fx/contact.ts` needs to place a burst on the point a weapon actually touched: a
       // beam's reach (so its impact lands at the tip rather than on the shooter's nose) and whether
@@ -4349,14 +4349,11 @@ export class ArenaScene extends Phaser.Scene {
    * `FxLayer.update`; this only filters them. `NOTHING_HIDDEN`, with nothing computed, whenever the
    * mode has no FOV.
    *
-   * The server deletes a dead instance the same tick it dies rather than writing `alive: false`
-   * into a row a client still holds (a dying instance is dropped from `survivors`; the only
-   * `alive: false` rows are shots that ended on their birth tick, which arrive dead and are present
-   * while their `shotEnded` fires), so
-   * an id that was hidden last frame and is gone from `state.weapons` this frame is carried forward
-   * for exactly that one frame (I1) — otherwise a hidden enemy's `shotEnded` would resolve against an
-   * empty hidden set on the very frame the id vanishes, and its impact burst/scorch would show for a
-   * shot the player never saw fired.
+   * An id that was hidden last frame and is gone from `state.weapons` this frame is carried forward
+   * for exactly that one frame (I1). That was load-bearing while a shot's end was its row vanishing;
+   * since protocol 8 every ending is an ENDED row (`alive: false`), present on the frame its
+   * `shotEnded` fires and filtered here like any other row, and a vanishing row fires nothing — so
+   * the carry is a belt that no current event needs.
    *
    * `lastHiddenInstances` remembers this frame's OWN hidden ids (the ones still present in
    * `state.weapons` and hidden), never the carried result: carrying the carried set forward would

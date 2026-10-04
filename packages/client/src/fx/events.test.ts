@@ -46,14 +46,32 @@ describe("deriveFxEvents", () => {
     expect(events).toEqual([{ kind: "shotFired", weaponId: "lance", x: 10, y: 20, angle: 0.5, instanceId: "s1" }]);
   });
 
-  it("fires a shotEnded at the instance's LAST KNOWN pose when its id leaves", () => {
+  it("G5: fires NOTHING when a live shot's row vanishes — it left this client's view, it did not end", () => {
+    // Protocol 8: every ending arrives as an ENDED row. A live row leaving the map is the shot
+    // leaving this client's view (NR44) — an impact here was the phantom burst in mid-air (G4 review
+    // risk 1).
     const events = deriveFxEvents(
       view([car("a", 100)], [shot("s1", "magmablast", 700, 800)]),
       view([car("a", 100)]),
     );
-    // The pose comes from the previous view: the instance is gone from the next one, so there is
-    // nowhere else to read it from (VFX12).
-    expect(events).toEqual([{ kind: "shotEnded", weaponId: "magmablast", x: 700, y: 800, angle: 0.5, instanceId: "s1" }]);
+    expect(events).toEqual([]);
+  });
+
+  it("G5: a shot that lived ends at the END pose its ended row carries, not its last live pose", () => {
+    const events = deriveFxEvents(
+      view([car("a", 100)], [shot("s1", "magmablast", 700, 800)]),
+      view([car("a", 100)], [{ ...shot("s1", "magmablast", 740, 820), alive: false }]),
+    );
+    expect(events).toEqual([{ kind: "shotEnded", weaponId: "magmablast", x: 740, y: 820, angle: 0.5, instanceId: "s1" }]);
+  });
+
+  it("G5: a shot that ended while out of view arrives as an ended row and gets its impact once", () => {
+    // Hidden in flight (no row), then in view at its end: the row arrives already dead.
+    const ended = { ...shot("s1", "predator", 500, 500), alive: false };
+    const before = view([car("a", 100)]);
+    const after = view([car("a", 100)], [ended]);
+    expect(deriveFxEvents(before, after).map((e) => e.kind)).toEqual(["shotEnded"]);
+    expect(deriveFxEvents(after, after)).toEqual([]);
   });
 
   it("I1: an ENDED row (a shot that ended inside its fast-forward) fires its shotEnded once, at its end pose, and no muzzle flash", () => {
@@ -95,7 +113,7 @@ describe("deriveFxEvents", () => {
   it("reads several changes in one step", () => {
     const events = deriveFxEvents(
       view([car("a", 100), car("b", 100)], [shot("s1", "thumper")]),
-      view([car("a", 80), car("b", 100)], [shot("s2", "lance")]),
+      view([car("a", 80), car("b", 100)], [{ ...shot("s1", "thumper"), alive: false }, shot("s2", "lance")]),
     );
     expect(events).toHaveLength(3);
     expect(events.map((e) => e.kind).sort()).toEqual(["damaged", "shotEnded", "shotFired"]);

@@ -74,10 +74,14 @@ export interface CombatMemory {
    */
   loadouts: Map<string, readonly WeaponId[]>;
   /**
-   * Ended rows still on the wire (Phase F final review I1): instance id -> the tick its row is
-   * removed on. A shot that ended on its own birth tick (`CombatResult.ended`) is written once as an
-   * `alive: false` row and held for `NET_CONFIG.endedShotRowMs`, so every client sees it end and the
-   * shooter's provisional confirms against it. Never in `instances`: nothing simulates it again.
+   * Ended rows still on the wire (Phase F final review I1; every ending since G5, protocol 8):
+   * instance id -> the tick its row is removed on. EVERY shot's ending — one that ended on its own
+   * birth tick (`CombatResult.ended`) and one that lived (`CombatResult.endedLived`) — is written onto
+   * its row as `alive: false` at its end pose and held for `NET_CONFIG.endedShotRowMs`, so every client
+   * that has the row in view sees it end (a row that merely vanishes has left that client's view, and
+   * draws no impact), and the shooter's provisional confirms against a birth-tick one. Never in
+   * `instances`: nothing simulates it again. A burst that lived ends silently — its row is just
+   * removed, as before: a lava field's expiry is the fade of its stamps, not an impact.
    */
   endedRows: Map<string, number>;
 }
@@ -268,6 +272,13 @@ export function applyCombatResult(state: ArenaState, result: CombatResult, memor
   memory.instances = new Map(result.instances.map((i) => [i.id, i]));
   for (const [id, removeAt] of memory.endedRows) if (state.tick >= removeAt) memory.endedRows.delete(id);
 
+  // Every ending this tick, registered BEFORE the sweep below so a shot that lived keeps its own row
+  // (patched in place to `alive: false`, never deleted and re-created as a new object). Bursts that
+  // lived are left to the sweep: their removal is silent by design.
+  const holdTicks = msToTicks(NET_CONFIG.endedShotRowMs);
+  const endings = [...result.ended, ...result.endedLived.filter((i) => !i.isExplosion)];
+  for (const instance of endings) memory.endedRows.set(instance.id, state.tick + holdTicks);
+
   const stale: string[] = [];
   state.weapons.forEach((_, id) => {
     if (!memory.instances.has(id) && !memory.endedRows.has(id)) stale.push(id);
@@ -278,15 +289,12 @@ export function applyCombatResult(state: ArenaState, result: CombatResult, memor
   // every client every tick, which is exactly the bandwidth the patch rate exists to avoid.
   for (const instance of result.instances) writeInstanceRow(state, instance);
 
-  // Shots that ended on their own birth tick never stood in a snapshot alive: without this row no
-  // client would ever learn they were fired (Phase F final review I1). One row, at the end pose,
-  // `alive: false`, held for `endedShotRowMs` and then removed by the sweep above. A shot that lived
-  // on an earlier tick needs none — its row leaving is its end, as it always was.
-  const holdTicks = msToTicks(NET_CONFIG.endedShotRowMs);
-  for (const instance of result.ended) {
-    writeInstanceRow(state, { ...instance, alive: false });
-    memory.endedRows.set(instance.id, state.tick + holdTicks);
-  }
+  // The endings, each onto its row at its end pose, `alive: false`, held for `endedShotRowMs` and
+  // then removed by the sweep above. A shot that ended on its own birth tick never stood in a
+  // snapshot alive: without its row no client would ever learn it was fired (Phase F final review
+  // I1). A shot that lived ENDS on the wire the same way (G5, protocol 8): its row vanishing would
+  // only say it left a client's view, and a client draws an impact from an ended row alone.
+  for (const instance of endings) writeInstanceRow(state, { ...instance, alive: false });
 }
 
 /** One instance onto its row: created with the fields frozen at spawn, then its pose and `alive`. */

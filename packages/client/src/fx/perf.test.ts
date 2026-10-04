@@ -65,9 +65,11 @@ function ceilingViews(): [FxWorldView, FxWorldView] {
     }));
   const prev: FxWorldView = { cars, instances: instances(0) };
   // Every instance replaced: 60 endings and 60 firings on one frame, plus six cars taking damage.
+  // Since protocol 8 an ending is an ENDED row (`alive: false`) on the shot's own id — a vanishing
+  // row fires nothing — so the 60 old shots stay in `next`, ended.
   const next: FxWorldView = {
     cars: cars.map((c) => ({ ...c, hp: c.hp - 5 })),
-    instances: instances(1000),
+    instances: [...instances(0).map((i) => ({ ...i, alive: false })), ...instances(1000)],
   };
   return [prev, next];
 }
