@@ -24,4 +24,31 @@ describe("netsim — tick client (Phase D netcode)", () => {
       expect(m.repeatedInputRate).not.toBeNull();
     });
   }
+
+  it("never draws an impact for a shot the sim had not ended (G5, protocol 8)", () => {
+    const { diagnostics } = runNetsimDetailed({ link: LINKS.net80, model: "tick", seconds: 10, seed: 2 });
+    report("tick/net80 endings", diagnostics);
+    expect(diagnostics.shotEndings).toBeGreaterThan(0);
+    expect(diagnostics.phantomShotEndings).toBe(0);
+  });
+});
+
+describe("netsim — FOV on, through the real wire (Phase G, G5)", () => {
+  it("never lets a hidden enemy reach a client's decoded state, and draws no phantom impact", () => {
+    const run = runNetsimDetailed({ link: LINKS.net80, model: "tick", seconds: 10, seed: 1, fov: true });
+    report("fov/net80", run.fov!);
+    expect(run.fov).toBeDefined();
+    // Cars do go out of view and come back, so the check is not vacuous.
+    expect(run.fov!.carReveals).toBeGreaterThan(0);
+    expect(run.fov!.hiddenLeakSnapshots).toBe(0);
+    expect(run.fov!.hiddenLeakFrames).toBe(0);
+    expect(run.diagnostics.shotEndings).toBeGreaterThan(0);
+    expect(run.diagnostics.phantomShotEndings).toBe(0);
+  });
+
+  it("is deterministic for a seed", () => {
+    const a = runNetsimDetailed({ link: LINKS.net80, model: "tick", seconds: 4, seed: 3, fov: true });
+    const b = runNetsimDetailed({ link: LINKS.net80, model: "tick", seconds: 4, seed: 3, fov: true });
+    expect(a).toEqual(b);
+  });
 });

@@ -19,7 +19,13 @@ import {
   TickPrediction,
   axisOfWire,
   buildStepContext,
+  camera,
+  carVisible,
   drive,
+  inVision,
+  isShotEnding,
+  shotSamplePoints,
+  visionShapeOf,
   localAnchorOf,
   localModifiers,
   type ArenaDef,
@@ -30,6 +36,7 @@ import {
   type StepContext,
   type TimePong,
 } from "@motor-combat-moba/shared";
+import { instanceWorldShape } from "../net/view-manager.js";
 import type { ScriptedDriver } from "./drivers.js";
 import type { Snapshot, SnapshotCar, SnapshotShot } from "./server-world.js";
 
@@ -171,6 +178,30 @@ export class TickClient {
   endedConfirms = 0;
   /** Own non-burst instances that confirmed no provisional, live or expired (a press `LocalFire` did not predict). */
   unpredictedShots = 0;
+  /**
+   * Every impact this client's fx layer would draw (G5): a row `isShotEnding` calls an ending — the
+   * client's own rule, any owner — with the snapshot tick it arrived on. The run scores each against
+   * the sim's truth (`ServerWorld.endedAt`): one for a shot the sim had not ended is a PHANTOM.
+   */
+  readonly shotEndings: { id: string; tick: number }[] = [];
+  /**
+   * What the rule before protocol 8 would have drawn too: a LIVE row vanishing. Diagnostic only —
+   * scored the same way, it counts the impacts a pre-G5 client would have drawn for shots that only
+   * left its view (before its own drawn-vision filter, CB27).
+   */
+  readonly oldRuleEndings: { id: string; tick: number }[] = [];
+  /**
+   * FOV run only (G5): enemy cars and shots that newly appeared in this client's decoded state —
+   * a car back in view (not a respawn), a shot that existed at an earlier snapshot — and, of those,
+   * how many were already inside the client's DRAWN (unmargined) vision on the first frame that drew
+   * them: a POP-IN, the visible defect the server's margins exist to prevent.
+   */
+  carReveals = 0;
+  carPopIns = 0;
+  shotReveals = 0;
+  shotPopIns = 0;
+  /** Reveals waiting for the next frame to be judged against the vision drawn on it. */
+  private pendingReveals: ({ kind: "car"; pose: { x: number; y: number; angle: number } } | { kind: "shot"; row: SnapshotShot })[] = [];
 
   private readonly localFire: LocalFire;
   private readonly provisionals = new ProvisionalShots();
@@ -357,6 +388,7 @@ export class TickClient {
   drawShots(nowMs: number): void {
     const snap = this.last;
     if (!snap) return;
+    this.judgeReveals(nowMs);
     const anchor = this.localAnchor(nowMs);
     const R = this.remotes.renderTick;
     const drawTick = anchor?.tick ?? (R === undefined ? snap.tick : R);
@@ -450,8 +482,73 @@ export class TickClient {
     }
   }
 
+  /** The newest snapshot holds a row the vision oracle did not allow (FOV run): a leak. */
+  get leaking(): boolean {
+    const leak = this.last?.leak;
+    return leak !== undefined && leak.cars + leak.shots > 0;
+  }
+
+  /**
+   * The fx layer's shot endings (`isShotEnding`) and, beside them, what the pre-protocol-8 rule would
+   * have read as an ending; then, in the FOV run, the reveals to judge for pop-in on the next frame.
+   */
+  private observe(prev: Snapshot | undefined, snap: Snapshot): void {
+    if (!prev) return;
+    const before = new Map(prev.shots.map((w) => [w.id, w]));
+    const now = new Set<string>();
+    for (const row of snap.shots) {
+      now.add(row.id);
+      if (isShotEnding(before.get(row.id), row)) this.shotEndings.push({ id: row.id, tick: snap.tick });
+    }
+    for (const [id, row] of before) {
+      if (row.alive && !row.isExplosion && !now.has(id)) this.oldRuleEndings.push({ id, tick: snap.tick });
+    }
+    if (snap.hidden === undefined) return;
+    const wasVisible = new Set(prev.cars.map((c) => c.id));
+    const wasAlive = new Map<string, boolean>(prev.cars.map((c) => [c.id, c.alive]));
+    for (const h of prev.hidden ?? []) wasAlive.set(h.id, h.alive);
+    for (const car of snap.cars) {
+      if (car.id === this.id || wasVisible.has(car.id) || !car.alive) continue;
+      // Back on the field this snapshot: a respawn is a teleport, not a reveal.
+      if (wasAlive.get(car.id) === false) continue;
+      this.pendingReveals.push({ kind: "car", pose: car.body });
+    }
+    for (const row of snap.shots) {
+      // An enemy shot that already existed at the previous snapshot this client applied (its spawn
+      // tick is its server birth tick, NR37) and was withheld then.
+      if (row.ownerSessionId === this.id || before.has(row.id) || row.spawnTick > prev.tick) continue;
+      this.pendingReveals.push({ kind: "shot", row });
+    }
+  }
+
+  /** Judge this frame's pending reveals against the vision drawn on it: the local drawn pose's shape. */
+  private judgeReveals(nowMs: number): void {
+    if (this.pendingReveals.length === 0) return;
+    const reveals = this.pendingReveals;
+    this.pendingReveals = [];
+    const self = this.lastById.get(this.id);
+    const pose = (this.localAnchor(nowMs)?.pose as SimBody | undefined) ?? self?.body;
+    if (!pose) return;
+    const fov = camera().fov;
+    const shapes = [visionShapeOf({ x: pose.x, y: pose.y, angle: pose.angle }, fov)];
+    const hull = { width: drive().carWidth, height: drive().carHeight };
+    const obstacles = this.arena.obstacles;
+    for (const r of reveals) {
+      if (r.kind === "car") {
+        this.carReveals++;
+        if (carVisible(r.pose, hull, shapes, obstacles, fov.blockedByObstacles)) this.carPopIns++;
+      } else {
+        this.shotReveals++;
+        if (shotSamplePoints(instanceWorldShape(r.row)).some((p) => inVision(p, shapes, obstacles, fov.blockedByObstacles))) {
+          this.shotPopIns++;
+        }
+      }
+    }
+  }
+
   /** A snapshot arrived at harness time nowMs: `pushRemoteSnapshots`, then `reconcileLocal`. */
   onSnapshot(nowMs: number, snap: Snapshot): void {
+    this.observe(this.last, snap);
     this.last = snap;
     this.lastById = new Map(snap.cars.map((c) => [c.id, c]));
     this.view = viewOf(snap);
@@ -491,6 +588,9 @@ export class TickClient {
     const snap = this.last!;
     const view = this.view!;
     this.remotes.onSnapshot(this.clock.ready ? this.clock.serverTick(this.local(nowMs)) : undefined, snap.tick);
+    // A car out of view (the FOV run) is forgotten, as `feedRemoteTimeline` does in the scene: it
+    // reappears at its first visible snapshot rather than sliding there.
+    for (const h of snap.hidden ?? []) this.remotes.forget(h.id);
     for (const car of snap.cars) {
       if (car.id === this.id || car.status !== PlayerStatus.IN_MATCH) continue;
       this.remotes.push(car.id, snap.tick, {

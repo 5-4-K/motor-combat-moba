@@ -26,6 +26,8 @@ import { respawnSweep, runPipeline, type PipelineCtx } from "../rooms/tick-pipel
 import { NetSessions } from "../net/net-session.js";
 import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
+import { fovOnBundle } from "../net/fov-bundle.js";
+import { FovWire } from "./fov-wire.js";
 
 /** The arena every netsim run plays. */
 export const NETSIM_ARENA_ID = "arena-01";
@@ -88,9 +90,17 @@ export interface SnapshotShot {
 /** One patch, as the client decodes it: every player's networked fields at the last completed tick. */
 export interface Snapshot {
   tick: number;
+  /** Every car this client has in view (the FOV run), or every car (FOV off). */
   cars: SnapshotCar[];
-  /** `state.weapons`: every live instance (Phase F, F5 — the netsim's cars fire). */
+  /** `state.weapons`: every live instance (Phase F, F5 — the netsim's cars fire), as this client holds it. */
   shots: SnapshotShot[];
+  /**
+   * The FOV run only (`FovWire`): the cars on the field this client's view does NOT hold — their
+   * public `alive` alone, which is all a hidden car decodes to (NR42).
+   */
+  hidden?: { id: string; alive: boolean }[];
+  /** The FOV run only: decoded rows the vision oracle did not allow — a car with a pose, an enemy shot. */
+  leak?: { cars: number; shots: number };
 }
 
 /** One press the server committed (`runCombat`'s `fired` event) and the shot compensation it carried. */
@@ -175,9 +185,18 @@ export class ServerWorld {
   /** This tick's combat observations, read back for `presses` and then dropped. */
   private events: CombatEvents = newCombatEvents();
   readonly modeConfig: ModeConfig;
+  /**
+   * The truth the phantom-impact counter is scored against (G5): each weapon instance id -> the tick
+   * the SIM ended it — it left the combat memory's live set, or was born already over (an ended row
+   * that was never live). Read from `CombatMemory`, never from the rows, so a row that merely left a
+   * view can never count as an ending.
+   */
+  readonly endedAt = new Map<string, number>();
+  /** The FOV run's real wire (`NetsimOptions.fov`); undefined for the FOV-off run. */
+  readonly fov: FovWire | undefined;
 
-  constructor(cars: number) {
-    this.modeConfig = modeConfigOf(NETSIM_MODE);
+  constructor(cars: number, opts: { fov?: boolean; shotMarginUnits?: number } = {}) {
+    this.modeConfig = opts.fov ? fovOnBundle(NETSIM_MODE) : modeConfigOf(NETSIM_MODE);
     withMode(this.modeConfig, () => {
       this.state.mode = NETSIM_MODE;
       this.state.arenaId = NETSIM_ARENA_ID;
@@ -188,6 +207,20 @@ export class ServerWorld {
         this.add(`p${i}`, NETSIM_CARS[i % NETSIM_CARS.length]!, spawn.x, spawn.y, spawn.angle);
       }
     });
+    this.fov = opts.fov ? new FovWire(this.state, this.ids, { shotMarginUnits: opts.shotMarginUnits }) : undefined;
+  }
+
+  /**
+   * Each client's snapshot of the tick just run: the FOV run's from its own decoded state
+   * (`FovWire`), the FOV-off run's one shared `snapshot()`.
+   */
+  snapshots(): Map<string, Snapshot> {
+    if (this.fov) {
+      const wire = this.fov;
+      return withMode(this.modeConfig, () => wire.snapshots());
+    }
+    const snap = this.snapshot();
+    return new Map(this.ids.map((id) => [id, snap]));
   }
 
   private add(id: string, carId: CarId, x: number, y: number, angle: number): void {
@@ -254,7 +287,14 @@ export class ServerWorld {
         respawnSweep(this.ctx());
       }
       this.events = newCombatEvents();
+      const liveBefore = [...this.combat.instances.keys()];
       const { steps, compTicks } = runPipeline(this.ctx());
+      for (const id of liveBefore) {
+        if (!this.combat.instances.has(id) && !this.endedAt.has(id)) this.endedAt.set(id, this.state.tick);
+      }
+      this.state.weapons.forEach((w, id) => {
+        if (!w.alive && !this.combat.instances.has(id) && !this.endedAt.has(id)) this.endedAt.set(id, this.state.tick);
+      });
       for (const e of this.events.fired) {
         this.presses.push({
           sessionId: e.shooterSessionId,

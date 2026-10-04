@@ -55,6 +55,18 @@ export interface NetsimOptions {
    * from a fire stream seeded beside each driver's. `false` is the pre-F driving-only run.
    */
   fire?: boolean;
+  /**
+   * Phase G (G5): play the netsim's mode with its FOV turned on (`fovOnBundle`) and send every client
+   * its snapshot through the REAL wire — the room's `ViewManager`, the schema encoder through that
+   * client's `StateView`, and its own decoder (`FovWire`). Off by default: the FOV-off run's numbers
+   * are the recorded baseline.
+   */
+  fov?: boolean;
+  /**
+   * The FOV run's shot margin in units, overriding `visionShotMarginUnits()` — a measurement knob
+   * only (G5's before/after: the car margin is what shots had before).
+   */
+  shotMarginUnits?: number;
 }
 
 /** Nominal display refresh of every headless client, Hz. */
@@ -170,11 +182,44 @@ export interface NetsimDiagnostics {
   jumpsOverUnkicked: number;
   jumpMaxInBlend: number;
   jumpMaxOutOfBlend: number;
+  /**
+   * Impacts the clients' fx rule drew (`isShotEnding`, protocol 8), all clients; and of those, how
+   * many were PHANTOMS — drawn for a shot the sim had not ended by that snapshot's tick
+   * (`ServerWorld.endedAt`). Must be 0.
+   */
+  shotEndings: number;
+  phantomShotEndings: number;
+  /**
+   * The same score for the pre-protocol-8 rule, a LIVE row vanishing: what an older client would
+   * have drawn as an impact for a shot that had only left its view (before its CB27 filter).
+   */
+  oldRulePhantomShotEndings: number;
+}
+
+/** The FOV run's interest-management numbers (G5), summed over every client. */
+export interface NetsimFovReport {
+  /** The margins the run's server used (u): cars, and shots (`visionShotMarginUnits` unless overridden). */
+  carMarginUnits: number;
+  shotMarginUnits: number;
+  /** Client frames drawn while the newest applied snapshot held a row the vision oracle did not allow. Must be 0. */
+  hiddenLeakFrames: number;
+  /** Snapshots (per client) that decoded an un-allowed car with a pose, or an un-allowed enemy shot. */
+  hiddenLeakSnapshots: number;
+  /** Client frames (all clients) — the denominator. */
+  frames: number;
+  /** Cars that came back into a client's view (not a respawn), and of those, already inside its drawn vision. */
+  carReveals: number;
+  carPopIns: number;
+  /** Enemy shots that newly reached a client after existing at an earlier snapshot, and those already inside its drawn vision. */
+  shotReveals: number;
+  shotPopIns: number;
 }
 
 export interface NetsimRun {
   metrics: NetsimMetrics;
   diagnostics: NetsimDiagnostics;
+  /** Present for an FOV run (`NetsimOptions.fov`) only. */
+  fov?: NetsimFovReport;
 }
 
 /** One remote car as one client drew it on one frame. */
@@ -201,7 +246,7 @@ export function runNetsim(opts: NetsimOptions): NetsimMetrics {
 /** `runNetsim`, plus the run's `NetsimDiagnostics`. */
 export function runNetsimDetailed(opts: NetsimOptions): NetsimRun {
   if (opts.model !== "tick") throw new Error(`unknown netsim client model: ${String(opts.model)}`);
-  const world = new ServerWorld(opts.cars ?? DEFAULT_CARS);
+  const world = new ServerWorld(opts.cars ?? DEFAULT_CARS, { fov: opts.fov, shotMarginUnits: opts.shotMarginUnits });
   return withMode(world.modeConfig, () => runIn(world, opts));
 }
 
@@ -241,6 +286,8 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
   /** Per car, every tick it came back onto the field on (a respawn): the I3 re-entry diagnostic. */
   const respawnTicks = new Map<string, number[]>(world.ids.map((id) => [id, []]));
 
+  let frames = 0;
+  let hiddenLeakFrames = 0;
   const endMs = opts.seconds * 1000;
   let nextTickAt = MS_PER_TICK;
   let nextPingAt = PING_INTERVAL_MS;
@@ -258,8 +305,8 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
         wasAlive.set(id, alive);
       }
       if (isSnapshotTick(world.state.tick)) {
-        const snap = world.snapshot();
-        for (const c of clients) c.down.send(now, { kind: "snapshot", snap });
+        const snaps = world.snapshots();
+        for (const c of clients) c.down.send(now, { kind: "snapshot", snap: snaps.get(c.id)! });
       }
       nextTickAt += MS_PER_TICK;
     }
@@ -292,6 +339,8 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
       c.nextFrameAt += c.frameMs;
       for (const packet of c.client.frame(now, c.frameMs)) c.up.send(now, { kind: "input", packet });
       c.client.drawShots(now);
+      frames++;
+      if (c.client.leaking) hiddenLeakFrames++;
 
       // 4. Sample every other car that is alive on the server AND drawn alive by this client: a car
       // the client still draws as a wreck (or not at all) is skipped, and its hold history reset.
@@ -457,6 +506,14 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
       else refused++;
     }
   }
+  // G5: every impact a client drew, against the sim's own record of when each shot ended.
+  const phantom = (e: { id: string; tick: number }) => {
+    const ended = world.endedAt.get(e.id);
+    return ended === undefined || ended > e.tick;
+  };
+  const shotEndings = clients.reduce((n, c) => n + c.client.shotEndings.length, 0);
+  const phantomShotEndings = clients.reduce((n, c) => n + c.client.shotEndings.filter(phantom).length, 0);
+  const oldRulePhantomShotEndings = clients.reduce((n, c) => n + c.client.oldRuleEndings.filter(phantom).length, 0);
   const metrics: NetsimMetrics = {
     stepsPerTickMax,
     repeatedInputRate: world.steppedCarTicks === 0 ? 0 : world.repeatedCarTicks / world.steppedCarTicks,
@@ -518,6 +575,22 @@ function runIn(world: ServerWorld, opts: NetsimOptions): NetsimRun {
       jumpsOverUnkicked: jumpPlain.over,
       jumpMaxInBlend: jumpInBlendMax,
       jumpMaxOutOfBlend: jumpOutBlendMax,
+      shotEndings,
+      phantomShotEndings,
+      oldRulePhantomShotEndings,
     },
+    fov: world.fov
+      ? {
+          carMarginUnits: world.fov.margins().car,
+          shotMarginUnits: world.fov.margins().shot,
+          hiddenLeakFrames,
+          hiddenLeakSnapshots: world.fov.leakSnapshots,
+          frames,
+          carReveals: clients.reduce((n, c) => n + c.client.carReveals, 0),
+          carPopIns: clients.reduce((n, c) => n + c.client.carPopIns, 0),
+          shotReveals: clients.reduce((n, c) => n + c.client.shotReveals, 0),
+          shotPopIns: clients.reduce((n, c) => n + c.client.shotPopIns, 0),
+        }
+      : undefined,
   };
 }

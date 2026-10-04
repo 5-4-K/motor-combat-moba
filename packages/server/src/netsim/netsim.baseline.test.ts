@@ -13,13 +13,19 @@ import { runNetsimDetailed } from "./run.js";
  * pre-F driving-only shape, which the "after E" column was recorded with.
  */
 const FIRE = !process.env.NETSIM_NO_FIRE;
+/**
+ * `NETSIM_FOV=1` runs the same shape with the mode's FOV on, every snapshot through the real wire
+ * (Phase G, G5); `NETSIM_SHOT_MARGIN=<u>` overrides the server's shot margin for a before/after.
+ */
+const FOV = !!process.env.NETSIM_FOV;
+const SHOT_MARGIN = process.env.NETSIM_SHOT_MARGIN ? Number(process.env.NETSIM_SHOT_MARGIN) : undefined;
 const BASELINE_SECONDS = 60;
 const BASELINE_CARS = 6;
 const BASELINE_SEEDS = [1, 2, 3] as const;
 /** Three 60 s six-car runs; each takes a few to ~12 seconds, so this is generous. */
 const BASELINE_TIMEOUT_MS = 180_000;
 
-const title = `netsim baseline — tick client, 60 s, six cars, seeds 1–3${FIRE ? ", firing" : ", no firing"}`;
+const title = `netsim baseline — tick client, 60 s, six cars, seeds 1–3${FIRE ? ", firing" : ", no firing"}${FOV ? ", FOV on" : ""}`;
 
 describe.skipIf(!process.env.NETSIM_BASELINE)(title, () => {
   for (const link of [LINKS.lan, LINKS.net80clean, LINKS.net80, LINKS.net150]) {
@@ -34,9 +40,12 @@ describe.skipIf(!process.env.NETSIM_BASELINE)(title, () => {
             seed,
             cars: BASELINE_CARS,
             fire: FIRE,
+            fov: FOV,
+            shotMarginUnits: SHOT_MARGIN,
           });
           console.log(`baseline/${link.name}/seed${seed}`, JSON.stringify(run.metrics));
           console.log(`baseline/${link.name}/seed${seed} diagnostics`, JSON.stringify(run.diagnostics));
+          if (run.fov) console.log(`baseline/${link.name}/seed${seed} fov`, JSON.stringify(run.fov));
           return run.metrics;
         });
         const summary: Record<string, { mean: number; min: number; max: number } | null> = {};
