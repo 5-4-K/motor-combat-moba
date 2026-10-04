@@ -23,6 +23,7 @@ import {
   SLOT_RING_BOX_PX,
   SLOT_STACK_TOP_GAP_PX,
   slotBarLayout,
+  slotTimersKnown,
   slotVisualState,
   type SlotVisual,
 } from "./weapon-hud.js";
@@ -101,7 +102,30 @@ describe("slot state", () => {
   });
 
   it("has no dim level for a blocked slot - blocked is a sign, not an alpha", () => {
-    expect(Object.keys(HUD_DIM).sort()).toEqual(["locked", "ready", "recharging"]);
+    expect(Object.keys(HUD_DIM).sort()).toEqual(["locked", "ready", "recharging", "unknown"]);
+  });
+
+  // A wreck in a respawning mode watching an enemy is sent no owner-only slot fields (NR45 as
+  // amended): `stocks`/`rechargeEndsTick` decode as undefined. The slot must not read as ready.
+  const unsent = { stocks: undefined, rechargeEndsTick: undefined };
+
+  it("reads unknown when the slot's owner-only timers were not sent to this client", () => {
+    expect(slotVisualState(unsent, fireball, 1)).toBe("unknown");
+    expect(slotVisualState({ stocks: 1, rechargeEndsTick: undefined }, fireball, 1)).toBe("unknown");
+    expect(slotVisualState({ stocks: undefined, rechargeEndsTick: 0 }, fireball, 1)).toBe("unknown");
+  });
+
+  it("still reads locked before unknown: the unlock level is not a timer", () => {
+    expect(slotVisualState(unsent, { unlocksAt: 2 }, 1)).toBe("locked");
+  });
+
+  it("draws no cooldown, no ready glow and no stock count for an unknown slot", () => {
+    expect(isRechargeDisplayed("unknown", undefined)).toBe(false);
+    expect(isRechargeDisplayed("unknown", 115)).toBe(false);
+    expect(slotTimersKnown(unsent)).toBe(false);
+    expect(slotTimersKnown({ stocks: 0, rechargeEndsTick: 0 })).toBe(true);
+    // Dimmed below ready, so it can never be mistaken for a slot that is up.
+    expect(HUD_DIM.unknown).toBeLessThan(HUD_DIM.ready);
   });
 });
 

@@ -257,6 +257,45 @@ describe("a real ArenaRoom never sends a hidden enemy to a client (NR43, NR44)",
     expect(w.decoded.players.get("b")!.weapons[0]!.stocks).toBe(2);
   });
 
+  it("in a respawning mode, a wreck watching an enemy decodes its pose but never its slot timers; a teammate's it does", () => {
+    // FFA Deathmatch: every other car is an enemy.
+    const dm = fovOnBundle(GameMode.FFA_DEATHMATCH, { target: "anyone", noTargetVision: "pov" });
+    const r = arena(dm);
+    const wreck = r.car("w", 640, 1100, 0);
+    wreck.alive = false;
+    r.car("b", 400, 530, 0);
+    const w = r.join("w");
+    r.patch();
+    const b = w.decoded.players.get("b")!;
+    expect(b.inView).toBe(true);
+    expect(b.x).toBe(400);
+    expect(b.hp).toBe(100);
+    expect(b.weapons[0]!.weaponId).toBe("predator");
+    expect(b.weapons[0]!.stocks).toBeUndefined();
+    expect(b.weapons[0]!.rechargeEndsTick).toBeUndefined();
+    r.state.players.get("b")!.weapons[0]!.rechargeEndsTick = 140;
+    r.patch();
+    expect(w.decoded.players.get("b")!.weapons[0]!.rechargeEndsTick).toBeUndefined();
+    expect(w.decoded.players.get("w")!.weapons[0]!.stocks).toBe(2);
+
+    // Conquer: watching a teammate keeps the timers (the side rule), an enemy's stay out.
+    const cq = fovOnBundle(GameMode.CONQUER, { target: "anyone", noTargetVision: "pov" });
+    const t = arena(cq);
+    const own = t.car("w", 640, 1100, 0, 0);
+    own.alive = false;
+    t.car("mate", 400, 530, 0, 0);
+    t.car("zenemy", 700, 530, Math.PI, 1);
+    const tw = t.join("w");
+    expect(t.pick(tw, "mate")).toBe(true);
+    t.patch();
+    expect(tw.decoded.players.get("mate")!.weapons[0]!.stocks).toBe(2);
+    expect(t.pick(tw, "zenemy")).toBe(true);
+    t.patch();
+    expect(tw.decoded.players.get("zenemy")!.inView).toBe(true);
+    expect(tw.decoded.players.get("zenemy")!.weapons[0]!.stocks).toBeUndefined();
+    expect(tw.decoded.players.get("mate")!.weapons[0]!.stocks).toBe(2);
+  });
+
   it("a teammate behind a wall is whole — pose, hp, statuses, slot timers and shots — and the enemy is not", () => {
     const r = arena(fovOnBundle(GameMode.TEAM));
     r.car("a", 100, 530, Math.PI, 0);

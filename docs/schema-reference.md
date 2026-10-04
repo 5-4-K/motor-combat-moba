@@ -13,7 +13,7 @@ column in the tables below is that tag:
 |---|---|---|
 | public (untagged) | every client, always | never |
 | `@view()` | a client whose view holds the object (its car, or the instance row) | the client's copy is cleared — decodes as `undefined` — and re-adding the object resends the current values |
-| `@view(VIEW_OWNER)` | a client whose view added the car with the `VIEW_OWNER` tag (`schema/view-tags.ts`): its own car, its teammates' in a team mode, and the car its wreck is spectating | the same; re-tagging drops only these fields, the car's `@view()` fields stay |
+| `@view(VIEW_OWNER)` | a client whose view added the car with the `VIEW_OWNER` tag (`schema/view-tags.ts`): its own car, its teammates' in a team mode, and the car its wreck is spectating — in a mode that respawns, only when that car is on the wreck's own side (an enemy's timers would be known on rejoin; FFA: every other car) | the same; re-tagging drops only these fields, the car's `@view()` fields stay |
 
 The tag reaches nested children: a slot row's `VIEW_OWNER` timers arrive only through a car added
 with that tag, and a car's `statuses` rows only while the car is in view. With FOV off — every

@@ -5,12 +5,13 @@ import type { AssetManifest, SpriteEntry } from "../assets/manifest-schema.js";
 import { fitSprite, type SpriteFit } from "../assets/sprite-fit.js";
 
 /**
- * Which of the three looks a slot wears. Deliberately NOT a list of every reason a slot might be
+ * Which look a slot wears. Deliberately NOT a list of every reason a slot might be
  * unpressable: "you cannot fire this instant" left this union and became `isSlotBlocked`, drawn as
  * a prohibition sign rather than an alpha. What survives are the two facts about the slot itself —
- * its own cooldown, and whether the player owns it yet.
+ * its own cooldown, and whether the player owns it yet — plus `"unknown"`, for a slot whose
+ * owner-only timers this client was never sent (`slotTimersKnown`).
  */
-export type SlotVisual = "ready" | "recharging" | "locked";
+export type SlotVisual = "ready" | "recharging" | "locked" | "unknown";
 
 /**
  * Icon alpha per state. The locked dim is heavier AND static, so it cannot read as a cooldown.
@@ -20,7 +21,7 @@ export type SlotVisual = "ready" | "recharging" | "locked";
  * Blocked is its own channel now (`isSlotBlocked` -> the sign), so every value left in this table
  * means exactly one thing and a blocked slot keeps full icon brightness.
  */
-export const HUD_DIM = { ready: 1, recharging: 0.4, locked: 0.25 } as const;
+export const HUD_DIM = { ready: 1, recharging: 0.4, locked: 0.25, unknown: 0.4 } as const;
 
 /**
  * The slot's diameter. Still square in the arithmetic — a circle's bounding box is its diameter.
@@ -157,11 +158,29 @@ export function cooldownFillFraction(rechargeEndsTick: number, cooldownTicks: nu
   return Math.min(1, Math.max(0, 1 - remaining / cooldownTicks));
 }
 
+/** A slot row's owner-only timers as this client decoded them: `undefined` when they were not sent. */
+export interface SlotTimers {
+  readonly stocks: number | undefined;
+  readonly rechargeEndsTick: number | undefined;
+}
+
 /**
- * Which of the three looks this slot wears — a question about the SLOT, not about the car.
+ * Whether this client was sent the slot's owner-only timers (`stocks`, `rechargeEndsTick` are
+ * `@view(VIEW_OWNER)`). A wreck in a respawning mode watching a car off its own side is not (NR45 as
+ * amended, `docs/networking.md`): the fields decode as `undefined`, and a slot drawn from them would
+ * read as idle and ready — exactly the cooldown knowledge the server withheld, faked.
+ */
+export function slotTimersKnown(slot: SlotTimers): boolean {
+  return typeof slot.stocks === "number" && typeof slot.rechargeEndsTick === "number";
+}
+
+/**
+ * Which look this slot wears — a question about the SLOT, not about the car.
  *
  * Precedence still matters between the two that remain: a locked weapon reads as locked even while
  * a timer runs underneath it, because "you do not have this yet" outranks "this is cooling down".
+ * `"unknown"` sits between them: a slot whose timers this client was not sent (`slotTimersKnown`)
+ * cannot be called ready or recharging, so it is neither — dimmed, no ring, no glow, no stock count.
  *
  * The car-wide half of the old answer — wind-up, volley, another slot's recovery — left this
  * function entirely and became `isSlotBlocked`. That is what shrank the signature from seven
@@ -175,11 +194,12 @@ export function cooldownFillFraction(rechargeEndsTick: number, cooldownTicks: nu
  * player they cannot press it, so `drawHudSlot` must pass a real `pending` to `isSlotBlocked`.
  */
 export function slotVisualState(
-  slot: { stocks: number; rechargeEndsTick: number },
+  slot: SlotTimers,
   weapon: { unlocksAt: number },
   level: number,
 ): SlotVisual {
   if (weapon.unlocksAt > level) return "locked";
+  if (!slotTimersKnown(slot)) return "unknown";
   if (slot.stocks === 0 && slot.rechargeEndsTick !== 0) return "recharging";
   return "ready";
 }
@@ -237,8 +257,8 @@ export function isSlotBlocked(
  * un-finishing itself when the lock lifted. With blocking split onto its own channel that class of
  * bug cannot recur: the two never share a variable.
  */
-export function isRechargeDisplayed(state: SlotVisual, rechargeEndsTick: number): boolean {
-  return state !== "locked" && rechargeEndsTick !== 0;
+export function isRechargeDisplayed(state: SlotVisual, rechargeEndsTick: number | undefined): boolean {
+  return state !== "locked" && state !== "unknown" && rechargeEndsTick !== undefined && rechargeEndsTick !== 0;
 }
 
 /** A slot's manifest icon, resolved and ready to draw. */

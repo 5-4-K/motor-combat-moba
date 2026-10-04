@@ -4894,7 +4894,8 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     const stockText = this.hudStockTexts[index]!;
-    if (def?.stock) {
+    // An `"unknown"` slot's `stocks` was not sent to this client: no count rather than a made-up one.
+    if (def?.stock && state !== "unknown") {
       // Pulled in along the diagonal to sit inside the circle: the old bottom-right corner of the
       // bounding box is outside a round slot entirely.
       const inset = (box.size / 2) * HUD_STOCK_RADIUS_SCALE;

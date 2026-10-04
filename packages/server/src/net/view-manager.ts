@@ -57,7 +57,10 @@ import {
  *    client named with `MSG_SPECTATE_TARGET`, validated; until it names one, the server's own
  *    `resolveSpectateTarget` pick — the one the client's cycle starts on). The perspective and its
  *    allies are in (CB27: watching someone shows exactly what they see, allegiance included), and
- *    the perspective gets `VIEW_OWNER` so the wreck's slot HUD keeps working. An enemy of the
+ *    the perspective gets `VIEW_OWNER` so the wreck's slot HUD keeps working — except in a mode that
+ *    respawns (`rulesOf(mode).respawns`), where a target off the wreck's own side gets no owner tag:
+ *    the wreck would rejoin knowing that enemy's cooldowns (a teammate keeps it through rule 1). Rule
+ *    2's "every car is in" is unaffected — only the owner-only fields are withheld. An enemy of the
  *    perspective is in while `carVisible` holds against the perspective's vision set (CB26:
  *    `visionPoses` — its own car or the `"pov"` frozen death pose, plus living teammates when vision
  *    is shared), each shape grown by `marginUnits` (`marginShape`) and line of sight measured from
@@ -472,7 +475,7 @@ export class ViewManager {
     marginUnits: () => { car: number; shot: number },
   ): Interest {
     const owned = ownedOf(viewer);
-    const sides = rulesOf(state.mode).sides;
+    const { sides, respawns } = rulesOf(state.mode);
     const ownCar = owned === undefined ? undefined : state.players.get(owned);
 
     // The perspective: the exact car the wreck is showing, else the viewer's own.
@@ -495,7 +498,11 @@ export class ViewManager {
     // Own side: in, with the owner tag (rule 1). Perspective's side: in (CB27).
     sideOf(owned, [always, owners]);
     if (watching !== "") {
-      owners.add(watching);
+      // The watched car's owner tag feeds the wreck's slot HUD — but in a mode that respawns, a wreck
+      // watching a car off its own side would rejoin knowing that enemy's cooldowns. There it gets
+      // none (a teammate is already an owner through `sideOf` above); a mode that never respawns
+      // keeps the full spectator HUD, since its wreck never plays again.
+      if (!respawns) owners.add(watching);
       sideOf(watching, [always]);
     }
 

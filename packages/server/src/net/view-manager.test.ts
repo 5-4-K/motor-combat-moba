@@ -575,6 +575,77 @@ describe("ViewManager — a team wreck under spectate \"team\"", () => {
   });
 });
 
+/**
+ * A mode's shipped bundle with only its spectate rule replaced — FOV left as shipped (off). Deathmatch
+ * and Conquer ship `target: "none"`, so this is how a respawning mode's wreck reaches a target at all.
+ */
+function spectating(mode: GameMode, spectate: ModeConfig["camera"]["spectate"]): ModeConfig {
+  const base = modeConfigOf(mode);
+  return assembleModeConfig(mode, { ...base, camera: { ...base.camera, spectate } });
+}
+
+describe("ViewManager — a wreck's owner tag on its target in a respawning mode", () => {
+  /** `a` is a wreck watching `b` (first in its cycle); `c` is a further car. */
+  function wreckWatching(config: ModeConfig, teams: { a: number; b: number; c: number }) {
+    const r = room(config);
+    const own = r.car("a", 640, 1100, 0, teams.a);
+    own.alive = false;
+    r.car("b", 100, 300, 0, teams.b);
+    r.car("c", OPEN_FRONT.x, OPEN_FRONT.y, 0, teams.c);
+    const a = r.join("a");
+    r.patch();
+    return { r, a };
+  }
+
+  it("FFA Deathmatch: a wreck watching an enemy does not read its slot timers (FOV off and on)", () => {
+    for (const config of [
+      spectating(GameMode.FFA_DEATHMATCH, { target: "anyone", noTargetVision: "pov" }),
+      fovOn(GameMode.FFA_DEATHMATCH, { target: "anyone", noTargetVision: "pov" }),
+    ]) {
+      const { r, a } = wreckWatching(config, { a: 0, b: 0, c: 0 });
+      const why = `fov ${config.camera.fov.enabled}`;
+      // Still watching b: its pose and hp arrive as before.
+      expect(r.vm.carsIn("a").has("b"), why).toBe(true);
+      expect(seen(a, "b"), why).toBe(true);
+      expect(a.decoded.players.get("b")!.hp, why).toBe(100);
+      // But not its cooldowns — it would rejoin knowing them.
+      expect(stocksOf(a, "b"), why).toBeUndefined();
+      expect(a.decoded.players.get("b")!.weapons[0]!.rechargeEndsTick, why).toBeUndefined();
+      // Its own wreck's timers are still its own.
+      expect(stocksOf(a, "a"), why).toBe(2);
+      // Switching target changes nothing about that.
+      expect(r.pick(a, "c"), why).toBe(true);
+      r.patch();
+      expect(stocksOf(a, "c"), why).toBeUndefined();
+    }
+  });
+
+  it("Conquer: a wreck watching a teammate keeps its slot timers; an enemy's stay hidden", () => {
+    for (const target of ["teammates", "anyone"] as const) {
+      const config = spectating(GameMode.CONQUER, { target, noTargetVision: "pov" });
+      // a and b are team 0 (b first in the cycle), c is team 1.
+      const { r, a } = wreckWatching(config, { a: 0, b: 0, c: 1 });
+      expect(stocksOf(a, "b"), target).toBe(2);
+      expect(a.decoded.players.get("b")!.weapons[0]!.rechargeEndsTick, target).toBe(80);
+      if (target === "anyone") {
+        expect(r.pick(a, "c")).toBe(true);
+        r.patch();
+        expect(seen(a, "c")).toBe(true);
+        expect(stocksOf(a, "c")).toBeUndefined();
+        expect(stocksOf(a, "b")).toBe(2); // the teammate is still an owner through its side
+      }
+    }
+  });
+
+  it("Brawl (no respawn): a wreck still reads its target's slot timers, as before", () => {
+    const config = modeConfigOf(GameMode.FFA_LAST_STANDING);
+    expect(config.camera.spectate.target).toBe("anyone");
+    const { a } = wreckWatching(config, { a: 0, b: 0, c: 0 });
+    expect(stocksOf(a, "b")).toBe(2);
+    expect(stocksOf(a, "c")).toBeUndefined();
+  });
+});
+
 describe("ViewManager while a room is paused (G5)", () => {
   it("still lets an enemy that left vision go after exitTicks of a held view clock", () => {
     const config = fovOn(GameMode.FFA_LAST_STANDING);
