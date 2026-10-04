@@ -4,8 +4,10 @@
  *  - W3 flagged pepperbox as "tunneling". Separate its ±6 degree pellet spread — one volley of
  *    three since T12, not three staggered volleys of two — from any real straddle before believing
  *    that.
- *  - Hits are tested with NO lag compensation and against the target's post-drive pose; the
- *    projectile is smeared across its own tick but the TARGET is not. A crossing car is the case.
+ *  - The probe presses carry no `viewTick`, so they measure the UNCOMPENSATED (k = 0) tick: no shot
+ *    fast-forward (the game itself compensates a press by up to `NET_CONFIG.shotCompCapMs`, NR36,
+ *    but only from a frame's `viewTick`), hits against the target's post-drive pose. The projectile
+ *    is smeared across its own tick but the TARGET is not. A crossing car is the case.
  *  - Point-blank was clean head-on. Angled is the harder version: the muzzle can be born inside
  *    the victim's hull.
  */
@@ -184,8 +186,9 @@ function trueTunneling(): void {
 /**
  * `hits.ts` smears the PROJECTILE across its tick but tests against the target's single post-drive
  * pose. A car crossing the line of fire at top speed moves Mirage's top speed / `TICK_RATE_HZ` per
- * tick — 9.5 u/tick as of the Unity physics port's stage 5 Task 5 settled speeds (283.5 u/s / 30),
- * down from 19.2 pre-T8-restat and 8.9 after the 2026-09-06 heavy-car cut; can it end up on the far
+ * tick — 4.7 u/tick at 60 Hz with the Unity physics port's stage 5 Task 5 settled speeds (283.5 u/s;
+ * it read 9.5 at the old 30 Hz tick, 19.2 pre-T8-restat and 8.9 after the 2026-09-06 heavy-car cut,
+ * all at 30 Hz); can it end up on the far
  * side of a shot that should have hit it? The -40..40 offset sweep below is what covers a whole
  * tick-step of crossing, so it still straddles the phase at the current speed.
  */
@@ -228,7 +231,7 @@ function crossingTarget(): void {
     );
   }
   report(
-    "W14. Shot vs a car crossing the line of fire (no lag compensation, target not smeared)",
+    "W14. Shot vs a car crossing the line of fire (presses carry no viewTick: uncompensated k = 0 tick, target not smeared)",
     ghosted ? "FINDING" : "OK",
     rows.join("\n"),
   );
