@@ -114,7 +114,7 @@ Phase D (each task reviewed):
 - **Phase D final-review parked items** (all Minor): prediction reads the snapshot tick's statuses rather than the frame's tick (→ E, prediction); `ArenaScene.prediction` is not cleared on a practice/playground resume, so the first 1–3 post-resume frames are refused as non-ascending and self-heal in < 50 ms (→ E3, call `prediction.clear()` on the resume edge); owner-only slack fields reach every client (→ G); Colyseus ROOM_REQUEST frames bypass the unknown-type disconnect; after a stall the input bucket keeps the oldest frames (that player's cost only); Colyseus times its frame delta with `Date.now()`, so a host clock step costs one 16 ms tick backward or a ≤ 5-tick catch-up forward; the slack gain/deadband/window are named consts outside `NET_CONFIG`.
 - ~~**NR36's compensation cap** must be sized in Phase F from an honest `net80clean` client~~ — done in F1: 150 ms (9 ticks) from net80clean's p95 staleness; no link earns more.
 
-**Open questions for the user (playtest probes are theirs to change):**
+**Open questions for the user (playtest probes are theirs to change):** — all three below were done on 2026-10-04 (see "Playtest probes" in the end-of-redesign list above); kept as the Phase D record.
 - Probe W6 (fire-rate exploit) no longer exercises its flood arm since D4 (one input per tick) — re-express or retire it? The `collision` probe's comments still cite the deleted silent-coast path.
 - `playtest/lan.ts`'s `PHASE` table predates this work (prints "COUNTDOWN" during a live match and starts its trials during REVEAL) — fix it?
 - **Recommended: `npm run playtest -- --scope=all`** — the input path every probe drives changed (one input per tick through `TickInputBuffer`) on top of Phase C's 60 Hz.
