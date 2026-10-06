@@ -2,7 +2,8 @@ import type { ArenaId } from "../../arena/registry.js";
 import type { ModeOverrides } from "../merge.js";
 
 /**
- * Conquer's differences from the base. It plays its own arena (CQ20); every number is the base's.
+ * Conquer's differences from the base. It plays its own arena (CQ20) and is the one mode with the
+ * basic attack switched on; every balance number is the base's.
  *
  * CQ42: with arena-03's ~810 u spawn-to-zone distance, the base `deathmatch.phaseMaxSeconds`
  * ceiling is what keeps a freshly respawned (phased) car from arriving at the zone still
@@ -17,4 +18,7 @@ export const CONQUER_OVERRIDES: ModeOverrides = {
     // A wreck comes back, so it watches nobody and holds where it died.
     spectate: { target: "none" },
   },
+  // LMB fires each chassis's basic attack here. The nine basic-attack rows are the build's only
+  // turret rows, so this also turns on the turret, pointer lock and crosshair for Conquer.
+  slots: { basicAttackEnabled: true },
 };
