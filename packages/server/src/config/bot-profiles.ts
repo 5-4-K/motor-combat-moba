@@ -61,6 +61,11 @@ export interface BotProfile {
    * | mirage   | magmablast 45.0 | thunderclap 20.4 | afterburner 21.2 |
    * | bastion  | thumper 18.3  | roadblock 15.3 | wildcharge 11.5 |
    *
+   * (Figures as measured in 2026-09. Since 2026-10-07 Bastion's slot 2 is `tremor`, not `wildcharge`,
+   * and Taurus (fury-horn / shockwave / wildcharge) is a fourth chassis; neither has been
+   * re-measured here. `bestAchievableValueOf` computes the live ceiling per kit, so nothing reads
+   * this table.)
+   *
    * Bastion's best possible shot ANYWHERE (18.3) sat below hard's absolute threshold of 25, so a
    * hard Bastion pressed nothing — 0 fires in 600 ticks of a closed-loop duel, while hard Bullseye
    * and hard Mirage fired hundreds of times each with the same profile. Every ult on the roster also

@@ -66,7 +66,7 @@ function pinBasicAttackEnabled(): void {
   afterEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 }
 
-function slotsFor(carId: "bullseye" | "mirage" | "bastion"): BotSlotView[] {
+function slotsFor(carId: "bullseye" | "mirage" | "bastion" | "taurus"): BotSlotView[] {
   return slotsOf(carId).map((weaponId) => ({
     weaponId,
     stocks: 1,
@@ -76,7 +76,7 @@ function slotsFor(carId: "bullseye" | "mirage" | "bastion"): BotSlotView[] {
   }));
 }
 
-function self(carId: "bullseye" | "mirage" | "bastion"): BotSelfView {
+function self(carId: "bullseye" | "mirage" | "bastion" | "taurus"): BotSelfView {
   return {
     sessionId: "me",
     carId,
@@ -514,12 +514,15 @@ describe("chooseSlot", () => {
   });
 
   it("will press a range-0 weapon at contact range (H28)", () => {
-    // Bastion with only `wildcharge` in hand. Its two other slots out-rank it on value, so leaving
-    // them loaded would test the ranking rather than the range-0 gate this case is about.
-    const bastion = self("bastion");
+    // Taurus with only `wildcharge` (kit index 2, a genuine range-0 row) in hand. Its two other
+    // slots could out-rank it on value, so leaving them loaded would test the ranking rather than
+    // the range-0 gate this case is about.
+    const taurus = self("taurus");
+    expect(taurus.slots[2]!.weaponId).toBe("wildcharge");
+    expect(taurus.slots[2]!.range).toBe(0); // the fixture really holds a range-0 weapon
     const chargeOnly: BotSelfView = {
-      ...bastion,
-      slots: bastion.slots.map((slot, i) =>
+      ...taurus,
+      slots: taurus.slots.map((slot, i) =>
         i === 2 ? slot : { ...slot, stocks: 0 },
       ),
     };
@@ -538,10 +541,12 @@ describe("chooseSlot", () => {
   it("will NOT press a range-0 weapon from well beyond contact range (H28)", () => {
     // Mirrors what `solve` itself returns beyond a slot's reach: a present entry with `value: 0`,
     // which the EV gate refuses exactly like a missing solution would.
-    const bastion = self("bastion");
+    const taurus = self("taurus");
+    expect(taurus.slots[2]!.weaponId).toBe("wildcharge");
+    expect(taurus.slots[2]!.range).toBe(0); // the fixture really holds a range-0 weapon
     const chargeOnly: BotSelfView = {
-      ...bastion,
-      slots: bastion.slots.map((slot, i) =>
+      ...taurus,
+      slots: taurus.slots.map((slot, i) =>
         i === 2 ? slot : { ...slot, stocks: 0 },
       ),
     };
@@ -678,7 +683,7 @@ describe("chooseSlot — the basic-attack toggle (slots().basicAttackEnabled)", 
 
   /** A real four-slot loadout — kit plus the chassis's own basic attack, as `newFireState` builds it. */
   function selfWithBasicAttack(
-    carId: "bullseye" | "mirage" | "bastion",
+    carId: "bullseye" | "mirage" | "bastion" | "taurus",
   ): BotSelfView {
     const basicAttackId = basicAttackOf(carId);
     return {

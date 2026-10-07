@@ -86,7 +86,7 @@ export const CAR_TABLE = {
   // `docs/config-reference.md`): the at-least-one-weapon floor in `weapon-slots.test.ts` applies to
   // active cars only, and weapon exclusivity (L1) is unconditional, so a prototype may not borrow a
   // shipped kit — it gets its own `WEAPON_TABLE` rows when someone authors them.
-    anvil: { id: "anvil", name: "Anvil", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-anvil", turretMount: { x: 0, y: 0 }, isActive: false },
+  anvil: { id: "anvil", name: "Anvil", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-anvil", turretMount: { x: 0, y: 0 }, isActive: false },
   prowler: { id: "prowler", name: "Prowler", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, brakeDecel: 500, weapons: [], basicAttack: "basic-attack-prowler", turretMount: { x: 0, y: 0 }, isActive: false },
   cleaver: { id: "cleaver", name: "Cleaver", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, brakeDecel: 500, weapons: [], basicAttack: "basic-attack-cleaver", turretMount: { x: 0, y: 0 }, isActive: false },
   skorpios: { id: "skorpios", name: "Skorpios", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30, brakeDecel: 520, weapons: [], basicAttack: "basic-attack-skorpios", turretMount: { x: 0, y: 0 }, isActive: false },

@@ -53,7 +53,7 @@ describe("rolesOf", () => {
   });
 
   it("reports slot indices on a mixed kit, not just the first weapon", () => {
-    // Bastion: thumper, roadblock, wildcharge
+    // An explicit mixed kit (no live chassis carries exactly this since 2026-10-07): thumper, roadblock, wildcharge
     const roles = rolesOf([slot("thumper"), slot("roadblock"), slot("wildcharge")]);
     expect(roles.setupCcSlot).toBe(1);
     expect(roles.contactSlot).toBe(2);
