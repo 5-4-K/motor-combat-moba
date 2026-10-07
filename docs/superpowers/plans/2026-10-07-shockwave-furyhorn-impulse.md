@@ -95,7 +95,7 @@ git commit -m "feat(weapons): add shockwave (3-ring disc beam) and fury-horn (3-
 **Files:**
 - Modify: `packages/shared/src/config/car-config.ts` (Bastion kit; Taurus `isActive`, `weapons`, stats)
 - Modify: `packages/shared/src/config/weapon-config.ts` (`wildcharge.name`)
-- Modify: `packages/shared/src/config/bot-config.ts` (or wherever `BOT_BRAIN_VERSION` lives) — version bump
+- Modify: `packages/server/src/config/bot-profiles.ts` (`BOT_BRAIN_VERSION`, currently `"6.3.0"` at line ~819) — version bump
 - Modify: `docs/turn-tuning.md` (Taurus column in the three tables, per active mode)
 - Regenerate: `packages/client/public/manual.html` (via `npm run build:manual`)
 - Update: `packages/shared/src/modes/__snapshots__/*.tables.json` (via `vitest -u`)
@@ -107,9 +107,13 @@ git commit -m "feat(weapons): add shockwave (3-ring disc beam) and fury-horn (3-
 
 - [ ] **Step 1: Write/adjust failing kit + activation assertions**
 
-In `weapon-slots.test.ts` (or the per-chassis kit assertions it holds): update the expected Bastion kit to `["thumper","roadblock","tremor"]` and add Taurus's expected kit `["fury-horn","shockwave","wildcharge"]`. Add/confirm an exclusivity assertion that `wildcharge` is carried only by Taurus and `tremor` only by Bastion.
+In `weapon-slots.test.ts`, there are **two** hardcoded Bastion kit assertions — update **both** to `["thumper", "roadblock", "tremor"]`:
+- the `CAR_TABLE.bastion.weapons` `.toEqual([...])` in `"gives each chassis the kit its type calls for"` (~line 40), and
+- the `slotsOf("bastion")` `.toEqual([...])` in `"returns the car's list in slot order"` (~line 72).
 
-Add an assertion (in the active-roster test) that `activeCarIds()` now includes `"taurus"`.
+In the same `"gives each chassis the kit its type calls for"` test, add `expect(CAR_TABLE.taurus.weapons).toEqual(["fury-horn", "shockwave", "wildcharge"])`. The existing exclusivity test (`"shares no weapon between two chassis"`, ~line 43) and active-count test (`"gives every ACTIVE car between one and the ceiling's worth of weapons"`, ~line 18) now cover Taurus automatically — run them, don't rewrite them.
+
+Add an assertion (in whichever test holds the active roster) that `activeCarIds()` now includes `"taurus"`.
 
 - [ ] **Step 2: Run, verify fail**
 
@@ -127,7 +131,9 @@ In `weapon-config.ts` set `WEAPON_TABLE.wildcharge.name = "Raging Bull"`. Leave 
 
 - [ ] **Step 5: Bump `BOT_BRAIN_VERSION`**
 
-The kit change and the new active chassis change the bot's reach model, so the fingerprint must move even though bot *tuning* is deferred to a later session. Bump the `BOT_BRAIN_VERSION` constant one minor step. (Bot profile/behaviour work is explicitly out of scope for this plan.)
+The kit change and the new active chassis change the bot's reach model, so the fingerprint must move even though bot *tuning* is deferred to a later session. In `packages/server/src/config/bot-profiles.ts`, change `BOT_BRAIN_VERSION` from `"6.3.0"` to `"6.4.0"`. (Bot profile/behaviour work is explicitly out of scope for this plan.)
+
+**Expect server-side ripples from moving wildcharge off Bastion.** Fixtures and matrices that assume Bastion's kit — `packages/server/src/bot/brain/duel.fixture.ts`, `scripts/ttk.mjs`, and `packages/server/balance/` seat filters/DPS expectations (CLAUDE.md notes Bastion's sustained-DPS ceiling figure) — may now carry stale expectations. These are resolved by **updating the expectation to the new kit**, never by reverting the roster change. Task 2's full `npm test` (Step 10) is where they surface.
 
 - [ ] **Step 6: Run sim suite, fix exclusivity/invariants**
 
@@ -140,7 +146,7 @@ Run `npx vitest -u run src/modes/snapshots.test.ts` in `packages/shared`; re-run
 
 - [ ] **Step 8: Update `docs/turn-tuning.md` and pass its test**
 
-Add a Taurus column to each of the three tables, under every active mode's `##` heading, using the derived-value snippet in the page's "Keeping this page honest" section (do not hand-type derived cells). Run: `npm run test:scripts -- turn-tuning-doc.test.mjs` (or `node --test scripts/turn-tuning-doc.test.mjs`). Expected: PASS, naming no mismatched Taurus cell.
+Add a Taurus column to each of the three tables, under every active mode's `##` heading, using the derived-value snippet in the page's "Keeping this page honest" section (do not hand-type derived cells). Also fix the now-stale **prose** that lists Taurus as an inactive prototype (the "placeholder STAT CLONE … Taurus, Anvil and Caprico of Bastion" sentence) — Taurus is active now; the test can't see prose, so this is on you. Run: `npm run test:scripts -- turn-tuning-doc.test.mjs` (or `node --test scripts/turn-tuning-doc.test.mjs`). Expected: PASS, naming no mismatched Taurus cell.
 
 - [ ] **Step 9: Rebuild the manual and pass its stamp test**
 
