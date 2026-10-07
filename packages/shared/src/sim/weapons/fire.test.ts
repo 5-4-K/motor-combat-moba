@@ -518,7 +518,7 @@ describe("the basic attack slot", () => {
       basicAttackOf("bastion"),
       "thumper",
       "roadblock",
-      "wildcharge",
+      "tremor",
     ]);
   });
 
@@ -648,7 +648,7 @@ describe("same-tick tie-breaking", () => {
     // VS13. Accepted consequence of VS12, asserted rather than discovered: a player mashing every
     // key burns their largest cooldown instead of their smallest. Recorded here so a future reader
     // finds a decision, not a bug.
-    const state = newFireState("bastion", 1);
+    const state = newFireState("taurus", 1);
     const after = beginFire("s1", state, 0b1111, 0);
     expect(after.pending?.weaponId).toBe("wildcharge");
   });

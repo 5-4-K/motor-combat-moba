@@ -167,19 +167,19 @@ just once, because it is easy to skim past a caveat you've seen before.
 
 ## The two shapes, and which question each answers
 
-**`--shape=ffa`** (the default) seats a fixed 2/2/2 six-car match — as even a split of the active
-three-chassis roster as `MAX_PLAYERS` allows. Equal representation makes the null win rate exactly
-33.3% with no need to normalize by how often a chassis appeared. Use this for **overall chassis and
+**`--shape=ffa`** (the default) seats a fixed match — as even a split of the active roster as
+`MAX_PLAYERS` allows (2/2/2 while there were three chassis; 1/1/1/1, four cars, now that Taurus ships).
+Equal representation makes the null win rate exactly `1 / chassis` (25% at four) with no need to normalize by how often a chassis appeared. Use this for **overall chassis and
 weapon strength**: is a chassis winning more than its fair share across a real melee.
 
-**`--shape=duel`** cycles all nine ordered chassis pairs (three chassis squared, mirrors included) as
+**`--shape=duel`** cycles all sixteen ordered chassis pairs (four chassis squared, mirrors included) as
 1v1s. A six-way FFA cannot answer "does Mirage beat Bastion" — with five other cars shooting, every
 pairwise claim is confounded by who else is on the field. Use this for the **matchup matrix**: a
 clean attacker-vs-defender read, one pair at a time. `duel` also defaults to `last-standing` mode
 (one clean winner) rather than the deathmatch default the other shape uses.
 
-`duel` runs `--matches` matches **per ordered pair**, not `--matches` matches total — nine pairs at
-today's three-chassis roster, so `--matches=20 --shape=duel` is 180 matches, not 20.
+`duel` runs `--matches` matches **per ordered pair**, not `--matches` matches total — sixteen pairs at
+today's four-chassis roster, so `--matches=20 --shape=duel` is 320 matches, not 20.
 
 ### Past six chassis, `ffa` rotates instead of seating everyone
 
@@ -304,8 +304,8 @@ Every win rate this report prints carries a **Wilson score interval**, inline, i
 `41.3% (32.1–50.9)` — never a bare percentage. That bracket is the honest range the true win rate
 could plausibly be in, given how many matches actually ran.
 
-At the fixed `ffa` composition (2/2/2, six cars) the **null hypothesis is exactly 33.3%** — a chassis
-with no advantage at all wins one match in three by construction. (At a rotating composition — more
+At the fixed `ffa` composition (1/1/1/1, four cars today; 2/2/2 at three chassis) the **null hypothesis is exactly `1 / chassis`** (25% at four) — a chassis
+with no advantage at all wins one match in four by construction. (At a rotating composition — more
 than six chassis, only reachable with `--include-inactive` — the null is `1/MAX_PLAYERS` instead; see
 "Past six chassis" above.) Over 100 matches, that 95% interval
 is roughly **±9 points wide**. A chassis reading 38% over 100 matches is sitting comfortably inside
@@ -321,7 +321,7 @@ in the report — read the interval, not the point estimate.
 
 ## The mirror noise floor (duel runs only)
 
-`--shape=duel`'s nine ordered pairs include three **mirrors** — a chassis against itself: identical
+`--shape=duel`'s sixteen ordered pairs include four **mirrors** — a chassis against itself: identical
 chassis, identical kit, identical pilot on both sides. There is no game-side reason for a mirror to
 land anywhere but **50%**, so `summary.md` prints the mirror table *before* the matchup matrix, and
 you should read it first too.

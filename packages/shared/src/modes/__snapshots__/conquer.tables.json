@@ -64,7 +64,7 @@
       "weapons": [
         "thumper",
         "roadblock",
-        "wildcharge"
+        "tremor"
       ]
     },
     "bullseye": {
@@ -190,23 +190,27 @@
       "weapons": []
     },
     "taurus": {
-      "accel": 20,
-      "attack": 42,
+      "accel": 33,
+      "attack": 52,
       "basicAttack": "basic-attack-taurus",
       "brakeDecel": 430,
-      "handling": 50,
-      "hp": 90,
+      "handling": 58,
+      "hp": 80,
       "id": "taurus",
-      "isActive": false,
+      "isActive": true,
       "name": "Taurus",
-      "ramAttack": 70,
-      "ramDefence": 90,
-      "speed": 50,
+      "ramAttack": 62,
+      "ramDefence": 70,
+      "speed": 58,
       "turretMount": {
         "x": 0,
         "y": 0
       },
-      "weapons": []
+      "weapons": [
+        "fury-horn",
+        "shockwave",
+        "wildcharge"
+      ]
     }
   },
   "combat": {
@@ -1145,7 +1149,7 @@
         "slamsStunned": true,
         "type": "charge"
       },
-      "name": "Wild Charge",
+      "name": "Raging Bull",
       "range": 0,
       "recoveryMs": 200,
       "speed": 0,

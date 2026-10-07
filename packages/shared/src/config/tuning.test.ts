@@ -158,7 +158,7 @@ describe("a tuned bundle, read through the config accessors", () => {
     tune(null);
     expect(entry!.durationMs as number).toBe(1000);
     expect(CAR_TABLE.bastion.weapons).toBe(weapons);
-    expect([...weapons]).toEqual(["thumper", "roadblock", "wildcharge"]);
+    expect([...weapons]).toEqual(["thumper", "roadblock", "tremor"]);
     expect(weaponDefOf("thunderclap").applies![0]!.durationMs).toBe(1000);
   });
 

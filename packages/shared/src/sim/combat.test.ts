@@ -1383,9 +1383,9 @@ describe("stun interruption (O8)", () => {
   });
 
   it("a stun does not end wildcharge — the roster's isUnInterruptable exemption (O8)", () => {
-    // Bastion presses wildcharge (ability 3 == fire slot 3, fireMask bit 3 == 8) on tick 100, opening the charge
+    // Taurus presses wildcharge (ability 3 == fire slot 3, fireMask bit 3 == 8) on tick 100, opening the charge
     // window for real through the fire pipeline.
-    const charger = player("a", { x: 300, y: OPEN_Y, carId: "bastion", fireMask: 0b1000 });
+    const charger = player("a", { x: 300, y: OPEN_Y, carId: "taurus", fireMask: 0b1000 });
     let state = runCombat({
       world: world(),
       players: [charger, other()],
@@ -1455,7 +1455,7 @@ describe("real-row integration (2026-09-01 roster)", () => {
   });
 
   it("a wildcharge press opens the charge window and self-applies fortified", () => {
-    const p = player("a", { x: 300, y: OPEN_Y, carId: "bastion", fireMask: 0b1000 }); // ability 3 == fire slot 3
+    const p = player("a", { x: 300, y: OPEN_Y, carId: "taurus", fireMask: 0b1000 }); // ability 3 == fire slot 3
     const result = runCombat({
       world: world(),
       players: [p],

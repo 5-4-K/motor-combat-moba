@@ -749,10 +749,10 @@ function effectChips(model, w) {
   }
   for (const a of w.def.explosion?.applies ?? []) push(a.statusId, a.durationMs, "from the blast");
   // `impulse.applies` lands the moment the push does — unlike `onWallImpact.applies` below, it is
-  // not conditional on anything, so it gets no qualifier. Wild Charge's slam is the only row that
+  // not conditional on anything, so it gets no qualifier. Raging Bull's slam is the only row that
   // authors one today (`reeling`), and without this loop its most consequential property never
   // reached the card at all. Deliberately NOT fed into `effectSources()` above — `EFFECT_SOURCES.reeling`
-  // already credits "Wild Charge's slam" in prose, and crediting it again here would double up the
+  // already credits "Raging Bull's slam" in prose, and crediting it again here would double up the
   // Effects section's "From" line for the one weapon that has both.
   for (const a of w.def.impulse?.applies ?? []) push(a.statusId, a.durationMs, "");
   for (const a of w.def.impulse?.onWallImpact?.applies ?? []) {

@@ -193,11 +193,14 @@ describe("simulateTtk", () => {
 
 describe("carrierOf / unreachableWeaponIds", () => {
   test("names the weapons it could not reach instead of crashing", () => {
-    // VS32. A row with no reachable carrier — uncarried like `tremor`, or parked past N — must be
-    // skipped and NAMED. Crashing the run was acceptable while every authored row was reachable.
+    // VS32. A row with no reachable carrier — uncarried, or parked past N — must be skipped and
+    // NAMED. Crashing the run was acceptable while every authored row was reachable. Every
+    // authored ability row is carried today (`tremor` went to Bastion on 2026-10-07), so the
+    // list is empty; what is pinned is that it is a list, and that a carried row is not on it.
     const skipped = unreachableWeaponIds();
     assert.ok(Array.isArray(skipped));
-    assert.ok(skipped.includes("tremor"));
+    assert.ok(!skipped.includes("tremor"));
+    for (const weaponId of skipped) assert.equal(carrierOf(weaponId), undefined);
   });
 
   it("is total: every WEAPON_TABLE row resolves to either a carrier or nothing, never a throw", () => {

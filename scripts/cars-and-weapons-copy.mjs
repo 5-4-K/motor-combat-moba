@@ -41,7 +41,12 @@ export const CHASSIS_COPY = {
   bastion: {
     line:
       "The slowest chassis and the biggest hull. It cannot chase you, so it stops you instead: " +
-      "there is a stun in its kit, and a slam beside it.",
+      "there is a stun in its kit, and a tremor beside it.",
+  },
+  taurus: {
+    line:
+      "A heavy bruiser, quicker than Bastion and tougher than Bullseye. It closes with a horn " +
+      "you can fire in bursts, then shoves with a ring of force and a charge.",
   },
 };
 
@@ -55,6 +60,9 @@ export const WEAPON_COPY = {
   lance: { line: "Held in place, then sweep the beam across the line." },
   thumper: { line: "A bouncing slug, the biggest projectile in the game." },
   roadblock: { line: "A wall on the move. It stuns through cover." },
+  tremor: { line: "A slow-growing quake in front of the nose. It drags whoever it catches, and shields you inside it." },
+  shockwave: { line: "Rings of force pulse out of the car, slowing everything they pass through." },
+  "fury-horn": { line: "A short blast you can fire in bursts, with stocks that refill over time." },
   wildcharge: { line: "Armor up, then hard-slam the first car you touch." },
   "basic-attack-bullseye": { line: "Always loaded. A plain black bolt, and the only shot that never runs out." },
   "basic-attack-mirage": { line: "Always loaded. A plain black bolt, and the only shot that never runs out." },
@@ -83,7 +91,7 @@ export const WEAPON_COPY = {
  * `overhauled` today). Adding a source for one is how it gets published.
  */
 export const EFFECT_SOURCES = {
-  reeling: "Any ram but a head-on, and Wild Charge's slam.",
+  reeling: "Any ram but a head-on, and Raging Bull's slam.",
   ramLock: "Landing a ram yourself, and both cars in a head-on.",
   phased: "The moment after you respawn.",
 };

@@ -364,11 +364,13 @@ describe("mode-rosters: the union of every mode's carried rows (MC5)", () => {
   it("records which modes publish a chassis and which carry a weapon", () => {
     const cars = new Map(carRoster().map((r) => [r.id, r.publishedIn]));
     assert.deepEqual(cars.get("mirage"), ALL_MODES); // shipped, so published everywhere
-    assert.deepEqual(cars.get("taurus"), []); // a prototype no mode publishes
+    assert.deepEqual(cars.get("taurus"), ALL_MODES); // published 2026-10-07, so published everywhere
+    assert.deepEqual(cars.get("anvil"), []); // a prototype no mode publishes
     const weapons = new Map(weaponRoster().map((r) => [r.id, r.carriedIn]));
     assert.deepEqual(weapons.get("predator"), ALL_MODES);
     assert.deepEqual(weapons.get("basic-attack-taurus"), ALL_MODES); // a basic attack counts
-    assert.deepEqual(weapons.get("tremor"), []); // authored, carried by nobody, still swept
+    assert.deepEqual(weapons.get("tremor"), ALL_MODES); // Bastion carries it since 2026-10-07
+    assert.deepEqual(weapons.get("shockwave"), ALL_MODES); // Taurus
   });
 
   it("marks only a row the modes disagree about", () => {

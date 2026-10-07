@@ -67,12 +67,16 @@ import { cars, combat, derived, drive } from "../modes/active.js";
 export const CAR_TABLE = {
   mirage: { id: "mirage", name: "Mirage", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, brakeDecel: 500, weapons: ["magmablast", "thunderclap", "afterburner"], basicAttack: "basic-attack-mirage", turretMount: { x: 0, y: 0 }, isActive: true },
   bullseye: { id: "bullseye", name: "Bullseye", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30, brakeDecel: 520, weapons: ["predator", "pepperbox", "lance"], basicAttack: "basic-attack-bullseye", turretMount: { x: 0, y: 0 }, isActive: true },
-  bastion: { id: "bastion", name: "Bastion", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, brakeDecel: 430, weapons: ["thumper", "roadblock", "wildcharge"], basicAttack: "basic-attack-bastion", turretMount: { x: 0, y: 0 }, isActive: true },
+  bastion: { id: "bastion", name: "Bastion", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, brakeDecel: 430, weapons: ["thumper", "roadblock", "tremor"], basicAttack: "basic-attack-bastion", turretMount: { x: 0, y: 0 }, isActive: true },
+
+  // Taurus: published 2026-10-07 with its own kit (fury-horn, shockwave, wildcharge). It is no
+  // longer a placeholder clone — a heavy bruiser between Bastion and Bullseye on the ratings.
+  taurus: { id: "taurus", name: "Taurus", speed: 58, accel: 33, handling: 58, attack: 52, hp: 80, ramAttack: 62, ramDefence: 70, brakeDecel: 430, weapons: ["fury-horn", "shockwave", "wildcharge"], basicAttack: "basic-attack-taurus", turretMount: { x: 0, y: 0 }, isActive: true },
 
   // --- Unreleased prototypes (`isActive: false`) ------------------------------------------------
   //
-  // Six chassis authored so their art and their handling can be driven in the playground before
-  // any of them is published. Every one of them is a STAT CLONE of a shipped car — taurus, anvil and
+  // Five chassis authored so their art and their handling can be driven in the playground before
+  // any of them is published. Every one of them is a STAT CLONE of a shipped car — anvil and
   // caprico of Bastion, prowler and cleaver of Mirage, skorpios of Bullseye — a placeholder, not a
   // design: the identity each is meant to carry has not been chosen yet, and a clone is the one
   // starting point that says "this has not been tuned" out loud rather than inventing a triangle
@@ -82,8 +86,7 @@ export const CAR_TABLE = {
   // `docs/config-reference.md`): the at-least-one-weapon floor in `weapon-slots.test.ts` applies to
   // active cars only, and weapon exclusivity (L1) is unconditional, so a prototype may not borrow a
   // shipped kit — it gets its own `WEAPON_TABLE` rows when someone authors them.
-  taurus: { id: "taurus", name: "Taurus", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-taurus", turretMount: { x: 0, y: 0 }, isActive: false },
-  anvil: { id: "anvil", name: "Anvil", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-anvil", turretMount: { x: 0, y: 0 }, isActive: false },
+    anvil: { id: "anvil", name: "Anvil", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, brakeDecel: 430, weapons: [], basicAttack: "basic-attack-anvil", turretMount: { x: 0, y: 0 }, isActive: false },
   prowler: { id: "prowler", name: "Prowler", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, brakeDecel: 500, weapons: [], basicAttack: "basic-attack-prowler", turretMount: { x: 0, y: 0 }, isActive: false },
   cleaver: { id: "cleaver", name: "Cleaver", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, brakeDecel: 500, weapons: [], basicAttack: "basic-attack-cleaver", turretMount: { x: 0, y: 0 }, isActive: false },
   skorpios: { id: "skorpios", name: "Skorpios", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30, brakeDecel: 520, weapons: [], basicAttack: "basic-attack-skorpios", turretMount: { x: 0, y: 0 }, isActive: false },

@@ -89,7 +89,8 @@ function ffaWindow(chassis: readonly CarId[], matchIndex: number): CarId[] {
 
 /**
  * The FFA composition: as even a split of `MAX_PLAYERS` seats across the roster as division allows.
- * At today's three-chassis roster that is 2/2/2 (six seats, B27's exact-1/3 null).
+ * At today's four-chassis roster that is 1/1/1/1 (four seats, a 1/4 null); it was 2/2/2 (six seats,
+ * B27's exact-1/3 null) while the roster was three.
  *
  * A roster that does not divide evenly floors to the largest even split rather than throwing or
  * padding one chassis unevenly — a 4-chassis roster seats 1 of each (four seats, not six) instead of
@@ -136,9 +137,9 @@ function ffaSeats(
 /**
  * One ordered pair (attacker, defender) out of the `chassis.length ** 2` ordered pairs, selected by
  * `matchIndex mod chassis.length ** 2` — pure and cyclical, so a caller can hand any match index (not
- * just 0..8) and still land on a valid pair. At today's three-chassis roster this is the nine pairs
- * B26/B26a describe, mirrors included: index 0 is (a,a), and every `k`-th step where
- * `k = chassis.length` lands back on a mirror (0, 4, 8 at n=3).
+ * just 0..8) and still land on a valid pair. At today's four-chassis roster this is sixteen pairs
+ * (nine under B26/B26a's original three), mirrors included: index 0 is (a,a), and every
+ * `(chassis.length + 1)`-th step lands back on a mirror (0, 5, 10, 15 at n=4).
  */
 function duelSeats(chassis: readonly CarId[], matchIndex: number): { seats: MatchSetup["seats"]; label: string } {
   const n = chassis.length;
@@ -182,8 +183,8 @@ export function seatsFor(
  * composition rotates per match instead of staying fixed — see `ffaSeats`.
  *
  * `duel`: `config.matches` matches PER ORDERED PAIR — the outer loop is `matches`, the inner is the
- * `chassis.length ** 2` pairs (nine at today's roster), so `totalMatches = matches * pairCount`, a
- * factor-of-nine surprise if you forget it (per the task brief). `seatsFor`'s own mod-`pairCount`
+ * `chassis.length ** 2` pairs (sixteen at today's roster), so `totalMatches = matches * pairCount`, a
+ * factor-of-sixteen surprise if you forget it (per the task brief). `seatsFor`'s own mod-`pairCount`
  * cycling means the flat, single running index `i` used below sweeps every pair once per `matches`
  * lap without the runner having to nest two loops itself.
  *

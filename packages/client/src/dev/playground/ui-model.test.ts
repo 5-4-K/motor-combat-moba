@@ -146,7 +146,8 @@ describe("a playground seat's loadout", () => {
   });
 
   it("hands back a chassis's shipped kit at whatever length it is", () => {
-    expect(shippedLoadoutOf("bastion" as CarId)).toEqual(["thumper", "roadblock", "wildcharge"]);
+    expect(shippedLoadoutOf("bastion" as CarId)).toEqual(["thumper", "roadblock", "tremor"]);
+    expect(shippedLoadoutOf("taurus" as CarId)).toEqual(["fury-horn", "shockwave", "wildcharge"]);
   });
 
   it("still loads a three-entry setup written by an older build", () => {
@@ -410,7 +411,7 @@ describe("shippedLoadoutOf (PG34)", () => {
       if (CAR_TABLE[carId].weapons.length === 3) continue;
       expect(shippedLoadoutOf(carId)).toBeUndefined();
     }
-    expect(shippedLoadoutOf("taurus" as CarId)).toBeUndefined();
+    expect(shippedLoadoutOf("anvil" as CarId)).toBeUndefined();
   });
 });
 

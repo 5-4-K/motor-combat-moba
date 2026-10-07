@@ -107,7 +107,7 @@ describe("fullStatsFor", () => {
       "Hull size",
       "Thumper damage",
       "Roadblock damage",
-      "Wild Charge damage",
+      "Tremor damage",
     ]);
   });
 
@@ -132,6 +132,7 @@ describe("fullStatsFor", () => {
       mirage: { label: "Magma Blast damage", value: "57" },
       bullseye: { label: "Predator damage", value: "32" },
       bastion: { label: "Thumper damage", value: "55" },
+      taurus: { label: "Fury Horn damage", value: "51" },
     };
     for (const id of activeCarIds()) {
       // `Partial` plus this assertion, rather than a full `Record<CarId, …>`: the map may not cover

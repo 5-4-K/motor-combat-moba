@@ -816,7 +816,9 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // its lead bearing (plus its realized aim error) on the wire as `aimAngle` (TR25). `BOT_PROFILES`
 // did not move. Balance and playtest reports across this line are not comparable (TR28).
 // 6.3.0 (2026-09-29): bot timing authored in ms (NR14); identical at 30 Hz, doubles in ticks at 60 Hz.
-export const BOT_BRAIN_VERSION = "6.3.0";
+// 6.4.0 (2026-10-07): roster change — tremor to Bastion, wildcharge to Taurus, Taurus published. The bot's
+// reach model reads the kit, so reports across this line are not comparable. `BOT_PROFILES` did not move.
+export const BOT_BRAIN_VERSION = "6.4.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency

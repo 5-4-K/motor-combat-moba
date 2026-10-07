@@ -273,7 +273,7 @@ describe("weapons apply statuses", () => {
     const result = runCombat({
       world: world(),
       players: [
-        player("aaa", { carId: "bastion", fireState: newFireState("bastion", 1), fireMask: 0b1000 }),
+        player("aaa", { carId: "taurus", fireState: newFireState("taurus", 1), fireMask: 0b1000 }),
       ],
       instances: [],
       instanceSeq: 0,
@@ -289,7 +289,7 @@ describe("weapons apply statuses", () => {
     const first = runCombat({
       world: world(),
       players: [
-        player("aaa", { carId: "bastion", fireState: newFireState("bastion", 1), fireMask: 0b1000 }),
+        player("aaa", { carId: "taurus", fireState: newFireState("taurus", 1), fireMask: 0b1000 }),
       ],
       instances: [],
       instanceSeq: 0,

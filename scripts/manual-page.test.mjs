@@ -332,7 +332,7 @@ describe("the generated manual page", () => {
       assert.deepEqual(dead, [], `mode ${mode} links to effects its own section does not define`);
       // `ramLock` and `phased` come from the contact pass and from the deathmatch respawn, not from
       // a weapon row, so nothing in the Cars section links to them by construction. `reeling` is
-      // named here too even though Wild Charge's own impulse chip links to it now (its slam's
+      // named here too even though Raging Bull's own impulse chip links to it now (its slam's
       // immediate push, not the wall-impact one) — the exemption still covers the contact pass's
       // ordinary-ram source, which no weapon card names. All three are named in EFFECT_SOURCES,
       // which is exactly what publishes them.

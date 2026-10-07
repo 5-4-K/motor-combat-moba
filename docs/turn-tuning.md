@@ -98,12 +98,14 @@ Every other authored value that shapes turning is global to the mode, and the tu
 split is the first thing to check before an edit — it decides whether you are moving one chassis or
 all of them.
 
-**The last six columns of every per-car table are unreleased prototypes** (`isActive: false`, no kit
-yet), and every one of them is a placeholder STAT CLONE of a shipped chassis — Taurus, Anvil and
-Caprico of Bastion, Prowler and Cleaver of Mirage, Skorpios of Bullseye. They are on this page
-because `scripts/turn-tuning-doc.test.mjs` reads each mode's `cars` whole, and because the day one of
-them is actually tuned is the day its column stops being a duplicate. Read the three shipped columns
-for the roster's shape; the other six say nothing yet.
+**Taurus is the fourth shipped chassis** (published 2026-10-07, `isActive: true`, with its own kit
+and its own ratings: `handling` and `speed` 58, between Bastion's 50 and Bullseye's 65). **The last
+five columns of every per-car table are unreleased prototypes** (`isActive: false`, no kit yet), and
+every one of them is a placeholder STAT CLONE of a shipped chassis — Anvil and Caprico of Bastion,
+Prowler and Cleaver of Mirage, Skorpios of Bullseye. They are on this page because
+`scripts/turn-tuning-doc.test.mjs` reads each mode's `cars` whole, and because the day one of them is
+actually tuned is the day its column stops being a duplicate. Read the four shipped columns for the
+roster's shape; the other five say nothing yet.
 
 **The per-car direct-values table holds one value per chassis, but neither is a 0-100 rating.**
 `brakeDecel` is authored directly on the mode's car table and feeds no turn-rate or radius cell.
@@ -267,14 +269,14 @@ The `FFA_LAST_STANDING` bundle, assembled from `packages/shared/src/modes/brawl/
 
 | Rating | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
 |---|---|---|---|---|---|---|---|---|---|
-| `handling` (turn rate) | 65 | 85 | 50 | 50 | 50 | 85 | 85 | 65 | 50 |
-| `speed` (the other half of radius) | 65 | 85 | 50 | 50 | 50 | 85 | 85 | 65 | 50 |
+| `handling` (turn rate) | 65 | 85 | 50 | 58 | 50 | 85 | 85 | 65 | 50 |
+| `speed` (the other half of radius) | 65 | 85 | 50 | 58 | 50 | 85 | 85 | 65 | 50 |
 
 **Per-car direct values** — `brakeDecel` off `cars()`, `dragRate` off `driveOf(id)`:
 
 | Value | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
 |---|---|---|---|---|---|---|---|---|---|
-| `dragRate` — drag (1/s) | 1.0416 | 1.2848 | 0.8896 | 0.8896 | 0.8896 | 1.2848 | 1.2848 | 1.0416 | 0.8896 |
+| `dragRate` — drag (1/s) | 1.0416 | 1.2848 | 0.8896 | 0.9686 | 0.8896 | 1.2848 | 1.2848 | 1.0416 | 0.8896 |
 | `brakeDecel` — brake deceleration (u/s²) | 520 | 500 | 430 | 430 | 430 | 500 | 500 | 520 | 430 |
 
 **Global** — one value, applied to this mode's whole roster:
@@ -297,20 +299,20 @@ The `FFA_LAST_STANDING` bundle, assembled from `packages/shared/src/modes/brawl/
 
 | Stat | Formula | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
 |---|---|---|---|---|---|---|---|---|---|---|
-| **Turn rate** | `baseTurnRate + handling × turnRatePerRating` | 2.648 rad/s | **3.155 rad/s** | 2.268 rad/s | 2.268 rad/s | 2.268 rad/s | 3.155 rad/s | 3.155 rad/s | 2.648 rad/s | 2.268 rad/s |
-| — in degrees | × 180/π | 151.7°/s | 180.8°/s | 129.9°/s | 129.9°/s | 129.9°/s | 180.8°/s | 180.8°/s | 151.7°/s | 129.9°/s |
-| — per tick | ÷ `TICK_RATE_HZ` (60) | 0.0441 rad | 0.0526 rad | 0.0378 rad | 0.0378 rad | 0.0378 rad | 0.0526 rad | 0.0526 rad | 0.0441 rad | 0.0378 rad |
-| — degrees per tick | ″ | 2.53° | 3.01° | 2.17° | 2.17° | 2.17° | 3.01° | 3.01° | 2.53° | 2.17° |
-| **Engine push** | `topSpeed × dragRate` | 247.91 u/s² | **364.30 u/s²** | 181.34 u/s² | 181.34 u/s² | 181.34 u/s² | 364.30 u/s² | 364.30 u/s² | 247.91 u/s² | 181.34 u/s² |
-| Time to 90% of top speed | `ln(10) / dragRate` | 2.21 s | 1.79 s | 2.59 s | 2.59 s | 2.59 s | 1.79 s | 1.79 s | 2.21 s | 2.59 s |
-| Top speed | `baseMaxSpeed + speed × speedPerRating` | 238 u/s | **283.55 u/s** | 203.85 u/s | 203.85 u/s | 203.85 u/s | 283.55 u/s | 283.55 u/s | 238 u/s | 203.85 u/s |
-| Roll distance from top speed | `topSpeed / dragRate` | 228.5 u | 220.7 u | 229.1 u | 229.1 u | 229.1 u | 220.7 u | 220.7 u | 228.5 u | 229.1 u |
-| Reverse top speed | `topSpeed × reverseAccelFactor` | 142.8 u/s | 170.1 u/s | 122.3 u/s | 122.3 u/s | 122.3 u/s | 170.1 u/s | 170.1 u/s | 142.8 u/s | 122.3 u/s |
+| **Turn rate** | `baseTurnRate + handling × turnRatePerRating` | 2.648 rad/s | **3.155 rad/s** | 2.268 rad/s | 2.471 rad/s | 2.268 rad/s | 3.155 rad/s | 3.155 rad/s | 2.648 rad/s | 2.268 rad/s |
+| — in degrees | × 180/π | 151.7°/s | 180.8°/s | 129.9°/s | 141.6°/s | 129.9°/s | 180.8°/s | 180.8°/s | 151.7°/s | 129.9°/s |
+| — per tick | ÷ `TICK_RATE_HZ` (60) | 0.0441 rad | 0.0526 rad | 0.0378 rad | 0.0412 rad | 0.0378 rad | 0.0526 rad | 0.0526 rad | 0.0441 rad | 0.0378 rad |
+| — degrees per tick | ″ | 2.53° | 3.01° | 2.17° | 2.36° | 2.17° | 3.01° | 3.01° | 2.53° | 2.17° |
+| **Engine push** | `topSpeed × dragRate` | 247.91 u/s² | **364.30 u/s²** | 181.34 u/s² | 215.10 u/s² | 181.34 u/s² | 364.30 u/s² | 364.30 u/s² | 247.91 u/s² | 181.34 u/s² |
+| Time to 90% of top speed | `ln(10) / dragRate` | 2.21 s | 1.79 s | 2.59 s | 2.38 s | 2.59 s | 1.79 s | 1.79 s | 2.21 s | 2.59 s |
+| Top speed | `baseMaxSpeed + speed × speedPerRating` | 238 u/s | **283.55 u/s** | 203.85 u/s | 222.07 u/s | 203.85 u/s | 283.55 u/s | 283.55 u/s | 238 u/s | 203.85 u/s |
+| Roll distance from top speed | `topSpeed / dragRate` | 228.5 u | 220.7 u | 229.1 u | 229.3 u | 229.1 u | 220.7 u | 220.7 u | 228.5 u | 229.1 u |
+| Reverse top speed | `topSpeed × reverseAccelFactor` | 142.8 u/s | 170.1 u/s | 122.3 u/s | 133.2 u/s | 122.3 u/s | 170.1 u/s | 170.1 u/s | 142.8 u/s | 122.3 u/s |
 | **Turn radius** | `topSpeed / turnRate` | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u |
 | Reverse turn radius | `reverseTopSpeed / turnRate` | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u |
-| Slip angle at full lock | `atan(turnRate / (dragRate + lateralGripRate))` | 33.2° | **36.4°** | 30.2° | 30.2° | 30.2° | 36.4° | 36.4° | 33.2° | 30.2° |
-| 180° while moving | `π / turnRate` | 1.19 s | 1.00 s | 1.39 s | 1.39 s | 1.39 s | 1.00 s | 1.00 s | 1.19 s | 1.39 s |
-| 360° while moving | `2π / turnRate` | 2.37 s | 1.99 s | 2.77 s | 2.77 s | 2.77 s | 1.99 s | 1.99 s | 2.37 s | 2.77 s |
+| Slip angle at full lock | `atan(turnRate / (dragRate + lateralGripRate))` | 33.2° | **36.4°** | 30.2° | 31.9° | 30.2° | 36.4° | 36.4° | 33.2° | 30.2° |
+| 180° while moving | `π / turnRate` | 1.19 s | 1.00 s | 1.39 s | 1.27 s | 1.39 s | 1.00 s | 1.00 s | 1.19 s | 1.39 s |
+| 360° while moving | `2π / turnRate` | 2.37 s | 1.99 s | 2.77 s | 2.54 s | 2.77 s | 1.99 s | 1.99 s | 2.37 s | 2.77 s |
 | Grip while reeling | `lateralGripRate × STATUS_TABLE.reeling.grip` | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s |
 | Spin kept per tick while reeling | `exp(−reelingSpinDecayRate / TICK_RATE_HZ)` | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 |
 
@@ -322,14 +324,14 @@ The `FFA_DEATHMATCH` bundle, assembled from `packages/shared/src/modes/deathmatc
 
 | Rating | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
 |---|---|---|---|---|---|---|---|---|---|
-| `handling` (turn rate) | 65 | 85 | 50 | 50 | 50 | 85 | 85 | 65 | 50 |
-| `speed` (the other half of radius) | 65 | 85 | 50 | 50 | 50 | 85 | 85 | 65 | 50 |
+| `handling` (turn rate) | 65 | 85 | 50 | 58 | 50 | 85 | 85 | 65 | 50 |
+| `speed` (the other half of radius) | 65 | 85 | 50 | 58 | 50 | 85 | 85 | 65 | 50 |
 
 **Per-car direct values** — `brakeDecel` off `cars()`, `dragRate` off `driveOf(id)`:
 
 | Value | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
 |---|---|---|---|---|---|---|---|---|---|
-| `dragRate` — drag (1/s) | 1.0416 | 1.2848 | 0.8896 | 0.8896 | 0.8896 | 1.2848 | 1.2848 | 1.0416 | 0.8896 |
+| `dragRate` — drag (1/s) | 1.0416 | 1.2848 | 0.8896 | 0.9686 | 0.8896 | 1.2848 | 1.2848 | 1.0416 | 0.8896 |
 | `brakeDecel` — brake deceleration (u/s²) | 520 | 500 | 430 | 430 | 430 | 500 | 500 | 520 | 430 |
 
 **Global** — one value, applied to this mode's whole roster:
@@ -352,20 +354,20 @@ The `FFA_DEATHMATCH` bundle, assembled from `packages/shared/src/modes/deathmatc
 
 | Stat | Formula | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
 |---|---|---|---|---|---|---|---|---|---|---|
-| **Turn rate** | `baseTurnRate + handling × turnRatePerRating` | 2.648 rad/s | **3.155 rad/s** | 2.268 rad/s | 2.268 rad/s | 2.268 rad/s | 3.155 rad/s | 3.155 rad/s | 2.648 rad/s | 2.268 rad/s |
-| — in degrees | × 180/π | 151.7°/s | 180.8°/s | 129.9°/s | 129.9°/s | 129.9°/s | 180.8°/s | 180.8°/s | 151.7°/s | 129.9°/s |
-| — per tick | ÷ `TICK_RATE_HZ` (60) | 0.0441 rad | 0.0526 rad | 0.0378 rad | 0.0378 rad | 0.0378 rad | 0.0526 rad | 0.0526 rad | 0.0441 rad | 0.0378 rad |
-| — degrees per tick | ″ | 2.53° | 3.01° | 2.17° | 2.17° | 2.17° | 3.01° | 3.01° | 2.53° | 2.17° |
-| **Engine push** | `topSpeed × dragRate` | 247.91 u/s² | **364.30 u/s²** | 181.34 u/s² | 181.34 u/s² | 181.34 u/s² | 364.30 u/s² | 364.30 u/s² | 247.91 u/s² | 181.34 u/s² |
-| Time to 90% of top speed | `ln(10) / dragRate` | 2.21 s | 1.79 s | 2.59 s | 2.59 s | 2.59 s | 1.79 s | 1.79 s | 2.21 s | 2.59 s |
-| Top speed | `baseMaxSpeed + speed × speedPerRating` | 238 u/s | **283.55 u/s** | 203.85 u/s | 203.85 u/s | 203.85 u/s | 283.55 u/s | 283.55 u/s | 238 u/s | 203.85 u/s |
-| Roll distance from top speed | `topSpeed / dragRate` | 228.5 u | 220.7 u | 229.1 u | 229.1 u | 229.1 u | 220.7 u | 220.7 u | 228.5 u | 229.1 u |
-| Reverse top speed | `topSpeed × reverseAccelFactor` | 142.8 u/s | 170.1 u/s | 122.3 u/s | 122.3 u/s | 122.3 u/s | 170.1 u/s | 170.1 u/s | 142.8 u/s | 122.3 u/s |
+| **Turn rate** | `baseTurnRate + handling × turnRatePerRating` | 2.648 rad/s | **3.155 rad/s** | 2.268 rad/s | 2.471 rad/s | 2.268 rad/s | 3.155 rad/s | 3.155 rad/s | 2.648 rad/s | 2.268 rad/s |
+| — in degrees | × 180/π | 151.7°/s | 180.8°/s | 129.9°/s | 141.6°/s | 129.9°/s | 180.8°/s | 180.8°/s | 151.7°/s | 129.9°/s |
+| — per tick | ÷ `TICK_RATE_HZ` (60) | 0.0441 rad | 0.0526 rad | 0.0378 rad | 0.0412 rad | 0.0378 rad | 0.0526 rad | 0.0526 rad | 0.0441 rad | 0.0378 rad |
+| — degrees per tick | ″ | 2.53° | 3.01° | 2.17° | 2.36° | 2.17° | 3.01° | 3.01° | 2.53° | 2.17° |
+| **Engine push** | `topSpeed × dragRate` | 247.91 u/s² | **364.30 u/s²** | 181.34 u/s² | 215.10 u/s² | 181.34 u/s² | 364.30 u/s² | 364.30 u/s² | 247.91 u/s² | 181.34 u/s² |
+| Time to 90% of top speed | `ln(10) / dragRate` | 2.21 s | 1.79 s | 2.59 s | 2.38 s | 2.59 s | 1.79 s | 1.79 s | 2.21 s | 2.59 s |
+| Top speed | `baseMaxSpeed + speed × speedPerRating` | 238 u/s | **283.55 u/s** | 203.85 u/s | 222.07 u/s | 203.85 u/s | 283.55 u/s | 283.55 u/s | 238 u/s | 203.85 u/s |
+| Roll distance from top speed | `topSpeed / dragRate` | 228.5 u | 220.7 u | 229.1 u | 229.3 u | 229.1 u | 220.7 u | 220.7 u | 228.5 u | 229.1 u |
+| Reverse top speed | `topSpeed × reverseAccelFactor` | 142.8 u/s | 170.1 u/s | 122.3 u/s | 133.2 u/s | 122.3 u/s | 170.1 u/s | 170.1 u/s | 142.8 u/s | 122.3 u/s |
 | **Turn radius** | `topSpeed / turnRate` | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u |
 | Reverse turn radius | `reverseTopSpeed / turnRate` | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u |
-| Slip angle at full lock | `atan(turnRate / (dragRate + lateralGripRate))` | 33.2° | **36.4°** | 30.2° | 30.2° | 30.2° | 36.4° | 36.4° | 33.2° | 30.2° |
-| 180° while moving | `π / turnRate` | 1.19 s | 1.00 s | 1.39 s | 1.39 s | 1.39 s | 1.00 s | 1.00 s | 1.19 s | 1.39 s |
-| 360° while moving | `2π / turnRate` | 2.37 s | 1.99 s | 2.77 s | 2.77 s | 2.77 s | 1.99 s | 1.99 s | 2.37 s | 2.77 s |
+| Slip angle at full lock | `atan(turnRate / (dragRate + lateralGripRate))` | 33.2° | **36.4°** | 30.2° | 31.9° | 30.2° | 36.4° | 36.4° | 33.2° | 30.2° |
+| 180° while moving | `π / turnRate` | 1.19 s | 1.00 s | 1.39 s | 1.27 s | 1.39 s | 1.00 s | 1.00 s | 1.19 s | 1.39 s |
+| 360° while moving | `2π / turnRate` | 2.37 s | 1.99 s | 2.77 s | 2.54 s | 2.77 s | 1.99 s | 1.99 s | 2.37 s | 2.77 s |
 | Grip while reeling | `lateralGripRate × STATUS_TABLE.reeling.grip` | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s |
 | Spin kept per tick while reeling | `exp(−reelingSpinDecayRate / TICK_RATE_HZ)` | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 |
 
@@ -381,14 +383,14 @@ them yet.
 
 | Rating | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
 |---|---|---|---|---|---|---|---|---|---|
-| `handling` (turn rate) | 65 | 85 | 50 | 50 | 50 | 85 | 85 | 65 | 50 |
-| `speed` (the other half of radius) | 65 | 85 | 50 | 50 | 50 | 85 | 85 | 65 | 50 |
+| `handling` (turn rate) | 65 | 85 | 50 | 58 | 50 | 85 | 85 | 65 | 50 |
+| `speed` (the other half of radius) | 65 | 85 | 50 | 58 | 50 | 85 | 85 | 65 | 50 |
 
 **Per-car direct values** — `brakeDecel` off `cars()`, `dragRate` off `driveOf(id)`:
 
 | Value | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
 |---|---|---|---|---|---|---|---|---|---|
-| `dragRate` — drag (1/s) | 1.0416 | 1.2848 | 0.8896 | 0.8896 | 0.8896 | 1.2848 | 1.2848 | 1.0416 | 0.8896 |
+| `dragRate` — drag (1/s) | 1.0416 | 1.2848 | 0.8896 | 0.9686 | 0.8896 | 1.2848 | 1.2848 | 1.0416 | 0.8896 |
 | `brakeDecel` — brake deceleration (u/s²) | 520 | 500 | 430 | 430 | 430 | 500 | 500 | 520 | 430 |
 
 **Global** — one value, applied to this mode's whole roster:
@@ -411,20 +413,20 @@ them yet.
 
 | Stat | Formula | Bullseye | Mirage | Bastion | Taurus | Anvil | Prowler | Cleaver | Skorpios | Caprico |
 |---|---|---|---|---|---|---|---|---|---|---|
-| **Turn rate** | `baseTurnRate + handling × turnRatePerRating` | 2.648 rad/s | **3.155 rad/s** | 2.268 rad/s | 2.268 rad/s | 2.268 rad/s | 3.155 rad/s | 3.155 rad/s | 2.648 rad/s | 2.268 rad/s |
-| — in degrees | × 180/π | 151.7°/s | 180.8°/s | 129.9°/s | 129.9°/s | 129.9°/s | 180.8°/s | 180.8°/s | 151.7°/s | 129.9°/s |
-| — per tick | ÷ `TICK_RATE_HZ` (60) | 0.0441 rad | 0.0526 rad | 0.0378 rad | 0.0378 rad | 0.0378 rad | 0.0526 rad | 0.0526 rad | 0.0441 rad | 0.0378 rad |
-| — degrees per tick | ″ | 2.53° | 3.01° | 2.17° | 2.17° | 2.17° | 3.01° | 3.01° | 2.53° | 2.17° |
-| **Engine push** | `topSpeed × dragRate` | 247.91 u/s² | **364.30 u/s²** | 181.34 u/s² | 181.34 u/s² | 181.34 u/s² | 364.30 u/s² | 364.30 u/s² | 247.91 u/s² | 181.34 u/s² |
-| Time to 90% of top speed | `ln(10) / dragRate` | 2.21 s | 1.79 s | 2.59 s | 2.59 s | 2.59 s | 1.79 s | 1.79 s | 2.21 s | 2.59 s |
-| Top speed | `baseMaxSpeed + speed × speedPerRating` | 238 u/s | **283.55 u/s** | 203.85 u/s | 203.85 u/s | 203.85 u/s | 283.55 u/s | 283.55 u/s | 238 u/s | 203.85 u/s |
-| Roll distance from top speed | `topSpeed / dragRate` | 228.5 u | 220.7 u | 229.1 u | 229.1 u | 229.1 u | 220.7 u | 220.7 u | 228.5 u | 229.1 u |
-| Reverse top speed | `topSpeed × reverseAccelFactor` | 142.8 u/s | 170.1 u/s | 122.3 u/s | 122.3 u/s | 122.3 u/s | 170.1 u/s | 170.1 u/s | 142.8 u/s | 122.3 u/s |
+| **Turn rate** | `baseTurnRate + handling × turnRatePerRating` | 2.648 rad/s | **3.155 rad/s** | 2.268 rad/s | 2.471 rad/s | 2.268 rad/s | 3.155 rad/s | 3.155 rad/s | 2.648 rad/s | 2.268 rad/s |
+| — in degrees | × 180/π | 151.7°/s | 180.8°/s | 129.9°/s | 141.6°/s | 129.9°/s | 180.8°/s | 180.8°/s | 151.7°/s | 129.9°/s |
+| — per tick | ÷ `TICK_RATE_HZ` (60) | 0.0441 rad | 0.0526 rad | 0.0378 rad | 0.0412 rad | 0.0378 rad | 0.0526 rad | 0.0526 rad | 0.0441 rad | 0.0378 rad |
+| — degrees per tick | ″ | 2.53° | 3.01° | 2.17° | 2.36° | 2.17° | 3.01° | 3.01° | 2.53° | 2.17° |
+| **Engine push** | `topSpeed × dragRate` | 247.91 u/s² | **364.30 u/s²** | 181.34 u/s² | 215.10 u/s² | 181.34 u/s² | 364.30 u/s² | 364.30 u/s² | 247.91 u/s² | 181.34 u/s² |
+| Time to 90% of top speed | `ln(10) / dragRate` | 2.21 s | 1.79 s | 2.59 s | 2.38 s | 2.59 s | 1.79 s | 1.79 s | 2.21 s | 2.59 s |
+| Top speed | `baseMaxSpeed + speed × speedPerRating` | 238 u/s | **283.55 u/s** | 203.85 u/s | 222.07 u/s | 203.85 u/s | 283.55 u/s | 283.55 u/s | 238 u/s | 203.85 u/s |
+| Roll distance from top speed | `topSpeed / dragRate` | 228.5 u | 220.7 u | 229.1 u | 229.3 u | 229.1 u | 220.7 u | 220.7 u | 228.5 u | 229.1 u |
+| Reverse top speed | `topSpeed × reverseAccelFactor` | 142.8 u/s | 170.1 u/s | 122.3 u/s | 133.2 u/s | 122.3 u/s | 170.1 u/s | 170.1 u/s | 142.8 u/s | 122.3 u/s |
 | **Turn radius** | `topSpeed / turnRate` | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u | 89.9 u |
 | Reverse turn radius | `reverseTopSpeed / turnRate` | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u | 53.9 u |
-| Slip angle at full lock | `atan(turnRate / (dragRate + lateralGripRate))` | 33.2° | **36.4°** | 30.2° | 30.2° | 30.2° | 36.4° | 36.4° | 33.2° | 30.2° |
-| 180° while moving | `π / turnRate` | 1.19 s | 1.00 s | 1.39 s | 1.39 s | 1.39 s | 1.00 s | 1.00 s | 1.19 s | 1.39 s |
-| 360° while moving | `2π / turnRate` | 2.37 s | 1.99 s | 2.77 s | 2.77 s | 2.77 s | 1.99 s | 1.99 s | 2.37 s | 2.77 s |
+| Slip angle at full lock | `atan(turnRate / (dragRate + lateralGripRate))` | 33.2° | **36.4°** | 30.2° | 31.9° | 30.2° | 36.4° | 36.4° | 33.2° | 30.2° |
+| 180° while moving | `π / turnRate` | 1.19 s | 1.00 s | 1.39 s | 1.27 s | 1.39 s | 1.00 s | 1.00 s | 1.19 s | 1.39 s |
+| 360° while moving | `2π / turnRate` | 2.37 s | 1.99 s | 2.77 s | 2.54 s | 2.77 s | 1.99 s | 1.99 s | 2.37 s | 2.77 s |
 | Grip while reeling | `lateralGripRate × STATUS_TABLE.reeling.grip` | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s | 1.8 /s |
 | Spin kept per tick while reeling | `exp(−reelingSpinDecayRate / TICK_RATE_HZ)` | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 | 0.9672 |
 

@@ -247,7 +247,7 @@ describe("explicit loadouts", () => {
       "basic-attack-bastion",
       "thumper",
       "roadblock",
-      "wildcharge",
+      "tremor",
     ]);
     expect(loadoutFor("mirage", ["predator", "lance", "thumper"])).toEqual([
       "basic-attack-mirage",

@@ -28,9 +28,11 @@ function digest(value: unknown): string {
 }
 
 describe("seatsFor (B26, B27)", () => {
-  it("seats an ffa match 2/2/2, always", () => {
+  it("seats an ffa match as the largest even split of the published roster, always", () => {
+    // Four active chassis since Taurus shipped (2026-10-07): 6 / 4 floors to one of each, four
+    // seats rather than a lopsided 2/2/1/1 (see `ffaSeats`), so the null is exactly 1/4.
     const carIds = seatsFor("ffa", 0).seats.map((s) => s.carId).sort();
-    expect(carIds).toEqual(["bastion", "bastion", "bullseye", "bullseye", "mirage", "mirage"]);
+    expect(carIds).toEqual(["bastion", "bullseye", "mirage", "taurus"]);
   });
 
   it("gives every ffa match the same composition, so the null is exactly 1/3", () => {
@@ -38,16 +40,16 @@ describe("seatsFor (B26, B27)", () => {
       .toEqual(seatsFor("ffa", 0).seats.map((s) => s.carId).sort());
   });
 
-  it("cycles duel through all nine ordered pairs", () => {
+  it("cycles duel through all sixteen ordered pairs", () => {
     const pairs = new Set(
-      Array.from({ length: 9 }, (_, i) => seatsFor("duel", i).seats.map((s) => s.carId).join("-")),
+      Array.from({ length: 16 }, (_, i) => seatsFor("duel", i).seats.map((s) => s.carId).join("-")),
     );
-    expect(pairs.size).toBe(9);
+    expect(pairs.size).toBe(16);
   });
 
-  it("includes the three mirrors, which are the rig's noise floor (B26a)", () => {
-    const pairs = Array.from({ length: 9 }, (_, i) => seatsFor("duel", i).seats.map((s) => s.carId));
-    expect(pairs.filter(([a, b]) => a === b)).toHaveLength(3);
+  it("includes the four mirrors, which are the rig's noise floor (B26a)", () => {
+    const pairs = Array.from({ length: 16 }, (_, i) => seatsFor("duel", i).seats.map((s) => s.carId));
+    expect(pairs.filter(([a, b]) => a === b)).toHaveLength(4);
   });
 });
 
@@ -127,7 +129,7 @@ describe("chassisRoster (--include-inactive)", () => {
     expect(chassisRoster(true)).toEqual([...chassisRoster(false), ...armedInactive].sort(
       (a, b) => Object.keys(CAR_TABLE).indexOf(a) - Object.keys(CAR_TABLE).indexOf(b),
     ));
-    // Today `armedInactive` is empty — all three ship active — so this also pins that the flag is a
+    // Today `armedInactive` is empty — all four ship active — so this also pins that the flag is a
     // no-op on the shipped roster rather than quietly reordering it.
     expect(chassisRoster(true)).toEqual(chassisRoster(false));
   });
@@ -141,7 +143,7 @@ describe("runAll (B43)", () => {
   } as const;
 
   it("runs matches x pairs in duel", () => {
-    expect(runAll(config).totalMatches).toBe(9);
+    expect(runAll(config).totalMatches).toBe(16);
   });
 
   it("replays identically for a seed", () => {
@@ -154,7 +156,7 @@ describe("runAll (B43)", () => {
     // The property B43 actually names — "the same seed twice produces an identical stats digest" —
     // is about the STATS a run's config produces, not about tick counts or event counts alone
     // (which would still match while damage totals, kill attribution, or hit rates diverged). Small
-    // config so the test stays fast: `duel` at `matches: 1` is 9 short matches, `matchSeconds: 5`
+    // config so the test stays fast: `duel` at `matches: 1` is 16 short matches, `matchSeconds: 5`
     // caps each one well under its safety-cap default.
     const small = { ...config, matchSeconds: 5 } as const;
     const a = aggregate(runAll(small).outcomes);

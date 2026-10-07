@@ -449,7 +449,7 @@ export const WEAPON_TABLE = {
   wildcharge: {
     id: "wildcharge",
     kind: "maneuver",
-    name: "Wild Charge",
+    name: "Raging Bull",
     // The bull icon's orange. Drawn in the world too, despite this weapon spawning no instance:
     // `maneuverOutline` strokes the charging car's hull footprint with this exact hex.
     color: "#F06000",

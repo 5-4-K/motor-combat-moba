@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CAR_TABLE, basicAttackIds, basicAttackOf } from "./car-config.js";
+import { CAR_TABLE, activeCarIds, basicAttackIds, basicAttackOf } from "./car-config.js";
 import type { CarId } from "./types.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
 import { ABILITY_SLOT_CEILING, WEAPON_SLOT_CONFIG, slotsOf, slotsFrom, fireSlotsOf } from "./weapon-slots.js";
@@ -37,7 +37,12 @@ describe("loadouts", () => {
   it("gives each chassis the kit its type calls for", () => {
     expect(CAR_TABLE.bullseye.weapons).toEqual(["predator", "pepperbox", "lance"]);
     expect(CAR_TABLE.mirage.weapons).toEqual(["magmablast", "thunderclap", "afterburner"]);
-    expect(CAR_TABLE.bastion.weapons).toEqual(["thumper", "roadblock", "wildcharge"]);
+    expect(CAR_TABLE.bastion.weapons).toEqual(["thumper", "roadblock", "tremor"]);
+    expect(CAR_TABLE.taurus.weapons).toEqual(["fury-horn", "shockwave", "wildcharge"]);
+  });
+
+  it("publishes taurus as an active chassis", () => {
+    expect(activeCarIds()).toContain("taurus");
   });
 
   it("shares no weapon between two chassis, active or not, so car select is a real choice", () => {
@@ -69,7 +74,7 @@ describe("loadouts", () => {
   });
 
   it("returns the car's list in slot order", () => {
-    expect(slotsOf("bastion")).toEqual(["thumper", "roadblock", "wildcharge"]);
+    expect(slotsOf("bastion")).toEqual(["thumper", "roadblock", "tremor"]);
   });
 
   it("truncates a past-the-ceiling loadout and warns once, naming the car", () => {
@@ -132,12 +137,13 @@ describe("loadouts", () => {
       "basic-attack-bastion",
       "thumper",
       "roadblock",
-      "wildcharge",
+      "tremor",
     ]);
+    expect(fireSlotsOf("taurus")).toEqual(["basic-attack-taurus", "fury-horn", "shockwave", "wildcharge"]);
     // A prototype carries no abilities at all, so its basic attack is its only fire slot — and it
     // lands at index 0 there for exactly the reason it does on a full kit, rather than by falling
     // off the end of an empty list: the fire order is the basic attack followed by the kit.
-    expect(fireSlotsOf("taurus")).toEqual(["basic-attack-taurus"]);
+    expect(fireSlotsOf("anvil")).toEqual(["basic-attack-anvil"]);
   });
 });
 
@@ -160,7 +166,7 @@ describe("the slot count", () => {
       basicAttackOf("bastion"),
       "thumper",
       "roadblock",
-      "wildcharge",
+      "tremor",
     ]);
   });
 

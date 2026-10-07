@@ -42,11 +42,11 @@
  * **`kind: "maneuver"` rows are not a special case for `pressPlan`** — a dash or a charge is just
  * another instant hit landing on the press tick, same as any zero-wind-up projectile. `thunderclap`
  * (Mirage) plays that straight and contributes its `damage` on its `cooldownMs` to a sustained
- * rotation like any other row. `wildcharge` (Bastion) does not: it is a 20 s one-hit ultimate whose
+ * rotation like any other row. `wildcharge` (Taurus) does not: it is a 20 s one-hit ultimate whose
  * 250 damage only pays out on a hull contact that may never come inside its 10 s window, and folding
  * a windfall that size into a greedy sustained-DPS loop would read as free damage every cycle rather
  * than the swingy, conditional hit it is. `SUSTAINED_ROTATION_EXCLUDED` below drops it from the
- * matrix and the presses breakdown for that reason; `pressPlan("bastion", "wildcharge")` still works
+ * matrix and the presses breakdown for that reason; `pressPlan("taurus", "wildcharge")` still works
  * and still shows up in the "what one press does" table, since that number is honest on its own.
  *
  * It is a damage-ceiling model, not a prediction of play. `npm run playtest` measures what the sim

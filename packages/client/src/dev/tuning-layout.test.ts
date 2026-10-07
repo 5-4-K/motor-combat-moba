@@ -107,9 +107,9 @@ describe("orphanWeaponIds", () => {
    * noticed here rather than as a silently absent cell.
    */
   it("reports exactly the sanctioned orphan set on the shipped roster", () => {
-    // `tremor`, `shockwave` and `fury-horn` are deliberately authored-but-uncarried (pending chassis
-    // assignment; loadout decision pending), and the nine
-    // basic attacks occupy no KIT SLOT — they are carried through `CarDef.basicAttack`, which this
+    // Every ability weapon is now carried (tremor by Bastion, shockwave and fury-horn by Taurus), so
+    // the only sanctioned orphans are the nine
+    // basic attacks, which occupy no KIT SLOT — they are carried through `CarDef.basicAttack`, which this
     // grid has no column for (a fourth column would centre at 1336 on a 1280-wide scene). Both
     // sets are sanctioned; pinning the exact list keeps the original guarantee, that a weapon
     // accidentally dropped from a kit still shows up here as an unexpected orphan.
@@ -119,9 +119,6 @@ describe("orphanWeaponIds", () => {
         Object.values(CAR_TABLE).map((car) => car.weapons),
       ),
     ).toEqual([
-      "tremor",
-      "shockwave",
-      "fury-horn",
       "basic-attack-bullseye",
       "basic-attack-mirage",
       "basic-attack-bastion",
