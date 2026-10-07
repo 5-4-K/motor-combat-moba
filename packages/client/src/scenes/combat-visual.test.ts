@@ -1272,7 +1272,11 @@ describe("beamFadeAlpha", () => {
   const FADE_TICKS = msToTicks(BEAM_FADE_OUT_MS);
   const SPAWN = 500;
   const beams = (Object.keys(WEAPON_TABLE) as Array<keyof typeof WEAPON_TABLE>).filter(
-    (id) => WEAPON_TABLE[id].kind === "beam",
+    // A zero-lifetime beam (shockwave's ring) has no linger to fade across; `beamFadeAlpha` returns 1 for it by design.
+    (id) => {
+      const def = WEAPON_TABLE[id];
+      return def.kind === "beam" && def.lifetimeMs > 0;
+    },
   );
   const deathTickOf = (id: keyof typeof WEAPON_TABLE) => {
     const ticks = weaponTicksOf(id);

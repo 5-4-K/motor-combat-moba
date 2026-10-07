@@ -513,8 +513,8 @@ describe("shockwave ring", () => {
     }
     expect(ring.extent).toBeCloseTo(def.range, 6);
     expect(def.range).toBe(180);
-    // It is 450 ms of growth: the tick count is within one tick of range/speed.
-    expect(growTicks / TICK_RATE_HZ).toBeCloseTo(0.45, 1);
+    // 450 ms of growth at 60 Hz is exactly 27 ticks.
+    expect(growTicks).toBe(27);
 
     // lifetimeMs 0: it dies the tick it is fully grown, well before the 500 ms cadence's next ring.
     const nextSpawn = 100 + Math.round(0.5 * TICK_RATE_HZ);

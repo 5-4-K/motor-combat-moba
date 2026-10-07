@@ -83,7 +83,9 @@ describe("projectile markings", () => {
     // `predator` gained a marking on 2026-09-02.
     // `roadblock` (bar) gained a spiked-roller style on 2026-09-07; bars use `poly` layers clamped
     // to the rectangle, not the ellipse/capsule hull/tip/band/disc/spikes vocabulary.
-    expect(shaped.sort()).toEqual(["pepperbox", "predator", "roadblock", "thumper"]);
+    // `fury-horn` (ellipse, 2026-10-07) is authored with no look yet, so it is deliberately flat
+    // (absent from `styled`) until a `weapon-look` pass gives it one.
+    expect(shaped.sort()).toEqual(["fury-horn", "pepperbox", "predator", "roadblock", "thumper"]);
     expect(styled.sort()).toEqual(["predator", "roadblock", "thumper"]);
     // Stated rather than implied: pepperbox carries a style whose only content is a halo. If someone
     // later gives it layers, that is a real change to what the body draws and this line should fail.

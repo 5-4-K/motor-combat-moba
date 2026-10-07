@@ -107,7 +107,8 @@ describe("orphanWeaponIds", () => {
    * noticed here rather than as a silently absent cell.
    */
   it("reports exactly the sanctioned orphan set on the shipped roster", () => {
-    // `tremor` is deliberately authored-but-uncarried (loadout decision pending), and the nine
+    // `tremor`, `shockwave` and `fury-horn` are deliberately authored-but-uncarried (pending chassis
+    // assignment; loadout decision pending), and the nine
     // basic attacks occupy no KIT SLOT — they are carried through `CarDef.basicAttack`, which this
     // grid has no column for (a fourth column would centre at 1336 on a 1280-wide scene). Both
     // sets are sanctioned; pinning the exact list keeps the original guarantee, that a weapon
@@ -119,6 +120,8 @@ describe("orphanWeaponIds", () => {
       ),
     ).toEqual([
       "tremor",
+      "shockwave",
+      "fury-horn",
       "basic-attack-bullseye",
       "basic-attack-mirage",
       "basic-attack-bastion",

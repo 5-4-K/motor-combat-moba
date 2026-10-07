@@ -1,6 +1,7 @@
 import { TICK_RATE_HZ } from "../../constants.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { basicAttackOf } from "../../config/car-config.js";
+import { weaponDefOf } from "../../config/weapon-config.js";
 import { DEFAULT_GAME_MODE } from "../../modes/registry.js";
 import { WEAPON_SLOT_CONFIG } from "../../config/weapon-slots.js";
 import type { WeaponId } from "../../config/weapon-types.js";
@@ -717,6 +718,8 @@ describe("fury-horn and shockwave", () => {
       const spawned = spawnInstances(order, owner, tick, seq);
       seq = spawned.seq;
       expect(spawned.instances).toHaveLength(1);
+      expect(spawned.instances[0]!.kind).toBe("beam");
+      expect(weaponDefOf(order.weaponId).hitbox.shape).toBe("disc");
       spawnTicks.push(spawned.instances[0]!.spawnTick);
     }
     expect(spawnTicks).toEqual([t0, t0 + gap, t0 + 2 * gap]);
