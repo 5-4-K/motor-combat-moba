@@ -9,7 +9,7 @@ import { installMode } from "../../modes/active.js";
 import { assembleModeConfig } from "../../modes/build.js";
 import { BRAWL_TABLES } from "../../modes/brawl/index.js";
 import { beginFire, cancelPending, newFireState, releaseShots, tickRecharge, type FireState } from "./fire.js";
-import type { ShotOrder } from "./instances.js";
+import { spawnInstances, type ShotOrder } from "./instances.js";
 import { turnTurret } from "./turret.js";
 
 /**
@@ -661,5 +661,64 @@ describe("same-tick tie-breaking", () => {
     const after = beginFire("s1", state, mask, 0);
     expect(after.pending?.slot).toBe(2);
     expect(after.pending?.weaponId).toBe("roadblock");
+  });
+});
+
+describe("fury-horn and shockwave", () => {
+  const owner = { sessionId: "p1", team: 0 as const, carId: "bullseye", x: 0, y: 0, angle: 0 };
+
+  it("fury-horn starts with one stock, refills to three, and gates refire at 300ms", () => {
+    const horn = msToTicks(300);
+    const cooldown = msToTicks(1000);
+    let state = newFireState("bullseye", 1, ["fury-horn"]);
+    expect(state.slots[1]!.weaponId).toBe("fury-horn");
+    expect(state.slots[1]!.stocks).toBe(1);
+
+    // Recharge: the first tick starts the timer, then one stock lands per cooldown, capped at 3.
+    state = tickRecharge(state, 0);
+    expect(state.slots[1]!.stocks).toBe(1);
+    state = idle(state, 1, cooldown);
+    expect(state.slots[1]!.stocks).toBe(2);
+    state = idle(state, 1 + cooldown, cooldown);
+    expect(state.slots[1]!.stocks).toBe(3);
+    state = idle(state, 1 + 2 * cooldown, cooldown * 3);
+    expect(state.slots[1]!.stocks).toBe(3);
+    expect(state.slots[1]!.rechargeEndsTick).toBe(0);
+
+    // Fire twice within 300 ms: the second press is refused by the refire lock, not by stock.
+    const t0 = 1000;
+    state = releaseShots(beginFire("p1", state, ABILITY_1, t0), t0).state;
+    expect(state.slots[1]!.stocks).toBe(2);
+    expect(beginFire("p1", state, ABILITY_1, t0 + horn - 1).pending).toBeNull();
+    expect(beginFire("p1", state, ABILITY_1, t0 + horn).pending).not.toBeNull();
+  });
+
+  it("shockwave fires three beam volleys 500ms apart from one press", () => {
+    const gap = msToTicks(500);
+    let state = newFireState("bullseye", 1, ["shockwave"]);
+    const t0 = 100;
+    state = beginFire("p1", state, ABILITY_1, t0);
+    expect(state.pending!.shotsLeft).toBe(3);
+
+    const orders: { tick: number; order: ShotOrder }[] = [];
+    for (let tick = t0; tick <= t0 + 2 * gap + 5; tick++) {
+      const released = releaseShots(state, tick);
+      state = released.state;
+      for (const order of released.orders) orders.push({ tick, order });
+    }
+    expect(orders.map((o) => o.tick)).toEqual([t0, t0 + gap, t0 + 2 * gap]);
+    expect(orders.map((o) => o.order.finalVolley)).toEqual([false, false, true]);
+    expect(state.pending).toBeNull();
+
+    // Each order becomes an instance at ITS OWN tick.
+    let seq = 0;
+    const spawnTicks: number[] = [];
+    for (const { tick, order } of orders) {
+      const spawned = spawnInstances(order, owner, tick, seq);
+      seq = spawned.seq;
+      expect(spawned.instances).toHaveLength(1);
+      spawnTicks.push(spawned.instances[0]!.spawnTick);
+    }
+    expect(spawnTicks).toEqual([t0, t0 + gap, t0 + 2 * gap]);
   });
 });

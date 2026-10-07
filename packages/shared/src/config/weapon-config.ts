@@ -576,6 +576,59 @@ export const WEAPON_TABLE = {
       { statusId: "fortified", target: "ownerInside", durationMs: 300 },
     ],
   },
+  /**
+   * Three expanding rings out of the car, half a second apart, from ONE press. A centre-origin
+   * `disc` beam with `attached: true`, so each ring is born at the car's centre and re-anchored to
+   * it every tick as it grows. `lifetimeMs: 0` expires a ring the tick it reaches `range`
+   * (180 / 400 = 0.45 s), a hair before the next one spawns at 0.5 s, so no two rings overlap.
+   *
+   * `onWave: "all"` puts the `spiked` slow on every ring, not just the last. Uncarried until a
+   * chassis lists it (like `tremor`). Authors no `impulse` yet.
+   */
+  shockwave: {
+    id: "shockwave",
+    kind: "beam",
+    name: "Shockwave",
+    color: "#2F6BFF",
+    unlocksAt: 1,
+    damage: 30, // per ring, once per entry; three rings == 90 on a target that stays in all three
+    damageFrequencyMs: 0,
+    speed: 400,
+    range: 180,
+    startUpMs: 0,
+    cooldownMs: 5000,
+    recoveryMs: 0,
+    hitbox: { shape: "disc" },
+    volley: { volleys: 3, volleyIntervalMs: 500 },
+    attached: true,
+    origin: "center",
+    lifetimeMs: 0,
+    applies: [{ statusId: "spiked", target: "opponents", durationMs: 600, onWave: "all" }],
+  },
+  /**
+   * A three-stock lens-shaped horn blast: one stock at spawn, one more per `cooldownMs` up to
+   * three, and `stock.refireDelayMs` keeps a double-tap from spending two in a blink. Uncarried
+   * until a chassis lists it. Authors no `impulse` yet.
+   */
+  "fury-horn": {
+    id: "fury-horn",
+    kind: "projectile",
+    name: "Fury Horn",
+    color: "#C0C8D0",
+    unlocksAt: 1,
+    damage: 50,
+    damageFrequencyMs: 0,
+    speed: 600,
+    range: 900,
+    startUpMs: 0,
+    cooldownMs: 1000,
+    recoveryMs: 0,
+    hitbox: { shape: "ellipse", radiusAlong: 8, radiusAcross: 16 },
+    pierce: 0,
+    stock: { max: 3, refireDelayMs: 300 },
+    volley: { volleys: 1, volleyIntervalMs: 0 },
+    pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
+  },
   // --- Basic attacks: one per chassis, all nine identical today (BA1-BA5) -----------------------
   //
   // Written out rather than spread in from a generated object: this table is

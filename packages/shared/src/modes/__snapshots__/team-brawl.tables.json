@@ -767,6 +767,38 @@
         "volleys": 1
       }
     },
+    "fury-horn": {
+      "color": "#C0C8D0",
+      "cooldownMs": 1000,
+      "damage": 50,
+      "damageFrequencyMs": 0,
+      "hitbox": {
+        "radiusAcross": 16,
+        "radiusAlong": 8,
+        "shape": "ellipse"
+      },
+      "id": "fury-horn",
+      "kind": "projectile",
+      "name": "Fury Horn",
+      "pellets": {
+        "pelletsPerVolley": 1,
+        "spreadAngleDeg": 0
+      },
+      "pierce": 0,
+      "range": 900,
+      "recoveryMs": 0,
+      "speed": 600,
+      "startUpMs": 0,
+      "stock": {
+        "max": 3,
+        "refireDelayMs": 300
+      },
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 0,
+        "volleys": 1
+      }
+    },
     "lance": {
       "attached": true,
       "color": "#F0FF00",
@@ -936,6 +968,38 @@
       "volley": {
         "volleyIntervalMs": 0,
         "volleys": 1
+      }
+    },
+    "shockwave": {
+      "applies": [
+        {
+          "durationMs": 600,
+          "onWave": "all",
+          "statusId": "spiked",
+          "target": "opponents"
+        }
+      ],
+      "attached": true,
+      "color": "#2F6BFF",
+      "cooldownMs": 5000,
+      "damage": 30,
+      "damageFrequencyMs": 0,
+      "hitbox": {
+        "shape": "disc"
+      },
+      "id": "shockwave",
+      "kind": "beam",
+      "lifetimeMs": 0,
+      "name": "Shockwave",
+      "origin": "center",
+      "range": 180,
+      "recoveryMs": 0,
+      "speed": 400,
+      "startUpMs": 0,
+      "unlocksAt": 1,
+      "volley": {
+        "volleyIntervalMs": 500,
+        "volleys": 3
       }
     },
     "thumper": {

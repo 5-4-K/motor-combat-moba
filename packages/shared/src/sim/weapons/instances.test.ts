@@ -494,3 +494,33 @@ describe("spawnInstances pressId (B8)", () => {
     expect(instances.every((i) => i.pressId === "p1#5#1")).toBe(true);
   });
 });
+
+describe("shockwave ring", () => {
+  it("a shockwave ring grows to 180u in 450ms and dies before the next spawns", () => {
+    const def = WEAPON_TABLE.shockwave;
+    const { instances } = spawnInstances({ weaponId: "shockwave", slot: 0, finalVolley: false }, owner, 100, 0);
+    let ring = instances[0]!;
+    expect(ring.kind).toBe("beam");
+    // Born at the car centre, not the nose: it is a ring around the car.
+    expect(ring.x).toBeCloseTo(owner.x);
+    expect(ring.y).toBeCloseTo(owner.y);
+
+    const ROOMY = { width: 5000, height: 5000 };
+    const growTicks = Math.ceil((def.range / def.speed) * TICK_RATE_HZ);
+    for (let i = 1; i <= growTicks; i++) {
+      ring = stepInstance(ring, ctx({ bounds: ROOMY, tick: 100 + i, ownerPose: owner }));
+      if (i < growTicks) expect(ring.extent).toBeLessThan(def.range - 1e-6);
+    }
+    expect(ring.extent).toBeCloseTo(def.range, 6);
+    expect(def.range).toBe(180);
+    // It is 450 ms of growth: the tick count is within one tick of range/speed.
+    expect(growTicks / TICK_RATE_HZ).toBeCloseTo(0.45, 1);
+
+    // lifetimeMs 0: it dies the tick it is fully grown, well before the 500 ms cadence's next ring.
+    const nextSpawn = 100 + Math.round(0.5 * TICK_RATE_HZ);
+    const deathTick = 100 + growTicks;
+    expect(instanceExpired(ring, deathTick - 1)).toBe(false);
+    expect(instanceExpired(ring, deathTick)).toBe(true);
+    expect(deathTick).toBeLessThan(nextSpawn);
+  });
+});

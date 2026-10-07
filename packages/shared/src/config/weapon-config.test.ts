@@ -99,8 +99,8 @@ describe("WEAPON_TABLE", () => {
     }
   });
 
-  it("carries nineteen weapons — ten abilities plus the nine plain bolts", () => {
-    expect(Object.values(WEAPON_TABLE)).toHaveLength(19);
+  it("carries twenty-one weapons — twelve abilities plus the nine plain bolts", () => {
+    expect(Object.values(WEAPON_TABLE)).toHaveLength(21);
     for (const id of PLAIN_BOLT_IDS) expect(WEAPON_TABLE, id).toHaveProperty(id);
   });
 

@@ -24,6 +24,8 @@ export type WeaponId =
   | "roadblock"
   | "wildcharge"
   | "tremor"
+  | "shockwave"
+  | "fury-horn"
   | "basic-attack-bullseye"
   | "basic-attack-mirage"
   | "basic-attack-bastion"
