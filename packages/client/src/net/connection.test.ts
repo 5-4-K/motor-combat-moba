@@ -20,16 +20,29 @@ vi.mock("../config/client-mode.js", () => ({
  * A room double that dispatches like the SDK's: every listener for a type runs, a type with no
  * listener at all is reported as `unhandled` (where the real SDK prints its console warning), and
  * `removeAllListeners` drops every handler the way a leave does.
+ *
+ * `ready` controls whether `state.players` is already decoded on creation. The real SDK resolves a
+ * join BEFORE the first state message, so `players` is briefly undefined; pass `ready: false` to
+ * model that window and call `deliverState` to apply the first decode. A signal-style
+ * `onStateChange`/`onError`/`onLeave` triple mirrors the SDK's (a callable that also carries
+ * `remove`), which is what `noReconnect` waits on.
  */
-function fakeRoom() {
+function fakeRoom(ready = true) {
   let handlers = new Map<string, Array<(m: unknown) => void>>();
   const sent: Array<[string, unknown]> = [];
   const unhandled: string[] = [];
-  return {
+  const signals = { state: new Set<(...a: unknown[]) => void>(), error: new Set<(...a: unknown[]) => void>(), leave: new Set<(...a: unknown[]) => void>() };
+  const signal = (bag: Set<(...a: unknown[]) => void>) =>
+    Object.assign((cb: (...a: unknown[]) => void) => bag.add(cb), { remove: (cb: (...a: unknown[]) => void) => bag.delete(cb) });
+  const room = {
     sessionId: "s1",
     reconnection: { enabled: true },
+    state: ready ? ({ players: new Map() } as { players?: unknown }) : ({} as { players?: unknown }),
     sent,
     unhandled,
+    onStateChange: signal(signals.state),
+    onError: signal(signals.error),
+    onLeave: signal(signals.leave),
     onMessage(type: string, cb: (m: unknown) => void) {
       const list = handlers.get(type) ?? [];
       list.push(cb);
@@ -44,10 +57,22 @@ function fakeRoom() {
       if (list === undefined) unhandled.push(type);
       else for (const f of list) f(m);
     },
+    /** Apply the first state decode: `players` becomes defined, then fire the state signal. */
+    deliverState() {
+      room.state.players = new Map();
+      for (const f of [...signals.state]) f(room.state);
+    },
+    deliverError(code: number, message?: string) {
+      for (const f of [...signals.error]) f(code, message);
+    },
+    deliverLeave(code: number) {
+      for (const f of [...signals.leave]) f(code);
+    },
     removeAllListeners() {
       handlers = new Map();
     },
   };
+  return room;
 }
 
 describe("joinArena", () => {
@@ -69,6 +94,48 @@ describe("joinArena", () => {
     expect(joinOrCreate).toHaveBeenCalledWith(ROOM_NAME, { name: "Ada", protocol: PROTOCOL_VERSION });
     expect(result).toBe(room);
     expect(room.reconnection.enabled).toBe(false);
+  });
+});
+
+describe("waiting for the first state before the join resolves (black-screen fix, 2026-10-08)", () => {
+  beforeEach(() => joinOrCreate.mockReset());
+
+  it("does not resolve joinArena until the first state decode populates state.players", async () => {
+    const room = fakeRoom(false); // joined, but the SDK has not applied the first state yet
+    joinOrCreate.mockResolvedValue(room);
+    const { joinArena } = await import("./connection.js");
+
+    let settled = false;
+    const joined = joinArena("Ada").then((r) => {
+      settled = true;
+      return r;
+    });
+    // Drain every pending microtask (a macrotask boundary). The join promise has resolved and
+    // reconnect/time-echo have run, but state is not ready, so the overall join must still be
+    // pending — a scene started now would read an undefined `state.players` and crash the Phaser loop.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(settled).toBe(false);
+
+    room.deliverState();
+    await expect(joined).resolves.toBe(room);
+  });
+
+  it("resolves at once when state.players is already decoded", async () => {
+    const room = fakeRoom(true);
+    joinOrCreate.mockResolvedValue(room);
+    const { joinArena } = await import("./connection.js");
+    await expect(joinArena("Ada")).resolves.toBe(room);
+  });
+
+  it("rejects if the connection drops before the first state arrives", async () => {
+    const room = fakeRoom(false);
+    joinOrCreate.mockResolvedValue(room);
+    const { joinArena } = await import("./connection.js");
+    const joined = joinArena("Ada");
+    // Let the join reach the await-for-state stage (its onLeave listener is registered there).
+    await new Promise((r) => setTimeout(r, 0));
+    room.deliverLeave(1006);
+    await expect(joined).rejects.toThrow();
   });
 });
 

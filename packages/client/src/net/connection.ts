@@ -47,10 +47,53 @@ export function bindTimeEcho(room: Room): void {
   room.onMessage(MSG_TIME, () => {});
 }
 
+/**
+ * `joinOrCreate` resolves BEFORE the SDK applies the room's first state message, so for a brief
+ * window `room.state.players` is undefined. Every scene reads it on create — the view router's
+ * `sync`, `LobbyScene.render`, `ArenaScene` — so starting a scene inside that window throws
+ * `Cannot read properties of undefined (reading 'get')`. That throw escapes Phaser's `Game.step`,
+ * which then never reschedules its RAF, so the whole tab freezes: a black screen when it dies during
+ * a scene's create, a frozen game otherwise. Reproduced 2026-10-08; the per-client view filtering
+ * added by the netcode redesign (the first populated view now rides the next snapshot patch rather
+ * than the join handshake) widened the window from rare to common.
+ *
+ * So the join does not resolve until that first decode has populated `state.players`. No timeout:
+ * the server always sends state, and a connection that drops first rejects through `onLeave`/
+ * `onError` — exactly the rejection each join screen already renders as a join error.
+ */
+function awaitInitialState(room: Room): Promise<void> {
+  const ready = (): boolean => (room.state as { players?: unknown } | undefined)?.players !== undefined;
+  if (ready()) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const cleanup = (): void => {
+      room.onStateChange.remove(onState);
+      room.onError.remove(onError);
+      room.onLeave.remove(onLeave);
+    };
+    const onState = (): void => {
+      if (!ready()) return;
+      cleanup();
+      resolve();
+    };
+    const onError = (_code: number, message?: string): void => {
+      cleanup();
+      reject(new Error(message || "Connection error while joining"));
+    };
+    const onLeave = (): void => {
+      cleanup();
+      reject(new Error("Disconnected before the room state arrived"));
+    };
+    room.onStateChange(onState);
+    room.onError(onError);
+    room.onLeave(onLeave);
+  });
+}
+
 async function noReconnect<T extends Room>(joining: Promise<T>): Promise<T> {
   const room = await joining;
   room.reconnection.enabled = false;
   bindTimeEcho(room);
+  await awaitInitialState(room);
   return room;
 }
 
