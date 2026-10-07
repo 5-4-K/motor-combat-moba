@@ -34,13 +34,16 @@ so the strip is load-bearing, not decoration. The drain bar is measured from the
 `startTick`, because a status's duration comes from whatever applied it and is not in the table.
 
 An **aura** (a `disc`-hitbox beam at `origin: "center"`) is the one instance too big to fill in: it is
-drawn as a ring plus a low-alpha wash by `isAuraInstance`'s branch in `combat-visual.ts`, because a
-filled disc would hide the cars it is about to hit. The ring still sits exactly on the hitbox, so
-"what you see is what will hit you" survives. This sat as **dormant machinery** from the 2026-09-01
-roster cutover — `shockwave` carried the one shipped aura and lost it to a plain projectile dart on
-Bullseye's slot 1, since renamed `magmablast` — until the 2026-09-02 predator/magmablast pass revived
-it: `magmablast` now detonates on death into a real `disc`-hitbox burst, drawn through this exact
-branch in every live match. `drawDefOf` is what makes that reachable at all: a burst instance carries
+drawn as a ring by `isAuraInstance`'s branch in `combat-visual.ts`, because a filled disc would hide
+the cars it is about to hit, plus — for a bare aura with no crust body — a low-alpha wash keyed in
+`AURA_WASH_ALPHA` (`auraWashOf`). The ring still sits exactly on the hitbox, so "what you see is what
+will hit you" survives. This sat as **dormant machinery** from the 2026-09-01 roster cutover — the
+original `shockwave` carried the one shipped aura and lost it to a plain projectile dart on Bullseye's
+slot 1, since renamed `magmablast` — until the 2026-09-02 predator/magmablast pass revived it:
+`magmablast` now detonates on death into a real `disc`-hitbox burst, drawn through this exact branch
+in every live match (its crust IS its body, so the burst takes no wash). A second aura is live again
+as of 2026-10-07: a new `shockwave` (the id reused), a `#2F6BFF` three-ring disc beam on Taurus, is
+drawn through this branch with a `0.14`-alpha wash. `drawDefOf` is what makes that reachable at all: a burst instance carries
 its parent shell's `weaponId`, so the branch takes the whole `DrawableInstance` (`isExplosion` and
 all) rather than a bare `weaponId`, and resolves the def through `instanceDefOf` before asking what
 its hitbox is.

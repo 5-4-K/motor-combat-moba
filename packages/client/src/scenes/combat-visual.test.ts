@@ -45,6 +45,9 @@ import {
   instanceGlowBands,
   instanceHaloBands,
   isAuraInstance,
+  AURA_WASH_ALPHA,
+  auraWashOf,
+  shotPaletteOf,
   WEAPON_BEAM_STYLES,
   weaponGlowStyleOf,
   weaponGlowStyles,
@@ -235,6 +238,77 @@ describe("instance drawing", () => {
       weaponId: "magmablast", isExplosion: false, x: 100, y: 100, angle: 0, extent: 0,
     };
     expect(isAuraInstance(shell)).toBe(false);
+  });
+});
+
+describe("shockwave's ring-and-wash", () => {
+  const ring: DrawableInstance = { weaponId: "shockwave", isExplosion: false, x: 100, y: 100, angle: 0, extent: 90 };
+
+  it("is drawn as an aura: a ring on the hitbox edge, in the weapon's own blue", () => {
+    expect(isAuraInstance(ring)).toBe(true);
+    expect(weaponFillOf("shockwave")).toBe(0x2f6bff);
+    const shape = instanceDrawShape(ring);
+    expect(shape.kind).toBe("circle");
+    if (shape.kind !== "circle") throw new Error("circle expected");
+    expect(shape.radius).toBe(90);
+  });
+
+  it("carries a translucent wash in the same blue, never an opaque fill", () => {
+    const wash = auraWashOf(ring);
+    expect(wash).toBeDefined();
+    expect(wash!.fill).toBe(weaponFillOf("shockwave"));
+    expect(wash!.alpha).toBeGreaterThan(0);
+    // Low enough that the cars inside the field stay readable.
+    expect(wash!.alpha).toBeLessThanOrEqual(0.25);
+  });
+
+  it("gives no wash to a magmablast burst (its crust is its body) or to a non-aura", () => {
+    const burst: DrawableInstance = { weaponId: "magmablast", isExplosion: true, x: 0, y: 0, angle: 0, extent: 60 };
+    expect(auraWashOf(burst)).toBeUndefined();
+    const shell: DrawableInstance = { weaponId: "magmablast", isExplosion: false, x: 0, y: 0, angle: 0, extent: 0 };
+    expect(auraWashOf(shell)).toBeUndefined();
+  });
+
+  it("authors a wash only for a weapon whose hitbox is a disc beam", () => {
+    for (const id of Object.keys(AURA_WASH_ALPHA) as WeaponId[]) {
+      const def = weaponDefOf(id);
+      expect(def.kind, id).toBe("beam");
+      if (def.kind === "beam") expect(def.hitbox.shape, id).toBe("disc");
+    }
+  });
+});
+
+describe("fury-horn's halo", () => {
+  const def = weaponDefOf("fury-horn");
+  const shot = (angle: number): DrawableInstance => ({
+    weaponId: "fury-horn", isExplosion: false, x: 500, y: 300, angle, extent: 0,
+  });
+
+  it("sits wholly OUTSIDE the ellipse hitbox at every heading, ordered outermost first", () => {
+    if (def.kind !== "projectile" || def.hitbox.shape !== "ellipse") throw new Error("fury-horn is no longer an ellipse");
+    const { radiusAlong, radiusAcross } = def.hitbox;
+    for (const angle of [0, 0.4, Math.PI / 2, 2.1, Math.PI, -1.3]) {
+      const shapes = projectileHaloShapes(shot(angle));
+      expect(shapes.length).toBeGreaterThan(0);
+      const reach: number[] = [];
+      for (const s of shapes) {
+        for (const p of s.points) {
+          const dx = p.x - 500;
+          const dy = p.y - 300;
+          const along = dx * Math.cos(angle) + dy * Math.sin(angle);
+          const across = -dx * Math.sin(angle) + dy * Math.cos(angle);
+          expect((along / radiusAlong) ** 2 + (across / radiusAcross) ** 2).toBeGreaterThan(1);
+        }
+        reach.push(Math.max(...s.points.map((p) => Math.hypot(p.x - 500, p.y - 300))));
+      }
+      for (let i = 1; i < reach.length; i += 1) expect(reach[i]!).toBeLessThan(reach[i - 1]!);
+    }
+  });
+
+  it("is reported in the shot palette, white core included", () => {
+    const palette = shotPaletteOf("fury-horn");
+    expect(palette).toContain("#FFFFFF");
+    expect(palette).toContain(WEAPON_TABLE["fury-horn"].color.toUpperCase());
   });
 });
 

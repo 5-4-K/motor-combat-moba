@@ -1596,6 +1596,58 @@ function roadblockRollerLayers(): ProjectileLayer[] {
   }));
 }
 
+/**
+ * `fury-horn`'s colours: a silver ramp from a dark rim in to a white core, authored for the `#EBEBEB`
+ * floor the way `PREDATOR_PAINT` is. The icon-pale silver (`#C0C8D0`, the row's `color`) is the
+ * DOMINANT band, so the swatch and the shot read as one weapon; the rim is darker than it because
+ * a pale silver lens with no edge washes out on that floor.
+ */
+const FURY_HORN_PAINT = {
+  rim: "#7E8996",
+  silver: "#C0C8D0",
+  pale: "#E6EAEF",
+  core: "#FFFFFF",
+} as const;
+
+/**
+ * `fury-horn` as a LENS: a horn blast's wavefront, bowed forward. The front edge is the hitbox's own
+ * ellipse (a full `radiusAlong` out), the back edge is a flatter arc, and the two meet in points on
+ * the `+/-radiusAcross` flanks -- so the face toward travel is convex and the tail is shallower.
+ *
+ * Four nested lenses, the same white-core-to-outer-ramp idea `magmablast`'s fireball bands use, as
+ * `poly` layers because `hull`/`tip`/`band`/`disc` cannot describe a lens. Each nested lens is the
+ * outer one scaled in BOTH axes, and the white core is scaled a little harder along the heading so it
+ * sits forward of centre, reading as the hot leading edge. Every vertex is a FRACTION of the hitbox
+ * (and goes through `clampToHull` at draw time), so a re-tune carries it. The outermost lens touches
+ * the hitbox only at its front arc and its two points; its tail sits inside by design.
+ *
+ * Cost: 4 `fillPoints` of 16 vertices each per live horn, plus the two-band halo -- at most three
+ * stocks per car, so a six-car room carries ~18, well under `pepperbox`'s ~72.
+ */
+function furyHornLensLayers(): ProjectileLayer[] {
+  const ARC = 8; // segments per arc
+  const REAR = 0.38; // the back arc's depth, as a fraction of the front's
+  /** One lens: front arc then back arc, `scale` of the outer lens in both axes. */
+  const lens = (scale: number, shiftForward: number): (readonly [number, number])[] => {
+    const pts: (readonly [number, number])[] = [];
+    for (let i = 0; i <= ARC; i += 1) {
+      const t = -Math.PI / 2 + (Math.PI * i) / ARC;
+      pts.push([Math.cos(t) * scale + shiftForward, Math.sin(t) * scale] as const);
+    }
+    for (let i = ARC - 1; i >= 1; i -= 1) {
+      const t = -Math.PI / 2 + (Math.PI * i) / ARC;
+      pts.push([-Math.cos(t) * REAR * scale + shiftForward, Math.sin(t) * scale] as const);
+    }
+    return pts;
+  };
+  return [
+    { shape: "poly", points: lens(1, 0), color: FURY_HORN_PAINT.rim },
+    { shape: "poly", points: lens(0.86, 0), color: FURY_HORN_PAINT.silver },
+    { shape: "poly", points: lens(0.6, 0.08), color: FURY_HORN_PAINT.pale },
+    { shape: "poly", points: lens(0.32, 0.18), color: FURY_HORN_PAINT.core },
+  ];
+}
+
 export const WEAPON_PROJECTILE_STYLES: Partial<Record<WeaponId, ProjectileStyle>> = {
   thumper: {
     layers: [
@@ -1622,6 +1674,16 @@ export const WEAPON_PROJECTILE_STYLES: Partial<Record<WeaponId, ProjectileStyle>
   },
   predator: { layers: predatorMissileLayers() },
   roadblock: { layers: roadblockRollerLayers() },
+  // Copied from `pepperbox` for the halo (two additive bands, same cost reasoning) and from the
+  // `predator` poly-layer recipe for the body; the lens itself is `furyHornLensLayers`. The halo is
+  // a cool white-silver so it lights the floor around the core without a second silhouette.
+  "fury-horn": {
+    layers: furyHornLensLayers(),
+    halo: [
+      { spread: 0.9, color: "#9FB0C4", alpha: 0.12 },
+      { spread: 0.4, color: "#E8F0FA", alpha: 0.22 },
+    ],
+  },
 };
 
 /**
@@ -2967,3 +3029,28 @@ export function isAuraInstance(instance: DrawableInstance): boolean {
 
 /** The aura ring's stroke width, in world units. */
 export const AURA_RING_WIDTH = 3;
+
+/**
+ * An aura's WASH: a translucent fill inside its ring, for a field with no fx-layer crust to be its
+ * body. `magmablast`'s burst has the crust, so it draws the ring alone; `shockwave` has nothing
+ * underneath, and a bare 3 px hoop reads as a wire rather than a pulse of force.
+ *
+ * Drawn in the weapon's own `color` on the ordinary layer (not additive: a blue added to a light
+ * floor vanishes) at an alpha low enough that the cars inside it stay fully readable. The fill is
+ * the disc itself, edge to edge, so it sits exactly inside the hitbox the ring marks. Absent for
+ * every weapon that does not author one, including a magmablast burst.
+ */
+export const AURA_WASH_ALPHA: Partial<Record<WeaponId, number>> = {
+  shockwave: 0.14,
+};
+
+/** The wash for one aura instance: its fill and alpha, or `undefined` when its weapon authors none. */
+export function auraWashOf(instance: DrawableInstance): { fill: number; alpha: number } | undefined {
+  if (!isAuraInstance(instance)) return undefined;
+  const def = drawDefOf(instance);
+  // A burst carries its SHELL's id, so an explosion looks up the shell's entry -- which is why the
+  // wash is keyed off the instance being a bare aura row, not a burst.
+  if (!def || instance.isExplosion) return undefined;
+  const alpha = AURA_WASH_ALPHA[def.id];
+  return alpha === undefined ? undefined : { fill: weaponFillOf(def.id), alpha };
+}

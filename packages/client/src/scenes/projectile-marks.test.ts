@@ -83,10 +83,10 @@ describe("projectile markings", () => {
     // `predator` gained a marking on 2026-09-02.
     // `roadblock` (bar) gained a spiked-roller style on 2026-09-07; bars use `poly` layers clamped
     // to the rectangle, not the ellipse/capsule hull/tip/band/disc/spikes vocabulary.
-    // `fury-horn` (ellipse, 2026-10-07) is authored with no look yet, so it is deliberately flat
-    // (absent from `styled`) until a `weapon-look` pass gives it one.
+    // `fury-horn` (ellipse, 2026-10-07) is a white-cored silver lens of four `poly` layers, so it is
+    // in `styled` and the containment sweep below covers it with no further edit.
     expect(shaped.sort()).toEqual(["fury-horn", "pepperbox", "predator", "roadblock", "thumper"]);
-    expect(styled.sort()).toEqual(["predator", "roadblock", "thumper"]);
+    expect(styled.sort()).toEqual(["fury-horn", "predator", "roadblock", "thumper"]);
     // Stated rather than implied: pepperbox carries a style whose only content is a halo. If someone
     // later gives it layers, that is a real change to what the body draws and this line should fail.
     expect(WEAPON_PROJECTILE_STYLES.pepperbox?.layers).toEqual([]);
@@ -114,6 +114,46 @@ describe("projectile markings", () => {
         }
       }
     }
+  });
+
+  describe("fury-horn's lens", () => {
+    const layersAt = (angle: number) => projectileDrawLayers(instanceAt("fury-horn", angle));
+    const local = (p: { x: number; y: number }, angle: number) => {
+      const dx = p.x - 500;
+      const dy = p.y - 300;
+      return { along: dx * Math.cos(angle) + dy * Math.sin(angle), across: -dx * Math.sin(angle) + dy * Math.cos(angle) };
+    };
+
+    it("is a nested ramp ending in a white core, outermost first", () => {
+      const fills = layersAt(0).map((l) => l.fill);
+      expect(fills.length).toBeGreaterThanOrEqual(3);
+      expect(fills[fills.length - 1]).toBe(0xffffff);
+      // The row's own colour is one of the bands, so the swatch and the shot read as one weapon.
+      expect(fills).toContain(Number.parseInt(WEAPON_TABLE["fury-horn"].color.slice(1), 16));
+      // Each band is strictly smaller than the one under it, in both axes.
+      const reach = layersAt(0).map((l) => Math.max(...l.points.map((p) => local(p, 0).along)));
+      for (let i = 1; i < reach.length; i += 1) expect(reach[i]!).toBeLessThan(reach[i - 1]!);
+    });
+
+    it("bows forward: the face toward travel is deeper than the tail", () => {
+      for (const angle of ANGLES) {
+        const outer = layersAt(angle)[0]!;
+        const alongs = outer.points.map((p) => local(p, angle).along);
+        expect(Math.max(...alongs)).toBeGreaterThan(Math.abs(Math.min(...alongs)) * 2);
+      }
+    });
+
+    it("fits the whole across-width of the hitbox with its points on the flanks", () => {
+      const def = weaponDefOf("fury-horn");
+      if (def.kind !== "projectile" || def.hitbox.shape !== "ellipse") throw new Error("fury-horn is no longer an ellipse");
+      const acrosses = layersAt(0)[0]!.points.map((p) => local(p, 0).across);
+      expect(Math.max(...acrosses)).toBeCloseTo(def.hitbox.radiusAcross, 6);
+      expect(Math.min(...acrosses)).toBeCloseTo(-def.hitbox.radiusAcross, 6);
+    });
+
+    it("keeps every layer far under the Earcut ribbon threshold", () => {
+      for (const l of layersAt(0)) expect(l.points.length).toBeLessThanOrEqual(32);
+    });
   });
 
   it("gives thumper a hull layer, so its markings sit on a filled body", () => {

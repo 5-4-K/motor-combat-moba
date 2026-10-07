@@ -193,6 +193,7 @@ import {
 } from "./maneuver-visual.js";
 import {
   AURA_RING_WIDTH,
+  auraWashOf,
   allegianceOf,
   beamFadeAlpha,
   hpBarColor,
@@ -4177,10 +4178,18 @@ export class ArenaScene extends Phaser.Scene {
       instance.lifeOffsetTicks,
     );
     if (shape.kind === "circle" && isAuraInstance(drawn)) {
-      // The crust the fx layer stamps underneath is the field's body now, so the flat wash that
-      // used to stand in for it is gone. The RING stays, and stays here rather than moving to the
-      // fx layer with the crust: it is a hitbox statement, and it belongs beside the D19 logic
-      // that draws every other instance as exactly the thing that can hit you.
+      // For the magmablast burst the crust the fx layer stamps underneath is the field's body, so
+      // it gets no wash (auraWashOf returns undefined for an explosion). A bare disc-beam aura with
+      // no crust — shockwave — gets a low-alpha wash instead, keyed in AURA_WASH_ALPHA, so the field
+      // still reads without a filled disc hiding the cars it is about to hit. The RING always stays
+      // here rather than moving to the fx layer with the crust: it is a hitbox statement, and it
+      // belongs beside the D19 logic that draws every other instance as exactly the thing that can
+      // hit you.
+      const wash = auraWashOf(drawn);
+      if (wash) {
+        gfx.fillStyle(wash.fill, alpha * wash.alpha);
+        fillDisc(gfx, shape.x, shape.y, shape.radius);
+      }
       const fill = weaponFillOf(instance.weaponId);
       (glow ?? gfx).lineStyle(AURA_RING_WIDTH, fill, alpha);
       (glow ?? gfx).strokeCircle(shape.x, shape.y, shape.radius);
