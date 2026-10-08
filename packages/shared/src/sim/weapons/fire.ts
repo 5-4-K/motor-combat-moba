@@ -123,9 +123,10 @@ export interface FireState {
 }
 
 /**
- * A car's slots at spawn: one stock each, no locks. A player with no chassis — pre-reveal, or an
- * unrecognised `carId` on the wire — gets no slots and can fire nothing, the same gate the old
- * `carId === ""` check applied.
+ * A car's slots at spawn: no locks, and `stock.initial ?? 1` stocks each — one for every weapon
+ * that does not author an initial, `fury-horn`'s three for the one that does. A player with no
+ * chassis — pre-reveal, or an unrecognised `carId` on the wire — gets no slots and can fire
+ * nothing, the same gate the old `carId === ""` check applied.
  *
  * `weaponIds` is an optional explicit loadout, in slot order, that overrides the roster's own kit —
  * the dev-only playground picks any car/weapon combination rather than the shipped pairing (PG13).
@@ -141,7 +142,7 @@ export function newFireState(carId: CarId | "", level: number, weaponIds?: reado
   return {
     slots: weapons.map((weaponId) => ({
       weaponId,
-      stocks: 1,
+      stocks: weaponDefOf(weaponId).stock?.initial ?? 1,
       rechargeEndsTick: 0,
       refireLockUntilTick: 0,
     })),

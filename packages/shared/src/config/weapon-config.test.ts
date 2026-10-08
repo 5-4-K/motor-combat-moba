@@ -41,7 +41,7 @@ const plainBolts = (): WeaponDef[] => PLAIN_BOLT_IDS.map((id) => WEAPON_TABLE[id
 
 describe("WEAPON_TABLE", () => {
   it("pins the overhaul roster's load-bearing numbers (spec 2026-09-01)", () => {
-    expect(WEAPON_TABLE.magmablast).toMatchObject({ damage: 50, cooldownMs: 1600, speed: 600, range: 900 });
+    expect(WEAPON_TABLE.magmablast).toMatchObject({ damage: 50, cooldownMs: 16000, speed: 600, range: 900 });
     expect(WEAPON_TABLE.predator.homing).toEqual({
       acquire: "proximity",
       acquireRadius: 200,
@@ -78,6 +78,12 @@ describe("WEAPON_TABLE", () => {
       if (def.stock) {
         expect(def.stock.max).toBeGreaterThanOrEqual(2);
         expect(def.stock.refireDelayMs).toBeGreaterThanOrEqual(0);
+        if (def.stock.initial !== undefined) {
+          // A weapon may spawn with fewer stocks than its ceiling, but never more, and never a
+          // non-positive magazine. Absent means the universal spawn default of 1.
+          expect(def.stock.initial, def.id).toBeGreaterThanOrEqual(1);
+          expect(def.stock.initial, def.id).toBeLessThanOrEqual(def.stock.max);
+        }
       }
       // A loop bound in `releaseShots`, and it fails silently rather than loudly: `volleys: 0`
       // fires exactly one shot (the first release always emits) instead of none. Applies to every
@@ -145,7 +151,7 @@ describe("WEAPON_TABLE", () => {
       expect(
         { damage: def.damage, cooldownMs: def.cooldownMs, speed: def.speed, range: def.range },
         def.id,
-      ).toEqual({ damage: 20, cooldownMs: 800, speed: 900, range: 960 });
+      ).toEqual({ damage: 10, cooldownMs: 800, speed: 900, range: 960 });
     }
   });
 

@@ -176,11 +176,12 @@ describe("carHasTurretWeapon (TR53)", () => {
   });
 
   it("ignores a turret weapon sitting past this build's fire-slot count", () => {
-    // Index 4 is past `maxFireSlots` (4, i.e. slots 0-3) at the shipped N=3 — bullseye's turret
-    // weapon parked one slot too far out never counts. The turret row is a basic attack, since no
-    // ability carries one on this build — index 4 is what the test is about, not which row sits there.
+    // Index 4 is past `maxFireSlots` (4, i.e. slots 0-3) at the shipped N=3 — a turret weapon parked
+    // one slot too far out never counts. The fillers at 0-3 are all non-turret rows (afterburner,
+    // pepperbox, lance, wildcharge); the only turret row is the basic attack at index 4, which is
+    // what the test is about, not which row sits there.
     expect(
-      carHasTurretWeapon(["roadblock", "pepperbox", "lance", "wildcharge", "basic-attack-bullseye"], true),
+      carHasTurretWeapon(["afterburner", "pepperbox", "lance", "wildcharge", "basic-attack-bullseye"], true),
     ).toBe(false);
   });
 

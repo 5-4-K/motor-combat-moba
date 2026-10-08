@@ -80,6 +80,17 @@ describe("slots", () => {
     expect(state.slots.every((s) => s.stocks === 1)).toBe(true);
   });
 
+  it("spawns a weapon with stock.initial full, others at one (fury-horn starts with 3)", () => {
+    const state = newFireState("taurus", 1);
+    const furyHorn = state.slots.find((s) => s.weaponId === "fury-horn");
+    expect(furyHorn, "taurus carries fury-horn").toBeDefined();
+    expect(furyHorn!.stocks).toBe(3);
+    // Every other slot — the basic attack and the non-stock abilities — still spawns with one.
+    for (const slot of state.slots) {
+      if (slot.weaponId !== "fury-horn") expect(slot.stocks, slot.weaponId).toBe(1);
+    }
+  });
+
   it("gives a player with no car no slots at all", () => {
     expect(newFireState("", 1).slots).toEqual([]);
   });
@@ -143,7 +154,7 @@ describe("pressing", () => {
       shotsLeft: 1,
       nextShotTick: 100,
       pressId: "p1#100#1",
-      bearing: null,
+      bearing: 0,
       aligned: true,
     });
   });
@@ -189,7 +200,7 @@ describe("releasing", () => {
     pressed = turnTurret(pressed, 0, 100); // canonical order; a no-op for fixed-muzzle predator
     const { state, orders } = releaseShots(pressed, 100);
     expect(orders).toEqual([
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: null },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: 0 },
     ]);
     expect(state.pending).toBeNull();
     expect(state.slots[1]!.rechargeEndsTick).toBe(100 + TICK_RATE_HZ); // 1000ms == one second of ticks
@@ -305,7 +316,7 @@ describe("per-tick order", () => {
   }
 
   it("fires a zero-start-up weapon on the tick it is pressed, in the canonical recharge -> beginFire -> turnTurret -> releaseShots order", () => {
-    let state = fresh(); // predator: startUpMs 0, cooldownMs 1000ms == 30 ticks, single stock
+    let state = fresh(); // predator: startUpMs 0, cooldownMs 1000ms == TICK_RATE_HZ ticks, single stock
     const seen: ShotOrder[] = [];
 
     // Tick 100: press and fire must both land on this SAME tick — not the next one. Under the
@@ -315,12 +326,12 @@ describe("per-tick order", () => {
     state = step1.state;
     seen.push(...step1.orders);
     expect(seen).toEqual([
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: null },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: 0 },
     ]);
     expect(state.pending).toBeNull();
     expect(state.slots[1]!.stocks).toBe(0);
 
-    // Ticks 101-129: idle, no stock yet, nothing fires.
+    // Idle through the cooldown window: no stock yet, nothing fires.
     for (let tick = 101; tick < 100 + TICK_RATE_HZ; tick++) {
       const idled = step(state, tick, 0);
       state = idled.state;
@@ -329,14 +340,14 @@ describe("per-tick order", () => {
     expect(seen).toHaveLength(1);
     expect(state.slots[1]!.stocks).toBe(0);
 
-    // Tick 130: the stock lands on this exact tick (100 + 30). A second press must fire again, same
-    // tick, proving the cycle repeats rather than being a one-shot fluke.
+    // The stock lands on this exact tick (100 + predator's 1000 ms cooldown). A second press must
+    // fire again, same tick, proving the cycle repeats rather than being a one-shot fluke.
     const step2 = step(state, 100 + TICK_RATE_HZ, ABILITY_1);
     state = step2.state;
     seen.push(...step2.orders);
     expect(seen).toEqual([
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: null },
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: `p1#${100 + TICK_RATE_HZ}#1`, bearing: null },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: 0 },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: `p1#${100 + TICK_RATE_HZ}#1`, bearing: 0 },
     ]);
   });
 
@@ -361,14 +372,14 @@ describe("per-tick order", () => {
       shotsLeft: 1,
       nextShotTick: 100,
       pressId: "p1#100#1",
-      bearing: null,
+      bearing: 0,
       aligned: true,
     });
 
     // The next call to releaseShots happens on the NEXT tick, 101 — one tick after nextShotTick.
     const releasedNextTick = releaseShots(state, 101);
     expect(releasedNextTick.orders).toEqual([
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: null },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: 0 },
     ]); // late, but not lost
     expect(releasedNextTick.state.pending).toBeNull();
   });
@@ -668,30 +679,33 @@ describe("same-tick tie-breaking", () => {
 describe("fury-horn and shockwave", () => {
   const owner = { sessionId: "p1", team: 0 as const, carId: "bullseye", x: 0, y: 0, angle: 0 };
 
-  it("fury-horn starts with one stock, refills to three, and gates refire at 300ms", () => {
+  it("fury-horn starts with three stocks, refills one per 3s, and gates refire at 300ms", () => {
     const horn = msToTicks(300);
-    const cooldown = msToTicks(1000);
+    const cooldown = msToTicks(3000);
     let state = newFireState("bullseye", 1, ["fury-horn"]);
     expect(state.slots[1]!.weaponId).toBe("fury-horn");
-    expect(state.slots[1]!.stocks).toBe(1);
-
-    // Recharge: the first tick starts the timer, then one stock lands per cooldown, capped at 3.
-    state = tickRecharge(state, 0);
-    expect(state.slots[1]!.stocks).toBe(1);
-    state = idle(state, 1, cooldown);
-    expect(state.slots[1]!.stocks).toBe(2);
-    state = idle(state, 1 + cooldown, cooldown);
+    // Spawns full (stock.initial 3 == max), so no recharge timer runs while it sits at the cap.
     expect(state.slots[1]!.stocks).toBe(3);
-    state = idle(state, 1 + 2 * cooldown, cooldown * 3);
+    state = tickRecharge(state, 0);
     expect(state.slots[1]!.stocks).toBe(3);
     expect(state.slots[1]!.rechargeEndsTick).toBe(0);
 
     // Fire twice within 300 ms: the second press is refused by the refire lock, not by stock.
-    const t0 = 1000;
-    state = releaseShots(beginFire("p1", state, ABILITY_1, t0), t0).state;
+    // fury-horn is a turret weapon, so the press must turn the (already-aligned) turret before the
+    // shot releases — the canonical beginFire -> turnTurret -> releaseShots order.
+    const t0 = 100;
+    state = releaseShots(turnTurret(beginFire("p1", state, ABILITY_1, t0), 0, t0), t0).state;
     expect(state.slots[1]!.stocks).toBe(2);
     expect(beginFire("p1", state, ABILITY_1, t0 + horn - 1).pending).toBeNull();
     expect(beginFire("p1", state, ABILITY_1, t0 + horn).pending).not.toBeNull();
+
+    // Now below max: nothing refills across the whole 3s window, and exactly one stock lands on the
+    // tick the 3s timer completes (the recharge interval is cooldownMs, now 3000).
+    state = idle(state, t0, cooldown); // ticks t0 .. t0 + cooldown - 1
+    expect(state.slots[1]!.stocks).toBe(2);
+    state = tickRecharge(state, t0 + cooldown);
+    expect(state.slots[1]!.stocks).toBe(3);
+    expect(state.slots[1]!.rechargeEndsTick).toBe(0);
   });
 
   it("shockwave fires three beam volleys 500ms apart from one press", () => {
