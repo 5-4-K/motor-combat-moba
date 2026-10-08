@@ -80,4 +80,9 @@ export interface ArenaDef {
   palette?: ArenaPalette;
   /** The capture zone. Required by any mode whose win rule is "conquer" (modes/invariants.test.ts). */
   readonly zone?: ArenaZone;
+  /**
+   * Present when this arena was compiled from a tile grid (`compileTileArena`). The client bakes its
+   * floor from it; the sim never reads it — `obstacles` already carries the compiled solids.
+   */
+  readonly tiles?: TileGrid;
 }

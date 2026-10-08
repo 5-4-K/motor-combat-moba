@@ -325,6 +325,8 @@ export { SPIKE_CONFIG, SPIKE_TICKS } from "./config/spike-config.js";
 
 export type { ArenaDef, ArenaPalette, ArenaZone, Obstacle, Spawn, TileGrid } from "./arena/types.js";
 export { TILE_SIZE, TILE_TABLE, isSolidTile, tileDefOf } from "./arena/tiles/tile-config.js";
+export { compileTileArena, parseTileGrid } from "./arena/tiles/compile.js";
+export type { TileArenaSource } from "./arena/tiles/compile.js";
 export type {
   TileCollision,
   TileDef,
