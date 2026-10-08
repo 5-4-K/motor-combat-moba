@@ -1109,6 +1109,13 @@
         "shape": "cone"
       },
       "id": "tremor",
+      "impulse": {
+        "applies": [],
+        "defenceScaled": false,
+        "direction": "radial",
+        "speed": -260,
+        "spin": 0
+      },
       "kind": "beam",
       "lifetimeMs": 2875,
       "name": "Tremor",
