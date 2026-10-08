@@ -279,10 +279,10 @@ reads (`derived().weaponTicks`) — see "Authoring in milliseconds" below.
 | `predator` | projectile | 30 | 0 | 900 | 1800 (no real range — speed × 2000 ms lifetime; see below) | 1000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | 2000 | capsule, along 19 / across 6 (homing: proximity acquire, 200u radius, 300°/s) | 1 | `#606060` |
 | `thunderclap` | maneuver (dash) | 90 | 0 | 1600 (dash speed) | 400 (dash distance) | 5000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — | 1 | `#3ED1FA` |
 | `afterburner` | beam | 49 | 500 | 1100 | 220 | 13000 | 0 | 200 | — | — | 1 / 0 | — | true | 2000 | cone, 55° (muzzles `[0, 180]`) | 1 | `#FF9000` |
-| `magmablast` | projectile | 50 | 0 | 600 | 900 | 1600 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 (explosion on death: 60u disc, +15 splash, 150 ms linger, corrodes 2s; see below) | 1 | `#FF6000` |
+| `magmablast` | projectile | 50 | 0 | 600 | 900 | 16000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 (explosion on death: 60u disc, +15 splash, 150 ms linger, corrodes 2s; see below) | 1 | `#FF6000` |
 | `pepperbox` | projectile | 45 (per pellet) | 0 | 800 | 600 | 1800 | 0 | 200 | — | 0 | 1 / 0 | 3 / 12 | — | — | ellipse, along 9 / across 3 (muzzles `[0, 90, 180, 270]`) | 1 | `#C04818` |
 | `lance` | beam | 43 (per pulse; 4 pulses == 172 full connect point-blank, 3 == 129 at the tip) | 500 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | 1 / 0 | — | true | 1500 | rect, width 57.5 (`holdsDuringFire`) | 1 | `#F0FF00` |
-| `thumper` | projectile | 60 | 0 | 450 | 1305 (bounce, 2900 ms lifetime) | 3000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 24 / across 15 (flat tail) | 1 | `#FFD800` |
+| `thumper` | projectile | 60 | 0 | 450 | 1305 (bounce, 2900 ms lifetime) | 16000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 24 / across 15 (flat tail) | 1 | `#FFD800` |
 | `roadblock` | projectile | 100 | 0 | 600 | 500 | 6000 | 0 | 200 | — | 4 | 1 / 0 | 1 / 0 | — | — | bar, along 6 / across 60 (`piercesWalls`) | 1 | `#D89000` |
 | `wildcharge` | maneuver (charge) | 250 | 0 | 0 | 0 | 20000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — (`isUnInterruptable`, 10 s window, `slamsStunned`) | 1 | `#F06000` |
 | `tremor` | beam | 25 (per tick; 10 ticks == 250 full connect) | 400 | 492 | 492 | 15000 | 0 | 200 | — | — | 1 / 0 | — | false | 2875 | cone, 60° | 1 | `#8A6D12` |
@@ -458,11 +458,15 @@ the volley's last shot, so `cooldownMs` still means "time until another stock" f
 Nothing about a `startUpMs > 0`, `volleys > 1`, or `recoveryMs > 0` weapon required a schema change.
 See [`schema-reference.md`](schema-reference.md#playerstate) for the two fields.
 
-**No shipped weapon carries a `stock` block today.** `needler`, the table's one multi-stock weapon
-(three stocks, a 300 ms recharge, dumped without cost because `releaseShots` starts the recharge at
-the dump's first shot rather than its last), was retired with the 2026-09-01 overhaul. The mechanism
-is dormant, not deleted: it stays real in `sim/weapons/fire.ts` and covered by `fire.test.ts`, waiting
-for the next weapon that authors a `stock` block.
+**`fury-horn` (Taurus) is the one shipped weapon carrying a `stock` block.** It banks `max: 3`
+charges, spawns full (`initial: 3` — `StockDef.initial`; **absent means the universal spawn default
+of 1**, so a weapon starts one stock deep unless it opts in, and `initial` is validated `1..max`),
+recharges one stock every `cooldownMs` (2000 ms), and gates consecutive stock shots by
+`refireDelayMs: 300`. A magazine is dumped without costing sustained DPS because `releaseShots`
+starts the recharge at the dump's first shot rather than its last, so `cooldownMs` still means "time
+until another stock". `needler` was the table's previous multi-stock weapon (three stocks, a 300 ms
+recharge), retired with the 2026-09-01 overhaul; before `fury-horn` the mechanism sat dormant — real
+in `sim/weapons/fire.ts` and covered by `fire.test.ts` — rather than deleted.
 
 ## ABILITY_SLOT_CEILING and WEAPON_SLOT_CONFIG
 

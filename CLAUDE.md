@@ -158,9 +158,12 @@ explicit-loadout path builds the same list inline, since it also has to accept a
 weapon override `fireSlotsOf` has no parameter for. **The basic attack is always fire slot 0** as of
 the 2026-09-20 index flip — it sat LAST, at `kit.length`, until then, which was a constant only
 while every active kit was the same length. The flip moved no player-facing binding at the time.
-**Since 2026-09-21 there is one control layout** (`SLOT_KEYS`, spec TR29): the basic attack is
-**`LMB`**, the abilities at fire slots 1..`N` are **`RMB` / `Q` / `E`**, and **`SPACE`** is authored
-for a fourth ability and is inert while `N` is 3. `H`, `J`/`K`/`L`, `;` and MMB are unbound.
+**There is one control layout** (`SLOT_KEYS`, spec TR29), re-mapped 2026-10-08 now that the basic
+attack is off in every mode: the three abilities at fire slots 1..`N` take the primary inputs —
+**`LMB` / `RMB` / `SPACE`** — while the basic attack (slot 0) is parked on **`Q`** and the inert
+fourth ability on **`E`** (both practically unused — the basic attack refuses every press and
+`N` is 3). `H`, `J`/`K`/`L`, `;` and MMB are unbound. (Turret aiming is independent of the key map:
+a weapon draws from the turret because it carries `WeaponBase.turret`, whatever key fires it.)
 It rides the ordinary fire state machine with `recoveryMs: 0`, and it **loses** a same-tick tie
 against an ability, because `beginFire` now scans **descending** and takes the highest set bit — the
 basic attack, at index 0, is scanned last. The scan was reversed in the same pass that moved the
@@ -216,17 +219,18 @@ and playtest report. See the
 [`docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md`](docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md)
 (VS1–VS34).
 
-**Since 2026-09-21 a weapon may fire from a mouse-aimed turret rather than a fixed muzzle — but on
-this build none does.** `development/main` carries `turret` on **the nine basic-attack rows and
-nothing else**: `predator`, `magmablast` and `thumper` carried one on `feature/mouse-aim` and gave it
-back when that branch merged, in the same pass that turned the basic-attack flag off (then the
-global `BASIC_ATTACK_CONFIG.enabled`; now every mode's own `slots.basicAttackEnabled`, see below).
-Those two edits together are why **no car on this build draws a turret, captures the pointer, or
-shows a crosshair or the turret half of the aim HUD** — `carHasTurretWeapon` (TR53) is false for
-every chassis, and a config test asserts exactly that over the live roster rather than trusting the
-two edits separately. None of the machinery below is deleted; it is dormant, and putting `turret`
-back on one ability row or flipping the flag brings all of it back. A row carrying
-`WeaponBase.turret` fires along
+**A weapon may fire from a mouse-aimed turret rather than a fixed muzzle, and on this build five
+ability weapons do (2026-10-08).** `development/main` carries `turret` on the nine basic-attack rows
+**plus** `predator`, `magmablast`, `thumper`, `fury-horn` (each active chassis's slot-1 weapon) and
+`roadblock`. Because the turret is a per-weapon flag read by `carHasTurretWeapon` (TR53) — "BA on for
+this mode, OR any fire slot carries a turret weapon" — **every active chassis now draws a turret,
+captures the pointer, and shows the crosshair in every mode**, even though the basic attack is off
+everywhere (`slots.basicAttackEnabled` is `false` in every mode). This decoupled the turret from the
+basic attack: the basic-attack rows still carry `turret` (so they'd be turret-aimed if ever switched
+on), but it is the ability weapons that light the HUD today. The turret is **per-weapon and read
+through the active mode's table**, so a weapon can be turret-aimed in one mode and a fixed muzzle in
+another via a per-mode `replace()`. A config test asserts the live roster's turret posture. A row
+carrying `WeaponBase.turret` fires along
 the world bearing the player clicked (`InputFrame.aimAngle`, from the turret pivot to the
 crosshair), frozen at the press; the turret (`FireState.turretAngle`, sim state, mirrored
 render-only to `PlayerState.turretAngle`) turns to it at `TURRET_CONFIG.turnRateDegPerSec` before

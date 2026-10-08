@@ -10,11 +10,13 @@ import { slots } from "@motor-combat-moba/shared";
  * `maxAbilitySlots` never has to grow it (VS16). `slotMaskFrom` caps its own scan at
  * `maxFireSlots`, so a row past this build's N is simply never read.
  *
- * **One layout now (TR29), replacing the old two-binding scheme** (a home-row letter under the
- * right hand plus a mouse-hand alternate). Every slot has exactly one input: the basic attack takes
- * LMB back now that it is switched on, ability 1 sits on RMB, abilities 2 and 3 sit on `Q`/`E`, and
- * ability 4 is bound to `SPACE` — inert while this build's `N` is 3. `glyph` is the only label a
- * slot has; there is no separate home-row glyph to keep in step with it.
+ * **One layout (TR29).** Every slot has exactly one input. The three abilities sit on the primary
+ * inputs — ability 1 on `LMB`, ability 2 on `RMB`, ability 3 on `SPACE` — because the basic attack
+ * is off in every mode now, so slot 0 is parked on `Q` and ability 4 on `E` (both practically
+ * unused: the basic attack refuses every press, and ability 4 does not exist while this build's `N`
+ * is 3). `glyph` is the only label a slot has; there is no separate home-row glyph to keep in step
+ * with it. Turret aiming is independent of this: a weapon draws from the turret because it carries
+ * `WeaponBase.turret`, whatever key fires it.
  *
  * The rule from the 2026-08-30 controls pass still stands — a binding nobody printed is a thing
  * that breaks quietly later — but the basic attack BENDS it and the spec says so (BA19): it has no
@@ -38,11 +40,11 @@ export const SLOT_KEYS: readonly {
   readonly buttonsMask: number;
   readonly glyph: string;
 }[] = [
-  { codes: [], buttonsMask: 1, glyph: "LMB" },
-  { codes: [], buttonsMask: 2, glyph: "RMB" },
-  { codes: [81], buttonsMask: 0, glyph: "Q" },
-  { codes: [69], buttonsMask: 0, glyph: "E" },
-  { codes: [32], buttonsMask: 0, glyph: "SPACE" },
+  { codes: [81], buttonsMask: 0, glyph: "Q" }, // slot 0: basic attack (off in every mode) -> Q
+  { codes: [], buttonsMask: 1, glyph: "LMB" }, // slot 1: ability 1 -> LMB
+  { codes: [], buttonsMask: 2, glyph: "RMB" }, // slot 2: ability 2 -> RMB
+  { codes: [32], buttonsMask: 0, glyph: "SPACE" }, // slot 3: ability 3 -> SPACE
+  { codes: [69], buttonsMask: 0, glyph: "E" }, // slot 4: ability 4 (inert while N = 3) -> E
 ];
 
 /**
