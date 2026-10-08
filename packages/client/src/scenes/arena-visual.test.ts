@@ -69,11 +69,20 @@ describe("arenaBorderRect", () => {
 
 describe("arenaDecoration", () => {
   it("draws markings and border for a procedural arena", () => {
-    expect(arenaDecoration(false)).toEqual({ drawMarkings: true, drawBorder: true });
+    expect(arenaDecoration(false, false)).toMatchObject({ drawMarkings: true, drawBorder: true });
   });
 
   it("draws neither over a floor sprite", () => {
-    expect(arenaDecoration(true)).toEqual({ drawMarkings: false, drawBorder: false });
+    expect(arenaDecoration(true, false)).toMatchObject({ drawMarkings: false, drawBorder: false });
+  });
+
+  it("draws nothing procedural over a tile arena's bake (TA26)", () => {
+    expect(arenaDecoration(true, true)).toEqual({ drawMarkings: false, drawBorder: false, drawObstacles: false });
+  });
+
+  it("still fills ordinary obstacles on a non-tile arena, art or not", () => {
+    expect(arenaDecoration(true, false).drawObstacles).toBe(true);
+    expect(arenaDecoration(false, false)).toEqual({ drawMarkings: true, drawBorder: true, drawObstacles: true });
   });
 });
 

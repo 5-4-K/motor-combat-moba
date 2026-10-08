@@ -3,15 +3,16 @@ import { TICK_RATE_HZ } from "../constants.js";
 /**
  * The wall spikes: how much they hurt, and what it takes to make them hurt again (AS14–AS18).
  *
- * `depth` is geometry, not balance — it must match the strips `ARENA_01` authors, and
- * `arena-01.test.ts` fails if it drifts.
+ * `depth` is geometry, not balance — it is the depth of the strips the hand-written arenas
+ * (`arena-02`, `arena-03`) author, and `arena.test.ts` fails if one drifts. A tile arena's spikes
+ * are one `TILE_SIZE` deep instead (TA19), and do not read this.
  */
 export type SpikeConfig = typeof SPIKE_CONFIG;
 
 export const SPIKE_CONFIG = {
   /** Flat, per trigger. Between a Thumper shell (60) and a Roadblock (100); nine kill a Bullseye. */
   damage: 80,
-  /** How far a strip protrudes from its wall, in world units. */
+  /** How far a hand-written arena's strip protrudes from its wall, in world units (not tile arenas). */
   depth: 20,
   /**
    * The speed INTO the surface below which nothing happens, in units/s. Deliberately low against

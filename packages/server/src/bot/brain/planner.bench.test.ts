@@ -197,8 +197,9 @@ const REPEATS = 5;
 const arena: BotArenaView = {
   width: ARENA_01.width,
   height: ARENA_01.height,
-  // Empty on `arena-01`, which is the scene every earlier per-plan measurement in this phase was
-  // taken on — so this number is comparable to the 0.432 ms on record. `arena-02` carries obstacles;
+  // `arena-01` now carries its tile-compiled walls and spikes (34 obstacles, 14 of them spikes). It was
+  // EMPTY until 2026-10-09, the scene every earlier per-plan measurement in this phase was taken on,
+  // so the 0.432 ms on record is not directly comparable. `arena-02` also carries obstacles;
   // they would add one AABB test per sampled pose per candidate (4 x 9 = 36 of them), against the
   // hundreds of proxy solves that dominate a plan, so the choice is not what this measures.
   obstacles: ARENA_01.obstacles.map((o) => ({ x: o.x, y: o.y, w: o.w, h: o.h })),

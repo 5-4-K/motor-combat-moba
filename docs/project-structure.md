@@ -57,6 +57,8 @@ motor-combat-MOBA/
 │   │   ├── types.ts              # ArenaDef, Obstacle, Spawn, ArenaPalette
 │   │   ├── arena-01.ts           # first arena layout
 │   │   ├── arena-02.ts           # second arena layout
+│   │   ├── tiles/                # tile arenas (TA): tile-config.ts (TILE_SIZE, TILE_TABLE), compile.ts (compileTileArena, parseTileGrid, greedy merge), tile-collision.test.ts
+│   │   ├── bounds.ts             # boundsOf, playableRectOf / playableExtentOf / playablePlanesOf
 │   │   ├── registry.ts           # ARENAS map, ArenaId, isArenaId, getArena, ARENA_IDS
 │   │   └── art-keys.ts           # arena.<id>.<slot> namespace parser, used by client and release script
 │   ├── net/                      # InputFrame/InputPacket (fireSlots bitmask), TickInputBuffer, ClockSync, InputScheduler, TickPrediction, TickInterpolation/DisplayDelay/RemoteTimeline (remote drawing), RemoteReckoner, contact blend, ShotView, ProvisionalShots/LocalFire, isShotEnding, close codes, lobby message names

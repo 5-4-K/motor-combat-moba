@@ -326,7 +326,18 @@ export { PRACTICE_CONFIG } from "./config/practice-config.js";
 export { CHAT_CONFIG } from "./config/chat-config.js";
 export { SPIKE_CONFIG, SPIKE_TICKS } from "./config/spike-config.js";
 
-export type { ArenaDef, ArenaZone, Obstacle, Spawn } from "./arena/types.js";
+export type { ArenaDef, ArenaPalette, ArenaZone, Obstacle, Spawn, TileGrid } from "./arena/types.js";
+export { TILE_SIZE, TILE_TABLE, isSolidTile, tileDefOf } from "./arena/tiles/tile-config.js";
+export { compileTileArena, parseTileGrid } from "./arena/tiles/compile.js";
+export type { TileArenaSource } from "./arena/tiles/compile.js";
+export type {
+  TileCollision,
+  TileDef,
+  TileHazard,
+  TileId,
+  TileShape,
+  TileSurface,
+} from "./arena/tiles/tile-config.js";
 export { ARENA_01 } from "./arena/arena-01.js";
 export { ARENA_02 } from "./arena/arena-02.js";
 export { ARENA_03 } from "./arena/arena-03.js";
@@ -334,7 +345,7 @@ export { ARENAS, ARENA_IDS, getArena, isArenaId } from "./arena/registry.js";
 export type { ArenaId } from "./arena/registry.js";
 export { ACTIVE_ARENA_ID } from "./config/arena-config.js";
 export { ARENA_ART_COMMON, ARENA_ART_PREFIX, arenaIdFromArtKey } from "./arena/art-keys.js";
-export { boundsOf, playableExtentOf } from "./arena/bounds.js";
+export { boundsOf, playableExtentOf, playablePlanesOf, playableRectOf } from "./arena/bounds.js";
 export { planesOf, rectPlanes, supportRadius, planePenetration, type BoundaryPlane } from "./sim/boundary.js";
 
 export { normalizeName, validateName, isNameTaken } from "./lobby/names.js";

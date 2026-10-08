@@ -77,8 +77,11 @@ import {
   visionShapeOf,
   type VisionPlayer,
   type VisionShape,
+  TILE_SIZE,
 } from "@motor-combat-moba/shared";
 import { floorTintOf, phaserFloorTextures, resolveArenaFloor } from "../assets/arena-floor.js";
+import { resolveTileDraw } from "../assets/tile-art.js";
+import { bakeChunks, fallbackTeeth, TILE_BAKE_MAX_CHUNK_PX, TILE_BAKE_SCALE, tileBakePlan } from "./tile-bake.js";
 import {
   applyCarSprite,
   phaserTextures,
@@ -155,6 +158,7 @@ import {
   SPIKE_STRIP_COLOR,
   SPIKE_TOOTH_COLOR,
   spikeStrips,
+  type ArenaColors,
 } from "./arena-visual.js";
 import { zoneTint, type ZoneTint } from "./zone-visual.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
@@ -854,9 +858,15 @@ export class ArenaScene extends Phaser.Scene {
    */
   private floorImage: Phaser.GameObjects.Image | undefined;
   /**
-   * Whether this arena is drawing `floorImage` rather than the generated `floorTile`. Set once in
-   * `drawArena` and read by `rebuildFloor`, which must not re-point a tile sprite that does not
-   * exist — regenerating the procedural asphalt makes no sense for an arena with real floor art.
+   * A tile arena's baked floor (TA24): one render texture per `bakeChunks` chunk, drawn at
+   * `FLOOR_DEPTH` instead of `floorTile`/`floorImage`. Empty for every other arena.
+   */
+  private tileChunks: Phaser.GameObjects.RenderTexture[] = [];
+  /**
+   * Whether this arena is drawing floor ART (`floorImage`, or a tile arena's `tileChunks`) rather
+   * than the generated `floorTile`. Set once in `drawArena` and read by `rebuildFloor`, which must
+   * not re-point a tile sprite that does not exist — regenerating the procedural asphalt makes no
+   * sense for an arena with real floor art.
    */
   private hasFloorSprite = false;
   /**
@@ -1492,21 +1502,32 @@ export class ArenaScene extends Phaser.Scene {
     // asphalt texture is uploaded by the `FxLayer` constructor, which `create` deliberately runs
     // before this method. The decision itself is `resolveArenaFloor` — pure, unit-tested, and the
     // only place that reads `this.textures.exists`, mirroring `resolveCarSprite` for cars.
-    const resolvedFloor = resolveArenaFloor(phaserFloorTextures(this.textures), arena.id);
-    this.hasFloorSprite = resolvedFloor !== undefined;
-    if (resolvedFloor) {
-      // Drawn at the world rect (`arena.width` x `arena.height`), never the image's native pixel
-      // size — `setDisplaySize` is what stretches the 2560x1440 source down to that rect.
-      this.floorImage = this.add
-        .image(0, 0, resolvedFloor.key)
-        .setOrigin(0, 0)
-        .setDisplaySize(arena.width, arena.height)
-        .setDepth(FLOOR_DEPTH);
+    //
+    // A tile arena is a third source, and the three stay a genuine either/or: its floor is the bake
+    // (TA24), never a `floorImage` over or a `floorTile` under it, even if a whole-arena floor image
+    // is also listed for it in the manifest.
+    if (arena.tiles) {
+      this.bakeTileFloor(arena, colors);
+      // A tile arena is a floor-ART arena everywhere the scene asks (TA26): no asphalt, no markings,
+      // no border, and the environment panel marks `floor.*` inert and `floorArt.*` live.
+      this.hasFloorSprite = true;
     } else {
-      this.floorTile = this.add
-        .tileSprite(0, 0, arena.width, arena.height, FX_TEXTURE_KEYS.asphalt)
-        .setOrigin(0, 0)
-        .setDepth(FLOOR_DEPTH);
+      const resolvedFloor = resolveArenaFloor(phaserFloorTextures(this.textures), arena.id);
+      this.hasFloorSprite = resolvedFloor !== undefined;
+      if (resolvedFloor) {
+        // Drawn at the world rect (`arena.width` x `arena.height`), never the image's native pixel
+        // size — `setDisplaySize` is what stretches the 2560x1440 source down to that rect.
+        this.floorImage = this.add
+          .image(0, 0, resolvedFloor.key)
+          .setOrigin(0, 0)
+          .setDisplaySize(arena.width, arena.height)
+          .setDepth(FLOOR_DEPTH);
+      } else {
+        this.floorTile = this.add
+          .tileSprite(0, 0, arena.width, arena.height, FX_TEXTURE_KEYS.asphalt)
+          .setOrigin(0, 0)
+          .setDepth(FLOOR_DEPTH);
+      }
     }
 
     // Assigned BEFORE `applyEnvironment()` runs below: that call draws the obstacles, markings and
@@ -1568,6 +1589,62 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
+   * Bake a tile arena's floor once (TA24, TA25): every stamp of `tileBakePlan`, chunked by
+   * `bakeChunks`, at `TILE_BAKE_SCALE` px per world unit and displayed at its inverse. A stamp whose
+   * art never loaded is drawn procedurally into the same chunk, so missing art is never a black floor.
+   * Void cells get no stamp; the border colour filled first is what shows through them.
+   *
+   * Every command below is buffered on the chunk's `DynamicTexture` and executed by the one
+   * `render()` at the end, in order — which is why the teeth `Graphics` may be destroyed right after
+   * it, and why the fallback teeth (one `draw` after the loop) land over every base in the chunk.
+   */
+  private bakeTileFloor(arena: ArenaDef, colors: ArenaColors): void {
+    const grid = arena.tiles;
+    if (!grid) return;
+    const tilePx = TILE_SIZE * TILE_BAKE_SCALE;
+    const textures = phaserFloorTextures(this.textures);
+    const plan = tileBakePlan(grid);
+    for (const chunk of bakeChunks(grid.cols, grid.rows, tilePx, TILE_BAKE_MAX_CHUNK_PX)) {
+      const rt = this.add
+        .renderTexture(chunk.col * TILE_SIZE, chunk.row * TILE_SIZE, chunk.cols * tilePx, chunk.rows * tilePx)
+        .setOrigin(0, 0)
+        .setScale(1 / TILE_BAKE_SCALE)
+        .setDepth(FLOOR_DEPTH);
+      // Same mode the HUD bake runs in: the texture shows itself, `render()` is called by hand.
+      rt.setRenderMode("render");
+      rt.fill(colors.border, 1);
+      const teeth = this.make.graphics({}, false);
+      teeth.fillStyle(SPIKE_TOOTH_COLOR, 1);
+      for (const stamp of plan) {
+        if (stamp.col < chunk.col || stamp.col >= chunk.col + chunk.cols) continue;
+        if (stamp.row < chunk.row || stamp.row >= chunk.row + chunk.rows) continue;
+        const x = (stamp.col - chunk.col) * tilePx;
+        const y = (stamp.row - chunk.row) * tilePx;
+        const draw = resolveTileDraw(textures, stamp.art, colors);
+        if (draw.kind === "texture") {
+          // Centred (stamp's default origin 0.5) so `angle` turns the art about the tile's centre.
+          const frame = this.textures.getFrame(draw.key);
+          rt.stamp(draw.key, undefined, x + tilePx / 2, y + tilePx / 2, {
+            angle: stamp.rotation,
+            scaleX: tilePx / frame.width,
+            scaleY: tilePx / frame.height,
+          });
+        } else if (draw.kind === "fill") {
+          rt.fill(draw.color, 1, x, y, tilePx, tilePx);
+        } else {
+          for (const t of fallbackTeeth(stamp.rotation, x, y, tilePx)) teeth.fillTriangle(...t);
+        }
+      }
+      // Fallback teeth go on after every base in the chunk; a real teeth texture was already stamped
+      // in plan order, which also puts it after every base (TA22).
+      rt.draw(teeth);
+      rt.render();
+      teeth.destroy();
+      this.tileChunks.push(rt);
+    }
+  }
+
+  /**
    * Re-apply the grade, the vignette and the painted markings from the current environment table.
    *
    * Called once from `drawArena` and again by the playground on every edit (EV25). The grade is a
@@ -1610,6 +1687,8 @@ export class ArenaScene extends Phaser.Scene {
     // Floor art group is live like every other environment knob — `floor.*` is the regenerate-only
     // one, and only because it bakes a texture. A no-op when no sprite resolved: there is no object.
     this.floorImage?.setTint(floorTintOf(env.floorArt));
+    // A tile arena's bake is its floor art (TA26), so the same knock-back reaches every chunk.
+    for (const chunk of this.tileChunks) chunk.setTint(floorTintOf(env.floorArt));
     this.redrawArenaGraphics();
   }
 
@@ -1622,7 +1701,8 @@ export class ArenaScene extends Phaser.Scene {
    * A sprite arena's floor art already contains its own markings, its own walls and its own painted
    * spike strips, so `arenaDecoration` and `drawableObstacles` (`arena-visual.ts`) suppress the
    * matching procedural draws for it (AS24, AS25) — pure decisions, unit-tested there, because this
-   * scene cannot be. An arena whose floor texture never loaded still gets all three.
+   * scene cannot be. An arena whose floor texture never loaded still gets all three. A tile arena
+   * gets none of them, not even its ordinary obstacles: its bake already drew every solid tile (TA26).
    */
   private redrawArenaGraphics(): void {
     const gfx = this.arenaGfx;
@@ -1631,12 +1711,14 @@ export class ArenaScene extends Phaser.Scene {
     const env = this.resolveEnv();
     const colors = arenaColorsOf(arena);
     const m = env.markings;
-    const decoration = arenaDecoration(this.hasFloorSprite);
+    const decoration = arenaDecoration(this.hasFloorSprite, arena.tiles !== undefined);
 
     gfx.clear();
-    gfx.fillStyle(colors.obstacle, 1);
-    for (const obstacle of drawableObstacles(arena.obstacles)) {
-      gfx.fillRect(obstacle.x, obstacle.y, obstacle.w, obstacle.h);
+    if (decoration.drawObstacles) {
+      gfx.fillStyle(colors.obstacle, 1);
+      for (const obstacle of drawableObstacles(arena.obstacles)) {
+        gfx.fillRect(obstacle.x, obstacle.y, obstacle.w, obstacle.h);
+      }
     }
 
     if (decoration.drawMarkings) {
@@ -1800,9 +1882,11 @@ export class ArenaScene extends Phaser.Scene {
     const worldObjects: Phaser.GameObjects.GameObject[] = [
       // World space at `FLOOR_DEPTH`, under everything. A display object like any other, so it needs
       // its entry here or it draws a second time across the gutter (VFX36). Exactly one of
-      // `floorTile`/`floorImage` exists per arena (AS23), so both are listed unconditionally.
+      // `floorTile`/`floorImage`/`tileChunks` exists per arena (AS23, TA24), so all three are listed
+      // unconditionally.
       ...(this.floorTile ? [this.floorTile] : []),
       ...(this.floorImage ? [this.floorImage] : []),
+      ...this.tileChunks,
       ...(this.arenaGfx ? [this.arenaGfx] : []),
       // World space at `ZONE_DEPTH` — a zone ring drawn on the HUD camera too would float over the
       // gutter.
@@ -1962,6 +2046,10 @@ export class ArenaScene extends Phaser.Scene {
     this.floorTile = undefined;
     this.floorImage?.destroy();
     this.floorImage = undefined;
+    // `RenderTexture.preDestroy` destroys each chunk's own `DynamicTexture` too, so no baked
+    // texture outlives the scene.
+    for (const chunk of this.tileChunks) chunk.destroy();
+    this.tileChunks = [];
     this.hasFloorSprite = false;
     this.arena = undefined;
     this.countdownText?.destroy();

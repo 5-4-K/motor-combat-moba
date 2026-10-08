@@ -826,7 +826,9 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // 6.5.0 (2026-10-09): solver cost. `AIM_QUADRATURE` drops its two outermost nodes (0.1% of the weight)
 // and renormalises the inner five, so every solved EV moves slightly; the beam fast path and the
 // projectile broad phase in `marchOne` are exact. `BOT_PROFILES` did not move.
-export const BOT_BRAIN_VERSION = "6.5.0";
+// 6.6.0 (2026-10-09): tile arenas hand the bot their floor-rect planes (TA31), so wall avoidance sees
+// arena-01's floor edge. `BOT_PROFILES` did not move. Balance reports across this line are not comparable.
+export const BOT_BRAIN_VERSION = "6.6.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency

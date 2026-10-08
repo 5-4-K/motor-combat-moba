@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
-  ARENA_01, boundsOf, driveOf, NEUTRAL_MODIFIERS, slotsOf, stepDrive, TICK_RATE_HZ, turretPivotOf,
+  ARENA_01, driveOf, NEUTRAL_MODIFIERS, slotsOf, stepDrive, TICK_RATE_HZ, turretPivotOf,
   weaponDefOf, wrapAngle, type SimBody,
 } from "@motor-combat-moba/shared";
 import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
@@ -9,6 +9,7 @@ import { makeRng } from "../rng.js";
 import type { BotView } from "../types.js";
 import { HumanController, inCorner } from "./controller.js";
 import { runDuel } from "./duel.fixture.js";
+import { legacyOctagonView } from "./legacy-octagon.fixture.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 // Also installed directly, synchronously, at module scope: fixture constants below (and
@@ -880,7 +881,7 @@ describe("HumanController", () => {
  */
 describe("inCorner", () => {
   const rect = { width: ARENA_01.width, height: ARENA_01.height, obstacles: [] };
-  const octagon = { ...rect, planes: boundsOf(ARENA_01).planes };
+  const octagon = legacyOctagonView();
 
   it("finds a chamfer corner on the octagon", () => {
     // (95, 95) is inside the top-left chamfer's margin and inside the rect on BOTH axes — 95 is

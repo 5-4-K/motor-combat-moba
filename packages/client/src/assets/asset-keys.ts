@@ -87,3 +87,11 @@ export function turretSpriteKeys(carId: string): readonly [string, string] {
 export function arenaFloorKey(arenaId: string): string {
   return `arena.${arenaId}.floor`;
 }
+
+/**
+ * The manifest key for one tile type's art (spec tile arenas, §5.1). In the `arena.common.*`
+ * namespace, which is never pruned, because every tile arena shares the same tile art.
+ */
+export function tileArtKey(artId: string): string {
+  return `arena.${ARENA_ART_COMMON}.tile.${artId}`;
+}

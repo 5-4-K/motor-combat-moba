@@ -1,8 +1,9 @@
 import { TICK_RATE_HZ } from "@motor-combat-moba/shared";
+import { legacyOctagonView } from "./legacy-octagon.fixture.js";
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
-  ARENA_01, boundsOf, DRIVE_CONFIG, slotsOf, weaponDefOf, type SimBody,
+  ARENA_01, DRIVE_CONFIG, slotsOf, weaponDefOf, type SimBody,
 } from "@motor-combat-moba/shared";
 import { RESOLVED_BOT_PROFILES, resolveBrainConstants } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSelfView, BotSlotView } from "../types.js";
@@ -567,7 +568,7 @@ describe("plan", () => {
    */
   describe("wallPenalty on a polygon arena", () => {
     const bare = { width: ARENA_01.width, height: ARENA_01.height, obstacles: [] };
-    const octagon = { ...bare, planes: boundsOf(ARENA_01).planes };
+    const octagon = legacyOctagonView();
     // Inside the top-left chamfer and clear of every rect edge by more than the 60-unit margin:
     // x=120 and y=100 are both far from 0, and from 1280/720.
     const nearChamfer = selfAt(120, 100, 0);

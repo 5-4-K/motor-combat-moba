@@ -1,5 +1,6 @@
 import type { Bounds } from "../sim/collide.js";
-import { planesOf } from "../sim/boundary.js";
+import { planesOf, type BoundaryPlane } from "../sim/boundary.js";
+import { isSolidTile, TILE_SIZE } from "./tiles/tile-config.js";
 import type { ArenaDef } from "./types.js";
 
 /**
@@ -39,18 +40,69 @@ export function boundsOf(arena: Pick<ArenaDef, "width" | "height" | "boundary">)
  * The polygon's own bounding box, not a rectangle inscribed in it: the chamfers cut the corners, so
  * no single rectangle is "the playable area", and the extent a reach is meaningfully compared against
  * is the widest and tallest the floor gets. A boundary-less arena answers with its `width`/`height`
- * unchanged.
+ * unchanged. A tile arena answers the bounding box of its non-solid cells (TA30).
  */
-export function playableExtentOf(
-  arena: Pick<ArenaDef, "width" | "height" | "boundary">,
-): { width: number; height: number } {
-  if (arena.boundary === undefined || arena.boundary.length === 0) {
-    return { width: arena.width, height: arena.height };
+type PlayableSource = Pick<ArenaDef, "width" | "height" | "boundary" | "tiles">;
+
+/**
+ * The PLAYABLE floor's bounding rectangle in world units (TA30). A polygon arena answers its
+ * polygon's box; a tile arena the box of its non-solid cells — its grid frame includes the wall band,
+ * the same frame-vs-floor mistake the octagon once caused; a plain arena its frame.
+ */
+export function playableRectOf(arena: PlayableSource): { x: number; y: number; w: number; h: number } {
+  if (arena.boundary !== undefined && arena.boundary.length > 0) {
+    const xs = arena.boundary.map((v) => v.x);
+    const ys = arena.boundary.map((v) => v.y);
+    const x = Math.min(...xs);
+    const y = Math.min(...ys);
+    return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
   }
-  const xs = arena.boundary.map((v) => v.x);
-  const ys = arena.boundary.map((v) => v.y);
-  return {
-    width: Math.max(...xs) - Math.min(...xs),
-    height: Math.max(...ys) - Math.min(...ys),
-  };
+  const grid = arena.tiles;
+  if (grid !== undefined) {
+    let minC = Infinity;
+    let minR = Infinity;
+    let maxC = -Infinity;
+    let maxR = -Infinity;
+    grid.cells.forEach((id, i) => {
+      if (isSolidTile(id)) return;
+      const c = i % grid.cols;
+      const r = Math.floor(i / grid.cols);
+      minC = Math.min(minC, c);
+      minR = Math.min(minR, r);
+      maxC = Math.max(maxC, c);
+      maxR = Math.max(maxR, r);
+    });
+    if (minC !== Infinity) {
+      return {
+        x: minC * TILE_SIZE,
+        y: minR * TILE_SIZE,
+        w: (maxC - minC + 1) * TILE_SIZE,
+        h: (maxR - minR + 1) * TILE_SIZE,
+      };
+    }
+  }
+  return { x: 0, y: 0, w: arena.width, h: arena.height };
+}
+
+export function playableExtentOf(arena: PlayableSource): { width: number; height: number } {
+  const rect = playableRectOf(arena);
+  return { width: rect.w, height: rect.h };
+}
+
+/**
+ * The planes a bot should treat as the playable edge (TA31): the polygon's own, or for a tile arena
+ * the four planes of its floor rect (wound clockwise in screen coordinates, so `planesOf` points them
+ * inward), or `undefined` for a plain rectangle — which keeps every caller on its `rectPlanes`
+ * fallback exactly as before.
+ */
+export function playablePlanesOf(arena: PlayableSource): readonly BoundaryPlane[] | undefined {
+  if (arena.boundary !== undefined) return boundsOf(arena).planes;
+  if (arena.tiles === undefined) return undefined;
+  const { x, y, w, h } = playableRectOf(arena);
+  return planesOf([
+    { x, y },
+    { x: x + w, y },
+    { x: x + w, y: y + h },
+    { x, y: y + h },
+  ]);
 }

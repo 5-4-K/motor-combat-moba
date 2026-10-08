@@ -133,6 +133,28 @@ export function checkTurretSprite({ turretId, row, image }) {
   return out;
 }
 
+/** Every complaint about one tile image (TA21). Opaque is fine except for the teeth overlay. */
+export function checkTileArt({ artId, row, image }) {
+  const out = [];
+  if (!image) {
+    out.push(finding("blocker", "missing-file", `manifest names ${row.file}, which is not on disk`));
+    return out;
+  }
+  if (artId === "spike-teeth" && (!image.hasAlpha || image.channels < 4)) {
+    out.push(
+      finding(
+        "blocker",
+        "no-alpha",
+        `${row.file} has no alpha channel — the teeth overlay would paint an opaque square over its spike`,
+      ),
+    );
+  }
+  if (image.width !== 80 || image.height !== 80) {
+    out.push(finding("warning", "tile-size", `${row.file} is ${image.width}x${image.height}; tile art is 80x80`));
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // CLI shell: the only part that touches the filesystem, sharp, or process.argv.
 // ---------------------------------------------------------------------------
@@ -173,6 +195,38 @@ export function reportTurrets(results) {
         ? "warn"
         : "ok";
     console.log(`${verdict.padEnd(5)} turret.${id}`);
+    for (const f of findings) {
+      console.log(`        ${f.level}: ${f.message}`);
+      if (f.level === "blocker") blockers++;
+    }
+  }
+  return blockers;
+}
+
+const TILE_KEY_PREFIX = "arena.common.tile.";
+
+/** Every tile art row's findings, keyed by the id after `arena.common.tile.`. */
+export async function checkTiles(manifest) {
+  const results = [];
+  for (const [key, row] of Object.entries(manifest.sprites ?? {})) {
+    if (!key.startsWith(TILE_KEY_PREFIX)) continue;
+    const artId = key.slice(TILE_KEY_PREFIX.length);
+    const image = await readSpriteFacts(path.join(artDir, row.file));
+    results.push({ id: artId, findings: checkTileArt({ artId, row, image }) });
+  }
+  return results;
+}
+
+/** Print one line per tile art row plus its findings, and return how many blockers were seen. */
+export function reportTiles(results) {
+  let blockers = 0;
+  for (const { id, findings } of results) {
+    const verdict = findings.some((f) => f.level === "blocker")
+      ? "FAIL"
+      : findings.length > 0
+        ? "warn"
+        : "ok";
+    console.log(`${verdict.padEnd(5)} tile.${id}`);
     for (const f of findings) {
       console.log(`        ${f.level}: ${f.message}`);
       if (f.level === "blocker") blockers++;
@@ -229,7 +283,13 @@ export async function main() {
   console.log("\nWEAPON ICONS");
   const weaponBlockers = reportWeapons(await checkWeapons(manifest));
 
-  const blockers = countBlockers(shape) + carBlockers + turretBlockers + weaponBlockers;
+  console.log("\nTILE ART");
+  const tileResults = await checkTiles(manifest);
+  if (tileResults.length === 0) console.log("ok    no tile art imported (procedural fills in use)");
+  const tileBlockers = reportTiles(tileResults);
+
+  const blockers =
+    countBlockers(shape) + carBlockers + turretBlockers + weaponBlockers + tileBlockers;
   console.log(
     blockers === 0
       ? "\nall art checks pass"

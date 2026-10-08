@@ -11,6 +11,7 @@ import {
   carSpriteKey,
   loadsEveryArena,
   shouldLoadAssetKey,
+  tileArtKey,
   turretSpriteKeys,
   weaponIconKey,
 } from "./asset-keys.js";
@@ -127,5 +128,9 @@ describe("arenaFloorKey", () => {
   it("produces a key an arena in the list loads and one outside it does not", () => {
     expect(shouldLoadAssetKey(arenaFloorKey("arena-01"), ["arena-01"])).toBe(true);
     expect(shouldLoadAssetKey(arenaFloorKey("arena-02"), ["arena-01"])).toBe(false);
+  });
+  it("keys tile art in the never-pruned common arena namespace", () => {
+    expect(tileArtKey("floor")).toBe("arena.common.tile.floor");
+    expect(shouldLoadAssetKey(tileArtKey("spike-teeth"), ["arena-02"])).toBe(true);
   });
 });

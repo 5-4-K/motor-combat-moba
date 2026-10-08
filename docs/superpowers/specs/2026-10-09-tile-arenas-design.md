@@ -1,7 +1,7 @@
 # Tile arenas — design
 
 **Date:** 2026-10-09
-**Status:** approved in brainstorm, not yet implemented
+**Status:** implemented 2026-10-09 (plan docs/superpowers/plans/2026-10-09-tile-arenas.md)
 **Clause prefix:** TA
 
 ## 1. Why

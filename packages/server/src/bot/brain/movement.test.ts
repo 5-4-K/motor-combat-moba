@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
-import { boundsOf, ARENA_01 } from "@motor-combat-moba/shared";
+import { ARENA_01 } from "@motor-combat-moba/shared";
+import { legacyOctagonView } from "./legacy-octagon.fixture.js";
 import { spikesAhead, wallAhead } from "./movement.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
@@ -47,11 +48,13 @@ describe("wallAhead", () => {
   });
 });
 
-const octagon = {
+// The legacy octagon with NO obstacles: the chamfer case below must be caught by the PLANES alone.
+const octagon = legacyOctagonView();
+// The shipped arena-01 (tile arena: wall obstacles and spike strips, no boundary polygon).
+const tileArena = {
   width: ARENA_01.width,
   height: ARENA_01.height,
   obstacles: ARENA_01.obstacles,
-  planes: boundsOf(ARENA_01).planes,
 };
 
 describe("wallAhead on a polygon arena", () => {
@@ -78,16 +81,16 @@ describe("spikesAhead", () => {
     // rounder 200) so the look-ahead point (60) clears the strip's margin-inflated near edge (50)
     // with room to spare, rather than landing exactly on it — `200 - 150` lands on that edge to the
     // unit and would make this pass or fail on a coin-flip of floating-point rounding.
-    expect(spikesAhead({ x: 210, y: 150, angle: Math.PI }, octagon, 150)).toBe(true);
+    expect(spikesAhead({ x: 210, y: 150, angle: Math.PI }, tileArena, 150)).toBe(true);
   });
 
   it("does not fire for a bare stretch of the same wall", () => {
     // y = 260 sits in the gap between the strips at 105-200 and 305-415.
-    expect(spikesAhead({ x: 200, y: 260, angle: Math.PI }, octagon, 150)).toBe(false);
+    expect(spikesAhead({ x: 200, y: 260, angle: Math.PI }, tileArena, 150)).toBe(false);
   });
 
   it("does not fire in open floor", () => {
-    expect(spikesAhead({ x: 640, y: 360, angle: 0 }, octagon, 150)).toBe(false);
+    expect(spikesAhead({ x: 640, y: 360, angle: 0 }, tileArena, 150)).toBe(false);
   });
 
   it("ignores an ordinary obstacle that is not a spike", () => {

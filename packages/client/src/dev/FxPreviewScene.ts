@@ -91,7 +91,7 @@ export class FxPreviewScene extends Phaser.Scene {
     // this scene can never leave the previous FxLayer's emitters and render textures alive.
     this.teardown();
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
-    this.cameras.main.setBackgroundColor(ARENA_01.palette.floor);
+    this.cameras.main.setBackgroundColor(ARENA_01.palette?.floor ?? "#3b4747");
 
     // BEFORE the floor, for the same reason `ArenaScene.create` builds it before `drawArena`: the
     // constructor is what uploads `FX_TEXTURE_KEYS.asphalt`, and the floor tile is about to ask for

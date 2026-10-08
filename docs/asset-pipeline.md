@@ -449,9 +449,8 @@ active mode lists at all.
 The consequence worth knowing: an arena you are experimenting with costs the shipped zip nothing, so
 there is no reason to delete an arena to keep the download small.
 
-**`arena.arena-01.floor` and `arena.arena-02.floor` are the keys in this namespace with a file behind them**,
-the first landed by the 2026-09-11 arena-sprite-and-spike-hazard work, the second a dusty rectangular
-pit with a continuous spike ring. `arenaFloorKey(arenaId)`
+**`arena.arena-02.floor` is the arena-specific key in this namespace with a file behind it** (a dusty rectangular
+pit with a continuous spike ring; `arena.arena-01.floor` landed with the 2026-09-11 arena-sprite-and-spike-hazard work and was removed on 2026-10-09 when arena-01 became a tile arena). `arenaFloorKey(arenaId)`
 resolves it through the same chain as a car sprite — manifest lookup, then texture, then fallback —
 and when the row exists **and its texture actually loaded**, `ArenaScene` draws it as a plain `Image`
 at the world rect in place of the generated asphalt `TileSprite`. A missing PNG, a malformed manifest
@@ -460,11 +459,23 @@ fallback this namespace exists to protect was never weakened, only finally exerc
 
 A sprite arena draws none of the procedural decoration a rectangle arena still needs: the painted
 lane markings and centre circle (`ENVIRONMENT_FX.markings`), the border stroke
-(`arenaBorderRect`), and the fourteen spike obstacles themselves all go unpainted when a floor
+(`arenaBorderRect`), and the spike obstacles themselves all go unpainted when a floor
 sprite is in use, because the art already carries walls, markings and spikes drawn to match where
 the sim actually puts them. `ENVIRONMENT_FX.floor.*` (the asphalt generator's own knobs) becomes
 inert for that arena — the playground's environment panel says so rather than silently doing
 nothing. An arena whose floor texture never loaded still gets all three procedural layers.
+
+## Tile art
+
+A tile arena (`ArenaDef.tiles`, TA1–TA31) has no per-arena floor image; it is drawn from per-tile art shared by every tile arena.
+
+- **Keys and files.** `arena.common.tile.<id>` (`tileArtKey`), file `public/art/arenas/common/tile-<id>.png`. Ids: `floor`, `wall`, `spike` (bases) and `spike-teeth` (an overlay). They live under `arena.common.`, so they ship in every release.
+- **Size.** Source art is **80 × 80 px** (2 px per world unit over a 40 u tile), full-bleed, no trim. `scripts/import-tile-art.mjs` resizes to exactly 80 × 80 and writes the manifest row; `npm run check:art` has a TILE ART section (missing file = blocker, `spike-teeth` without alpha = blocker, off-size = warning).
+- **The teeth convention.** `spike-teeth` is a transparent overlay authored for a tile's **top** edge — teeth bases inside the tile, points reaching the top edge. The bake rotates it per open edge (top 0°, right 90°, bottom 180°, left 270°) onto each spike cell with a non-solid in-grid neighbour. Teeth never draw past their own tile: the tile is the hitbox.
+- **The bake.** `scenes/tile-bake.ts` is pure: `tileBakePlan` lists the stamps (every base before any teeth), `bakeChunks` splits the grid into chunks of whole tiles at most 2048 px a side. `ArenaScene.drawArena` bakes each chunk once into a render texture at 2 px per world unit, displayed at 0.5 scale at floor depth (arena-01: two chunks).
+- **Fallback.** A stamp whose texture did not load is drawn procedurally into the same bake (floor → palette floor, wall → palette obstacle, spike → spike strip colour, teeth → triangles along that edge), decided by `resolveTileDraw` in `assets/tile-art.ts`. Missing art never blacks the screen; no tile art ships yet, so arena-01 renders through the fallback until images are imported.
+- **Per-frame cost.** One image per chunk (two for arena-01) — the cost of the single floor image it replaces. The bake itself is ~600 stamps once at load, about 14 MB of video memory for arena-01.
+- A tile arena counts as a floor-art arena: no generated asphalt, markings, border or procedural obstacles; the playground marks `floor.*` inert and `floorArt.*` live.
 
 Every other arena still renders from `ArenaScene.drawArena`'s procedural `fillRect` loop, coloured
 by `arenaColorsOf` (`packages/client/src/scenes/arena-visual.ts`) — the namespace above is still the

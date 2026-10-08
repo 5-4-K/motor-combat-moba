@@ -36,9 +36,10 @@ import type { BotArenaView } from "../types.js";
  * same ticks". A short-circuit would answer `true` on the (arena-degenerate, but constructible in a
  * test) scenes where two pushes cancelled and the old predicate answered `false`.
  *
- * `arena-01` is the octagon its art draws, with fourteen `kind: "spike"` wall strips (Task 5) — this
- * is no longer only about bounds and corners on the shipped arena, and the plane loop below is what
- * makes a chamfer register as a wall rather than open floor. A short look-ahead is not a bug: an
+ * `arena-01` is a square-cornered tile arena whose walls are compiled into obstacles, with fourteen
+ * `kind: "spike"` strips (it was a chamfered octagon until 2026-10-09 — the plane loop below is what
+ * makes a chamfer register as a wall rather than open floor, and is still exercised on a legacy
+ * octagon fixture). This is no longer only about bounds and corners on the shipped arena. A short look-ahead is not a bug: an
  * easy bot at 40 units and 190-267 u/s (as of the 2026-09-06 heavy-car pass) pins itself on walls,
  * which is free human-likeness. That is exactly why `spikesAhead` (below) must fire earlier than
  * this function does: pinning on a plain wall is free human-likeness, pinning on a spiked one bleeds

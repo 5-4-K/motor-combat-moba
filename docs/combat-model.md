@@ -371,8 +371,8 @@ number exactly as `damageFor` does, so `applyDamage` still always subtracts an i
 
 ## Environmental hazards: wall spikes
 
-`arena-01`'s fourteen `kind: "spike"` obstacles, added by the 2026-09-11 arena-sprite-and-spike-hazard
-work, are the game's **first environmental damage source** — everything above this section, and
+The `kind: "spike"` obstacles — `arena-01`'s fourteen (a tile arena since 2026-10-09; its spikes come from `^` tiles) and the hand-written arenas' strips, introduced by the 2026-09-11 arena-sprite-and-spike-hazard
+work — are the game's **first environmental damage source** — everything above this section, and
 everything in Ramming above, still holds: a spike is level geometry, not a car, so cars still never
 damage each other by contact.
 
@@ -380,7 +380,7 @@ damage each other by contact.
 
 1. **`resolveContacts` (shared, `sim/contact.ts`) detects and reports, with no threshold and no
    memory.** For every car overlapping a spike obstacle it reports one `SpikeContact` — a corner of
-   the octagon can overlap two strips at once, but that is still one report — carrying the surface's
+   a corner can overlap two strips at once, but that is still one report — carrying the surface's
    inward normal and the car's speed **into** it, sampled before that tick's bounce is resolved.
 2. **`ram-bridge.ts` (server) turns raw contacts into `SpikeHit`s and attaches the source.** It is
    the only place holding the trigger lockout and the per-victim last-shover memory, both server-side
@@ -393,6 +393,8 @@ damage each other by contact.
    environmental source in the game, and it is what lets a balance run count a spike kill at all. No
    weapon can be attributed to it, so it appears in the report's kill pace and per-car damage but in
    no per-weapon row.
+
+**Where a spike may sit.** AS13's "flush against a boundary plane, one depth deep" now holds only for hand-written arenas (`arena-02`, `arena-03`). A tile spike may sit anywhere in the grid, is one `TILE_SIZE` deep, and hurts from every open face (TA6, TA19); every tile spike must have at least one non-solid edge-neighbour.
 
 **The trigger is a push, not contact.** Because the boundary stops a car at the notch face, "touching
 spikes" is a state a car can hold forever — someone who drove in and stopped is still touching them.
