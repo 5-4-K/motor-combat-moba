@@ -125,8 +125,21 @@ export function compileTileArena(src: TileArenaSource): ArenaDef;
 - Spawns, zone and palette pass through unchanged. Compiling reads no mode accessor, so it may run at
   module load (`export const ARENA_01 = compileTileArena({...})`).
 
-Downstream of compile **nothing in the sim, the bot, vision or shots changes**: they keep reading
-`arena.obstacles` and `boundsOf(arena)`.
+Downstream of compile **nothing in the sim, vision or shots changes**: they keep reading
+`arena.obstacles` and `boundsOf(arena)`. Two readers of the *playable edge* do change:
+
+- **TA30** `playableExtentOf` (the players' guide quotes every weapon's reach as a percentage of it)
+  answers a tile arena's **bounding box of non-solid cells**, not the grid frame — the same class of
+  error the octagon once caused (reading the frame understated reach by ~13%). It is built on a new
+  `playableRectOf(arena): { x, y, w, h }` in `arena/bounds.ts`, which also answers the polygon's
+  bounding box and, for a plain arena, the frame. arena-01's extent moves 1132 × 612 → 1120 × 640,
+  so **`npm run build:manual` is owed**.
+- **TA31** The bot's wall-avoidance (`boundsPenalty`, `wallAhead`) walks `BotArenaView.planes`, which
+  `buildBotView` fills from `boundsOf(arena).planes` — absent for a tile arena, so the bot would see
+  the grid frame as the wall and only a binary penalty off the wall rects. A new
+  `playablePlanesOf(arena)` in `arena/bounds.ts` returns the polygon's planes, or for a tile arena
+  the four planes of `playableRectOf`, or `undefined` for a plain rectangle; `buildBotView` uses it.
+  This changes bot behaviour without moving `BOT_PROFILES`, so `BOT_BRAIN_VERSION` is bumped.
 
 ## 4. Arena rules for tile arenas
 
@@ -154,8 +167,9 @@ Tile art lives in the never-pruned shared arena namespace: manifest key
 `arena.common.tile.<artId>`, file `public/art/arenas/common/tile-<artId>.png`, `colorMode: "none"`.
 `arenaIdFromArtKey` already returns `"common"` for it, so release pruning and boot loading need no
 change. Four art ids: `floor`, `wall`, `spike` (the solid spike base), and `spike-teeth` (the edge
-overlay, authored for the tile's **top** edge — teeth pointing up, out of the tile, transparent
-elsewhere).
+overlay, authored for the tile's **top** edge — teeth whose bases sit inside the tile and whose
+points reach the top edge, transparent elsewhere). Teeth never draw past their own tile: the tile is
+the hitbox, and a tooth over the floor would promise damage where there is none.
 
 - **TA21** Source art is 80 × 80 px (TA4). An importer, `scripts/import-tile-art.mjs`, resizes to
   exactly 80 × 80 (no trim — tiles are full-bleed), writes the file and adds the manifest row, in the
@@ -214,8 +228,8 @@ bytes ≈ 14 MB for arena-01, matching the PNG it replaces.
 
 ## 6. Converting arena-01 (TA9)
 
-32 × 18 tiles, still 1280 × 720, so the camera and zoom are untouched and `ARENA_WIDTH` (read by the
-players' guide through `ACTIVE_ARENA_ID`) does not move.
+32 × 18 tiles, still 1280 × 720, so the camera and zoom are untouched. The playable extent does move
+(TA30), which owes a players' guide rebuild.
 
 | | Before | After |
 |---|---|---|
