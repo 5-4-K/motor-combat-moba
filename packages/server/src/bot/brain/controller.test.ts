@@ -880,7 +880,14 @@ describe("HumanController", () => {
  */
 describe("inCorner", () => {
   const rect = { width: ARENA_01.width, height: ARENA_01.height, obstacles: [] };
-  const octagon = { ...rect, planes: boundsOf(ARENA_01).planes };
+  // The octagon `arena-01` was until 2026-10-09 (it is a square-cornered tile arena now, TA9), kept
+  // here as a fixture: what this pins is how a CHAMFER plane is read, and no shipped arena has a
+  // chamfer that sits inside the rect rule's margin on both axes.
+  const LEGACY_OCTAGON = [
+    { x: 124, y: 54 }, { x: 1156, y: 54 }, { x: 1206, y: 104 }, { x: 1206, y: 616 },
+    { x: 1156, y: 666 }, { x: 124, y: 666 }, { x: 74, y: 616 }, { x: 74, y: 104 },
+  ];
+  const octagon = { ...rect, planes: boundsOf({ ...rect, boundary: LEGACY_OCTAGON }).planes };
 
   it("finds a chamfer corner on the octagon", () => {
     // (95, 95) is inside the top-left chamfer's margin and inside the rect on BOTH axes — 95 is

@@ -567,7 +567,14 @@ describe("plan", () => {
    */
   describe("wallPenalty on a polygon arena", () => {
     const bare = { width: ARENA_01.width, height: ARENA_01.height, obstacles: [] };
-    const octagon = { ...bare, planes: boundsOf(ARENA_01).planes };
+    // The octagon `arena-01` was until 2026-10-09 (it is a square-cornered tile arena now, TA9), kept
+    // here as a fixture: what this pins is how a CHAMFER plane is read, and no shipped arena has a
+    // chamfer that sits inside the rect rule's margin on both axes.
+    const LEGACY_OCTAGON = [
+      { x: 124, y: 54 }, { x: 1156, y: 54 }, { x: 1206, y: 104 }, { x: 1206, y: 616 },
+      { x: 1156, y: 666 }, { x: 124, y: 666 }, { x: 74, y: 616 }, { x: 74, y: 104 },
+    ];
+    const octagon = { ...bare, planes: boundsOf({ ...bare, boundary: LEGACY_OCTAGON }).planes };
     // Inside the top-left chamfer and clear of every rect edge by more than the 60-unit margin:
     // x=120 and y=100 are both far from 0, and from 1280/720.
     const nearChamfer = selfAt(120, 100, 0);
