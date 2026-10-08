@@ -170,6 +170,8 @@ export {
 } from "./sim/weapons/fire.js";
 export type { FireState, PendingFire, SlotState } from "./sim/weapons/fire.js";
 export {
+  beamOriginOf,
+  beamReachOf,
   instanceExpired,
   muzzleOf,
   muzzleOffset,
