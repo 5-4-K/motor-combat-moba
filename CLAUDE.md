@@ -81,7 +81,7 @@ on the moved file(s), never a blanket `-u`. `table-pinning.test.ts` and `parity.
 ### What is NOT per-mode, and why
 
 `TICK_RATE_HZ`, `NET_CONFIG`, `SNAPSHOT_RATE_HZ`, the enum wire values, `ABILITY_SLOT_CEILING`,
-`MAX_PLAYERS`, `COLOR_TABLE`, `PRACTICE_CONFIG`, `CHAT_CONFIG`, `LOGICAL_CANVAS`, and the OBB hull
+`MAX_PLAYERS`, `TILE_SIZE` and `TILE_TABLE` (tile arenas, 2026-10-09), `COLOR_TABLE`, `PRACTICE_CONFIG`, `CHAT_CONFIG`, `LOGICAL_CANVAS`, and the OBB hull
 (`DRIVE_CONFIG.carWidth` / `carHeight`) are global. The hull is excluded from `ModeTables` **by
 type**, so a mode folder cannot author one even by accident. `MAX_PLAYERS` is on that list as the
 CEILING, not as the seat count: a mode authors its own `maxPlayers` in its `index.ts`, and
@@ -508,19 +508,17 @@ has no row in `state.players` to read. `BOT_SESSION_ID` still exists and is `Pra
 alone.
 See [`docs/superpowers/specs/2026-09-16-playground-six-car-select-design.md`](docs/superpowers/specs/2026-09-16-playground-six-car-select-design.md).
 
-**`arena-01` is no longer one open rectangle.** As of the 2026-09-11 arena-sprite-and-spike-hazard
-work it is a convex octagon: an optional `boundary` vertex list on `ArenaDef`, carried as inward
-half-planes through `Bounds` and resolved by a positional clamp — a generalisation of the same
-axis-aligned push `resolveBounds` always did, not four wall boxes, so a fast car can never find the
-wrong separating axis. `width`/`height` keep meaning the image frame and the camera bounds (still
-`1280 × 720`, so the camera stays static and the zoom untouched); the polygon is inset **inside**
-that rect, and the playable area it encloses — `1132 × 612` — is about **25% smaller** than the old
-rectangle. `boundsOf(arena)` is now the one place a `Bounds` is built from an arena, and every reader
-that used to assume a rectangle (`pointOutsideBounds`, `bounceOffWorld`, `hullTouchesWorld`) walks
-planes instead. Both shipped arenas are 1280 × 720. `arena-01` is a chamfered octagon with fourteen
-gapped spike strips; `arena-02` is a rectangle with a continuous spike ring on all four walls.
-`kind: "spike"` obstacles sit flush against the boundary planes and 20 units deep — ordinary solids
-to driving, projectiles and the bot, with one more behaviour layered on top (next).
+**`arena-01` is a tile arena as of 2026-10-09.** It is a 32 × 18 text grid compiled by
+`compileTileArena` (`packages/shared/src/arena/tiles/`) into ordinary `obstacles`: playable floor
+1120 × 640, square corners, fourteen spike runs set into the innermost wall row. `arena-02` keeps its
+rectangle with a continuous spike ring and `arena-03` its chamfered polygon, both hand-written. The
+`boundary` vertex list on `ArenaDef` remains the mechanism for a non-rectangular hand-written arena:
+inward half-planes through `Bounds`, resolved by a positional clamp, with `boundsOf(arena)` the one
+place a `Bounds` is built. `width`/`height` keep meaning the image frame and camera bounds
+(`1280 × 720`). `kind: "spike"` obstacles are ordinary solids to driving, projectiles and the bot,
+with one more behaviour layered on top (next). See
+[`docs/superpowers/specs/2026-10-09-tile-arenas-design.md`](docs/superpowers/specs/2026-10-09-tile-arenas-design.md)
+(TA1-TA31).
 
 **Spikes are the game's first environmental damage source.** `SPIKE_CONFIG` deals a flat 80 damage,
 gated on a **fresh push into the surface** — speed into the wall above `triggerSpeed`, so resting
@@ -538,14 +536,16 @@ already reads as a self-inflicted, environment death with no new code. See
 [`docs/combat-model.md`](docs/combat-model.md#environmental-hazards-wall-spikes) and
 [`docs/config-reference.md`](docs/config-reference.md#spike_config).
 
-**`arena.arena-01.floor` and `arena.arena-02.floor` are the live keys in the arena art namespace.** The namespace
-(`arena.<id>.<slot>`, pruned per-arena at release time) existed since the asset pipeline shipped with
-nothing to carry. The client draws a resolving floor as an `Image` in place of the generated asphalt
-`TileSprite` — painted markings, the border stroke and the notch strips all go unpainted for that
-arena, since the art already carries them. The bot also learned the polygon and the spikes, which bumped
-`BOT_BRAIN_VERSION` without `BOT_PROFILES` moving. See
+**`arena.arena-02.floor` is the live floor key in the arena art namespace; arena-01's is gone.** The
+namespace (`arena.<id>.<slot>`, pruned per-arena at release time) existed since the asset pipeline
+shipped with nothing to carry. The client draws a resolving floor as an `Image` in place of the
+generated asphalt `TileSprite` — painted markings, the border stroke and the notch strips all go
+unpainted for that arena, since the art already carries them. A tile arena draws no such image: its
+tile art lives under `arena.common.tile.<id>` and is baked into render-texture chunks at load. The bot
+also learned the polygon and the spikes, which bumped `BOT_BRAIN_VERSION` without `BOT_PROFILES`
+moving. See
 [`docs/superpowers/specs/2026-09-11-arena-sprite-and-spike-hazard-design.md`](docs/superpowers/specs/2026-09-11-arena-sprite-and-spike-hazard-design.md)
-(AS1–AS31).
+(AS1-AS31).
 
 **Online netcode (redesign landed 2026-10-04, phases A–G).** Built for a dedicated server up to
 80 ms RTT: clients send **tick-stamped inputs, and every car steps exactly once per tick** with the
@@ -651,6 +651,7 @@ contract tests, snapshots, and the pre-existing G12 failures.
 | FFA Deathmatch: the second win condition, kill attribution, respawn and spawn-protection lifecycle, the `isOnField`/`isSolid` split (M1–M33) | [`docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md`](docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md) |
 | The dev-only playtest playground: `?dev=playground`, the extracted tick pipeline, the runtime tuning store, `isActive`, the bot, persistence/export (PG1–PG23); bot difficulty profiles, per-car colour selection, the settings-panel relayout, and the `?dev=assets` additions (PG24–PG40); the VFX settings panel over `WEAPON_FX`, its preview and its export (PG41–PG55); the environment settings panel over `ENVIRONMENT_FX` — the arena's visual ground rather than per-weapon bursts — and its three non-live knobs (EV1–EV34); the six-seat widening, the Car select panel and the stable seat ids (PG56–PG88) | [`docs/superpowers/specs/2026-09-01-playtest-playground-design.md`](docs/superpowers/specs/2026-09-01-playtest-playground-design.md), [`docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md`](docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md), [`docs/superpowers/specs/2026-09-08-playground-vfx-settings-design.md`](docs/superpowers/specs/2026-09-08-playground-vfx-settings-design.md), [`docs/superpowers/specs/2026-09-08-playground-environment-vfx-design.md`](docs/superpowers/specs/2026-09-08-playground-environment-vfx-design.md), [`docs/superpowers/specs/2026-09-16-playground-six-car-select-design.md`](docs/superpowers/specs/2026-09-16-playground-six-car-select-design.md) |
 | Practice mode: the shipped 1v1-vs-bot room, its settings page, session limits (PR1–PR31) | [`docs/superpowers/specs/2026-09-03-practice-mode-design.md`](docs/superpowers/specs/2026-09-03-practice-mode-design.md) |
+| Tile arenas: the tile table, the grid compiler, the bake, tile art (TA1–TA31) | [`docs/superpowers/specs/2026-10-09-tile-arenas-design.md`](docs/superpowers/specs/2026-10-09-tile-arenas-design.md) |
 | Conquer: the third win condition and first shipped team mode, the capture zone and control bar, car claims (`lockedCarId`), the respawn-on-death flow it shares with Deathmatch, `arena-03` (CQ1–CQ62) | [`docs/superpowers/specs/2026-09-24-conquer-mode-design.md`](docs/superpowers/specs/2026-09-24-conquer-mode-design.md) |
 | The user's own idea / invariant notes | `docs/ideas/`, `docs/invariants/` — **off limits unless the user names them**, see below |
 

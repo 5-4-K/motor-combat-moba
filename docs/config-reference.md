@@ -1474,33 +1474,36 @@ keep hand-in-sync as more arenas land.
 
 | id | width × height (image frame) | playable area | obstacles | palette |
 |---|---|---|---|---|
-| `arena-01` | 1280 × 720 | 1132 × 612 octagon | 14 (all `kind: "spike"`) | `#3b4747` floor / `#4a5568` obstacle / `#2d3436` border |
+| `arena-01` | 1280 × 720 (32 × 18 tiles) | 1120 × 640 rect (tile arena) | compiled from the grid (14 `kind: "spike"` runs set into the wall row) | `#3b4747` floor / `#4a5568` obstacle / `#2d3436` border |
 | `arena-02` | 1280 × 720 | 1161 × 607 rect | 4 (all `kind: "spike"`) | `#9a7a58` floor / `#4a3e34` obstacle / `#2a2420` border |
 | `arena-03` | 1280 × 2160 | chamfered octagon (100 u chamfers) | 12 (2 `kind: "spike"`) | `#2b2f35` floor / `#4b5362` obstacle / `#1a1d22` border |
 
-`arena-01` is no longer one open rectangle. As of the 2026-09-11 arena-sprite-and-spike-hazard work
-it authors an `ArenaDef.boundary` — an optional convex polygon, wound clockwise, carried as inward
-half-planes and consumed by every boundary reader (`boundsOf(arena)` is the one place a `Bounds` is
-built from an arena). Absent means the plain rectangle `0,0 → width,height`. `arena-01`'s polygon is the wall band inset with
-50-unit 45° chamfers at the four corners, enclosing a **1132 × 612** playable area — about 25%
-smaller than the `1280 × 720` it replaces. `width`/`height` keep their old meaning throughout: the
-image frame and the camera bounds, unchanged, with the polygon inset *inside* them, so at
-`CAMERA_CONFIG.zoom` of 1 the camera always follows its target clamped to the arena, and on a
-one-screen arena like this one that clamp leaves no room to scroll — it does not scroll (CB2).
+`arena-01` is a **tile arena** as of 2026-10-09 (see [Tile arenas](#tile-arenas) below): a 32 × 18 grid compiled into ordinary `obstacles`, no `boundary`, playable floor **1120 × 640** (x 80..1200, y 40..680), square corners. `ArenaDef.boundary` — an optional convex polygon, wound clockwise, carried as inward half-planes and consumed by every boundary reader (`boundsOf(arena)` is the one place a `Bounds` is built from an arena) — remains the mechanism for a non-rectangular hand-written arena such as `arena-03`. Absent means the plain rectangle `0,0 → width,height`. `width`/`height` keep their meaning throughout: the image frame and the camera bounds, so on a one-screen arena like this one the camera clamp leaves no room to scroll (CB2).
 
-Its 14 obstacles are ordinary `Obstacle` rects with one addition: `kind: "spike"`, an optional field
-that marks wall-mounted geometry that also damages (see [`SPIKE_CONFIG`](#spike_config) above) and is
-the only kind allowed to sit flush against the boundary rather than a car diagonal clear of it. Four
-strips line the top wall and four the bottom, three line the left wall and three the right — 14 in
-all, each 20 world units deep and the two sets symmetric about their own centre line (`x = 640` for
-top/bottom, `y = 360` for left/right), matching the art. Absent `kind` still means an ordinary solid.
+`arena-01`'s spikes are `kind: "spike"` rectangles the compiler emits from the `^` cells, one `TILE_SIZE` (40) deep, in the innermost wall row (fourteen runs). The hand-written arenas' rule — spikes flush against a boundary plane, `SPIKE_CONFIG.depth` deep — applies to `arena-02`/`arena-03` only (TA19). Absent `kind` still means an ordinary solid.
 
-Its 6 `ffaSpawns` are the four corners and the midpoint of each long wall, one margin inside the new
-playable rect; corner cars face across the arena and the two midpoint cars face each other, the same
-facing rule the old table used — only the coordinates moved, re-measured against the octagon. Its 3
-`teamASpawns` sit at `x=200` facing `0` and its 3 `teamBSpawns` at `x=1080` facing `π`, at
-`y=207/360/513` — quarters of the playable height, so the gap between team-mates equals the gap to
-the wall. Every spawn clears the nearest spike strip by more than a car diagonal.
+Its 3 `teamASpawns` sit at `x=200` facing `0` and its 3 `teamBSpawns` at `x=1080` facing `π`, at `y=200/360/520`; its 6 `ffaSpawns` use the same facing pattern. Every spawn is on a floor cell (TA20).
+
+### Tile arenas
+
+(Spec: `docs/superpowers/specs/2026-10-09-tile-arenas-design.md`, TA1–TA31.) A tile arena is authored as a text grid and compiled by `compileTileArena` (`packages/shared/src/arena/tiles/compile.ts`) into the same `obstacles` every other arena carries, so the sim, vision and shots read nothing new. Compiling reads no mode accessor and runs at module load.
+
+- **`TILE_SIZE`** — 40 world units per tile side (global, not per-mode). `width = cols × TILE_SIZE`, `height = rows × TILE_SIZE` (TA14).
+- **`TILE_TABLE`** (`tiles/tile-config.ts`) — one row per tile id, each with `char`, `art`, `collision`, `shape`, and optional `hazard` / `surface`:
+
+| id | char | art | collision | notes |
+|---|---|---|---|---|
+| `floor` | `.` | `floor` | none | drivable |
+| `wall` | `#` | `wall` | solid | |
+| `spike` | `^` | `spike` | solid | `hazard: "spike"`; damage numbers stay in the mode's `spike()` table |
+| `void` | space | none | solid | drawn as backdrop |
+
+- **Grid syntax** — `parseTileGrid` reads rows of single characters; `compileTileArena` throws naming the arena id, row and column on an unknown character, rows of unequal length, or an empty grid (TA17). Solid cells are merged into rectangles by a deterministic row-major greedy pass; `wall` and `void` share a class, `spike` is its own (TA15), and the rectangles tile the solid cells exactly (TA16).
+- **Reserved `surface`** — `{ grip?, drag?, accel? }` multipliers (1 = neutral) are declared on `TileDef` but no row may author one until the sim reads it; a config test refuses it (TA12). A hazard tile must be `collision: "solid"` (TA11).
+- **Grid rules in `arena.test.ts`** — TA18: every floor cell belongs to some 2 × 2 block of non-solid cells (no passage narrower than a car). TA19: every spike tile has an in-grid non-solid edge-neighbour, and hurts from every open face. TA20: every spawn sits on a floor cell and its hull is clear of every solid cell.
+- **Bounds** — `playableRectOf`, `playableExtentOf` (a tile arena's non-solid bounding box; the frame for a plain arena — the players' guide quotes weapon reach against it, TA30) and `playablePlanesOf` (what the bot's wall readings walk, TA31) live in `arena/bounds.ts`.
+
+### Hand-written arenas
 
 `arena-02` is a 1280 × 720 dusty pit with an inset rectangular `boundary` (wall faces at
 `x = 61/1222`, `y = 61/668`, playable **1161 × 607**) and four continuous `kind: "spike"` strips,
