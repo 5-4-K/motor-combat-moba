@@ -444,6 +444,8 @@ regression.
 **fixed quadrature points** — 7 offsets at set quantiles of the normal with fixed weights
 (Gauss–Hermite), not Monte Carlo samples. Better on three axes at once:
 
+*2026-10-09: now 5 offsets — the seven-point rule's two outermost nodes (z = ±3.75, 0.05% of the weight each) are dropped and the inner five renormalised, since each node is a full shot march and those two cost 2/7 of the solver for 0.1% of `hitChance`. `BOT_BRAIN_VERSION` 6.5.0.*
+
 1. No `rng()` consumption, so no H21 stream-alignment hazard in the hottest new code.
 2. Cheaper than sampling for equal accuracy.
 3. **`hitChance` is a smooth function rather than a noisy estimate.** A noisy score function is

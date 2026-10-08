@@ -1,5 +1,5 @@
 import {
-  TICK_RATE_HZ, beamShapeAt, carHullOf, derived, drive, forwardMaxSpeedOf,
+  TICK_RATE_HZ, beamOriginOf, beamReachOf, beamShapeAt, carHullOf, derived, drive, forwardMaxSpeedOf,
   instanceExpired, projectileShapeAt, shapeHitsObb, slotsOf, smear, spawnInstances, stepInstance,
   clampBearingToSwing, clampToSwing, turret, turretPivotOf, turretTurnDelta, weaponDamageOf, weaponDefOf,
   weaponTicksOf, wrapAngle, type CarId, type WeaponId,
@@ -16,8 +16,12 @@ import { kitWeaponIds, weaponReachOf } from "./reach.js";
  * Seven-point Gauss–Hermite, transformed for the probabilists' normal: nodes are `sqrt(2) * x_i` and
  * weights are `w_i / sqrt(pi)`. FIXED points, never random draws — the solver must consume no `rng()`
  * (H21), and a smooth `hitChance` is also what stops the phase-D planner chattering on a noisy score.
+ *
+ * The two outermost nodes (z = ±3.75, 0.05% of the weight each) are dropped and the inner five
+ * renormalised (2026-10-09, solver cost): every node is a full march of the shot, so they cost 2/7
+ * of the solver for 0.1% of `hitChance`.
  */
-export const AIM_QUADRATURE: readonly { z: number; weight: number }[] = Object.freeze([
+const SEVEN_POINT_HERMITE = [
   { z: -3.750439717725742, weight: 0.00054826 },
   { z: -2.366759410734541, weight: 0.03075712 },
   { z: -1.154405394739968, weight: 0.24012318 },
@@ -25,7 +29,12 @@ export const AIM_QUADRATURE: readonly { z: number; weight: number }[] = Object.f
   { z: 1.154405394739968, weight: 0.24012318 },
   { z: 2.366759410734541, weight: 0.03075712 },
   { z: 3.750439717725742, weight: 0.00054826 },
-]);
+];
+const INNER_FIVE = SEVEN_POINT_HERMITE.slice(1, -1);
+const INNER_WEIGHT = INNER_FIVE.reduce((sum, node) => sum + node.weight, 0);
+export const AIM_QUADRATURE: readonly { z: number; weight: number }[] = Object.freeze(
+  INNER_FIVE.map((node) => Object.freeze({ z: node.z, weight: node.weight / INNER_WEIGHT })),
+);
 
 /** Where a car will be `ticksAhead` from now. Plan 3 swaps the implementation behind this type. */
 export type PosePredictor = (ticksAhead: number) => { x: number; y: number; angle: number };
@@ -466,29 +475,78 @@ function marchOne(start: WeaponInstance, args: SolveArgs, heading: number): numb
   const interval = def.kind === "beam" ? weaponTicksOf(start.weaponId).damageInterval : Infinity;
   const dt = 1 / TICK_RATE_HZ;
   let instance = start;
-  let previous = shapeOf(instance);
+  // `undefined` while a projectile is outside the broad phase below: its shape is only built when
+  // the narrow test is going to read it.
+  let previous: WorldShape | undefined = shapeOf(instance);
   let damage = 0;
   let lastHitTick = -Infinity;
+
+  // NOT `boundsOf(arena)`: `arena` here is a `BotArenaView`, which carries no `boundary` field (it
+  // is a constructed projection, never a handle on the arena def — see that type's doc). `boundsOf`
+  // reads `.boundary`, so feeding it a view silently returns the bare rectangle no matter what
+  // `.planes` the view actually carries, and the solver marches every shot through a rectangle
+  // while the real sim simulates the octagon. Build the `Bounds` from the view's own pre-built
+  // planes instead.
+  const bounds = { width: arena.width, height: arena.height, planes: arena.planes };
+  const ownerPose = { x: shooter.x, y: shooter.y, angle: heading };
+
+  // A beam's fast path. The owner pose is frozen for the whole march, so `stepInstance`'s beam
+  // branch re-anchors to the same origin and re-runs the same wall clip every tick — that raycast
+  // alone was over a third of a balance run's CPU (2026-10-09 profile). Resolve both once and step
+  // only the extent, which is all the beam branch changes. Once the beam stops growing its swept
+  // shape is identical tick to tick, so it is reused rather than re-hulled. Same result, bit for bit.
+  const beamOrigin = def.kind === "beam" ? beamOriginOf(start, def, ownerPose) : undefined;
+  const beamReach = beamOrigin ? beamReachOf(def, beamOrigin, arena.obstacles, bounds) : 0;
+  let steadySwept: WorldShape | undefined;
+
+  // A projectile's broad phase. Its swept shape this tick lies inside the capsule of radius
+  // `shotRadius` around the segment its centre moved along (both end shapes do, and the capsule is
+  // convex), and the target's hull lies inside a circle of `hullRadius` around its pose. Capsule
+  // and circle apart means the exact test would say no, so the hull and the SAT are skipped — for a
+  // shot nowhere near the target, which is most ticks of most marches. Exact: it only ever skips a
+  // test that would have returned false.
+  const shotRadius = def.kind === "beam" ? 0 : radiusAbout(previous!, start.x, start.y);
+  const hullProbe = carHullOf(0, 0, 0);
+  const hullRadius = Math.hypot(hullProbe.w, hullProbe.h) / 2;
+  const reachSq = (shotRadius + hullRadius + BROAD_PHASE_SLACK) ** 2;
 
   const marchTicks = marchTicksOf(start.weaponId);
   for (let ahead = 1; ahead <= marchTicks; ahead++) {
     const now = tick + ahead;
-    instance = stepInstance(instance, {
-      dt, tick: now,
-      obstacles: arena.obstacles,
-      // NOT `boundsOf(arena)`: `arena` here is a `BotArenaView`, which carries no `boundary` field
-      // (it is a constructed projection, never a handle on the arena def — see that type's doc).
-      // `boundsOf` reads `.boundary`, so feeding it a view silently returns the bare rectangle no
-      // matter what `.planes` the view actually carries, and the solver marches every shot through
-      // a rectangle while the real sim simulates the octagon. Build the `Bounds` from the view's own
-      // pre-built planes instead.
-      bounds: { width: arena.width, height: arena.height, planes: arena.planes },
-      ownerPose: { x: shooter.x, y: shooter.y, angle: heading },
-      homingTarget: { x: target.x, y: target.y },
-    });
-    const current = shapeOf(instance);
     const pose = targetAt(ahead);
-    const connects = shapeHitsObb(smear(previous, current), carHullOf(pose.x, pose.y, pose.angle));
+    const hull = carHullOf(pose.x, pose.y, pose.angle);
+    let connects: boolean;
+    if (beamOrigin) {
+      const extent = Math.min(beamReach, instance.extent + def.speed * dt);
+      const unchanged = ahead > 1 && extent === instance.extent;
+      instance = { ...instance, x: beamOrigin.x, y: beamOrigin.y, angle: beamOrigin.angle, extent };
+      let swept: WorldShape;
+      if (unchanged) {
+        swept = steadySwept ??= smear(previous!, previous!);
+      } else {
+        const current = shapeOf(instance);
+        swept = smear(previous!, current);
+        previous = current;
+      }
+      connects = shapeHitsObb(swept, hull);
+    } else {
+      const before = instance;
+      instance = stepInstance(instance, {
+        dt, tick: now,
+        obstacles: arena.obstacles,
+        bounds,
+        ownerPose,
+        homingTarget: { x: target.x, y: target.y },
+      });
+      if (segmentPointDistSq(before.x, before.y, instance.x, instance.y, pose.x, pose.y) <= reachSq) {
+        const current = shapeOf(instance);
+        connects = shapeHitsObb(smear(previous ?? shapeOf(before), current), hull);
+        previous = current;
+      } else {
+        connects = false;
+        previous = undefined;
+      }
+    }
     if (connects) {
       if (!Number.isFinite(interval)) {
         // (a) Direct hit: the target is inside the blast by construction, no position check needed.
@@ -500,13 +558,34 @@ function marchOne(start: WeaponInstance, args: SolveArgs, heading: number): numb
         lastHitTick = now;
       }
     }
-    previous = current;
     if (instanceExpired(instance, now)) {
       damage += splashAt(instance, pose, def); // (b) natural expiry, position-gated.
       break;
     }
   }
   return damage;
+}
+
+/** Headroom on the broad phase's reach, in world units, so float rounding can never skip a graze. */
+const BROAD_PHASE_SLACK = 1;
+
+/** The radius of the smallest circle about (`x`, `y`) that holds `shape`. */
+function radiusAbout(shape: WorldShape, x: number, y: number): number {
+  if (shape.kind === "circle") return Math.hypot(shape.x - x, shape.y - y) + shape.radius;
+  let max = 0;
+  for (const p of shape.points) max = Math.max(max, Math.hypot(p.x - x, p.y - y));
+  return max;
+}
+
+/** Squared distance from (`px`, `py`) to the segment (`ax`, `ay`)–(`bx`, `by`). */
+function segmentPointDistSq(ax: number, ay: number, bx: number, by: number, px: number, py: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lengthSq = dx * dx + dy * dy;
+  const t = lengthSq === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSq));
+  const cx = ax + t * dx - px;
+  const cy = ay + t * dy - py;
+  return cx * cx + cy * cy;
 }
 
 /**

@@ -823,7 +823,10 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // 6.3.0 (2026-09-29): bot timing authored in ms (NR14); identical at 30 Hz, doubles in ticks at 60 Hz.
 // 6.4.0 (2026-10-07): roster change — tremor to Bastion, wildcharge to Taurus, Taurus published. The bot's
 // reach model reads the kit, so reports across this line are not comparable. `BOT_PROFILES` did not move.
-export const BOT_BRAIN_VERSION = "6.4.0";
+// 6.5.0 (2026-10-09): solver cost. `AIM_QUADRATURE` drops its two outermost nodes (0.1% of the weight)
+// and renormalises the inner five, so every solved EV moves slightly; the beam fast path and the
+// projectile broad phase in `marchOne` are exact. `BOT_PROFILES` did not move.
+export const BOT_BRAIN_VERSION = "6.5.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency
