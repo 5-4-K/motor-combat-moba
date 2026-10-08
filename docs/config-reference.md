@@ -276,13 +276,13 @@ reads (`derived().weaponTicks`) — see "Authoring in milliseconds" below.
 
 | id | kind | damage | damageFrequencyMs | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys / intervalMs) | pellets (perVolley / spreadDeg) | attached | lifetimeMs | hitbox | unlocksAt | color |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `predator` | projectile | 30 | 0 | 900 | 1800 (no real range — speed × 2000 ms lifetime; see below) | 1000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | 2000 | capsule, along 19 / across 6 (homing: proximity acquire, 200u radius, 300°/s) | 1 | `#606060` |
+| `predator` | projectile | 30 | 0 | 900 | 1800 (no real range — speed × 2000 ms lifetime; see below) | 6000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | 2000 | capsule, along 19 / across 6 (homing: proximity acquire, 200u radius, 300°/s) | 1 | `#606060` |
 | `thunderclap` | maneuver (dash) | 90 | 0 | 1600 (dash speed) | 400 (dash distance) | 5000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — | 1 | `#3ED1FA` |
 | `afterburner` | beam | 49 | 500 | 1100 | 220 | 13000 | 0 | 200 | — | — | 1 / 0 | — | true | 2000 | cone, 55° (muzzles `[0, 180]`) | 1 | `#FF9000` |
-| `magmablast` | projectile | 50 | 0 | 600 | 900 | 1600 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 (explosion on death: 60u disc, +15 splash, 150 ms linger, corrodes 2s; see below) | 1 | `#FF6000` |
+| `magmablast` | projectile | 50 | 0 | 600 | 900 | 7000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 (explosion on death: 60u disc, +15 splash, 150 ms linger, corrodes 2s; see below) | 1 | `#FF6000` |
 | `pepperbox` | projectile | 45 (per pellet) | 0 | 800 | 600 | 1800 | 0 | 200 | — | 0 | 1 / 0 | 3 / 12 | — | — | ellipse, along 9 / across 3 (muzzles `[0, 90, 180, 270]`) | 1 | `#C04818` |
 | `lance` | beam | 43 (per pulse; 4 pulses == 172 full connect point-blank, 3 == 129 at the tip) | 500 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | 1 / 0 | — | true | 1500 | rect, width 57.5 (`holdsDuringFire`) | 1 | `#F0FF00` |
-| `thumper` | projectile | 60 | 0 | 450 | 1305 (bounce, 2900 ms lifetime) | 3000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 24 / across 15 (flat tail) | 1 | `#FFD800` |
+| `thumper` | projectile | 60 | 0 | 450 | 1305 (bounce, 2900 ms lifetime) | 7000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 24 / across 15 (flat tail) | 1 | `#FFD800` |
 | `roadblock` | projectile | 100 | 0 | 600 | 500 | 6000 | 0 | 200 | — | 4 | 1 / 0 | 1 / 0 | — | — | bar, along 6 / across 60 (`piercesWalls`) | 1 | `#D89000` |
 | `wildcharge` | maneuver (charge) | 250 | 0 | 0 | 0 | 20000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — (`isUnInterruptable`, 10 s window, `slamsStunned`) | 1 | `#F06000` |
 | `tremor` | beam | 25 (per tick; 10 ticks == 250 full connect) | 400 | 492 | 492 | 15000 | 0 | 200 | — | — | 1 / 0 | — | false | 2875 | cone, 60° | 1 | `#8A6D12` |

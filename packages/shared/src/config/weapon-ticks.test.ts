@@ -28,7 +28,7 @@ describe("WEAPON_TICKS", () => {
   it("derives magmablast's clocks from its milliseconds", () => {
     const ticks = weaponTicksOf("magmablast");
     // 1600ms is exactly 1.6 s of ticks (48 at 30 Hz, 96 at 60 Hz).
-    expect(ticks.cooldown).toBe((1600 * TICK_RATE_HZ) / 1000);
+    expect(ticks.cooldown).toBe((7000 * TICK_RATE_HZ) / 1000);
     expect(ticks.startUp).toBe(0);
     expect(ticks.recovery).toBe(0);
     expect(ticks.refireDelay).toBe(0); // no stock block

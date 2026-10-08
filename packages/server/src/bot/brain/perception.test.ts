@@ -261,8 +261,8 @@ describe("readinessOf", () => {
   it("recovers to loaded once the cooldown has elapsed", () => {
     const state = newPerception();
     state.firedSeenTick.set("them:predator", 100);
-    // predator: 1000 ms == one second of ticks.
-    expect(readinessOf(state, "them", "predator", 101 + TICK_RATE_HZ, RESOLVED_BOT_PROFILES.hard)).toBe(1);
+    // predator: 6000 ms == six seconds of ticks.
+    expect(readinessOf(state, "them", "predator", 101 + 6 * TICK_RATE_HZ, RESOLVED_BOT_PROFILES.hard)).toBe(1);
   });
 
   it("forgets a sighting older than memoryTicks, so a casual loses track", () => {

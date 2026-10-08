@@ -503,7 +503,7 @@
     "basic-attack-anvil": {
       "color": "#101014",
       "cooldownMs": 800,
-      "damage": 20,
+      "damage": 10,
       "damageFrequencyMs": 0,
       "hitbox": {
         "radius": 12,
@@ -533,7 +533,7 @@
     "basic-attack-bastion": {
       "color": "#101014",
       "cooldownMs": 800,
-      "damage": 20,
+      "damage": 10,
       "damageFrequencyMs": 0,
       "hitbox": {
         "radius": 12,
@@ -563,7 +563,7 @@
     "basic-attack-bullseye": {
       "color": "#101014",
       "cooldownMs": 800,
-      "damage": 20,
+      "damage": 10,
       "damageFrequencyMs": 0,
       "hitbox": {
         "radius": 12,
@@ -593,7 +593,7 @@
     "basic-attack-caprico": {
       "color": "#101014",
       "cooldownMs": 800,
-      "damage": 20,
+      "damage": 10,
       "damageFrequencyMs": 0,
       "hitbox": {
         "radius": 12,
@@ -623,7 +623,7 @@
     "basic-attack-cleaver": {
       "color": "#101014",
       "cooldownMs": 800,
-      "damage": 20,
+      "damage": 10,
       "damageFrequencyMs": 0,
       "hitbox": {
         "radius": 12,
@@ -653,7 +653,7 @@
     "basic-attack-mirage": {
       "color": "#101014",
       "cooldownMs": 800,
-      "damage": 20,
+      "damage": 10,
       "damageFrequencyMs": 0,
       "hitbox": {
         "radius": 12,
@@ -683,7 +683,7 @@
     "basic-attack-prowler": {
       "color": "#101014",
       "cooldownMs": 800,
-      "damage": 20,
+      "damage": 10,
       "damageFrequencyMs": 0,
       "hitbox": {
         "radius": 12,
@@ -713,7 +713,7 @@
     "basic-attack-skorpios": {
       "color": "#101014",
       "cooldownMs": 800,
-      "damage": 20,
+      "damage": 10,
       "damageFrequencyMs": 0,
       "hitbox": {
         "radius": 12,
@@ -743,7 +743,7 @@
     "basic-attack-taurus": {
       "color": "#101014",
       "cooldownMs": 800,
-      "damage": 20,
+      "damage": 10,
       "damageFrequencyMs": 0,
       "hitbox": {
         "radius": 12,
@@ -772,7 +772,7 @@
     },
     "fury-horn": {
       "color": "#C0C8D0",
-      "cooldownMs": 2000,
+      "cooldownMs": 8000,
       "damage": 50,
       "damageFrequencyMs": 0,
       "hitbox": {
@@ -831,7 +831,7 @@
     },
     "magmablast": {
       "color": "#FF6000",
-      "cooldownMs": 1600,
+      "cooldownMs": 7000,
       "damage": 50,
       "damageFrequencyMs": 0,
       "explosion": {
@@ -905,7 +905,7 @@
     },
     "predator": {
       "color": "#606060",
-      "cooldownMs": 1000,
+      "cooldownMs": 6000,
       "damage": 30,
       "damageFrequencyMs": 0,
       "hitbox": {
@@ -1016,7 +1016,7 @@
       ],
       "bounces": true,
       "color": "#FFD800",
-      "cooldownMs": 3000,
+      "cooldownMs": 7000,
       "damage": 60,
       "damageFrequencyMs": 0,
       "hitbox": {
