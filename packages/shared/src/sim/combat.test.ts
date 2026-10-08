@@ -867,6 +867,11 @@ describe("shot direction through a real tick", () => {
 });
 
 describe("turret press through a real tick (TR18-TR24)", () => {
+  // Brawl hides its turret, which turns it instantly; these cases are about a turret that has to
+  // swing, so they run on Brawl's tables with the turret shown.
+  beforeEach(() =>
+    installMode(assembleModeConfig(DEFAULT_GAME_MODE, { ...BRAWL_TABLES, turret: { ...BRAWL_TABLES.turret, visible: true } })),
+  );
   it("waits for the turret to turn onto the aimed bearing before firing", () => {
     const shooter = turretPlayer("a", { x: 300, y: 300, angle: 0, fireMask: 1 << 1, aimBearing: Math.PI / 2 });
     let state = run({ world: world({ tick: 0 }), players: [shooter] });

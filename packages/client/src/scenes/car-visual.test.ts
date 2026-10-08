@@ -1,6 +1,6 @@
 import { DEATH_FADE_MS, TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import { DEFAULT_GAME_MODE, GameMode, applyOverrides, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { CAR_TABLE, COLOR_TABLE, DEFAULT_CAR_ID, DRIVE_CONFIG, activeCarIds } from "@motor-combat-moba/shared";
 import { setCarTintOverrides } from "../fx/car-tint.js";
 import {
@@ -8,6 +8,7 @@ import {
   carFillOf,
   carOutlinePoints,
   carShapeOf,
+  drawsTurret,
   deathFadeAlpha,
   ellipsePoints,
   hexagonPoints,
@@ -218,5 +219,28 @@ describe("weaponLoadoutSignature", () => {
     const before = weaponLoadoutSignature([{ weaponId: "predator" }, { weaponId: "pepperbox" }]);
     const after = weaponLoadoutSignature([{ weaponId: "lance" }, { weaponId: "pepperbox" }]);
     expect(before).not.toBe(after);
+  });
+});
+
+describe("drawsTurret", () => {
+  const TURRET_KIT = ["basic-attack-mirage", "predator", "thunderclap", "afterburner"];
+  const NO_TURRET_KIT = ["basic-attack-mirage", "thunderclap", "afterburner"];
+
+  it("draws a turret for a turret weapon while the mode shows turrets", () => {
+    installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.visible": true }));
+    expect(drawsTurret(TURRET_KIT)).toBe(true);
+    expect(drawsTurret(NO_TURRET_KIT)).toBe(false);
+  });
+
+  it("draws none when the mode hides the turret, even with a turret weapon", () => {
+    installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.visible": false }));
+    expect(drawsTurret(TURRET_KIT)).toBe(false);
+  });
+
+  it("follows the installed mode: Brawl hides it, Deathmatch shows it", () => {
+    installMode(modeConfigOf(GameMode.FFA_LAST_STANDING));
+    expect(drawsTurret(TURRET_KIT)).toBe(false);
+    installMode(modeConfigOf(GameMode.FFA_DEATHMATCH));
+    expect(drawsTurret(TURRET_KIT)).toBe(true);
   });
 });

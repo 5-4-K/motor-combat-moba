@@ -458,7 +458,8 @@
   "turret": {
     "defaultOffset": 25,
     "maxSwingDeg": 360,
-    "turnRateDegPerSec": 540
+    "turnRateDegPerSec": 540,
+    "visible": true
   },
   "weapons": {
     "afterburner": {

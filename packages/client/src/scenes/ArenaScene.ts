@@ -172,6 +172,7 @@ import {
   carFillFor,
   carShapeOf,
   deathFadeAlpha,
+  drawsTurret,
   hexagonPoints,
   weaponLoadoutSignature,
 } from "./car-visual.js";
@@ -3569,8 +3570,9 @@ export class ArenaScene extends Phaser.Scene {
     // Built only when this car can actually fire something from a turret (TR53): a car whose current
     // loadout carries none does not draw one at all, rather than drawing a barrel that can never
     // turn toward a shot. `carHasTurretWeapon` already knows the basic-attack toggle and this
-    // build's fire-slot cap, so this call needs no config read of its own.
-    if (carHasTurretWeapon(weaponIds)) {
+    // build's fire-slot cap; `drawsTurret` adds the mode's `turret().visible`, which hides the
+    // turret while leaving its mouse aiming (pointer lock, crosshair, aim HUD) untouched.
+    if (drawsTurret(weaponIds)) {
       container.add(this.drawTurret(carId, fill));
     } else {
       // Never left mid-ease from a loadout this car no longer carries: a later swap back onto a
@@ -3679,7 +3681,8 @@ export class ArenaScene extends Phaser.Scene {
    */
   private turretKeyOf(carId: string): string {
     const mount = turretMountOf(carId);
-    return `${turretLengthOf(this.resolveTurretView(), carId)}:${mount.x},${mount.y}`;
+    // `visible` too, so a lobby re-mode between a shown and a hidden turret rebuilds the car.
+    return `${turret().visible ? 1 : 0}:${turretLengthOf(this.resolveTurretView(), carId)}:${mount.x},${mount.y}`;
   }
 
   /**

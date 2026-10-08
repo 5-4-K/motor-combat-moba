@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { installMode, slots } from "../modes/active.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
-import { TICK_RATE_HZ } from "../constants.js";
+import { GameMode, TICK_RATE_HZ } from "../constants.js";
 import { CAR_TABLE, activeCarIds, basicAttackIds, turretMountOf } from "./car-config.js";
 import { carHasTurretWeapon } from "../sim/weapons/turret.js";
 import { fireSlotsOf } from "./weapon-slots.js";
-import { TURRET_CONFIG, TURRET_TICKS } from "./turret-config.js";
+import { TURRET_CONFIG, TURRET_TICKS, resolveTurretTicks } from "./turret-config.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
@@ -48,6 +48,17 @@ describe("turret config (TR1-TR5)", () => {
     expect(slots().basicAttackEnabled).toBe(false);
     for (const carId of activeCarIds()) {
       expect(carHasTurretWeapon(fireSlotsOf(carId)), carId).toBe(true);
+    }
+  });
+
+  it("ships the turret visible in the base, and a hidden turret resolves to an instant turn", () => {
+    expect(TURRET_CONFIG.visible).toBe(true);
+    expect(resolveTurretTicks({ ...TURRET_CONFIG, visible: false }).turnPerTick).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("hides the turret in Brawl alone (the seed for trying the feel)", () => {
+    for (const mode of [GameMode.FFA_LAST_STANDING, GameMode.TEAM, GameMode.FFA_DEATHMATCH, GameMode.CONQUER]) {
+      expect(modeConfigOf(mode).turret.visible, GameMode[mode]).toBe(mode !== GameMode.FFA_LAST_STANDING);
     }
   });
 
