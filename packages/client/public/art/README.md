@@ -123,3 +123,24 @@ mogrify -path out/ -colorspace Gray cars/*.png
 Phaser's tint is multiplicative, so dark tyres and windows stay dark rather than becoming
 coloured mush. That also means residual colour multiplies into mud — a faintly blue body under a
 red tint goes brown, not red — which is why the importer forces greyscale unless told otherwise.
+
+## Tile art
+
+Tile arenas are baked from four images, each **80 x 80** (twice the 40 u tile, sharp at the bake's
+2 px per unit): `floor`, `wall`, `spike` and `spike-teeth`. They live at
+`arenas/common/tile-<id>.png` and key as `arena.common.tile.<id>`, shared by every tile arena.
+
+`spike-teeth` is the edge overlay painted along a spike tile's exposed edges. Author it for the
+tile's **top** edge, transparent everywhere else, with the points on the edge and nothing past the
+tile boundary. It must carry an alpha channel (`check:art` blocks it otherwise). The other three
+are opaque, full-bleed.
+
+Import with the build of shared in place (`npm run build -w @motor-combat-moba/shared`):
+
+```
+node scripts/import-tile-art.mjs --tile <id> --src <path>
+```
+
+It resizes to exactly 80 x 80 (no trim), writes the file and wires the manifest row with
+`colorMode: "none"`. A tile with no art simply falls back to its procedural fill, so importing is
+optional and can be done one tile at a time.

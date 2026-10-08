@@ -7,6 +7,7 @@ import { describe, it } from "node:test";
 import {
   artFilesOnDisk,
   checkManifestShape,
+  checkTileArt,
   checkTurretSprite,
   isKnownNamespace,
   namespaceScopeOf,
@@ -274,6 +275,32 @@ describe("checkTurretSprite", () => {
       image: { ...goodSprite, maxChroma: 200 },
     });
     assert.ok(!codes(out).includes("not-greyscale"));
+  });
+});
+
+describe("checkTileArt", () => {
+  const row = { file: "arenas/common/tile-x.png" };
+
+  it("blocks a missing file", () => {
+    assert.equal(checkTileArt({ artId: "wall", row, image: undefined })[0].level, "blocker");
+  });
+
+  it("blocks teeth with no alpha, which would paint an opaque square", () => {
+    const image = { width: 80, height: 80, hasAlpha: false, channels: 3 };
+    assert.ok(checkTileArt({ artId: "spike-teeth", row, image }).some((f) => f.level === "blocker"));
+  });
+
+  it("lets an opaque floor through", () => {
+    const image = { width: 80, height: 80, hasAlpha: false, channels: 3 };
+    assert.deepEqual(checkTileArt({ artId: "floor", row, image }), []);
+  });
+
+  it("warns on any size but 80 x 80", () => {
+    const image = { width: 128, height: 128, hasAlpha: true, channels: 4 };
+    assert.deepEqual(
+      checkTileArt({ artId: "floor", row, image }).map((f) => f.level),
+      ["warning"],
+    );
   });
 });
 
