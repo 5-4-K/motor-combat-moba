@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, TickInputBuffer, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import { ARENA_01, DEFAULT_GAME_MODE, TickInputBuffer, installMode, modeConfigOf, playablePlanesOf } from "@motor-combat-moba/shared";
 import {
   ArenaState,
   PlayerState,
@@ -178,6 +178,16 @@ function fakeInstance(over: Partial<WeaponInstance> & { id: string; x: number; y
     ...over,
   };
 }
+
+describe("buildBotView tile-arena edge (TA31)", () => {
+  it("hands the bot a tile arena's floor-rect planes", () => {
+    const f = fixture();
+    f.state.arenaId = "arena-01";
+    const view = buildBotView(f)!;
+    expect(view.arena.planes).toEqual(playablePlanesOf(ARENA_01));
+    expect(view.arena.planes).toHaveLength(4);
+  });
+});
 
 describe("buildBotView viewport fairness (B17)", () => {
   it("arena-01 (the shipped arena) shows every car regardless of distance — it always fits", () => {

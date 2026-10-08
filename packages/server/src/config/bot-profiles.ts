@@ -823,7 +823,9 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // 6.3.0 (2026-09-29): bot timing authored in ms (NR14); identical at 30 Hz, doubles in ticks at 60 Hz.
 // 6.4.0 (2026-10-07): roster change — tremor to Bastion, wildcharge to Taurus, Taurus published. The bot's
 // reach model reads the kit, so reports across this line are not comparable. `BOT_PROFILES` did not move.
-export const BOT_BRAIN_VERSION = "6.4.0";
+// 6.5.0 (2026-10-09): tile arenas hand the bot their floor-rect planes (TA31), so wall avoidance sees
+// arena-01's floor edge. `BOT_PROFILES` did not move. Balance reports across this line are not comparable.
+export const BOT_BRAIN_VERSION = "6.5.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency
