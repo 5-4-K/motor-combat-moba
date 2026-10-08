@@ -458,11 +458,15 @@ the volley's last shot, so `cooldownMs` still means "time until another stock" f
 Nothing about a `startUpMs > 0`, `volleys > 1`, or `recoveryMs > 0` weapon required a schema change.
 See [`schema-reference.md`](schema-reference.md#playerstate) for the two fields.
 
-**No shipped weapon carries a `stock` block today.** `needler`, the table's one multi-stock weapon
-(three stocks, a 300 ms recharge, dumped without cost because `releaseShots` starts the recharge at
-the dump's first shot rather than its last), was retired with the 2026-09-01 overhaul. The mechanism
-is dormant, not deleted: it stays real in `sim/weapons/fire.ts` and covered by `fire.test.ts`, waiting
-for the next weapon that authors a `stock` block.
+**`fury-horn` (Taurus) is the one shipped weapon carrying a `stock` block.** It banks `max: 3`
+charges, spawns full (`initial: 3` — `StockDef.initial`; **absent means the universal spawn default
+of 1**, so a weapon starts one stock deep unless it opts in, and `initial` is validated `1..max`),
+recharges one stock every `cooldownMs` (2000 ms), and gates consecutive stock shots by
+`refireDelayMs: 300`. A magazine is dumped without costing sustained DPS because `releaseShots`
+starts the recharge at the dump's first shot rather than its last, so `cooldownMs` still means "time
+until another stock". `needler` was the table's previous multi-stock weapon (three stocks, a 300 ms
+recharge), retired with the 2026-09-01 overhaul; before `fury-horn` the mechanism sat dormant — real
+in `sim/weapons/fire.ts` and covered by `fire.test.ts` — rather than deleted.
 
 ## ABILITY_SLOT_CEILING and WEAPON_SLOT_CONFIG
 

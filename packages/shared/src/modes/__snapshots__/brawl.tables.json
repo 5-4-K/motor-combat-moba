@@ -773,7 +773,7 @@
     },
     "fury-horn": {
       "color": "#C0C8D0",
-      "cooldownMs": 1000,
+      "cooldownMs": 2000,
       "damage": 50,
       "damageFrequencyMs": 0,
       "hitbox": {
@@ -794,6 +794,7 @@
       "speed": 600,
       "startUpMs": 0,
       "stock": {
+        "initial": 3,
         "max": 3,
         "refireDelayMs": 300
       },

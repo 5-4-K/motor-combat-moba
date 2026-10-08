@@ -80,6 +80,17 @@ describe("slots", () => {
     expect(state.slots.every((s) => s.stocks === 1)).toBe(true);
   });
 
+  it("spawns a weapon with stock.initial full, others at one (fury-horn starts with 3)", () => {
+    const state = newFireState("taurus", 1);
+    const furyHorn = state.slots.find((s) => s.weaponId === "fury-horn");
+    expect(furyHorn, "taurus carries fury-horn").toBeDefined();
+    expect(furyHorn!.stocks).toBe(3);
+    // Every other slot — the basic attack and the non-stock abilities — still spawns with one.
+    for (const slot of state.slots) {
+      if (slot.weaponId !== "fury-horn") expect(slot.stocks, slot.weaponId).toBe(1);
+    }
+  });
+
   it("gives a player with no car no slots at all", () => {
     expect(newFireState("", 1).slots).toEqual([]);
   });
@@ -668,30 +679,31 @@ describe("same-tick tie-breaking", () => {
 describe("fury-horn and shockwave", () => {
   const owner = { sessionId: "p1", team: 0 as const, carId: "bullseye", x: 0, y: 0, angle: 0 };
 
-  it("fury-horn starts with one stock, refills to three, and gates refire at 300ms", () => {
+  it("fury-horn starts with three stocks, refills one per 2s, and gates refire at 300ms", () => {
     const horn = msToTicks(300);
-    const cooldown = msToTicks(1000);
+    const cooldown = msToTicks(2000);
     let state = newFireState("bullseye", 1, ["fury-horn"]);
     expect(state.slots[1]!.weaponId).toBe("fury-horn");
-    expect(state.slots[1]!.stocks).toBe(1);
-
-    // Recharge: the first tick starts the timer, then one stock lands per cooldown, capped at 3.
-    state = tickRecharge(state, 0);
-    expect(state.slots[1]!.stocks).toBe(1);
-    state = idle(state, 1, cooldown);
-    expect(state.slots[1]!.stocks).toBe(2);
-    state = idle(state, 1 + cooldown, cooldown);
+    // Spawns full (stock.initial 3 == max), so no recharge timer runs while it sits at the cap.
     expect(state.slots[1]!.stocks).toBe(3);
-    state = idle(state, 1 + 2 * cooldown, cooldown * 3);
+    state = tickRecharge(state, 0);
     expect(state.slots[1]!.stocks).toBe(3);
     expect(state.slots[1]!.rechargeEndsTick).toBe(0);
 
     // Fire twice within 300 ms: the second press is refused by the refire lock, not by stock.
-    const t0 = 1000;
+    const t0 = 100;
     state = releaseShots(beginFire("p1", state, ABILITY_1, t0), t0).state;
     expect(state.slots[1]!.stocks).toBe(2);
     expect(beginFire("p1", state, ABILITY_1, t0 + horn - 1).pending).toBeNull();
     expect(beginFire("p1", state, ABILITY_1, t0 + horn).pending).not.toBeNull();
+
+    // Now below max: nothing refills across the whole 2s window, and exactly one stock lands on the
+    // tick the 2s timer completes (the recharge interval is cooldownMs, now 2000 not 1000).
+    state = idle(state, t0, cooldown); // ticks t0 .. t0 + cooldown - 1
+    expect(state.slots[1]!.stocks).toBe(2);
+    state = tickRecharge(state, t0 + cooldown);
+    expect(state.slots[1]!.stocks).toBe(3);
+    expect(state.slots[1]!.rechargeEndsTick).toBe(0);
   });
 
   it("shockwave fires three beam volleys 500ms apart from one press", () => {

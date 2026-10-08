@@ -78,6 +78,12 @@ describe("WEAPON_TABLE", () => {
       if (def.stock) {
         expect(def.stock.max).toBeGreaterThanOrEqual(2);
         expect(def.stock.refireDelayMs).toBeGreaterThanOrEqual(0);
+        if (def.stock.initial !== undefined) {
+          // A weapon may spawn with fewer stocks than its ceiling, but never more, and never a
+          // non-positive magazine. Absent means the universal spawn default of 1.
+          expect(def.stock.initial, def.id).toBeGreaterThanOrEqual(1);
+          expect(def.stock.initial, def.id).toBeLessThanOrEqual(def.stock.max);
+        }
       }
       // A loop bound in `releaseShots`, and it fails silently rather than loudly: `volleys: 0`
       // fires exactly one shot (the first release always emits) instead of none. Applies to every
