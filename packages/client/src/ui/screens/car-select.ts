@@ -3,7 +3,8 @@ import { button, h, svg } from "../dom.js";
 import type { CarBarKey, CarSelectView } from "../car-select-view.js";
 
 /**
- * Car select: three chassis cards against a countdown, with a scrolling full-stats panel.
+ * Car select: a scrolling two-column grid of chassis cards against a countdown, with the
+ * full-stats panel fixed on the right (its rows scroll on their own if they overflow).
  *
  * The card shows three summary bars and, in a unique-chassis mode (Conquer today), a "Taken" pill
  * over a teammate's locked chassis (CQ32) — greyed and unclickable, since that pick is refused
@@ -107,7 +108,7 @@ export function renderCarSelect(view: CarSelectView, handlers: CarSelectHandlers
       h("div", { style: "font-family: var(--font-heading); font-size: 26px; margin-top: 2px;" }, [view.selectedName]),
       h(
         "div",
-        { style: "flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; margin-top: 8px;" },
+        { "data-scroll": "stats", style: "flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; margin-top: 8px;" },
         view.stats.map((row) =>
           h("div", { style: "display: flex; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--color-neutral-300);" }, [
             h("div", { style: "font-size: 13px; color: var(--color-neutral-700);" }, [row.label]),
@@ -131,8 +132,13 @@ export function renderCarSelect(view: CarSelectView, handlers: CarSelectHandlers
         }, [view.clock]),
       ]),
     ]),
-    h("div", { style: "display: grid; grid-template-columns: 1fr 1fr 1fr 300px; gap: 18px; margin-top: 24px; min-height: 0;" }, [
-      ...cards,
+    // Cards scroll on the left, two to a row, so the roster can grow without squeezing them; the
+    // stats panel holds the right ~30% for the full height and scrolls its own rows if it must.
+    // Both scrollers carry `data-scroll` so the scene can carry their offsets across a rebuild.
+    h("div", { style: "flex: 1; display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 3fr); gap: 18px; margin-top: 24px; min-height: 0;" }, [
+      h("div", { "data-scroll": "cars", style: "min-height: 0; overflow-y: auto; padding-right: 8px;" }, [
+        h("div", { style: "display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-content: start;" }, cards),
+      ]),
       statsPanel,
     ]),
     // No footer copy: nothing here needs explaining now that the deadline is not a gamble. A player
