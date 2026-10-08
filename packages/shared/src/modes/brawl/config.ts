@@ -1,13 +1,8 @@
 import type { ModeOverrides } from "../merge.js";
 
 /**
- * Brawl's differences from the base (`modes/base.ts`). Add only the values Brawl changes; the
- * snapshot `__snapshots__/brawl.tables.json` shows the resolved result.
- *
- * Brawl turns the basic attack (fire slot 0, LMB) ON — the base ships it off. This also turns on
- * turret drawing, pointer lock and the crosshair for Brawl, since the nine basic-attack rows are
- * the build's only turret-carrying weapons.
+ * Brawl's differences from the base (`modes/base.ts`). Empty: Brawl plays the common defaults.
+ * The basic attack is off (base value); turrets still draw because the carried turret weapons
+ * (each chassis's slot-1 weapon, plus roadblock) light `carHasTurretWeapon` on their own.
  */
-export const BRAWL_OVERRIDES: ModeOverrides = {
-  slots: { basicAttackEnabled: true },
-};
+export const BRAWL_OVERRIDES: ModeOverrides = {};

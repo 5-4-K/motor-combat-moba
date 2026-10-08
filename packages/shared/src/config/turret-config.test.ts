@@ -27,27 +27,27 @@ describe("turret config (TR1-TR5)", () => {
     }
   });
 
-  it("ships the turret on exactly the basic attacks and nothing else (TR4)", () => {
+  it("ships the turret on the basic attacks plus the chosen turret-aimed abilities (TR4)", () => {
     const turretIds = Object.values(WEAPON_TABLE).filter((d) => d.turret).map((d) => d.id).sort();
-    // The one honest way to ask "is this weapon a basic attack" is the slot, not the id (final-fixes
-    // item 8) — `basicAttackIds()` reads `CAR_TABLE`, never a naming convention this table happens
-    // to follow today.
+    // The basic attacks all carry a turret (so they COULD be turret-aimed if ever switched on),
+    // plus the deliberately turret-aimed ability weapons: each active chassis's slot-1 weapon
+    // (`predator`/`magmablast`/`thumper`/`fury-horn`) and `roadblock`. `basicAttackIds()` reads
+    // `CAR_TABLE` rather than a naming convention. This row is where any OTHER weapon quietly
+    // gaining a turret would be caught.
     const basics = [...basicAttackIds()];
-    // `predator`, `magmablast` and `thumper` carried a turret on `feature/mouse-aim` and gave it
-    // back on `development/main`, alongside `slots().basicAttackEnabled` going `false` for every
-    // shipped mode. That pair of edits is the whole of this build's "no car has a turret" posture,
-    // and this row is where a third weapon quietly gaining one would be caught.
-    expect(turretIds).toEqual([...basics].sort());
+    const turretAbilities = ["predator", "magmablast", "thumper", "fury-horn", "roadblock"];
+    expect(turretIds).toEqual([...basics, ...turretAbilities].sort());
   });
 
-  it("leaves no chassis able to reach a turret at all, which is this build's posture (TR53)", () => {
-    // The by-product the two config edits were made FOR: nine turret rows none of which can be
-    // pressed, and no turret ability. Every car therefore draws no turret, captures no pointer, and
-    // shows no crosshair or turret HUD. Asserted over the real roster rather than trusted from the
-    // two edits separately, since it is their CONJUNCTION that produces it.
+  it("gives every active chassis a live turret through a carried ability, basic attack off (TR53)", () => {
+    // The posture decoupled the turret from the basic attack: the basic attack is off in every mode,
+    // yet every active chassis still draws a turret, captures the pointer and shows the crosshair,
+    // because each carries at least one turret ability weapon (its slot-1 weapon, plus roadblock on
+    // Bastion). Asserted over the real roster — `carHasTurretWeapon` skips the disabled slot 0 and
+    // still finds a turret on an ability slot.
     expect(slots().basicAttackEnabled).toBe(false);
     for (const carId of activeCarIds()) {
-      expect(carHasTurretWeapon(fireSlotsOf(carId)), carId).toBe(false);
+      expect(carHasTurretWeapon(fireSlotsOf(carId)), carId).toBe(true);
     }
   });
 

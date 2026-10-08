@@ -111,9 +111,9 @@ describe("solve — projectile", () => {
       target, targetAt: constantVelocityPredictor(target),
       aimSigmaRad: 0, tick: 0, arena,
     };
-    // predator: 30 damage on a 6000 ms cooldown. pepperbox: 45 per pellet on 1800 ms.
+    // predator: 30 damage on a 1000 ms cooldown. pepperbox: 45 per pellet on 1800 ms.
     const predator = solve({ ...common, slot: slotFor("predator") });
-    expect(predator.value).toBeCloseTo(predator.expectedDamage / 6, 5);
+    expect(predator.value).toBeCloseTo(predator.expectedDamage / 1, 5);
   });
 });
 

@@ -37,24 +37,27 @@ describe("slot keys", () => {
     expect(slotMaskFrom([true, true, true, true, true])).toBe(0b1111);
   });
 
-  it("binds exactly one layout: LMB, RMB, Q, E, Space (TR29)", () => {
-    expect(SLOT_KEYS.map((k) => k.glyph)).toEqual(["LMB", "RMB", "Q", "E", "SPACE"]);
-    expect(SLOT_KEYS.map((k) => k.buttonsMask)).toEqual([1, 2, 0, 0, 0]);
-    expect(SLOT_KEYS.map((k) => [...k.codes])).toEqual([[], [], [81], [69], [32]]);
+  it("binds exactly one layout: Q, LMB, RMB, Space, E by slot (TR29)", () => {
+    // Slot order is [basic attack, ability 1, ability 2, ability 3, ability 4]. The abilities take
+    // the primary inputs (LMB/RMB/SPACE); the basic attack (off everywhere) parks on Q and the
+    // non-existent 4th ability on E.
+    expect(SLOT_KEYS.map((k) => k.glyph)).toEqual(["Q", "LMB", "RMB", "SPACE", "E"]);
+    expect(SLOT_KEYS.map((k) => k.buttonsMask)).toEqual([0, 1, 2, 0, 0]);
+    expect(SLOT_KEYS.map((k) => [...k.codes])).toEqual([[81], [], [], [32], [69]]);
   });
 
   it("maps held inputs to fire slots, capped at maxFireSlots", () => {
-    expect(slotMaskFrom([], 1)).toBe(1 << 0);
-    expect(slotMaskFrom([], 2)).toBe(1 << 1);
+    expect(slotMaskFrom([], 1)).toBe(1 << 1); // LMB -> ability 1, fire slot 1
+    expect(slotMaskFrom([], 2)).toBe(1 << 2); // RMB -> ability 2, fire slot 2
     expect(slotMaskFrom([false, false, true])).toBe(1 << 2);
     expect(slotMaskFrom([false, false, false, true])).toBe(1 << 3);
     expect(slotMaskFrom([false, false, false, false, true])).toBe(0); // slot 4 inert while N = 3
   });
 
   it("ORs mouse buttons with keys instead of replacing them", () => {
-    // Ability 2's own key (Q, slot 2) held alongside LMB (the basic attack, slot 0).
-    expect(slotMaskFrom([false, false, true], 0b01)).toBe(0b0101);
-    expect(slotMaskFrom([false, false, false], 0b01)).toBe(0b0001);
+    // A keyboard-down on slot 2 held alongside LMB (ability 1, slot 1): bits 1 and 2 both set.
+    expect(slotMaskFrom([false, false, true], 0b01)).toBe(0b0110);
+    expect(slotMaskFrom([false, false, false], 0b01)).toBe(0b0010);
   });
 });
 
@@ -73,14 +76,13 @@ describe("slot key glyphs", () => {
     expect(slotMaskFrom(all, 0)).toBe((1 << WEAPON_SLOT_CONFIG.maxFireSlots) - 1);
   });
 
-  it("gives the basic attack the left mouse button, in fire-slot 0 (TR29, TR46)", () => {
-    // The BINDING, which the toggle does not touch: bit 0 is set by the left button alone, never a
-    // keyboard code, whether or not this build lets slot 0 fire. With the basic attack off
-    // (`development/main`) LMB is bound to a weapon that refuses every press, which is what a dead
-    // LMB looks like from here.
-    expect(SLOT_KEYS[WEAPON_SLOT_CONFIG.basicAttackSlotIndex]!.buttonsMask).toBe(1);
-    expect(SLOT_KEYS[WEAPON_SLOT_CONFIG.basicAttackSlotIndex]!.codes).toEqual([]);
-    expect(slotMaskFrom([], 0b01) & 0b0001).toBe(0b0001);
+  it("parks the basic attack on Q in fire-slot 0, LMB driving ability 1 instead (TR29, TR46)", () => {
+    // The basic attack is off in every mode, so slot 0 no longer takes a primary input: it is on Q
+    // (keyboard code 81), with no mouse button. LMB (bit 1) now drives ability 1, so pressing it
+    // never sets bit 0.
+    expect(SLOT_KEYS[WEAPON_SLOT_CONFIG.basicAttackSlotIndex]!.buttonsMask).toBe(0);
+    expect(SLOT_KEYS[WEAPON_SLOT_CONFIG.basicAttackSlotIndex]!.codes).toEqual([81]);
+    expect(slotMaskFrom([], 0b01) & 0b0001).toBe(0);
   });
 
   it("never lets two slots claim the same input", () => {

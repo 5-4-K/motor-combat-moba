@@ -316,7 +316,7 @@ describe("per-tick order", () => {
   }
 
   it("fires a zero-start-up weapon on the tick it is pressed, in the canonical recharge -> beginFire -> turnTurret -> releaseShots order", () => {
-    let state = fresh(); // predator: startUpMs 0, cooldownMs 6000ms == 6*TICK_RATE_HZ ticks, single stock
+    let state = fresh(); // predator: startUpMs 0, cooldownMs 1000ms == TICK_RATE_HZ ticks, single stock
     const seen: ShotOrder[] = [];
 
     // Tick 100: press and fire must both land on this SAME tick — not the next one. Under the
@@ -332,7 +332,7 @@ describe("per-tick order", () => {
     expect(state.slots[1]!.stocks).toBe(0);
 
     // Idle through the cooldown window: no stock yet, nothing fires.
-    for (let tick = 101; tick < 100 + 6 * TICK_RATE_HZ; tick++) {
+    for (let tick = 101; tick < 100 + TICK_RATE_HZ; tick++) {
       const idled = step(state, tick, 0);
       state = idled.state;
       seen.push(...idled.orders);
@@ -340,14 +340,14 @@ describe("per-tick order", () => {
     expect(seen).toHaveLength(1);
     expect(state.slots[1]!.stocks).toBe(0);
 
-    // The stock lands on this exact tick (100 + predator's 6000 ms cooldown). A second press must
+    // The stock lands on this exact tick (100 + predator's 1000 ms cooldown). A second press must
     // fire again, same tick, proving the cycle repeats rather than being a one-shot fluke.
-    const step2 = step(state, 100 + 6 * TICK_RATE_HZ, ABILITY_1);
+    const step2 = step(state, 100 + TICK_RATE_HZ, ABILITY_1);
     state = step2.state;
     seen.push(...step2.orders);
     expect(seen).toEqual([
       { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: null },
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: `p1#${100 + 6 * TICK_RATE_HZ}#1`, bearing: null },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: `p1#${100 + TICK_RATE_HZ}#1`, bearing: null },
     ]);
   });
 
@@ -679,9 +679,9 @@ describe("same-tick tie-breaking", () => {
 describe("fury-horn and shockwave", () => {
   const owner = { sessionId: "p1", team: 0 as const, carId: "bullseye", x: 0, y: 0, angle: 0 };
 
-  it("fury-horn starts with three stocks, refills one per 8s, and gates refire at 300ms", () => {
+  it("fury-horn starts with three stocks, refills one per 3s, and gates refire at 300ms", () => {
     const horn = msToTicks(300);
-    const cooldown = msToTicks(8000);
+    const cooldown = msToTicks(3000);
     let state = newFireState("bullseye", 1, ["fury-horn"]);
     expect(state.slots[1]!.weaponId).toBe("fury-horn");
     // Spawns full (stock.initial 3 == max), so no recharge timer runs while it sits at the cap.
@@ -697,8 +697,8 @@ describe("fury-horn and shockwave", () => {
     expect(beginFire("p1", state, ABILITY_1, t0 + horn - 1).pending).toBeNull();
     expect(beginFire("p1", state, ABILITY_1, t0 + horn).pending).not.toBeNull();
 
-    // Now below max: nothing refills across the whole 8s window, and exactly one stock lands on the
-    // tick the 8s timer completes (the recharge interval is cooldownMs, now 8000).
+    // Now below max: nothing refills across the whole 3s window, and exactly one stock lands on the
+    // tick the 3s timer completes (the recharge interval is cooldownMs, now 3000).
     state = idle(state, t0, cooldown); // ticks t0 .. t0 + cooldown - 1
     expect(state.slots[1]!.stocks).toBe(2);
     state = tickRecharge(state, t0 + cooldown);

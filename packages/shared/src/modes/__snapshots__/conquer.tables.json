@@ -281,7 +281,7 @@
     "spinScale": 0.3
   },
   "slots": {
-    "basicAttackEnabled": true,
+    "basicAttackEnabled": false,
     "basicAttackSlotIndex": 0,
     "maxAbilitySlots": 3,
     "maxFireSlots": 4
@@ -772,7 +772,7 @@
     },
     "fury-horn": {
       "color": "#C0C8D0",
-      "cooldownMs": 8000,
+      "cooldownMs": 3000,
       "damage": 50,
       "damageFrequencyMs": 0,
       "hitbox": {
@@ -796,6 +796,9 @@
         "initial": 3,
         "max": 3,
         "refireDelayMs": 300
+      },
+      "turret": {
+        "additionalOffset": 0
       },
       "unlocksAt": 1,
       "volley": {
@@ -831,7 +834,7 @@
     },
     "magmablast": {
       "color": "#FF6000",
-      "cooldownMs": 7000,
+      "cooldownMs": 16000,
       "damage": 50,
       "damageFrequencyMs": 0,
       "explosion": {
@@ -863,6 +866,9 @@
       "recoveryMs": 0,
       "speed": 600,
       "startUpMs": 0,
+      "turret": {
+        "additionalOffset": 0
+      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
@@ -905,7 +911,7 @@
     },
     "predator": {
       "color": "#606060",
-      "cooldownMs": 6000,
+      "cooldownMs": 1000,
       "damage": 30,
       "damageFrequencyMs": 0,
       "hitbox": {
@@ -932,6 +938,9 @@
       "recoveryMs": 0,
       "speed": 900,
       "startUpMs": 0,
+      "turret": {
+        "additionalOffset": 0
+      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
@@ -968,6 +977,9 @@
       "recoveryMs": 200,
       "speed": 600,
       "startUpMs": 0,
+      "turret": {
+        "additionalOffset": 0
+      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
@@ -1016,7 +1028,7 @@
       ],
       "bounces": true,
       "color": "#FFD800",
-      "cooldownMs": 7000,
+      "cooldownMs": 16000,
       "damage": 60,
       "damageFrequencyMs": 0,
       "hitbox": {
@@ -1037,6 +1049,9 @@
       "recoveryMs": 0,
       "speed": 450,
       "startUpMs": 0,
+      "turret": {
+        "additionalOffset": 0
+      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
