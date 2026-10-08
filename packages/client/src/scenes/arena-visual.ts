@@ -69,12 +69,17 @@ export function arenaBorderRect(arena: { width: number; height: number }, border
  * own walls, so painting a 4px slate border and a dashed lane grid over them reads as a rendering
  * bug rather than as atmosphere (AS24). An arena whose floor texture never loaded still needs both,
  * so this must never collapse to a constant.
+ *
+ * A tile arena's bake already holds its walls and spikes, so not even its ordinary obstacles are
+ * filled (TA26): every one of them is a solid tile the bake drew. Any other arena still fills them,
+ * art or not.
  */
-export function arenaDecoration(hasFloorSprite: boolean): {
+export function arenaDecoration(hasFloorArt: boolean, isTileArena: boolean): {
   drawMarkings: boolean;
   drawBorder: boolean;
+  drawObstacles: boolean;
 } {
-  return { drawMarkings: !hasFloorSprite, drawBorder: !hasFloorSprite };
+  return { drawMarkings: !hasFloorArt, drawBorder: !hasFloorArt, drawObstacles: !isTileArena };
 }
 
 /**
