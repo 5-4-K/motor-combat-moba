@@ -191,7 +191,7 @@ export interface TileStamp {
   readonly rotation: 0 | 90 | 180 | 270;   // clockwise degrees
 }
 export function tileBakePlan(grid: TileGrid): TileStamp[];
-export function bakeChunks(cols: number, rows: number, tilePx: number, maxPx: number): ChunkRect[];
+export function bakeChunks(cols: number, rows: number, tilePx: number, maxPx: number): BakeChunk[];
 ```
 
 - **TA22** For each cell: one stamp of its row's `art` at rotation 0 (none when `art` is `null`). For
