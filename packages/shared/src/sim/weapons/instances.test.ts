@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { installMode } from "../../modes/active.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../../modes/registry.js";
 import { MS_PER_TICK, TICK_RATE_HZ } from "../../constants.js";
-import { DRIVE_CONFIG } from "../../config/drive-config.js";
 import { TURRET_CONFIG } from "../../config/turret-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import { DEFAULT_CAR_ID } from "../../config/car-config.js";
@@ -37,16 +36,16 @@ const ctx = (over: Partial<Parameters<typeof stepInstance>[1]> = {}) => ({
 
 const owner = { sessionId: "aaa", team: 0 as const, carId: "mirage", x: 500, y: 300, angle: 0 };
 
-// `roadblock` is a fixed-muzzle projectile (no `turret` row) — the generic stand-in for exercising
-// spawn seq, ids, pierce, damage scaling and expiry, none of which is about any one weapon's own
-// geometry. `magmablast` served that role, became a turret row for a release (spec TR18) and is
-// fixed-muzzle again on this build — `roadblock` stays here regardless, so these cases can never
-// start spawning from a turret pivot instead of the nose they are about.
+// `roadblock` carries a `turret` row as of 2026-10-08, so a spawn using it is born at the turret
+// pivot along the aim bearing, not the hull nose. The non-geometry cases below (spawn seq, ids,
+// pierce, damage scaling, expiry) do not care where the shot is born, so roadblock still stands in
+// for them; the one geometry case asserts the turret muzzle.
 describe("spawning", () => {
-  it("births a shot at the car's nose, not its centre", () => {
+  it("births a shot at the turret muzzle, along the aim bearing", () => {
     const { instances } = spawnInstances({ weaponId: "roadblock", slot: 0, finalVolley: true }, owner, 100, 0);
     expect(instances).toHaveLength(1);
-    expect(instances[0]!.x).toBeCloseTo(500 + DRIVE_CONFIG.carWidth / 2);
+    // Pivot (mount {0,0} == car centre) plus defaultOffset along the bearing, not the hull nose.
+    expect(instances[0]!.x).toBeCloseTo(500 + TURRET_CONFIG.defaultOffset);
     expect(instances[0]!.y).toBeCloseTo(300);
   });
 
@@ -368,12 +367,12 @@ describe("multi-muzzle", () => {
     expect(rear.muzzleDir).toBeCloseTo(Math.PI);
   });
 
-  it("defaults to the single forward muzzle, byte-for-byte as before", () => {
-    // `roadblock`: `magmablast` is a real turret row now (spec TR18), and this case is about the
-    // generic no-`muzzles`-authored default, not about magmablast's own geometry.
+  it("defaults to a single forward exit (no multi-muzzle fan)", () => {
+    // `roadblock` authors no `muzzles`, so it emits one exit along the aim bearing. It is turret-
+    // aimed now, so that one exit is born at the turret pivot plus defaultOffset, not the nose.
     const single = spawnInstances({ ...order, weaponId: "roadblock" }, owner, 1, 0, 1);
     expect(single.instances).toHaveLength(1);
-    expect(single.instances[0]!.x).toBeCloseTo(100 + muzzleOffset());
+    expect(single.instances[0]!.x).toBeCloseTo(100 + TURRET_CONFIG.defaultOffset);
     expect(single.instances[0]!.muzzleDir).toBe(0);
   });
 

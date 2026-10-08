@@ -154,7 +154,7 @@ describe("pressing", () => {
       shotsLeft: 1,
       nextShotTick: 100,
       pressId: "p1#100#1",
-      bearing: null,
+      bearing: 0,
       aligned: true,
     });
   });
@@ -200,7 +200,7 @@ describe("releasing", () => {
     pressed = turnTurret(pressed, 0, 100); // canonical order; a no-op for fixed-muzzle predator
     const { state, orders } = releaseShots(pressed, 100);
     expect(orders).toEqual([
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: null },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: 0 },
     ]);
     expect(state.pending).toBeNull();
     expect(state.slots[1]!.rechargeEndsTick).toBe(100 + TICK_RATE_HZ); // 1000ms == one second of ticks
@@ -326,7 +326,7 @@ describe("per-tick order", () => {
     state = step1.state;
     seen.push(...step1.orders);
     expect(seen).toEqual([
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: null },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: 0 },
     ]);
     expect(state.pending).toBeNull();
     expect(state.slots[1]!.stocks).toBe(0);
@@ -346,8 +346,8 @@ describe("per-tick order", () => {
     state = step2.state;
     seen.push(...step2.orders);
     expect(seen).toEqual([
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: null },
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: `p1#${100 + TICK_RATE_HZ}#1`, bearing: null },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: 0 },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: `p1#${100 + TICK_RATE_HZ}#1`, bearing: 0 },
     ]);
   });
 
@@ -372,14 +372,14 @@ describe("per-tick order", () => {
       shotsLeft: 1,
       nextShotTick: 100,
       pressId: "p1#100#1",
-      bearing: null,
+      bearing: 0,
       aligned: true,
     });
 
     // The next call to releaseShots happens on the NEXT tick, 101 — one tick after nextShotTick.
     const releasedNextTick = releaseShots(state, 101);
     expect(releasedNextTick.orders).toEqual([
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: null },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: 0 },
     ]); // late, but not lost
     expect(releasedNextTick.state.pending).toBeNull();
   });
@@ -691,8 +691,10 @@ describe("fury-horn and shockwave", () => {
     expect(state.slots[1]!.rechargeEndsTick).toBe(0);
 
     // Fire twice within 300 ms: the second press is refused by the refire lock, not by stock.
+    // fury-horn is a turret weapon, so the press must turn the (already-aligned) turret before the
+    // shot releases — the canonical beginFire -> turnTurret -> releaseShots order.
     const t0 = 100;
-    state = releaseShots(beginFire("p1", state, ABILITY_1, t0), t0).state;
+    state = releaseShots(turnTurret(beginFire("p1", state, ABILITY_1, t0), 0, t0), t0).state;
     expect(state.slots[1]!.stocks).toBe(2);
     expect(beginFire("p1", state, ABILITY_1, t0 + horn - 1).pending).toBeNull();
     expect(beginFire("p1", state, ABILITY_1, t0 + horn).pending).not.toBeNull();

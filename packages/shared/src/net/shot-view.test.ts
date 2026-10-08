@@ -16,7 +16,6 @@ import type { SimBody } from "../sim/step.js";
 import { newFireState } from "../sim/weapons/fire.js";
 import {
   bounceOffWorld,
-  muzzleOf,
   spawnInstances,
   stepInstance,
   type StepInstanceContext,
@@ -123,7 +122,9 @@ describe("ShotView", () => {
 
   it("bounces off an obstacle too, because it is handed the arena's obstacles", () => {
     const box: Aabb = { x: 300, y: 250, w: 40, h: 100 };
-    const start = shot("thumper", 280, 300, 0);
+    // thumper is turret-aimed now (born at pivot + defaultOffset 25, not the nose at +30), so start
+    // the car 5u further out to keep the shot's spawn — and thus this bounce geometry — unchanged.
+    const start = shot("thumper", 285, 300, 0);
     const view = new ShotView(20);
     view.update("s", SNAP, start, world([box]));
     const expected = serverSteps(start, 10, world([box]));
@@ -399,9 +400,11 @@ describe("ShotView against the server's own combat loop", () => {
     // Newest predicted tick T, drawn at the end of it (phase 1).
     const anchor = localAnchorOf({ predicted: body(T), predictedPrev: body(T - 1), newestPredictedTick: T, alive: true, serverTickNow: undefined })!;
     const drawn = view.at(born.id, anchor.tick)!;
-    const muzzle = muzzleOf(anchor.pose);
-    expect(drawn.x).toBeCloseTo(muzzle.x, 9);
-    expect(drawn.y).toBeCloseTo(muzzle.y, 9);
+    // predator (bullseye slot 1) is turret-aimed, so it is born at the turret muzzle, not the nose
+    // `muzzleOf` returns. The tick convention is that at the spawn tick the drawn shot sits exactly
+    // where it was born — the muzzle — so assert against the born instance directly.
+    expect(drawn.x).toBeCloseTo(born.x, 9);
+    expect(drawn.y).toBeCloseTo(born.y, 9);
     // Mid-tick, the car is half way through tick T+1 and the shot half a step past its tick-T spot.
     const mid = localAnchorOf({ predicted: body(T + 1), predictedPrev: body(T), newestPredictedTick: T + 1, alive: true, serverTickNow: T + 1.5 })!;
     const server1 = byTick.get(T + 1)!.get(born.id)!;

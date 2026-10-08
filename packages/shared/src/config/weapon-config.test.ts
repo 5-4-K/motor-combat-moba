@@ -151,7 +151,7 @@ describe("WEAPON_TABLE", () => {
       expect(
         { damage: def.damage, cooldownMs: def.cooldownMs, speed: def.speed, range: def.range },
         def.id,
-      ).toEqual({ damage: 20, cooldownMs: 800, speed: 900, range: 960 });
+      ).toEqual({ damage: 10, cooldownMs: 800, speed: 900, range: 960 });
     }
   });
 
