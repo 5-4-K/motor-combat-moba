@@ -125,8 +125,9 @@ diminishing-returns stack that a slam deliberately does not share. **No longer d
 2026-09-01 weapon-status overhaul (Plan 3):** `thunderclap` (Mirage) is a `kind: "maneuver"` dash and
 `wildcharge` (Bastion) is a `kind: "maneuver"` charge, both real rows in `WEAPON_TABLE`, so
 `resolveContacts` and the slam path now run from a real match, not only from tests. `wildcharge` is
-also the roster's one `isUnInterruptable: true` row, and the only row in the table declaring an
-`impulse` at all. See
+also the roster's one `isUnInterruptable: true` row, and the only MANEUVER row declaring an
+`impulse` (`tremor`, a beam, authors an inward-pulling one too, applied once per victim per instance by
+`runCombat`'s damaged loop and reported on `CombatResult.impulses` — `WeaponInstance.impulsedVictims`). See
 [`docs/combat-model.md`](../../docs/combat-model.md#maneuvers-and-the-contact-pass).
 
 An **aura** is a beam with a `disc` hitbox at `origin: "center"`. It reuses `WorldShape`'s circle arm,

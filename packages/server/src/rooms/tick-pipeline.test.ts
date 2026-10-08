@@ -184,3 +184,55 @@ describe("runPipeline: a press's shot compensation budget (NR35, NR36)", () => {
     expect(pressRig(() => undefined).compTicks.size).toBe(0);
   });
 });
+
+describe("runPipeline: tremor's one-shot inward pull", () => {
+  /**
+   * Bastion's fire slot 3 is `tremor`, a cone beam whose `impulse` is a NEGATIVE radial one. The
+   * victim parks 30 u beside the fire axis, so the first tick the cone damages it the pipeline must
+   * hand it a Δv toward the axis, once, however many 400 ms damage ticks follow.
+   */
+  it("pulls a caught car onto the axis once, then lets its velocity decay", () => {
+    const state = new ArenaState();
+    state.phase = RoomPhase.MATCH;
+    const make = (id: string, carId: string, x: number, y: number): PlayerState => {
+      const p = new PlayerState();
+      p.sessionId = id;
+      p.carId = carId;
+      p.status = PlayerStatus.IN_MATCH;
+      p.x = x;
+      p.y = y;
+      p.angle = 0;
+      p.hp = hpOf(carId as "bastion");
+      p.alive = true;
+      p.level = 1;
+      state.players.set(id, p);
+      return p;
+    };
+    make("a", "bastion", 300, ARENA_CENTRE_Y);
+    const victim = make("b", "bastion", 650, ARENA_CENTRE_Y + 30);
+    const ctx = newCtx(state, "a");
+    ctx.matchRoster = new Set(["a", "b"]);
+    const buffers = { a: newTickInputBuffer(), b: newTickInputBuffer() };
+    ctx.inputBuffers.set("a", buffers.a);
+    ctx.inputBuffers.set("b", buffers.b);
+
+    const vys: number[] = [];
+    for (let i = 0; i < 150; i++) {
+      state.tick += 1;
+      offerForTick(buffers.a, state.tick, { steer: 0, throttle: 0, fireSlots: i === 0 ? 1 << 3 : 0 });
+      offerForTick(buffers.b, state.tick, { steer: 0, throttle: 0, fireSlots: 0 });
+      runPipeline(ctx);
+      vys.push(victim.vy);
+    }
+
+    const hpFull = hpOf("bastion");
+    // The beam did damage the victim, more than once (25 base / 400 ms), so the clock re-armed.
+    expect(victim.hp).toBeLessThan(hpFull - 25);
+    // Pulled toward the axis (up the screen, -y) by the full 260 u/s, undefended.
+    const peak = Math.min(...vys);
+    expect(peak).toBeLessThan(-200);
+    // Once, not on every damage tick: after the peak the velocity only decays, never jumps again.
+    const at = vys.indexOf(peak);
+    for (let i = at + 1; i < vys.length; i++) expect(vys[i]!).toBeGreaterThanOrEqual(vys[i - 1]! - 1e-9);
+  });
+});

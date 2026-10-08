@@ -185,6 +185,7 @@ describe("beam growth and expiry", () => {
     pierceLeft: 0,
     attached: false,
     damageClock: new Map(),
+    impulsedVictims: new Set<string>(),
     alive: true,
     muzzleDir: 0,
     homingTargetId: "",

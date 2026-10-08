@@ -722,10 +722,14 @@ worn-down victim would get progressively safer.
 **Stage 4 gave weapons a declarative push and dissolved `SLAM_CONFIG`.** `WeaponBase`/`ExplosionDef`
 gained an optional **`ImpulseDef`** (`speed`, `direction`, `spin`, `defenceScaled`, `uncontrolMs`,
 `wallStun?`, `retriggerImmunityMs?`), converted to ticks once in `WEAPON_TICKS[id].impulse` —
-`undefined` when the row declares none, because absent must mean absent. **`wildcharge` is the only
-row that authors one**, and a config test enforces that an `impulse` may only sit on a
-`kind: "maneuver"` row, so authoring one on a projectile fails the suite naming the missing
-application path instead of silently doing nothing. `SLAM_CONFIG` is down to `wallContactPad`;
+`undefined` when the row declares none, because absent must mean absent. **`wildcharge` authored the
+only one at stage 4, and since 2026-10-08 `tremor` authors a second** (`speed: -260`, `radial`: an
+inward pull). The maneuver-only guard is gone: `runCombat` now applies an `impulse` on a projectile,
+beam or explosion too — once per victim per instance (`WeaponInstance.impulsedVictims`, server-only,
+mirroring `damageClock`) on that victim's first damaging hit, reported as `CombatResult.impulses` and
+written onto the victim's velocity by `applyWeaponImpulses` in `ram-bridge.ts` (combat is pure and
+carries no velocity). A beam's cone/rect sources the victim's foot on its fire axis, a negative
+`speed` therefore pulls onto the centreline (`sim/weapons/impulse-source.ts`). `SLAM_CONFIG` is down to `wallContactPad`;
 `knockSpeed`, both wall-stun knobs, `reslamImmunityMs`, `victimAuthority`, `selfKeepFactor` and the
 whole `SLAM_TICKS` export are **gone**. Three consequences worth knowing before touching contact
 code: `sim/contact.ts`'s charge branch builds no `Impulse` at all — it emits a **`SlamEvent`**

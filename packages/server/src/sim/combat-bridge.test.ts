@@ -63,6 +63,7 @@ function liveInstance(over: Partial<WeaponInstance> = {}): WeaponInstance {
     pierceLeft: 0,
     attached: false,
     damageClock: new Map<string, number>(),
+    impulsedVictims: new Set<string>(),
     alive: true,
     muzzleDir: 0,
     homingTargetId: "",

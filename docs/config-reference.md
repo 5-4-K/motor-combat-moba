@@ -821,10 +821,24 @@ declarative push a weapon imparts on contact, the sibling of `applies`. Absent o
 weapon pushes nothing, and absent must mean absent: `WEAPON_TICKS[id].impulse` is `undefined` rather
 than zero-filled, so no weapon can become a nudge by omission.
 
-**`wildcharge` is the only row that declares one today**, and the only application path built is the
-hard slam's (`ram-bridge.ts`'s `events.slams` loop). `weapon-config.test.ts` enforces that: an
-`impulse` may only sit on a `kind: "maneuver"` row, so authoring one on a projectile, beam or
-explosion fails the suite naming the missing path rather than silently doing nothing.
+**Two rows declare one today: `wildcharge` (a maneuver) and `tremor` (a beam).** They reach the
+victim by different paths. A maneuver's is the hard slam's (`ram-bridge.ts`'s `events.slams` loop). Any
+other kind's is the **on-hit path**: `runCombat`'s damaged loop builds the `Impulse` on a victim's
+FIRST damaging hit from an instance and reports it on `CombatResult.impulses`; the server applies it
+with `applyImpulse` after combat (`applyWeaponImpulses`, `ram-bridge.ts`) and credits the weapon's
+owner as the shover for spike attribution. It lands **once per victim per instance** —
+`WeaponInstance.impulsedVictims`, server-only like `damageClock`, so a ticking beam that re-arms its
+damage clock every interval pulls a car once, and a car leaving and re-entering the same instance is
+not pulled again. The radial source is derived from geometry (`radialSourceOf`): a projectile or
+explosion sources its position, a `disc` beam its centre, and a rect/cone beam the victim's
+perpendicular foot on the fire axis — so a **negative `speed`** is a pull toward the source (tremor
+drags a caught car onto its centreline). `weapon-config.test.ts` allows an `impulse` on a maneuver,
+projectile or beam row and on an `ExplosionDef`, keeps the nine basic attacks impulse-free, and holds
+every authored `direction` to `"radial"` (the only mode with a reader). `onWallImpact` and
+`retriggerImmunityMs` are maneuver-path only; the on-hit path ignores them.
+
+`tremor.impulse` is `{ speed: -260, direction: "radial", spin: 0, defenceScaled: false, applies: [] }`
+— half of `wildcharge`'s 520, a strong single yank, to be tuned once played.
 
 | Field | `wildcharge` | Notes |
 |---|---|---|

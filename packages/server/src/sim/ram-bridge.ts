@@ -30,6 +30,7 @@ import {
   type StatusId,
   type StatusRequest,
   type WeaponId,
+  type WeaponImpulse,
 } from "@motor-combat-moba/shared";
 import { modifiersFor, readStatuses, writeStatuses } from "./status-bridge.js";
 import {
@@ -343,7 +344,7 @@ function contactCarsOf(
  * `ramDefenceOf` instead of `massOf`, which is what actually delivers the ~10x inertia-denominator
  * drop `nextSpin`'s doc comment (`sim/impulse.ts`) describes.
  *
- * **Only the SLAM path reaches this now.** Its doc used to add that "both ram impulses are
+ * **Only authored pushes reach this now — the slam path and `applyWeaponImpulses`.** Its doc used to add that "both ram impulses are
  * `defenceScaled: false`, so this value only reaches `applyImpulse`'s `nextSpin` inertia term" — the
  * Unity port's stage 3 deleted the ram contest and with it every `Impulse` a ram ever built, so
  * `sim/ram.ts` produces no impulse at all today and a ram divides by the victim's `ramDefence` inside
@@ -355,6 +356,35 @@ function ramDefenceFor(state: ArenaState, statusMods: ReadonlyMap<string, Modifi
   const player = state.players.get(sessionId);
   if (!player) return 0;
   return ramDefenceOf(carIdOf(player)) * modifiersFor(statusMods, sessionId).ramDefence;
+}
+
+/**
+ * Apply the pushes combat reported this tick (`CombatResult.impulses`): a weapon's own `impulse` on a
+ * car it just damaged, once per victim per instance. The same write `contactTick`'s maneuver pass
+ * does for a slam — `applyImpulse`, then the three velocity fields — because `runCombat` is pure and
+ * carries no velocity to write, and the schema's `vx/vy/angVel` are the server's to move.
+ *
+ * Runs after combat, so the velocity is read by NEXT tick's drive like every push before it. The
+ * pusher is credited as the shover (AS20), so a car pulled onto a spike strip is charged to the
+ * weapon's owner for `shoverCreditMs`, exactly as a ram or a slam would be. The statuses an impulse
+ * `applies` are not handled here: `runCombat` has already written them onto the victim's list.
+ */
+export function applyWeaponImpulses(
+  state: ArenaState,
+  memory: ContactMemory,
+  statusMods: ReadonlyMap<string, Modifiers>,
+  impulses: readonly WeaponImpulse[],
+  tick: number,
+): void {
+  for (const entry of impulses) {
+    const victim = state.players.get(entry.targetSessionId);
+    if (!victim) continue;
+    const next = applyImpulse(victim, ramDefenceFor(state, statusMods, entry.targetSessionId), entry.imp);
+    victim.vx = next.vx;
+    victim.vy = next.vy;
+    victim.angVel = next.angVel;
+    recordShove(memory.spikes, entry.targetSessionId, entry.sourceSessionId, tick);
+  }
 }
 
 /** The other car named by a head-on resolution — the one that put this car where it is. */

@@ -189,6 +189,7 @@ function burstAt(x: number, y: number, tick: number): WeaponInstance {
     pierceLeft: 0,
     attached: false,
     damageClock: new Map(),
+    impulsedVictims: new Set<string>(),
     alive: true,
     muzzleDir: 0,
     homingTargetId: "",

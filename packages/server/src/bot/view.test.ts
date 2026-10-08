@@ -168,6 +168,7 @@ function fakeInstance(over: Partial<WeaponInstance> & { id: string; x: number; y
     pierceLeft: 0,
     attached: false,
     damageClock: new Map(),
+    impulsedVictims: new Set<string>(),
     alive: true,
     muzzleDir: 0,
     homingTargetId: "",

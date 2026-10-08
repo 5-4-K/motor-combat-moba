@@ -579,6 +579,12 @@ export const WEAPON_TABLE = {
       { statusId: "spiked", target: "opponents", durationMs: 600 },
       { statusId: "fortified", target: "ownerInside", durationMs: 300 },
     ],
+    // The first non-maneuver row to push. `radial` against a cone beam sources the victim's foot on
+    // the fire axis (`radialSourceOf`), so a NEGATIVE speed is a pull onto the centreline, delivered
+    // once per victim per instance as it is first damaged. Half of `wildcharge`'s 520: a strong single
+    // yank, to be tuned once it has been played. No spin, no defence scaling, no status of its own
+    // (the `spiked` slow above already rides the damage).
+    impulse: { speed: -260, direction: "radial", spin: 0, defenceScaled: false, applies: [] },
   },
   /**
    * Three expanding rings out of the car, half a second apart, from ONE press. A centre-origin
@@ -766,6 +772,9 @@ export function buildBurstDefs(
       lifetimeMs: blast.lingerMs,
       volley: { volleys: 1, volleyIntervalMs: 0 },
       ...(blast.applies ? { applies: blast.applies } : {}),
+      // The burst's push rides the synthesized def so `runCombat` finds it through `instanceDefOf`, the
+      // same way it finds the burst's `applies`. Absent must stay absent.
+      ...(blast.impulse ? { impulse: blast.impulse } : {}),
     };
     bursts[id] = Object.freeze(burst);
   }

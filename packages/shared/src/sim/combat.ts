@@ -18,6 +18,7 @@ import type { CombatEvents, DamageSource } from "./combat-events.js";
 import type { ContactHit, SpikeHit } from "./contact.js";
 import { carHullOf, carIdOf } from "./context.js";
 import { applyDamage, applyHeal, damageFor, scaleDamage, weaponDamageOf } from "./damage.js";
+import type { Impulse } from "./impulse.js";
 import { ManeuverKind, NO_MANEUVER } from "./maneuver.js";
 import { applyStatus, hasStatus, statusPulses, type ActiveStatus } from "./status/statuses.js";
 import { modifiersOf, NEUTRAL_MODIFIERS, type Modifiers } from "./status/modifiers.js";
@@ -31,6 +32,7 @@ import {
   type WeaponInstance,
 } from "./weapons/instances.js";
 import { beamShapeAt, projectileShapeAt, shapeHitsObb, smear } from "./weapons/shapes.js";
+import { radialSourceOf } from "./weapons/impulse-source.js";
 import { canDamage } from "./weapons/targets.js";
 
 /**
@@ -202,6 +204,20 @@ export interface CombatInput {
   fastForward?: ReadonlyMap<string, number>;
 }
 
+/**
+ * One push a weapon's `impulse` owes a car it just damaged: who, and the fully built `Impulse`.
+ *
+ * `runCombat` is pure and carries no velocity (`CombatPlayer` has x/y/angle only), so it cannot apply
+ * the push itself. It reports it, and the server — which owns `SimBody.vx/vy/angVel` — applies it
+ * with `applyImpulse` the same way it applies a slam's (`ram-bridge.ts`).
+ */
+export interface WeaponImpulse {
+  targetSessionId: string;
+  /** The weapon's owner: credited as the shover if the pushed car meets a spike (AS20). */
+  sourceSessionId: string;
+  imp: Impulse;
+}
+
 export interface CombatResult {
   players: CombatPlayer[];
   instances: WeaponInstance[];
@@ -231,6 +247,15 @@ export interface CombatResult {
    * `ended` (`combat-golden.test.ts`) still describes the birth-tick list alone.
    */
   endedLived: WeaponInstance[];
+  /**
+   * Pushes owed this tick: one per car a weapon with an `impulse` damaged for the FIRST time (per
+   * victim, per instance — `WeaponInstance.impulsedVictims`), in the order the hits resolved.
+   *
+   * Server output only, like `ended`: the room applies each to the victim's `SimBody` after combat
+   * (`tick-pipeline.ts`), and `stepSim` never reads it, so nothing new crosses the wire (invariant 8
+   * untouched). Empty on the overwhelming majority of ticks.
+   */
+  impulses: WeaponImpulse[];
 }
 
 /**
@@ -571,6 +596,8 @@ export function runCombat(input: CombatInput): CombatResult {
   const ended: WeaponInstance[] = [];
   // Lived on an earlier tick and over now (see `CombatResult.endedLived`).
   const endedLived: WeaponInstance[] = [];
+  // Pushes owed to cars a weapon's `impulse` just caught (see `CombatResult.impulses`).
+  const impulses: WeaponImpulse[] = [];
 
   /**
    * One instance's resolution for this tick, given the pose it swept from: expiry, the world, then
@@ -646,6 +673,7 @@ export function runCombat(input: CombatInput): CombatResult {
         instance.ownerSessionId,
         instance.finalWave,
       );
+      applyHitImpulse(instance, target, world.tick, impulses);
     }
     // `ownerInside` statuses cannot ride the damage list — `canDamage` refuses the owner by design —
     // so a live zone runs its own owner-hull test each tick. Placed here, beside the other status
@@ -767,7 +795,7 @@ export function runCombat(input: CombatInput): CombatResult {
   }
 
   endedLived.unshift(...vanished);
-  return { players, instances: kept, instanceSeq, ended, endedLived };
+  return { players, instances: kept, instanceSeq, ended, endedLived, impulses };
 }
 
 /**
@@ -977,6 +1005,7 @@ function detonate(
       pierceLeft: 0,
       attached: false,
       damageClock: new Map(),
+      impulsedVictims: new Set(),
       alive: true,
       muzzleDir: 0,
       homingTargetId: "",
@@ -1101,6 +1130,69 @@ function applyOwnerInsideStatuses(
       durations[index] ?? 0,
       owner.sessionId,
     );
+  });
+}
+
+/**
+ * A weapon's own push on a car its shot just damaged: report it in `out`, once per victim per
+ * instance, and apply the `applies` statuses that ride it.
+ *
+ * Runs in the same damaged loop as `applyOpponentStatuses`, so it inherits the damage list's rules
+ * for free: friendly fire, the shooter's immunity, wrecks and phased cars never reach it. The gate is
+ * `instance.impulsedVictims`, NOT the damage clock — a ticking beam re-arms its clock every interval
+ * and damages the same car over and over, but must pull it once. `impulsedVictims` is a fresh copy
+ * per step (`stepInstance`) and `resolveInstanceHits` spreads the instance, so the set written here
+ * is the one on the instance that survives into the next tick.
+ *
+ * `direction` is the unit vector from the radial source (`radialSourceOf`) through the victim, so a
+ * negative `speed` pulls toward the source. A victim exactly ON the source has no direction: the
+ * push is spent without being emitted (its statuses still land), so it cannot be bought back by
+ * drifting off a tick later.
+ * `uncontrolTicks` is 0 as in `ram-bridge.ts`; any loss of control comes from `applies`.
+ */
+function applyHitImpulse(
+  instance: WeaponInstance,
+  target: CombatPlayer,
+  tick: number,
+  out: WeaponImpulse[],
+): void {
+  const def = instanceDefOf(instance.weaponId, instance.isExplosion);
+  const impulse = def.impulse;
+  if (impulse === undefined) return;
+  if (instance.impulsedVictims.has(target.sessionId)) return;
+  instance.impulsedVictims.add(target.sessionId);
+
+  const ticks = weaponTicksOf(instance.weaponId);
+  const resolved = instance.isExplosion ? ticks.explosion?.impulse : ticks.impulse;
+  for (const application of resolved?.applies ?? []) {
+    target.statuses = applyStatus(
+      target.statuses,
+      application.statusId,
+      tick,
+      application.durationTicks,
+      instance.ownerSessionId,
+    );
+  }
+
+  const source = radialSourceOf(def, instance, target.x, target.y);
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  const length = Math.hypot(dx, dy);
+  if (length === 0) return;
+
+  out.push({
+    targetSessionId: target.sessionId,
+    sourceSessionId: instance.ownerSessionId,
+    imp: {
+      dirX: dx / length,
+      dirY: dy / length,
+      speed: impulse.speed,
+      spin: impulse.spin,
+      defenceScaled: impulse.defenceScaled,
+      uncontrolTicks: 0,
+      contactX: target.x,
+      contactY: target.y,
+    },
   });
 }
 

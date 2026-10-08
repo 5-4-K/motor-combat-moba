@@ -17,6 +17,7 @@ import {
   carIdOf,
   type ArenaState,
   type CombatEvents,
+  type Modifiers,
   type TickInputBuffer,
   type PlayerState,
 } from "@motor-combat-moba/shared";
@@ -33,6 +34,7 @@ import {
 } from "../sim/combat-bridge.js";
 import { readStatuses, statusTick, writeStatuses } from "../sim/status-bridge.js";
 import {
+  applyWeaponImpulses,
   clearKnock,
   clearShover,
   contactTick,
@@ -144,7 +146,7 @@ export function runPipeline(ctx: PipelineCtx): {
     );
   }
   const compTicks = compTicksOf(ctx, viewTicks);
-  return { masks, combatPlayers: combatTick(ctx, dt, masks, contact, aims, compTicks), steps, compTicks };
+  return { masks, combatPlayers: combatTick(ctx, dt, masks, contact, aims, compTicks, statusMods), steps, compTicks };
 }
 
 /**
@@ -191,6 +193,9 @@ function combatTick(
   // Per pressing session, how many ticks its newly born shots are owed (NR36), spent by
   // `runCombat`'s shot fast-forward (NR37).
   compTicks: ReadonlyMap<string, number>,
+  // This tick's multipliers from `statusTick`: the pushes combat reports are scaled by the victim's
+  // `ramDefence`, which is a modifier.
+  statusMods: ReadonlyMap<string, Modifiers>,
 ): CombatResultPlayer[] | null {
   const state = ctx.state;
   if (state.phase !== RoomPhase.MATCH || ctx.matchRoster.size === 0) {
@@ -221,6 +226,10 @@ function combatTick(
 
   applyCombatResult(state, result, ctx.combat);
   ctx.combat.instanceSeq = result.instanceSeq;
+  // A weapon's own push on the cars it just hit. `runCombat` is pure and carries no velocity, so it
+  // reports the pushes and the SimBody write happens here, where `statusMods` and the contact memory
+  // (spike credit) are in scope — `applyCombatResult` stays rule-free.
+  applyWeaponImpulses(state, ctx.ram, statusMods, result.impulses, state.tick);
 
   if (ctx.runPhaseSweep) phaseEndSweep(ctx, masks);
 
