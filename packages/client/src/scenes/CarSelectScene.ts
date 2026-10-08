@@ -149,11 +149,19 @@ export class CarSelectScene extends Phaser.Scene {
     if (!force && view.secondsLeft === this.lastSecond) return;
     this.lastSecond = view.secondsLeft;
     this.currentView = view;
+    // Every redraw replaces the whole screen, at least once a second for the clock, so the two
+    // scroll areas would snap back to the top under the player's wheel without this carry-over.
+    const root = this.overlay.mount();
+    const offsets = new Map<string, number>();
+    root.querySelectorAll<HTMLElement>("[data-scroll]").forEach((el) => offsets.set(el.dataset.scroll ?? "", el.scrollTop));
     this.overlay.render(
       renderCarSelect(view, {
         onPick: (carId) => this.pick(carId),
         onLockIn: () => this.lockIn(),
       }),
     );
+    root.querySelectorAll<HTMLElement>("[data-scroll]").forEach((el) => {
+      el.scrollTop = offsets.get(el.dataset.scroll ?? "") ?? 0;
+    });
   }
 }
