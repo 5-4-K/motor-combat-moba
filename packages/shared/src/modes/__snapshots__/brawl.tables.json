@@ -282,7 +282,7 @@
     "spinScale": 0.3
   },
   "slots": {
-    "basicAttackEnabled": false,
+    "basicAttackEnabled": true,
     "basicAttackSlotIndex": 0,
     "maxAbilitySlots": 3,
     "maxFireSlots": 4
