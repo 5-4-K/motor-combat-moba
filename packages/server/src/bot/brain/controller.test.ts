@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
-  ARENA_01, boundsOf, driveOf, NEUTRAL_MODIFIERS, slotsOf, stepDrive, TICK_RATE_HZ, turretPivotOf,
+  ARENA_01, driveOf, NEUTRAL_MODIFIERS, slotsOf, stepDrive, TICK_RATE_HZ, turretPivotOf,
   weaponDefOf, wrapAngle, type SimBody,
 } from "@motor-combat-moba/shared";
 import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
@@ -9,6 +9,7 @@ import { makeRng } from "../rng.js";
 import type { BotView } from "../types.js";
 import { HumanController, inCorner } from "./controller.js";
 import { runDuel } from "./duel.fixture.js";
+import { legacyOctagonView } from "./legacy-octagon.fixture.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 // Also installed directly, synchronously, at module scope: fixture constants below (and
@@ -880,14 +881,7 @@ describe("HumanController", () => {
  */
 describe("inCorner", () => {
   const rect = { width: ARENA_01.width, height: ARENA_01.height, obstacles: [] };
-  // The octagon `arena-01` was until 2026-10-09 (it is a square-cornered tile arena now, TA9), kept
-  // here as a fixture: what this pins is how a CHAMFER plane is read, and no shipped arena has a
-  // chamfer that sits inside the rect rule's margin on both axes.
-  const LEGACY_OCTAGON = [
-    { x: 124, y: 54 }, { x: 1156, y: 54 }, { x: 1206, y: 104 }, { x: 1206, y: 616 },
-    { x: 1156, y: 666 }, { x: 124, y: 666 }, { x: 74, y: 616 }, { x: 74, y: 104 },
-  ];
-  const octagon = { ...rect, planes: boundsOf({ ...rect, boundary: LEGACY_OCTAGON }).planes };
+  const octagon = legacyOctagonView();
 
   it("finds a chamfer corner on the octagon", () => {
     // (95, 95) is inside the top-left chamfer's margin and inside the rect on BOTH axes — 95 is

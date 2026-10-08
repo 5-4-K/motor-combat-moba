@@ -459,7 +459,7 @@ fallback this namespace exists to protect was never weakened, only finally exerc
 
 A sprite arena draws none of the procedural decoration a rectangle arena still needs: the painted
 lane markings and centre circle (`ENVIRONMENT_FX.markings`), the border stroke
-(`arenaBorderRect`), and the fourteen spike obstacles themselves all go unpainted when a floor
+(`arenaBorderRect`), and the spike obstacles themselves all go unpainted when a floor
 sprite is in use, because the art already carries walls, markings and spikes drawn to match where
 the sim actually puts them. `ENVIRONMENT_FX.floor.*` (the asphalt generator's own knobs) becomes
 inert for that arena — the playground's environment panel says so rather than silently doing

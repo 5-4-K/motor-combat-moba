@@ -960,8 +960,9 @@ function projectileSpeedOf(def: WeaponDef): number {
  * How badly this pose is jammed against the world. Squared, so a corner dominates an edge.
  *
  * Walks the BOUNDARY PLANES, not the `width`/`height` rectangle (AS28). It used to compare against
- * `0`/`width`/`height`, which on the octagon `arena-01` is not the playable edge at all: its boundary
- * spans `x ∈ [74, 1206]`, `y ∈ [54, 666]`, and a car centre is inset from that by at least the
+ * `0`/`width`/`height`, which on the (then) octagonal `arena-01` was not the playable edge at all: its boundary
+ * spanned `x ∈ [74, 1206]`, `y ∈ [54, 666]` (history: the tile arena's floor is now x 80..1200,
+ * y 40..680), and a car centre is inset from that by at least the
  * 20-unit half-width the 60x40 hull presents side-on, so reachable car centres are at most
  * `x ∈ [94, 1186]`, `y ∈ [74, 646]` (by the 36.06-unit half-diagonal, the conservative band is
  * `x ∈ [110, 1170]`, `y ∈ [90, 630]`). A 60-unit margin off the rect could therefore only

@@ -1467,7 +1467,7 @@ clearance and spawn rules automatically — no test to write.
 
 ## Arena registry
 
-`ARENAS` in `packages/shared/src/arena/registry.ts` currently holds two entries. `arena.test.ts`
+`ARENAS` in `packages/shared/src/arena/registry.ts` currently holds three entries (`arena-01`, `arena-02`, `arena-03`). `arena.test.ts`
 checks every registered arena by rule — bounds, obstacle clearance, corridor width, spawn counts,
 spawn placement — rather than by pinned values, so the table below is orientation, not a spec to
 keep hand-in-sync as more arenas land.
@@ -1509,7 +1509,7 @@ Its 3 `teamASpawns` sit at `x=200` facing `0` and its 3 `teamBSpawns` at `x=1080
 `x = 61/1222`, `y = 61/668`, playable **1161 × 607**) and four continuous `kind: "spike"` strips,
 one per wall, each `SPIKE_CONFIG.depth` (20) inward. Top and bottom take the corners; left and
 right sit between them. It ships `arena.arena-02.floor`. Spawns reuse the same facing pattern as
-`arena-01`, reseated in this rect. Both shipped arenas now fit the viewport at `CAMERA_CONFIG.zoom`
+`arena-01`, reseated in this rect. `arena-01` and `arena-02` fit the viewport at `CAMERA_CONFIG.zoom`
 of 1.
 
 `arena-03` is Conquer's own arena (CQ37–CQ40): a tall pitch, one screen wide and three tall, with the
