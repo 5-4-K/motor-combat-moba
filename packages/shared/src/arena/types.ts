@@ -1,3 +1,5 @@
+import type { TileId } from "./tiles/tile-config.js";
+
 /**
  * Axis-aligned solid. `x, y` is the **top-left** corner, matching `Aabb` in `sim/collide.ts`,
  * so arena obstacles pass into `resolveWorld` with no conversion.
@@ -46,6 +48,16 @@ export interface ArenaZone {
   readonly x: number;
   readonly y: number;
   readonly radius: number;
+}
+
+/**
+ * The grid a tile arena was compiled from (spec tile arenas, §3.2). Row-major: `cells[r * cols + c]`.
+ * Static shared data like the rest of `ArenaDef` — never a schema field (invariant 8 untouched).
+ */
+export interface TileGrid {
+  readonly cols: number;
+  readonly rows: number;
+  readonly cells: readonly TileId[];
 }
 
 export interface ArenaDef {

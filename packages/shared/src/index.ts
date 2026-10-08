@@ -323,7 +323,16 @@ export { PRACTICE_CONFIG } from "./config/practice-config.js";
 export { CHAT_CONFIG } from "./config/chat-config.js";
 export { SPIKE_CONFIG, SPIKE_TICKS } from "./config/spike-config.js";
 
-export type { ArenaDef, ArenaZone, Obstacle, Spawn } from "./arena/types.js";
+export type { ArenaDef, ArenaPalette, ArenaZone, Obstacle, Spawn, TileGrid } from "./arena/types.js";
+export { TILE_SIZE, TILE_TABLE, isSolidTile, tileDefOf } from "./arena/tiles/tile-config.js";
+export type {
+  TileCollision,
+  TileDef,
+  TileHazard,
+  TileId,
+  TileShape,
+  TileSurface,
+} from "./arena/tiles/tile-config.js";
 export { ARENA_01 } from "./arena/arena-01.js";
 export { ARENA_02 } from "./arena/arena-02.js";
 export { ARENA_03 } from "./arena/arena-03.js";
