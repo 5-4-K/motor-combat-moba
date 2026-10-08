@@ -486,7 +486,8 @@ export function instanceExpired(
  * reflects the heading about the plane's normal — for an axis-aligned plane this is exactly the old
  * per-axis mirror, `PI - a` off a vertical face and `-a` off a horizontal one. AABB obstacles stay a
  * single axis-aligned component flip: which face was crossed is decided by the side the shot came
- * FROM (prev position); a corner hit flips both. Centre-point test, deliberately: a face-accurate
+ * FROM (prev position); a corner hit flips both; a point reflected into a second obstacle (a concave
+ * corner of two rects) reflects off that one too. Centre-point test, deliberately: a face-accurate
  * polygon sweep buys precision nobody can see on a 30-unit-per-tick shot.
  */
 export function bounceOffWorld(
@@ -512,12 +513,29 @@ export function bounceOffWorld(
     const dot = dx * plane.nx + dy * plane.ny;
     a = Math.atan2(dy - 2 * dot * plane.ny, dx - 2 * dot * plane.nx);
   }
-  for (const o of obstacles) {
-    if (!pointInAabb(x, y, o)) continue;
-    const fromLeft = prevX <= o.x;
-    const fromRight = prevX >= o.x + o.w;
-    const fromTop = prevY <= o.y;
-    const fromBottom = prevY >= o.y + o.h;
+  // Every obstacle the point ends up in, not just the first: where two rectangles meet in a concave
+  // L — a tile arena's wall row and side band — reflecting off one can land the point inside the
+  // other. Left there, the next tick's `prev` would be inside it, no face would read as the side the
+  // shot came from, and the corner branch would mirror it across the far faces (a ~150-unit jump).
+  // Bounded, so no layout can loop; a point still embedded after that is held where it was.
+  for (let pass = 0; pass < MAX_OBSTACLE_BOUNCES; pass += 1) {
+    const o = obstacles.find((box) => pointInAabb(x, y, box));
+    if (o === undefined) return { x, y, angle: a };
+    let fromLeft = prevX <= o.x;
+    let fromRight = prevX >= o.x + o.w;
+    let fromTop = prevY <= o.y;
+    let fromBottom = prevY >= o.y + o.h;
+    if (!(fromLeft || fromRight || fromTop || fromBottom)) {
+      // `prev` is inside this obstacle too (a shot born in a wall), so no face is the side it came
+      // from. Treat it as having come through the face nearest `prev`: it leaves the short way,
+      // never across the far faces.
+      const exits = [prevX - o.x, o.x + o.w - prevX, prevY - o.y, o.y + o.h - prevY];
+      const nearest = exits.indexOf(Math.min(...exits));
+      fromLeft = nearest === 0;
+      fromRight = nearest === 1;
+      fromTop = nearest === 2;
+      fromBottom = nearest === 3;
+    }
     if ((fromLeft || fromRight) && !(fromTop || fromBottom)) {
       x = fromLeft ? 2 * o.x - x : 2 * (o.x + o.w) - x;
       a = Math.PI - a;
@@ -529,10 +547,14 @@ export function bounceOffWorld(
       y = fromTop ? 2 * o.y - y : 2 * (o.y + o.h) - y;
       a = a + Math.PI;
     }
-    break;
   }
-  return { x, y, angle: a };
+  if (!obstacles.some((box) => pointInAabb(x, y, box))) return { x, y, angle: a };
+  // Still inside something: hold the shot at its last free position and send it back the way it came.
+  return { x: prevX, y: prevY, angle: angle + Math.PI };
 }
+
+/** How many obstacles one bounce may reflect off in a tick — two covers any L; the rest is margin. */
+const MAX_OBSTACLE_BOUNCES = 4;
 
 /**
  * How far a beam may reach before level geometry stops it: a ray marched down its CENTRE AXIS

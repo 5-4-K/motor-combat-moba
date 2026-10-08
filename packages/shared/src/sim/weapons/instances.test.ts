@@ -6,6 +6,8 @@ import { TURRET_CONFIG } from "../../config/turret-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import { DEFAULT_CAR_ID } from "../../config/car-config.js";
 import { WEAPON_TABLE } from "../../config/weapon-config.js";
+import { ARENA_01 } from "../../arena/arena-01.js";
+import { boundsOf } from "../../arena/bounds.js";
 import { rectPlanes } from "../boundary.js";
 import { weaponDamageOf } from "../damage.js";
 import {
@@ -471,6 +473,60 @@ describe("bounce", () => {
     expect(shot.expiresAtTick).toBe(100 + life);
     expect(instanceExpired({ ...shot, distance: 99999 }, 100 + life - 1, bouncer)).toBe(false); // range ignored
     expect(instanceExpired(shot, 100 + life, bouncer)).toBe(true);
+  });
+
+  it("bounces out of a concave corner made of two rectangles, not through either", () => {
+    // A tile arena's inner corner: the top wall row meets the side wall band. The first reflection
+    // (off the top row's bottom face) lands the point inside the side band; it must reflect off that
+    // too, ending on the floor, heading back out of the corner.
+    const topRow = { x: 0, y: 0, w: 120, h: 40 };
+    const sideBand = { x: 0, y: 40, w: 80, h: 80 };
+    const a = Math.atan2(-15, -20);
+    const r = bounceOffWorld(90, 50, 70, 35, a, [topRow, sideBand], bounds);
+    expect(r.x).toBeCloseTo(90);
+    expect(r.y).toBeCloseTo(45);
+    expect(Math.cos(r.angle)).toBeGreaterThan(0);
+    expect(Math.sin(r.angle)).toBeGreaterThan(0);
+  });
+
+  it("lets a shot born inside an obstacle leave through its nearest face, not across the far ones", () => {
+    // No face is the side it came from; it exits through the face nearest `prev` (the left one,
+    // 10 u away), heading back out, rather than being mirrored across the box to x > 340.
+    const box = { x: 300, y: 250, w: 40, h: 100 };
+    const r = bounceOffWorld(310, 300, 317.5, 300, 0, [box], bounds);
+    expect(r.x).toBeLessThan(box.x);
+    expect(Math.cos(r.angle)).toBeCloseTo(-1);
+  });
+
+  it("never teleports or embeds a shot at arena-01's inner wall corners", () => {
+    const arenaBounds = boundsOf(ARENA_01);
+    const STEP = 7.5; // thumper-scale per-tick travel at 60 Hz
+    const inside = (x: number, y: number) =>
+      ARENA_01.obstacles.some((o) => x > o.x && x < o.x + o.w && y > o.y && y < o.y + o.h);
+    const corners = [
+      { x: 80, y: 40, dx: -1, dy: -1 },
+      { x: 1200, y: 40, dx: 1, dy: -1 },
+      { x: 80, y: 680, dx: -1, dy: 1 },
+      { x: 1200, y: 680, dx: 1, dy: 1 },
+    ];
+    for (const c of corners) {
+      for (const off of [-0.06, -0.03, 0, 0.03, 0.06]) {
+        for (const shift of [0, 1.3, 2.7, 4.1]) {
+          // ~20 u off both walls, so the shot runs into the concave corner itself.
+          let x = c.x - c.dx * (20 + shift);
+          let y = c.y - c.dy * 20;
+          let ang = Math.atan2(c.dy, c.dx) + off;
+          for (let t = 0; t < 30; t += 1) {
+            const r = bounceOffWorld(x, y, x + Math.cos(ang) * STEP, y + Math.sin(ang) * STEP, ang, ARENA_01.obstacles, arenaBounds);
+            expect(Math.hypot(r.x - x, r.y - y), `corner ${c.x},${c.y} off ${off} shift ${shift} tick ${t}`).toBeLessThanOrEqual(STEP + 1e-6);
+            expect(inside(r.x, r.y), `corner ${c.x},${c.y} off ${off} shift ${shift} tick ${t} ended inside a wall`).toBe(false);
+            x = r.x;
+            y = r.y;
+            ang = r.angle;
+          }
+        }
+      }
+    }
   });
 
   it("reflects a bouncing projectile about a diagonal plane", () => {
