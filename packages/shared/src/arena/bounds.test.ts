@@ -13,17 +13,17 @@ describe("boundsOf", () => {
   });
 
   it("carries the width and height of a polygon arena unchanged", () => {
-    const bounds = boundsOf(ARENA_01);
-    expect(bounds.width).toBe(ARENA_01.width);
-    expect(bounds.height).toBe(ARENA_01.height);
+    const bounds = boundsOf(ARENA_02);
+    expect(bounds.width).toBe(ARENA_02.width);
+    expect(bounds.height).toBe(ARENA_02.height);
   });
 });
 
 describe("playableExtentOf", () => {
-  it("measures the polygon, not the image frame", () => {
-    // The octagon's own bounding box: x 74-1206, y 54-666. Deliberately NOT `width`/`height`, which
-    // are the frame the art is drawn in and the camera's bounds.
-    expect(playableExtentOf(ARENA_01)).toEqual({ width: 1132, height: 612 });
+  it("measures arena-01's tile floor, not the image frame", () => {
+    // The floor tiles' own rect: x 80-1200, y 40-680. Deliberately NOT `width`/`height`, which
+    // are the frame the walls are drawn in and the camera's bounds.
+    expect(playableExtentOf(ARENA_01)).toEqual({ width: 1120, height: 640 });
     expect(playableExtentOf(ARENA_01).width).not.toBe(ARENA_01.width);
   });
 

@@ -1,15 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
-import { SPIKE_CONFIG } from "../config/spike-config.js";
-import { pointOutsideBounds } from "../sim/collide.js";
 import { ARENA_01 } from "./arena-01.js";
-import { boundsOf } from "./bounds.js";
+import { playableRectOf } from "./bounds.js";
+import { TILE_SIZE } from "./tiles/tile-config.js";
 import type { Spawn } from "./types.js";
 
-const bounds = boundsOf(ARENA_01);
 const spikes = ARENA_01.obstacles.filter((o) => o.kind === "spike");
 const CENTRE_X = ARENA_01.width / 2;
 const CENTRE_Y = ARENA_01.height / 2;
+const floor = playableRectOf(ARENA_01);
 
 /** Gaps between consecutive values, used to prove even spacing without naming the spacing. */
 function gaps(values: readonly number[]): number[] {
@@ -20,100 +19,51 @@ function sortedY(spawns: readonly Spawn[]): number[] {
   return spawns.map((s) => s.y).sort((a, b) => a - b);
 }
 
-describe("ARENA_01 boundary", () => {
-  it("is a convex octagon inside the world rect", () => {
-    expect(ARENA_01.boundary).toHaveLength(8);
-    for (const v of ARENA_01.boundary!) {
-      expect(v.x).toBeGreaterThanOrEqual(0);
-      expect(v.y).toBeGreaterThanOrEqual(0);
-      expect(v.x).toBeLessThanOrEqual(ARENA_01.width);
-      expect(v.y).toBeLessThanOrEqual(ARENA_01.height);
-    }
+describe("ARENA_01 grid", () => {
+  it("is a 32 x 18 tile arena with no polygon", () => {
+    expect(ARENA_01.tiles?.cols).toBe(32);
+    expect(ARENA_01.tiles?.rows).toBe(18);
+    expect(ARENA_01.boundary).toBeUndefined();
   });
 
-  it("wound clockwise, so every normal points at the centre", () => {
-    for (const plane of bounds.planes!) {
-      expect(plane.nx * CENTRE_X + plane.ny * CENTRE_Y - plane.d).toBeGreaterThan(0);
+  it("plays on the 1120 x 640 floor inside a 2-tile side band and a 1-tile end band", () => {
+    expect(floor).toEqual({ x: 2 * TILE_SIZE, y: TILE_SIZE, w: 28 * TILE_SIZE, h: 16 * TILE_SIZE });
+  });
+
+  it("is mirror-symmetric about both centre lines, tile for tile", () => {
+    const g = ARENA_01.tiles!;
+    const at = (c: number, r: number) => g.cells[r * g.cols + c];
+    for (let r = 0; r < g.rows; r += 1) {
+      for (let c = 0; c < g.cols; c += 1) {
+        expect(at(c, r)).toBe(at(g.cols - 1 - c, r));
+        expect(at(c, r)).toBe(at(c, g.rows - 1 - r));
+      }
     }
   });
 });
 
-describe("ARENA_01 spike strips", () => {
-  // Derived from the boundary rather than hardcoded (Finding 1, 2026-09-11 review): a filter keyed
-  // to a literal band coordinate silently returns [] the moment a band moves, and `expect(x).toEqual(
-  // y)` on two empty arrays passes. TOP_Y/BOTTOM_Y/LEFT_X/RIGHT_X are the four straight walls' own
-  // lines, so a spike is grouped by whichever edge it is actually flush against.
-  const boundaryXs = ARENA_01.boundary!.map((v) => v.x);
-  const boundaryYs = ARENA_01.boundary!.map((v) => v.y);
-  const TOP_Y = Math.min(...boundaryYs);
-  const BOTTOM_Y = Math.max(...boundaryYs);
-  const LEFT_X = Math.min(...boundaryXs);
-  const RIGHT_X = Math.max(...boundaryXs);
+describe("ARENA_01 spike runs", () => {
+  const top = spikes.filter((s) => s.y === 0);
+  const bottom = spikes.filter((s) => s.y + s.h === ARENA_01.height);
+  const left = spikes.filter((s) => s.x === TILE_SIZE && s.w === TILE_SIZE);
+  const right = spikes.filter((s) => s.x === 30 * TILE_SIZE && s.w === TILE_SIZE);
 
-  const top = spikes.filter((s) => s.y === TOP_Y);
-  const bottom = spikes.filter((s) => s.y + s.h === BOTTOM_Y);
-  const left = spikes.filter((s) => s.x === LEFT_X);
-  const right = spikes.filter((s) => s.x + s.w === RIGHT_X);
-
-  it("has fourteen of them", () => {
+  it("has fourteen of them, each on exactly one wall", () => {
     expect(spikes).toHaveLength(14);
-  });
-
-  it("assigns every spike to exactly one wall", () => {
-    // Guards the four derived filters above: if a spike sat on a chamfer, or a band's coordinates
-    // drifted onto no wall at all, this fails before any filtered test below gets a chance to run on
-    // the wrong (possibly empty) set.
-    expect(top.length + bottom.length + left.length + right.length).toBe(spikes.length);
-  });
-
-  it("makes every one exactly the configured depth", () => {
-    for (const s of spikes) {
-      expect(Math.min(s.w, s.h)).toBe(SPIKE_CONFIG.depth);
-    }
-  });
-
-  it("mirrors the top and bottom strips about the vertical centre line", () => {
-    expect(top).toHaveLength(4);
-    const spanOf = (o: { x: number; w: number }) => [o.x, o.x + o.w] as const;
-    const sorted = top.map(spanOf).sort((a, b) => a[0] - b[0]);
-    const mirrored = [...sorted]
-      .map(([a, b]) => [ARENA_01.width - b, ARENA_01.width - a] as const)
-      .sort((a, b) => a[0] - b[0]);
-    expect(sorted).toEqual(mirrored);
-  });
-
-  it("mirrors the left and right strips about the horizontal centre line", () => {
-    expect(left).toHaveLength(3);
-    const spanOf = (o: { y: number; h: number }) => [o.y, o.y + o.h] as const;
-    const sorted = left.map(spanOf).sort((a, b) => a[0] - b[0]);
-    const mirrored = [...sorted]
-      .map(([a, b]) => [ARENA_01.height - b, ARENA_01.height - a] as const)
-      .sort((a, b) => a[0] - b[0]);
-    expect(sorted).toEqual(mirrored);
-  });
-
-  it("pairs every left strip with a right strip at the same span", () => {
-    expect(left).toHaveLength(3);
-    expect(right).toHaveLength(3);
-    const spanY = (o: { y: number; h: number }) => `${o.y}-${o.y + o.h}`;
-    expect(left.map(spanY).sort()).toEqual(right.map(spanY).sort());
-  });
-
-  it("pairs every top strip with a bottom strip at the same span", () => {
     expect(top).toHaveLength(4);
     expect(bottom).toHaveLength(4);
-    const spanX = (o: { x: number; w: number }) => `${o.x}-${o.x + o.w}`;
-    expect(top.map(spanX).sort()).toEqual(bottom.map(spanX).sort());
+    expect(left).toHaveLength(3);
+    expect(right).toHaveLength(3);
+  });
+
+  it("is one tile deep", () => {
+    for (const s of spikes) expect(Math.min(s.w, s.h)).toBe(TILE_SIZE);
   });
 });
 
 describe("ARENA_01 shape", () => {
   it("is 1280x720, the client's logical canvas", () => {
-    // Not a taste call — at `CAMERA_CONFIG.zoom` of 1 the camera covers exactly this rect, so
-    // rescaling it without rescaling the zoom to match would leave the always-follow camera (CB2)
-    // clamped to bounds that no longer fill the client's logical canvas. An inequality a *smaller*
-    // arena would also satisfy would not have caught that — this pins the actual number (Finding 3,
-    // 2026-09-11 review).
+    // Not a taste call — at `CAMERA_CONFIG.zoom` of 1 the camera covers exactly this rect.
     expect(ARENA_01.width).toBe(1280);
     expect(ARENA_01.height).toBe(720);
   });
@@ -131,11 +81,8 @@ describe("ARENA_01 team spawns", () => {
   });
 
   it("leaves an equal gap between each car and its neighbour and the playable edge", () => {
-    // Re-based off the playable edges (the top/bottom straight walls of the octagon), not the world
-    // rect 0/height, now that the two differ (Finding 3, 2026-09-11 review).
-    const boundaryYs = ARENA_01.boundary!.map((v) => v.y);
-    const topY = Math.min(...boundaryYs);
-    const bottomY = Math.max(...boundaryYs);
+    const topY = floor.y;
+    const bottomY = floor.y + floor.h;
     for (const side of [ARENA_01.teamASpawns, ARENA_01.teamBSpawns]) {
       const ys = sortedY(side);
       const spans = [ys[0]! - topY, ...gaps(ys), bottomY - ys[ys.length - 1]!];
@@ -183,8 +130,13 @@ describe("ARENA_01 spawns", () => {
   const diagonal = Math.hypot(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight);
   const all = [...ARENA_01.ffaSpawns, ...ARENA_01.teamASpawns, ...ARENA_01.teamBSpawns];
 
-  it("puts every spawn inside the polygon", () => {
-    for (const s of all) expect(pointOutsideBounds(s.x, s.y, bounds)).toBe(false);
+  it("puts every spawn on the floor", () => {
+    for (const s of all) {
+      expect(s.x).toBeGreaterThan(floor.x);
+      expect(s.x).toBeLessThan(floor.x + floor.w);
+      expect(s.y).toBeGreaterThan(floor.y);
+      expect(s.y).toBeLessThan(floor.y + floor.h);
+    }
   });
 
   it("clears every spike strip by more than a car diagonal", () => {
