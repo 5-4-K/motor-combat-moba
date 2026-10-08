@@ -251,7 +251,9 @@ centre-origin `disc`-hitbox beam synthesized by `instanceDefOf(id, isExplosion)`
 `ExplosionDef`. That disc lingers 2 s and damages once per entry; `damageMode` on the explosion is
 the knob (`"onceEver" | "perEntry"`). The aura mechanism was never deleted while dormant, and this
 is what it was waiting for. The multi-wave `VolleyDef` machinery that rode alongside the original
-aura is still **dormant**: no row authors more than one volley.
+aura is **live** too: `shockwave` (carried by Taurus) authors `volley: { volleys: 3, volleyIntervalMs: 500 }`
+— three expanding `disc` rings from one press, `spiked` on every ring (`onWave: "all"`); only
+`onWave: "final"` is still unused.
 
 **The `GameMode` enum now has two FFA win conditions**, not one. `FFA_LAST_STANDING` (the renamed
 original — wire value still `0`) ends the match when `livingSides` drops to one side; `FFA_DEATHMATCH`
@@ -272,13 +274,16 @@ and the ram pair list. Outside Deathmatch no car is ever `phased`, so the two pr
 everywhere else in the game; a phased car is the one case where they must disagree, and nothing else
 may let them.
 
-**The three SHIPPED chassis are `bullseye`, `mirage` and `bastion`** — a type triangle, not three
-shapes. `CAR_TABLE` also carries six unreleased prototypes as of 2026-09-16 — `taurus`, `anvil`,
-`caprico`, `prowler`, `cleaver`, `skorpios` — each `isActive: false`, each with `weapons: []`, and
-each a placeholder stat clone of a shipped chassis (Taurus/Anvil/Caprico of Bastion, Prowler/Cleaver
-of Mirage, Skorpios of Bullseye). They exist so art and handling can be driven before publication; **none of
-them carries an identity yet**, so do not read their ratings as a design or balance them against the
-triangle. Everything below about the roster's shape is about the three.
+**The type triangle is `bullseye`, `mirage` and `bastion`** — three shapes that counter each other,
+and the original shipped roster. **`taurus` joined them as a fourth ACTIVE chassis on 2026-10-07**,
+with its own kit (`fury-horn`, `shockwave`, `wildcharge`) and its own ratings (58/33/58/52/80/62/70, a
+heavy bruiser between Bastion and Bullseye) — no longer a clone, and not part of the triangle.
+`CAR_TABLE` also carries five unreleased prototypes as of 2026-09-16 — `anvil`, `caprico`, `prowler`,
+`cleaver`, `skorpios` — each `isActive: false`, each with `weapons: []`, and each a placeholder stat
+clone of a shipped chassis (Anvil/Caprico of Bastion, Prowler/Cleaver of Mirage, Skorpios of
+Bullseye). They exist so art and handling can be driven before publication; **none of them carries an
+identity yet**, so do not read their ratings as a design or balance them against the triangle.
+Everything below about the roster's shape is about the three triangle chassis.
 Their ratings (`speed`, `accel`, `handling`, `attack`, `hp`, `ramAttack`, `ramDefence`) are **seven**
 independent 0-100 values; `accel` and `handling` landed on 2026-08-30 so cars could differ in how they
 launch and how they corner, and `ramAttack`/`ramDefence` replaced the single `mass` rating in stage 3
@@ -648,7 +653,7 @@ contract tests, snapshots, and the pre-existing G12 failures.
 | How a shot LOOKS — the three style tables in `scenes/combat-visual.ts`, the inside-the-hitbox rule, what a look costs per frame and how to price one before shipping it | [`packages/client/CLAUDE.md`](packages/client/CLAUDE.md) and [`docs/asset-pipeline.md`](docs/asset-pipeline.md#how-much-detail-a-shot-can-afford) — and the [`weapon-look`](.claude/skills/weapon-look/SKILL.md) skill to author one |
 | How many ability slots a build has: the build-time count `N`, the structural `ABILITY_SLOT_CEILING`, the basic attack's move to fire slot 0, and the variable-length kit (VS1–VS34) | [`docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md`](docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md) — and the [`ability-slot-count`](.claude/skills/ability-slot-count/SKILL.md) skill to change it |
 | Mouse aim: the turret muzzle, the one control layout (LMB/RMB/Q/E/Space), pointer lock and the crosshair, the menu in every room, turret art, the basic attack switched on (TR1–TR52) | [`docs/superpowers/specs/2026-09-21-mouse-aim-turret-design.md`](docs/superpowers/specs/2026-09-21-mouse-aim-turret-design.md), [`docs/combat-model.md`](docs/combat-model.md#turret-muzzle), [`docs/asset-pipeline.md`](docs/asset-pipeline.md#turret-art) |
-| The ten-ability-weapon roster (nine shipped plus dormant `tremor`), per-chassis kits (L1–L7) — now alongside nine identical basic-attack rows (BA1–BA38, see above) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
+| The twelve-ability-weapon roster (all twelve carried — `tremor` now sits on Bastion's slot 3, `shockwave` and `fury-horn` on Taurus), per-chassis kits (L1–L7) — now alongside nine identical basic-attack rows (BA1–BA38, see above) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
 | The three chassis types and their triangle, the `accel`/`handling` ratings, the weapon redistribution (T1–T22) — **supersedes L1–L7's assignments** | [`docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md`](docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md) |
 | Ram CC and knockback decisions (R1–R20): severity, side bonus, authority/shove/spin, the `mass` rating | [`docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md`](docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md) |
 | Status (buff/debuff) decisions: channels, re-apply rules, clamps, pulses, auras, the application seams | [`docs/superpowers/specs/2026-08-29-status-mechanism-design.md`](docs/superpowers/specs/2026-08-29-status-mechanism-design.md) |
@@ -997,7 +1002,7 @@ npm run balance        # headless win-rate/matchup harness -> packages/server/ba
 
 ## The cars & weapons guide is generated, committed, and easy to leave stale
 
-`packages/client/public/manual.html` is the player-facing guide — three chassis, each with a basic
+`packages/client/public/manual.html` is the player-facing guide — one section per active chassis (four), each with a basic
 attack plus its ability kit — that the join screen's "Cars & weapons guide" button opens. **It is written by
 `scripts/build-cars-and-weapons.mjs`, never by hand.** Every number on it is read from built shared
 (`WEAPON_TABLE`, `CAR_TABLE`, `WEAPON_TICKS`, `weaponDamageOf`, `hpOf`); the prose lives beside it in

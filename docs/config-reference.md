@@ -64,25 +64,29 @@ Build with `npm run build:release -- --port <n>` to bake in a different one. See
 |---|---|---|---|---|---|---|---|---|---|
 | `mirage` | Mirage | 85 | 85 | 85 | 63 | 70 | 55 | 50 | `["magmablast", "thunderclap", "afterburner"]` |
 | `bullseye` | Bullseye | 65 | 45 | 65 | 55 | 65 | 45 | 30 | `["predator", "pepperbox", "lance"]` |
-| `bastion` | Bastion | 50 | 20 | 50 | 42 | 90 | 70 | 90 | `["thumper", "roadblock", "wildcharge"]` |
-| `taurus` | Taurus | 50 | 20 | 50 | 42 | 90 | 70 | 90 | `[]` |
+| `bastion` | Bastion | 50 | 20 | 50 | 42 | 90 | 70 | 90 | `["thumper", "roadblock", "tremor"]` |
+| `taurus` | Taurus | 58 | 33 | 58 | 52 | 80 | 62 | 70 | `["fury-horn", "shockwave", "wildcharge"]` |
 | `anvil` | Anvil | 50 | 20 | 50 | 42 | 90 | 70 | 90 | `[]` |
 | `prowler` | Prowler | 85 | 85 | 85 | 63 | 70 | 55 | 50 | `[]` |
 | `cleaver` | Cleaver | 85 | 85 | 85 | 63 | 70 | 55 | 50 | `[]` |
 | `skorpios` | Skorpios | 65 | 45 | 65 | 55 | 65 | 45 | 30 | `[]` |
 | `caprico` | Caprico | 50 | 20 | 50 | 42 | 90 | 70 | 90 | `[]` |
 
-**The bottom six rows are unreleased prototypes** (`isActive: false`), authored so their art and
+**Taurus is published** (`isActive: true`, 2026-10-07): it has its own ratings, `brakeDecel` 430 and
+its own kit (`fury-horn`, `shockwave`, `wildcharge`) — a heavy bruiser between Bastion and Bullseye —
+and is no longer a clone of anything.
+
+**The bottom five rows are unreleased prototypes** (`isActive: false`), authored so their art and
 their handling can be driven in the playground before any of them is published. Every one of them is
-a placeholder STAT CLONE of a shipped chassis — Taurus, Anvil and Caprico of Bastion, Prowler and
+a placeholder STAT CLONE of a shipped chassis — Anvil and Caprico of Bastion, Prowler and
 Cleaver of Mirage, Skorpios of Bullseye — carried across field for field including `brakeDecel`.
 Nothing about those numbers is a design: a clone says "not tuned yet" out loud, where
 inventing ratings would quietly assert a triangle nobody agreed to. Retune them one at a time, and
 give each its own `WEAPON_TABLE` rows before flipping its flag — exclusivity (L1) means a prototype
 may not borrow a shipped kit.
 
-`isActive` is a seventh field on `CarDef`, not a rating. The three shipped cars are `true`; the six
-prototypes above are `false`.
+`isActive` is a seventh field on `CarDef`, not a rating. The four shipped cars (Mirage, Bullseye,
+Bastion, Taurus) are `true`; the five prototypes above are `false`.
 `CarSelectScene`'s grid and `ArenaRoom`'s `MSG_SELECT_CAR`/`MSG_PREVIEW_CAR` guard both filter to
 `activeCarIds()`, so an inactive car is unreachable from a real match on either side of the wire; the
 dev-only playground (below) lists `CAR_TABLE` whole and never writes the flag, since activating a car
@@ -286,16 +290,22 @@ reads (`derived().weaponTicks`) — see "Authoring in milliseconds" below.
 | `roadblock` | projectile | 100 | 0 | 600 | 500 | 6000 | 0 | 200 | — | 4 | 1 / 0 | 1 / 0 | — | — | bar, along 6 / across 60 (`piercesWalls`) | 1 | `#D89000` |
 | `wildcharge` | maneuver (charge) | 250 | 0 | 0 | 0 | 20000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — (`isUnInterruptable`, 10 s window, `slamsStunned`) | 1 | `#F06000` |
 | `tremor` | beam | 25 (per tick; 10 ticks == 250 full connect) | 400 | 492 | 492 | 15000 | 0 | 200 | — | — | 1 / 0 | — | false | 2875 | cone, 60° | 1 | `#8A6D12` |
+| `shockwave` | beam | 30 (per ring, once per entry; 3 rings == 90 on a target that stays in all three) | 0 | 400 | 180 | 5000 | 0 | 0 | — | — | 3 / 500 | — | true | 0 (each ring expires the tick it reaches `range`) | disc (`origin: "center"`) | 1 | `#2F6BFF` |
+| `fury-horn` | projectile | 50 | 0 | 600 | 900 | 3000 | 0 | 0 | max 3 / initial 3 (`refireDelayMs` 300) | 0 | 1 / 0 | 1 / 0 | — | — | ellipse, along 8 / across 16 | 1 | `#C0C8D0` |
 
-**`tremor` is carried by no chassis** — the table's one deliberately unassigned row, the retired
-`bulwark`'s geometry re-solved as a presence zone (loadout decision pending;
-`weapon-slots.test.ts` names it in the sanctioned-uncarried set, and the players' guide only shows
-carried weapons, so it is invisible to players until a kit lists it).
+**`tremor` is carried by Bastion's slot 3** (it was the table's one deliberately unassigned row until
+it replaced `wildcharge` there; the retired `bulwark`'s geometry re-solved as a presence zone).
+`wildcharge` moved to Taurus, so weapon exclusivity (L1) still holds, and the table now has no
+uncarried row among the twelve ability weapons.
 
-**Nine more rows sit beside the ten above** (nineteen total) — the weapon each chassis carries in
+**`shockwave` is the roster's live multi-wave row** — three expanding rings out of the car, 500 ms
+apart, from one press (Taurus's slot 2), with `spiked` applied on every ring (`onWave: "all"`).
+**`fury-horn` is Taurus's slot 1**, the three-stock horn blast (see "`fury-horn` (Taurus)" below).
+
+**Nine more rows sit beside the twelve above** (twenty-one total) — the weapon each chassis carries in
 its basic-attack slot today, shipped and unreleased alike, all identical and all spread from one
 shared `BASIC_ATTACK_BASE`. They are nine because nine chassis each got a seed of their own, not
-because the slot demands a dedicated row: any of the ten above could be slotted there instead.
+because the slot demands a dedicated row: any of the twelve above could be slotted there instead.
 
 | Field | Value |
 |---|---|
@@ -323,7 +333,7 @@ player aimed with the mouse, after the turret turns to it; a row without it fire
 muzzle exactly as before. The shot spawns `TURRET_CONFIG.defaultOffset + additionalOffset` from the
 turret pivot. `turret-config.test.ts` holds it to `kind: "projectile"` rows with no `muzzles`, and
 pins the exact set carrying it: the nine `basic-attack-*` rows (through `BASIC_ATTACK_BASE`),
-`predator`, `magmablast` and `thumper`, all at `additionalOffset: 0`. See
+`predator`, `magmablast`, `thumper`, `fury-horn` and `roadblock`, all at `additionalOffset: 0`. See
 [`combat-model.md`](combat-model.md#turret-muzzle).
 
 `fireball`, `needler`, `skewer` and `bulwark` were retired outright by the 2026-09-01 weapon-status
@@ -334,8 +344,10 @@ projectile dart on **Bullseye's** slot 1 — before being renamed again to `magm
 id, alongside its display name. The 2026-09-02 predator/magmablast pass moved `magmablast` again, to
 **Mirage's** slot 1 (swapping places with `predator`, which moved the other way onto Bullseye), and
 gave it a second life as an aura source: it now detonates into a real `disc`-hitbox beam instance on
-death. See [`combat-model.md`](combat-model.md#auras) for the aura mechanism and what is still
-dormant (only the multi-wave `VolleyDef` machinery, today).
+death. The id `shockwave` was later reused for a new row — the live three-ring multi-wave aura in
+the table above, carried by Taurus. See [`combat-model.md`](combat-model.md#auras) for the aura
+mechanism; the multi-wave `VolleyDef` machinery is live (`shockwave`), and only `onWave: "final"`
+remains dormant.
 
 **`ExplosionDef` (projectiles only, optional field `explosion`)** — `{ radius, damage, lingerMs,
 applies? }` — is what makes a shell detonate. `magmablast` is the one row that authors it: on death
@@ -368,8 +380,9 @@ has no meaningful range in play, only a life span.
 
 **`volley` and `pellets` are two types, split on 2026-08-30.** `VolleyDef` (`volleys`,
 `volleyIntervalMs`) sits on `WeaponBase`, so a **beam** can be a wave sequence too — the old
-`shockwave` was the one row that used it, and the only reason the split exists; no current row
-authors more than one volley. `PelletDef` (`pelletsPerVolley`, `spreadAngleDeg`) stays on
+`shockwave` was the one row that used it, and the only reason the split exists. The current
+`shockwave` row (Taurus) uses it again: `volleys: 3`, `volleyIntervalMs: 500`, the only row in the
+table authoring more than one volley. `PelletDef` (`pelletsPerVolley`, `spreadAngleDeg`) stays on
 `ProjectileWeaponDef`, because a beam has no pellets to fan and should not have to author
 `pelletsPerVolley: 1`. `beginFire` reads `def.volley.volleys` for every kind rather than hardcoding 1
 for beams, and `weaponTicksOf` converts `volleyIntervalMs` for every kind.
@@ -461,7 +474,7 @@ See [`schema-reference.md`](schema-reference.md#playerstate) for the two fields.
 **`fury-horn` (Taurus) is the one shipped weapon carrying a `stock` block.** It banks `max: 3`
 charges, spawns full (`initial: 3` — `StockDef.initial`; **absent means the universal spawn default
 of 1**, so a weapon starts one stock deep unless it opts in, and `initial` is validated `1..max`),
-recharges one stock every `cooldownMs` (2000 ms), and gates consecutive stock shots by
+recharges one stock every `cooldownMs` (3000 ms), and gates consecutive stock shots by
 `refireDelayMs: 300`. A magazine is dumped without costing sustained DPS because `releaseShots`
 starts the recharge at the dump's first shot rather than its last, so `cooldownMs` still means "time
 until another stock". `needler` was the table's previous multi-stock weapon (three stocks, a 300 ms
@@ -1051,8 +1064,9 @@ each weapon's `durationMs`.
 `onWave` is `"all" | "final"`, and **absent means `"all"`**, so every pre-existing row is unaffected.
 It existed for the old `shockwave`: `corroded` landed on the third of its three aura waves only,
 because `refresh` would otherwise have handed the full duration to whichever wave connected first and
-made the other two free. That row retired with the 2026-09-01 overhaul, and every current `applies`
-entry above is `"all"` — `onWave` is **dormant machinery** today. The wave a shot belongs to is
+made the other two free. That row retired with the 2026-09-01 overhaul, and the current `shockwave`
+sets `onWave: "all"` explicitly (the default, `spiked` on every ring) alongside every other `applies`
+entry — `onWave: "final"` is **dormant machinery** today. The wave a shot belongs to is
 carried the way `damage` and `ownerTeam` are — **frozen at spawn, sim-only, never networked**:
 `ShotOrder` carries `weaponId`, `slot`, and `finalVolley` (no `volleyIndex` — it was deliberately not
 implemented, since `onWave` is only `"all" | "final"` and an index would have no consumer),

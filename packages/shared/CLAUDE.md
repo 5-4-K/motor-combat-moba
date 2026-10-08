@@ -123,7 +123,7 @@ so a row declares which status as well as how long.)
 in stage 3b as the `reeling` status**, applied by `contactTick` and scaled by a per-victim
 diminishing-returns stack that a slam deliberately does not share. **No longer dormant as of the
 2026-09-01 weapon-status overhaul (Plan 3):** `thunderclap` (Mirage) is a `kind: "maneuver"` dash and
-`wildcharge` (Bastion) is a `kind: "maneuver"` charge, both real rows in `WEAPON_TABLE`, so
+`wildcharge` (Taurus, since it moved off Bastion) is a `kind: "maneuver"` charge, both real rows in `WEAPON_TABLE`, so
 `resolveContacts` and the slam path now run from a real match, not only from tests. `wildcharge` is
 also the roster's one `isUnInterruptable: true` row, and the only MANEUVER row declaring an
 `impulse` (`tremor`, a beam, authors an inward-pulling one too, applied once per victim per instance by
@@ -140,8 +140,9 @@ them. **The 2026-09-02 predator/magmablast pass ended that.** `magmablast` (now 
 1, swapped with `predator`) authors an `ExplosionDef`: on death for any reason, `instanceDefOf(id,
 true)` (`config/weapon-config.ts`) synthesizes a detached, centre-origin `disc`-hitbox `BeamWeaponDef`
 from it, so a real aura instance spawns on every detonation. `corroded`'s only source in the game is
-this explosion. What is still dormant is narrower now: only the multi-wave `VolleyDef` machinery
-below, since no row — this one included — authors more than one volley.
+this explosion. The multi-wave `VolleyDef` machinery below is **live** as well: `shockwave`
+(carried by Taurus) is a centre-origin, attached `disc` beam that authors three volleys, so the aura
+geometry and multi-wave both run from a real match. Only `onWave: "final"` (below) is still unused.
 
 **`stepDrive` does not read the roster.** It takes a resolved `ChassisDrive` — **nine** fields as of
 the 2026-09-18 Unity drive-model port: `maxSpeed` (emergent, `engineAccel / dragRate` — nothing
@@ -176,9 +177,10 @@ integration. Balance still lives in shared config; the sim receives it rather th
 **Volleys are on `WeaponBase`, pellets are on the projectile.** `VolleyDef` (`volleys`,
 `volleyIntervalMs`) applies to both kinds, so a beam can be a wave sequence in principle — the old
 `shockwave` shipped that way, three aura instances 500 ms apart, each with its own `spawnTick` and its
-own damage clock. As of the 2026-09-01 overhaul no row in `WEAPON_TABLE` authors more than one volley,
-including `magmablast`'s revived aura explosion: multi-wave is **dormant machinery**, unlike the aura
-mechanism above, which a real weapon drives again. `PelletDef` (`pelletsPerVolley`,
+own damage clock. The 2026-09-01 overhaul left no row authoring more than one volley, but `shockwave`
+is back as a real row: `volley: { volleys: 3, volleyIntervalMs: 500 }`, `cooldownMs` 5000, carried by
+Taurus's slot 2, so multi-wave is **live**, not dormant machinery (`magmablast`'s aura explosion is
+still a single volley). `PelletDef` (`pelletsPerVolley`,
 `spreadAngleDeg`) stays on `ProjectileWeaponDef`, because a beam should not have to author
 `pelletsPerVolley: 1`; `pepperbox` is the shipped multi-pellet row today (3 pellets × 4 muzzles).
 `beginFire` reads `def.volley.volleys` for every kind rather than hardcoding 1 for beams.
@@ -186,7 +188,7 @@ mechanism above, which a real weapon drives again. `PelletDef` (`pelletsPerVolle
 `StatusApplication.onWave` (`"all" | "final"`, absent means `"all"`) gates a status on one wave of a
 multi-wave press. The wave is frozen at spawn and **never networked**: `ShotOrder.finalVolley` →
 `WeaponInstance.finalWave` → the two status-application helpers in `sim/combat.ts`. No schema field
-was added; invariant 8 holds because nothing new that `stepSim` reads crosses the wire. Like
-multi-wave volleys above, `onWave` is **dormant machinery** since the 2026-09-01
-overhaul: no shipped `applies` entry sets it, including `magmablast`'s explosion, so every current
-status application runs as `"all"`.
+was added; invariant 8 holds because nothing new that `stepSim` reads crosses the wire. Unlike
+multi-wave volleys above, `onWave: "final"` is still **dormant machinery**: the only shipped
+`applies` entry that sets `onWave` at all is `shockwave`'s `spiked`, and it sets `"all"` explicitly,
+so every current status application runs as `"all"`.

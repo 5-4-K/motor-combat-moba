@@ -171,7 +171,7 @@ they read the whole world, and the CB33 guard keeps FOV off the bundles bots pla
 
 Combat is drawn, never predicted: your own press is drawn at once as a provisional shot (NR39, shared's `ProvisionalShots`/`LocalFire`, spawned in `sendInputTick`, confirmed and eased in `beginShotFrame`, drawn through the same `drawShot` as a real one — never damage, FX or prediction); live instances (projectiles and beams alike) come from `state.weapons` (drawn at the local present by shared's `ShotView`, NR40: each advanced from its newest snapshot to the tick the local car is drawn at with the shared `stepInstance` — bounces included, cars ignored — hidden from the tick its range, lifetime or wall ends it, an attached beam welded to its owner's drawn pose; an impact is drawn only from an ENDED row, `alive: false` (`isShotEnding`, protocol 8), never from a row vanishing, which may only have left the view; `ArenaScene.beginShotFrame` feeds it and `combat-visual.ts` only draws the pose it is handed), HP from `PlayerState.hp`. A dead car stops driving, predicting, and interpolating, and — **whenever the active mode's `camera().spectate.target` is not `"none"`** — gains the spectate controls in shared `vision/spectate.ts` (CB18–CB24: `"anyone"`/`"teammates"` cycle living cars, `"free"` pans with no target and no toggle). A `"none"` wreck (both shipped respawn modes, Deathmatch and Conquer) keeps its own seat instead: the camera holds where it died, the slot column keeps showing the player's own kit, and the camera cuts (never eases) to the new car on respawn, which is marked for the local player alone by the blinking self arrow (`drawSelfArrow`, gated on `isPhasedAt`). **There is no wreck left on the field**: it is intangible from the tick it dies, and `deathFadeAlpha` (`car-visual.ts`) fades it out over `DEATH_FADE_MS` from the networked `diedAtTick`, after which the container is destroyed rather than left invisible.
 
-There is no lock bracket, and no targeting assist of any kind: the 2026-09-17 removal of the aim-lock feature deleted `PlayerState.lockTargetSessionId`, `SHOW_LOCK_BRACKET`, `lockBracketArms` and the `lockGfx` layer it was stroked into. Since the 2026-09-21 mouse-aim work there are two aiming HUDs, one per muzzle kind. A **fixed-muzzle** shot leaves along the car's heading, so the nose is its aiming HUD. A **turret** shot (a row carrying `WeaponDef.turret` — on `development/main`, the nine basic-attack rows and nothing else, none of which can be pressed while every shipped mode's own `slots.basicAttackEnabled` is `false`, so this whole path is dormant on this build) leaves from the turret along the bearing to the **crosshair** (`scenes/crosshair.ts`, styled by `config/crosshair.ts`'s `CROSSHAIR_STYLE`), drawn while the lock is held and the car is on the field. Since TR56 the crosshair is a **world offset from the driven car's centre** (`input/aim-offset.ts`), not a screen cursor: mouse movement moves it, it rides with the car, keeps its world direction as the car turns, and is held within `CROSSHAIR_CONFIG.maxDistance` (60 u) and inside the turret's swing arc (`TURRET_CONFIG.maxSwingDeg`), re-clamped every frame. The drawn turret (`scenes/turret-visual.ts`, sized by `config/turret-visual.ts`'s `TURRET_VISUAL.lengthUnits`) shows where it is pointing, and turns toward the bearing before the shot leaves. `aimAngle` is computed from `turretPivotOf` on the **rendered** pose, because that is what the player aimed at on screen. See [`docs/combat-model.md`](../../docs/combat-model.md#turret-muzzle).
+There is no lock bracket, and no targeting assist of any kind: the 2026-09-17 removal of the aim-lock feature deleted `PlayerState.lockTargetSessionId`, `SHOW_LOCK_BRACKET`, `lockBracketArms` and the `lockGfx` layer it was stroked into. Since the 2026-09-21 mouse-aim work there are two aiming HUDs, one per muzzle kind. A **fixed-muzzle** shot leaves along the car's heading, so the nose is its aiming HUD. A **turret** shot (a row carrying `WeaponDef.turret` — on `development/main`, the nine basic-attack rows plus `predator`, `magmablast`, `thumper`, `fury-horn` and `roadblock`; the basic-attack rows cannot be pressed while every shipped mode's own `slots.basicAttackEnabled` is `false`, but the ability rows can, so this path is live for every active chassis) leaves from the turret along the bearing to the **crosshair** (`scenes/crosshair.ts`, styled by `config/crosshair.ts`'s `CROSSHAIR_STYLE`), drawn while the lock is held and the car is on the field. Since TR56 the crosshair is a **world offset from the driven car's centre** (`input/aim-offset.ts`), not a screen cursor: mouse movement moves it, it rides with the car, keeps its world direction as the car turns, and is held within `CROSSHAIR_CONFIG.maxDistance` (60 u) and inside the turret's swing arc (`TURRET_CONFIG.maxSwingDeg`), re-clamped every frame. The drawn turret (`scenes/turret-visual.ts`, sized by `config/turret-visual.ts`'s `TURRET_VISUAL.lengthUnits`) shows where it is pointing, and turns toward the bearing before the shot leaves. `aimAngle` is computed from `turretPivotOf` on the **rendered** pose, because that is what the player aimed at on screen. See [`docs/combat-model.md`](../../docs/combat-model.md#turret-muzzle).
 
 **The AIM HUD is three white marks drawn UNDER the driven car and nobody else's**, in the car's own
 frame (`scenes/aim-hud.ts`, switched by `config/aim-hud.ts`, at `AIM_HUD_DEPTH` -2 between
@@ -201,19 +201,23 @@ unlocked, which is exactly how mouse fire worked before the turret existed — c
 and the shot leaves the fixed muzzle it was always going to leave. `swallow` is still masked on that
 path, and is always 0 there, since only `acquired` ever sets it.
 
-**On `development/main` that gate is false for EVERY car, and that is the point.** This build
-returned `predator`, `magmablast` and `thumper` to fixed muzzles and every shipped mode's
-`slots.basicAttackEnabled` ships `false`, so the only `turret` rows left are nine basic attacks on a
-fire slot that refuses every press. `carHasTurretWeapon` therefore answers false for all three
-chassis: no turret sprite, no pointer lock, no crosshair, no turret HUD — and the four muzzle arrows
-are the whole of the aim HUD a player sees. A config test in `turret-config.test.ts` asserts that
-over the live roster, so a weapon quietly regaining a turret is caught rather than discovered on
-screen.
+**On `development/main` that gate is TRUE for every active chassis, even though the basic attack is
+off everywhere.** `carHasTurretWeapon` (TR53) is "the basic attack is on for this mode, OR any fire
+slot carries a turret weapon", and the ability weapons now carry the flag: `predator`, `magmablast`,
+`thumper` and `fury-horn` (each active chassis's slot-1 weapon) plus `roadblock`. So every active
+chassis draws a turret, captures the pointer and shows the crosshair in every mode, while every
+shipped mode's `slots.basicAttackEnabled` stays `false` and the nine basic-attack rows (which also
+still carry `turret`) sit on a fire slot that refuses every press. The turret is decoupled from the
+basic attack: it is the ability weapons that light the turret HUD today. The turret is a per-weapon
+flag read through the active mode's table, so a weapon can be turret-aimed in one mode and a fixed
+muzzle in another via a per-mode `replace()`. A config test in `turret-config.test.ts` asserts the
+live roster's turret posture, so a weapon quietly gaining or losing a turret is caught rather than
+discovered on screen.
 
-It reads the other way on `feature/mouse-aim`, where every chassis carries a turret ability on top
-of a basic attack that is one, and the turret-less path is reachable only from a hand-built
-playground kit. That is the branch the gate was written and verified on — by stubbing the predicate
-false and looking at the screen, rather than by reading the branch.
+The turret-less path (a car whose fire slots carry no turret weapon, with the basic attack off) is
+therefore reachable only from a hand-built playground kit or a per-mode `replace()`. It is still
+the path the gate and `fireButtons`' `usesLock: false` branch exist for, and it was verified by
+stubbing the predicate false and looking at the screen, rather than by reading the code.
 
 **Player colour is for cars; weapon colour is for shots.**
 

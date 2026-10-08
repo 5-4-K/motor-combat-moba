@@ -592,8 +592,8 @@ export const WEAPON_TABLE = {
    * it every tick as it grows. `lifetimeMs: 0` expires a ring the tick it reaches `range`
    * (180 / 400 = 0.45 s), a hair before the next one spawns at 0.5 s, so no two rings overlap.
    *
-   * `onWave: "all"` puts the `spiked` slow on every ring, not just the last. Uncarried until a
-   * chassis lists it (like `tremor`). Authors no `impulse` yet.
+   * `onWave: "all"` puts the `spiked` slow on every ring, not just the last. Carried by Taurus
+   * (slot 2). Authors no `impulse` yet.
    */
   shockwave: {
     id: "shockwave",
@@ -617,8 +617,8 @@ export const WEAPON_TABLE = {
   },
   /**
    * A three-stock lens-shaped horn blast: one stock at spawn, one more per `cooldownMs` up to
-   * three, and `stock.refireDelayMs` keeps a double-tap from spending two in a blink. Uncarried
-   * until a chassis lists it. Authors no `impulse` yet.
+   * three, and `stock.refireDelayMs` keeps a double-tap from spending two in a blink. Carried by
+   * Taurus (slot 1). Authors no `impulse` yet.
    */
   "fury-horn": {
     id: "fury-horn",
