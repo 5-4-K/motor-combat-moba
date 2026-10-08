@@ -16,6 +16,7 @@
     "test:common": "npm run build -w @motor-combat-moba/shared && npm run test:common --workspaces --if-present",
     "test:mode": "node scripts/test-mode.mjs",
     "test:affected": "node scripts/test-scope.mjs --run",
+    "test:slow": "npm run build -w @motor-combat-moba/shared && npm run test:slow -w @motor-combat-moba/server",
     "playtest": "npm run build -w @motor-combat-moba/shared && npm run playtest -w @motor-combat-moba/server --",
     "playtest:lan": "npm run playtest:lan -w @motor-combat-moba/server",
     "balance": "npm run build -w @motor-combat-moba/shared && npm run balance -w @motor-combat-moba/server --",

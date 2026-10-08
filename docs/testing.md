@@ -61,21 +61,31 @@ description and its behaviour ever disagree.
   **full scope**: `npm test` plus `playtest --scope=all` for every active mode.
 - Docs-only changes → nothing to run, except `docs/turn-tuning.md`, which
   `scripts/turn-tuning-doc.test.mjs` reads values out of — a change there is full scope, not none.
+- **Independently of the scope**, a changed path under a `sim/`, `rooms/`, `modes/` or `bot/` folder
+  in `packages/{shared,server}/src/`, or under `packages/server/balance/`, also owes the **slow
+  tests** — `npm run test:slow`, which `commandsFor` appends last when `owesSlowTests` says so. They
+  are the server's bot tests (`src/bot/**`) and the two balance tests that play real headless matches
+  (`balance/match.test.ts`, `balance/runner.test.ts`), listed in `packages/server/vitest.slow-tests.ts`
+  and excluded from the server's normal vitest config, so **`npm test` never runs them**. The cheap
+  balance harness tests (attribution, baseline, cli, fingerprint, report, stats) stay in the normal
+  suite. Client code never owes them: none of it runs in those matches.
 
 | Example diff | Scope | Commands |
 |---|---|---|
-| `packages/shared/src/modes/conquer/config.ts` | mode: `conquer` | `test:mode -- conquer`; `playtest --mode=conquer --scope=mode`; `playtest --mode=conquer --scope=common` (config changed); `npm run test:scripts` (config changed) |
+| `packages/shared/src/modes/conquer/config.ts` | mode: `conquer` | `test:mode -- conquer`; `playtest --mode=conquer --scope=mode`; `playtest --mode=conquer --scope=common` (config changed); `npm run test:scripts` (config changed); `npm run test:slow` |
 | `packages/client/src/modes/brawl/hud.ts` | mode: `brawl` | `test:mode -- brawl`; `playtest --mode=brawl --scope=mode` |
-| `packages/server/src/modes/last-standing/controller.ts` | mode: `brawl` **and** `team-brawl` (the family) | `test:mode -- brawl`; `test:mode -- team-brawl`; a `--scope=mode` playtest run for each |
-| `packages/shared/src/modes/registry.ts` | full (a `modes/` root file) | `npm test`; `playtest --scope=all` for every active mode |
-| `packages/shared/src/sim/drive.ts` | full (common sim code) | `npm test`; `playtest --scope=all` |
+| `packages/server/src/modes/last-standing/controller.ts` | mode: `brawl` **and** `team-brawl` (the family) | `test:mode -- brawl`; `test:mode -- team-brawl`; a `--scope=mode` playtest run for each; `npm run test:slow` |
+| `packages/shared/src/modes/registry.ts` | full (a `modes/` root file) | `npm test`; `playtest --scope=all` for every active mode; `npm run test:slow` |
+| `packages/shared/src/sim/drive.ts` | full (common sim code) | `npm test`; `playtest --scope=all`; `npm run test:slow` |
+| `packages/client/src/scenes/ArenaScene.ts` | full (common client code) | `npm test`; `playtest --scope=all` — no slow tests |
 | `docs/turn-tuning.md` | full (a tested doc) | `npm test` |
 | `docs/config-reference.md` | none | — |
 
 ## 3. Commands
 
 ```bash
-npm test                    # everything: shared build, typecheck, every package's full suite, scripts
+npm test                    # shared build, typecheck, every package's suite (minus the slow tests), scripts
+npm run test:slow           # ONLY the slow server tests: src/bot/**, balance/match + balance/runner
 npm run test:common         # every package's common tests + contract tests (excludes **/modes/*/**)
 npm run test:mode -- <slug> # that mode's folders (+ its family's) in every package, + contract tests
 npm run test:affected       # scripts/test-scope.mjs --run: prints the scope for the current diff, then runs it
@@ -128,12 +138,8 @@ automatically a failure to fix by regenerating it:
 `packages/server/src/bot/brain/controller.test.ts` has two failing-or-flaky cases today — the "hunts a
 quadrant waypoint…" and "hunts toward a last-known pose…" cases (both tagged `G12`; one has been
 observed to pass on an individual run) — a bot-tuner
-question, not something this refactor introduced or is expected to fix. Because root `npm test` runs
-`npm run test --workspaces --if-present` and **stops at the first failing workspace**, the server's
-two failures currently prevent the client and `scripts` suites from running under root `npm test`.
-Until they are fixed, run those two separately to get a real answer from them:
-
-```bash
-cd packages/client && npx vitest run
-npm run test:scripts        # node --test "scripts/*.test.mjs" — covers manual-page, turn-tuning-doc, manual-facts, test-scope, etc.
-```
+question, not something this refactor introduced or is expected to fix. **Since 2026-10-09 they
+live in the slow suite** (`npm run test:slow`, see §2) along with every other bot test, so they no
+longer stop root `npm test` — which runs `npm run test --workspaces --if-present` and **stops at the
+first failing workspace** — from reaching the client and `scripts` suites. Expect `test:slow` to
+report them (and other bot-tuning failures) until a `bot-tuner` pass fixes them.

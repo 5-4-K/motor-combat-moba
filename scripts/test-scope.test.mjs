@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { scopeOf, commandsFor, MODE_FAMILY } from "./test-scope.mjs";
+import { scopeOf, commandsFor, owesSlowTests, MODE_FAMILY } from "./test-scope.mjs";
 import { MODE_TABLE, modeSlug } from "../packages/shared/dist/index.js";
 
 test("docs-only is none", () => assert.deepEqual(scopeOf(["docs/roadmap.md", "README.md"]), { scope: "none" }));
@@ -53,3 +53,27 @@ test("MODE_FAMILY covers exactly the slugs in MODE_TABLE", () =>
     Object.keys(MODE_FAMILY).sort(),
     Object.keys(MODE_TABLE).map((mode) => modeSlug(Number(mode))).sort(),
   ));
+
+// The slow server tests (bot brain, `balance/match`, `balance/runner` — `vitest.slow-tests.ts`) are
+// out of `npm test` and owed only when the diff touches what they exercise: a `sim/`, `rooms/`,
+// `modes/`, `bot/` or `balance/` folder in shared or server. Client code never reaches them.
+test("shared sim owes the slow tests", () => assert.equal(owesSlowTests(["packages/shared/src/sim/drive.ts"]), true));
+test("server rooms owes the slow tests", () => assert.equal(owesSlowTests(["packages/server/src/rooms/ArenaRoom.ts"]), true));
+test("a mode folder owes the slow tests", () => assert.equal(owesSlowTests(["packages/shared/src/modes/conquer/config.ts"]), true));
+test("a modes root file owes the slow tests", () => assert.equal(owesSlowTests(["packages/shared/src/modes/merge.ts"]), true));
+test("the bot owes the slow tests", () => assert.equal(owesSlowTests(["packages/server/src/bot/brain/solution.ts"]), true));
+test("the balance harness owes the slow tests", () => assert.equal(owesSlowTests(["packages/server/balance/match.ts"]), true));
+test("the slow-test list itself owes the slow tests", () =>
+  assert.equal(owesSlowTests(["packages/server/vitest.slow-tests.ts"]), true));
+test("client modes do not owe the slow tests", () => assert.equal(owesSlowTests(["packages/client/src/modes/brawl/hud.ts"]), false));
+test("client sim-named folders do not owe the slow tests", () =>
+  assert.equal(owesSlowTests(["packages/client/src/net/prediction.ts", "packages/client/src/sim/x.ts"]), false));
+test("other shared code does not owe the slow tests", () =>
+  assert.equal(owesSlowTests(["packages/shared/src/config/car-config.ts", "docs/testing.md"]), false));
+test("playtest probes do not owe the slow tests", () =>
+  assert.equal(owesSlowTests(["packages/server/playtest/modes/conquer/zone.ts"]), false));
+test("slow tests append npm run test:slow", () =>
+  assert.deepEqual(commandsFor({ scope: "mode", modes: ["conquer"], commonProbes: false }, { slowTests: true }),
+    ["npm run test:mode -- conquer", "npm run playtest -- --mode=conquer --scope=mode", "npm run test:slow"]));
+test("no slowTests option leaves the commands as they were", () =>
+  assert.deepEqual(commandsFor({ scope: "none" }), []));

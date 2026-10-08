@@ -26,6 +26,7 @@
  * code, not prose — hence `"full"` rather than `"none"`.
  */
 import { execFileSync, execSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 // Static, like the other tooling scripts (`mode-rosters.mjs`) that read built shared: only the
 // `"full"` scope in `commandsFor` below actually calls these, but importing lazily would mean an
@@ -143,8 +144,34 @@ export function scopeOf(changedPaths) {
   return { scope: "mode", modes: [...modes].sort(), commonProbes };
 }
 
-/** Shell commands (in order) for a resolved scope. Callers with `--run` execute these in order. */
-export function commandsFor(scope) {
+/**
+ * What the SLOW server tests exercise (`packages/server/vitest.slow-tests.ts`: the bot brain,
+ * `balance/match.test.ts`, `balance/runner.test.ts`) — a `sim/`, `rooms/`, `modes/` or `bot/`
+ * folder anywhere under shared's or server's `src/`, the server's `balance/` harness, or the
+ * slow-test configs themselves. Client code never runs in those matches, so it never owes them,
+ * and neither do the playtest probes (`server/playtest/`), which those tests do not import.
+ */
+const SLOW_TEST_PATTERNS = [
+  /^packages\/(?:shared|server)\/src\/(?:[^/]+\/)*(?:sim|rooms|modes|bot)\//,
+  /^packages\/server\/balance\//,
+  /^packages\/server\/vitest\.(?:slow-tests|slow\.config)\.ts$/,
+];
+
+/** Whether a set of changed paths owes `npm run test:slow` — independent of the mode/full scope,
+ * since a mode-scoped `config.ts` edit moves the matches those tests play just as a sim edit does. */
+export function owesSlowTests(changedPaths) {
+  return changedPaths.some((path) => SLOW_TEST_PATTERNS.some((pattern) => pattern.test(path)));
+}
+
+/** Shell commands (in order) for a resolved scope. Callers with `--run` execute these in order.
+ * `slowTests` (from `owesSlowTests`) appends `npm run test:slow` after everything else. */
+export function commandsFor(scope, { slowTests = false } = {}) {
+  const commands = scopeCommands(scope);
+  if (slowTests) commands.push("npm run test:slow");
+  return commands;
+}
+
+function scopeCommands(scope) {
   if (scope.scope === "none") return [];
 
   if (scope.scope === "mode") {
@@ -196,9 +223,10 @@ async function main() {
 
   const changedPaths = collectChangedPaths(base);
   const scope = scopeOf(changedPaths);
-  const commands = commandsFor(scope);
+  const slowTests = owesSlowTests(changedPaths);
+  const commands = commandsFor(scope, { slowTests });
 
-  console.log(`test-scope: ${JSON.stringify(scope)}`);
+  console.log(`test-scope: ${JSON.stringify(scope)}${slowTests ? " + slow tests" : ""}`);
   for (const command of commands) console.log(`  ${command}`);
 
   if (!run) return;
@@ -215,6 +243,8 @@ async function main() {
 }
 
 // Run only when invoked directly (`node scripts/test-scope.mjs`), not when imported by the tests.
-if (import.meta.url === `file://${process.argv[1]}`) {
+// `pathToFileURL`, not a hand-built `file://` string: on Windows `argv[1]` is `E:\…`, which a
+// template literal turns into `file://E:\…` — never equal to `file:///E:/…`, so main never ran.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main();
 }

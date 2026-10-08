@@ -617,6 +617,14 @@ for the manual-page stamp and the turn-tuning doc). Any other changed path under
 every active mode. Docs-only changes owe nothing, except `docs/turn-tuning.md`, which a test reads
 values out of.
 
+**The slow server tests are not in `npm test`.** The bot tests (`packages/server/src/bot/**`) and
+the two balance tests that play real matches (`balance/match.test.ts`, `balance/runner.test.ts`) run
+only under `npm run test:slow` — listed in `packages/server/vitest.slow-tests.ts`, which the server's
+normal vitest config excludes. They are owed, **on top of** whichever scope above applies, when the
+diff touches a `sim/`, `rooms/`, `modes/` or `bot/` folder in shared or server, or
+`packages/server/balance/`; client code never owes them. The cheap balance harness tests stay in the
+normal suite.
+
 `node scripts/test-scope.mjs` prints the scope a diff owes without running anything;
 `npm run test:affected` runs it. See [`docs/testing.md`](docs/testing.md) for the full layout, the
 contract tests, snapshots, and the pre-existing G12 failures.
