@@ -75,12 +75,14 @@ for (const def of Object.values(MODE_TABLE)) {
       ).toBeLessThanOrEqual(MAX_PLAYERS);
     });
 
-    it("puts an impulse only on a maneuver row", () => {
+    it("puts an impulse only on a row kind that has a path to apply it", () => {
+      // Widened from "maneuver only" once `runCombat` grew a generic on-hit path: a maneuver is pushed
+      // by the contact pass, a projectile/beam by the damaged loop (`WeaponInstance.impulsedVictims`),
+      // and an explosion rides its burst. All three kinds a row can have are therefore legal.
+      const legal = new Set(["maneuver", "projectile", "beam"]);
       for (const w of Object.values(def.config.weapons)) {
         if ("impulse" in w && w.impulse) {
-          expect(w.kind, `${w.id} in ${def.name} carries an impulse but kind is "${w.kind}"`).toBe(
-            "maneuver",
-          );
+          expect(legal.has(w.kind), `${w.id} in ${def.name} carries an impulse but kind is "${w.kind}"`).toBe(true);
         }
       }
     });

@@ -91,8 +91,17 @@ const DRIVE_SKIP_KEYS = new Set(["carWidth", "carHeight"]);
  * millisecond knob (a zeroed `startUpMs`/`recoveryMs`/`damageFrequencyMs` should still be raisable
  * to something a player would notice), 10 for anything else. `step` is always a hundredth of the
  * range, so a slider reads the same resolution whatever the field.
+ *
+ * **A negative shipped value mirrors it:** `[3 x shipped, 0]`, so the range always CONTAINS what
+ * ships. Zero as the floor was safe while every number in the tables was non-negative; `tremor`'s
+ * `impulse.speed` (-260, a pull toward its source) is the first that is not, and a floor of zero
+ * would have made the panel offer a slider the shipped value itself fails.
  */
 function numberRange(shipped: number, path: string): { min: number; max: number; step: number } {
+  if (shipped < 0) {
+    const min = shipped * 3;
+    return { min, max: 0, step: -min / 100 };
+  }
   const max = shipped > 0 ? shipped * 3 : path.endsWith("Ms") ? 2000 : 10;
   return { min: 0, max, step: max / 100 };
 }

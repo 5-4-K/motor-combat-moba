@@ -142,6 +142,7 @@ export type {
   CombatPlayer,
   CombatResult,
   CombatWorld,
+  WeaponImpulse,
   StatusRequest,
 } from "./sim/combat.js";
 export { applyImpulse, type Impulse } from "./sim/impulse.js";

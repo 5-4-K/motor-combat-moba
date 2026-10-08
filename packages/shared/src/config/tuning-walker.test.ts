@@ -22,6 +22,19 @@ describe("tuning walker", () => {
     }
   });
 
+  it("gives a negative shipped value a negative range that contains it", () => {
+    // `tremor`'s pull is the first negative number in the weapon tables. The range is the mirror of
+    // the positive rule (3x the shipped value, to zero) so the shipped value is always legal.
+    const speed = tunableFields(BASE).find((f) => f.path === "weapon.tremor.impulse.speed")!;
+    expect(speed.kind).toBe("number");
+    if (speed.kind !== "number") return;
+    expect(speed.shipped).toBe(-260);
+    expect(speed.min).toBe(-780);
+    expect(speed.max).toBe(0);
+    expect(validateTuning(BASE, { [speed.path]: -260 }).ok).toBe(true);
+    expect(validateTuning(BASE, { [speed.path]: 5 }).ok).toBe(false);
+  });
+
   it("walks the seven ratings per car and nothing else from CAR_TABLE", () => {
     const mirage = tunableFields(BASE).filter((f) => f.group === "car" && f.ownerId === "mirage");
     expect(mirage.map((f) => f.label).sort()).toEqual([

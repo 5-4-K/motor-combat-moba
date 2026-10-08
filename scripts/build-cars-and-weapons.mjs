@@ -722,7 +722,15 @@ function propertiesOf(w) {
   if (w.beam && d.attached) out.push("Rides your car and dies with you");
   if (w.beam && !d.attached) out.push("Stamped in place where it spawns");
   if (d.isUnInterruptable) out.push("A stun cannot cancel it");
-  if (d.impulse) out.push(`Knocks back at ${d.impulse.speed} u/s`);
+  // A negative speed is a PULL toward the weapon's source (tremor drags a caught car onto its
+  // centreline), so it must not read as a knockback with a minus sign.
+  if (d.impulse) {
+    out.push(
+      d.impulse.speed < 0
+        ? `Pulls caught cars in at ${-d.impulse.speed} u/s`
+        : `Knocks back at ${d.impulse.speed} u/s`,
+    );
+  }
   if (w.maneuver && d.maneuver.type === "charge") {
     out.push(`Armed for ${secs(d.maneuver.durationMs)} or until it lands`);
     if (d.maneuver.slamsStunned) out.push("Slams a stunned car too");

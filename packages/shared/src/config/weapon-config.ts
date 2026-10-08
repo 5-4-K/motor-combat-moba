@@ -25,7 +25,7 @@ const BASIC_ATTACK_BASE = {
   // as a hole rather than an object — `WEAPON_GLOW_STYLES` gives it a lit core so it reads as one.
   color: "#101014",
   unlocksAt: 1,
-  damage: 20,
+  damage: 10,
   damageFrequencyMs: 0,
   speed: 900,
   range: 960,
@@ -104,6 +104,7 @@ export const WEAPON_TABLE = {
     range: 1800, // = speed x lifetimeMs; see the comment above for why this is authored at all
     startUpMs: 0,
     cooldownMs: 1000,
+    turret: { additionalOffset: 0 },
     recoveryMs: 0,
     // 38 units long, of which the rear 10 are the exhaust plume the client draws (2026-09-04).
     // Grown from 14 deliberately and as a BUFF, not a wash: the plume was drawn first as art
@@ -231,7 +232,8 @@ export const WEAPON_TABLE = {
     speed: 600,
     range: 900,
     startUpMs: 0,
-    cooldownMs: 1600,
+    cooldownMs: 16000,
+    turret: { additionalOffset: 0 },
     recoveryMs: 0,
     hitbox: { shape: "circle", radius: 12 },
     pierce: 0,
@@ -392,7 +394,8 @@ export const WEAPON_TABLE = {
     speed: 450,
     range: 1305, // 450 u/s x 2.9 s — the honest reach figure now that expiry is clock-based
     startUpMs: 0,
-    cooldownMs: 3000, // 0.33 Hz, 73% clear of the 1.25 Hz cliff
+    cooldownMs: 16000,
+    turret: { additionalOffset: 0 },
     recoveryMs: 0,
     hitbox: { shape: "capsule", radiusAlong: 24, radiusAcross: 15 },
     pierce: 0,
@@ -426,6 +429,7 @@ export const WEAPON_TABLE = {
     range: 500,
     startUpMs: 0,
     cooldownMs: 6000,
+    turret: { additionalOffset: 0 },
     recoveryMs: 200,
     hitbox: { shape: "bar", radiusAlong: 6, radiusAcross: 60 },
     pierce: 4,
@@ -575,6 +579,12 @@ export const WEAPON_TABLE = {
       { statusId: "spiked", target: "opponents", durationMs: 600 },
       { statusId: "fortified", target: "ownerInside", durationMs: 300 },
     ],
+    // The first non-maneuver row to push. `radial` against a cone beam sources the victim's foot on
+    // the fire axis (`radialSourceOf`), so a NEGATIVE speed is a pull onto the centreline, delivered
+    // once per victim per instance as it is first damaged. Half of `wildcharge`'s 520: a strong single
+    // yank, to be tuned once it has been played. No spin, no defence scaling, no status of its own
+    // (the `spiked` slow above already rides the damage).
+    impulse: { speed: -260, direction: "radial", spin: 0, defenceScaled: false, applies: [] },
   },
   /**
    * Three expanding rings out of the car, half a second apart, from ONE press. A centre-origin
@@ -582,8 +592,8 @@ export const WEAPON_TABLE = {
    * it every tick as it grows. `lifetimeMs: 0` expires a ring the tick it reaches `range`
    * (180 / 400 = 0.45 s), a hair before the next one spawns at 0.5 s, so no two rings overlap.
    *
-   * `onWave: "all"` puts the `spiked` slow on every ring, not just the last. Uncarried until a
-   * chassis lists it (like `tremor`). Authors no `impulse` yet.
+   * `onWave: "all"` puts the `spiked` slow on every ring, not just the last. Carried by Taurus
+   * (slot 2). Authors no `impulse` yet.
    */
   shockwave: {
     id: "shockwave",
@@ -607,8 +617,8 @@ export const WEAPON_TABLE = {
   },
   /**
    * A three-stock lens-shaped horn blast: one stock at spawn, one more per `cooldownMs` up to
-   * three, and `stock.refireDelayMs` keeps a double-tap from spending two in a blink. Uncarried
-   * until a chassis lists it. Authors no `impulse` yet.
+   * three, and `stock.refireDelayMs` keeps a double-tap from spending two in a blink. Carried by
+   * Taurus (slot 1). Authors no `impulse` yet.
    */
   "fury-horn": {
     id: "fury-horn",
@@ -621,11 +631,12 @@ export const WEAPON_TABLE = {
     speed: 600,
     range: 900,
     startUpMs: 0,
-    cooldownMs: 1000,
+    cooldownMs: 3000,
+    turret: { additionalOffset: 0 },
     recoveryMs: 0,
     hitbox: { shape: "ellipse", radiusAlong: 8, radiusAcross: 16 },
     pierce: 0,
-    stock: { max: 3, refireDelayMs: 300 },
+    stock: { max: 3, initial: 3, refireDelayMs: 300 },
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
   },
@@ -761,6 +772,9 @@ export function buildBurstDefs(
       lifetimeMs: blast.lingerMs,
       volley: { volleys: 1, volleyIntervalMs: 0 },
       ...(blast.applies ? { applies: blast.applies } : {}),
+      // The burst's push rides the synthesized def so `runCombat` finds it through `instanceDefOf`, the
+      // same way it finds the burst's `applies`. Absent must stay absent.
+      ...(blast.impulse ? { impulse: blast.impulse } : {}),
     };
     bursts[id] = Object.freeze(burst);
   }

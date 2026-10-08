@@ -41,7 +41,7 @@ const plainBolts = (): WeaponDef[] => PLAIN_BOLT_IDS.map((id) => WEAPON_TABLE[id
 
 describe("WEAPON_TABLE", () => {
   it("pins the overhaul roster's load-bearing numbers (spec 2026-09-01)", () => {
-    expect(WEAPON_TABLE.magmablast).toMatchObject({ damage: 50, cooldownMs: 1600, speed: 600, range: 900 });
+    expect(WEAPON_TABLE.magmablast).toMatchObject({ damage: 50, cooldownMs: 16000, speed: 600, range: 900 });
     expect(WEAPON_TABLE.predator.homing).toEqual({
       acquire: "proximity",
       acquireRadius: 200,
@@ -78,6 +78,12 @@ describe("WEAPON_TABLE", () => {
       if (def.stock) {
         expect(def.stock.max).toBeGreaterThanOrEqual(2);
         expect(def.stock.refireDelayMs).toBeGreaterThanOrEqual(0);
+        if (def.stock.initial !== undefined) {
+          // A weapon may spawn with fewer stocks than its ceiling, but never more, and never a
+          // non-positive magazine. Absent means the universal spawn default of 1.
+          expect(def.stock.initial, def.id).toBeGreaterThanOrEqual(1);
+          expect(def.stock.initial, def.id).toBeLessThanOrEqual(def.stock.max);
+        }
       }
       // A loop bound in `releaseShots`, and it fails silently rather than loudly: `volleys: 0`
       // fires exactly one shot (the first release always emits) instead of none. Applies to every
@@ -145,7 +151,7 @@ describe("WEAPON_TABLE", () => {
       expect(
         { damage: def.damage, cooldownMs: def.cooldownMs, speed: def.speed, range: def.range },
         def.id,
-      ).toEqual({ damage: 20, cooldownMs: 800, speed: 900, range: 960 });
+      ).toEqual({ damage: 10, cooldownMs: 800, speed: 900, range: 960 });
     }
   });
 
@@ -613,20 +619,35 @@ describe("ImpulseDef", () => {
     expect(WEAPON_TABLE.thunderclap.impulse).toBeUndefined();
   });
 
-  it("keeps every declared impulse on a maneuver row, and every explosion impulse-free", () => {
-    // SCOPE RULING (stage 4, Task 1): this stage deliberately does not build a generic application
-    // path for a projectile/beam/explosion impulse — only a `kind: "maneuver"` row's impulse is
-    // ever actually applied (wildcharge's slam, Tasks 2-3). Authoring one anywhere else would
-    // silently do nothing, since the path to apply it does not exist yet; this guard names the
-    // missing path instead of letting that be discovered as a silent no-op. The first branch
-    // asserts for real against `wildcharge`, the roster's only `impulse` row and a `maneuver`; the
-    // explosion branch is still vacuous, since no `ExplosionDef` declares one.
+  it("allows an impulse on a maneuver, projectile or beam row, and on an explosion", () => {
+    // Widened from "maneuver only" (the stage-4 scope ruling) once `runCombat` grew a generic path:
+    // any weapon landing a damaging hit may now push the car it hit, once per instance per victim
+    // (`WeaponInstance.impulsedVictims`). So an `impulse` is legal on every kind a row can have, and
+    // on the `ExplosionDef` a projectile carries. What is NOT legal is the kind this guard exists for
+    // when it grows a new variant: an unrecognised kind carrying an impulse nobody applies.
+    const legal = new Set<string>(["maneuver", "projectile", "beam"]);
     for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
-      if (def.impulse !== undefined) expect(def.kind, def.id).toBe("maneuver");
-      if (def.kind === "projectile") {
-        expect(def.explosion?.impulse, `${def.id}'s explosion`).toBeUndefined();
+      if (def.impulse !== undefined) expect(legal.has(def.kind), def.id).toBe(true);
+      if (def.kind === "projectile" && def.explosion?.impulse !== undefined) {
+        expect(def.explosion.impulse.direction, `${def.id}'s explosion`).toBe("radial");
       }
     }
+  });
+
+  it("keeps the nine basic attacks and every plain bolt impulse-free", () => {
+    for (const def of plainBolts()) expect(def.impulse, def.id).toBeUndefined();
+  });
+
+  it("gives tremor an inward pull: radial, negative, spin-free and undefended", () => {
+    // Half of wildcharge's 520. Negative speed pulls toward the source, and a cone beam's source is
+    // the victim's foot on its own fire axis, so the pull is toward the centreline.
+    expect(WEAPON_TABLE.tremor.impulse).toEqual({
+      speed: -260,
+      direction: "radial",
+      spin: 0,
+      defenceScaled: false,
+      applies: [],
+    });
   });
 
   /**

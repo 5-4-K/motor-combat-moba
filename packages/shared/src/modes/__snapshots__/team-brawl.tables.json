@@ -504,7 +504,7 @@
     "basic-attack-anvil": {
       "color": "#101014",
       "cooldownMs": 800,
-      "damage": 20,
+      "damage": 10,
       "damageFrequencyMs": 0,
       "hitbox": {
         "radius": 12,
@@ -534,7 +534,7 @@
     "basic-attack-bastion": {
       "color": "#101014",
       "cooldownMs": 800,
-      "damage": 20,
+      "damage": 10,
       "damageFrequencyMs": 0,
       "hitbox": {
         "radius": 12,
@@ -564,7 +564,7 @@
     "basic-attack-bullseye": {
       "color": "#101014",
       "cooldownMs": 800,
-      "damage": 20,
+      "damage": 10,
       "damageFrequencyMs": 0,
       "hitbox": {
         "radius": 12,
@@ -594,7 +594,7 @@
     "basic-attack-caprico": {
       "color": "#101014",
       "cooldownMs": 800,
-      "damage": 20,
+      "damage": 10,
       "damageFrequencyMs": 0,
       "hitbox": {
         "radius": 12,
@@ -624,7 +624,7 @@
     "basic-attack-cleaver": {
       "color": "#101014",
       "cooldownMs": 800,
-      "damage": 20,
+      "damage": 10,
       "damageFrequencyMs": 0,
       "hitbox": {
         "radius": 12,
@@ -654,7 +654,7 @@
     "basic-attack-mirage": {
       "color": "#101014",
       "cooldownMs": 800,
-      "damage": 20,
+      "damage": 10,
       "damageFrequencyMs": 0,
       "hitbox": {
         "radius": 12,
@@ -684,7 +684,7 @@
     "basic-attack-prowler": {
       "color": "#101014",
       "cooldownMs": 800,
-      "damage": 20,
+      "damage": 10,
       "damageFrequencyMs": 0,
       "hitbox": {
         "radius": 12,
@@ -714,7 +714,7 @@
     "basic-attack-skorpios": {
       "color": "#101014",
       "cooldownMs": 800,
-      "damage": 20,
+      "damage": 10,
       "damageFrequencyMs": 0,
       "hitbox": {
         "radius": 12,
@@ -744,7 +744,7 @@
     "basic-attack-taurus": {
       "color": "#101014",
       "cooldownMs": 800,
-      "damage": 20,
+      "damage": 10,
       "damageFrequencyMs": 0,
       "hitbox": {
         "radius": 12,
@@ -773,7 +773,7 @@
     },
     "fury-horn": {
       "color": "#C0C8D0",
-      "cooldownMs": 1000,
+      "cooldownMs": 3000,
       "damage": 50,
       "damageFrequencyMs": 0,
       "hitbox": {
@@ -794,8 +794,12 @@
       "speed": 600,
       "startUpMs": 0,
       "stock": {
+        "initial": 3,
         "max": 3,
         "refireDelayMs": 300
+      },
+      "turret": {
+        "additionalOffset": 0
       },
       "unlocksAt": 1,
       "volley": {
@@ -831,7 +835,7 @@
     },
     "magmablast": {
       "color": "#FF6000",
-      "cooldownMs": 1600,
+      "cooldownMs": 16000,
       "damage": 50,
       "damageFrequencyMs": 0,
       "explosion": {
@@ -863,6 +867,9 @@
       "recoveryMs": 0,
       "speed": 600,
       "startUpMs": 0,
+      "turret": {
+        "additionalOffset": 0
+      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
@@ -932,6 +939,9 @@
       "recoveryMs": 0,
       "speed": 900,
       "startUpMs": 0,
+      "turret": {
+        "additionalOffset": 0
+      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
@@ -968,6 +978,9 @@
       "recoveryMs": 200,
       "speed": 600,
       "startUpMs": 0,
+      "turret": {
+        "additionalOffset": 0
+      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
@@ -1016,7 +1029,7 @@
       ],
       "bounces": true,
       "color": "#FFD800",
-      "cooldownMs": 3000,
+      "cooldownMs": 16000,
       "damage": 60,
       "damageFrequencyMs": 0,
       "hitbox": {
@@ -1037,6 +1050,9 @@
       "recoveryMs": 0,
       "speed": 450,
       "startUpMs": 0,
+      "turret": {
+        "additionalOffset": 0
+      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
@@ -1094,6 +1110,13 @@
         "shape": "cone"
       },
       "id": "tremor",
+      "impulse": {
+        "applies": [],
+        "defenceScaled": false,
+        "direction": "radial",
+        "speed": -260,
+        "spin": 0
+      },
       "kind": "beam",
       "lifetimeMs": 2875,
       "name": "Tremor",

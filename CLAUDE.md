@@ -158,9 +158,12 @@ explicit-loadout path builds the same list inline, since it also has to accept a
 weapon override `fireSlotsOf` has no parameter for. **The basic attack is always fire slot 0** as of
 the 2026-09-20 index flip — it sat LAST, at `kit.length`, until then, which was a constant only
 while every active kit was the same length. The flip moved no player-facing binding at the time.
-**Since 2026-09-21 there is one control layout** (`SLOT_KEYS`, spec TR29): the basic attack is
-**`LMB`**, the abilities at fire slots 1..`N` are **`RMB` / `Q` / `E`**, and **`SPACE`** is authored
-for a fourth ability and is inert while `N` is 3. `H`, `J`/`K`/`L`, `;` and MMB are unbound.
+**There is one control layout** (`SLOT_KEYS`, spec TR29), re-mapped 2026-10-08 now that the basic
+attack is off in every mode: the three abilities at fire slots 1..`N` take the primary inputs —
+**`LMB` / `RMB` / `SPACE`** — while the basic attack (slot 0) is parked on **`Q`** and the inert
+fourth ability on **`E`** (both practically unused — the basic attack refuses every press and
+`N` is 3). `H`, `J`/`K`/`L`, `;` and MMB are unbound. (Turret aiming is independent of the key map:
+a weapon draws from the turret because it carries `WeaponBase.turret`, whatever key fires it.)
 It rides the ordinary fire state machine with `recoveryMs: 0`, and it **loses** a same-tick tie
 against an ability, because `beginFire` now scans **descending** and takes the highest set bit — the
 basic attack, at index 0, is scanned last. The scan was reversed in the same pass that moved the
@@ -216,17 +219,18 @@ and playtest report. See the
 [`docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md`](docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md)
 (VS1–VS34).
 
-**Since 2026-09-21 a weapon may fire from a mouse-aimed turret rather than a fixed muzzle — but on
-this build none does.** `development/main` carries `turret` on **the nine basic-attack rows and
-nothing else**: `predator`, `magmablast` and `thumper` carried one on `feature/mouse-aim` and gave it
-back when that branch merged, in the same pass that turned the basic-attack flag off (then the
-global `BASIC_ATTACK_CONFIG.enabled`; now every mode's own `slots.basicAttackEnabled`, see below).
-Those two edits together are why **no car on this build draws a turret, captures the pointer, or
-shows a crosshair or the turret half of the aim HUD** — `carHasTurretWeapon` (TR53) is false for
-every chassis, and a config test asserts exactly that over the live roster rather than trusting the
-two edits separately. None of the machinery below is deleted; it is dormant, and putting `turret`
-back on one ability row or flipping the flag brings all of it back. A row carrying
-`WeaponBase.turret` fires along
+**A weapon may fire from a mouse-aimed turret rather than a fixed muzzle, and on this build five
+ability weapons do (2026-10-08).** `development/main` carries `turret` on the nine basic-attack rows
+**plus** `predator`, `magmablast`, `thumper`, `fury-horn` (each active chassis's slot-1 weapon) and
+`roadblock`. Because the turret is a per-weapon flag read by `carHasTurretWeapon` (TR53) — "BA on for
+this mode, OR any fire slot carries a turret weapon" — **every active chassis now draws a turret,
+captures the pointer, and shows the crosshair in every mode**, even though the basic attack is off
+everywhere (`slots.basicAttackEnabled` is `false` in every mode). This decoupled the turret from the
+basic attack: the basic-attack rows still carry `turret` (so they'd be turret-aimed if ever switched
+on), but it is the ability weapons that light the HUD today. The turret is **per-weapon and read
+through the active mode's table**, so a weapon can be turret-aimed in one mode and a fixed muzzle in
+another via a per-mode `replace()`. A config test asserts the live roster's turret posture. A row
+carrying `WeaponBase.turret` fires along
 the world bearing the player clicked (`InputFrame.aimAngle`, from the turret pivot to the
 crosshair), frozen at the press; the turret (`FireState.turretAngle`, sim state, mirrored
 render-only to `PlayerState.turretAngle`) turns to it at `TURRET_CONFIG.turnRateDegPerSec` before
@@ -247,7 +251,9 @@ centre-origin `disc`-hitbox beam synthesized by `instanceDefOf(id, isExplosion)`
 `ExplosionDef`. That disc lingers 2 s and damages once per entry; `damageMode` on the explosion is
 the knob (`"onceEver" | "perEntry"`). The aura mechanism was never deleted while dormant, and this
 is what it was waiting for. The multi-wave `VolleyDef` machinery that rode alongside the original
-aura is still **dormant**: no row authors more than one volley.
+aura is **live** too: `shockwave` (carried by Taurus) authors `volley: { volleys: 3, volleyIntervalMs: 500 }`
+— three expanding `disc` rings from one press, `spiked` on every ring (`onWave: "all"`); only
+`onWave: "final"` is still unused.
 
 **The `GameMode` enum now has two FFA win conditions**, not one. `FFA_LAST_STANDING` (the renamed
 original — wire value still `0`) ends the match when `livingSides` drops to one side; `FFA_DEATHMATCH`
@@ -268,13 +274,16 @@ and the ram pair list. Outside Deathmatch no car is ever `phased`, so the two pr
 everywhere else in the game; a phased car is the one case where they must disagree, and nothing else
 may let them.
 
-**The three SHIPPED chassis are `bullseye`, `mirage` and `bastion`** — a type triangle, not three
-shapes. `CAR_TABLE` also carries six unreleased prototypes as of 2026-09-16 — `taurus`, `anvil`,
-`caprico`, `prowler`, `cleaver`, `skorpios` — each `isActive: false`, each with `weapons: []`, and
-each a placeholder stat clone of a shipped chassis (Taurus/Anvil/Caprico of Bastion, Prowler/Cleaver
-of Mirage, Skorpios of Bullseye). They exist so art and handling can be driven before publication; **none of
-them carries an identity yet**, so do not read their ratings as a design or balance them against the
-triangle. Everything below about the roster's shape is about the three.
+**The type triangle is `bullseye`, `mirage` and `bastion`** — three shapes that counter each other,
+and the original shipped roster. **`taurus` joined them as a fourth ACTIVE chassis on 2026-10-07**,
+with its own kit (`fury-horn`, `shockwave`, `wildcharge`) and its own ratings (58/33/58/52/80/62/70, a
+heavy bruiser between Bastion and Bullseye) — no longer a clone, and not part of the triangle.
+`CAR_TABLE` also carries five unreleased prototypes as of 2026-09-16 — `anvil`, `caprico`, `prowler`,
+`cleaver`, `skorpios` — each `isActive: false`, each with `weapons: []`, and each a placeholder stat
+clone of a shipped chassis (Anvil/Caprico of Bastion, Prowler/Cleaver of Mirage, Skorpios of
+Bullseye). They exist so art and handling can be driven before publication; **none of them carries an
+identity yet**, so do not read their ratings as a design or balance them against the triangle.
+Everything below about the roster's shape is about the three triangle chassis.
 Their ratings (`speed`, `accel`, `handling`, `attack`, `hp`, `ramAttack`, `ramDefence`) are **seven**
 independent 0-100 values; `accel` and `handling` landed on 2026-08-30 so cars could differ in how they
 launch and how they corner, and `ramAttack`/`ramDefence` replaced the single `mass` rating in stage 3
@@ -644,7 +653,7 @@ contract tests, snapshots, and the pre-existing G12 failures.
 | How a shot LOOKS — the three style tables in `scenes/combat-visual.ts`, the inside-the-hitbox rule, what a look costs per frame and how to price one before shipping it | [`packages/client/CLAUDE.md`](packages/client/CLAUDE.md) and [`docs/asset-pipeline.md`](docs/asset-pipeline.md#how-much-detail-a-shot-can-afford) — and the [`weapon-look`](.claude/skills/weapon-look/SKILL.md) skill to author one |
 | How many ability slots a build has: the build-time count `N`, the structural `ABILITY_SLOT_CEILING`, the basic attack's move to fire slot 0, and the variable-length kit (VS1–VS34) | [`docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md`](docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md) — and the [`ability-slot-count`](.claude/skills/ability-slot-count/SKILL.md) skill to change it |
 | Mouse aim: the turret muzzle, the one control layout (LMB/RMB/Q/E/Space), pointer lock and the crosshair, the menu in every room, turret art, the basic attack switched on (TR1–TR52) | [`docs/superpowers/specs/2026-09-21-mouse-aim-turret-design.md`](docs/superpowers/specs/2026-09-21-mouse-aim-turret-design.md), [`docs/combat-model.md`](docs/combat-model.md#turret-muzzle), [`docs/asset-pipeline.md`](docs/asset-pipeline.md#turret-art) |
-| The ten-ability-weapon roster (nine shipped plus dormant `tremor`), per-chassis kits (L1–L7) — now alongside nine identical basic-attack rows (BA1–BA38, see above) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
+| The twelve-ability-weapon roster (all twelve carried — `tremor` now sits on Bastion's slot 3, `shockwave` and `fury-horn` on Taurus), per-chassis kits (L1–L7) — now alongside nine identical basic-attack rows (BA1–BA38, see above) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
 | The three chassis types and their triangle, the `accel`/`handling` ratings, the weapon redistribution (T1–T22) — **supersedes L1–L7's assignments** | [`docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md`](docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md) |
 | Ram CC and knockback decisions (R1–R20): severity, side bonus, authority/shove/spin, the `mass` rating | [`docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md`](docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md) |
 | Status (buff/debuff) decisions: channels, re-apply rules, clamps, pulses, auras, the application seams | [`docs/superpowers/specs/2026-08-29-status-mechanism-design.md`](docs/superpowers/specs/2026-08-29-status-mechanism-design.md) |
@@ -718,10 +727,14 @@ worn-down victim would get progressively safer.
 **Stage 4 gave weapons a declarative push and dissolved `SLAM_CONFIG`.** `WeaponBase`/`ExplosionDef`
 gained an optional **`ImpulseDef`** (`speed`, `direction`, `spin`, `defenceScaled`, `uncontrolMs`,
 `wallStun?`, `retriggerImmunityMs?`), converted to ticks once in `WEAPON_TICKS[id].impulse` —
-`undefined` when the row declares none, because absent must mean absent. **`wildcharge` is the only
-row that authors one**, and a config test enforces that an `impulse` may only sit on a
-`kind: "maneuver"` row, so authoring one on a projectile fails the suite naming the missing
-application path instead of silently doing nothing. `SLAM_CONFIG` is down to `wallContactPad`;
+`undefined` when the row declares none, because absent must mean absent. **`wildcharge` authored the
+only one at stage 4, and since 2026-10-08 `tremor` authors a second** (`speed: -260`, `radial`: an
+inward pull). The maneuver-only guard is gone: `runCombat` now applies an `impulse` on a projectile,
+beam or explosion too — once per victim per instance (`WeaponInstance.impulsedVictims`, server-only,
+mirroring `damageClock`) on that victim's first damaging hit, reported as `CombatResult.impulses` and
+written onto the victim's velocity by `applyWeaponImpulses` in `ram-bridge.ts` (combat is pure and
+carries no velocity). A beam's cone/rect sources the victim's foot on its fire axis, a negative
+`speed` therefore pulls onto the centreline (`sim/weapons/impulse-source.ts`). `SLAM_CONFIG` is down to `wallContactPad`;
 `knockSpeed`, both wall-stun knobs, `reslamImmunityMs`, `victimAuthority`, `selfKeepFactor` and the
 whole `SLAM_TICKS` export are **gone**. Three consequences worth knowing before touching contact
 code: `sim/contact.ts`'s charge branch builds no `Impulse` at all — it emits a **`SlamEvent`**
@@ -989,7 +1002,7 @@ npm run balance        # headless win-rate/matchup harness -> packages/server/ba
 
 ## The cars & weapons guide is generated, committed, and easy to leave stale
 
-`packages/client/public/manual.html` is the player-facing guide — three chassis, each with a basic
+`packages/client/public/manual.html` is the player-facing guide — one section per active chassis (four), each with a basic
 attack plus its ability kit — that the join screen's "Cars & weapons guide" button opens. **It is written by
 `scripts/build-cars-and-weapons.mjs`, never by hand.** Every number on it is read from built shared
 (`WEAPON_TABLE`, `CAR_TABLE`, `WEAPON_TICKS`, `weaponDamageOf`, `hpOf`); the prose lives beside it in

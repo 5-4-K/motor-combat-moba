@@ -103,10 +103,10 @@ describe("movementHintItems", () => {
     // no alternates at all, since there is no second binding left to show. The basic attack still
     // comes first (BA19) — but it comes first because it IS fire slot 0 now, not because the hint
     // reorders the table around it (VS15).
-    expect(actionKeysFor(2, true)).toEqual(["LMB", "RMB", "Q"]);
-    expect(actionKeysFor(3, true)).toEqual(["LMB", "RMB", "Q", "E"]);
-    expect(actionKeysFor(4, true)).toEqual(["LMB", "RMB", "Q", "E", "SPACE"]);
-    expect(actionKeysFor(3, false)).toEqual(["RMB", "Q", "E"]);
+    expect(actionKeysFor(2, true)).toEqual(["Q", "LMB", "RMB"]);
+    expect(actionKeysFor(3, true)).toEqual(["Q", "LMB", "RMB", "SPACE"]);
+    expect(actionKeysFor(4, true)).toEqual(["Q", "LMB", "RMB", "SPACE", "E"]);
+    expect(actionKeysFor(3, false)).toEqual(["LMB", "RMB", "SPACE"]);
     expect(actionAltsFor(2, true)).toEqual([]);
     expect(actionAltsFor(3, true)).toEqual([]);
     expect(actionAltsFor(3, false)).toEqual([]);
@@ -118,7 +118,7 @@ describe("movementHintItems", () => {
     }
   });
 
-  it("teaches LMB RMB Q E with the basic attack on, RMB Q E with it off, no alternates (TR30)", () => {
+  it("teaches Q LMB RMB SPACE with the basic attack on, LMB RMB SPACE with it off, no alternates (TR30)", () => {
     // BOTH positions of the toggle are pinned here rather than only the shipped one, so neither
     // build's row silently goes untested. An earlier version read the flag and then asserted the
     // enabled row against it, which measured nothing once the flag went `false`.
@@ -127,8 +127,8 @@ describe("movementHintItems", () => {
     // it with a function resolved per call. The relationship asserted is the same one — the glyph
     // row a full-kit chassis is taught is exactly the hint order's glyphs.
     const full = WEAPON_SLOT_CONFIG.maxAbilitySlots;
-    expect(actionKeysFor(full, true)).toEqual(["LMB", "RMB", "Q", "E"]);
-    expect(actionKeysFor(full, false)).toEqual(["RMB", "Q", "E"]);
+    expect(actionKeysFor(full, true)).toEqual(["Q", "LMB", "RMB", "SPACE"]);
+    expect(actionKeysFor(full, false)).toEqual(["LMB", "RMB", "SPACE"]);
     // And whichever way THIS build ships it, the hint's own order is the row that gets drawn.
     const enabled = slots().basicAttackEnabled;
     expect(actionKeysFor(full, enabled)).toEqual(hintSlotOrderDefault().map((s) => SLOT_KEYS[s]!.glyph));

@@ -35,6 +35,7 @@ import {
   nextFalloff,
   sweepFalloff,
   contactTick,
+  applyWeaponImpulses,
 } from "./ram-bridge.js";
 import { readStatuses, writeStatuses } from "./status-bridge.js";
 
@@ -1471,5 +1472,52 @@ describe("forgetContactPlayer (PG67)", () => {
     memory.contacts.add(pairKey("pg-1", "pg-2"));
     expect(() => forgetContactPlayer(memory, "pg-5")).not.toThrow();
     expect(memory.contacts.size).toBe(1);
+  });
+});
+
+describe("applyWeaponImpulses (a weapon's own on-hit push)", () => {
+  const PULL = {
+    targetSessionId: "b",
+    sourceSessionId: "a",
+    imp: { dirX: 0, dirY: 1, speed: -260, spin: 0, defenceScaled: false, uncontrolTicks: 0, contactX: 500, contactY: 170 },
+  };
+
+  it("adds the push to the victim's velocity and leaves its spin alone", () => {
+    const state = arena();
+    addPlayer(state, "a");
+    const victim = addPlayer(state, "b", { x: 500, y: 170, vx: 30, vy: 10, angVel: 0.4 });
+    applyWeaponImpulses(state, newContactMemory(), NO_EFFECTS, [PULL], 10);
+    expect(victim.vx).toBeCloseTo(30, 9);
+    expect(victim.vy).toBeCloseTo(10 - 260, 9);
+    expect(victim.angVel).toBeCloseTo(0.4, 9);
+  });
+
+  it("credits the weapon's owner as the shover, so a spike death is charged to them", () => {
+    const state = arena();
+    addPlayer(state, "a");
+    addPlayer(state, "b", { x: 500, y: 170 });
+    const memory = newContactMemory();
+    applyWeaponImpulses(state, memory, NO_EFFECTS, [PULL], 10);
+    expect(memory.spikes.lastShover.get("b")).toEqual({ id: "a", tick: 10 });
+  });
+
+  it("skips a victim who has left the room, without throwing", () => {
+    const state = arena();
+    addPlayer(state, "a");
+    expect(() => applyWeaponImpulses(state, newContactMemory(), NO_EFFECTS, [PULL], 10)).not.toThrow();
+  });
+
+  it("divides a defence-scaled push by the victim's ramDefence, which a live modifier changes", () => {
+    const scaled = { ...PULL, imp: { ...PULL.imp, defenceScaled: true } };
+    const run = (mods: Map<string, Modifiers>): number => {
+      const state = arena();
+      addPlayer(state, "a");
+      const victim = addPlayer(state, "b", { x: 500, y: 170, carId: "bastion" });
+      applyWeaponImpulses(state, newContactMemory(), mods, [scaled], 10);
+      return victim.vy;
+    };
+    expect(run(NO_EFFECTS)).toBeCloseTo(-260 / ramDefenceOf("bastion"), 9);
+    const doubled = new Map<string, Modifiers>([["b", { ...NEUTRAL_MODIFIERS, ramDefence: 2 }]]);
+    expect(run(doubled)).toBeCloseTo(-260 / (ramDefenceOf("bastion") * 2), 9);
   });
 });

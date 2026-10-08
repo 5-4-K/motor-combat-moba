@@ -62,6 +62,18 @@ export interface WeaponInstance {
   pierceLeft: number;
   attached: boolean;
   damageClock: Map<string, number>;
+  /**
+   * Cars this instance has already pushed with its weapon's `impulse` (session ids). An impulse lands
+   * ONCE per victim per instance, however many times the instance goes on damaging that car — a
+   * ticking beam re-arms its `damageClock` every interval but must not yank the same car every
+   * interval, and a car that leaves and re-enters the same instance is not yanked again either.
+   *
+   * Server-only bookkeeping that mirrors `damageClock` exactly: never a schema field, never read by
+   * `stepSim` (invariant 8), carried in room memory across ticks and copied fresh at every step so
+   * the pre- and post-step instance never share one live set. Written by `runCombat`'s damaged loop.
+   * Empty for an instance that declares no impulse, and for every burst at birth.
+   */
+  impulsedVictims: Set<string>;
   alive: boolean;
   /**
    * This instance's muzzle direction, radians off the owner's heading, frozen at spawn. 0 for
@@ -305,6 +317,7 @@ export function spawnInstances(
         pierceLeft: def.kind === "projectile" ? def.pierce : 0,
         attached: def.kind === "beam" ? def.attached : false,
         damageClock: new Map(),
+        impulsedVictims: new Set(),
         alive: true,
         muzzleDir: exit.dir,
         homingTargetId: homingTarget,
@@ -426,6 +439,7 @@ export function stepInstance(
       // visible through both. Same reasoning as `pruneCooldowns` in combat.ts, which never hands
       // back the caller's own cooldown map either.
       damageClock: new Map(instance.damageClock),
+      impulsedVictims: new Set(instance.impulsedVictims),
     };
   }
 
@@ -440,6 +454,7 @@ export function stepInstance(
     // See the projectile branch above: a fresh copy, so the returned instance and the one it was
     // stepped from never share the same live `damageClock` object.
     damageClock: new Map(instance.damageClock),
+    impulsedVictims: new Set(instance.impulsedVictims),
   };
 }
 

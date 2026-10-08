@@ -24,6 +24,7 @@ import {
   type StatusRequest,
 } from "./combat.js";
 import { newCombatEvents } from "./combat-events.js";
+import { applyImpulse } from "./impulse.js";
 import { carHullOf } from "./context.js";
 import { ManeuverKind } from "./maneuver.js";
 import type { ManeuverWeaponDef, WeaponId } from "../config/weapon-types.js";
@@ -339,6 +340,7 @@ describe("firing", () => {
       pierceLeft: 0,
       attached: true,
       damageClock: new Map(),
+      impulsedVictims: new Set<string>(),
       alive: true,
       muzzleDir: 0,
       homingTargetId: "",
@@ -431,6 +433,7 @@ describe("shots in flight", () => {
     pierceLeft: 0,
     attached: false,
     damageClock: new Map(),
+    impulsedVictims: new Set<string>(),
     alive: true,
     muzzleDir: 0,
     homingTargetId: "",
@@ -506,6 +509,7 @@ describe("shots landing", () => {
       pierceLeft: 0,
       attached: false,
       damageClock: new Map(),
+      impulsedVictims: new Set<string>(),
       alive: true,
       muzzleDir: 0,
       homingTargetId: "",
@@ -611,6 +615,7 @@ describe("shots landing", () => {
           pierceLeft: 0,
           attached: false,
           damageClock: new Map(),
+          impulsedVictims: new Set<string>(),
           alive: true,
           muzzleDir: 0,
           homingTargetId: "",
@@ -1305,6 +1310,7 @@ describe("stun interruption (O8)", () => {
       pierceLeft: 0,
       attached: def.kind === "beam" ? def.attached : false,
       damageClock: new Map(),
+      impulsedVictims: new Set<string>(),
       alive: true,
       muzzleDir: 0,
       homingTargetId: "",
@@ -1640,6 +1646,143 @@ describe("tremor (the unassigned row): presence effects", () => {
   });
 });
 
+describe("tremor: the one-shot inward pull", () => {
+  pinBasicAttackEnabled();
+
+  const tremorState = () => ({
+    ...newFireState("mirage", 1),
+    slots: [{ weaponId: "tremor" as const, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
+  });
+
+  /** One combat tick at `tick`, threading the previous result's instances and seq. */
+  function step(
+    tick: number,
+    players: CombatPlayer[],
+    prev: { instances: WeaponInstance[]; instanceSeq: number },
+  ): ReturnType<typeof runCombat> {
+    return runCombat({ world: world({ tick }), players, instances: prev.instances, instanceSeq: prev.instanceSeq });
+  }
+
+  /** Never fires again after the opening press. */
+  const idle = (result: CombatResult, over: Record<string, Partial<CombatPlayer>> = {}): CombatPlayer[] =>
+    result.players.map((p) => ({ ...p, fireMask: 0, ...(over[p.sessionId] ?? {}) }));
+
+  const OFF_AXIS = OPEN_Y + 20;
+
+  it("tremor pulls a caught car toward the cone axis once, on first entry", () => {
+    // Shooter at (300, OPEN_Y) heading +x; the victim sits 20 u BELOW the fire axis at x = 500, well
+    // inside the 60-degree cone once it has grown out. The pull source is the victim's foot on the
+    // axis, (500, OPEN_Y), so the impulse direction (victim - source) is +y and speed -260 turns that
+    // into a Δv of -260 in y: toward the centreline.
+    const shooter = player("a", { x: 300, fireState: tremorState(), fireMask: 0b001 });
+    const victim = player("b", { x: 500, y: OFF_AXIS, team: 1 });
+    let result = runCombat({ world: world({ tick: 100 }), players: [shooter, victim], instances: [], instanceSeq: 0 });
+    expect(result.impulses).toEqual([]);
+
+    let pulled: CombatResult["impulses"] = [];
+    for (let tick = 101; tick <= 130 && pulled.length === 0; tick++) {
+      result = step(tick, idle(result), result);
+      pulled = result.impulses;
+    }
+    expect(pulled).toHaveLength(1);
+    const entry = pulled[0]!;
+    expect(entry.targetSessionId).toBe("b");
+    expect(entry.imp.dirX).toBeCloseTo(0, 9);
+    expect(entry.imp.dirY).toBeCloseTo(1, 9);
+    expect(entry.imp.speed).toBe(WEAPON_TABLE.tremor.impulse!.speed);
+    expect(entry.imp.spin).toBe(0);
+    expect(entry.imp.contactX).toBe(500);
+    expect(entry.imp.contactY).toBe(OFF_AXIS);
+
+    // Applied to a car at rest the impulse moves it by `speed` TOWARD the axis (-y) and leaves
+    // its spin alone (spin 0), which is what the server bridge does with it.
+    const rest: SimBody = {
+      x: 500, y: OFF_AXIS, angle: 0, vx: 0, vy: 0, angVel: 0,
+      maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
+    };
+    const next = applyImpulse(rest, ramDefenceOf("mirage"), entry.imp);
+    expect(next.vx).toBeCloseTo(0, 9);
+    expect(next.vy).toBeCloseTo(-260, 9);
+    expect(next.angVel).toBe(0);
+  });
+
+  it("tremor does not re-pull a car it keeps damaging across 400 ms damage ticks", () => {
+    const shooter = player("a", { x: 300, fireState: tremorState(), fireMask: 0b001 });
+    const victim = player("b", { x: 500, y: OFF_AXIS, team: 1 });
+    const fullHp = victim.hp;
+    let result = runCombat({ world: world({ tick: 100 }), players: [shooter, victim], instances: [], instanceSeq: 0 });
+
+    let pulls = 0;
+    let damageTicks = 0;
+    let hp = fullHp;
+    // Long enough for several 400 ms re-arms inside the 2875 ms life.
+    for (let tick = 101; tick <= 100 + msToTicks(2400); tick++) {
+      result = step(tick, idle(result), result);
+      pulls += result.impulses.length;
+      const now = find(result, "b").hp;
+      if (now < hp) damageTicks += 1;
+      hp = now;
+    }
+    // The beam kept damaging the car (the gate is NOT the damage clock)...
+    expect(damageTicks).toBeGreaterThanOrEqual(3);
+    // ...and pulled it exactly once.
+    expect(pulls).toBe(1);
+  });
+
+  it("a car that leaves and re-enters the same tremor instance is not pulled again", () => {
+    const shooter = player("a", { x: 300, fireState: tremorState(), fireMask: 0b001 });
+    const victim = player("b", { x: 500, y: OFF_AXIS, team: 1 });
+    let result = runCombat({ world: world({ tick: 100 }), players: [shooter, victim], instances: [], instanceSeq: 0 });
+
+    let tick = 101;
+    let pulls = 0;
+    // Caught and pulled the first time.
+    for (; tick <= 130 && pulls === 0; tick++) {
+      result = step(tick, idle(result), result);
+      pulls += result.impulses.length;
+    }
+    expect(pulls).toBe(1);
+
+    // Drive out of the cone entirely (far behind the shooter), long enough that nothing touches it.
+    for (let i = 0; i < 5; i++, tick++) {
+      result = step(tick, idle(result, { b: { x: 100, y: OFF_AXIS } }), result);
+      pulls += result.impulses.length;
+    }
+    // Back in. The same instance is still alive (life 2875 ms) and damages it again, but the gate
+    // belongs to the instance, not to the overlap.
+    const hpBefore = find(result, "b").hp;
+    let damagedAgain = false;
+    for (let i = 0; i < msToTicks(900); i++, tick++) {
+      result = step(tick, idle(result, { b: { x: 500, y: OFF_AXIS } }), result);
+      pulls += result.impulses.length;
+      if (find(result, "b").hp < hpBefore) damagedAgain = true;
+    }
+    expect(result.instances.some((i) => i.weaponId === "tremor")).toBe(true);
+    expect(damagedAgain).toBe(true);
+    expect(pulls).toBe(1);
+  });
+
+  it("emits no impulse for a car exactly on the axis, and still spends its one pull", () => {
+    // Zero distance has no direction: nothing to emit. The pull is spent anyway, so drifting off-axis
+    // a tick later cannot buy a pull from an instance that already caught the car.
+    const shooter = player("a", { x: 300, fireState: tremorState(), fireMask: 0b001 });
+    const victim = player("b", { x: 500, y: OPEN_Y, team: 1 });
+    let result = runCombat({ world: world({ tick: 100 }), players: [shooter, victim], instances: [], instanceSeq: 0 });
+    let hit = false;
+    let tick = 101;
+    for (; tick <= 130 && !hit; tick++) {
+      result = step(tick, idle(result), result);
+      expect(result.impulses).toEqual([]);
+      hit = find(result, "b").hp < victim.hp;
+    }
+    expect(hit).toBe(true);
+    for (let i = 0; i < msToTicks(900); i++, tick++) {
+      result = step(tick, idle(result, { b: { y: OFF_AXIS } }), result);
+      expect(result.impulses).toEqual([]);
+    }
+  });
+});
+
 describe("kill attribution", () => {
   const HP = hpOf("mirage");
 
@@ -1660,6 +1803,7 @@ describe("kill attribution", () => {
     pierceLeft: 0,
     attached: false,
     damageClock: new Map<string, number>(),
+    impulsedVictims: new Set<string>(),
     alive: true,
     muzzleDir: 0,
     homingTargetId: "",
@@ -1770,6 +1914,7 @@ describe("damaged and killed events (B4, B5)", () => {
     pierceLeft: 0,
     attached: false,
     damageClock: new Map<string, number>(),
+    impulsedVictims: new Set<string>(),
     alive: true,
     muzzleDir: 0,
     homingTargetId: "",
@@ -1926,6 +2071,7 @@ describe("spawn protection: a phased car is not a target", () => {
     pierceLeft,
     attached: false,
     damageClock: new Map<string, number>(),
+    impulsedVictims: new Set<string>(),
     alive: true,
     muzzleDir: 0,
     homingTargetId: "",

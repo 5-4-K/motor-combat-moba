@@ -80,6 +80,11 @@ function canon(value: unknown): unknown {
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const key of Object.keys(value).sort()) {
+      // Server-only impulse bookkeeping (`WeaponInstance.impulsedVictims`), added after this trace was
+      // recorded. No scenario here fires a weapon that declares an `impulse`, so the set is empty in
+      // every instance; leaving it out keeps the recorded trace a statement about everything else
+      // rather than forcing a re-record for a field that cannot change what these scenarios do.
+      if (key === "impulsedVictims") continue;
       const inner = (value as Record<string, unknown>)[key];
       if (inner !== undefined) out[key] = canon(inner);
     }

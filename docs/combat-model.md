@@ -484,10 +484,11 @@ weapon between chassis means swapping a pair, never copying one. See
 To add one, see [Authoring a weapon](#authoring-a-weapon) below; the sections between here and there
 are the rules a weapon's stats are interpreted by.
 
-**No shipped weapon carries a `stock` block today.** `needler`, the table's one multi-stock weapon,
-was retired with the 2026-09-01 overhaul; the stock mechanic (`releaseShots` starting the recharge at
-the first shot of a dump rather than the last) is dormant machinery, still real in `fire.ts` and
-covered by `fire.test.ts`, waiting for the next weapon that authors one.
+**`fury-horn` (Taurus) is the one shipped weapon carrying a `stock` block.** It banks three charges,
+spawns full (`stock.initial: 3`; absent means the universal spawn default of one, validated `1..max`),
+recharges one stock per `cooldownMs`, and gates refire by `stock.refireDelayMs`. The stock mechanic —
+`releaseShots` starting the recharge at a dump's first shot rather than its last — was dormant after
+`needler`'s 2026-09-01 retirement until `fury-horn` revived it, and is covered by `fire.test.ts`.
 
 ### Firing input
 

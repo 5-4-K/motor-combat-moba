@@ -47,6 +47,13 @@ export type WeaponId =
 export interface StockDef {
   /** How many shots may be banked. Validated >= 2; a max of 1 is the absent case. */
   max: number;
+  /**
+   * How many stocks the weapon spawns with. Absent means 1 — the universal spawn default every
+   * slot carried before this field existed, so omitting it leaves a weapon's start unchanged.
+   * Validated 1..max: a weapon cannot begin above its own ceiling. `fury-horn` authors 3 to spawn
+   * full, so its magazine is available the moment the match starts rather than one shot deep.
+   */
+  initial?: number;
   /** Minimum gap between consecutive shots of THIS weapon when firing from stock. */
   refireDelayMs: number;
 }
