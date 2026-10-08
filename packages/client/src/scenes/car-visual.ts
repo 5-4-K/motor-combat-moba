@@ -1,4 +1,4 @@
-import { DEATH_FADE_MS, TICK_RATE_HZ } from "@motor-combat-moba/shared";
+import { DEATH_FADE_MS, TICK_RATE_HZ, carHasTurretWeapon, turret } from "@motor-combat-moba/shared";
 import { carTintOverrides } from "../fx/car-tint.js";
 import { COLOR_TABLE, DEFAULT_CAR_ID, isCarId, type CarId } from "@motor-combat-moba/shared";
 
@@ -178,4 +178,14 @@ export function deathFadeAlpha(alive: boolean, diedAtTick: number, tick: number)
   if (elapsed <= 0) return 1;
   if (elapsed >= fadeTicks) return 0;
   return 1 - elapsed / fadeTicks;
+}
+
+/**
+ * Whether a car with this fireable loadout draws a turret: it must carry a turret weapon
+ * (`carHasTurretWeapon`, TR53) AND the active mode must show turrets (`turret().visible`). Drawing
+ * only — pointer lock, the crosshair and the aim HUD keep asking `carHasTurretWeapon` alone, so a
+ * hidden turret still aims with the mouse exactly as a shown one does.
+ */
+export function drawsTurret(weaponIds: readonly string[]): boolean {
+  return carHasTurretWeapon(weaponIds) && turret().visible;
 }

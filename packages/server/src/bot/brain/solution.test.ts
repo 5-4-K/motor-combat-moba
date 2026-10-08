@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import { DEFAULT_GAME_MODE, applyOverrides, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   TICK_RATE_HZ, TURRET_TICKS, boundsOf, msToTicks, carHullOf, instanceExpired, resolveInstanceHits,
   spawnInstances, stepInstance, turretPivotOf, weaponDefOf, weaponTicksOf, weapons, wrapAngle,
@@ -297,6 +297,10 @@ describe("solve — nose, not bearing", () => {
 });
 
 describe("solve — turret (TR26)", () => {
+  // A turret that takes time to swing: whether the default mode hides its turret (and so turns it
+  // instantly) is that mode's choice, and these cases budget a real turn.
+  beforeEach(() => installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.visible": true })));
+
   // Mirage's own BASIC ATTACK, a turret row (`WeaponDef.turret`), so the shot leaves the pivot along
   // a bearing rather than the nose. `magmablast` played this part until `development/main` returned
   // it to a fixed muzzle; the nine `basic-attack-*` rows are the table's only turret carriers now,
@@ -361,6 +365,11 @@ describe("solve — turret (TR26)", () => {
     // position than the one that had to budget a quarter-turn.
     const now = Math.atan2(500 - pivot.y, 250 - pivot.x);
     expect(Math.abs(preTurned - now)).toBeLessThan(Math.abs(fromNose - now));
+  });
+
+  it("budgets no turn at all when the mode hides the turret (it snaps)", () => {
+    installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.visible": false }));
+    expect(turretTurnTicksOf({ ...shooter, turretAngle: 0 }, Math.PI / 2)).toBe(0);
   });
 
   it("never solves a bearing outside the turret's swing arc (TR55)", () => {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { installMode, slots } from "../../modes/active.js";
+import { applyOverrides } from "../../modes/overlay.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../../modes/registry.js";
 import { TURRET_TICKS } from "../../config/turret-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
@@ -13,7 +14,16 @@ import {
   wrapAngle,
 } from "./turret.js";
 
-beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+/**
+ * The default mode with its turret forced VISIBLE or hidden. The turn-rate cases below are about a
+ * turret that takes time to swing, which a hidden turret (`turret.visible: false`) never does — and
+ * whether a given shipped mode hides its turret is that mode's choice, not one these tests inherit.
+ */
+function installTurretMode(visible: boolean): void {
+  installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.visible": visible }));
+}
+
+beforeEach(() => installTurretMode(true));
 
 describe("wrapAngle", () => {
   it("maps into (-pi, pi]", () => {
@@ -144,6 +154,25 @@ describe("turnTurret (TR13-TR14)", () => {
     let s = beginFire("a", mirage(), 1 << 1, 0, Math.PI, 0);
     s = tickRecharge(s, 1);
     expect(s.slots[1]!.rechargeEndsTick).toBe(0);
+  });
+});
+
+describe("a hidden turret (`turret.visible: false`)", () => {
+  beforeEach(() => installTurretMode(false));
+
+  it("snaps onto any bearing on the press tick and counts the wind-up from there", () => {
+    let s = beginFire("a", mirage(), 1 << 1, 10, Math.PI - 0.01, 0);
+    s = turnTurret(s, 0, 10);
+    expect(s.turretAngle).toBeCloseTo(Math.PI - 0.01, 12);
+    expect(s.pending?.aligned).toBe(true);
+    expect(s.pending?.nextShotTick).toBe(10 + weaponTicksOf(TURRET_WEAPON).startUp);
+  });
+
+  it("still clamps the snap into the swing arc", () => {
+    let s = beginFire("a", mirage(), 1 << 1, 0, Math.PI - 0.2, 0, 180);
+    s = turnTurret(s, 0, 0, undefined, 180);
+    expect(s.turretAngle).toBeCloseTo(Math.PI / 2, 12);
+    expect(s.pending?.aligned).toBe(true);
   });
 });
 

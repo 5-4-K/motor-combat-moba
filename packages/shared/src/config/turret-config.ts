@@ -12,6 +12,7 @@ export interface TurretConfig {
   readonly turnRateDegPerSec: number;
   readonly defaultOffset: number;
   readonly maxSwingDeg: number;
+  readonly visible: boolean;
 }
 
 /**
@@ -29,6 +30,12 @@ export interface TurretConfig {
  * at use time (`clampToSwing`'s default), never copied, so a live retune takes effect on the next
  * call.
  *
+ * `visible: false` hides the turret without taking turret aiming away: no car draws one, and it
+ * turns INSTANTLY — `resolveTurretTicks` resolves an unlimited step, so `turnTurret` snaps onto the
+ * press bearing on its first tick and the bot budgets no turn time. Everything else a turret weapon
+ * does is unchanged: the mouse bearing, the swing arc, the spawn point at the mount plus
+ * `defaultOffset`, the pointer lock, the crosshair and the aim HUD. Per mode, through `turret()`.
+ *
  * A playground tuning root (TR57): a retune moves it via `turret()`'s bundle, not by writing this
  * global. `TURRET_CONFIG` itself is never written and always reads the shipped defaults below.
  */
@@ -36,6 +43,7 @@ export const TURRET_CONFIG: TurretConfig = {
   turnRateDegPerSec: 540,
   defaultOffset: 25,
   maxSwingDeg: 360,
+  visible: true,
 };
 
 function turnPerTickOf(turnRateDegPerSec: number): number {
@@ -47,8 +55,13 @@ export interface TurretTicks {
   turnPerTick: number;
 }
 
-/** Radians per tick, from the passed config. */
+/**
+ * Radians per tick, from the passed config. A hidden turret turns without limit (`Infinity`), which
+ * is the one value both readers — `turnTurret`'s snap test and the bot's `turretTurnTicksOf` budget —
+ * already read as "arrives this tick" and "costs no ticks", so neither needs a branch of its own.
+ */
 export function resolveTurretTicks(turret: TurretConfig = TURRET_CONFIG): TurretTicks {
+  if (!turret.visible) return { turnPerTick: Number.POSITIVE_INFINITY };
   return { turnPerTick: turnPerTickOf(turret.turnRateDegPerSec) };
 }
 
