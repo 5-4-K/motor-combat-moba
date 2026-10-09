@@ -89,6 +89,14 @@ export function arenaFloorKey(arenaId: string): string {
 }
 
 /**
+ * The manifest key for an arena's 16:9 preview on the arena select screen (AR3). Optional — a card
+ * without one renders blank with the name only. Pruned with the rest of `arena.<id>.*`.
+ */
+export function arenaPreviewKey(arenaId: string): string {
+  return `arena.${arenaId}.preview`;
+}
+
+/**
  * The manifest key for one tile type's art (spec tile arenas, §5.1). In the `arena.common.*`
  * namespace, which is never pruned, because every tile arena shares the same tile art.
  */

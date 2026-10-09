@@ -19,6 +19,10 @@ describe("sceneKeyFor", () => {
     expect(VIEW_TO_SCENE[viewFor(PlayerStatus.READY, RoomPhase.COUNTDOWN)]).toBe("lobby");
   });
 
+  it("routes ARENA_SELECT to the arena_select scene (AR25)", () => {
+    expect(sceneKeyFor("in_match", RoomPhase.ARENA_SELECT)).toBe("arena_select");
+  });
+
   it("maps in-match + car_select to car_select", () => {
     expect(viewFor(PlayerStatus.IN_MATCH, RoomPhase.CAR_SELECT)).toBe("car_select");
     expect(sceneKeyFor(PlayerStatus.IN_MATCH, RoomPhase.CAR_SELECT)).toBe("car_select");
