@@ -570,6 +570,13 @@ no-op today, since FOV is off in every shipped mode. Read
 state file [`EXECUTION.md`](docs/superpowers/plans/2026-09-29-online-netcode/EXECUTION.md), which
 holds the measured numbers and the open questions.
 
+## Ask before starting the "Iterative implementation workflow"
+
+When brainstorming an idea reaches the point where the design would be written, **always ask the
+user whether to start the "Iterative implementation workflow"**. Only on a yes, run it end to end:
+write the design in sections → self-review → write the implementation plan → self-review →
+implement with subagent-driven development (SDD). Without that yes, stop at the design discussion.
+
 ## Reporting a finding: claim first, then offer the evidence
 
 **Lead with the claim, in one plain sentence.** Then say how confident you are and how you checked
