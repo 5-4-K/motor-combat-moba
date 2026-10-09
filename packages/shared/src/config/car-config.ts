@@ -9,24 +9,22 @@ import { cars, combat, derived, drive } from "../modes/active.js";
 /**
  * The roster. Every rating is an integer 0-100 with 50 as average.
  *
- * **Three chassis ship; six more are authored below with `isActive: false`.** Only the shipped
- * three carry an identity — everything this comment says about the triangle is about them.
+ * **Four chassis ship; five more are authored below with `isActive: false`.** The shipped four are
+ * the type triangle (Mirage, Bullseye, Bastion) plus Taurus, a heavy bruiser between Bastion and
+ * Bullseye that sits outside the triangle. Everything this comment says about the triangle is about
+ * those three; the prototypes carry no identity yet.
  *
  * The three types (T1): **Mirage** is the all-round speedster — highest speed AND handling, the
  * lightest-armoured glass cannon on offense but middling hp. **Bullseye** is the light, precise
  * skirmisher — the roster's lowest hp and `ramDefence`, and mid-pack on both speed and handling.
  * **Bastion** is the tank — lowest speed and accel by far, the roster's highest hp, `ramAttack` and
- * `ramDefence`, and, since the 2026-09-02 rebalance, also the lowest handling: its durability and
- * its solidity carry the tank identity now, not a handling edge.
+ * `ramDefence`, and also the lowest handling: its durability and its solidity carry the tank
+ * identity, not a handling edge.
  *
- * As of 2026-09-02 `speed` and `handling` move together per car (85/85, 65/65, 50/50) rather than
- * trading off — before that, Bastion's `handling` (82) was the roster's *highest* despite its `speed`
- * (30) being the lowest, which is what let a car with the widest turn RATE spread also carry the
- * tightest turn RADIUS (T6). That inversion is gone: turn radius (`forwardMaxSpeedOf(id) /
- * turnRateOf(id)`) now orders the same way rating does — Mirage widest, Bastion tightest — because a
- * car with more of one now reliably has more of the other. Bastion still finishes with the tightest
- * radius (its lower turn rate is outweighed by its lower speed), but the margin between the three
- * shrank from tens of units to a few.
+ * `speed` and `handling` carry the same rating per car (85/85, 65/65, 58/58, 50/50), so turn radius
+ * (`forwardMaxSpeedOf(id) / turnRateOf(id)`) comes out effectively UNIFORM across the roster — not a
+ * design axis today. Widening it back out is a `handling` edit, not a speed one. The current figures
+ * are in `docs/turn-tuning.md`, which a test recomputes from this table.
  *
  * Ratings used to be held to a 150-point budget across speed/attack/hp, which was the roster's only
  * automatic guard against a fourth chassis being authored strictly better than these three. That
@@ -42,7 +40,8 @@ import { cars, combat, derived, drive } from "../modes/active.js";
  * handling * turnRatePerRating`). Turn radius is a derived quantity, `forwardMaxSpeedOf(id) /
  * turnRateOf(id)`, so a chassis with a high `speed` rating and only average `handling` still corners
  * wide: raising speed without raising handling to match is what makes a car feel less agile despite
- * a higher ceiling. `accel` is likewise fed straight into `accelOf`.
+ * a higher ceiling. `accel` sets the car's drag rate (`dragRateOf`), which in turn sets its wind-up
+ * and its emergent top speed.
  *
  * `ramAttack` and `ramDefence` are not durability, and they are not one rating split in two. They
  * are read only by the ram shove (`shoveOf` in `sim/ram.ts` — `ramAttack` multiplies the attacker's,
@@ -55,7 +54,7 @@ import { cars, combat, derived, drive } from "../modes/active.js";
  *
  * **Changing a car's `handling`, `speed`, `accel` or `brakeDecel` also owes `docs/turn-tuning.md`
  * an edit** (`coastHalfLifeSeconds` used to be on this list; the Unity drive-model port deleted the
- * field outright — see `CarDef.brakeDecel`), and a fourth chassis owes it a new column in three
+ * field outright — see `CarDef.brakeDecel`), and a new chassis owes it a new column in three
  * tables. That page tabulates every turn rate and radius on the roster by hand, and
  * `scripts/turn-tuning-doc.test.mjs` recomputes every cell from this table — it fails until the page
  * agrees. See its "Keeping this page honest" section.
