@@ -118,9 +118,11 @@ const CSS = `
   max-height: 80vh;
   overflow-y: auto;
 }
+/* top matches the negative margin: a sticky box sticks inside the panel's PADDING, so top: 0 held
+   the header 20px down and it covered the top of the first row in every settings panel. */
 .pg-settings-header {
   position: sticky;
-  top: 0;
+  top: -20px;
   z-index: 1;
   display: flex;
   align-items: center;
@@ -195,7 +197,11 @@ const CSS = `
 .pg-tint-off {
   opacity: 0.4;
 }
+/* Under .pg-row so it outranks ".pg-row select { width: 100% }", which otherwise dropped the
+   select onto its own full-width line instead of beside "Vs bot". */
+.pg-row select.pg-difficulty,
 .pg-difficulty {
+  width: auto;
   margin-left: 10px;
   padding: 2px 4px;
   background: #1c1e22;
@@ -265,8 +271,10 @@ const CSS = `
   flex: 1;
   min-width: 0;
 }
-.pg-weapon-remove,
-.pg-weapon-add {
+/* Scoped under .pg-panel so they outrank ".pg-panel button { width: 100% }" — unscoped, each −
+   button took the full row width and crushed its weapon select to a 10px sliver. */
+.pg-panel .pg-weapon-remove,
+.pg-panel .pg-weapon-add {
   flex: 0 0 auto;
   width: auto;
   margin: 0;
@@ -394,7 +402,7 @@ const CSS = `
   color: #9aa0a6;
 }
 .pg-fx-block { border: 1px solid #333; border-radius: 4px; margin: 4px 0; }
-.pg-fx-head {
+.pg-panel .pg-fx-head {
   width: 100%;
   margin: 0;
   text-align: left;
