@@ -1,346 +1,117 @@
 # Bot behaviour
 
-Which knob to reach for when a bot feels wrong. The config file is the source of truth:
-[`packages/server/src/config/bot-profiles.ts`](../packages/server/src/config/bot-profiles.ts).
-This page is a transcription — re-check it whenever a tier value changes.
-
-**Unlike `docs/turn-tuning.md`, nothing tests this page.**
-
-One brain, three rows of numbers. Feel complaints belong in the
-[`bot-tuner`](../.claude/skills/bot-tuner/SKILL.md) skill, which reads the live table and proposes
-knob moves — not a Hard-only branch.
-
-Design: [`docs/superpowers/specs/2026-09-05-bot-situation-play-design.md`](superpowers/specs/2026-09-05-bot-situation-play-design.md)
-(S1–S28). Firing solutions, prediction and the planner: P1–P58 of
-[`docs/superpowers/specs/2026-09-05-bot-predictive-brain-design.md`](superpowers/specs/2026-09-05-bot-predictive-brain-design.md).
-Fairness / hands / personalities: H1–H8 and H16–H48 of
-[`docs/superpowers/specs/2026-09-04-human-like-bot-behavior-design.md`](superpowers/specs/2026-09-04-human-like-bot-behavior-design.md).
-
-Copied from `bot-profiles.ts` on 2026-09-08; the numeric tables below are that copy, still valid, but
-`BOT_BRAIN_VERSION` itself has moved many times since without a full re-copy, because most of those
-moves changed brain BEHAVIOUR (a table read, a formula, a fixture bug fix) without `BOT_PROFILES`
-itself moving, which is exactly the case the version string exists to flag. **`BOT_BRAIN_VERSION` is
-`6.0.1` today** (stage 5 Task 8, 2026-09-19 — a residual `predict.ts` bug fixed: an injected ram spin
-was zeroed instead of decaying, contrary to the code's own doc comment). It read `4.5.1` when this
-page was last fully copied, bumped from `4.5.0` because `evade`'s `facingError` weight changed
-behaviour (40 -> 10) while `BOT_PROFILES` did not move, and `botFingerprint` hashes the profile
-table, not `objectives.ts`'s `BASE`. (That line read `4.3.0` before the 4.5.0 update, against a
-shipped `4.4.0` — drift pre-existing and not caused by the facing-term work below, corrected along
-with the real bump.) A `balance` report is comparable only to another report carrying the identical
-`BOT_BRAIN_VERSION`; see `docs/superpowers/plans/2026-09-18-unity-physics-port/` for the moves since
-4.5.1, most of which are outside this page's scope to enumerate.
-
-## Reading a complaint
-
-**Read the overlay first, then name a knob.** As of 4.3.0 the playground prints the two readings
-that answer most complaints outright — `ev best/threshold` (is this bot declining shots, and by how
-much) and the winning plan's per-term breakdown (what it thought it was doing instead). See
-[Overlay](#overlay). Naming a factor from the symptom alone is now the second-best method.
-
-| Symptom | Knob(s) |
-|---|---|
-| "Medium is too hard to hit" | `aimErrorSigmaRad` up. `minShotValueFraction` is not a straightforward easier/harder dial: lowering it widens what the bot will attempt (more shots, more misses); raising it makes the bot *pickier and therefore MORE deadly per shot*, not less |
-| "Hard is a laser" | Same knobs the other way on `hard` |
-| "Hard isn't attacking / holds fire" | Read `ev best/threshold` on the overlay. Below 1, the bot is *correctly* declining the shot and `minShotValueFraction` down is the tune; at or above 1 with `slot -`, that is a bug in `chooseSlot` / `solve()`, not a knob |
-| "Shots are all over the place" | **Not a knob any more.** The solver decides hit chance and value; if it is firing shots that miss, that is a solver bug to investigate (`bot/brain/solution.ts`), not a value to tune |
-| "It misses me when I turn" / "it shoots where I was" | `stateEstimationSigma` down on that tier — **not** `aimErrorSigmaRad`. Leading a car through a curve is PREDICTION (how well it reads your speed and turn rate, `bot/brain/predict.ts`); `aimErrorSigmaRad` is steady-state hands and will not fix a lead that is aimed at the wrong place to begin with. If it misses you equally badly while you drive STRAIGHT, that is the hands after all |
-| "It doesn't set up its shots" | **Planning** — a third factor as of 4.3.0. `planHorizonMs` is how long an arc the bot can express at all; `targetBranches` is how hard it hedges against what you do next. Easy's 0 is a one-tick rollout by design (see [Known limitations](#known-limitations)) |
-| "It weaves / circles me" | Usually correct now. Circling is emergent: the planner turns because the arc that sweeps its nose across you scores better than the one that does not. A stutter — the wheel flapping rather than an arc — is planner *chatter*: raise `commitPenalty`. `orbitBias` does not exist |
-| "It ults my corpse / spawn shield" | `deadRespect` up (Hard should already be 1) |
-| "It sits in a corner while I approach" | `cornerRespect` up; the overlay should read `unpin`. **`wallPenalty` dominates the terms only in a TRUE corner**, where the pose itself is inside the margin. Merely NEAR a wall it reads 0, same as on open floor — check the pose before you chase the term. **H39's near-wall/open-floor pair (`tiers.test.ts`) no longer discriminates on `wallPenalty` at all — it reads 0 in both runs.** Since 4.5.0 it discriminates on `facingError` instead: `unpin`'s weight (60) prices a reversal near the wall higher than `fight`'s (30) prices the same reversal in the open, and that is what now keeps the near-wall car from reversing (measured tail: steer 1, throttle 0 — turns off the wall, does not back into it) while the open-floor car still backs off to `fightRange` (steer 0, throttle -1). Before the facing term carried a per-situation weight, both runs reversed identically despite the same 2400 `wallPenalty` already sitting there — the test failed then, and `wallPenalty` reading 0 was never what separated the two scenes; do not cite it as the explanation on its own |
-| "It never dodges" | `dodgeChance`, `dodgeReactionMs`, `dodgeHorizonMs`, `incomingCarChance`. Those decide WHETHER it reacts; `threatAvoid`'s weight in `objectives.ts` decides how hard, and is not per-tier |
-| "It fights at the wrong distance" | `opponentRangeRespect` (how much of *their* shortest gun it insists on clearing) and `awarenessRadiusUnits`. The bot's own comfortable range is **derived**, not dialled — see [`preferredRangeOf`](#preferredrangeof-the-standoff-is-derived-now) |
-| "It charges in / never closes" | `opponentRangeRespect` down to close, up to stand off. Nothing in the shipped profile can make a bot stand *closer* than its own derived comfort — see [Known limitations](#known-limitations) |
-| "It runs away from nothing" | `opponentRangeRespect` down on that tier. It scales `theirEv`, the planner's continuous danger term, so a high value makes every candidate that walks into a firing solution score worse. Read the overlay's `danger` and the `theirEv` term first |
-| "It walks into obvious fire" | `opponentRangeRespect` up. If the overlay's `danger` reads 0 while you are aimed at it from inside your weapon's reach, that is a solver bug (`dangerEvAgainst` in `bot/brain/solution.ts`), not a knob to tune |
-| "It lost me and drove around" | `memoryMs`, `hearChance` — hunt is last-known / shots / quadrants, never the arena centre |
-| "It wastes its ult" | `ultDisciplineChance` up, `ultWindowHpFraction` (the HP that counts as a dump window) |
-| "It never punishes a stun" | Overlay should flip to `punish`; if it stays `fight`, `situationCommitMs` is not the issue (punish preempts) |
-| "It feels robotic" | `aimErrorDriftMs`, `scoreNoiseSigma`, `idleFidgetChance`, `blunderChance` |
-| "It never uses its second weapon" | personality `slotWeights`, `slotStickMs` (too high = glued to one gun) |
-| "All three tiers feel the same" | Read [`tiers.test.ts`](../packages/server/src/bot/brain/tiers.test.ts). If that passes, the complaint is a parameter *value*. |
-
-**Knobs that no longer exist. Do not propose them, and do not restore a row that names one.**
-`fireConeRad` and `fireDisciplineChance` (4.0.0, replaced by the EV gate); `leadFactor` (4.2.0,
-replaced by the physics solve — `aim.ts`'s `interceptPoint` went with it, unused, in 4.3.0);
-`orbitBias` (deleted with the angular fire gate); and, all in 4.3.0 with the desire model and the
-anticipatory evade, `standoffFraction`, `deadbandFraction`, `aimToleranceRad`,
-`BRAIN_CONSTANTS.deadzoneFloorFraction`, `deadzoneCapMultiplier`, `closeLeadHorizonFraction`,
-`dangerEvadeFraction` and `dangerEvadeCooldownTicks`.
+One brain, three rows of numbers: easy, medium and hard are rows of `BOT_PROFILES` in
+[`packages/server/src/config/bot-profiles.ts`](../packages/server/src/config/bot-profiles.ts); no
+module branches on the tier name, and the practice bot and the balance pilot are the same bot.
+Design: [`2026-10-09-bot-brain-v7-design.md`](superpowers/specs/2026-10-09-bot-brain-v7-design.md)
+(BB1–BB70). **`BOT_BRAIN_VERSION` is `7.0.0`.** Feel complaints go through
+[`bot-tuner`](../.claude/skills/bot-tuner/SKILL.md). **Unlike `docs/turn-tuning.md`, nothing tests
+this page:** its tables copy `BOT_PROFILES` and `BRAIN_CONSTANTS`; re-copy a cell when code moves.
 
 ## Pipeline
 
-```
-perceive (every tick)
-  → predict: roll the target through the real drive model; one firing solution per ready slot
-  → assess: facts → one situation → that situation's objective (a weight vector)
-  → plan: roll nine candidate arcs, score each against that objective, emit the winner's first input
-  → fire: one slot, only if the play allows fire and they are hittable
-  → humanize (every tick)
-```
+`bot/brain/controller.ts` runs perceive → predict → solve → assess → navigate → shoot → humanize.
 
-Perception and humanization run every tick; predict / assess / plan / fire run on `recomputeMs`
-(H6), and `humanize.ts`'s delay line then holds the emitted input for `reactionDelayMs` (rounded to ticks).
-Practice, playground, and the balance harness all call `HumanController.decide(BotView)`.
+- **Every tick:** `perceive` (what the bot has noticed: cars past `acquireMs`, tracked threats,
+  observed fires, memory), `stepAimError` (the hand wobble, resampled every `aimErrorDriftMs`), and the
+  `humanize` delay line, which emits the intent decided `reactionDelayMs` ago.
+- **Every recompute** (`recomputeMs`: 400 / 200 / 67 ms): target choice (`target.ts`), the target
+  predictor (`predict.ts`), one exact `solve()` per ready slot, the situation (`situation.ts`), the
+  goal and the steering law (`navigate.ts`), the press (`shooter.ts`).
 
-**There is exactly one mover.** The desire-vector blend (`blendHeading`, `goalDesire`,
-`wallDesire`, `reduceToIntent`, `compensateForLag`) is gone: a situation states an objective and
-`planner.ts` is the only thing that turns an objective into `steer` and `throttle`. `movement.ts`
-keeps two exports, `wallAhead` and `spikesAhead`, and they are predicates the `unpin` situation is
-classified from, not movers.
+The only random draws are the aim error (two per tick) and the predictor (four per recompute), in
+fixed order, so a seed replays exactly. No coin flips, blunders or personalities.
 
-**Every wall reading walks the arena's boundary planes, never `width`/`height`** (AS28). Four places
-ask "how close is this pose to a wall": `wallAhead` and `spikesAhead` above, `boundsPenalty` behind
-the planner's `wallPenalty` term, and `inCorner`, the third input to `pinned`. All four take
-`BotArenaView.planes` and fall back to `rectPlanes(width, height)` when an arena declares no polygon.
-That distinction is load-bearing on `arena-01`, whose playable floor (1200 × 640, a tile arena) is inset inside its
-`1280 × 720` frame; a tile arena's view is built from `playablePlanesOf` (TA31), not from a polygon. Against the frame rect, a car centre can reach the tile floor's edge (`x ∈ [40, 1240]`, `y ∈ [40, 680]`, inset by the hull half-extent, at least 20 u side-on) while the rect rule's margin sits off `0`/`1280`/`720`, so
-a margin measured off `width`/`height` either never fires or only fires for a rollout pose that has
-already punched through a wall. If a wall-related term reads 0 where it visibly should not, check that
-its arena view carries `planes` before reaching for a weight.
+## Situations
 
-**Expect hard to fire noticeably less often than it used to, and hit vastly more** (P42). The
-trigger used to be an angle (`fireConeRad`); it is now a FRACTION of the shooter's own kit's
-best-achievable expected damage per second (`minShotValueFraction`, gated against
-`bestAchievableValueOf(carId, aimErrorSigmaRad)`), so a shot that will not land — or is not worth
-the gun time relative to what this car could do at its best — is not taken at all. Fewer, deadlier
-shots is what the EV gate buys. **This is the intended shape of the version, not a regression, and
-must not be reported as one.**
+Lowest number wins. A higher row cuts in at once; the same or a lower one waits out `situationCommitMs`;
+`recover` and `waitOut` end the moment their facts stop holding. `evade` and `unpin` outrank
+`waitOut`, so a hunting bot still dodges and un-pins.
 
-**The threshold is RELATIVE to the shooter's own chassis, not an absolute number** (fix round 2,
-2026-09-06, R20). A kit's best-achievable `value` varies roughly 4x across the roster (Bullseye's
-pepperbox ~78, Bastion's thumper ~18), so comparing every chassis's shot quality against one shared
-absolute number made a hard Bastion — whose best possible shot anywhere sat below the old absolute
-threshold — never fire at all. `minShotValueFraction` divides by each shooter's OWN ceiling instead.
-
-## Situations (highest priority wins)
-
-A situation no longer picks a heading. It picks an **objective**: the weight vector `objectives.ts`
-hands the planner, plus the range that vector's `rangeError` term is measured against. Everything
-else about how the car moves falls out of scoring nine candidate arcs against it.
-
-| Id | When | Objective | Fire |
+| # | Situation | When | Fires? |
 |---|---|---|---|
-| `recover` | self dead or phased | nothing but `wallPenalty` 60; the intent is forced to coast anyway | off |
-| `waitOut` | nobody hittable | `rangeError` 0.375 against a synthetic hunt waypoint projected at `awarenessRadiusUnits`, with `preferredRange` 0 — "arrive" — read as COST TO GO: distance plus the turn still owed to face the waypoint (`PlanArgs.huntCostToGo`, G12 fix 2026-10-09; without it a waypoint off the nose left every driving candidate further away than coasting, and the bot sat still); `wallPenalty` 240 | **off** |
-| `evade` | a noticed shot in flight (rolled `dodgeChance`), or an incoming car (`incomingCarChance`) | `threatAvoid` 0.6 and `theirEv` 4 — get off the line, and out of their solution; `rangeError` 0 | still fires |
-| `unpin` | on a bound/corner with a target, `cornerRespect` | `wallPenalty` **2400** — the play whose entire content is "leave"; `rangeError` 0 | fight rules |
-| `punish` | stunned, low HP, or they just spent a 5s+ gun | `myEv` 3, at half its own comfortable range (`punishRangeFraction`) | dump, including ult |
-| `reset` | own HP < `retreatHpFraction` (0 = Easy fights to zero) | `theirEv` 3 against `myEv` 0.4 — the disengagement is carried by the weights, not the range, which gives up only 15% (`resetRangeMultiplier`) | fight rules |
-| `fight` | a ready gun's reach covers them | `myEv` 2, `theirEv` 0.6, `rangeError` 0.3 against `fightRange` | `chooseSlot` |
-| `close` | they're up but not in reach yet | `rangeError` 0.875 against `minEngageUnits` — drive to contact | off |
+| 0 | `recover` | self dead, or carrying `phased`, `stunned`, `reeling` or `ramLock` | no (coasts) |
+| 1 | `evade` | a reacted-to shot in flight, or the target bearing down inside `dodgeHorizonMs` | yes |
+| 2 | `unpin` | `wallPush` reports a wall, spike or corner within `wallLookaheadUnits` | yes |
+| 3 | `waitOut` | no hittable target noticed (hittable: alive, not phased, on the other team) | no |
+| 4 | `punish` | target `stunned` or `reeling`, or target HP ≤ `punishHpFraction` | yes |
+| 5 | `reset` | own HP < `retreatHpFraction` (0 at easy: never) | yes |
+| 6 | `ram` | target within `ramRangeUnits` and the kit is dry (no slot ready within `ramDryWindowMs`) | yes |
+| 7 | `fight` | a slot that is ready now reaches the target | yes |
+| 8 | `close` | target hittable but out of reach | no |
 
-A big gun is the weapon in an ult fire slot (`BRAIN_CONSTANTS.ultFireSlots`, slot 3 — each chassis's third ability), not predator.
+## Goals
 
-Own reach is the gun's authored `range` — there is no separate aim reach since the target lock was
-removed on 2026-09-17, so predator now reports 1800 where it used to report 800. Opponent keep-out is their **shortest** gun × `opponentRangeRespect`, and `fightRange` is
-`max(ownComfort, theirKeepOut)`: stand where MY kit works, but never inside the range their shortest
-gun keeps me out of.
+Each situation hands the navigator one `Goal`: a point, a range to hold from it (0 = arrive), a
+facing, and whether it may reverse. `believed(t)` is the raw target prediction `t` ticks ahead;
+`lag` is `reactionDelayMs` in ticks.
 
-**`evade` is an EVENT again.** Its third clause — "I am standing in a loaded gun's firing solution",
-with four gates and a 120-tick refractory period bolted on to stop a STANDING condition from
-occupying an event's priority slot — is deleted, apparatus and all. Danger is scored continuously
-now, as the `theirEv` weight on every candidate the planner rolls, so the bot leans off a line by
-degrees on every tick instead of declaring an excursion once every four seconds. Do not port the
-gates back: they were scaffolding for a shape that no longer exists.
+| Situation | Point | Range | Facing | Reverse |
+|---|---|---|---|---|
+| `recover` | none: coast | | | |
+| `waitOut` | self + hunt heading × `awarenessRadiusUnits` | 0 | nose | no |
+| `evade` | self + dodge direction × `dodgeDistanceUnits` | 0 | free | yes |
+| `unpin` | self + last wall push × `unpinDistanceUnits` | 0 | free | yes |
+| `punish` | `believed(lag)` | `max(minEngageUnits, ownComfort × punishRangeFraction)` | nose | yes |
+| `reset` | `believed(lag)` | `max(fightRange × resetRangeMultiplier, minEngageUnits)` | nose | yes |
+| `ram` | target predicted at `min(distance / own top speed, horizon)` | 0 | nose | no, forward only |
+| `fight` | `believed(lag)` | `fightRange` | nose if the shooter wants it, else orbit | yes |
+| `close` | `believed(lag)` | 0.9 × longest raw reach among slots ready within `soonReadyMs` (else the kit's) | nose | no |
 
-### The weight table (`objectives.ts`, not per-tier)
+Hunt heading: last-known pose, nearest heard shot, then four quadrant waypoints. Dodge direction:
+the summed away headings of reacted-to threats and an incoming car; a held `evade` keeps its last.
 
-Base weights, identical across every tier. `weightsFor()` then scales exactly one of them by the
-profile — `theirEv × opponentRangeRespect` (P38). A tier may change how strongly it feels a
-pressure; it may never change what a situation is for.
+## How it drives
 
-| Situation | `myEv` | `theirEv` | `rangeError` | `wallPenalty` | `threatAvoid` | `facingError` | `preferredRange` |
-|---|---|---|---|---|---|---|---|
-| `recover` | 0 | 0 | 0 | 60 | 0 | 0 | 0 |
-| `waitOut` | 0 | 0.5 | 0.375 | 240 | 0 | 120 | 0 (arrive at the waypoint) |
-| `evade` | 0.3 | 4 | 0 | 360 | 0.6 | 10 | `fightRange` |
-| `unpin` | 0.2 | 1 | 0 | 2400 | 0 | 60 | `fightRange` |
-| `punish` | 3 | 0.25 | 0.5 | 240 | 0 | 50 | `max(70, ownComfort × 0.5)` |
-| `reset` | 0.4 | 3 | 0.625 | 360 | 0 | 10 | `max(fightRange × 1.15, 70)` |
-| `fight` | 2 | 0.6 | 0.3 | 300 | 0 | 30 | `fightRange` |
-| `close` | 1 | 0.75 | 0.875 | 300 | 0 | 80 | 70 (`minEngageUnits`) |
+A closed-form steering law turns the goal into `steer` and `throttle`, each `-1`, `0` or `+1`.
+Nothing rolls the drive model forward; there is no planner.
 
-`lockKeep` was a ninth column here — 12 in `punish`, 8 in `fight`, 4 in `close`, 2 in `reset`, 0
-elsewhere. It scored whether the retired ambient lock would have pointed an assisted shot from a
-candidate pose, and it was deleted with the lock on 2026-09-17. Nothing replaced it: what it bought
-(stand where the enemy is in front of you, inside your reach) is what `myEv` now scores directly,
-since no slot gets a forced-zero aim error any more.
+- **Nose.** Point at the goal, with the aim error added to the bearing so shaky hands wander the
+  nose. Drive in when more than `rangeBandUnits` too far, reverse nose-on when more than a band too
+  close, lift off inside the band. Too close with reverse not allowed: hold.
+- **Orbit** (`fight`, unless the shooter wants the nose) is a **weave**, not a circle. Too far:
+  drive straight in. Inside the band: drive forward with the target held `orbitOffsetRad` (0.45) off
+  the nose, inside the turret's ±30° half-arc. A band too close: back out nose-on until a band too
+  far, then drive in again. A true circle would put the target 90° off the nose, out of every arc.
+- **Free** (`evade`, `unpin`). Arrive at the point by whichever of forward or reverse is quicker;
+  reversing steers from the tail so the car backs along the line.
+- **The latch.** The wheel turns on past `steerDeadbandRad` (0.06), lets go under half of it, and in
+  between holds only while the error keeps its sign. It stops wheel chatter.
+- **The reactive wall layer.** Outside `recover` and `unpin`, a forward-driving car facing a wall
+  push steers toward the push's side, reversing if the wall is nearly dead ahead. `wallPush` sums
+  unit vectors away from walls and obstacles at the look-ahead point, damaging spike faces at 1×
+  and 2× it, and a corner (two planes within `minEngageUnits`); any hit counts as pinned.
 
-The weights are not on one scale and are not meant to be: `myEv` and `theirEv` are EV per second
-(0–75 in a duel), `rangeError` is world units, `wallPenalty` is a squared normalised overlap
-(0.017 in a corner — which is why its weight runs to the hundreds), `threatAvoid` is a displacement
-in units, and `facingError` is a bounded `[0, 1]` alignment — the
-cosine-derived misalignment between terminal velocity and terminal heading (0 driving straight
-ahead, 0.5 sliding sideways, 1 reversing; see `sim/velocity.ts`'s `forwardOf`). Boundedness is why it
-did not need a fourth magnitude regime added to a table that was already three: every other term's
-weight had to be derived against that term's own measured range (`rangeError`'s alone three times,
-as the next paragraph covers), but `facingError`'s weight IS its own maximum possible contribution,
-so a row can be set directly against what it competes with in that situation rather than measured
-first. Every row was derived against a MEASURED term scale, and `rangeError` has been re-derived
-three times because the quantity under it moved three times. Read the comment at the top of
-`objectives.ts` before touching a row, and re-derive rather than nudge.
+## How it shoots
 
-**`fight`'s 30 is a value that survived the current test set, not a measured optimum** — it is the
-one row that was swept at all, over `{0, 5, 15, 30, 60}` against the whole `src/bot/brain/` suite,
-and `{30, 60}` is the only stretch with zero regressions. That plateau is thinner than it looks: the
-two failures on either side of it are on *different* canaries (5 fails the P50 statistical hit-rate
-ladder, plausibly threshold noise across a reseed; 15 fails the off-axis aim-line duel), so "clean
-from 30 to 60" is one data point on each side, not a swept curve. The number worth carrying into a
-future retune is not 30 itself but the **headroom** it sits at: in `fight`, `facingError` maxes out
-at 30 points against `rangeError`'s roughly 90 (0.3 × ~300 at a realistic pose) — the facing term is
-a tie-breaker there, never a veto, which is what keeps kiting legal (spec F12, `reset` and `fight`
-are the two situations a ranged chassis is meant to back off in with its guns still on target). A
-retune that grows `fight` past `rangeError`'s headroom would re-introduce the thing F12 forbids.
+A slot is **pressable** when it is ready (a stock in hand, past its refire lock), not the disabled
+basic attack, its solved `hitChance ≥ hitChanceBar`, and its `expectedDamage > 0`. At most one
+press per decision, never inside `burstGapMs` of the last press or the bot's own switch lock:
 
-**`evade` was re-derived on that same headroom rule, 40 -> 10, in the branch's final review**, and
-the rule is what to carry forward, not either number. `evade`'s only navigation term is
-`threatAvoid`, whose achievable contribution is **0-24 points** (weight 0.6 x the ~40 u terminal
-spread, per `objectives.ts`'s own scale table). At 40, `facingError` made a reverse dodge that bought
-**full** clearance earn 24 and pay 40: reverse dodges were not priced, they were **dominated
-outright** — F12's prohibition ("the term must not forbid correct play") in the one situation F12
-never examined, since its headroom argument names `fight` and `reset` only. 10 is `fight`'s
-tie-breaker ratio (about a third of the term it competes with, 30 against ~90) applied to that 24,
-raised to the roster's existing floor for a situation where reversing IS the play (`reset`, also 10).
-At 10 a full-clearance reverse still wins its comparison by 14 points, while a candidate that gains
-nothing on the line still pays for pointing backwards.
+1. target `stunned` → the pressable slot with the highest expected damage;
+2. else the kit's setup slot (the one that applies `stunned` to opponents) if it is pressable;
+3. else the pressable slot with the highest expected damage.
 
-**Why a weight here WAS a toll rather than a ceiling, and the number that changed.**
-`DRIVE_CONFIG.steeringGrip` was `1.0`, so `stepDrive` rebuilt the whole velocity vector in the new
-heading every tick and a driven car carried no lateral velocity. In the planner's rollout
-`facingError` was therefore **binary — exactly 0 or exactly 1**, never the 0.5 sliding-sideways band
-the formula admits, so a weight was a *flat toll* charged to every reversing candidate rather than a
-ceiling that is rarely approached. Every row of the table above was derived that way.
+Cooldown never enters the ranking and there is no ult holding: a 16 s weapon that will land fires
+like any other. A turret press aims at the solution's `turretBearingRad` plus the realised aim
+offset. A ready fixed-muzzle slot in reach but not pressable makes `fight` face `nose`, not orbit.
 
-**That knob is gone.** The 2026-09-18 Unity drive-model port DELETED `steeringGrip` rather than
-lowering it (U13) — the same move taken all the way to its 0 end — so lateral velocity is now always
-present (it is the drift) and `facingError` is continuous: an ordinary turn's terminal pose scores in
-(0, 0.5] where it used to score exactly 0.
+## Ranges
 
-**Re-derived, stage 5 Task 8, 2026-09-19 — neither weight moved.** The binary case both rows were
-actually calibrated against (a candidate that reverses straight, no turning at all) is unchanged:
-`facingError` still hits exactly 1 at zero yaw rate, so a full-clearance reverse still reads 1 and
-the headroom arithmetic above (24-point `threatAvoid` ceiling in `evade`, ~90-point `rangeError` in
-`fight`) still applies untouched. What the port added is the previously-unreachable continuous case,
-and it was MEASURED rather than assumed: rolled through the real drive model over a hard tier's own
-commit-then-coast window (12 committed ticks of full lock, 10 coasting), an ordinary turn's terminal
-`facingError` ranges 0.0042–0.0212 across the roster and every speed from rest to top speed — well
-under a tenth of the 0.5 sliding-sideways reference, an order of magnitude below the "flat toll" this
-page used to warn about. At the shipped weights that is 0.04–0.21 points in `evade` and 0.13–0.64 in
-`fight`, nowhere near enough to outweigh `threatAvoid`'s 0–24 range or `rangeError`'s
-tens-to-hundreds. "Turning is pure cost" has not been re-created by this route, so neither weight had
-reason to move. `facingErrorOf`'s doc comment in `planner.ts` and `objectives.ts`'s weight-derivation
-paragraph both carry the full measurement table.
+- **Effective reach** (`effectiveReachOf`): the farthest of 13 evenly spaced distances from
+  `minEngageUnits` to the weapon's reach at which `solve()` against a stationary target dead ahead
+  clears the tier's bar at its aim sigma; memoised on the active bundle. Hard: `predator` 646.67,
+  `lance` 1200, `magmablast` 900, `thumper` 893.33.
+- **Comfort** = `comfortFraction` (0.85) × the smallest effective reach among slots ready within
+  `soonReadyMs`, else × the kit's largest (stand off while reloading); floored at `minEngageUnits`.
+- **Keep-out** = the opponent's shortest known gun (chassis kit plus weapons seen fired) ×
+  `opponentRangeRespect`. `fightRange = max(comfort, keep-out)`.
 
-**That re-derivation covers two rows out of eight, and `objectives.ts:210` now says so rather than
-leaving the other six silently implied as re-confirmed.** `evade` and `fight` are the only rows with
-a QUANTITATIVE headroom derivation to re-run against a named competing term (`threatAvoid`,
-`rangeError`); `reset`'s 10 is not a third row to re-check — it is derived FROM `evade`'s, so
-re-measuring `evade` already covers it. `recover` carries a `facingError` weight of 0, trivially
-inert at any speed. That leaves `waitOut`, `unpin`, `punish` and `close` genuinely unexamined by a
-headroom argument: the continuous ordinary-turn cost above applies to them unchanged (0.5-2.5 points
-at `waitOut`'s 120, the largest weight in the table, scaling down for the other three), which rules
-out "turning is pure cost" for all four on the same arithmetic, but does not confirm their relative
-ordering was ever swept the way `evade`/`fight` were. The BINARY case is where a large weight can
-still swing a real comparison, and it was checked once, in `waitOut` — see the G12 finding below,
-where it turned out to be correct behaviour, not a defect. `unpin` (60) has indirect support
-(`controller.test.ts`'s S28, live and green, though not a headroom sweep of this weight specifically);
-`punish` (50) and `close` (80) have no failing or narrowly-covered test exercising this weight at all,
-so their ordinal placement (F11-F13's qualitative argument) **stands unchallenged, not freshly
-confirmed.**
+## Profile table
 
-**Three bot symptoms that coincided with this port were checked against `facingError`
-specifically.** Fix round 1 (2026-09-19) corrected two of the three below after review — see the
-stage 5 Task 8 report (`.superpowers/sdd/05-tune-and-reconcile/task-8-report.md`) for the full trace
-of each and what was wrong with the first pass:
-- **Hunting a far-behind waypoint (`controller.test.ts`'s G12 pair) DOES involve `facingError`** —
-  `waitOut`'s weight, 120, the largest in the table, is exactly what keeps a near-tied straight
-  reverse toward the waypoint (which wins on `rangeError` alone) from beating "stand still": a
-  reversal is a BINARY `facingError` of exactly 1, unchanged by the port, so it pays the full
-  120-point toll — correct, intentional behaviour (`waitOut`'s whole point is facing your travel),
-  not a bug. What `facingError` does NOT change, at any weight (checked by resetting it to 0 and
-  re-scoring): no genuine forward-turning candidate ever wins, because its own `rangeError` is worse
-  than standing still's regardless. That remaining fact is what still traces to `rangeError`
-  geometry — a hard tier's commit window cannot turn far enough toward a target ~150° behind it to
-  close any net distance under the heavier, faster drive model. Left red — no `BOT_PROFILES` knob
-  fixes it without either blowing the documented performance budget on `planHorizonMs` or moving
-  the swept `commitWindowFraction`.
-- The H25 / S13-evade dodge scenes trace to the fixture, not to `facingError` — but the fixture fix
-  is narrower than first thought. See the dodge-measurements section above for the full sweep: the
-  masking (dodge on vs off producing the identical 90-tick output) is real but confined to the top
-  ~10% of Bullseye's own speed range, not "moving in general". Both tests now hold `self` at half
-  top speed, with the comparison reading the full intent rather than `.steer` alone (the confirmed
-  dodge is a straight reverse, which needs no wheel).
-- **`tiers.test.ts` P50 is NOT a pre-existing regression from the 2026-09-17 aim-lock removal** — that
-  attribution came from the test's own stale inline comments and was wrong; the port's own measured
-  baselines (`EXECUTION.md`, `.superpowers/sdd/01-drive-model/progress.md`) record P50 green at the
-  pre-work baseline, and it went red specifically at stage 5 Task 5, this port's own settled-tuning
-  commit. `facingError` genuinely plays no part, but the real cause was found and fixed: the closed-
-  loop duel fixture (`duel.fixture.ts`'s `BOT_START`) hardcoded a start speed of 300 u/s regardless of
-  chassis — a literal that predates every speed retune since and sat above every current chassis's
-  own top speed by this point (Bullseye's cap is 238.0), so every duel used to start already 26%+
-  over its own cap, decelerating through the first several ticks in a way hard's kit is visibly more
-  sensitive to than easy's. Fixed by deriving the start speed per chassis; P50 passes outright with
-  no `BOT_PROFILES` change.
-
-Three terms are read as MOMENTS along the candidate arc — `myEv` at its best, `theirEv` and
-`wallPenalty` at their worst. `rangeError`, `threatAvoid` and `facingError` are
-DESTINATIONS, read at the terminus — the same terminal `SimBody` `rangeError`/`threatAvoid` already
-read, so `facingError` cost the planner no new rollout or sample. A moment reading would have
-punished the transient mid-turn misalignment every good turn necessarily passes through, which
-would have penalised the exact behaviour the term exists to make affordable. That split is measured,
-not stylistic; `plan`'s doc comment in `planner.ts` carries the table of the three other readings
-that were tried and rejected.
-
-### `preferredRangeOf`: the standoff is derived now
-
-`standoffFraction × reach` is gone. `preferredRangeOf` (`bot/brain/firing.ts`) samples its own
-kit's value across its own reach at this bot's own `aimErrorSigmaRad`, and returns **the far edge of
-the plateau where that value peaks** — the farthest sampled range still clearing
-`BRAIN_CONSTANTS.preferredRangePlateauFraction` (0.95) of the peak, floored at `minEngageUnits` and
-capped at `awarenessRadiusUnits`.
-
-So the per-tier ladder those fractions used to encode now falls out of `aimErrorSigmaRad` on its
-own: shakier hands make the kit's value curve peak closer in, because the shots stop paying sooner.
-Measured at neutral slot weights (chassis, easy / medium / hard) on the 60x40 hull (2026-09-16):
-bullseye 70 / 220 / 570, mirage 103.3 / 220 / 220, bastion 111.7 / 132.5 / 132.5. (At 48x32 they
-were 70 / 170 / 470, 86.7 / 186.7 / 220 and 90.8 / 132.5 / 132.5: `proxyValue`'s subtense reads the
-car's height, so a bigger target keeps the kit paying further out.) Bastion's medium/hard tie is a property of its kit
-(a 150 u `wildcharge` beside a 400/500 u pair), not of the sampling grid.
-
-The personality's `slotWeights` reach this function, which is why the plateau bar is a fraction
-rather than an exact tie: under an exact tie the answer was provably a veto by the shortest-reaching
-ready slot, and the weights could not move the standoff at all.
-
-**On the shipped roster they reach it in no chassis-by-tier cell at all (re-measured 2026-10-09),
-and that is a documented limitation rather than a repair.** A 5x5x5 sweep of `rollPersonality`'s own
-0.5-1.5 draw over all nine cells returns one standoff per cell. Until the 2026-10-08 cooldown retune
-exactly one cell read - Mirage at hard, 386.7 with the long pair heavy against 220 with
-`afterburner` heavy - and the mechanism still works for a kit with the right shape (predator,
-roadblock and shockwave stand at 445 or 145 by weighting, which `firing.test.ts` guards). Everywhere else the shortest ready slot's cliff is too large a share
-of the kit's peak for any weighting in that range to hold the total over 0.95 of it, so the answer is
-the same whatever the personality rolled. (The count survived the 2026-09-16 hull growth to 60x40
-unchanged, standoffs aside; it is not structural, though — at a 72x48 hull Mirage at medium comes
-alive too, so a further resize is a reason to re-run the sweep.) Two consequences for a tuner:
-
-- **Do not reach for `slotWeights` to change where a bot stands.** On the shipped roster it does
-  nothing. Its live job is ranking which gun gets pressed - `chooseSlot` multiplies the solver's
-  value by it - which is where "it never uses its second weapon" is tuned.
-- **That one live cell rests on a known valuation error**, and would go away if the error were
-  fixed. `proxyValue` scores a ticking beam's `damage` as a press rather than a pulse, so
-  `afterburner` reads 3.8 EV/s instead of ~18.8; at its true value its 220 u cliff is too large for
-  any weighting to clear and the sweep reads 0 of 9 (measured at 48x32; not re-measured at 60x40).
-  That was implemented, measured and reverted on
-  a red `balance/` fixture - see the accepted-loss note on `proxyValue` in
-  `bot/brain/solution.ts` for the numbers. Lowering `preferredRangePlateauFraction` is not the
-  alternative lever: 0.92 and 0.90 were swept and bought no extra live cell, and 0.90 broke a
-  balance fixture.
-
-## Parameter table
-
-### Perception
-
-Every timing knob below is authored in milliseconds (NR14) and resolved to ticks by `resolveBotProfile` (`ticks = round(ms * TICK_RATE_HZ / 1000)`) where `mode-bot.ts` hands profiles out; brain modules still read `*Ticks`. At 30 Hz the values are identical to the old tick counts.
+Authored in ms, resolved to ticks at 60 Hz. `hitChanceBar` is quantised by the solver's quadrature
+nodes (0.457 centre, 0.240 at ±1.15σ, 0.031 at ±2.37σ): easy's 0.3 fires when its exact aim lands,
+medium's 0.5 also needs one 1.15σ error to land, hard's 0.7 needs both.
 
 | Field | easy | medium | hard |
 |---|---|---|---|
@@ -352,411 +123,77 @@ Every timing knob below is authored in milliseconds (NR14) and resolved to ticks
 | `rearBlindHalfAngleRad` | 1.05 | 0.6 | 0 |
 | `trackedThreatLimit` | 1 | 2 | 4 |
 | `memoryMs` | 500 | 1500 | 3000 |
-
-Easy's radius was 520 until R-P14 (2026-09-07) and that was not a taste call: the closed-loop duel
-opens with 553 units between the cars, so an easy bot began every engagement blind, and at
-`planHorizonMs: 0` it could not turn around to find anyone. 600 is mid-plateau on a 21-duel
-sweep, and still 100 short of medium.
-
-### Aim (hands)
-
-| Field | easy | medium | hard |
-|---|---|---|---|
+| `stateEstimationSigma` | 0.25 | 0.1 | 0.03 |
 | `aimErrorSigmaRad` | 0.18 | 0.09 | 0.035 |
 | `aimErrorDriftMs` | 667 | 467 | 300 |
-| `stateEstimationSigma` | 0.25 | 0.1 | 0.03 |
-
-`stateEstimationSigma` is filed under **Perception** in `bot-profiles.ts`, not Aim — it is a
-reading-the-world knob whose effect lands on the gun. It sits here because the knob it is constantly
-confused with, `aimErrorSigmaRad`, is one row up, and telling them apart is the whole diagnostic
-(see the complaint table above).
-
-The realized aim error now steers the BODY as well as spreading the shot (R-O5). With the desire
-model's heading gone, the offset had no consumer, and dropping it would have deleted "shaky hands
-wander the nose" as a steering behaviour — so the planner is handed a target predictor rotated
-rigidly about the bot's own position by `aimError.offsetRad`. `solve()` still gets the RAW
-predictor: it integrates over `aimErrorSigmaRad` statistically, and feeding it the realized sample
-too would count the same error twice. The trigger sees the distribution; the wheels see the sample.
-
-`stateEstimationSigma` is how wrong a bot's read of an opponent is, **as a fraction** — two gaussian
-draws per predictor construction (four `rng()` calls: Box-Muller draws a pair each) scale the
-observed `speed` and the observed turn rate before the rollout runs. Reading exact `speed` off
-another car every tick is the one place a bot sees more precisely than a person, and this is the
-answer to that.
-
-The turn half is the one that reads a **corner**, and it works by moving the observation across
-`BRAIN_CONSTANTS.fullLockAngVelFraction`: the noised rate — not the raw one — is what
-`steerFromObservedTurn` reconstructs a held wheel from, so a bad enough read misjudges *whether* the
-car is steering at all, and near the threshold *which way*. Above the threshold the read is quantised
-to a -1/0/1 steer, so a small error there changes nothing; below it the residual is a ram's spin and
-the error scales it continuously. That reconstruction lives inside `physicsPredictor`, after the
-draws, precisely so the noise reaches it. For a target at full lock, misjudging *whether* it is
-steering needs a draw beyond roughly `-0.5 / stateEstimationSigma` standard deviations — about 2.3%
-of constructions at easy's 0.25, but roughly 5 sigma (~3e-7) at medium's 0.10 and roughly 16.7 sigma
-(never, in practice) at hard's 0.03 — so on medium and hard this half is moving the *magnitude* of an
-already-correctly-classified curve, not the decision that it is curving at all.
-
-It is **not confined to [0, 1]** (a fraction above 1 is a wild misread, not an invalid value), so it
-is deliberately absent from `personality.ts`'s `UNIT_INTERVAL_FIELDS` and from
-`bot-profiles.test.ts`'s `PROBABILITY_FIELDS` — exactly as `aimErrorSigmaRad` is, and for the same
-reason.
-
-**A car spinning from a ram is read as a car that MEANT to turn, and is mispredicted.** The bot infers
-turn rate from two observed poses (`observedAngVelOf`), reads no status list and so has no way to know
-the spin is a ram's injected `spinFree` residual rather than steering (neither is a number a person
-reads off a screen), and above `BRAIN_CONSTANTS.fullLockAngVelFraction` of the chassis's own turn rate
-treats the result as a held wheel. Just after a ram all of that is wrong at once, and the next shot
-misses. That is P19 and it is **kept on purpose** — it is a very human error obtained for free. Do not
-file it as a prediction bug. (This used to read "assumes `authority` and shove neutral" — `authority`
-was a `SimBody` field the pre-Unity-port ram models briefly carried and is long gone; the bot never
-read it, and the point stands unchanged under the Unity model's `spinFree` flag instead.)
-
-### Planning
-
-| Field | easy | medium | hard |
-|---|---|---|---|
-| `planHorizonMs` | 0 | 267 | 733 |
-| `planDepth` | 1 | 1 | 1 |
-| `targetBranches` | 1 | 1 | 3 |
-| `commitPenalty` | 0.072 | 0.126 | 0.18 |
-
-`planHorizonMs` (K) is **the number that makes the tiers differ in kind rather than degree**, and
-it is a number precisely so that no module has to branch on a difficulty name (H8). 0 is a reflex
-agent: `plan` still floors the per-segment roll at one tick, so a K=0 bot avoids a wall it is driving
-into, but no candidate on its menu expresses a manoeuvre. Hard's 22 is load-bearing in a way a
-casual retune will not see — the commitment-window plateau it was measured on is only two ticks
-wide — so **changing K obliges re-running round 5's seven-seed window sweep**, not just eyeballing
-a match.
-
-`planDepth` splits the horizon into that many committed windows: 1 is "commit, then coast to rest",
-2 is "commit, commit again, then coast" — 81 sequences instead of 9. **No tier ships 2** (see
-[Known limitations](#known-limitations)). The dial and its machinery stay; it is the knob P33 names
-for whoever earns the budget back.
-
-`targetBranches` is how many of the target's plausible inputs the planner takes the worst case over
-(P28). Only hard hedges; `hedgedThreats` returns early at 1, so this is a hard-only cost and a
-hard-only caution.
-
-`commitPenalty` is the anti-chatter bonus for repeating last tick's action, **as a fraction of the
-candidate score spread** (`maxScore - medianScore`), not a raw addend. It has been re-scaled three
-times, twice because it had become a latch rather than hysteresis — at 0.8 a hard bot froze on
-whatever it happened to be doing and fired 0 shots in 300 ticks. The ladder's SHAPE is what is
-maintained (a better player commits harder); the common scale factor is what moves. It is
-calibrated against that specific spread measure, so **swapping the normaliser obliges re-measuring
-this knob**, not reusing these numbers.
-
-### Shared constants (`BRAIN_CONSTANTS`, not per-tier)
-
-In `bot-profiles.ts`. Editing any of these retunes **every** tier at once — and note that
-`botFingerprintInput()` (`packages/server/balance/fingerprint.ts`) hashes only `BOT_PROFILES` and
-`BOT_BRAIN_VERSION`, so a `BRAIN_CONSTANTS` edit does not move `botFingerprint`: bump
-`BOT_BRAIN_VERSION` yourself, or two balance reports will compare as if the same pilot played both.
-
-Planning — feeds `planner.ts`:
-
-| Field | Value | What it does |
-|---|---|---|
-| `commitWindowFraction` | 0.52 | How much of the horizon a candidate COMMITS to before its terminal policy (coast to rest) takes over, as a fraction of `planHorizonMs`, split across `planDepth` windows. Hard's K=22 gives 12 committed and 10 coasting. The middle of an axis whose two ends both fail — a whole-horizon hold puts a 13-degree correction off the menu, a `recomputeMs`-length hold puts a U-turn off it — and the plateau is two ticks wide. |
-| `trajectorySampleCount` | 4 | How many points along a candidate's arc are scored, geometrically spaced. NOT the end pose alone, which is what broke the bot: end-scored, `steer: 0` won every tick. 3 is a cliff (the earliest sample lands after the sweep is over); 4, 5 and 6 are a plateau and 4 is the cheapest cell on it. |
-| `targetBranchMaxHeadingOffsetRad` | π/2 | Cap on how far a hedged branch turns the TARGET's heading before re-reading its danger. The raw offset is derived from `turnRateOf × elapsed`, and **it saturates this cap at every shipped configuration** — read it as the constant it is. It becomes operative again only below about K=8. |
-
-Ranges — feeds `preferredRangeOf` (`firing.ts`) and `preferredRangeFor` (`controller.ts`):
-
-| Field | Value | What it does |
-|---|---|---|
-| `minEngageUnits` | 70 | The closest range a bot will ever choose to hold, a shade over one car length (60 u since the 2026-09-16 hull resize; one and a half of the old 48 u). Also `close`'s target range. |
-| `preferredRangePlateauFraction` | 0.95 | The fraction of its kit's PEAK sampled value a bot will keep in exchange for standing further off. Not 1: an exact tie is provably a veto by the shortest-reaching ready slot, which makes the personality's `slotWeights` inert. Minimum perturbation that satisfies that — 0.92 and 0.90 buy no extra live cell and 0.90 breaks a balance fixture. |
-| `preferredRangeSampleCount` | 24 | Resolution of the only grid the standoff is ever read off. Stable to within a car length across an eightfold change, and it does NOT explain Bastion's medium/hard tie. |
-| `preferredRangeMinStepUnits` | 10 | Floor on that grid's step. Provably inert on the shipped roster (the smallest step today is Mirage's 16.7 u); a guard against a future short-reach kit. |
-| `punishRangeFraction` | 0.5 | `punish` walks in to half its own comfortable range, floored at `minEngageUnits` — the play's premise is that the window closes, and travel time wastes it. |
-| `resetRangeMultiplier` | 1.15 | `reset` gives up 15% of ground, not a lap. The disengagement is in the WEIGHTS (`theirEv` 3 against `myEv` 0.4); this only stops the range term pulling the bot back into the fight it left. |
-| `contactTriggerUnits` | 150 | Range at which a `range: 0` weapon (`wildcharge`) is worth pressing; also the closing distance `isIncomingCar` measures an ETA to. |
-
-Danger — feeds `dangerEvAgainst` in `bot/brain/solution.ts` and the planner's `theirEv` term:
-
-| Field | Value | What it does |
-|---|---|---|
-| `assumedOpponentAimSigmaRad` | 0.06 | The aim error a bot assumes of an OPPONENT when reading danger, instead of projecting its own hands. One shared number because the bot cannot know who it is facing — so it sits between medium's `aimErrorSigmaRad` (0.09) and hard's (0.035), over-reading an easy or medium opponent's threat and under-reading a hard one's by ~1.7x. Accepted asymmetry, not "assume competence". |
-
-Prediction — feeds `physicsPredictor` / `selfPredictor` / `interceptTicks` in `bot/brain/predict.ts`,
-both predictors built in `controller.ts`'s `plan()`:
-
-| Field | Value | What it does |
-|---|---|---|
-| `predictionHorizonMs` | 3000 | How far ahead a firing solution rolls a target. How far a SHOT flies, not how far a bot thinks — that is `planHorizonMs`. Verified against `WEAPON_TABLE`: the longest flight on the roster is `thumper`'s 87 ticks (1305 u at 450 u/s = 2.9 s), `predator` next at 60. **Authored in ms (NR14), so a `TICK_RATE_HZ` change rescales it** (90 ticks at 30 Hz, 180 at 60 Hz; thumper's flight is 174 ticks at 60 Hz). |
-| `fullLockAngVelFraction` | 0.5 | Fraction of a chassis's own turn rate an observed turn must reach before it reads as deliberate STEERING rather than a ram's residual spin. A half, because the sim has no partial steer — `stepDrive`'s steer is only ever -1/0/1, so a car genuinely turning is at FULL lock and there is nothing between the two cases to discriminate. Per-chassis by construction: Bastion's bar is lower than Mirage's. |
-| `interceptFixedPointRounds` | 3 | Rounds of fixed-point iteration behind "how many ticks ahead do I aim". A curving path has no closed form, so this converges what a straight-line intercept solves in one shot. Fixed rather than looped to a tolerance because the solver must do bounded work every tick (H21). |
-| `personalityJitter` | 0.25 | How far an archetype may move a parameter from its tier value. |
-| `ultFireSlots` | [3] | The FIRE SLOTS whose weapon counts as an ult: held for a good moment by `ultDisciplineChance`, and read as an opponent's "big gun". Fire slot 0 is the basic attack, so [3] is each chassis's third ability. Replaced `ultCooldownMs` (5000) on 2026-10-09: after the cooldown retune that threshold made Mirage's and Bastion's whole kits ults, and medium/hard bots on them never fired. |
-
-### Fire economy
-
-| Field | easy | medium | hard |
-|---|---|---|---|
 | `burstGapMs` | 467 | 233 | 100 |
-| `minShotValueFraction` | 0.01 | 0.05 | 0.3 |
-| `ultDisciplineChance` | 0 | 0.5 | 0.9 |
-| `ultWindowHpFraction` | 0.4 | 0.4 | 0.4 |
-
-`minShotValueFraction` is the FRACTION of `bestAchievableValueOf(self.carId, aimErrorSigmaRad)` —
-this shooter's own kit's best-achievable expected damage per second, at this shooter's own aim
-quality — a shot must clear before this bot takes it. It replaced `fireDisciplineChance`, which
-gated on distance rather than whether the shot would land, and then replaced its own first
-(absolute-number) calibration a second time (fix round 2, 2026-09-06, R20) once measurement showed
-an absolute EV number cannot compare across chassis whose kit ceilings differ ~4x. These three values
-were **measured, not guessed**: see the long comment on `BotProfile.minShotValueFraction` in
-`bot-profiles.ts` for the closed-loop sweep (now run across all three chassis, not just Bullseye)
-that picked them and the cliff-edge behaviour that makes a naive percentile read misleading.
-
-The overlay's `ev best/threshold` prints exactly this comparison, resolved: `best` is the best EV/s
-any ready slot's `solve()` finds from the current pose, `threshold` is
-`minShotValueFraction × bestAchievableValueOf(...)`. A ratio below 1 with `slot -` is the gate
-working.
-
-### Target politics
-
-| Field | easy | medium | hard |
-|---|---|---|---|
+| `hitChanceBar` | 0.3 | 0.5 | 0.7 |
 | `targetCommitMs` | 5000 | 2000 | 833 |
 | `woundedBias` | 0.1 | 0.5 | 0.9 |
 | `vengefulness` | 0.8 | 0.5 | 0.25 |
-
-`vengefulness` runs backwards on purpose — a casual chases whoever hurt them.
-
-### Positioning
-
-| Field | easy | medium | hard |
-|---|---|---|---|
 | `wallLookaheadUnits` | 40 | 90 | 150 |
 | `retreatHpFraction` | 0 | 0.3 | 0.35 |
-| `ramIntentChance` | 0.15 | 0.3 | 0.5 |
-
-There is no per-tier range knob in this table any more. `standoffFraction` and `deadbandFraction`
-were deleted in 4.3.0: the standoff is derived (`preferredRangeOf`, above), and the coast band
-`deadbandFraction` thresholded belongs to a bang-bang steer law the planner replaced — it scores a
-continuous `rangeError` instead.
-
-### Judgment (same factors, different use)
-
-| Field | easy | medium | hard |
-|---|---|---|---|
-| `deadRespect` | 0.25 | 0.75 | 1 |
+| `punishHpFraction` | 0.4 | 0.4 | 0.4 |
 | `opponentRangeRespect` | 0 | 0.45 | 0.9 |
-| `cornerRespect` | 0.35 | 0.75 | 1 |
-| `incomingCarChance` | 0.1 | 0.55 | 0.95 |
-| `situationCommitMs` | 667 | 400 | 200 |
-| `slotStickMs` | 133 | 267 | 400 |
-
-`opponentRangeRespect` does double duty (P38): it is the keep-out-of-their-gun weight (S11) read by
-`fightRange`, and it is **the only profile field that scales a planner weight** — `theirEv`, the
-continuous danger term on every candidate. At easy's 0 both are inert, which is why an easy bot
-neither keeps out of your range nor leans off your line. That also makes it the one dial behind two
-different complaints ("runs away from nothing" and "walks into obvious fire"), and behind two
-archetypes' entire range flavour — see [Known limitations](#known-limitations).
-
-### Threat reaction and consistency
-
-| Field | easy | medium | hard |
-|---|---|---|---|
-| `dodgeChance` | 0.05 | 0.55 | 0.95 |
 | `dodgeReactionMs` | 400 | 267 | 67 |
 | `dodgeHorizonMs` | 400 | 600 | 800 |
-| `blunderChance` | 0.12 | 0.05 | 0.015 |
-| `blunderMs` | 333 | 333 | 333 |
-| `idleFidgetChance` | 0.1 | 0.05 | 0.02 |
-| `scoreNoiseSigma` | 0.3 | 0.15 | 0.05 |
-| `hearChance` | 0.15 | 0.55 | 1 |
+| `situationCommitMs` | 667 | 400 | 200 |
 
-`dodgeChance` and `dodgeReactionMs` decide WHETHER a shot in flight is reacted to at all; the
-list of reacted-to threats then reaches the planner as `threatAvoid`, which decides how hard. Hard's
-`dodgeReactionMs` was 133 ms (4 ticks) until 2026-09-08; 67 ms matches its `recomputeMs`, so a noticed shot is
-acted on at the next decision rather than a window later. The `second-best` blunder is now the
-planner's own runner-up — the best candidate whose first action
-differs from the winner's — so a mistake is a plausible alternative rather than an inverted control.
-What is committed for the blunder window is the **kind**, not the line: the runner-up is re-read
-every tick, so a bot inside a `second-best` blunder follows whichever candidate the planner currently
-rates second. It never reverts to the winning line mid-window, and every line it can land on is a
-nearly-good one.
+## Constants (`BRAIN_CONSTANTS`, shared by every tier)
+
+| Constant | Value | Reader |
+|---|---|---|
+| `minEngageUnits` | 70 | range floors, corner margin, hunt waypoint arrival |
+| `contactTriggerUnits` | 150 | reach of a `range: 0` weapon, `isIncomingCar` |
+| `predictionHorizonMs` | 3000 | solver and ram predictor |
+| `fullLockAngVelFraction` | 0.5 | `predict.ts` |
+| `interceptFixedPointRounds` | 3 | `predict.ts` |
+| `spikeLookaheadFactor` | 2 | `wallPush` |
+| `comfortFraction` | 0.85 | comfort range |
+| `punishRangeFraction` | 0.5 | `punish` goal |
+| `resetRangeMultiplier` | 1.15 | `reset` goal |
+| `rangeBandUnits` | 40 | the band either side of a goal range |
+| `steerDeadbandRad` | 0.06 | the latch |
+| `orbitOffsetRad` | 0.45 | orbit weave |
+| `dodgeDistanceUnits` | 120 | `evade` goal |
+| `unpinDistanceUnits` | 180 | `unpin` goal |
+| `soonReadyMs` | 1000 | comfort and `close` ranges |
+| `ramDryWindowMs` | 1500 | the dry-kit test |
+| `ramRangeUnits` | 400 | `ram` entry |
+| `effectiveReachSamples` | 12 | effective-reach sweep |
 
 ## Overlay
 
-The playground prints **two lines** (P45, P46):
+`?dev=playground` prints one line for the debugged bot, sampled at 5 Hz:
 
 ```
-personality | situation | range N | slot K | danger N | plan(+1,+1) SCORE | ev BEST/THRESHOLD
-terms  myEv N  theirEv N  rangeError N  wallPenalty N  threatAvoid N  facingError N
+situation | range N facing | slot K | hit BEST/BAR | drive(+1,0)
 ```
 
-- `range` is `preferredRangeFor(situation)` — the range this play is holding, which is 0 in
-  `recover` and in `waitOut` (arrive at the waypoint).
-- `slot -` means it held fire.
-- `danger` is the damage per second the bot believes it is standing in — the firing solver run
-  against the opponent's own kit (`dangerEvAgainst`), weighted by believed readiness.
-- `plan(steer,throttle)` is the winning candidate's FIRST input, signed so a held wheel reads at a
-  glance, and `SCORE` is what that candidate scored, `commitPenalty`'s bonus included.
-- `ev BEST/THRESHOLD` is the fire gate, resolved: best available shot value against
-  `minShotValueFraction × bestAchievableValueOf(carId, aimErrorSigmaRad)`. **This is the primary
-  tuning diagnostic** — "am I winning this exchange from here" is `ev` against `danger`, and either
-  number alone answers nothing.
-- The `terms` line is the winning candidate's per-term contributions, in whatever order the planner
-  emitted them: the wire field is an open map, so a seventh term added to `PlanWeights` appears
-  here without a client edit. It reads `terms  -` until the bot's first recompute window — the same
-  "nothing to report" sentinel `slot -` uses on the line above, rather than an empty line that would
-  read as a broken renderer.
+The committed situation; the goal's range and facing (`none` in `recover`); the pressed fire slot's
+index + 1 (`slot -` = held fire); the best solved hit chance among ready slots against the tier's
+`hitChanceBar`; the signed `steer` and `throttle`. **`hit` is the holds-fire diagnostic:** under
+the bar with `slot -` is the bar working; at or over it, the burst gap, the switch lock, a
+non-firing situation, or a bug. Read the line before naming a knob.
 
-**The `terms` line prints RAW term values, not points.** `myEv` and `theirEv` are EV/s, `rangeError`
-is units, `wallPenalty` is that squared overlap, `threatAvoid` is a displacement. To read which term
-actually won the decision, multiply each by that situation's weight from `objectives.ts` — a
-`wallPenalty` of 0.017 is 5 points against `fight`'s 300 and 40 against `unpin`'s 2400, while a
-`rangeError` of 50 units is 15 points in `fight`. There is no scoreboard.
+## Reading a complaint
 
-## Personality
-
-Five archetypes still jitter hands and favorite guns inside the tier band (H47). They cannot skip
-`waitOut` / `unpin` / `punish`. Their **range** flavour is now much narrower than it reads — see
-[Known limitations](#known-limitations).
-
-> **At easy there are three archetypes, not five.** `brawler` and `kiter` shift
-> `opponentRangeRespect`, `retreatHpFraction` and `ramIntentChance`. Easy pins the first two at 0,
-> so both shifts multiply zero; `ramIntentChance` does move (0.15 → 0.1875 for brawler, → 0.12 for
-> kiter) but **reaches no behaviour at all** — see below. `rollPersonality` also draws
-> `slotWeights` from the same stream positions whatever the archetype, so from one seed the two roll
-> identical weights. **An easy `brawler` and an easy `kiter` are behaviourally indistinguishable.**
-> Do not reach for `ramIntentChance` to separate them.
-
-> **`ramIntentChance` has no consumer — pre-existing, flagged, not repaired.**
-> `controller.ts` draws it into `this.wantsRam` (~line 247); the only other reference is
-> `void this.wantsRam;` (~line 559). That `void` landed on `development/main` with the
-> situation-play brain, before the 4.3.0 planner work, so it is not a 4.3.0 regression. **The field
-> tunes nothing at any tier.** The `rng()` draw behind it is real and must stay — H21 fixes the draw
-> count and order — so this is not dead code to delete; reconnecting a ram intent is a behaviour
-> change for a future pass, not a doc fix. If a "the bot never rams me" complaint arrives, this is
-> why, and no value of this knob will answer it.
-
-## One press per tick
-
-`chooseSlot` returns one slot index. `beginFire` takes the **highest** set bit of the mask (VS12),
-so ORing every in-range slot would only ever fire the highest-indexed one the bot is holding —
-never a combination, and never the basic attack at index 0 while any in-range ability is also set.
+| Complaint | Look at | Knob |
+|---|---|---|
+| "holds fire" | `hit BEST/BAR` on the overlay | `hitChanceBar` down on that tier |
+| "misses a turning car" | it leads a straight driver fine | `stateEstimationSigma` |
+| "sprays" | misses a straight driver too | `aimErrorSigmaRad` |
+| "never dodges" | `evade` never appears | `dodgeReactionMs` down (or `dodgeHorizonMs` up) |
+| "walks into fire" | `range N` sits inside your gun | `opponentRangeRespect` up |
+| "sits in a corner" | `unpin` never appears | `wallLookaheadUnits` up |
+| "never rams" | by design: `ram` only when the kit is dry | not a knob |
+| "feels robotic" | instant, steady reactions | `reactionDelayMs` up; `aimErrorDriftMs` (how fast the wobble wanders) |
 
 ## Known limitations
 
-Recorded rather than buried. None of these is a bug report; each is a thing a reader would
-otherwise discover by being surprised.
-
-**1. Archetype range flavour is materially weakened.** `brawler` and `kiter` are archetypes *about*
-range, and `standoffFraction` was their lever. It is gone, and `opponentRangeRespect` — the nearest
-surviving danger-distance axis — does not carry it. Three consequences, all real and all measured
-off the shipped table: it is a **no-op at easy**, where `opponentRangeRespect` is 0 and both shifts
-multiply zero — and so is every other field the two shift, so **an easy `brawler` and an easy
-`kiter` are indistinguishable**, not merely close (see the callout below); at hard,
-`kiter`'s 0.9 × 1.15 = 1.035 saturates at 1.0, an ~11% shift rather than the 15% it reads as; and
-`fightRange = max(ownComfort, theirKeepOut)` FLOORS the result at the bot's own derived comfort, so
-`brawler` can never stand *closer* than a neutral bot — the shift only moves the other operand.
-Restoring the closing half needs a profile field that scales `ownComfort`, which P35/P36 do not
-list. It is a candidate for the next tuning pass, deliberately not added on the way past.
-
-**2. The perf budget is missed, and was not throttled away.** *(Updated 2026-09-30: at 60 Hz hard's K is 44 and the user raised P33's budget from 30 to **37 ms** of CPU per simulated second = 0.411 ms/plan; hard now measures ~0.45–0.47 ms, about 1.1x that budget, and `planner.bench.test.ts`'s `MEASURED_RATIO` is 1262. The figures in the rest of this item are the 30 Hz build's: 0.33 ms budget, K=22.)* Hard's plan measured
-**0.375–0.593 ms** per plan against P33's stated 0.33 ms (six bots replanning at 15 Hz inside ~30 ms
-of CPU per simulated second) — the range `planner.bench.test.ts` states, spanning isolated through
-full-suite load, and the one to quote. Quoting the isolated end alone (0.385–0.422 ms, "17–27%
-over") reports the flattering half of the same data. The overrun is reported rather
-than tuned away because there is no dial left that does not cost more than it buys: `planDepth` is
-already 1, and `planHorizonMs` is where hard's K=22 sits on a two-tick-wide plateau found by a
-seven-seed sweep, so lowering K invalidates that sweep and the five-round convergence built on it.
-P33's own headline is met anyway — 90 plans/s at 0.4 ms is 36 ms of CPU per simulated second — and
-the two rooms that run bots for players run one bot each. `planner.bench.test.ts` gates a RATIO
-against a same-process reference workload rather than a stopwatch reading, because the absolute
-number varies 1.6x with what else the machine is doing.
-
-**3. `planDepth: 2` ships on no tier.** Re-measured at the shipped configuration it costs 3.03 ms
-per plan against depth 1's 0.385 — 7.95x, and 9x the budget, not the 3x an older comment claimed.
-The machinery, its `1 | 2` type and its tests are all kept live and covered: it is the exact dial
-P33 names for whoever earns the budget back (a faster machine, a lower K, fewer simultaneous bots,
-or a cheaper scoring pass).
-
-**4. Easy's `planHorizonMs: 0` is a one-tick rollout**, so no candidate on its menu expresses a
-manoeuvre: an easy bot navigates on one-tick score margins and cannot plan an arc, turn around, or
-drive to a hunt waypoint deliberately — it drifts. That is P29 and P34's amateur tier working as
-designed, at the edge of its competence, and it is why easy's `awarenessRadiusUnits` had to be
-raised to 600 (a blind easy bot at K=0 never recovers). Worth knowing before filing "easy does not
-chase".
-
-**5. Spec P34's easy portrait says "does not lead", and that stopped being true** when `leadFactor`
-was removed in 4.2.0. Every tier now gets the same physics solve, and the tiers separate on how
-badly they read its inputs (`stateEstimationSigma` 0.25 against hard's 0.03) and on the hands that
-execute it (`aimErrorSigmaRad` 0.18 against 0.035). An easy bot visibly trying — and failing — to
-lead you is the intended shape. P35/P36's field tables are normative and were followed; the prose
-portrait was not edited, and rewriting the spec is the user's call.
-
-**6. The 4.5.0 facing term had two measured behavioural costs; one is fixed, one is open.** A bot that
-turns spends ticks not closing, which is mechanically expected of `facingError` — but it is real and
-it was not sized away, so record it here rather than let the next tuner rediscover it from a bad
-`balance` run:
-
-- **Duel decisiveness dropped from 93/150 seeds to 63/150** — a 32% drop in how often a closed-loop
-  duel resolves to a kill inside its window rather than timing out. `npm run balance` is the
-  instrument that measures this; it has not been re-run since 4.5.0 landed (see the top-level
-  recommendation below). **Still open, and the `evade` 40 -> 10 re-derivation below did not move it**:
-  re-swept 1-150 at 10 and the count is 63/150 again, the same number on a different set of seeds
-  (which is why `balance/match.test.ts`'s pin needed its tenth re-seed, 3 -> 98). The seed moved, not
-  the regime.
-- **The dodge measurements that used to sit here were retired with the scene they were taken on
-  (2026-09-07).** This bullet carried a three-row table of distance off the shot's line (x = 110)
-  after 30 ticks — reverse at 10, forward arc crossing the line at t≈19 at 40, flip point between
-  10 and 15 — all measured in `controller.test.ts`'s dodge scene. **Commit `43ad3d6` replaced that
-  scene** one commit after the table was written, because its escape axis ran along the car's own
-  nose (which made a straight reverse the correct dodge, and made the ordering bug invisible). The
-  current scene's escape axis is perpendicular to the nose and there is no x = 110 line in it; at the
-  shipped weight of 10 the emitted answer is `throttle +1` on all 30 ticks with the wheel in bursts —
-  a forward arc, the opposite of the retired table's answer. The figures are deleted rather than
-  reworded, and **the `{10 vs 15}` flip point has NOT been re-measured on the current scene** — do
-  not cite it.
-
-  **The 40 -> 10 re-derivation stands on its headroom argument alone**, which never depended on a
-  scene: with `steeringGrip` at 1.0 the term was binary (that knob is deleted now — see the weight-table section above), so 40 was a flat toll larger than the entire
-  0-24 range of the `threatAvoid` an `evade` dodge can earn, and full-clearance dodges lost every
-  comparison they entered. See the headroom paragraphs in the weight-table section above. A
-  closed-loop `npm run playtest` run is the instrument that would measure the dodge for real.
-- **A dodge and a range-managed retreat can land on the identical action, and it is narrower than
-  it first looks (found stage 5 Task 8, fix round 1, 2026-09-19).** `tiers.test.ts`'s H25/S13-evade
-  fixture (a stationary `mirage` 500 units out, self closing on it) was found emitting the
-  BIT-IDENTICAL 90-tick intent stream whether `dodgeChance` was 1 or 0, when `self` started at
-  Bullseye's own top forward speed. Swept as a fraction of top speed: the two dodge settings diverge
-  cleanly from 0 up through 75%, and only become identical at 90% and above. The cause is not a
-  broken dodge — `fight`'s own "too close, back off" reaches the same action at almost the same tick
-  a dodge would, specifically when the closing speed is high enough to reach that range threshold
-  fast — and a player watching either run would see the car correctly back away regardless. It is
-  narrow (a ~15% band near the chassis cap, this one geometry) rather than "dodging never works while
-  moving": below 90% of top speed the two mechanisms are cleanly distinguishable, which is why both
-  tests now hold `self` at half speed rather than at `view()`'s top-speed default (an earlier,
-  reviewed-and-rejected fix held `self` fully stationary instead — correct in isolating the
-  mechanism, but a fixture change wide enough to be worth flagging as weakened rather than measured,
-  which is why the current fix uses a genuinely moving bot instead).
-- **The `controller.test.ts` dodge assertion was RED at `evade` 10 for a while, deliberately left
-  that way.** It passed at 40 only as a *consequence* of the throttle flipping forward on the
-  old scene — once forward was chosen, turning was the only remaining way off the shot's line — so
-  the green was a side effect of the defect, not evidence against it. Its original form
-  (`steer !== 0` on every settled press) pinned a single bit and, swept over ~2700 scenes, is not
-  satisfiable by any dodge that departs monotonically. Spec section 5 reserved any rewrite of the
-  assertion for the user, so the weight was **not** bent back to keep it green in the meantime: a
-  principled weight with a red test is a decision for the user, a bent weight with a green test is
-  not. The user has since made that call — commit `f9e38c3` recorded both the planner's steer and
-  the emitted steer, and the final review split the check into **two separate assertions**, one per
-  frame, because a single OR let each bug shape alibi in the frame it does not touch. **The test is
-  GREEN at 10 now**, but it asserts the fire/steer ordering property rather than this weight: read
-  it as a non-contradiction, not as support.
-
-**7. Turret aim (TR26) only reaches the trigger, not the threat model.** `solution.ts`'s `solve()` —
-the exact gate `chooseSlot` fires on — is correct for a turret weapon: it leads from the turret
-pivot (`turretLeadOf`) and budgets the swing (`turretTurnTicksOf`) before charging the shot, so the
-hull need not face the target for the bot to press a turret slot accurately. `proxyValue` and its
-sibling `proxyDangerAgainst` were not updated alongside it and still score every weapon — turret
-included — by the angle off the shooter's own NOSE. Two readers inherit that: the planner's own
-`myEv` (so a candidate pose can look worse than it is for a turret-armed self) and
-`proxyDangerAgainst`'s read of an opponent's threat (so an opponent who is nose-off but
-turret-on-target reads as less dangerous than they are, and the planner can steer to face a target
-it does not need to face to hit or be hit). This is a known distortion, not a bug to silently patch
-here — see `packages/server/balance/README.md`'s known-distortions list for the balance-report side
-of the same gap, and treat fixing it as a `bot-tuner` follow-up rather than something to bend into
-this fix wave.
+1. **Orbit needs open floor.** Near a wall the reactive layer turns the weave and flips its side.
+2. **A beam is never dodged.** No travel speed means an ETA of 0; attached beams are tracked (they
+   take a threat slot) but never reacted to.
+3. **ETA is measured at notice**, once. A shot is dodged when it lies in `(dodgeReactionTicks,
+   dodgeHorizonTicks + ~3.5]` ticks: easy (24, 27.5], medium (16, 39.5], hard (4, 51.5]. Easy
+   practically never dodges (accepted; 6.x's 0.05 `dodgeChance` was the same in effect).

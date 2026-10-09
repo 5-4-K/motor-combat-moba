@@ -1,7 +1,8 @@
 # Bot brain v7: a deterministic core
 
 **Date:** 2026-10-09
-**Status:** approved design, pending implementation
+**Status:** approved design, implemented 2026-10-10. Rulings corrected in place where the
+implementation settled them differently; the measured numbers are in §15's implementation notes.
 **Supersedes:** the decision layers of
 [`2026-09-04-human-like-bot-behavior-design.md`](2026-09-04-human-like-bot-behavior-design.md)
 (personalities, blunders, dice), [`2026-09-05-bot-situation-play-design.md`](2026-09-05-bot-situation-play-design.md)
@@ -40,6 +41,7 @@ slot choice) is replaced by two small deterministic layers.
 
 - **BB2 Not slower.** A balance run must not take longer than today (a 180 s hard six-bot
   deathmatch runs in ~66 s of wall time after the 2026-10-09 solver speedup). Faster is welcome.
+  Met: the 30 s seed-7 hard deathmatch went from 8.2 s to 5.0 s of wall time (BB64).
 - **BB3 Simpler over falsely smart.** Where a smarter rule risks false balance readings, the simple
   rule wins. But not braindead: every tier moves, shoots and reacts.
 - **BB4 No cheating.** The bot decides from `BotView` and nothing else. `BotView` does not change.
@@ -64,7 +66,7 @@ perceive (every tick)                      kept
   solve        one exact FiringSolution per ready slot         kept
   assess       facts → one situation, by thresholds            rewritten (situation.ts)
   navigate     situation → Goal → steer/throttle               NEW (navigate.ts)
-  shoot        greedy on hit chance + combo + turret bearing   rewritten (firing.ts)
+  shoot        greedy on hit chance + combo + turret bearing   rewritten (shooter.ts)
   ↓
 humanize (every tick)                      kept as the delay line only
 ```
@@ -134,17 +136,24 @@ does anyway, and it stops the ram situation re-entering during its own `ramLock`
 phased cars are never targets: no ghost chasing, no `deadRespect`.
 
 **BB19 Dodge is a timing fact, not a coin.** A threat is `reacting` iff its estimated time to reach
-the bot exceeds `dodgeReactionTicks`: `eta = distance from the shot to the bot / the weapon's
-projectile speed`, in ticks; a weapon with no travel speed (beams, auras) has `eta = 0` and is never
-dodged. `trackedThreatLimit` still caps how many are tracked. So an easy bot (400 ms) dodges only
-slow, distant shots; a hard bot (67 ms) dodges nearly everything it sees coming. `dodgeChance`,
-`hearChance` and `incomingCarChance` are deleted.
+the bot, measured once when the bot first notices it, exceeds `dodgeReactionTicks`: `eta = distance
+from the shot to the bot / the weapon's projectile speed`, in ticks. A weapon with no travel speed
+has `eta = 0` and is never dodged; an attached speed-0 beam aimed at the bot is still tracked (it
+takes a `trackedThreatLimit` place and records blame) but is never reacted to. A shot is a threat
+at all only if `threatHeading` projects its closest approach, inside `dodgeHorizonTicks`, to within
+a car's half-diagonal plus 16 u, which caps the ETA at `dodgeHorizonTicks` plus that slack (~3.5
+ticks at a typical shot speed). So a shot is dodged when its ETA lies in `(dodgeReactionTicks,
+dodgeHorizonTicks + ~3.5]` ticks at 60 Hz: easy (24, 27.5], medium (16, 39.5], hard (4, 51.5].
+Easy practically never dodges (accepted: 6.x's 0.05 `dodgeChance` was the same in effect); hard
+dodges nearly everything it sees coming. `trackedThreatLimit` still caps how many are tracked.
+`dodgeChance`, `hearChance` and `incomingCarChance` are deleted.
 
 **BB20 Incoming car** keeps `isIncomingCar` (closing speed and an ETA inside `dodgeHorizonTicks`),
 and is always reacted to.
 
 **BB21 Kit is dry** when no slot is ready now and none becomes ready within `ramDryWindowTicks`
-(`readyInTicksOf` on the bot's own slots). The ram also requires the bot not to be in `recover`
+(`readyInTicksOf` on the bot's own slots); a kit with no usable slot is dry by definition. The ram
+also requires the bot not to be in `recover`
 (BB17 already guarantees it) and the target within `ramRangeUnits`.
 
 ## 5. Navigate: goals and the steering law
@@ -161,15 +170,16 @@ interface Goal {
 }
 ```
 
-**BB23 Per-situation goals** (`controller.ts` builds them; `believed(t)` is the target predictor
-rotated by the realised aim error, as 6.x's R-O5 did; `lag` is `reactionDelayTicks`):
+**BB23 Per-situation goals** (`controller.ts` builds them; `believed(t)` is the raw target
+predictor's position `t` ticks ahead; the realised aim offset enters only through the steering
+law's `nose` term (BB24), so nothing is counted twice; `lag` is `reactionDelayTicks`):
 
 | Situation | point | range | facing | reverseOk |
 |---|---|---|---|---|
 | `recover` | none: emit coast | | | |
 | `waitOut` | self + hunt heading × `awarenessRadiusUnits` (BB36) | 0 | nose | no |
-| `evade` | self + dodge direction × `dodgeDistanceUnits` (BB34) | 0 | free | yes |
-| `unpin` | self + push direction × `unpinDistanceUnits` (BB33) | 0 | free | yes |
+| `evade` | self + dodge direction × `dodgeDistanceUnits` (BB34, BB35) | 0 | free | yes |
+| `unpin` | self + last push direction × `unpinDistanceUnits` (BB33) | 0 | free | yes |
 | `punish` | `believed(lag)` | `max(minEngageUnits, ownComfort × punishRangeFraction)` | nose | yes |
 | `reset` | `believed(lag)` | `max(fightRange × resetRangeMultiplier, minEngageUnits)` | nose | yes |
 | `ram` | target predicted at `min(d / own top speed, horizon)` ticks | 0 | nose | no, forwardOnly |
@@ -179,17 +189,24 @@ rotated by the realised aim error, as 6.x's R-O5 did; `lag` is `reactionDelayTic
 **BB24 The steering law** turns a `Goal` into `steer` and `throttle`, both in `{-1, 0, 1}`:
 
 ```
-d       = distance(self, goal);  e = d - goal.range
+d       = distance(self, goal);  e = d - goal.range;  band = rangeBandUnits
 bearing = atan2(goal - self);    delta = signedDelta(self.angle, bearing)
-if facing == "nose":  delta += aimError.offsetRad        // shaky hands wander the nose
-desiredOff =
-  nose:  0
-  orbit: orbitSide × orbitOffsetRad × (1 - clamp(e / rangeBandUnits, -1, 1))
-         // too far → 0 (drive straight at it); in band → ±orbitOffsetRad; too close → ±2·orbitOffsetRad
-  free:  0 when driving forward; measured from the tail when reversing (BB26)
-steerErr = delta - desiredOff
-steer    = latch(steerErr)       // sign(steerErr) beyond steerDeadbandRad, 0 inside half of it, held between
+canReverse = goal.reverseOk && !goal.forwardOnly
+desiredOff = 0
+nose:   delta += aimError.offsetRad                       // shaky hands wander the nose
+orbit:  e < -band → backingOut = true;  e > +band → backingOut = false
+        backingOut → reverse nose-on (desiredOff 0)       // out across the whole band
+        e > band   → forward, desiredOff 0                // too far: straight at it
+        else       → forward, desiredOff = orbitSide × orbitOffsetRad   // in, at an angle
+free:   reversing → delta = signedDelta(self.angle + π, bearing)        // from the tail (BB26)
+steer = latch(delta - desiredOff)                         // BB28
 ```
+
+**Orbit is a weave, not a circle.** A constant-range circle needs the target 90° off the nose, which
+is outside every turret's arc (BB27), so it is not attempted. The car drives in across the band
+with the target held `orbitOffsetRad` off the nose; once it is a band too close it sets
+`backingOut` and reverses nose-on (holding if it cannot reverse); `backingOut` clears only once it
+is a band too far, and it drives in again. `NavState` is `{ orbitSide, steering, backingOut }`.
 
 Steering is absolute in this sim (`flipSteeringInReverse: false`), so `steer = sign(delta)` yaws the
 nose toward the bearing whether the car is moving forward or backward. That is what makes "reverse
@@ -197,28 +214,31 @@ with the nose on the target" one line.
 
 **BB25 Throttle:**
 
-- `nose`: `e > rangeBandUnits` → `+1`; `e < -rangeBandUnits` → `-1` if `reverseOk`, else `+1`
-  with `desiredOff = orbitSide × 2 × orbitOffsetRad` (drive away at an angle, nose still mostly
-  on); inside the band → `0`.
-- `orbit`: always `+1` (the band is held by the angle, not the pedal).
-- `free`: arrive. `d ≤ rangeBandUnits` → `0`. Else if `|delta| ≤ π/2` or not `reverseOk` → `+1`;
-  else → `-1` (the point is behind; back toward it).
-- `forwardOnly` overrides to `+1`.
+- `nose`: `e > rangeBandUnits` → `+1`; `e < -rangeBandUnits` → `-1` if the car can reverse, else
+  `0` (hold; there is no drive-away-at-an-angle branch); inside the band → `0`.
+- `orbit`: `+1`, except while `backingOut` (BB24): `-1`, or `0` if the car cannot reverse.
+- `free`: arrive. `d ≤ rangeBandUnits` → `0` and the wheel is released. Else if `|delta| ≤ π/2` or
+  the car cannot reverse → `+1`; else → `-1` (the point is behind; back toward it).
+- "Can reverse" is `reverseOk && !forwardOnly`, decided before any branch, so a ram never takes
+  the tail-steer path; `forwardOnly` then overrides the throttle to `+1`.
 
 **BB26 Reversing toward a point** measures the steering error from the tail: `delta_tail =
 signedDelta(self.angle + π, bearing)`, so the car backs along the line to the point. For a `free`
 goal the throttle (BB25) is decided first and the steering error is then measured from the nose or
 the tail accordingly.
 
-**BB27 `orbitSide`** is state (`+1` target kept on the left, `-1` on the right). It is set to the
-side the target is on when orbit begins, and flips only when the target is on the other side by
-more than `π/2` (`sign(delta) ≠ orbitSide && |delta| > π/2`) or when the reactive layer (BB32)
-pushes away from a wall on the orbit's inside. Orbit keeps the target inside the turret's 60°
-swing arc, which is why every turret-armed chassis can shoot while circling.
+**BB27 `orbitSide`** is state (`+1` target kept on the `+angle` side, `-1` the other; `0` until an
+orbit begins). It is set to the side the target is on when orbit begins, and flips only when the
+target is on the other side by more than `π/2` (`sign(delta) ≠ orbitSide && |delta| > π/2`) or when
+the reactive layer (BB32) steers away from a wall on the orbit's inside. The controller resets the
+whole `NavState` on a situation change and on a target change, so a new goal is never steered by
+an old one's side, wheel or back-out flag. `TURRET_CONFIG.maxSwingDeg` 60 is the TOTAL arc, so a
+turret reaches ±30° (±0.524 rad) off the nose; `orbitOffsetRad` 0.45 keeps the target inside it
+with a 4° margin, which is why every turret-armed chassis can shoot while weaving.
 
-**BB28 The latch** stops wheel chatter: a steer that started continues until the error falls under
-`steerDeadbandRad / 2`; a steer that stopped does not restart until the error exceeds
-`steerDeadbandRad`.
+**BB28 The latch** stops wheel chatter: beyond `steerDeadbandRad` the wheel takes the error's sign;
+under `steerDeadbandRad / 2` it lets go; between the two it holds only while the error keeps the
+sign the wheel is held for, so an error that crosses zero inside the hold window releases it.
 
 **BB29 Nothing rolls the drive model.** The steering law is closed-form on the current pose. The
 cost per replan is a few hundred flops. The 760 `stepDrive` steps per hard plan are gone with the
@@ -231,32 +251,43 @@ directly, which is the capability the planner lacked (G12, item 3), and costs no
 
 ### Walls
 
-**BB31 `wallPush(pose, arena, lookaheadUnits)`** returns the summed outward normal of every boundary
-plane and obstacle face within the hull margin of the look-ahead point and of the current position,
-or `undefined` when there is none. Spikes use the one-sided face rule `spikesAhead` has today and a
-look-ahead of `lookaheadUnits × spikeLookaheadFactor`. Corners fall out of the sum (two planes near
-the current position). `wallAhead`, `spikesAhead` and `inCorner` become `wallPush(...) !==
-undefined` wrappers so their existing tests keep their meaning.
+**BB31 `wallPush(pose, arena, lookaheadUnits)`** (`movement.ts`) returns an `{x, y}` sum of unit
+vectors pointing away from what is near: every boundary plane and plain obstacle within the hull
+margin of the look-ahead point; every spike strip within the hull margin of the look-ahead point
+sampled at both `1×` and `spikeLookaheadFactor×` `lookaheadUnits`, honouring the one-sided face rule
+(a safe face does not count); and, when two or more boundary planes lie within `minEngageUnits` of
+the car's own position, those planes' normals (a corner). It has any-hit semantics: it is
+`undefined` only when nothing contributed, and when something did but the vectors cancel (a car
+between two walls, or at a box's exact centre) it returns a unit push opposite the heading, so a
+consumer backs up rather than reading "clear". `wallAhead`, `spikesAhead` and `inCorner` test the
+hit counts of the same accumulators, not the vector, so two cancelling walls still read pinned and
+their existing tests keep their meaning.
 
-**BB32 The reactive layer.** After the steering law, in every situation but `recover` and `unpin`:
-if `wallPush` reports a push and `throttle` is `+1`, steer toward the push's side (sign of
-`cross(heading, push)`); if the push is nearly dead ahead (`|cross| < 0.3`) set `throttle = -1` for
-this decision. This keeps a bot from driving into a wall it is not yet pinned on; `unpin` handles the
-pinned case with a goal.
+**BB32 The reactive layer** (`avoidWalls`). After the steering law, in every situation but `recover`
+and `unpin`: if `wallPush` reports a push, `throttle` is `+1` and the push does not already point
+along the heading (`heading · push ≤ 0`), steer toward the push's side (sign of
+`cross(heading, push)`, latched) and flip `orbitSide` to match; if the push is nearly dead ahead
+(`|cross| < 0.3` on unit vectors) set `throttle = -1` for this decision. This keeps a bot from
+driving into a wall it is not yet pinned on; `unpin` handles the pinned case with a goal.
 
 **BB33 `unpin`** is entered when `wallPush` at the tier's `wallLookaheadUnits` reports a push. Its
-goal is the push direction at `unpinDistanceUnits`, facing free, reverse allowed. A corner or a
-wall dead ahead therefore backs out, a wall off the nose turns away from it.
+goal is the push direction at `unpinDistanceUnits`, facing free, reverse allowed. It reads the last
+non-empty push (`lastPush`), so an `unpin` held through its commit window keeps its direction after
+the push clears. A corner or a wall dead ahead therefore backs out, a wall off the nose turns away
+from it.
 
 ### Dodging
 
 **BB34 The dodge direction** is the unit vector of the sum of every reacting threat's `awayHeading`
-(two shots from opposite sides cancel: nowhere to go, so the other situations decide). When the sum
-is near zero, the first tracked threat's away heading is used alone. The dodge is a `free` goal so
+and, for an incoming car (BB20), the heading perpendicular to its velocity on the side the bot is
+already on (two shots from opposite sides cancel: nowhere to go, so the other situations decide).
+When the sum is near zero, the first tracked threat's away heading is used alone. The dodge is a `free` goal so
 the car takes whichever of forward or reverse is quicker.
 
 **BB35 `evade` is an event**, as in 6.x: it holds for the commit window and then the situation
-re-evaluates. Shot threats expire when the instance leaves the view.
+re-evaluates. Shot threats expire when the instance leaves the view or stops threatening. While a
+held `evade` outlives its threats it keeps its last dodge direction (`lastDodge`), and backs straight
+up if it never had one; `lastDodge` is cleared when `evade` ends.
 
 ### Hunting
 
@@ -293,8 +324,12 @@ offset, as in 6.x (TR25/TR26).
 **BB42 `effectiveReachOf(weaponId, sigma, bar)`** is the farthest distance, on a
 `effectiveReachSamples`-step sweep from `minEngageUnits` to the weapon's reach, at which `solve()`
 against a stationary target straight ahead returns `hitChance ≥ bar`; `minEngageUnits` when no
-sample clears the bar. Memoised per `(weaponId, sigma, bar)`, so it is computed once per weapon per
-tier per process. A `range: 0` maneuver's reach is `contactTriggerUnits`, as today.
+sample clears the bar. The probe runs in an open arena with the shooter at its centre: a beam's wall
+clip treats a point on the bounds edge as outside, and an earlier corner placement clipped every
+beam to nothing. Memoised per `(weaponId, sigma, bar)` under the active bundle object (`cfg()`), the
+server twin of the client's `memoOnBundle`, so it is computed once per weapon per tier per bundle
+and a playground sibling bundle or a mode's weapon override never reads another bundle's reach. A
+`range: 0` maneuver's reach is `contactTriggerUnits`, as today.
 
 **BB43 `ownComfort`** is `comfortFraction ×` the smallest effective reach among slots ready within
 `soonReadyTicks`; when none is, `comfortFraction ×` the kit's largest effective reach (stand off
@@ -366,9 +401,9 @@ as today.
 are: in `(0.06, 0.457]` the exact aim must land; in `(0.457, 0.697]` one 1.15σ error must also land;
 in `(0.697, 0.937]` both must. The starting values sit one per step, easy 0.3 / medium 0.5 /
 hard 0.7, so the tiers differ in kind: easy fires when its best aim lands, hard only when a
-1.15σ hand error on either side still lands. The calibration task (plan) checks these on the duel
-fixture so that the tier characterisation tests (BB60) hold: hard kills a stationary target inside
-its floor, easy still fires. Everything else carries its 6.x value.
+1.15σ hand error on either side still lands. Calibration on the duel fixture kept all three: hard
+kills a stationary dummy at 2.07× its kit's floor (BB60's bound is 5×) and easy still fires (§15's
+implementation notes). Everything else carries its 6.x value.
 
 **BB51 `BRAIN_CONSTANTS` v7:**
 
@@ -385,7 +420,7 @@ its floor, easy still fires. Everything else carries its 6.x value.
 | `resetRangeMultiplier` | 1.15 | BB23 |
 | `rangeBandUnits` | 40 | BB25, BB45 |
 | `steerDeadbandRad` | 0.06 | BB24, BB28 |
-| `orbitOffsetRad` | 0.6 | BB24 (inside the 60° turret arc) |
+| `orbitOffsetRad` | 0.45 | BB24, BB27 (inside the turret's ±0.524 rad half-arc; `maxSwingDeg` 60 is the total) |
 | `dodgeDistanceUnits` | 120 | BB23 |
 | `unpinDistanceUnits` | 180 | BB23 |
 | `soonReadyMs` | 1000 | BB23, BB43 |
@@ -448,9 +483,9 @@ hit rate rises above easy; whole-brain determinism per seed. The ult-burning tes
 the concept.
 
 **BB61 New unit tests:** `navigate.test.ts` (turns toward, holds the band, reverses when too close in
-nose mode, orbits inside the band, dodge goal, reverse-toward-a-point from the tail, the latch,
+nose mode, weaves across the band, dodge goal, reverse-toward-a-point from the tail, the latch,
 wall push steering and the dead-ahead reverse); `situation.test.ts` (priority, `ram` entry on a dry
-kit, `recover` on own statuses, `unpin` without a target); `firing.test.ts` (pressable, the three
+kit, `recover` on own statuses, `unpin` without a target); `shooter.test.ts` (pressable, the three
 press orders, a 16 s weapon fires when it lands, burst gap and switch lock); `ranges.test.ts`
 (effective reach monotone in sigma, comfort picks the shortest ready gun); `target.test.ts`
 (no noise, commit, no ghosts); `perception.test.ts` (reacting by ETA); `humanize.test.ts` (delay
@@ -465,11 +500,16 @@ toward it within two seconds.
 `decide` on the duel fixture against the same reference-workload ratio method, with the ratio
 re-measured. The acceptance number for BB2 is the harness itself: the 30 s seed-7 hard deathmatch
 the 2026-10-09 speedup used (13-14 s then) is timed before and after and the figures recorded in
-the README entry (BB59).
+the README entry (BB59). Measured: 8.2 s on 6.8.0, 5.0 s on 7.0.0 (wall time of `npm run balance`,
+same machine, startup included). A hard `decide` costs ~0.55 ms of CPU averaged over consecutive
+ticks, dominated by `solve()` (~1.47 ms per `pepperbox` solve); the bench anchors to its own
+measured ratio, and the old P33 budget, which covered the planner alone, no longer applies.
 
 **BB65 Scope** per `CLAUDE.md`: this touches `bot/`, `rooms/` (overlay payload), `balance/` and
 shared's wire list, so `npm test` plus `npm run test:slow` plus `npm run playtest -- --scope=all`
-are owed. No playtest probe reads the bot; none should move.
+are owed. No playtest probe reads the bot; none should move. A single bot test file runs with
+`cd packages/server && npx vitest run -c vitest.slow.config.ts <paths>` (the slow config; the
+normal one excludes `src/bot/**`).
 
 ## 14. Documentation
 
@@ -493,3 +533,18 @@ or chassis number, the balance report format, or the harness CLI. No team play b
 **BB70** The three 6.x specs stay in the repo as records; their rulings on perception (H7, H22,
 P18-P21), prediction (P22-P24) and the exact solver (P1-P14, P43) remain in force and are not
 renumbered here.
+
+### Implementation notes (2026-10-10)
+
+- **Effective reach (BB42), measured.** At hard (sigma 0.035, bar 0.7): `predator` 646.67,
+  `lance` 1200, `magmablast` 900, `thumper` 893.33. At sigma 0.18 (easy's hands): 70 / 258 / 139 /
+  173. The probe stands at the centre of an open arena and the memo is keyed on the active bundle.
+- **Dodge windows (BB19).** A shot is dodged when its ETA at notice lies in `(dodgeReactionTicks,
+  dodgeHorizonTicks + ~3.5]` ticks: easy (24, 27.5], medium (16, 39.5], hard (4, 51.5]. Easy
+  practically never dodges, which was accepted; attached speed-0 beams are never dodged.
+- **Calibration (BB50).** `hitChanceBar` stayed 0.3 / 0.5 / 0.7. On the duel fixture (seed 17):
+  hard kills a stationary dummy at 2.07× its kit's floor; hit rates easy / medium / hard are
+  0.571 / 0.700 / 0.750; presses over 300 ticks are 5 / 11 / 35.
+- **Timing (BB2, BB64).** The 30 s seed-7 hard deathmatch: 8.2 s on 6.8.0, 5.0 s on 7.0.0, wall
+  time of `npm run balance` on the same machine, startup included. A hard `decide` costs ~0.55 ms
+  of CPU, dominated by `solve()` (~1.47 ms per `pepperbox` solve).

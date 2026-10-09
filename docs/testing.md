@@ -132,14 +132,3 @@ automatically a failure to fix by regenerating it:
   means you edited the base when you meant to write an override.
 - **Never run a blanket `vitest -u` across the whole repo to make a snapshot mismatch go away.**
   Regenerate only the file(s) the diff should have moved, and read what changed before committing.
-
-## 7. The pre-existing G12 failures
-
-`packages/server/src/bot/brain/controller.test.ts` has two failing-or-flaky cases today — the "hunts a
-quadrant waypoint…" and "hunts toward a last-known pose…" cases (both tagged `G12`; one has been
-observed to pass on an individual run) — a bot-tuner
-question, not something this refactor introduced or is expected to fix. **Since 2026-10-09 they
-live in the slow suite** (`npm run test:slow`, see §2) along with every other bot test, so they no
-longer stop root `npm test` — which runs `npm run test --workspaces --if-present` and **stops at the
-first failing workspace** — from reaching the client and `scripts` suites. Expect `test:slow` to
-report them (and other bot-tuning failures) until a `bot-tuner` pass fixes them.

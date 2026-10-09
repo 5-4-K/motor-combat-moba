@@ -270,13 +270,16 @@ arenas and practice always render the shipped tables. `floor.*` needs the Regene
 
 ### Bot
 
-`packages/server/src/bot/brain/` runs perceive → assess → move → shoot → humanize. Tiers
-(`easy`/`medium`/`hard`) differ only in `BOT_PROFILES`; no module branches on the tier name. Assess
-commits to **one situation** (`recover`, `waitOut`, `evade`, `unpin`, `punish`, `reset`, `fight`,
-`close`). The bot presses one slot per tick. Bump `BOT_BRAIN_VERSION` (in `botFingerprint`) when
-behaviour changes without the table moving. Feel complaints go through the
-[`bot-tuner`](.claude/skills/bot-tuner/SKILL.md) skill onto knobs, never a tier-only branch. See
-[`docs/bot-behavior.md`](docs/bot-behavior.md).
+`packages/server/src/bot/brain/` runs perceive → predict → solve → assess → navigate → shoot →
+humanize. Tiers (`easy`/`medium`/`hard`) differ only in `BOT_PROFILES` (23 fields, no coin flips;
+the practice bot and the balance pilot are the same bot). Assess commits to **one situation**
+(`recover`, `evade`, `unpin`, `waitOut`, `punish`, `reset`, `ram`, `fight`, `close`); the situation
+hands the navigator a `Goal` and a steering law drives it (no rollout planner); the shooter presses
+the ready slot with the best expected damage whose solved hit chance clears the tier's
+`hitChanceBar`, cooldown ignored. Bump `BOT_BRAIN_VERSION` when behaviour changes without the table
+moving. Feel complaints go through the [`bot-tuner`](.claude/skills/bot-tuner/SKILL.md) skill onto
+knobs. See [`docs/bot-behavior.md`](docs/bot-behavior.md) and the design,
+[`2026-10-09-bot-brain-v7-design.md`](docs/superpowers/specs/2026-10-09-bot-brain-v7-design.md).
 
 ### Netcode
 
@@ -365,8 +368,7 @@ Mode-specific tests and probes live in their mode's own folders (`packages/*/src
 - Docs-only changes owe nothing, except `docs/turn-tuning.md`, which a test reads.
 
 `node scripts/test-scope.mjs` prints the scope a diff owes; `npm run test:affected` runs it. See
-[`docs/testing.md`](docs/testing.md) for the layout, contract tests, snapshots, and the known
-pre-existing G12 failures.
+[`docs/testing.md`](docs/testing.md) for the layout, contract tests and snapshots.
 
 ## Shared `dist` gotcha
 
@@ -564,7 +566,8 @@ npm run balance        # win-rate/matchup harness; e.g. -- --shape=duel --matche
 | Practice mode (PR1–PR31) | [`2026-09-03-practice-mode-design.md`](docs/superpowers/specs/2026-09-03-practice-mode-design.md) |
 | Playground (PG1–PG88, EV1–EV34) | [`2026-09-01-playtest-playground-design.md`](docs/superpowers/specs/2026-09-01-playtest-playground-design.md), [`2026-09-02-…-bot-difficulty`](docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md), [`2026-09-08-…-vfx-settings`](docs/superpowers/specs/2026-09-08-playground-vfx-settings-design.md), [`2026-09-08-…-environment-vfx`](docs/superpowers/specs/2026-09-08-playground-environment-vfx-design.md), [`2026-09-16-…-six-car-select`](docs/superpowers/specs/2026-09-16-playground-six-car-select-design.md) |
 | Lobby chat | [`2026-09-06-lobby-chat-design.md`](docs/superpowers/specs/2026-09-06-lobby-chat-design.md) |
-| Bot situation play | [`2026-09-05-bot-situation-play-design.md`](docs/superpowers/specs/2026-09-05-bot-situation-play-design.md) |
+| Bot brain v7 (BB1–BB70) | [`2026-10-09-bot-brain-v7-design.md`](docs/superpowers/specs/2026-10-09-bot-brain-v7-design.md) |
+| Bot situation play (decision layer superseded by v7) | [`2026-09-05-bot-situation-play-design.md`](docs/superpowers/specs/2026-09-05-bot-situation-play-design.md) |
 | v1 spec and tracker | [`2026-08-24-motor-combat-moba-v1-design.md`](docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md), [`v1-master-index`](docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md) |
 | Skills for common tasks | `game-mode`, `weapon-forger`, `weapon-look`, `bot-tuner`, `ability-slot-count`, `basic-attack-toggle`, `process-car-asset`, `process-weapon-icon`, `code-graph-install` (`.claude/skills/`) |
 | The user's own notes | `docs/ideas/`, `docs/invariants/` — **off limits unless named** (see above) |

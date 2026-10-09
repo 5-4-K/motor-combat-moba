@@ -2,174 +2,128 @@
 name: bot-tuner
 description: >-
   Use when someone says a bot feels wrong, too easy, too hard, too accurate, not
-  attacking, wasting ults, sitting in a corner, reversing into a wall, moonwalking,
-  not reversing to dodge, not dodging, not setting up its shots, or fighting at
+  attacking, holding fire, sitting in a corner, reversing into a wall, moonwalking,
+  not dodging, never ramming, walking into fire, feeling robotic, or fighting at
   the wrong range — including phrases like "medium bot is too hard to hit" or
-  "hard bot is not attacking me even when I don't have ult". Tune BOT_PROFILES
-  knobs for easy/medium/hard. Do not rewrite the brain unless they explicitly
-  ask for a situation-play change.
+  "hard bot is not attacking me". Tune BOT_PROFILES knobs for easy/medium/hard.
+  Do not rewrite the brain unless they explicitly ask for a situation-play change.
 ---
 
 # Bot tuner
 
-The game has **one brain**. Easy / medium / hard are rows of numbers in
-[`packages/server/src/config/bot-profiles.ts`](../../../packages/server/src/config/bot-profiles.ts).
-The human cheat-sheet is [`docs/bot-behavior.md`](../../../docs/bot-behavior.md). The design is
-[`docs/superpowers/specs/2026-09-05-bot-situation-play-design.md`](../../../docs/superpowers/specs/2026-09-05-bot-situation-play-design.md),
-and the solver / prediction / planner rulings are P1–P58 of
-[`docs/superpowers/specs/2026-09-05-bot-predictive-brain-design.md`](../../../docs/superpowers/specs/2026-09-05-bot-predictive-brain-design.md).
+The game has **one brain** (`BOT_BRAIN_VERSION` 7.0.0). Easy / medium / hard are rows of
+numbers in [`packages/server/src/config/bot-profiles.ts`](../../../packages/server/src/config/bot-profiles.ts):
+23 fields per tier, no coin flips. The practice bot and the balance harness's measurement pilot are
+the same code and the same rows, so a retune moves both. The cheat-sheet is
+[`docs/bot-behavior.md`](../../../docs/bot-behavior.md); the design is
+[`docs/superpowers/specs/2026-10-09-bot-brain-v7-design.md`](../../../docs/superpowers/specs/2026-10-09-bot-brain-v7-design.md)
+(BB1–BB70).
 
 **You do not invent a Hard-only `if`.** **You do not nerf damage, speed, or HP.** **You do not
-edit `DRIVE_CONFIG`.** **You do not tune around a solver bug.** **You do not tune the planner's
-base weights** — those live in `bot/brain/objectives.ts`'s `BASE`, they are per-SITUATION and not
-per-tier, and changing one changes what a situation *means* for every tier at once. That includes
-the seventh planner term, **`facingError`**: it has no `BOT_PROFILES` field. Weakness is worse use
-of the same facts, and worse hands.
+edit `DRIVE_CONFIG`.** **You do not tune around a solver bug.** **You do not move a
+`BRAIN_CONSTANTS` value for a one-tier complaint** — a constant retunes all three tiers at once.
+Weakness is worse use of the same facts, later reactions, and worse hands.
 
 ## Path
 
 1. Read the live `BOT_PROFILES` object (not this skill's memory of the numbers).
-2. **Read the overlay before naming anything.** This is the method now, not a preliminary. In
-   `?dev=playground` the bot prints two lines:
+2. **Read the overlay before naming anything.** In `?dev=playground` the debugged bot prints one
+   line, sampled at 5 Hz:
 
    ```
-   personality | situation | range N | slot K | danger N | plan(+1,+1) SCORE | ev BEST/THRESHOLD
-   terms  myEv N  theirEv N  rangeError N  wallPenalty N  threatAvoid N  facingError N
+   situation | range N facing | slot K | hit BEST/BAR | drive(+1,0)
    ```
 
-   - **`ev BEST/THRESHOLD` answers every holds-fire complaint outright.** `BEST` is the best EV/s
-     any ready slot's `solve()` finds from the current pose; `THRESHOLD` is
-     `minShotValueFraction × bestAchievableValueOf(carId, aimErrorSigmaRad)` — the shooter's own kit
-     ceiling, not a shared absolute number. A ratio **below 1 with `slot -` is the gate working**,
-     and `minShotValueFraction` is the tune. A ratio **at or above 1 with `slot -` is a bug** in
-     `chooseSlot` / `solve()` — stop and say so.
-   - **The `terms` line says what the bot thought it was doing instead.** The overlay prints
-     whatever keys `PlanWeights` currently has (`PlaygroundRoom` copies the map wholesale) — **six
-     as of 5.0.0**, which dropped `lockKeep` with the aim-lock feature. Do not treat an extra name as
-     noise, and do not hard-code the count. These are RAW term values, not points: multiply each by that situation's weight
-     in `objectives.ts` to see which term actually won. `wallPenalty` runs about 0.017 in a TRUE
-     corner (pose inside the margin) against weights in the hundreds, and **0 merely near a wall**;
-     `rangeError` is units; `myEv` / `theirEv` are EV per second; `facingError` is bounded [0, 1] —
-     0 driving ahead, 1 reversing, and the band between them is a car sliding across its own nose.
-     **It used to be effectively 0 or 1 in the planner's rollout, because `DRIVE_CONFIG.steeringGrip`
-     was 1.0 and a driven car never slid; that knob was DELETED by the 2026-09-18 drive-model port,
-     so the value is continuous now and an ordinary turn reads somewhere in (0, 0.5].** The weights
-     that read it were derived on the binary assumption and are owed a re-derivation the port's stage
-     5 owns — see `facingErrorOf` in `planner.ts`. Do not re-derive them from this overlay. A bare `terms  -` means the bot has not reached
-     its first recompute window yet — not a broken overlay, and not a tuning signal.
-   - **`danger`** is the damage per second the bot believes it is standing in. If it reads 0 while
-     you are pointed straight at it from inside your weapon's reach, stop: solver bug
-     (`dangerEvAgainst`, `bot/brain/solution.ts`), not a tuning problem.
-3. Name the **factor**. There are now five, and only four of them have knobs:
-   - **judgment** — dead, ranges, corner, ult save, dodge notice.
-   - **hands** — aim, blunder, fidget.
-   - **prediction** — how well it reads your speed and turn rate (`stateEstimationSigma`,
-     `bot/brain/predict.ts`). A bot that leads a TURNING car wrongly is reading the curve wrong; a
-     bot that sprays at one driving STRAIGHT has bad hands. `aimErrorSigmaRad` will not fix the
-     first.
-   - **planning** — `planHorizonTicks`, `planDepth`, `targetBranches`, `commitPenalty`. This is the
-     factor "it doesn't set up its shots", "it drives past me", and "it stutters instead of
-     turning" belong to; none of them is judgment or hands.
-   - **the solver** — hit chance and value. Not a knob at all.
+   - `situation` is the committed situation (`recover`, `evade`, `unpin`, `waitOut`, `punish`,
+     `reset`, `ram`, `fight`, `close`, in priority order).
+   - `range N facing` is the goal the navigator is driving: the range it holds and `nose`, `orbit`
+     or `free` (`none` in `recover`).
+   - `slot K` is the pressed fire slot (index + 1); `slot -` means it held fire.
+   - **`hit BEST/BAR` answers every holds-fire complaint.** `BEST` is the best solved hit chance
+     among ready slots; `BAR` is the tier's `hitChanceBar`. Below the bar with `slot -` is the bar
+     working, and `hitChanceBar` is the tune. At or above it with `slot -`, check the burst gap,
+     the switch lock and the situation's fire column (`recover`, `waitOut`, `close` hold fire); if
+     none explains it, it is a bug — stop and say so.
+   - `drive(steer,throttle)` is the navigator's output.
+3. Name the **factor**. Five, and four have knobs:
+   - **judgment** — situations and ranges: `hitChanceBar`, `retreatHpFraction`,
+     `punishHpFraction`, `opponentRangeRespect`, `wallLookaheadUnits`, and target politics
+     (`woundedBias`, `vengefulness`, `targetCommitMs`).
+   - **hands** — aim: `aimErrorSigmaRad` (how wide), `aimErrorDriftMs` (how fast it wanders),
+     `burstGapMs`.
+   - **prediction** — `stateEstimationSigma`: how wrong its read of your speed and turn rate is. A
+     bot that misses a TURNING car is reading the curve wrong; one that sprays at a car driving
+     STRAIGHT has bad hands. `aimErrorSigmaRad` will not fix the first.
+   - **reaction** — the five timing knobs: `viewStalenessMs`, `reactionDelayMs`, `recomputeMs`,
+     `acquireMs`, `dodgeReactionMs`; and what it notices at all: `awarenessRadiusUnits`,
+     `rearBlindHalfAngleRad`, `memoryMs`, `trackedThreatLimit`, `dodgeHorizonMs`,
+     `situationCommitMs`.
+   - **the solver** — hit chance and expected damage (`bot/brain/solution.ts`). Not a knob.
 4. Name the **tier** they complained about. Do not "fix Hard" by changing Easy unless they asked.
 5. Propose **one knob, one direction, the current value → the new value**, with a one-line why.
    Wait for them to confirm before editing — same as weapon-forger.
-6. After a confirmed edit: update the matching cells in `docs/bot-behavior.md` in the same change.
-   `bot-profiles.test.ts` `LADDER` must still rise/fall as declared. A table-only `BOT_PROFILES`
-   retune is enough for the fingerprint hash. Bump `BOT_BRAIN_VERSION` if you also changed brain
-   *code*, `BRAIN_CONSTANTS`, or `objectives.ts` BASE.
+6. After a confirmed edit: update the matching cells in `docs/bot-behavior.md`'s profile table in
+   the same change. `bot-profiles.test.ts`'s `LADDER` must still hold. A table-only `BOT_PROFILES`
+   retune moves `botFingerprint` on its own; bump `BOT_BRAIN_VERSION` if you changed brain code or
+   `BRAIN_CONSTANTS` (the fingerprint hashes `BOT_PROFILES` and the version, never the constants).
 
-**Stop tuning and say so** when the overlay shows any of these — all three are brain bugs:
+**Stop tuning and say so** when the overlay shows a brain bug:
 
-- the wrong **situation** for the moment (Hard in `waitOut` while you are alive in front of it, or
-  `fight` while you are phased);
-- a `plan` score whose winning term is obviously the wrong one for that situation — `wallPenalty`
-  dominating in open floor, `rangeError` dominating a `punish` that is already at its range.
-  **`facingError` dominating `fight` while the bot backs off to range is often correct** (guns stay
-  on you; that is why `fight` is 30 and `reset` is 10). `facingError` dominating a reverse dodge
-  in `evade` (the reverse toll beating what `threatAvoid` can earn, 0–24 points) is a BASE bug,
-  not a profile tune — stop and say so. 4.5.1 already dropped `evade`'s weight 40 → 10 for that;
-- the bot holding fire while `ev` **clears** its threshold, or `solve()` reporting a value for a
-  weapon that plainly cannot make that shot. The bot holding fire while `ev` is **below** threshold
-  is the opposite: that is a tuning answer (`minShotValueFraction`), not a bug. The two look
-  identical from outside the car and the overlay is what separates them.
+- the wrong **situation** for the moment (hard in `waitOut` while you are alive in front of it,
+  `fight` while you are phased, `ram` while a slot is ready);
+- `hit` at or above the bar with `slot -` in a firing situation, outside the burst gap and switch
+  lock;
+- `solve()` reporting a hit chance for a shot the weapon plainly cannot make;
+- a `drive` that contradicts the goal (driving away from a `nose` goal that is out of band).
 
 ## Complaint → knobs
 
-| They say | Factor | First knobs (direction relative to "too much of this feel") |
+| They say | Factor | First knob (direction relative to "too much of this feel") |
 |---|---|---|
-| "medium is too hard to hit" | hands | Raise `aimErrorSigmaRad` on **medium**. `minShotValueFraction` is not a straightforward easier/harder dial: lowering it widens what the bot will attempt (more, worse shots); raising it makes the bot *pickier and therefore MORE deadly per shot* — it is not the knob to reach for "easier to hit" |
+| "holds fire" / "isn't attacking" | judgment | Read `hit BEST/BAR` first. `BEST` below `BAR`: lower `hitChanceBar` on that tier. The bar is quantised by the solver's nodes (0.457 centre, 0.240 at ±1.15σ, 0.031 at ±2.37σ), so a move that does not cross a step (0.457, 0.697) changes nothing |
+| "fires too much / wastes shots" | judgment | `hitChanceBar` up on that tier, or `burstGapMs` up |
+| "medium is too hard to hit" | hands | `aimErrorSigmaRad` up on **medium**. Not `hitChanceBar`: raising the bar makes the bot pickier and so MORE deadly per shot |
 | "hard tracks me perfectly" | hands | Same on **hard** |
-| "it misses me when I turn" | prediction | `stateEstimationSigma` down on that tier. Not `aimErrorSigmaRad` — that is steady-state hands, this is reading a curve. Lead is solved from the real drive model now (`bot/brain/predict.ts`), so the only tier dial on it is how wrong the bot's read of your speed and turn rate is (easy 0.25, medium 0.1, hard 0.03) — down to lead a turn better, up to lead it worse. `leadFactor` no longer exists; do not propose it |
-| "hard isn't attacking / holds fire" | fire threshold | Read `ev best/threshold` FIRST (Path step 2). Below 1: lower `minShotValueFraction` on **hard**. At or above 1: bug, stop |
-| "isn't attacking even when I don't have ult" | their ult is irrelevant | They mean the bot's own guns. Same as holds-fire. Do **not** drop `ultDisciplineChance` unless they also waste / never use the 5s gun |
-| "it doesn't set up its shots" / "it drives past me" | planning | `planHorizonTicks` up on that tier — it is how long an arc the bot can express at all, and easy's 0 is a one-tick rollout by design. **Hard's 22 is load-bearing**: the commitment-window plateau it was measured on is two ticks wide, so moving it obliges re-running that seven-seed sweep, not eyeballing a match. `targetBranches` (1 or 3) is the hedge against what you do next, and only hard pays for it |
-| "it weaves / circles me" | planning | Often correct now — circling is emergent, because the arc that sweeps its nose across you scores better than the one that does not. If it looks like a **stutter** rather than an arc, that is planner chatter: raise `commitPenalty` on that tier. `orbitBias` no longer exists |
-| "it drives in a straight line into a wall" | planning, then judgment | Check the `terms` line: if `wallPenalty` is nonzero and still losing, the horizon is too short to see the wall (`planHorizonTicks`); if it reads 0 while the pose is INSIDE the margin, that is a `boundsPenalty` bug. **0 merely near a wall is expected** — see the corner row. `wallLookaheadUnits` only decides when `unpin` is CLASSIFIED, not how the car steers |
-| "wastes ult" / "ults my corpse" | judgment | Raise `deadRespect` (corpse); raise `ultDisciplineChance` (live full-HP dump) |
-| "sits in a corner" | judgment | Raise `cornerRespect`; overlay should read `unpin`. **`wallPenalty` dominating is only a true-corner signal** (pose inside the margin, ~0.017). Merely NEAR a wall it reads 0, same as open floor — `tiers.test.ts` H39 reads 0 in both. Since 4.5.0 the discriminator is `facingError` (`unpin` 60 vs `fight` 30 in `objectives.ts` BASE), which is why the near-wall car turns off the wall instead of reversing into it. Do not cite `wallPenalty` as the explanation on its own. Do not send them to the map centre |
-| "never dodges" | judgment | Raise `dodgeChance` / `incomingCarChance`; lower `dodgeReactionTicks`. Those decide WHETHER it reacts; how hard it leans is `threatAvoid`'s weight in `objectives.ts`, which is not per-tier and not yours to move. How it dodges — reverse vs a forward arc — is `evade`'s `facingError` (10 as of 4.5.1), also BASE. See the reverse row |
-| "it reverse-dodges" / "it moonwalks" / "it won't reverse to dodge" | **not a knob** | `facingError` in `objectives.ts` BASE, per-situation, no `BOT_PROFILES` field. `fight` 30 is why a ranged car backs off with guns on you (correct). `evade` 10 is the dodge reverse-toll; 40 used to cost more than `threatAvoid` could earn. Do not invent a profile field. If they asked for a situation-play change, that is BASE **and** a `BOT_BRAIN_VERSION` bump (fingerprint does not hash `objectives.ts`) |
-| "shots are all over the place" | **not a knob** | The solver (`bot/brain/solution.ts`) decides hit chance and value. If it is firing shots that miss, that is a solver bug to investigate, not a value to tune — say so rather than reaching for `aimErrorSigmaRad` |
-| "too close / too far" | range | `opponentRangeRespect` — how much of THEIR shortest gun it insists on clearing. The bot's own comfortable range is derived from its kit by `preferredRangeOf` (`bot/brain/firing.ts`) and has no per-tier knob: `standoffFraction` no longer exists. Since the aim lock was removed (5.0.0) predator reports its full authored range, 1800, not the old 800 aim reach, and hard's derived comfort for Bullseye is about 445 |
-| "it charges in / never closes" | range | `opponentRangeRespect` down to close, up to stand off — but know the ceiling: `fightRange = max(ownComfort, theirKeepOut)`, so **nothing in the profile can make a bot stand closer than its own derived comfort**. If they want a genuinely brawling bot, that is a new profile field, not a tune — say so |
-| "it runs away from nothing" | judgment | `opponentRangeRespect` down on that tier: it scales the planner's `theirEv` term, so a high value makes every candidate walking into a firing solution score worse. Read `danger` and the `theirEv` term first (Path step 2). The old anticipatory-`evade` apparatus — `dangerEvadeFraction`, `dangerEvadeCooldownTicks` — is deleted; do not propose either |
-| "it walks into obvious fire" | judgment | `opponentRangeRespect` up. If the overlay's `danger` reads 0 while you are aimed at it from inside your weapon's reach, that is a solver bug in `dangerEvAgainst` (`bot/brain/solution.ts`) — stop tuning and say so |
-| "easy and hard feel the same" | not a single knob | Read `packages/server/src/bot/brain/tiers.test.ts`. If green, the values are too close — move several judgment+hands knobs apart, still no `if (hard)`. `planHorizonTicks` is the field that makes the tiers differ in KIND (0 / 8 / 22), so check it first |
+| "misses me when I turn" | prediction | `stateEstimationSigma` down to lead a turn better, up to lead it worse (easy 0.25, medium 0.1, hard 0.03) |
+| "sprays" | hands | `aimErrorSigmaRad` down |
+| "feels robotic" | reaction, hands | `reactionDelayMs` up; `aimErrorDriftMs` changes how fast the wobble wanders |
+| "reacts too fast / too slow" | reaction | `reactionDelayMs`, `viewStalenessMs`, `acquireMs`; `recomputeMs` is how often it re-decides |
+| "never dodges" | reaction | `dodgeReactionMs` down (or `dodgeHorizonMs` up). A shot is dodged only when its ETA at notice lies in `(dodgeReactionTicks, dodgeHorizonTicks + ~3.5]` ticks, so the window is the gap between the two. Easy's window is a sliver by design. A beam is never dodged |
+| "walks into obvious fire" | judgment | `opponentRangeRespect` up: it scales the opponent's shortest gun into a keep-out range |
+| "charges in / never closes" | judgment | `opponentRangeRespect` down to close. Ceiling: `fightRange = max(comfort, keep-out)`, so nothing in the profile puts a bot closer than its own comfort range (0.85 × its shortest ready gun's effective reach). A brawling bot is a new field, not a tune — say so |
+| "runs away when hurt" / "fights to the death" | judgment | `retreatHpFraction` (0 at easy: never resets) |
+| "doesn't finish me off" | judgment | `punishHpFraction` (0.4 on every tier; its `LADDER` entry is "equal", so move all three or change the test with them) |
+| "sits in a corner" / "drives into walls" | judgment | `wallLookaheadUnits` up: how far ahead `unpin` sees a wall. Overlay should read `unpin` |
+| "chases whoever shot it" / "ignores the wounded car" | judgment | `vengefulness` / `woundedBias`; `targetCommitMs` is how long it sticks |
+| "doesn't see me" | reaction | `awarenessRadiusUnits`, `rearBlindHalfAngleRad`, `memoryMs` |
+| "never rams" | **not a knob** | By design: `ram` is entered only when the kit is dry (no slot ready within `ramDryWindowMs`) and the target is within `ramRangeUnits` |
+| "wastes ult" / "saves its big gun" | **not a concept** | There is no ult holding: every slot fires when its hit chance clears the bar, cooldown ignored |
+| "it weaves" | **by design** | `fight` (`orbit` facing, unless a fixed-muzzle slot wants the nose) weaves across the range band to keep the target inside the turret's ±30° half-arc. Not a knob |
+| "shots are all over the place" with a good `hit` | **not a knob** | The solver decides hit chance. If it presses shots it reports as landing and they miss, that is a solver bug |
+| "easy and hard feel the same" | not a single knob | Read `packages/server/src/bot/brain/tiers.test.ts`. If green, the values are too close — move several judgment, hands and reaction knobs apart, still no `if (hard)` |
 
-`stateEstimationSigma` is a FRACTION, not a probability — a value above 1 is a wild misread, not an
-invalid one. It is deliberately outside `personality.ts`'s `UNIT_INTERVAL_FIELDS` and
-`bot-profiles.test.ts`'s `PROBABILITY_FIELDS`, exactly as `aimErrorSigmaRad` is. Do not add it to
-either list to "fix" a value you pushed past 1.
-
-Against a target holding full lock, the turn half's misjudge-whether-it-is-steering failure is
-effectively easy-only: it needs a noise draw beyond roughly `-0.5 / stateEstimationSigma` standard
-deviations, which is about 2.3% of constructions at easy's 0.25 but roughly 5 sigma at medium's 0.1
-and roughly 16.7 sigma (never) at hard's 0.03. On hard, "lower `stateEstimationSigma` so it leads a
-turn better" moves the *magnitude* of an already-correctly-read curve, not the *decision* that the
-car is curving at all — do not promise that fix against a full-lock target on hard.
-
-`opponentRangeRespect` is one dial behind three different complaints — keep-out range, the
-planner's danger weight, and two archetypes' whole range flavour — so say which one you are aiming
-at when you propose a move. At easy it is 0, and therefore inert in all three.
+`stateEstimationSigma` and `aimErrorSigmaRad` are not probabilities; a value above 1 is a wild
+misread, not an invalid one. Do not add either to `bot-profiles.test.ts`'s `PROBABILITY_FIELDS`.
 
 ## After they confirm
 
-Edit only `bot-profiles.ts` (and the `docs/bot-behavior.md` cells). Run:
+Edit only `bot-profiles.ts` (and the `docs/bot-behavior.md` cells). Then, from `packages/server`:
 
 ```
-npx vitest run src/config/bot-profiles.test.ts src/bot/brain/tiers.test.ts
+npx vitest run src/config/bot-profiles.test.ts
+npx vitest run -c vitest.slow.config.ts src/bot/brain/tiers.test.ts src/bot/brain/controller.test.ts
 ```
 
-from `packages/server`. If you touched a planning knob, add
-`src/bot/brain/planner.test.ts src/bot/brain/controller.test.ts` — the closed-loop duels are what
-catch a bot that has stopped being able to aim. Recommend they try it in Practice or
-`?dev=playground`. Recommend `npm run balance` only if they want a new win-rate baseline — the
-table hash will have moved.
+Bot tests live in the slow suite (`npm run test:slow` runs them all). Recommend they try it in
+Practice or `?dev=playground`, and `npm run balance` only if they want a new win-rate baseline —
+the bot fingerprint will have moved.
 
-**Exception, and it bites every shared constant.** `botFingerprintInput()` in
-`packages/server/balance/fingerprint.ts` hashes only `BOT_PROFILES` and `BOT_BRAIN_VERSION` —
-`BRAIN_CONSTANTS` has never been part of it, and neither has `objectives.ts`'s `BASE`. So an edit
-to `commitWindowFraction`, `trajectorySampleCount`, `preferredRangePlateauFraction`, or any
-`facingError` / `threatAvoid` / other BASE weight does **not** move `botFingerprint`, and two
-balance reports taken either side of it will compare as if the same pilot played both. 4.5.1
-existed for exactly that: `evade`'s `facingError` 40 → 10 with `BOT_PROFILES` unmoved. If you
-touch `BRAIN_CONSTANTS` or `BASE`, bump `BOT_BRAIN_VERSION` in the same edit — that is what makes
-the harness refuse the stale comparison. It also retunes all three tiers at once, which is almost
-never what a single-tier complaint asked for.
+**The invariants a retune must not break.** `bot-profiles.test.ts` holds them; check before you
+propose, not after the suite goes red.
 
-**The invariants a retune must not break.** `bot-profiles.test.ts` holds the first two and
-`firing.test.ts` the third; check them before you propose, not after the suite goes red.
-
-- Every `LADDER` field stays strictly ordered across the tiers — `minShotValueFraction`
-  (0.01 / 0.05 / 0.3) and `commitPenalty` (0.072 / 0.126 / 0.18) included.
-- Every `PROBABILITY_FIELDS` entry stays inside [0, 1] **on a ROLLED personality**, not just in the
-  table: an archetype shift of ±25% can push a tier value past 1 on its own.
+- Every `LADDER` field moves strictly in its declared direction across easy → medium → hard
+  (`punishHpFraction` is declared equal on all three).
+- Every `PROBABILITY_FIELDS` entry (`hitChanceBar`, `punishHpFraction`, `woundedBias`,
+  `vengefulness`, `retreatHpFraction`, `opponentRangeRespect`) stays inside [0, 1].
+- Perceived latency (`viewStalenessMs + reactionDelayMs`) still falls easy > medium > hard.
 - `BRAIN_CONSTANTS.minEngageUnits` (70) stays below every tier's `awarenessRadiusUnits`.
-  `preferredRangeOf` caps its answer at the awareness radius with a `Math.min`, so an awareness
-  radius under the floor would silently push a bot's chosen range BELOW the floor that constant
-  exists to enforce.
-
-And one that no test can hold: `commitPenalty` is a fraction of `maxScore - medianScore`, measured
-against that spread and no other. If anyone changes the planner's normaliser, this knob is
-re-measured, never carried across.
