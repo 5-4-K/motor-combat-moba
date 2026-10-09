@@ -519,7 +519,7 @@ See [`docs/superpowers/specs/2026-09-16-playground-six-car-select-design.md`](do
 
 **`arena-01` is a tile arena as of 2026-10-09.** It is a 32 × 18 text grid compiled by
 `compileTileArena` (`packages/shared/src/arena/tiles/`) into ordinary `obstacles`: playable floor
-1120 × 640 inside a one-tile wall, square corners, fourteen spike runs set into that wall. **Tiles are
+1200 × 640 inside a one-tile wall, square corners, fourteen spike runs set into that wall. **Tiles are
 cells, not ids (tile cells, 2026-10-09):** a row is one-character keys, a per-arena `legend` merged
 over `DEFAULT_LEGEND` (`.` floor, `#` wall, `^` spike, space void; arena-01 needs none) maps each key
 to a cell `{ tile, orientation?, art?, artOrientation?, overlay? }`, and `compileTileArena` resolves
