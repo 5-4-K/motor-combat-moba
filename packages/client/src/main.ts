@@ -3,6 +3,7 @@ import { BootScene } from "./scenes/BootScene.js";
 import { JoinScene } from "./scenes/JoinScene.js";
 import { PracticeSetupScene } from "./scenes/PracticeSetupScene.js";
 import { LobbyScene } from "./scenes/LobbyScene.js";
+import { ArenaSelectScene } from "./scenes/ArenaSelectScene.js";
 import { CarSelectScene } from "./scenes/CarSelectScene.js";
 import { RevealScene } from "./scenes/RevealScene.js";
 import { ArenaScene } from "./scenes/ArenaScene.js";
@@ -38,6 +39,7 @@ const game = new Phaser.Game({
     JoinScene,
     PracticeSetupScene,
     LobbyScene,
+    ArenaSelectScene,
     CarSelectScene,
     RevealScene,
     ArenaScene,

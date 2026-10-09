@@ -337,3 +337,12 @@ textarea.input { min-height: 90px; resize: vertical; }
 }
 .host-pulse { animation: host-pulse 1.6s ease-in-out infinite; }
 
+
+/* Arena select reveal (AR35). Runs once per mount: the scene renders the revealed stage once and only
+   updates the count text afterwards, so these animations never restart mid-reveal. */
+@keyframes mc-arena-dismiss { to { opacity: 0; transform: scale(0.8); } }
+@keyframes mc-arena-backdrop { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mc-arena-chosen { from { transform: scale(0.5); opacity: 0; } 60% { transform: scale(1.04); opacity: 1; } to { transform: scale(1); } }
+.mc-arena-dismissed { animation: mc-arena-dismiss 350ms ease-out forwards; }
+.mc-arena-stage { animation: mc-arena-backdrop 300ms ease-out 200ms both; }
+.mc-arena-chosen { animation: mc-arena-chosen 600ms cubic-bezier(.2,.9,.3,1.25) 250ms both; }
