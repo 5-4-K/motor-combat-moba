@@ -135,7 +135,11 @@ async function main(): Promise<void> {
   host.room.send("set_mode", { mode: 0 });
   await sleep(200);
   host.room.send("start_match");
-  await until(alice, () => state().phase === RoomPhase.CAR_SELECT, 5000, "car select");
+  // Start opens the arena select screen (AR13): the host picks the mode's default arena at once
+  // rather than sitting out the choosing clock, then the reveal holds before car select.
+  await until(alice, () => state().phase === RoomPhase.ARENA_SELECT, 5000, "arena select");
+  host.room.send("arena_pick", { arenaId: state().arenaHighlightId });
+  await until(alice, () => state().phase === RoomPhase.CAR_SELECT, 10000, "car select");
   console.log("phase -> CAR_SELECT");
 
   // Alice takes the rammer, Bob takes the glass cannon.
