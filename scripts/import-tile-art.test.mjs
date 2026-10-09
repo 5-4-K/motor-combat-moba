@@ -1,13 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { TILE_ART_IDS, TILE_PX, tileArtKeyOf, tileManifestRow } from "./import-tile-art.mjs";
+import { isTileArtId, TILE_PX, tileArtKeyOf, tileManifestRow } from "./import-tile-art.mjs";
 
 test("imports at 80 px, twice the 40 u tile", () => {
   assert.equal(TILE_PX, 80);
 });
 
-test("knows every art id the tile definitions name", () => {
-  assert.deepEqual([...TILE_ART_IDS].sort(), ["checker-plate", "metal-plate", "spike-teeth"]);
+test("accepts any kebab-case art id, since art is named by look (TC30)", () => {
+  for (const id of ["metal-plate", "grass", "spike-teeth", "a1"]) assert.equal(isTileArtId(id), true, id);
+  for (const id of ["Floor", "a--b", "-a", "a-", "a_b", ""]) assert.equal(isTileArtId(id), false, id);
 });
 
 test("keys and files art in the common arena namespace", () => {

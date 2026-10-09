@@ -14,7 +14,7 @@
  * probably not the way someone intended, and only a person looking at the screen can settle that.
  */
 
-import { arenaIdFromArtKey } from "../packages/shared/dist/index.js";
+import { arenaIdFromArtKey, overlayArtIds, referencedTileArtIds } from "../packages/shared/dist/index.js";
 import { finding } from "./check-weapons.mjs";
 import { GREYSCALE_CHROMA_LIMIT } from "./check-cars.mjs";
 import { TURRET_KEY_PREFIX } from "./import-art.mjs";
@@ -133,14 +133,14 @@ export function checkTurretSprite({ turretId, row, image }) {
   return out;
 }
 
-/** Every complaint about one tile image (TA21). Opaque is fine except for the teeth overlay. */
-export function checkTileArt({ artId, row, image }) {
+/** Every complaint about one tile image (TA21). Opaque is fine except for an overlay's art (TC31). */
+export function checkTileArt({ artId, row, image, overlayIds = [] }) {
   const out = [];
   if (!image) {
     out.push(finding("blocker", "missing-file", `manifest names ${row.file}, which is not on disk`));
     return out;
   }
-  if (artId === "spike-teeth" && (!image.hasAlpha || image.channels < 4)) {
+  if (overlayIds.includes(artId) && (!image.hasAlpha || image.channels < 4)) {
     out.push(
       finding(
         "blocker",
@@ -205,14 +205,31 @@ export function reportTurrets(results) {
 
 const TILE_KEY_PREFIX = "arena.common.tile.";
 
-/** Every tile art row's findings, keyed by the id after `arena.common.tile.`. */
-export async function checkTiles(manifest) {
+/**
+ * Every tile art row's findings, keyed by the id after `arena.common.tile.`, plus a warning for each
+ * referenced art id with no row (TC31). The id lists are parameters so a test can use fixtures.
+ */
+export async function checkTiles(manifest, referencedIds = referencedTileArtIds(), overlayIds = overlayArtIds()) {
   const results = [];
+  const rows = manifest.sprites ?? {};
+  for (const artId of referencedIds) {
+    if (Object.hasOwn(rows, TILE_KEY_PREFIX + artId)) continue;
+    results.push({
+      id: artId,
+      findings: [
+        finding(
+          "warning",
+          "no-tile-art",
+          `tile art "${artId}" is referenced but has no manifest row; the cell will draw the procedural fallback`,
+        ),
+      ],
+    });
+  }
   for (const [key, row] of Object.entries(manifest.sprites ?? {})) {
     if (!key.startsWith(TILE_KEY_PREFIX)) continue;
     const artId = key.slice(TILE_KEY_PREFIX.length);
     const image = await readSpriteFacts(path.join(artDir, row.file));
-    results.push({ id: artId, findings: checkTileArt({ artId, row, image }) });
+    results.push({ id: artId, findings: checkTileArt({ artId, row, image, overlayIds }) });
   }
   return results;
 }
