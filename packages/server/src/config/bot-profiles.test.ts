@@ -65,6 +65,7 @@ const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
   aimErrorDriftTicks: "falls",
   // Fire economy
   burstGapTicks: "falls",
+  hitChanceBar: "rises",
   minShotValueFraction: "rises",
   ultDisciplineChance: "rises",
   ultWindowHpFraction: "equal",
@@ -75,6 +76,7 @@ const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
   // Positioning and survival
   wallLookaheadUnits: "rises",
   retreatHpFraction: "rises",
+  punishHpFraction: "equal",
   ramIntentChance: "rises",
   // Threat reaction and consistency
   dodgeChance: "rises",
@@ -100,7 +102,7 @@ const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
 
 const PROBABILITY_FIELDS = [
   "ultDisciplineChance", "ultWindowHpFraction", "woundedBias",
-  "vengefulness", "retreatHpFraction",
+  "vengefulness", "retreatHpFraction", "hitChanceBar", "punishHpFraction",
   "ramIntentChance", "dodgeChance", "blunderChance", "idleFidgetChance",
   "hearChance", "deadRespect", "opponentRangeRespect", "cornerRespect", "incomingCarChance",
   "commitPenalty",
@@ -206,6 +208,20 @@ describe("BOT_PROFILES", () => {
     expect(BRAIN_CONSTANTS.punishRangeFraction).toBe(0.5);
     expect(BRAIN_CONSTANTS.resetRangeMultiplier).toBe(1.15);
     expect(BOT_BRAIN_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  it("exposes the v7 navigator and shooter constants (BB51)", () => {
+    expect(BRAIN_CONSTANTS.comfortFraction).toBe(0.85);
+    expect(BRAIN_CONSTANTS.rangeBandUnits).toBe(40);
+    expect(BRAIN_CONSTANTS.steerDeadbandRad).toBe(0.06);
+    expect(BRAIN_CONSTANTS.orbitOffsetRad).toBe(0.6);
+    expect(BRAIN_CONSTANTS.dodgeDistanceUnits).toBe(120);
+    expect(BRAIN_CONSTANTS.unpinDistanceUnits).toBe(180);
+    expect(BRAIN_CONSTANTS.ramRangeUnits).toBe(400);
+    expect(BRAIN_CONSTANTS.effectiveReachSamples).toBe(12);
+    expect(resolveBrainConstants().soonReadyTicks).toBe(Math.round(TICK_RATE_HZ));
+    expect(resolveBrainConstants().ramDryWindowTicks).toBe(Math.round(1.5 * TICK_RATE_HZ));
+    expect(BOT_BRAIN_VERSION).toBe("7.0.0");
   });
 });
 

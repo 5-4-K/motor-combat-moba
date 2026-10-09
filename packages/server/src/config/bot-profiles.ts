@@ -46,6 +46,13 @@ export interface BotProfile {
   /** Minimum ticks between presses. The sim accepts one press per tick regardless. */
   readonly burstGapTicks: number;
   /**
+   * Minimum solved hit chance a press must clear (BB38). `solve()`'s `hitChance` is a sum of the
+   * five quadrature node weights (0.457 centre, 0.240 at ±1.15σ, 0.031 at ±2.37σ), so the bar is a
+   * statement about which nodes must land: (0.06, 0.457] the exact aim; (0.457, 0.697] one 1.15σ
+   * error as well; (0.697, 0.937] both (BB50).
+   */
+  readonly hitChanceBar: number;
+  /**
    * The FRACTION of this shooter's own kit's best-achievable `value` (`bestAchievableValueOf`,
    * solution.ts) a shot must clear before this bot takes it (P14, R20).
    *
@@ -133,6 +140,8 @@ export interface BotProfile {
   readonly wallLookaheadUnits: number;
   /** Hp fraction below which the bot disengages. 0 means it fights to zero. */
   readonly retreatHpFraction: number;
+  /** Target HP fraction at or below which `punish` applies (BB15). */
+  readonly punishHpFraction: number;
   /** Probability of committing to a deliberate ram when one is available. */
   readonly ramIntentChance: number;
 
@@ -349,6 +358,26 @@ export interface BotProfile {
  * Constants shared by every tier — not per-tier, and therefore deliberately not in the profile.
  */
 export const BRAIN_CONSTANTS = Object.freeze({
+  /** Fraction of the shortest ready gun's effective reach a bot stands at (BB43). */
+  comfortFraction: 0.85,
+  /** Half-width of the band around a goal range inside which the pedal is lifted (BB25, BB45). */
+  rangeBandUnits: 40,
+  /** Steering latch: start steering beyond this error, stop inside half of it (BB28). */
+  steerDeadbandRad: 0.06,
+  /** Where an orbiting bot holds the target off its nose; inside the 60° turret arc (BB24). */
+  orbitOffsetRad: 0.6,
+  /** How far a dodge goal is projected off the shot's line (BB23). */
+  dodgeDistanceUnits: 120,
+  /** How far an unpin goal is projected along the wall push (BB23). */
+  unpinDistanceUnits: 180,
+  /** A slot ready within this counts as "ready soon" for comfort and close ranges (BB43). */
+  soonReadyMs: 1000,
+  /** The kit is dry when no slot is ready within this; a dry kit may ram (BB21). */
+  ramDryWindowMs: 1500,
+  /** A dry kit rams only inside this distance (BB15). */
+  ramRangeUnits: 400,
+  /** Sweep resolution of `effectiveReachOf` (BB42). */
+  effectiveReachSamples: 12,
   /**
    * Closest range the bot will ever choose to hold. A shade over one car length (60 u since the
    * 2026-09-16 hull resize; one and a half of the old 48 u).
@@ -844,7 +873,7 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // turn still owed (`PlanArgs.huntCostToGo`) — so a bot whose waypoint is off the nose turns to it
 // and drives, instead of coasting in place every tick (G12, broken since the 2026-09-06 heavy-car
 // pass). Fight situations are unchanged. `BOT_PROFILES` did not move.
-export const BOT_BRAIN_VERSION = "6.8.0";
+export const BOT_BRAIN_VERSION = "7.0.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency
@@ -876,9 +905,14 @@ export function resolveBotProfile(authored: AuthoredBotProfile): BotProfile {
 }
 
 /** `BRAIN_CONSTANTS` with the authored ms horizon replaced by its tick count. */
-export type ResolvedBrainConstants = Omit<typeof BRAIN_CONSTANTS, "predictionHorizonMs" | "minRolledHorizonMs"> & {
+export type ResolvedBrainConstants = Omit<
+  typeof BRAIN_CONSTANTS,
+  "predictionHorizonMs" | "minRolledHorizonMs" | "soonReadyMs" | "ramDryWindowMs"
+> & {
   readonly predictionHorizonTicks: number;
   readonly minRolledHorizonTicks: number;
+  readonly soonReadyTicks: number;
+  readonly ramDryWindowTicks: number;
 };
 let resolvedBrain: ResolvedBrainConstants | undefined;
 
@@ -886,11 +920,13 @@ let resolvedBrain: ResolvedBrainConstants | undefined;
 export function resolveBrainConstants(): ResolvedBrainConstants {
   // Memoised: the planner reads this per candidate, and `TICK_RATE_HZ` is a build constant.
   resolvedBrain ??= (() => {
-    const { predictionHorizonMs, minRolledHorizonMs, ...rest } = BRAIN_CONSTANTS;
+    const { predictionHorizonMs, minRolledHorizonMs, soonReadyMs, ramDryWindowMs, ...rest } = BRAIN_CONSTANTS;
     return Object.freeze({
       ...rest,
       predictionHorizonTicks: toTicks(predictionHorizonMs),
       minRolledHorizonTicks: Math.max(1, toTicks(minRolledHorizonMs)),
+      soonReadyTicks: toTicks(soonReadyMs),
+      ramDryWindowTicks: toTicks(ramDryWindowMs),
     });
   })();
   return resolvedBrain;
@@ -925,10 +961,10 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, AuthoredBotProfile>> =
     awarenessRadiusUnits: 600, rearBlindHalfAngleRad: 1.05, trackedThreatLimit: 1, memoryMs: 500,
     stateEstimationSigma: 0.25,
     aimErrorSigmaRad: 0.18, aimErrorDriftMs: 667,
-    burstGapMs: 467, minShotValueFraction: 0.01, ultDisciplineChance: 0, ultWindowHpFraction: 0.4,
+    burstGapMs: 467, hitChanceBar: 0.3, minShotValueFraction: 0.01, ultDisciplineChance: 0, ultWindowHpFraction: 0.4,
     targetCommitMs: 5000, woundedBias: 0.1, vengefulness: 0.8,
     wallLookaheadUnits: 40,
-    retreatHpFraction: 0, ramIntentChance: 0.15,
+    retreatHpFraction: 0, punishHpFraction: 0.4, ramIntentChance: 0.15,
     dodgeChance: 0.05, dodgeReactionMs: 400, dodgeHorizonMs: 400,
     blunderChance: 0.12, blunderMs: 333, idleFidgetChance: 0.1, scoreNoiseSigma: 0.3,
     hearChance: 0.15,
@@ -941,10 +977,10 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, AuthoredBotProfile>> =
     awarenessRadiusUnits: 700, rearBlindHalfAngleRad: 0.6, trackedThreatLimit: 2, memoryMs: 1500,
     stateEstimationSigma: 0.1,
     aimErrorSigmaRad: 0.09, aimErrorDriftMs: 467,
-    burstGapMs: 233, minShotValueFraction: 0.05, ultDisciplineChance: 0.5, ultWindowHpFraction: 0.4,
+    burstGapMs: 233, hitChanceBar: 0.5, minShotValueFraction: 0.05, ultDisciplineChance: 0.5, ultWindowHpFraction: 0.4,
     targetCommitMs: 2000, woundedBias: 0.5, vengefulness: 0.5,
     wallLookaheadUnits: 90,
-    retreatHpFraction: 0.3, ramIntentChance: 0.3,
+    retreatHpFraction: 0.3, punishHpFraction: 0.4, ramIntentChance: 0.3,
     dodgeChance: 0.55, dodgeReactionMs: 267, dodgeHorizonMs: 600,
     blunderChance: 0.05, blunderMs: 333, idleFidgetChance: 0.05, scoreNoiseSigma: 0.15,
     hearChance: 0.55,
@@ -957,10 +993,10 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, AuthoredBotProfile>> =
     awarenessRadiusUnits: 900, rearBlindHalfAngleRad: 0, trackedThreatLimit: 4, memoryMs: 3000,
     stateEstimationSigma: 0.03,
     aimErrorSigmaRad: 0.035, aimErrorDriftMs: 300,
-    burstGapMs: 100, minShotValueFraction: 0.3, ultDisciplineChance: 0.9, ultWindowHpFraction: 0.4,
+    burstGapMs: 100, hitChanceBar: 0.7, minShotValueFraction: 0.3, ultDisciplineChance: 0.9, ultWindowHpFraction: 0.4,
     targetCommitMs: 833, woundedBias: 0.9, vengefulness: 0.25,
     wallLookaheadUnits: 150,
-    retreatHpFraction: 0.35, ramIntentChance: 0.5,
+    retreatHpFraction: 0.35, punishHpFraction: 0.4, ramIntentChance: 0.5,
     dodgeChance: 0.95, dodgeReactionMs: 67, dodgeHorizonMs: 800,
     blunderChance: 0.015, blunderMs: 333, idleFidgetChance: 0.02, scoreNoiseSigma: 0.05,
     hearChance: 1,
