@@ -8,7 +8,7 @@ import { MAX_PLAYERS } from "../constants.js";
 import { pointOutsideBounds } from "../sim/collide.js";
 import { planePenetration, rectPlanes, supportRadius } from "../sim/boundary.js";
 import { boundsOf } from "./bounds.js";
-import { isSolidTile, TILE_SIZE } from "./tiles/tile-config.js";
+import { TILE_SIZE } from "./tiles/tile-config.js";
 import { ARENA_IDS, ARENAS, getArena, isArenaId } from "./registry.js";
 import type { ArenaDef, Spawn } from "./types.js";
 
@@ -160,7 +160,7 @@ describe.each(entries)("arena %s", (id, arena) => {
     const g = arena.tiles;
     if (!g) return;
     const open = (c: number, r: number) =>
-      c >= 0 && r >= 0 && c < g.cols && r < g.rows && !isSolidTile(g.cells[r * g.cols + c]!);
+      c >= 0 && r >= 0 && c < g.cols && r < g.rows && !g.cells[r * g.cols + c]!.solid;
     const block = (c: number, r: number) => open(c, r) && open(c + 1, r) && open(c, r + 1) && open(c + 1, r + 1);
     const pinched: string[] = [];
     for (let r = 0; r < g.rows; r += 1) {
@@ -178,8 +178,8 @@ describe.each(entries)("arena %s", (id, arena) => {
     const g = arena.tiles;
     if (!g) return;
     const untouchable: string[] = [];
-    g.cells.forEach((id, i) => {
-      if (id !== "spike") return;
+    g.cells.forEach((cell, i) => {
+      if (cell.hazard !== "spike") return;
       const c = i % g.cols;
       const r = Math.floor(i / g.cols);
       const reachable = [
@@ -187,7 +187,7 @@ describe.each(entries)("arena %s", (id, arena) => {
         [c + 1, r],
         [c, r + 1],
         [c - 1, r],
-      ].some(([nc, nr]) => nc! >= 0 && nr! >= 0 && nc! < g.cols && nr! < g.rows && !isSolidTile(g.cells[nr! * g.cols + nc!]!));
+      ].some(([nc, nr]) => nc! >= 0 && nr! >= 0 && nc! < g.cols && nr! < g.rows && !g.cells[nr! * g.cols + nc!]!.solid);
       if (!reachable) untouchable.push(`spike at col ${c}, row ${r}`);
     });
     expect(untouchable).toEqual([]);
@@ -197,8 +197,8 @@ describe.each(entries)("arena %s", (id, arena) => {
     const g = arena.tiles;
     if (!g) return;
     for (const s of [...arena.ffaSpawns, ...arena.teamASpawns, ...arena.teamBSpawns]) {
-      const id = g.cells[Math.floor(s.y / TILE_SIZE) * g.cols + Math.floor(s.x / TILE_SIZE)];
-      expect(id, `spawn ${s.x},${s.y}`).toBe("floor");
+      const cell = g.cells[Math.floor(s.y / TILE_SIZE) * g.cols + Math.floor(s.x / TILE_SIZE)];
+      expect(cell?.tile, `spawn ${s.x},${s.y}`).toBe("floor");
     }
   });
 

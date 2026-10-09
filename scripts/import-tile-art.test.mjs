@@ -6,8 +6,8 @@ test("imports at 80 px, twice the 40 u tile", () => {
   assert.equal(TILE_PX, 80);
 });
 
-test("knows the four tile art ids", () => {
-  assert.deepEqual([...TILE_ART_IDS].sort(), ["floor", "spike", "spike-teeth", "wall"]);
+test("knows every art id the tile definitions name", () => {
+  assert.deepEqual([...TILE_ART_IDS].sort(), ["checker-plate", "metal-plate", "spike-teeth"]);
 });
 
 test("keys and files art in the common arena namespace", () => {

@@ -1,22 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { TILE_SIZE, TILE_TABLE, isSolidTile, tileDefOf, type TileDef } from "./tile-config.js";
+import { TILE_DEFS, TILE_SIZE, rotateSides, type TileDef } from "./tile-config.js";
 
-const rows = Object.entries(TILE_TABLE) as ReadonlyArray<[string, TileDef]>;
+const rows = Object.entries(TILE_DEFS) as ReadonlyArray<[string, TileDef]>;
 
-describe("TILE_TABLE", () => {
+describe("TILE_DEFS", () => {
   it("is 40 world units a tile (TA3)", () => {
     expect(TILE_SIZE).toBe(40);
   });
 
-  it("gives every row exactly one character, unique across the table (TA13)", () => {
-    for (const [id, def] of rows) expect([...def.char], id).toHaveLength(1);
-    const chars = rows.map(([, def]) => def.char);
-    expect(new Set(chars).size).toBe(chars.length);
-  });
-
-  it("makes every hazard tile solid (TA11)", () => {
+  it("makes every hazard definition solid (TC12)", () => {
     for (const [id, def] of rows) {
       if (def.hazard !== undefined) expect(def.collision, id).toBe("solid");
+    }
+  });
+
+  it("never gives an undrawn definition a default art (TC12)", () => {
+    for (const [id, def] of rows) {
+      if (def.draw === "none") expect(def.defaultArt, id).toBeUndefined();
     }
   });
 
@@ -29,21 +29,30 @@ describe("TILE_TABLE", () => {
     for (const [, def] of rows) expect(def.shape).toBe("full");
   });
 
-  it("authors the four shipped tiles with their characters", () => {
-    expect(tileDefOf("floor").char).toBe(".");
-    expect(tileDefOf("wall").char).toBe("#");
-    expect(tileDefOf("spike").char).toBe("^");
-    expect(tileDefOf("void").char).toBe(" ");
+  it("ships the house look as defaults (TC14, TC29)", () => {
+    const defs: Readonly<Record<string, TileDef>> = TILE_DEFS;
+    expect(defs.floor!.defaultArt).toBe("metal-plate");
+    expect(defs.wall!.defaultArt).toBe("checker-plate");
+    expect(defs.spike!.defaultArt).toBe("checker-plate");
+    expect(defs.spike!.overlay?.art).toBe("spike-teeth");
+    expect(defs.spike!.hazard?.sides).toBe("all");
+    expect(defs.void!.draw).toBe("none");
+  });
+});
+
+describe("rotateSides (TC3, TC4)", () => {
+  it("turns the front side clockwise with the orientation", () => {
+    expect(rotateSides(["front"], 0)).toEqual(["n"]);
+    expect(rotateSides(["front"], 90)).toEqual(["e"]);
+    expect(rotateSides(["front"], 180)).toEqual(["s"]);
+    expect(rotateSides(["front"], 270)).toEqual(["w"]);
   });
 
-  it("knows which tiles are solid", () => {
-    expect(isSolidTile("floor")).toBe(false);
-    expect(isSolidTile("wall")).toBe(true);
-    expect(isSolidTile("spike")).toBe(true);
-    expect(isSolidTile("void")).toBe(true);
+  it("answers in n-e-s-w order", () => {
+    expect(rotateSides(["front", "right"], 270)).toEqual(["n", "w"]);
   });
 
-  it("draws void as backdrop, with no art", () => {
-    expect(tileDefOf("void").art).toBeNull();
+  it("answers every face for all sides", () => {
+    expect(rotateSides("all", 90)).toEqual(["n", "e", "s", "w"]);
   });
 });

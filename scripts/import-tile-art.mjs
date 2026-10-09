@@ -9,18 +9,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import sharp from "sharp";
-import { TILE_TABLE } from "../packages/shared/dist/index.js";
+import { TILE_DEFS } from "../packages/shared/dist/index.js";
 import { formatManifest } from "./import-art.mjs";
 
 /** Twice the 40 u tile, so a tile is sharp at the bake's 2 px per unit (TA4). */
 export const TILE_PX = 80;
 
-/** Every art id a tile row names, plus the spike edge overlay. */
+/** Every art id a tile definition names: its default art and its overlay (tile cells TC14, TC6). */
 export const TILE_ART_IDS = [
-  ...Object.values(TILE_TABLE)
-    .map((t) => t.art)
-    .filter((a) => a !== null),
-  "spike-teeth",
+  ...new Set(Object.values(TILE_DEFS).flatMap((t) => [t.defaultArt, t.overlay?.art].filter((a) => a !== undefined))),
 ];
 
 export function tileArtKeyOf(artId) {

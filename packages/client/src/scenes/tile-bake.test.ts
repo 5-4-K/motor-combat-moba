@@ -1,42 +1,40 @@
 import { describe, expect, it } from "vitest";
-import type { TileGrid, TileId } from "@motor-combat-moba/shared";
-import { bakeChunks, fallbackTeeth, tileBakePlan, type TileStamp } from "./tile-bake.js";
+import { compileTileArena, type TileGrid } from "@motor-combat-moba/shared";
+import { bakeChunks, fallbackTeeth, tileBakePlan, type BakeStamp } from "./tile-bake.js";
 
+const SPAWN = { x: 0, y: 0, angle: 0 };
+
+/** The resolved grid shared compiles from `rows` with the default legend. */
 function grid(rows: string[]): TileGrid {
-  const map: Record<string, TileId> = { ".": "floor", "#": "wall", "^": "spike", " ": "void" };
-  return { cols: rows[0]!.length, rows: rows.length, cells: rows.flatMap((r) => [...r].map((ch) => map[ch]!)) };
+  return compileTileArena({ id: "t", rows, ffaSpawns: [SPAWN], teamASpawns: [SPAWN], teamBSpawns: [SPAWN] }).tiles!;
 }
-const teeth = (plan: TileStamp[]) => plan.filter((s) => s.art === "spike-teeth");
+const overlays = (plan: BakeStamp[]) => plan.filter((s) => s.overlay);
 
-describe("tileBakePlan (TA22)", () => {
-  it("stamps one base per cell with art, and nothing for void", () => {
+describe("tileBakePlan (TA22, TC32)", () => {
+  it("stamps one base per drawn cell, and nothing for void", () => {
     expect(tileBakePlan(grid(["#. "]))).toEqual([
-      { art: "wall", col: 0, row: 0, rotation: 0 },
-      { art: "floor", col: 1, row: 0, rotation: 0 },
+      { col: 0, row: 0, solid: true, hazard: null, art: "checker-plate", rotation: 0, overlay: false },
+      { col: 1, row: 0, solid: false, hazard: null, art: "metal-plate", rotation: 0, overlay: false },
     ]);
   });
 
-  it("gives a mid-arena spike pillar teeth on all four sides", () => {
-    const plan = tileBakePlan(grid(["...", ".^.", "..."]));
-    expect(teeth(plan).map((s) => s.rotation).sort((a, b) => a - b)).toEqual([0, 90, 180, 270]);
-    expect(teeth(plan).every((s) => s.col === 1 && s.row === 1)).toBe(true);
+  it("gives a mid-arena spike pillar an overlay on all four sides", () => {
+    const plan = overlays(tileBakePlan(grid(["...", ".^.", "..."])));
+    expect(plan.map((s) => s.rotation)).toEqual([0, 90, 180, 270]);
+    expect(plan.every((s) => s.col === 1 && s.row === 1 && s.hazard === "spike")).toBe(true);
   });
 
-  it("gives a wall-row spike teeth only on its floor side", () => {
-    expect(teeth(tileBakePlan(grid(["#^#", "..."])))).toEqual([
-      { art: "spike-teeth", col: 1, row: 0, rotation: 180 },
+  it("gives a wall-row spike exactly one overlay, on its floor side", () => {
+    expect(overlays(tileBakePlan(grid(["#^#", "..."])))).toEqual([
+      { col: 1, row: 0, solid: true, hazard: "spike", art: "spike-teeth", rotation: 180, overlay: true },
     ]);
   });
 
-  it("puts no teeth on a grid edge or against void", () => {
-    expect(teeth(tileBakePlan(grid([" ^ "])))).toEqual([]);
-  });
-
-  it("stamps every base before any teeth", () => {
+  it("stamps every base before any overlay", () => {
     const plan = tileBakePlan(grid(["...", ".^.", "..."]));
-    const firstTooth = plan.findIndex((s) => s.art === "spike-teeth");
-    expect(firstTooth).toBe(9);
-    expect(plan.slice(firstTooth).every((s) => s.art === "spike-teeth")).toBe(true);
+    const first = plan.findIndex((s) => s.overlay);
+    expect(first).toBe(9);
+    expect(plan.slice(first).every((s) => s.overlay)).toBe(true);
   });
 });
 

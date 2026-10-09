@@ -35,8 +35,8 @@ describe("ARENA_01 grid", () => {
     const at = (c: number, r: number) => g.cells[r * g.cols + c];
     for (let r = 0; r < g.rows; r += 1) {
       for (let c = 0; c < g.cols; c += 1) {
-        expect(at(c, r)).toBe(at(g.cols - 1 - c, r));
-        expect(at(c, r)).toBe(at(c, g.rows - 1 - r));
+        expect(at(c, r)?.tile).toBe(at(g.cols - 1 - c, r)?.tile);
+        expect(at(c, r)?.tile).toBe(at(c, g.rows - 1 - r)?.tile);
       }
     }
   });
