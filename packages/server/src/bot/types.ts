@@ -145,7 +145,7 @@ export interface BotController {
 
 /** Tactical tasks the assess layer names (S13). */
 export type SituationId =
-  | "recover" | "waitOut" | "evade" | "unpin" | "punish" | "reset" | "fight" | "close";
+  | "recover" | "waitOut" | "evade" | "unpin" | "punish" | "reset" | "ram" | "fight" | "close";
 
 /** The five personality archetypes (H47). */
 export type PersonalityId = "brawler" | "kiter" | "sprayer" | "grudge" | "opportunist";

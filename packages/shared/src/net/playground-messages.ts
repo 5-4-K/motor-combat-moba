@@ -29,7 +29,7 @@ export const MSG_PLAYGROUND_SETUP = "pg_setup"; // payload: PlaygroundSetup
 export const MSG_PLAYGROUND_BOT_DEBUG = "playground-bot-debug";
 
 const SITUATIONS = [
-  "recover", "waitOut", "evade", "unpin", "punish", "reset", "fight", "close",
+  "recover", "waitOut", "evade", "unpin", "punish", "reset", "ram", "fight", "close",
 ] as const;
 
 export interface BotDebugPayload {

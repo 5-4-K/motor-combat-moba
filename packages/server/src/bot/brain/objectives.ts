@@ -327,6 +327,12 @@ const BASE: Readonly<Record<SituationId, PlanWeights>> = Object.freeze({
     myEv: 0.4, theirEv: 3, rangeError: 0.625, wallPenalty: 360, threatAvoid: 0,
     facingError: 10,
   },
+  // Placeholder: `ram` is never classified until the v7 controller (Task 9); same drive-to-contact
+  // shape as `close` so every per-situation invariant holds. Re-derived when ram is wired in.
+  ram: {
+    myEv: 1, theirEv: 0.75, rangeError: 0.875, wallPenalty: 300, threatAvoid: 0,
+    facingError: 80,
+  },
   fight: {
     myEv: 2, theirEv: 0.6, rangeError: 0.3, wallPenalty: 300, threatAvoid: 0,
     facingError: 30,

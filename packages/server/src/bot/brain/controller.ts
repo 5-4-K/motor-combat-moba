@@ -26,7 +26,9 @@ import { plan as planMotion, type PlanResult } from "./planner.js";
 import { physicsPredictor, selfPredictor, type DriveAction } from "./predict.js";
 import { kitReachOf, weaponReachOf } from "./reach.js";
 import { rolesOf } from "./roles.js";
-import { classifySituation, newSituationState, pickSituation, type SituationState } from "./situation.js";
+import {
+  classifySituation, isIncomingCar, newSituationState, pickSituation, type SituationState,
+} from "./situation.js";
 import {
   bestAchievableValueOf, dangerEvAgainst, solve, type FiringSolution, type PosePredictor,
 } from "./solution.js";
@@ -439,10 +441,12 @@ export class HumanController implements BotController {
       // seconds. Do not port the gates back: they were scaffolding for a shape that no longer
       // exists.
       evade: shotThreats.length > 0 || (carIncoming && this.willEvadeCar),
-      unpin: pinned && trulyHittable && this.willUnpin,
+      pinned: pinned && trulyHittable && this.willUnpin,
       punish: trulyHittable && (targetStunned || ultSpent
         || targetHpFraction <= profile.ultWindowHpFraction),
       reset: profile.retreatHpFraction > 0 && hpFraction < profile.retreatHpFraction,
+      kitDry: false,
+      inRamRange: false,
       inOwnReach,
     });
     this.situation = pickSituation(this.situation, classified, tick, profile);
@@ -669,6 +673,7 @@ function preferredRangeFor(sit: SituationId, ownComfort: number, fightRange: num
         fightRange * BRAIN_CONSTANTS.resetRangeMultiplier, BRAIN_CONSTANTS.minEngageUnits,
       );
     case "close":
+    case "ram":
       return BRAIN_CONSTANTS.minEngageUnits;
     case "evade":
     case "unpin":
@@ -685,22 +690,6 @@ function seenWeapons(perception: PerceptionState, sessionId: string | undefined)
     if (key.startsWith(prefix)) out.push(key.slice(prefix.length) as WeaponId);
   }
   return out;
-}
-
-function isIncomingCar(
-  self: { x: number; y: number },
-  target: BotCarView,
-  profile: BotProfile,
-): boolean {
-  const dx = self.x - target.x;
-  const dy = self.y - target.y;
-  const dist = Math.hypot(dx, dy);
-  if (dist < 1) return true;
-  const closing = (target.vx * dx + target.vy * dy) / dist;
-  if (closing <= 0) return false;
-  const eta = (dist - BRAIN_CONSTANTS.contactTriggerUnits) / closing;
-  const horizon = profile.dodgeHorizonTicks / TICK_RATE_HZ;
-  return eta >= 0 && eta <= horizon;
 }
 
 function enemyUltSpent(

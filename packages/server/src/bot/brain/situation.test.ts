@@ -1,60 +1,59 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
-import {
-  classifySituation, newSituationState, pickSituation, type SituationInputs,
-} from "./situation.js";
+import { ALL_SITUATIONS, classifySituation, isIncomingCar, newSituationState, pickSituation, type SituationInputs } from "./situation.js";
 
-const fight: SituationInputs = {
-  selfControlLost: false, hittable: true, evade: false, unpin: false,
-  punish: false, reset: false, inOwnReach: true,
+beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+
+const calm: SituationInputs = {
+  selfControlLost: false, hittable: true, evade: false, pinned: false, punish: false, reset: false,
+  kitDry: false, inRamRange: false, inOwnReach: true,
 };
 
-describe("classifySituation", () => {
-  it("names recover when control is lost", () => {
-    expect(classifySituation({ ...fight, selfControlLost: true })).toBe("recover");
+describe("classifySituation (BB15)", () => {
+  it("orders the plays", () => {
+    expect(classifySituation({ ...calm, selfControlLost: true, evade: true })).toBe("recover");
+    expect(classifySituation({ ...calm, evade: true, pinned: true })).toBe("evade");
+    expect(classifySituation({ ...calm, pinned: true, punish: true })).toBe("unpin");
+    expect(classifySituation({ ...calm, hittable: false })).toBe("waitOut");
+    expect(classifySituation({ ...calm, punish: true, reset: true })).toBe("punish");
+    expect(classifySituation({ ...calm, reset: true, kitDry: true, inRamRange: true })).toBe("reset");
+    expect(classifySituation({ ...calm, kitDry: true, inRamRange: true })).toBe("ram");
+    expect(classifySituation(calm)).toBe("fight");
+    expect(classifySituation({ ...calm, inOwnReach: false })).toBe("close");
   });
-
-  it("names waitOut when there is nobody hittable", () => {
-    expect(classifySituation({ ...fight, hittable: false })).toBe("waitOut");
+  it("un-pins and dodges even with nobody to shoot (BB15)", () => {
+    expect(classifySituation({ ...calm, hittable: false, pinned: true })).toBe("unpin");
+    expect(classifySituation({ ...calm, hittable: false, evade: true })).toBe("evade");
   });
-
-  it("lets unpin beat fight when pinned with a target", () => {
-    expect(classifySituation({ ...fight, unpin: true })).toBe("unpin");
+  it("rams only on a dry kit inside ram range (BB21)", () => {
+    expect(classifySituation({ ...calm, kitDry: true })).toBe("fight");
+    expect(classifySituation({ ...calm, kitDry: true, inRamRange: true, inOwnReach: false })).toBe("ram");
   });
-
-  it("lets punish beat fight when the target is a free hit", () => {
-    expect(classifySituation({ ...fight, punish: true })).toBe("punish");
-  });
-
-  it("names close when they are up but not in reach", () => {
-    expect(classifySituation({ ...fight, inOwnReach: false })).toBe("close");
+  it("lists every situation once, in priority order", () => {
+    expect(ALL_SITUATIONS).toEqual(["recover", "evade", "unpin", "waitOut", "punish", "reset", "ram", "fight", "close"]);
   });
 });
 
-describe("pickSituation", () => {
+describe("pickSituation (BB16)", () => {
   const hard = RESOLVED_BOT_PROFILES.hard;
-
-  it("lets a higher-priority situation cut in before the commit window", () => {
-    const state = { current: "fight" as const, sinceTick: 100 };
-    const next = pickSituation(state, "punish", 101, hard);
-    expect(next.current).toBe("punish");
+  it("a higher-priority play cuts in at once, a lower one waits out the commit", () => {
+    let s = newSituationState();
+    s = pickSituation(s, "fight", 0, hard);
+    s = pickSituation(s, "ram", 1, hard);
+    expect(s.current).toBe("ram");
+    s = pickSituation(s, "fight", 2, hard);
+    expect(s.current).toBe("ram");
+    s = pickSituation(s, "fight", 1 + hard.situationCommitTicks, hard);
+    expect(s.current).toBe("fight");
   });
+});
 
-  it("holds a lower-priority replacement until situationCommitTicks", () => {
-    const state = { current: "punish" as const, sinceTick: 100 };
-    const next = pickSituation(state, "fight", 101, hard);
-    expect(next.current).toBe("punish");
-  });
-
-  it("takes the lower-priority replacement after the window", () => {
-    const state = { current: "punish" as const, sinceTick: 100 };
-    const next = pickSituation(state, "fight", 100 + hard.situationCommitTicks, hard);
-    expect(next.current).toBe("fight");
-  });
-
-  it("leaves waitOut the moment a fight exists, without waiting out the commit window", () => {
-    const state = { current: "waitOut" as const, sinceTick: 100 };
-    const next = pickSituation(state, "fight", 101, hard);
-    expect(next.current).toBe("fight");
+describe("isIncomingCar (BB20)", () => {
+  const hard = RESOLVED_BOT_PROFILES.hard;
+  const car = (vx: number) => ({ sessionId: "t", carId: "mirage" as const, team: 1 as const, x: 300, y: 0, angle: Math.PI, vx, vy: 0, hp: 1, maxHp: 1, alive: true, phased: false, statuses: [], maneuver: 0 });
+  it("is true for a car closing fast and false for one driving away", () => {
+    expect(isIncomingCar({ x: 0, y: 0 }, car(-400), hard)).toBe(true);
+    expect(isIncomingCar({ x: 0, y: 0 }, car(400), hard)).toBe(false);
   });
 });
