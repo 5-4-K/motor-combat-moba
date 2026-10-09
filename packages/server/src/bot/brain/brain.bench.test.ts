@@ -4,14 +4,12 @@ import {
 } from "@motor-combat-moba/shared";
 import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
-import type { BotSelfView, BotView } from "../types.js";
+import type { BotCarView, BotSelfView, BotView } from "../types.js";
 import { HumanController } from "./controller.js";
 import { enemy, view } from "./fixtures.js";
 import { bodyFromSelf, rollForward, type DriveAction } from "./predict.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
-// Also installed at module scope: the scene below reads config while the suite is collected.
-installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 /**
  * THE STATED BUDGET (P33), in milliseconds per `decide()` call: 37 ms of CPU per SIMULATED second,
@@ -107,16 +105,18 @@ const REPEATS = 5;
  * kit's reach, so the bot solves every ready slot, fights and presses a turret slot with a bearing.
  * Stationary, so the open-loop view (the pose never moves) is self-consistent.
  */
-const target = { ...enemy, x: 200 + Math.cos(0.35) * 250, y: 360 + Math.sin(0.35) * 250, vx: 0 };
+function targetCar(): BotCarView {
+  return { ...enemy(), x: 200 + Math.cos(0.35) * 250, y: 360 + Math.sin(0.35) * 250, vx: 0 };
+}
 
-function sceneAt(tick: number, rng: BotView["rng"]): BotView {
+function sceneAt(tick: number, target: BotCarView, rng: BotView["rng"]): BotView {
   return view(tick, { others: [target], rng });
 }
 
 /** One timed repeat: the mean cost of `ITERATIONS` decides, in milliseconds, as CPU and wall. */
-function timeDecides(bot: HumanController, clock: { tick: number }, rng: BotView["rng"]): { cpu: number; wall: number } {
+function timeDecides(bot: HumanController, clock: { tick: number }, target: BotCarView, rng: BotView["rng"]): { cpu: number; wall: number } {
   // Views built outside the timed block: building one is the host's cost, not the brain's.
-  const views = Array.from({ length: ITERATIONS }, (_, i) => sceneAt(clock.tick + i, rng));
+  const views = Array.from({ length: ITERATIONS }, (_, i) => sceneAt(clock.tick + i, target, rng));
   // `process.cpuUsage` is this process's own CPU; vitest's default `forks` pool runs each file in its
   // own child process, so it is blind to the other suites on the other cores. Wall is printed too:
   // `wall >> cpu` means the box was loaded.
@@ -171,11 +171,12 @@ describe("brain cost (BB64)", () => {
     const bot = new HumanController("hard");
     const rng = makeRng(17);
     const clock = { tick: 0 };
+    const target = targetCar();
     const self = view(0).self;
 
     // Both halves warmed before either is timed, so the reference is not paying JIT tiering the
     // brain already paid.
-    for (let i = 0; i < WARM_UP; i++) bot.decide(sceneAt(clock.tick++, rng));
+    for (let i = 0; i < WARM_UP; i++) bot.decide(sceneAt(clock.tick++, target, rng));
     expect(bot.debug()?.situation).toBe("fight");
     timeReference(self);
 
@@ -185,7 +186,7 @@ describe("brain cost (BB64)", () => {
     const refRepeats: { cpu: number; wall: number }[] = [];
     const ratios: number[] = [];
     for (let r = 0; r < REPEATS; r++) {
-      const decided = timeDecides(bot, clock, rng);
+      const decided = timeDecides(bot, clock, target, rng);
       const reference = timeReference(self);
       decideRepeats.push(decided);
       refRepeats.push(reference);

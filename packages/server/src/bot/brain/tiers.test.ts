@@ -12,8 +12,6 @@ import { enemy, fireSlotsFor, view } from "./fixtures.js";
 import { constantVelocityPredictor, solve } from "./solution.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
-// Also installed at module scope: some describe bodies read config while the suite is collected.
-installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 /**
  * Run a bot for `ticks` against a fixed scene and return every intent it produced.
@@ -63,7 +61,7 @@ describe("tier characterisation (BB60)", () => {
           id: "s", ownerSessionId: "them", weaponId: "predator" as const,
           x: startX - (speed * tick) / TICK_RATE_HZ, y: 360, angle: Math.PI,
         };
-        bot.decide(view(tick, { instances: [shot], others: [enemy], rng }));
+        bot.decide(view(tick, { instances: [shot], others: [enemy()], rng }));
         if (bot.debug()?.situation === "evade") n += 1;
       }
       return n;
@@ -74,8 +72,8 @@ describe("tier characterisation (BB60)", () => {
 
   it("hard resets when badly hurt and easy fights on [H37]", () => {
     const hurt = { ...view(0).self, hp: 10 };
-    const { bot: hard } = run("hard", 90, { self: hurt, others: [{ ...enemy, x: 500, vx: 0 }] });
-    const { bot: easy } = run("easy", 90, { self: hurt, others: [{ ...enemy, x: 500, vx: 0 }] });
+    const { bot: hard } = run("hard", 90, { self: hurt, others: [{ ...enemy(), x: 500, vx: 0 }] });
+    const { bot: easy } = run("easy", 90, { self: hurt, others: [{ ...enemy(), x: 500, vx: 0 }] });
     expect(hard.debug()?.situation).toBe("reset");
     // Easy's `retreatHpFraction` is 0: it has noticed the car by now and is still fighting it.
     expect(easy.debug()?.targetSessionId).toBe("them");
@@ -88,7 +86,7 @@ describe("tier characterisation (BB60)", () => {
     //
     // Hard's scene: the wounded car is the FAR one (700 u) and the shooter the near one (220 u), so
     // proximity and the grudge argue for the shooter and only `woundedBias` argues for the wounded.
-    const shooter = { ...enemy, sessionId: "shooter", x: 420, y: 360 };
+    const shooter = { ...enemy(), sessionId: "shooter", x: 420, y: 360 };
     // A shot of the shooter's, in flight near us: `perceive` blames a car for a shot only when
     // `threatHeading` says the shot is actually coming at us.
     const incoming = [
@@ -96,7 +94,7 @@ describe("tier characterisation (BB60)", () => {
     ];
     expect(
       run("hard", 120, {
-        others: [{ ...enemy, sessionId: "hurt", x: 900, y: 360, hp: 8 }, shooter],
+        others: [{ ...enemy(), sessionId: "hurt", x: 900, y: 360, hp: 8 }, shooter],
         instances: incoming,
       }).bot.currentTargetSessionId,
     ).toBe("hurt");
@@ -107,8 +105,8 @@ describe("tier characterisation (BB60)", () => {
     expect(
       run("easy", 200, {
         others: [
-          { ...enemy, sessionId: "hurt", x: 250, y: 360, hp: 8 },
-          { ...enemy, sessionId: "shooter", x: 690, y: 360 },
+          { ...enemy(), sessionId: "hurt", x: 250, y: 360, hp: 8 },
+          { ...enemy(), sessionId: "shooter", x: 690, y: 360 },
         ],
         instances: incoming,
       }).bot.currentTargetSessionId,
@@ -119,7 +117,7 @@ describe("tier characterisation (BB60)", () => {
     // The view holds slot state constant, so with the full kit loaded the bot presses the one slot
     // that tops this scene every time (measured: `lance`, fire slot 3 — dead ahead it out-damages
     // the others). Find that slot rather than assume it, then spend it for the whole run.
-    const scene = { others: [{ ...enemy, x: 400, vx: 0 }] };
+    const scene = { others: [{ ...enemy(), x: 400, vx: 0 }] };
     const pressedIn = (out: readonly BotIntent[]) => {
       const masks = out.filter((o) => o.fireSlots !== 0).map((o) => o.fireSlots);
       for (const mask of masks) expect(mask & (mask - 1)).toBe(0); // exactly one bit per press
@@ -135,12 +133,13 @@ describe("tier characterisation (BB60)", () => {
   });
 
   it("a wall changes what hard does [H39]", () => {
-    // Same tier, same seed, the enemy 540-460 u off; only the wall in front of the nose differs.
+    // Same tier, same seed, the enemy 540 u straight behind the bot on its line in both scenes; only
+    // the wall in front of the nose differs.
     // The whole emitted input is compared, not one axis: which axis carries the answer is the
     // navigator's business.
     const nearWall = { ...view(0).self, x: 60, y: 360, angle: Math.PI };
-    const walled = run("hard", 40, { self: nearWall, others: [{ ...enemy, x: 600 }] });
-    const open = run("hard", 40, { self: { ...nearWall, x: 640 }, others: [{ ...enemy, x: 1100 }] });
+    const walled = run("hard", 40, { self: nearWall, others: [{ ...enemy(), x: 600 }] });
+    const open = run("hard", 40, { self: { ...nearWall, x: 640 }, others: [{ ...enemy(), x: 1180 }] });
     expect(walled.bot.debug()?.situation).toBe("unpin");
     expect(open.bot.debug()?.situation).not.toBe("unpin");
     expect(walled.out.map((o) => `${o.steer}${o.throttle}`).join()).not.toBe(open.out.map((o) => `${o.steer}${o.throttle}`).join());
@@ -158,7 +157,7 @@ describe("tier characterisation (BB60)", () => {
       slots: fireSlotsFor("mirage").map((s) => (s.weaponId === "magmablast" ? { ...s, stocks: 0, rechargeEndsTick: 100_000 } : s)),
     };
     expect(RESOLVED_BOT_PROFILES.easy.awarenessRadiusUnits).toBeGreaterThan(550);
-    const { bot, out } = run("easy", 90, { self, others: [{ ...enemy, x: 750, vx: 0 }] });
+    const { bot, out } = run("easy", 90, { self, others: [{ ...enemy(), x: 750, vx: 0 }] });
     expect(bot.debug()?.targetSessionId).toBe("them");
     expect(bot.debug()?.situation).toBe("close");
     expect(out.slice(-30).filter((o) => o.throttle === 1).length).toBeGreaterThan(15);
@@ -170,7 +169,7 @@ describe("tier characterisation (BB60)", () => {
     const roadblock = kit.indexOf("roadblock");
     expect(roadblock).toBeGreaterThan(0);
     // 20° off the nose, 300 u out: inside every turret arc and inside `roadblock`'s reach.
-    const target = { ...enemy, x: 200 + Math.cos(0.35) * 300, y: 360 + Math.sin(0.35) * 300, vx: 0 };
+    const target = { ...enemy(), x: 200 + Math.cos(0.35) * 300, y: 360 + Math.sin(0.35) * 300, vx: 0 };
     const bot = new HumanController("hard");
     const rng = makeRng(17);
     let slots = fireSlotsFor("bastion");
@@ -229,7 +228,7 @@ describe("tier characterisation (BB60)", () => {
     // is 24 ticks at easy and 4 at hard, so counting occupied ticks would credit easy for holding
     // the button longer rather than for pressing more often.
     const presses = (tier: "easy" | "medium" | "hard") =>
-      risingEdges(run(tier, 300, { others: [{ ...enemy, x: 400, vx: 0 }] }).out);
+      risingEdges(run(tier, 300, { others: [{ ...enemy(), x: 400, vx: 0 }] }).out);
     expect(presses("medium")).toBeGreaterThan(presses("easy"));
     expect(presses("hard")).toBeGreaterThan(presses("medium"));
   });
@@ -245,10 +244,10 @@ describe("tier characterisation (BB60)", () => {
  * the same window for every tier. The time-to-kill test obviously does not use it.
  */
 function duelAgainstDummy(tier: "easy" | "medium" | "hard", ticks = 600, immortalTarget = false) {
-  const { presses, hits, hitRate, ticks: elapsed, killed, meanOffset } = runDuel({
+  const { presses, hits, hitRate, ticks: elapsed, killed } = runDuel({
     tier, ticks, resolveCombat: true, immortalTarget, targetPos: { x: 600, y: 360 },
   });
-  return { fires: presses, hits, hitRate, ticks: elapsed, killed, meanOffset };
+  return { fires: presses, hits, hitRate, ticks: elapsed, killed };
 }
 
 describe("the reported symptoms stay fixed (BB3)", () => {
@@ -267,9 +266,16 @@ describe("the reported symptoms stay fixed (BB3)", () => {
     // `burstGapTicks` and the kit's cooldowns binds. `/4` is a floor with a wide margin, not a
     // quality bar; `> 0` is the regression guard for a bot that parked, wove and never pressed.
     // `immortalTarget` keeps the target at full hp so nothing but baseline willingness is counted.
-    const { fires } = duelAgainstDummy("hard", 300, true);
+    //
+    // A press count alone says nothing about RANGE: a bot could spray from out of reach. Landed hits
+    // do — combat only scores a press that reached the dummy — and the hit-rate floor says the bot
+    // presses from where its kit lands, not merely somewhere it occasionally does. Measured over ten
+    // seeds (17, 3, 7, 42, 99, 1, 2, 5, 2026, 11): 6 presses each, 4-5 hits, rate 0.667-0.833.
+    const { fires, hits, hitRate } = duelAgainstDummy("hard", 300, true);
     expect(fires).toBeGreaterThan(0);
     expect(fires).toBeGreaterThan(pressCeilingOf("bullseye", 300, RESOLVED_BOT_PROFILES.hard.burstGapTicks) / 4);
+    expect(hits).toBeGreaterThan(0);
+    expect(hitRate).toBeGreaterThanOrEqual(0.5);
   });
 
   it("hits far more often above the easy tier [P50]", () => {
@@ -284,27 +290,53 @@ describe("the reported symptoms stay fixed (BB3)", () => {
 });
 
 describe("whole-brain determinism (BB63)", () => {
-  // One seed replays the ENTIRE brain, every tier, whether or not there is a threat in the scene to
-  // change which branches run. It compares a run against ITSELF, so it catches nondeterminism leaking
-  // outside `(controller, rng)` — module-level mutable state carried between replays, a stray
-  // `Math.random`/`Date.now`, an unstable Map/Set iteration order — not a branch-dependent draw.
-  const incoming = [
-    { id: "shot", ownerSessionId: "them", weaponId: "predator" as const, x: 210, y: -400, angle: Math.PI / 2 },
-  ];
+  // One seed replays the ENTIRE brain, every tier, with and without a target and with and without a
+  // threat, so every branch family runs: the fight path, the evade path, and the no-target path (the
+  // predictor at horizon 0 over the stand-in car, the hunt navigator). It compares a run against
+  // ITSELF, so it catches nondeterminism leaking outside `(controller, rng)` — module-level mutable
+  // state carried between replays, a stray `Math.random`/`Date.now`, an unstable Map/Set iteration
+  // order — not a branch-dependent draw.
+  const SHOT_PERIOD_TICKS = 60;
+  /**
+   * A `predator` shot fired at the bot every `SHOT_PERIOD_TICKS`, born 600 u dead ahead on its line
+   * and flying straight at it. It closes through every tier's reaction window (BB19) on the way in,
+   * so every tier tracks it and medium and hard reach `evade`. Easy notices it with an ETA just over
+   * its 24-tick reaction, and the shot lands before a 24-tick recompute can act on it: easy
+   * practically never dodges, by design (see "hard dodges a shot that easy ignores").
+   */
+  const shotAt = (tick: number) => {
+    const speed = weaponDefOf("predator").speed;
+    const age = tick % SHOT_PERIOD_TICKS;
+    return {
+      id: `shot-${Math.floor(tick / SHOT_PERIOD_TICKS)}`, ownerSessionId: "them", weaponId: "predator" as const,
+      x: 200 + 600 - (speed * age) / TICK_RATE_HZ, y: 360, angle: Math.PI,
+    };
+  };
+  const scenes = {
+    quiet: (_tick: number) => ({ others: [enemy()], instances: [] }),
+    "under fire": (tick: number) => ({ others: [enemy()], instances: [shotAt(tick)] }),
+    "no target": (_tick: number) => ({ others: [], instances: [] }),
+  } as const;
   for (const tier of ["easy", "medium", "hard"] as const) {
-    for (const [label, withThreat] of [["quiet", false], ["under fire", true]] as const) {
+    for (const label of Object.keys(scenes) as (keyof typeof scenes)[]) {
       it(`${tier} replays identically from one seed, ${label}`, () => {
         const replay = () => {
           const bot = new HumanController(tier);
           const rng = makeRng(4242);
           const out: string[] = [];
+          const situations = new Set<string>();
           for (let tick = 0; tick < 400; tick++) {
-            const intent = bot.decide(view(tick, { others: [enemy], instances: withThreat ? incoming : [], rng }));
+            const intent = bot.decide(view(tick, { ...scenes[label](tick), rng }));
+            situations.add(bot.debug()!.situation);
             out.push(`${intent.steer}:${intent.throttle}:${intent.fireSlots}:${intent.aimAngle ?? ""}`);
           }
-          return out.join("|");
+          return { stream: out.join("|"), situations };
         };
-        expect(replay()).toBe(replay());
+        const first = replay();
+        expect(first.stream).toBe(replay().stream);
+        // The scene reached the branch it is here to exercise.
+        if (label === "under fire" && tier !== "easy") expect(first.situations.has("evade")).toBe(true);
+        if (label === "no target") expect([...first.situations]).toEqual(["waitOut"]);
       });
     }
   }

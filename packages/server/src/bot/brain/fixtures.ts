@@ -6,16 +6,10 @@
  * Test-only. Not imported by anything the server ships.
  */
 import {
-  DEFAULT_GAME_MODE, fireSlotsOf, forwardMaxSpeedOf, installMode, modeConfigOf, weaponDefOf,
-  type CarId,
+  fireSlotsOf, forwardMaxSpeedOf, weaponDefOf, type CarId,
 } from "@motor-combat-moba/shared";
 import { makeRng } from "../rng.js";
 import type { BotCarView, BotSlotView, BotView } from "../types.js";
-
-// `enemy` below reads a config accessor while this module is evaluated, which happens before the
-// importing test file's own module-scope `installMode` runs (imports evaluate first). Test processes
-// only: no room ever imports this file.
-installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
 /**
  * Every FIRE slot of a chassis, loaded and ready: index 0 is the basic attack (disabled in every
@@ -61,21 +55,24 @@ export function view(tick: number, over: Partial<BotView> = {}): BotView {
 /**
  * A Mirage 500 u dead ahead, facing the bot and drawn at its own top speed toward it. Callers that
  * want a stationary car override `vx: 0`. The open-loop view never moves it, so the velocity is
- * only what the bot's predictor reads.
+ * only what the bot's predictor reads. A factory, not a constant: the speed is a config read, and
+ * a module-scope read would run before any mode is installed.
  */
-export const enemy: BotCarView = {
-  sessionId: "them",
-  carId: "mirage",
-  team: 1,
-  x: 700,
-  y: 360,
-  angle: Math.PI,
-  vx: -forwardMaxSpeedOf("mirage"),
-  vy: 0,
-  hp: 70,
-  maxHp: 70,
-  alive: true,
-  phased: false,
-  statuses: [],
-  maneuver: 0,
-};
+export function enemy(): BotCarView {
+  return {
+    sessionId: "them",
+    carId: "mirage",
+    team: 1,
+    x: 700,
+    y: 360,
+    angle: Math.PI,
+    vx: -forwardMaxSpeedOf("mirage"),
+    vy: 0,
+    hp: 70,
+    maxHp: 70,
+    alive: true,
+    phased: false,
+    statuses: [],
+    maneuver: 0,
+  };
+}
