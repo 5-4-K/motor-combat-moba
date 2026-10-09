@@ -1,55 +1,41 @@
-import { isSolidTile, tileDefOf, type TileGrid } from "@motor-combat-moba/shared";
+import type { TileGrid, TileRotation } from "@motor-combat-moba/shared";
 
 /**
- * How a tile arena's floor is baked (spec tile arenas, TA22–TA25). Pure, so it is tested in node;
- * `ArenaScene.bakeTileFloor` only executes the plan into render textures.
+ * How a tile arena's floor is baked (spec tile arenas TA22–TA25, tile cells TC32–TC34). Pure, so it
+ * is tested in node; `ArenaScene.bakeTileFloor` only executes the plan into render textures. Shared's
+ * compiler has already resolved every cell's art and overlays, so the plan is a flat read.
  */
 
 /** Baked pixels per world unit: tile art is 80 px for a 40 u tile (TA4). */
 export const TILE_BAKE_SCALE = 2;
 /** Largest chunk side, in px — a safe texture size on every WebGL target (TA23). */
 export const TILE_BAKE_MAX_CHUNK_PX = 2048;
-/** The edge overlay a spike tile wears on each side that borders open floor (TA6). */
-export const SPIKE_TEETH_ART = "spike-teeth";
 
-export type TileRotation = 0 | 90 | 180 | 270;
-
-export interface TileStamp {
-  readonly art: string;
+/** One stamp of the bake: what to draw, where, and the cell's behaviour for the fallback (TC33). */
+export interface BakeStamp {
   readonly col: number;
   readonly row: number;
-  /** Clockwise degrees. Teeth art is authored for the TOP edge; 90 right, 180 bottom, 270 left. */
+  /** Tile art id, or null for a drawn cell that names none (it draws the behaviour fallback). */
+  readonly art: string | null;
+  /** Clockwise degrees. Overlay art is authored for the TOP edge; 90 right, 180 bottom, 270 left. */
   readonly rotation: TileRotation;
+  readonly overlay: boolean;
+  readonly solid: boolean;
+  readonly hazard: "spike" | null;
 }
 
-/** Edge neighbours in rotation order: top, right, bottom, left. */
-const EDGES: ReadonlyArray<readonly [number, number, TileRotation]> = [
-  [0, -1, 0],
-  [1, 0, 90],
-  [0, 1, 180],
-  [-1, 0, 270],
-];
-
-/** Every stamp the bake draws, bases first, then teeth (TA22). */
-export function tileBakePlan(grid: TileGrid): TileStamp[] {
-  const bases: TileStamp[] = [];
-  const teeth: TileStamp[] = [];
-  const { cols, rows, cells } = grid;
-  for (let row = 0; row < rows; row += 1) {
-    for (let col = 0; col < cols; col += 1) {
-      const def = tileDefOf(cells[row * cols + col]!);
-      if (def.art !== null) bases.push({ art: def.art, col, row, rotation: 0 });
-      if (def.hazard !== "spike") continue;
-      for (const [dc, dr, rotation] of EDGES) {
-        const nc = col + dc;
-        const nr = row + dr;
-        if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
-        if (isSolidTile(cells[nr * cols + nc]!)) continue;
-        teeth.push({ art: SPIKE_TEETH_ART, col, row, rotation });
-      }
-    }
-  }
-  return [...bases, ...teeth];
+/** Every stamp the bake draws (TA22, TC32): every drawn cell's base row-major, then every overlay row-major. */
+export function tileBakePlan(grid: TileGrid): BakeStamp[] {
+  const bases: BakeStamp[] = [];
+  const overlays: BakeStamp[] = [];
+  grid.cells.forEach((cell, i) => {
+    const col = i % grid.cols;
+    const row = Math.floor(i / grid.cols);
+    const facts = { col, row, solid: cell.solid, hazard: cell.hazard };
+    if (cell.drawn) bases.push({ ...facts, art: cell.base?.art ?? null, rotation: cell.base?.rotation ?? 0, overlay: false });
+    for (const o of cell.overlays) overlays.push({ ...facts, art: o.art, rotation: o.rotation, overlay: true });
+  });
+  return [...bases, ...overlays];
 }
 
 /** A chunk of the bake, in tiles. */

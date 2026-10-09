@@ -1,6 +1,6 @@
 import type { Bounds } from "../sim/collide.js";
 import { planesOf, type BoundaryPlane } from "../sim/boundary.js";
-import { isSolidTile, TILE_SIZE } from "./tiles/tile-config.js";
+import { TILE_SIZE } from "./tiles/tile-config.js";
 import type { ArenaDef } from "./types.js";
 
 /**
@@ -63,8 +63,8 @@ export function playableRectOf(arena: PlayableSource): { x: number; y: number; w
     let minR = Infinity;
     let maxC = -Infinity;
     let maxR = -Infinity;
-    grid.cells.forEach((id, i) => {
-      if (isSolidTile(id)) return;
+    grid.cells.forEach((cell, i) => {
+      if (cell.solid) return;
       const c = i % grid.cols;
       const r = Math.floor(i / grid.cols);
       minC = Math.min(minC, c);

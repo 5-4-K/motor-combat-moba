@@ -8,6 +8,7 @@ import {
   artFilesOnDisk,
   checkManifestShape,
   checkTileArt,
+  checkTiles,
   checkTurretSprite,
   isKnownNamespace,
   namespaceScopeOf,
@@ -287,7 +288,18 @@ describe("checkTileArt", () => {
 
   it("blocks teeth with no alpha, which would paint an opaque square", () => {
     const image = { width: 80, height: 80, hasAlpha: false, channels: 3 };
-    assert.ok(checkTileArt({ artId: "spike-teeth", row, image }).some((f) => f.level === "blocker"));
+    assert.ok(
+      checkTileArt({ artId: "spike-teeth", row, image, overlayIds: ["spike-teeth"] }).some(
+        (f) => f.level === "blocker",
+      ),
+    );
+  });
+
+  it("blocks any art id an overlay rule names, not just spike-teeth (TC31)", () => {
+    const image = { width: 80, height: 80, hasAlpha: false, channels: 3 };
+    assert.ok(
+      checkTileArt({ artId: "lava-edge", row, image, overlayIds: ["lava-edge"] }).some((f) => f.level === "blocker"),
+    );
   });
 
   it("lets an opaque floor through", () => {
@@ -301,6 +313,15 @@ describe("checkTileArt", () => {
       checkTileArt({ artId: "floor", row, image }).map((f) => f.level),
       ["warning"],
     );
+  });
+});
+
+describe("checkTiles", () => {
+  it("warns once per referenced art id with no manifest row (TC31)", async () => {
+    const results = await checkTiles({ sprites: {} }, ["grass", "metal-plate"], []);
+    assert.deepEqual(results.map((r) => r.id), ["grass", "metal-plate"]);
+    assert.ok(results.every((r) => r.findings.every((f) => f.level === "warning")));
+    assert.match(results[0].findings[0].message, /grass.*procedural/);
   });
 });
 

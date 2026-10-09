@@ -1,4 +1,5 @@
-import type { TileId } from "./tiles/tile-config.js";
+import type { WorldFace } from "./faces.js";
+import type { TileRotation } from "./tiles/tile-config.js";
 
 /**
  * Axis-aligned solid. `x, y` is the **top-left** corner, matching `Aabb` in `sim/collide.ts`,
@@ -22,6 +23,12 @@ export interface Obstacle {
    * obstacle allowed to sit flush against the boundary (AS13).
    */
   kind?: "spike";
+  /**
+   * Which world faces of a `kind: "spike"` obstacle damage (tile cells TC22). Absent means EVERY
+   * face — the meaning every hand-written spike already has, and what a tile spike whose faces are
+   * all four compiles to. Read only on a spike; meaningless on a plain block.
+   */
+  damageFaces?: readonly WorldFace[];
 }
 
 export interface Spawn {
@@ -50,14 +57,42 @@ export interface ArenaZone {
   readonly radius: number;
 }
 
+/** One drawn piece of tile art: an art id (`arena.common.tile.<art>`) and its clockwise turn. */
+export interface TileStamp {
+  readonly art: string;
+  readonly rotation: TileRotation;
+}
+
 /**
- * The grid a tile arena was compiled from (spec tile arenas, §3.2). Row-major: `cells[r * cols + c]`.
- * Static shared data like the rest of `ArenaDef` — never a schema field (invariant 8 untouched).
+ * One cell of a compiled tile grid, fully resolved (tile cells TC9, TC17): behaviour copied off its
+ * definition so no reader needs `TILE_DEFS`, and its art and overlays already chosen and rotated.
+ */
+export interface TileCell {
+  /** The definition id. */
+  readonly tile: string;
+  /** `def.collision === "solid"`. */
+  readonly solid: boolean;
+  /** `def.hazard?.kind ?? null`. */
+  readonly hazard: "spike" | null;
+  /** Damaging world faces, n-e-s-w order; `[]` with no hazard. */
+  readonly faces: readonly WorldFace[];
+  /** `def.draw !== "none"`. */
+  readonly drawn: boolean;
+  /** `null` when not drawn, or drawn with no art (the bake then draws the behaviour fallback). */
+  readonly base: TileStamp | null;
+  /** Resolved, edge-rotated, in draw order. */
+  readonly overlays: readonly TileStamp[];
+}
+
+/**
+ * The grid a tile arena was compiled from (spec tile arenas §3.2, tile cells §3.3). Row-major:
+ * `cells[r * cols + c]`. Static shared data like the rest of `ArenaDef` — never a schema field
+ * (invariant 8 untouched).
  */
 export interface TileGrid {
   readonly cols: number;
   readonly rows: number;
-  readonly cells: readonly TileId[];
+  readonly cells: readonly TileCell[];
 }
 
 export interface ArenaDef {

@@ -1,23 +1,39 @@
+import { WORLD_FACES, type WorldFace } from "../faces.js";
+
 /**
- * The tile vocabulary arenas are authored in (spec 2026-10-09 tile arenas, TA1–TA13).
+ * The tile definitions arenas are built from (spec tile arenas TA1–TA13, reshaped by tile cells
+ * TC1–TC14).
  *
- * GLOBAL, not per mode: a tile type is a piece of level geometry, like an arena, and the art for one
- * is shared by every arena that uses it. Reading `TILE_SIZE`/`TILE_TABLE` at module scope is fine —
- * they are constants, not mode accessors.
+ * A definition carries BEHAVIOUR only — collision, shape, hazard — and a default look. No definition
+ * carries a character (TC11): an arena's legend maps characters to cells (`legend.ts`), and a cell
+ * picks its own art (TC1). Two cells with the same definition and different art behave identically.
  *
- * Each behaviour is its own optional field, so they combine freely. Only floor, solid and damaging
- * solid exist today; `surface` (grip, drag, accel — TA1's movement behaviour) is declared so the
- * shape is ready, and is refused by `tile-config.test.ts` until the sim reads it.
+ * GLOBAL, not per mode: a definition is a piece of level geometry, like an arena. Reading
+ * `TILE_SIZE`/`TILE_DEFS` at module scope is fine — they are constants, not mode accessors.
+ *
+ * `surface` (grip, drag, accel — TA1's movement behaviour) is declared so the shape is ready, and is
+ * refused by `tile-config.test.ts` until the sim reads it (TA12).
  */
 
 /** World units per tile side (TA3). 1280 x 720 is a 32 x 18 grid. */
 export const TILE_SIZE = 40;
 
-export type TileCollision = "none" | "solid";
-/** TA2: diagonal half-tiles arrive here later. */
-export type TileShape = "full";
-/** Damage numbers stay in the active mode's `spike()` table; the tile only says WHICH hazard. */
-export type TileHazard = "spike";
+/** Clockwise degrees (TC3). At 0 a definition's `front` faces north (−y). */
+export type TileRotation = 0 | 90 | 180 | 270;
+/** A side in the definition's own frame (TC4); the cell's orientation turns it into a world face. */
+export type TileSide = "front" | "right" | "back" | "left";
+
+/** Damage numbers stay in the active mode's `spike()` table; the tile only says WHICH hazard, and where. */
+export interface TileHazard {
+  readonly kind: "spike";
+  readonly sides: "all" | readonly TileSide[];
+}
+
+/** An overlay drawn on each damaging side that borders a non-solid cell (TC6). */
+export interface TileOverlayRule {
+  /** Authored for the TOP edge; rotated per side. */
+  readonly art: string;
+}
 
 /** Reserved for movement behaviour (TA1 "C"). Multipliers, 1 = neutral, like `Modifiers`. */
 export interface TileSurface {
@@ -27,31 +43,46 @@ export interface TileSurface {
 }
 
 export interface TileDef {
-  /** The one character this tile is typed as in an arena grid (TA5). */
-  readonly char: string;
-  /** Tile art id (`arena.common.tile.<art>`), or null for a tile drawn as backdrop. */
-  readonly art: string | null;
-  readonly collision: TileCollision;
-  readonly shape: TileShape;
+  readonly collision: "none" | "solid";
+  /** TA2: diagonal half-tiles arrive here later. */
+  readonly shape: "full";
   readonly hazard?: TileHazard;
+  /** Reserved; refused by test until the sim reads it (TA12). */
   readonly surface?: TileSurface;
+  /** Void: no art, the backdrop shows. Mutually exclusive with `defaultArt` (TC12). */
+  readonly draw?: "none";
+  /** The art a cell draws when it names none (TC14). */
+  readonly defaultArt?: string;
+  readonly overlay?: TileOverlayRule;
 }
 
-export const TILE_TABLE = {
-  floor: { char: ".", art: "floor", collision: "none", shape: "full" },
-  wall: { char: "#", art: "wall", collision: "solid", shape: "full" },
-  spike: { char: "^", art: "spike", collision: "solid", shape: "full", hazard: "spike" },
-  void: { char: " ", art: null, collision: "solid", shape: "full" },
+export const TILE_DEFS = {
+  floor: { collision: "none", shape: "full", defaultArt: "metal-plate" },
+  wall: { collision: "solid", shape: "full", defaultArt: "checker-plate" },
+  spike: {
+    collision: "solid",
+    shape: "full",
+    defaultArt: "checker-plate",
+    hazard: { kind: "spike", sides: "all" },
+    overlay: { art: "spike-teeth" },
+  },
+  void: { collision: "solid", shape: "full", draw: "none" },
 } as const satisfies Record<string, TileDef>;
 
-export type TileId = keyof typeof TILE_TABLE;
+export type TileDefId = keyof typeof TILE_DEFS;
 
-/** The row for a tile id, widened to `TileDef` so optional fields read as optional. */
-export function tileDefOf(id: TileId): TileDef {
-  return TILE_TABLE[id];
-}
+const SIDES: readonly TileSide[] = ["front", "right", "back", "left"];
 
-/** Whether a car, a shot or a sightline is stopped by this tile. */
-export function isSolidTile(id: TileId): boolean {
-  return tileDefOf(id).collision === "solid";
+/** A definition's hazard sides as world faces for a cell at `orientation` (TC3, TC4), in n-e-s-w order. */
+export function rotateSides(sides: "all" | readonly TileSide[], orientation: TileRotation): WorldFace[] {
+  if (sides === "all") return [...WORLD_FACES];
+  const steps = orientation / 90;
+  const hit = new Set(
+    sides.map((s) => {
+      const i = SIDES.indexOf(s);
+      if (i < 0) throw new Error(`Unknown tile side ${JSON.stringify(s)}; expected front, right, back or left`);
+      return (i + steps) % 4;
+    }),
+  );
+  return WORLD_FACES.filter((_, i) => hit.has(i));
 }

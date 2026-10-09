@@ -126,21 +126,22 @@ red tint goes brown, not red — which is why the importer forces greyscale unle
 
 ## Tile art
 
-Tile arenas are baked from four images, each **80 x 80** (twice the 40 u tile, sharp at the bake's
-2 px per unit): `floor`, `wall`, `spike` and `spike-teeth`. They live at
-`arenas/common/tile-<id>.png` and key as `arena.common.tile.<id>`, shared by every tile arena.
+Tile arenas are baked from per-look images, each **80 x 80** (twice the 40 u tile, sharp at the bake's
+2 px per unit). Art is named by look, not by tile: any kebab-case name (`metal-plate`, `grass`) lives at
+`arenas/common/tile-<art>.png` and keys as `arena.common.tile.<art>`, shared by every tile arena. A
+cell picks its art; a tile def supplies the default. Shipped: `metal-plate`, `checker-plate`, `spike-teeth`.
 
 `spike-teeth` is the edge overlay painted along a spike tile's exposed edges. Author it for the
 tile's **top** edge, transparent everywhere else, with the points on the edge and nothing past the
-tile boundary. It must carry an alpha channel (`check:art` blocks it otherwise). The other three
-are opaque, full-bleed.
+tile boundary. It must carry an alpha channel (`check:art` blocks it otherwise). Base art is
+opaque, full-bleed.
 
 Import with the build of shared in place (`npm run build -w @motor-combat-moba/shared`):
 
 ```
-node scripts/import-tile-art.mjs --tile <id> --src <path>
+node scripts/import-tile-art.mjs --art <id> --src <path>
 ```
 
 It resizes to exactly 80 x 80 (no trim), writes the file and wires the manifest row with
-`colorMode: "none"`. A tile with no art simply falls back to its procedural fill, so importing is
+`colorMode: "none"`. An art id with no manifest row falls back to its procedural fill (and `check:art` warns), so importing is
 optional and can be done one tile at a time.

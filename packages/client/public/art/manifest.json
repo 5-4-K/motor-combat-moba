@@ -80,16 +80,12 @@
       "origin": [0.31, 0.5],
       "file": "turrets/default.png"
     },
-    "arena.common.tile.floor": {
-      "file": "arenas/common/tile-floor.png",
+    "arena.common.tile.metal-plate": {
+      "file": "arenas/common/tile-metal-plate.png",
       "colorMode": "none"
     },
-    "arena.common.tile.wall": {
-      "file": "arenas/common/tile-wall.png",
-      "colorMode": "none"
-    },
-    "arena.common.tile.spike": {
-      "file": "arenas/common/tile-spike.png",
+    "arena.common.tile.checker-plate": {
+      "file": "arenas/common/tile-checker-plate.png",
       "colorMode": "none"
     },
     "arena.common.tile.spike-teeth": {

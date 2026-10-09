@@ -4,6 +4,8 @@
 **Status:** implemented 2026-10-09 (plan docs/superpowers/plans/2026-10-09-tile-arenas.md)
 **Clause prefix:** TA
 
+**Superseded in part** by [tile cells](2026-10-09-tile-cells-design.md): TA5, TA6, TA8, TA13, TA21 and the art half of TA4.
+
 ## 1. Why
 
 An arena today is painted one of two ways: generated asphalt with procedural walls, or one
