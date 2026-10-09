@@ -1,619 +1,290 @@
 # Motor Combat MOBA
 
-LAN-hosted top-down 2D multiplayer car combat (last player/team standing, max 6). npm workspaces (`@motor-combat-moba/shared`, `@motor-combat-moba/server`, `@motor-combat-moba/client`), one Colyseus `arena` room (`ArenaRoom`), shared `stepSim` as the lockstep, Phaser 4 client. v1 is complete: lobby, car select, countdown, arcade driving with prediction, projectiles, ram knockback, elimination, spectate, last standing.
+LAN-hosted top-down 2D multiplayer car combat (max 6 players). npm workspaces
+(`@motor-combat-moba/shared`, `@motor-combat-moba/server`, `@motor-combat-moba/client`), Colyseus
+rooms (`ArenaRoom`, `PracticeRoom`, dev-only `PlaygroundRoom`), shared `stepSim` as the lockstep,
+Phaser 4 client.
 
+This file describes the **current** state. History lives in the specs and the `EXECUTION.md`
+state files linked below. Do not add changelog paragraphs here — update the fact in place.
 
 ## Configuration is PER-GAME-MODE — read this before tuning anything
 
-**Config is one BASE plus per-mode OVERRIDES, not four parallel copies.** `modes/base.ts` exports
-`BASE_TABLES: ModeTables`, assembled straight from the `config/` globals (`CAR_TABLE`,
-`WEAPON_TABLE`, `DRIVE_CONFIG` with the hull stripped, and the rest) — **these globals are now the
-common defaults, not a "pinned baseline nothing reads"**: editing one changes every mode that does
-not override that value. Each mode folder (`modes/brawl/`, `modes/team-brawl/`, `modes/deathmatch/`,
-`modes/conquer/`) holds a `config.ts` exporting a `ModeOverrides` — a `DeepPartial<ModeTables>`
-naming only what that mode changes — and an `index.ts` exporting `<MODE>_TABLES =
-mergeTables(BASE_TABLES, <MODE>_OVERRIDES)`. `mergeTables` (`modes/merge.ts`) merges plain objects
-key by key, **replaces** arrays and primitives whole (an overridden kit is the whole new kit), and
-throws at load naming the full path if an override key does not exist in the base — a typo cannot
-silently do nothing. `replace(def)` wraps a keyed-row value (a car, a weapon, a status) to swap the
-whole row or add a new one; it is the only way to *remove* an optional field such as a weapon's
-`turret`. `modes/registry.ts` binds mode to assembled bundle; `modes/active.ts` holds the active one
-and exposes it through seventeen accessors — `cars()`, `weapons()`, `drive()`, `ram()`, `impulse()`,
-`combat()`, `turret()`, `statusConfig()`, `statusTable()`, `statusLimits()`, `spike()`, `slots()`,
-`flow()`, `deathmatch()`, `conquer()`, `camera()` and `derived()` (the last for the nine artifacts
-`assembleModeConfig` resolves per mode: weapon ticks, chassis drive, burst defs, ram ticks, turret
-ticks, spike ticks, deathmatch ticks, conquer ticks and status pulse ticks). Two more `ModeTables`
-fields have no accessor because nothing reads them per-tick — `arenas` (which arenas the mode
-plays; see [`docs/config-reference.md`](docs/config-reference.md#arena-selection)) and `maxPlayers`
-(the mode's own seat count, bounded above by the global `MAX_PLAYERS`).
+**One BASE plus per-mode OVERRIDES.** `packages/shared/src/modes/base.ts` exports
+`BASE_TABLES: ModeTables`, built from the `config/` globals (`CAR_TABLE`, `WEAPON_TABLE`,
+`DRIVE_CONFIG` minus the hull, and the rest). **Those globals are the common defaults**: editing one
+changes every mode that does not override that value. Each mode folder (`modes/brawl/`,
+`modes/team-brawl/`, `modes/deathmatch/`, `modes/conquer/`) has a `config.ts` exporting a
+`ModeOverrides` (a `DeepPartial<ModeTables>` naming only what that mode changes) and an `index.ts`
+exporting `<MODE>_TABLES = mergeTables(BASE_TABLES, <MODE>_OVERRIDES)`.
 
-**The camera is per mode too** (2026-09-28): `camera()` carries `rotate` (`"none"`,
-`"teamFacing"`, `"heading"`), `fov` (a restricted field of vision, off in every shipped mode)
-and `spectate` (who a wreck may watch), besides `camLerp`/`zoom`/`freeRoamSpeed`. The arena no
-longer decides anything about the camera — see
+- `mergeTables` (`modes/merge.ts`) merges plain objects key by key, **replaces** arrays and
+  primitives whole (an overridden kit is the whole new kit), and throws at load, naming the path, if
+  an override key does not exist in the base.
+- `replace(def)` swaps a whole keyed row (car, weapon, status) or adds a new one; it is the only way
+  to *remove* an optional field such as a weapon's `turret`.
+- `modes/registry.ts` (`MODE_TABLE`) binds each mode to its bundle and its `isActive` publish gate.
+  `modes/active.ts` holds the active bundle and exposes it through the accessors `cars()`,
+  `weapons()`, `drive()`, `ram()`, `impulse()`, `combat()`, `turret()`, `statusConfig()`,
+  `statusTable()`, `statusLimits()`, `spike()`, `slots()`, `flow()`, `deathmatch()`, `conquer()`,
+  `camera()` and `derived()` (per-mode resolved tick tables). `arenas` and `maxPlayers` are
+  `ModeTables` fields with no accessor.
+
+**Modes today:**
+
+| Mode | `GameMode` | Active | Overrides | Win rule |
+|---|---|---|---|---|
+| Brawl | `FFA_LAST_STANDING` (0) | yes | `turret.visible: false` | last standing |
+| Team brawl | `TEAM` | **no** | none | last standing |
+| Deathmatch | `FFA_DEATHMATCH` (2) | yes | `camera.spectate` | kills, on a clock, with respawns |
+| Conquer | `CONQUER` (3) | yes | `arenas: ["arena-03"]`, `camera` | 3v3 zone control |
+
+The base plays `arena-01`/`arena-02` with `maxPlayers: 6`. Never renumber a `GameMode` (invariant 7).
+
+**The mode layer.** A mode's behaviour is `ModeRules` (shared, `modes/rules-registry.ts` →
+`rulesOf(mode)`: `sides`, `respawns`, `hasMatchClock`, `winRuleLabel`, `canStart`,
+`claimsChassis`), a server `ModeController` (`controllerOf(mode)` — the single answer to "what ends
+the match"), and a client `ModeHud`. See
+[`docs/superpowers/specs/2026-09-25-game-mode-layer-design.md`](docs/superpowers/specs/2026-09-25-game-mode-layer-design.md).
+
+- **Deathmatch** runs `respawnSweep` on `deathmatch().respawnDelaySeconds`, gives a respawned car a
+  `phased` status (driveable, not solid, not targetable), and ends on `ArenaState.matchEndsTick` or
+  the kills-then-deaths ranking in `deathmatchOutcome`.
+- **Conquer** shares Deathmatch's respawn flow and reads `deathmatch()` for clock/respawn/phase
+  windows, but wins when a team fills a control bar by holding `ArenaDef.zone` uncontested
+  (`conquer()`: `captureDelaySeconds`, `controlTargetSeconds`, `teamSize`, `uniqueChassisPerTeam`).
+  See [`docs/superpowers/specs/2026-09-24-conquer-mode-design.md`](docs/superpowers/specs/2026-09-24-conquer-mode-design.md).
+- **`isOnField` vs `isSolid`.** `isOnField` is the mover gate (may this car be simulated);
+  `isSolid` (`isOnField && !phased`) gates contacts, rams and weapon targeting. A phased car is the
+  only case where they may disagree.
+
+**The camera is per mode** — `camera()` carries `rotate` (`"none"` / `"teamFacing"` /
+`"heading"`), `fov` (off in every shipped mode), `spectate`, `camLerp`, `zoom`, `freeRoamSpeed`. The
+arena decides nothing about the camera. See
 [`docs/superpowers/specs/2026-09-28-camera-behaviors-design.md`](docs/superpowers/specs/2026-09-28-camera-behaviors-design.md).
 
-**Conquer is the third mode, and the first team mode that ships active.** `GameMode.CONQUER = 3`
-(never renumber — invariant 7), published (`isActive: true`) as of 2026-09-24 — `GameMode` now
-carries **three win rules**, read through `rulesOf(mode).winRuleLabel` (a field on the mode's own
-`ModeRules`, resolved through `packages/shared/src/modes/rules-registry.ts`; the exhaustive-switch
-`winRuleOf` this file used to describe is gone — see
-[`docs/superpowers/specs/2026-09-25-game-mode-layer-design.md`](docs/superpowers/specs/2026-09-25-game-mode-layer-design.md)
-for the mode layer, `ModeRules`/`ModeController`/`ModeHud`, this replaced):
-`"last_standing"`, `"deathmatch"`, and `"conquer"`. It is a 3v3 zone-control mode with the same
-respawn-on-death flow as Deathmatch — it reads the `deathmatch()` table for the clock, respawn delay
-and spawn-protection windows, resolved through its own bundle same as every mode's `deathmatch()` —
-today Conquer's `config.ts` overrides only `arenas`, so its resolved `deathmatch()` is byte-identical
-to the base's (and to Deathmatch's), but that identity is a fact about what each mode currently
-chooses to override, not a rule the merge enforces — but wins on
-`rulesOf(mode).winRuleLabel === "conquer"`: a team that holds the capture zone (`ArenaDef.zone`)
-uncontested long enough fills a control bar, and a full bar wins outright regardless of the clock.
-It plays its own arena, `arena-03`, and authors `CONQUER_CONFIG` (`captureDelaySeconds`,
-`controlTargetSeconds`, `teamSize`, `uniqueChassisPerTeam`) through the `conquer()` accessor. See
-[`docs/superpowers/specs/2026-09-24-conquer-mode-design.md`](docs/superpowers/specs/2026-09-24-conquer-mode-design.md).
+**The safety net is a resolved-bundle snapshot per mode.** `modes/snapshots.test.ts` writes each
+mode's resolved `ModeTables` to `packages/shared/src/modes/__snapshots__/<slug>.tables.json`. A
+mode's `config.ts` edit moves only that file; a base/global edit moves every mode that does not
+override the value. Accept a deliberate move with `vitest -u` scoped to the moved file(s), never a
+blanket `-u`.
 
-**The safety net is a resolved-bundle snapshot per mode, not a copy-equality test.** Each mode's
-resolved `ModeTables` (not `derived()`) is written to
-`packages/shared/src/modes/__snapshots__/<slug>.tables.json` by `modes/snapshots.test.ts`. An edit
-to one mode's `config.ts` moves only that mode's snapshot file; an edit to `modes/base.ts` (or a
-`config/` global it reads) moves every mode that does not override the changed value — so an
-accidental all-mode edit is visible in the diff, and a deliberate one is accepted with `vitest -u`
-on the moved file(s), never a blanket `-u`. `table-pinning.test.ts` and `parity.test.ts` — the old
-"the copies are equal" tests — are deleted; the snapshot is what replaced them.
+### Where to edit
 
-### Where to edit, depending on what you want
+- **Every mode** — edit the raw global in `config/`. A mode that overrides that value keeps its own
+  number and its snapshot does not move; check that is what you meant.
+- **One mode only** — edit that mode's `config.ts` and re-snapshot that mode. A partial nested
+  override is an ordinary object literal; `replace(...)` is only for a new keyed row or removing an
+  optional field.
+- **A new mode** — use the [`game-mode`](.claude/skills/game-mode/SKILL.md) skill.
+  `isActive: false` hides a mode from the lobby with no other change.
 
-- **An ordinary balance change, every mode** — edit the raw global in `config/`. Every mode whose
-  `config.ts` does not override that value picks it up automatically; a mode that already overrides
-  it keeps its own number, and its snapshot does not move — check whether that is what you meant.
-- **A change to ONE mode only, which is the whole point of this system** — edit that mode's
-  `config.ts` alone and re-run its snapshot test with `vitest -u` scoped to that mode's file. A
-  partial nested override (e.g. one field of one car) merges fine as an ordinary object literal —
-  `replace(...)` is only needed to add a whole NEW keyed row (a car/weapon/status id the base does
-  not have) or to remove an optional field the base row carries. Either way, still check whether the
-  edit owes a `build:manual` (any hashed table moved) or a `turn-tuning.md` update (a drive/handling
-  knob moved, see below) — the per-mode split does not change what else a config edit owes.
-- **A NEW mode** — see the [`game-mode`](.claude/skills/game-mode/SKILL.md) skill: an overrides
-  folder, `rules.ts`, a server controller (reuse a family or add one), a client `hud.ts`, the three
-  registries, a fresh snapshot, and the mode-folder tests and probes that start running over the new
-  row the moment it exists. `isActive: false` hides it from the lobby with no other code change.
+Any config edit may still owe a `npm run build:manual` and a `docs/turn-tuning.md` update — see
+those sections below.
 
-### What is NOT per-mode, and why
+### What is NOT per-mode
 
-`TICK_RATE_HZ`, `NET_CONFIG`, `SNAPSHOT_RATE_HZ`, the enum wire values, `ABILITY_SLOT_CEILING`,
-`MAX_PLAYERS`, `TILE_SIZE` and `TILE_DEFS` (tile arenas, 2026-10-09), `COLOR_TABLE`, `PRACTICE_CONFIG`, `CHAT_CONFIG`, `LOGICAL_CANVAS`, and the OBB hull
-(`DRIVE_CONFIG.carWidth` / `carHeight`) are global. The hull is excluded from `ModeTables` **by
-type**, so a mode folder cannot author one even by accident. `MAX_PLAYERS` is on that list as the
-CEILING, not as the seat count: a mode authors its own `maxPlayers` in its `index.ts`, and
-`modes/invariants.test.ts` holds it to `[2, MAX_PLAYERS]`. Both shipped modes author 6.
+`TICK_RATE_HZ`, `NET_CONFIG`, `SNAPSHOT_RATE_HZ`, enum wire values, `ABILITY_SLOT_CEILING`,
+`MAX_PLAYERS` (the ceiling; each mode's `maxPlayers` is held to `[2, MAX_PLAYERS]` by
+`modes/invariants.test.ts`), `TILE_SIZE`, `TILE_DEFS`, `COLOR_TABLE`, `PRACTICE_CONFIG`,
+`CHAT_CONFIG`, `LOGICAL_CANVAS`, and the OBB hull (`DRIVE_CONFIG.carWidth`/`carHeight`, 60 × 40). The
+hull is excluded from `ModeTables` **by type**.
 
 ### Two rules that will bite you
 
-- **`cfg()` throws outside a mode scope.** Every entry point — each room's handlers and tick, the
-  client's boot, every harness and script — must install a bundle first (`withMode(config, fn)`, or
-  `installMode` for a one-shot process). A new entry point that reads config without one crashes on
-  its first read, loudly, by design. `withMode` is strictly synchronous and refuses a thenable.
-- **Never read a config accessor at module scope.** A `const X = drive().maxSpeed` at the top of a
-  file freezes whichever mode was installed first for the life of the process. Use `memoOnBundle`
-  (`packages/client/src/net/mode-memo.ts`) when a derived value needs caching.
-  `packages/shared/src/modes/no-raw-config-in-sim.test.ts` walks shared, server and client and fails
-  on a raw table read — but it cannot see a module-scope accessor CALL, so that one is on you.
+- **`cfg()` throws outside a mode scope.** Every entry point — room handlers and ticks, client boot,
+  every harness and script — must install a bundle first (`withMode(config, fn)`, or `installMode`
+  for a one-shot process). `withMode` is strictly synchronous and refuses a thenable.
+  `installMode` is process-wide: **a room must never call it** (that leaks its bundle into every
+  other room). `PracticeRoom` and `PlaygroundRoom` hold their own bundle and read through
+  `scoped(...)`; `practice-room.test.ts` enforces this for practice.
+- **Never read a config accessor at module scope.** `const X = drive().maxSpeed` at the top of a file
+  freezes whichever mode was installed first. Cache derived values with `memoOnBundle`
+  (`packages/client/src/net/mode-memo.ts`). `modes/no-raw-config-in-sim.test.ts` catches a raw table
+  read, but **not** a module-scope accessor call — that one is on you.
 
-**The three measurement harnesses take `--mode=<id|name>` as of MC41.** `npm run ttk -- --mode=2`,
-`npm run balance -- --mode=deathmatch` and `npm run playtest -- --mode=2` each install that mode's
-bundle for the run, print the mode in the report header, and (for balance and playtest) end the
-report folder's name with it — `2026-09-23-01-deathmatch`. The flag takes a wire id or a display
-name; an unknown one refuses the run naming the modes that exist rather than falling back to the
-default, and an INACTIVE mode is measurable on purpose, since a mode no lobby publishes is exactly
-the one whose numbers nobody has seen. Balance's config fingerprint now hashes the MODE'S bundle
-rather than the raw `config/` globals, so a per-mode-only table edit moves it and `--baseline`
-refuses a cross-mode comparison the same way it refuses one across a `BOT_BRAIN_VERSION` change.
+The measurement harnesses (`npm run ttk`, `npm run balance`, `npm run playtest`) take
+`--mode=<id|name>`, print it in the report header, and suffix report folders with it. An unknown mode
+refuses the run; an inactive mode is measurable on purpose. Balance's config fingerprint hashes the
+mode's bundle, so `--baseline` refuses a cross-mode comparison.
 
-`docs/turn-tuning.md` came off that list too: it carries one set of its three tables per active
-mode, under that mode's own `##` heading, and `scripts/turn-tuning-doc.test.mjs` iterates
-`activeGameModes()` and names the mode alongside the row and the chassis in every failure. Its
-PROSE is deliberately not per-mode — it stays outside the mode sections and quotes the default
-mode's figures, since no test can see a number inside a sentence. The players' guide came off the
-list earlier in MC41 — it publishes a tab per active mode and `balanceStamp` hashes every one of
-them. See
-[`docs/superpowers/plans/2026-09-22-per-mode-config/EXECUTION.md`](docs/superpowers/plans/2026-09-22-per-mode-config/EXECUTION.md).
+## Game model — the facts most often needed
 
-**Statuses** are the sim's duration layer (`sim/status/`) — timed conditions a car is in, listed in
-the active mode's status table (`statusTable()`; the raw `STATUS_TABLE` global is the BASE table the
-modes merge over, not what the sim reads directly). Every channel is a **multiplier** with 1 as neutral, and `Modifiers` is the only type
-that reaches the sim: driving, ramming and combat never look at a status list. A status does not own
-its duration — the applier does (`WeaponDef.applies`, or `CombatInput.statusRequests` for future
-pickups) — and never stacks with itself. Hard CC no longer belongs to one chassis alone: since the
-2026-09-01 weapon-status overhaul, **`stunned` comes from `roadblock` (Bastion), `thunderclap`
-(Mirage's dash), and the hard-slam's wall impact** (`wildcharge`, 500 ms) — `thumper` applies
-`spiked` now, a slow rather than a stop. `applyDamage` is no longer the only HP writer;
-**`sim/damage.ts` is**, now that repair pulses exist. **`corroded`'s only source in the game is now
-an explosion** — `magmablast`'s detonation, and nothing else applies it (grep `applies:.*corroded`
-if a second source ever needs checking). **`reeling` is the one row no `WeaponDef.applies` entry ever
-grants**: the contact pass writes it, from `contactTick` — an ordinary ram for `RAM_CONFIG`'s
-duration, and (since the car-physics rework's stage 4) a hard slam for
-`WEAPON_TABLE.wildcharge.impulse.uncontrolMs`, which is a weapon-authored duration reaching it
-through the `ImpulseDef` seam rather than through `applies`. See the car-physics section below. See
-[`docs/combat-model.md`](docs/combat-model.md#statuses).
+### Roster
 
-**Every car carries one weapon beyond its ability kit, and never sees it in the HUD: its basic attack.** It is an
-ordinary `WEAPON_TABLE` row wired into a second slot — `CarDef.basicAttack`, a plain `WeaponId`
-sitting **beside** the ability kit rather than inside it — and **any weapon may occupy it**.
-Nothing constrains which row a chassis points it at, or what that row's id is spelled like; a
-weapon is a basic attack because a chassis slots it there, and `basicAttackIds()` is the only
-honest way to ask which ones are. The nine rows the chassis carry there today are identical seeds
-spreading one `BASIC_ATTACK_BASE`, which is a balance state, not a rule. **`CarDef.weapons` and `slotsOf` still mean the ABILITY slots alone** — the HUD, the
-guide, the playground's loadout picker, the balance seat filter, ttk's attacker axis and the bot's
-reach model all depend on that and are the reason it did not widen. Since the 2026-09-20
-variable-slot work that kit is **1 to `N`** weapons rather than exactly three, where `N` is
-`WEAPON_SLOT_CONFIG.maxAbilitySlots` (3 in this build). `fireSlotsOf(carId)` is where
-the two are joined, and its live readers are `packages/server/balance/stats.ts`'s accumulator
-seeding, `scripts/ttk.mjs` (two call sites), `packages/server/src/bot/brain/duel.fixture.ts` (two
-call sites) and the playtest probes (`packages/server/playtest/common/weapons.ts`, `weapons2.ts`,
-`geometry.ts`, which sweep `WEAPON_TABLE` whole and need "who can fire this, and on which slot") —
-`duel.fixture.ts`'s `bestSustainedDpsOf` deliberately counts the basic attack in its DPS
-ceiling, moving Bastion's figure from 18.3 to 22.5. `fireSlotsOf`'s own doc comment carries the
-authoritative list. `newFireState` does not call it — its
-explicit-loadout path builds the same list inline, since it also has to accept a caller-given
-weapon override `fireSlotsOf` has no parameter for. **The basic attack is always fire slot 0** as of
-the 2026-09-20 index flip — it sat LAST, at `kit.length`, until then, which was a constant only
-while every active kit was the same length. The flip moved no player-facing binding at the time.
-**There is one control layout** (`SLOT_KEYS`, spec TR29), re-mapped 2026-10-08 now that the basic
-attack is off in every mode: the three abilities at fire slots 1..`N` take the primary inputs —
-**`LMB` / `RMB` / `SPACE`** — while the basic attack (slot 0) is parked on **`Q`** and the inert
-fourth ability on **`E`** (both practically unused — the basic attack refuses every press and
-`N` is 3). `H`, `J`/`K`/`L`, `;` and MMB are unbound. (Turret aiming is independent of the key map:
-a weapon draws from the turret because it carries `WeaponBase.turret`, whatever key fires it.)
-It rides the ordinary fire state machine with `recoveryMs: 0`, and it **loses** a same-tick tie
-against an ability, because `beginFire` now scans **descending** and takes the highest set bit — the
-basic attack, at index 0, is scanned last. The scan was reversed in the same pass that moved the
-index, so the basic attack loses the tie the same way it always has, just through a different index.
-One consequence of scanning highest-wins is deliberate rather than incidental: among the
-abilities themselves, the **highest-indexed** one now wins a same-tick tie, so a player mashing every
-key fires their largest-cooldown ability, not their smallest. Its
-binding is taught **only** in the countdown action hint — it has no gutter pill, which is the one
-place the "a binding nobody printed breaks quietly" rule is knowingly bent. See
-[`docs/superpowers/specs/2026-09-17-basic-attack-design.md`](docs/superpowers/specs/2026-09-17-basic-attack-design.md) (BA1–BA38).
+- **Four active chassis**: the type triangle `mirage`, `bullseye`, `bastion`, plus `taurus` (a heavy
+  bruiser, not part of the triangle). Each carries three ability weapons; all twelve ability rows in
+  `WEAPON_TABLE` are carried, so there is **no spare weapon** for a new kit.
+- **Five inactive prototypes** — `anvil`, `caprico`, `prowler`, `cleaver`, `skorpios` — each
+  `isActive: false`, `weapons: []`, a placeholder stat clone of a shipped chassis. They carry no
+  design identity; do not balance against them.
+- Ratings are seven independent 0-100 values: `speed`, `accel`, `handling`, `attack`, `hp`,
+  `ramAttack`, `ramDefence` (there is no `mass`). `brakeDecel` is u/s². **`handling` is turn RATE,
+  not radius**; radius is `speed / turnRate`.
+- **`CarDef.isActive` is the publish gate everywhere**: car select, select/preview messages,
+  practice, the guide and `balanceStamp`, and the balance harness (`--include-inactive` to seat
+  prototypes; chassis with an empty kit are always skipped). `check:art` covers the whole table and
+  marks inactive rows; `ttk` uses the whole table as defenders and `armedCarIds()` as attackers.
+- **Weapon exclusivity is unconditional**: no weapon on two chassis, active or not. An inactive
+  chassis may carry no weapons. See [`docs/config-reference.md`](docs/config-reference.md#adding-an-inactive-chassis).
 
-**The basic attack can be switched off per mode without deleting any of that.** The flag is
-`slots.basicAttackEnabled` (`WeaponSlotConfig`, base value `false` in `weapon-slots.ts`) — a
-build-time override on that mode's `config.ts`, not a global and not a live-session setting: flip
-it in the mode's overrides, rebuild shared/server/client, and `npm run build:manual`. All four
-shipped modes (Brawl, Team brawl, Deathmatch, Conquer) carry `false` today — none overrides
-`slots` — so `LMB` is bound to a weapon that refuses every press everywhere, the hint reads `RMB Q E
-to fire`, the bot never selects slot 0 and no chassis shows a "Basic attack" card, in every mode.
-Nothing about the nine `basic-attack-*` rows, `CarDef.basicAttack`, or its schema row at index 0
-goes away when a mode's flag is `false`; only five things read `slots().basicAttackEnabled` under
-whichever mode is installed. `beginFire` refuses a press on the basic-attack fire slot, so the key
-does nothing. `BotController`'s `chooseSlot` never selects that slot either, so a bot does not burn
-its one press a tick on a weapon that cannot fire. The client's `hintSlotOrder`
-(`config/slot-keys.ts`) drops the slot from the countdown action hint entirely, not merely from
-firing — the hint is the only place its binding is taught, and hiding the weapon means removing the
-pill, not leaving a dead one on screen. `scripts/build-cars-and-weapons.mjs` skips every
-chassis's "Basic attack" card per mode and folds each mode's flag into `balanceStamp`, so toggling
-one mode's flag without rebuilding the manual fails `npm test` the same way any other stale-manual
-edit does. And `carHasTurretWeapon` (`sim/weapons/turret.ts`) reads it too — since the nine
-basic-attack rows are this build's only `turret`-carrying rows, turning the flag ON for a mode also
-turns on turret drawing, pointer lock and the crosshair for every match played in that mode, with no
-separate step. `fireSlotsOf`, the balance harness, `npm run ttk` and the playtest probes are
-deliberately left unaware of the flag — they sweep every `WEAPON_TABLE` row structurally, and
-`carrierOf` must always be able to find a chassis for each of the nine basic-attack rows or those
-tools crash outright. See the
-[`basic-attack-toggle`](.claude/skills/basic-attack-toggle/SKILL.md) skill for the full checklist.
+### Drive
 
-**How many ABILITY slots a car has is itself a build-time number, `N`.** `ABILITY_SLOTS` in
-`packages/shared/src/config/weapon-slots.ts` seeds `WEAPON_SLOT_CONFIG.maxAbilitySlots`; it is **3**
-today, legal from 1 to `ABILITY_SLOT_CEILING` (4) and held to that range by a config test.
-`maxFireSlots` (`N + 1`) and `basicAttackSlotIndex` (`0`) are derived, never typed, so they cannot
-drift from it. The ceiling is **structural** — it sizes `SLOT_KEYS` (which carries a fifth `SPACE`
-row for a fourth ability, inert at `N` 3), bounds the wire mask and bounds `N` — and is never a
-tuning act. An active chassis may now carry **1 to 4** weapons rather than exactly three; a kit
-longer than `N` is truncated **silently** (that is the designed case, not an error), while only a kit
-past the ceiling warns. Raising `N` does nothing for a chassis whose kit is shorter — its effective
-count is `min(kit.length, N)` — and giving a car another weapon is a `CAR_TABLE` edit needing a row
-nobody else carries, since weapon exclusivity is unconditional (`tremor` is the only spare). Changing
-`N` moves `rollPersonality`'s per-bot RNG **draw count** (`1 + maxFireSlots`), which shifts every
-seeded stream downstream, so it owes a `BOT_BRAIN_VERSION` bump and invalidates every earlier balance
-and playtest report. See the
-[`ability-slot-count`](.claude/skills/ability-slot-count/SKILL.md) skill and
-[`docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md`](docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md)
-(VS1–VS34).
+`stepDrive` takes a resolved `ChassisDrive` from `driveOf(carId)` (resolved once at `stepSim`'s
+production call site), not the roster — that is what lets `golden.test.ts` pin the integration. The
+model (ported from Unity, 2026-09-18) uses one always-on drag rate (`baseDrag`/`dragPerRating`) that
+sets top speed, wind-up and coast-off together, and a speed-independent yaw rate. Current values and
+resolvers: [`docs/config-reference.md`](docs/config-reference.md#drive_config) and
+[`docs/turn-tuning.md`](docs/turn-tuning.md). `packages/shared/src/sim/velocity.ts` (`forwardOf`,
+`lateralOf`, `speedOf`, `toWorld`) is the **only** place the world/car frame conversion may be
+written.
 
-**A weapon may fire from a mouse-aimed turret rather than a fixed muzzle, and on this build five
-ability weapons do (2026-10-08).** `development/main` carries `turret` on the nine basic-attack rows
-**plus** `predator`, `magmablast`, `thumper`, `fury-horn` (each active chassis's slot-1 weapon) and
-`roadblock`. Because the turret is a per-weapon flag read by `carHasTurretWeapon` (TR53) — "BA on for
-this mode, OR any fire slot carries a turret weapon" — **every active chassis now draws a turret,
-captures the pointer, and shows the crosshair in every mode**, even though the basic attack is off
-everywhere (`slots.basicAttackEnabled` is `false` in every mode). This decoupled the turret from the
-basic attack: the basic-attack rows still carry `turret` (so they'd be turret-aimed if ever switched
-on), but it is the ability weapons that light the HUD today. The turret is **per-weapon and read
-through the active mode's table**, so a weapon can be turret-aimed in one mode and a fixed muzzle in
-another via a per-mode `replace()`. A config test asserts the live roster's turret posture. A row
-carrying `WeaponBase.turret` fires along
-the world bearing the player clicked (`InputFrame.aimAngle`, from the turret pivot to the
-crosshair), frozen at the press; the turret (`FireState.turretAngle`, sim state, mirrored
-render-only to `PlayerState.turretAngle`) turns to it at `TURRET_CONFIG.turnRateDegPerSec` before
-the wind-up starts, and the shot spawns from `turretPivotOf` plus `defaultOffset`, clamped so it is
-never born through a wall. The arena scene holds **pointer lock** with a drawn crosshair, and every
-room kind has a **menu** on `P` (and on `Esc`, through lock loss): practice and the playground pause
-as before, while a multiplayer match gets a client-only, non-pausing overlay whose Exit leaves the
-room to the join screen. See [`docs/combat-model.md`](docs/combat-model.md#turret-muzzle) and
-[`docs/superpowers/specs/2026-09-21-mouse-aim-turret-design.md`](docs/superpowers/specs/2026-09-21-mouse-aim-turret-design.md)
-(TR1–TR52).
+### Rams and impulses
 
-An **aura** is a beam with a `disc` hitbox at `origin: "center"` — a field around a car rather than a
-line of fire. It shipped once, as `shockwave` on Mirage's slot 2, and the 2026-09-01 overhaul retired
-that weapon's aura identity, leaving no row using a `disc` hitbox — but a disc ships again as of the
-2026-09-02 predator/magmablast pass: `magmablast` (moved back to **Mirage's** slot 1 by that pass, off
-Bullseye's) is now an explosive shell whose detonation is a real `WeaponInstance`, a detached
-centre-origin `disc`-hitbox beam synthesized by `instanceDefOf(id, isExplosion)` from the shell's
-`ExplosionDef`. That disc lingers 2 s and damages once per entry; `damageMode` on the explosion is
-the knob (`"onceEver" | "perEntry"`). The aura mechanism was never deleted while dormant, and this
-is what it was waiting for. The multi-wave `VolleyDef` machinery that rode alongside the original
-aura is **live** too: `shockwave` (carried by Taurus) authors `volley: { volleys: 3, volleyIntervalMs: 500 }`
-— three expanding `disc` rings from one press, `spiked` on every ring (`onWave: "all"`); only
-`onWave: "final"` is still unused.
+A ram is a one-way rule: nose-first above `RAM_CONFIG.minRamSpeed`, the attacker stops dead and takes
+`ramLock` (`attackerLockMs`); the victim takes the shove, the spin and `reeling`
+(`modifiers: { grip: 0.6 }`, flags `immobilised`/`steeringLocked`/`spinFree`/`ramBlocked`). A ram
+deals **zero HP** — cars never damage each other by contact. Per-victim diminishing returns
+(`FalloffStack` in `packages/server/src/sim/ram-bridge.ts`) are server-only and scale the victim's
+half only.
 
-**The `GameMode` enum now has two FFA win conditions**, not one. `FFA_LAST_STANDING` (the renamed
-original — wire value still `0`) ends the match when `livingSides` drops to one side; `FFA_DEATHMATCH`
-(`2`) never calls `livingSides` at all — it runs a `respawnSweep` on a `DEATHMATCH_CONFIG.respawnDelaySeconds`
-timer, grants the respawned car a `phased` status (driveable, not solid, not targetable) for at least
-`phaseSeconds`, and ends on `ArenaState.matchEndsTick` or the kills-then-deaths ranking in
-`deathmatchOutcome`. `controllerOf(mode)` (server) is now the single place that answers "what ends
-the match" — `rulesOf(mode)` carries the rest of the shape a mode's behaviour needs (`sides`,
-`respawns`, `hasMatchClock`, `winRuleLabel`, `canStart`, `claimsChassis`); the deleted `winRuleOf` and
-`sidesOf` free functions this file used to describe are both gone. See
-[`docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md`](docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md)
-and [`docs/combat-model.md`](docs/combat-model.md#elimination-and-winning).
+Weapons push through an optional **`ImpulseDef`** on `WeaponBase`/`ExplosionDef`, converted to
+ticks in `WEAPON_TICKS[id].impulse` (`undefined` when absent). `wildcharge` (the slam) and `tremor`
+(an inward radial pull) author one. A slam emits a `SlamEvent` from `sim/contact.ts` and
+`ram-bridge.ts` assembles its push; non-maneuver impulses apply once per victim per instance via
+`applyWeaponImpulses`. Wall-contact padding is `IMPULSE_CONFIG.wallContactPad`.
 
-**`isOnField` split into two predicates on the same date.** It now covers only the **mover** gate — may
-this car be simulated at all — in `sim/tick.ts`. Whether it is **solid** — participates in contacts,
-can be rammed, can be a weapon target — is `isSolid` (`isOnField && !phased`), read by `otherCarHulls`
-and the ram pair list. Outside Deathmatch no car is ever `phased`, so the two predicates agree
-everywhere else in the game; a phased car is the one case where they must disagree, and nothing else
-may let them.
+The current rule's state file is
+[`docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md`](docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md)
+(stages 1-4 landed; stage 5, tune-and-reconcile, is **paused** at the owner's request). The older
+2026-09-06 car-physics rework's contest model is superseded; its `EXECUTION.md` is a record only.
 
-**The type triangle is `bullseye`, `mirage` and `bastion`** — three shapes that counter each other,
-and the original shipped roster. **`taurus` joined them as a fourth ACTIVE chassis on 2026-10-07**,
-with its own kit (`fury-horn`, `shockwave`, `wildcharge`) and its own ratings (58/33/58/52/80/62/70, a
-heavy bruiser between Bastion and Bullseye) — no longer a clone, and not part of the triangle.
-`CAR_TABLE` also carries five unreleased prototypes as of 2026-09-16 — `anvil`, `caprico`, `prowler`,
-`cleaver`, `skorpios` — each `isActive: false`, each with `weapons: []`, and each a placeholder stat
-clone of a shipped chassis (Anvil/Caprico of Bastion, Prowler/Cleaver of Mirage, Skorpios of
-Bullseye). They exist so art and handling can be driven before publication; **none of them carries an
-identity yet**, so do not read their ratings as a design or balance them against the triangle.
-Everything below about the roster's shape is about the three triangle chassis.
-Their ratings (`speed`, `accel`, `handling`, `attack`, `hp`, `ramAttack`, `ramDefence`) are **seven**
-independent 0-100 values; `accel` and `handling` landed on 2026-08-30 so cars could differ in how they
-launch and how they corner, and `ramAttack`/`ramDefence` replaced the single `mass` rating in stage 3
-of the 2026-09-06 car-physics rework (see below) — **there is no `mass` on `CarDef` any more.**
-(`CAR_TABLE` rows also carry `brakeDecel`, a u/s² value rather than a 0-100 rating — `coastHalfLifeSeconds`
-joined it in the same 2026-09-06 pass and was deleted by the 2026-09-18 Unity drive-model port, which
-replaced the coast curve it fed with one always-on drag rate.) **`handling` is turn RATE, not turn
-radius.** Radius is `speed / turnRate`.
+### Statuses
 
-**A further chassis can be authored without shipping it: `CarDef.isActive` (PG18) is the roster's
-publish gate**, and as of 2026-09-16 it is one everywhere rather than only in car select. Car select,
-`MSG_SELECT_CAR`/`MSG_PREVIEW_CAR`, the practice opponent roll and practice join options already
-filtered to `activeCarIds()`; the players' guide and the balance harness did not. The guide now
-publishes active chassis only — the car sections, their kits and the `roster.*` prose tokens — and
-`balanceStamp` hashes that same subset, so an unreleased car neither reaches players nor churns the
-page. The balance harness seats active chassis by default and unreleased ones under
-`npm run balance -- --include-inactive`, **skipping any chassis with an empty kit under either**,
-since a car that cannot fire books a guaranteed 0% that measures nothing. Two authoring rules follow,
-and they are a deliberate pair: **an inactive chassis may carry no weapons at all** (that is the shape
-a prototype is driven in), and **weapon exclusivity (L1) stays unconditional** — no weapon on two
-chassis, active or not, so a prototype cannot borrow a shipped kit and `isActive: true` is a
-one-field change rather than an edit that fails the suite for unrelated reasons. A `WEAPON_TABLE` row
-carried by nobody is legal (`tremor` is one); the whitelist that used to pin an exact carried-row
-count is gone, and the per-chassis kit assertions are what still catch a weapon silently dropped from
-a shipped loadout. `npm run check:art` deliberately covers the whole table, marking an unreleased row
-`(inactive)` rather than skipping it, because missing art is something to learn before release.
-`npm run ttk` covers the whole table on its **defender** axis only — an unreleased hull is exactly
-the one you want to check "can anything kill this" against — while its **attacker** axis is
-`armedCarIds()`, since a chassis with no kit books a guaranteed "never" row that measures nothing,
-the same reason balance skips an empty kit. The matrix names the chassis it left off. See
-[`docs/config-reference.md`](docs/config-reference.md#adding-an-inactive-chassis).
+`sim/status/` is the duration layer. The sim reads the active mode's `statusTable()` (the
+`STATUS_TABLE` global is the base). Every channel is a **multiplier** with 1 as neutral, and
+`Modifiers` is the only type that reaches driving, ramming and combat. The applier owns the duration
+(`WeaponDef.applies`, `CombatInput.statusRequests`, or the contact pass for `reeling`/`ramLock`); a
+status never stacks with itself, and a flag-carrying debuff is forced to `reapply: "ignore"`.
+`sim/damage.ts` is the only HP writer. See [`docs/combat-model.md`](docs/combat-model.md#statuses).
 
-Until **2026-09-02**, `speed` and `handling` traded off per car — Bastion carried the roster's
-*highest* `handling` (82) despite the *lowest* `speed` (30), which let it turn inside every other
-chassis (20 u) even though Bullseye's low-rate-but-tight-radius arc (40 u, beating Mirage's 42 u
-despite a lower turn RATE) was the more subtle version of the same trick. **That inversion is gone.**
-`speed` and `handling` now carry the *same* rating per car (Mirage 85/85, Bullseye 65/65, Bastion
-50/50). The 2026-09-02 rebalance also raised top speed roster-wide (`DRIVE_CONFIG.baseMaxSpeed`
-90 -> 135, `speedPerRating` 2.25 -> 3.7 — deliberately more than a uniform 1.5x), which at the time
-landed turn radius at Mirage widest (55 u), Bullseye next (53 u), Bastion tightest (51 u): ordered
-with top speed rather than against it, Bastion still winning but by a few units instead of tens, its
-tank identity resting on hp and `mass` alone rather than a handling edge. (That was the 2026-09-02
-state of play: `mass` was deleted by the car-physics rework's stage 3, and the same identity now rests
-on hp plus `ramAttack` 70 / `ramDefence` 90 — both the roster's highest.)
+### Weapon slots, the basic attack and the turret
 
-**The 2026-09-06 heavy-car pass (stage 1 of the vector-drive rework) cut top speed and acceleration
-again, hard, so cars carry momentum and feel heavy.** `DRIVE_CONFIG.baseMaxSpeed`/`speedPerRating`
-dropped 135/3.7 -> 80/2.2 — roughly a 40% roster-wide top-speed cut (Mirage 449.5 -> 267 u/s, Bullseye
-375.5 -> 223, Bastion 320 -> 190) — and `baseAccel`/`accelPerRating` dropped much further, 420/7.2 ->
-60/1.4, stretching time to top speed by roughly 3-4x (Mirage 0.44 -> 1.49 s, Bullseye 0.50 -> 1.81 s,
-Bastion 0.57 -> 2.16 s). Turn rate was **deliberately left untouched**: since radius is
-`speed / turnRate`, the speed cut alone drops every chassis's turn radius under one car length (48 u)
-— Mirage 32.6 u, Bullseye 31.4 u, Bastion 30.2 u, the same ordering and proportional spacing as
-2026-09-02, just scaled down. Per-car `coastHalfLifeSeconds` and `brakeDecel` also joined `CarDef` in
-this pass, replacing the old global `DRIVE_CONFIG.drag`/`brakeDecel` pair, so coasting and braking are
-now per-chassis feel rather than a roster-wide constant. See
-[`docs/turn-tuning.md`](docs/turn-tuning.md#current-values) for the full numbers.
+- **Ability slots.** `ABILITY_SLOTS` (`config/weapon-slots.ts`) seeds
+  `WEAPON_SLOT_CONFIG.maxAbilitySlots` = `N` = **3**, legal 1..`ABILITY_SLOT_CEILING` (4).
+  `maxFireSlots` (`N + 1`) and `basicAttackSlotIndex` (0) are derived. A kit longer than `N` is
+  truncated silently. Changing `N` changes `rollPersonality`'s RNG draw count, so it owes a
+  `BOT_BRAIN_VERSION` bump. Use the [`ability-slot-count`](.claude/skills/ability-slot-count/SKILL.md)
+  skill.
+- **Basic attack.** Every car has `CarDef.basicAttack`, a `WeaponId` beside the ability kit, always
+  **fire slot 0**. `CarDef.weapons` and `slotsOf` mean the **ability** slots only; `fireSlotsOf`
+  joins the two. `basicAttackIds()` is the only honest way to ask which rows are basic attacks (nine
+  identical rows spread from `BASIC_ATTACK_BASE` today).
+- **The basic attack is OFF in every mode** — `slots.basicAttackEnabled` is `false` in the base and
+  no mode overrides it. Five readers honour it: `beginFire` (refuses the press), the bot's
+  `chooseSlot`, the client's `hintSlotOrder`, `scripts/build-cars-and-weapons.mjs` (skips the card,
+  folds the flag into `balanceStamp`), and `carHasTurretWeapon` (skips slot 0). `fireSlotsOf`, the
+  balance harness, `ttk` and the probes deliberately ignore it. Toggle it with the
+  [`basic-attack-toggle`](.claude/skills/basic-attack-toggle/SKILL.md) skill.
+- **Controls** (`SLOT_KEYS`, client `config/slot-keys.ts`): abilities 1/2/3 on **`LMB` / `RMB` /
+  `SPACE`**; the basic attack (slot 0) is parked on **`Q`** and an inert fourth ability on **`E`**.
+  `beginFire` scans **descending** and takes the highest set bit, so on a same-tick tie the
+  highest-indexed slot wins and the basic attack always loses. A menu opens on `P` (and `Esc`, via
+  pointer-lock loss) in every room.
+- **Turret.** A weapon carrying `WeaponBase.turret` fires along the bearing the player clicked
+  (`InputFrame.aimAngle`), frozen at the press, clamped to `TURRET_CONFIG.maxSwingDeg` (60° arc). The
+  turret turns at `turnRateDegPerSec` before wind-up; the shot spawns from `turretPivotOf` plus
+  `defaultOffset`, clamped so it is never born through a wall. Turret rows today: the nine
+  basic-attack rows (inert while the flag is off) plus `predator`, `magmablast`, `thumper`,
+  `fury-horn` and `roadblock` — so **every active chassis aims with the mouse in every mode**, with
+  pointer lock and a crosshair. Brawl sets `turret.visible: false`: no turret drawn and an instant
+  turn, but mouse aim still applies. See [`docs/combat-model.md`](docs/combat-model.md#turret-muzzle)
+  and [`docs/superpowers/specs/2026-09-21-mouse-aim-turret-design.md`](docs/superpowers/specs/2026-09-21-mouse-aim-turret-design.md).
 
-**The 2026-09-16 pass cut top speed a third time, and this one is not the same shape as the last.**
-`DRIVE_CONFIG.baseMaxSpeed`/`speedPerRating` dropped 80/2.2 -> 60/1.518 — roughly another 29% off
-every top speed (Mirage 267 -> 189.03 u/s, Bullseye 223 -> 158.67, Bastion 190 -> 135.9). Three
-differences from 2026-09-06 matter: the pair did **not** scale uniformly (0.75x against 0.69x), so
-the flat part grew relative to the per-rating part and a point of `speed` buys slightly less;
-**accel was left untouched**, so time to top speed *fell* with the ceiling (Mirage 1.49 -> 1.06 s,
-Bullseye 1.81 -> 1.29, Bastion 2.16 -> 1.54) rather than stretching as the heavy-car pass made it —
-a car is slower but reaches its lower maximum sooner, which reads as *less* heavy, not more; and turn
-rate was left alone for a third consecutive pass, so every radius fell with its own speed to a
-**1.5 u band across the whole roster** (Bastion 21.6 u, Bullseye 22.3, Mirage 23.1). Radius has
-stopped being a legible axis of the type triangle — widening it back out is a `handling` edit, not a
-speed one. **The measured hardest-possible ram also dropped from 5.95 to 4.50 rad/s against an
-unchanged `RAM_CONFIG.spinMaxRate` of 6**, since `attackerPush` is linear in closing speed: stage 5's
-re-pitch inherits a spin budget that is a quarter unspent, and `globalScale`/`spinScale` were
-measured against the old ceiling-hugging case. See
-[`docs/turn-tuning.md`](docs/turn-tuning.md#current-values).
+### Notable weapon mechanics
 
-**The 2026-09-16 hull resize made every car 1.25x bigger — for real, not just in the drawing.**
-`DRIVE_CONFIG.carWidth`/`carHeight` went 48 × 32 → **60 × 40**; the arenas did not grow, so the field
-is relatively more crowded. **It was first built at 1.5x (72 × 48) and revised down on 2026-09-17**
-because that played too large against arenas that did not grow — the spec's §12 restates every clause
-at the new factor, and the 72 × 48 build never reached `development/main`, so it is not history to
-preserve. Every reader derives from the hull, so the logic edits were small, and three of
-them are worth knowing: `RAM_CONFIG.spinScale` went 10 → **12.5** by derivation (a 1.25x lever over a
-1.5625x `inertiaCoefficient`), which keeps every ram's spin exactly where it was — the car-physics
-rework's own stage 5 never ran to re-pitch it; the 2026-09-18 Unity physics port's stage 3 is what
-answers that instead, replacing `inertiaCoefficient` with the hull-derived `inertiaRadiusSquared()`
-and re-pitching `RAM_CONFIG.spinScale` itself to 0.3 for the new ram formula (12.5 survives, moved to
-`IMPULSE_CONFIG.spinScale`, as the slam's own copy — see the car-physics-rework section below for the
-full story); both arenas' FFA spawn rows moved inward (arena-01
-y 180/540, arena-02 y 187/543) to clear the spikes by ~106 u rather than a car diagonal (72.1) —
-forced on arena-02, whose old rows sat *inside* the diagonal at 69 u; and the client's countdown
-arrow and hp bar length scaled 1.25x with the car (the lock bracket did too, on the branch, but the
-aim-lock removal deleted it before the two met). Weapon balance was deliberately **not**
-touched: a bigger target is easier to hit, so hit rates are expected to rise, and that is for the
-balance harness to measure. `BOT_BRAIN_VERSION` went to 4.7.0 on the branch and to **5.1.0**
-when it merged over the aim-lock removal's 5.0.0 — a number the basic attack also took on its own
-line, so the merge of the two is **5.2.0** — and balance reports across this change are not
-comparable. The car art the 1.5x pass imported at 144 px was re-imported at 120 px for the 60 × 40 hull
-(`1189a08`), and `check:cars` reads `ok` on all nine rows. Three bot tests were already failing before this resize (the 2026-09-16
-top-speed cut) and still need a `BOT_PROFILES` retune; measured on base `0904012` at 48 × 32, at
-72 × 48, and at the shipped 60 × 40: `controller.test.ts`'s OFF-AXIS mean offset reads 0.2386 →
-0.6939 → **0.2017** against a bar of < 0.2 — still red, but now better than base — alongside the hard
-bot's preferred standoff growing from 470 to 570 (the two moved together; a causal link was not
-measured); `tiers.test.ts`'s P49, a **time-to-kill** case, **passes at 60 × 40** (no kill within the
-run at base, 18.7 s against a 17.87 s cap at 72 × 48); and P50, a hit-rate case, is still inverted —
-hard vs medium hit rate 0.778 vs 0.8 at base, 0.632 vs 0.857 at 72 × 48, **0.765 vs 0.857** at
-60 × 40. **Those figures are the branch's, measured before it merged over the aim-lock removal
-(2026-09-17), and the merge moved all three:** P49 and P50 both passed on that merged line, but the
-OFF-AXIS offset read **1.58** — against 0.2017 on the branch alone, and a pass on `development/main`
-alone. Neither parent shows it; it is the lock removal's longer engagement reach meeting the bigger
-hull, not a mis-resolved conflict, and it is a `bot-tuner` question. **The basic-attack merge that
-followed moved them again:** OFF-AXIS reads **1.36**, P49 fails again (hard's fires at range 6
-against a bar of 7.17), and `balance/match.test.ts`'s 30 s deathmatch-clock canary lands seed 1 on a
-ranking tie (kills assertion passing, `winnerSessionId` empty — the tie its history already
-describes, not the clock defect). All three pass on `feature/basic-attack` alone and the latter two
-on the bigger-cars merge alone. See
-[`docs/superpowers/specs/2026-09-16-bigger-cars-design.md`](docs/superpowers/specs/2026-09-16-bigger-cars-design.md).
+- An **aura/explosion** is a beam with a `disc` hitbox at `origin: "center"`. `magmablast`'s
+  detonation is a real detached `WeaponInstance` synthesized by `instanceDefOf(id, isExplosion)`;
+  `damageMode` (`"onceEver" | "perEntry"`) is the knob. It is the only source of `corroded`.
+- **Volleys are live**: `shockwave` (Taurus) fires three expanding rings with `spiked` on every ring
+  (`onWave: "all"`). `onWave: "final"` is unused.
+- `stunned` comes from `roadblock`, `thunderclap` and the slam's wall impact.
 
-**The 2026-09-18 Unity drive-model port replaced the model these paragraphs describe, not merely its
-numbers.** `DRIVE_CONFIG.baseAccel`/`accelPerRating`, `reverseSpeedRatio`, `steeringGrip` and
-`stopTurnRatio` are gone; one always-on drag rate (`baseDrag`/`dragPerRating`, resolved per car by
-`dragRateOf`) now sets top speed, wind-up time and coast-off roll together, and yaw is
-speed-independent with no separate at-rest rate. The port's own stage 1 ported `baseTurnRate`/
-`turnRatePerRating` to Unity's own anchors (3.6/0.054 → 0.667/0.0169) and `reverseAccelFactor` to
-Unity's own 0.4, both **retunes**, not merely renamings — see
-[`docs/config-reference.md`](docs/config-reference.md#drive_config) for the resolvers and current
-values. **Stage 5 Task 5 (2026-09-19) then raised `baseMaxSpeed`/`speedPerRating` AND
-`baseTurnRate`/`turnRatePerRating` by the identical uniform 1.5x** (60/1.518 → 90/2.277, 0.667/0.0169
-→ 1.0005/0.02535) and `reverseAccelFactor` back up to 0.6 — the roster's currently shipped values
-(Mirage 283.5 / Bullseye 238.0 / Bastion 203.9 u/s, turn radius uniformly 89.9 u across all three,
-deliberately, since speed and turn rate scaled together for the first time) — from the user's own
-hands-on playground pass. This is the first pass since 2026-08-31 to touch turn rate at all.
+### Arenas and spikes
 
-Turn rates were otherwise last touched on **2026-08-31, when the whole roster's turn rate was raised
-1.5x** — `DRIVE_CONFIG.baseTurnRate` and `turnRatePerRating` scaled together, speeds untouched at the
-time — because driving and aiming read as too heavy; neither the 2026-09-02 rebalance, the 2026-09-06
-heavy-car pass, the 2026-09-16 cut above, nor the Unity port's own stage 1 port (a value change, not a
-rescale) rescaled that pair again — that streak of "speed moves, turn rate does not" held for over
-three weeks and ended only with stage 5 Task 5 directly above. The 150-point budget that used to cap
-`speed`+`attack`+`hp` was deleted on 2026-08-29 so `mass` could be a free-floating rating, and no
-replacement guard was adopted — see [`docs/config-reference.md`](docs/config-reference.md#car_table).
+- `arena-01` and `arena-02` are **tile arenas**: a 32 × 18 text grid compiled by `compileTileArena`
+  (`packages/shared/src/arena/tiles/`) into ordinary `obstacles`, 1200 × 640 playable. Rows are
+  one-character keys; a per-arena `legend` merged over `DEFAULT_LEGEND` (`.` floor, `#` wall, `^`
+  spike, space void) maps each key to a cell `{ tile, orientation?, art?, artOrientation?, overlay? }`.
+  `TILE_DEFS` is **behaviour only** (solidity, hazard, which `sides` hurt); the look is named on the
+  cell. A one-sided spike compiles to an obstacle with `damageFaces`; the sim and the bot's
+  `spikesAhead` skip its safe faces (`facesOfNormal`). Tile art lives under
+  `arena.common.tile.<id>` and is baked into render-texture chunks at load. Specs:
+  [tile arenas](docs/superpowers/specs/2026-10-09-tile-arenas-design.md) (TA), superseded in part by
+  [tile cells](docs/superpowers/specs/2026-10-09-tile-cells-design.md) (TC).
+- `arena-03` (Conquer) is a hand-written chamfered polygon using `ArenaDef.boundary` — inward
+  half-planes through `Bounds`, resolved by a positional clamp; `boundsOf(arena)` is the one place a
+  `Bounds` is built.
+- `width`/`height` mean the image frame and camera bounds (1280 × 720), not the playable area.
+- **Spikes** (`spike()`) are the only environmental damage: a flat hit gated on a fresh push into the
+  surface above `triggerSpeed`, rate-limited by `retriggerMs`. Holding throttle into a wall does not
+  re-trigger; only an externally shoved car keeps paying. Damage is credited to whoever shoved the
+  car within `shoverCreditMs`, else to the victim (a self-inflicted kill). See
+  [`docs/combat-model.md`](docs/combat-model.md#environmental-hazards-wall-spikes).
+- No shipped arena draws a full-floor image; `arena.arena-02.floor` remains in the manifest unused.
 
-**`stepDrive` no longer reads the roster.** It takes a resolved `ChassisDrive` — **nine** numbers as
-of the 2026-09-18 Unity drive-model port (`maxSpeed`, `engineAccel`, `reverseAccel`, `brakeDecel`,
-`turnRate`, `dragRate`, `dragPerTick`, `gripPerTick`, `spinPerTick`; `reverseMaxSpeed`, `accel`,
-`turnRateAtStop` and `coastPerTick` from the 2026-09-06 vector-drive rework's eight-field version are
-all gone) — from `driveOf(carId)`; `stepSim` resolves it at the single production call site. That is
-what lets `golden.test.ts` pin the drive integration against a frozen fixture through every future
-balance edit — see [`docs/config-reference.md`](docs/config-reference.md#drive_config).
+### Rooms
 
-**Practice mode ships; the playground does not.** `PracticeRoom` is a third room type registered on
-every server with no `DEV_TOOLS` gate — a player-facing 1v1 against a bot, reached from the join
-screen's Practice button. It runs `runPipeline` and the deathmatch respawn helpers verbatim, runs
-`mode = FFA_DEATHMATCH` with `matchEndsTick` at 0 (which is what hides the
-clock and keeps the kills panel), and **never calls `installMode`** — it holds its own `ModeConfig`
-and reads through `scoped(this.modeConfig, ...)`, which restores the previous bundle on the way out.
-`installMode` writes the module-level current bundle, one per PROCESS rather than one per room, so a
-practice room that called it would hand its own numbers to every other room in the process. (That
-rule used to name `setTuning`, the playground's process-wide tuning store; `setTuning` was deleted in
-the per-mode-config work — the playground now builds a tuned sibling bundle with `applyOverrides` and
-keeps it on its own room — and `installMode` is the only way left to cause the same leak. A test in
-`practice-room.test.ts` reads the room's own source, comments stripped, to hold it.) The mirror image
-of that rule is `shouldRefusePlayground`, which refuses to open a playground while an arena **or a
-practice room** has anyone in it — a guard whose original tuning-leak justification is now gone,
-though the guard itself stands. Settings ride as join options, not messages: practice has no
-mid-session reconfiguration.
+- **`PracticeRoom`** ships (no `DEV_TOOLS` gate): 1v1 vs a bot, pinned to `FFA_DEATHMATCH` with
+  `matchEndsTick` 0 (no clock, kills panel kept), settings as join options only.
+- **`PlaygroundRoom`** is dev-only (`?dev=playground`, needs `DEV_TOOLS=1`). Six fixed seats with
+  stable ids `pg-0`…`pg-5`; `controlledSessionId` says which one the human drives; a disabled seat
+  keeps its configuration. It tunes through a sibling bundle (`applyOverrides`) kept on the room.
+  `shouldRefusePlayground` refuses to open one while an arena or practice room is occupied.
+  `BOT_SESSION_ID` is practice's alone.
+- Practice and playground open on the same 3-2-1 countdown as a match (`rooms/countdown.ts` is the
+  only writer of their `phase`); `applySetup` deliberately does not re-run it.
+- **Lobby chat** (`MSG_CHAT`) is accepted only from a `PlayerStatus.READY` sender — the same predicate
+  that puts a player on the lobby screen. `ArenaState.chat` keeps the last
+  `CHAT_CONFIG.maxMessages` (20), is never cleared, and each row snapshots sender `name`/`colorId`.
+  `seq` derives from the previous row because length cannot detect a new message at the cap.
 
-**Lobby chat is lobby-screen only, and its gate cannot drift from the UI.** `MSG_CHAT` is refused
-server-side unless the sender's `status === PlayerStatus.READY` — the status `viewFor` maps to the
-lobby screen for any player the room's state machine can actually produce, so "may speak" and "is
-looking at the chat panel" are the same predicate. The
-buffer lives on `ArenaState.chat`, capped at `CHAT_CONFIG.maxMessages` (20, oldest dropped first);
-nothing ever clears it — not a phase transition, not a kick — so a player back from a match or a late
-joiner reads the backlog, and it dies with the room since `ArenaRoom` sets no `autoDispose` override.
-Each row snapshots its sender's `name` and `colorId` at send time rather than resolving them through
-`state.players` at render time, so a leaver's or a kicked player's messages keep reading correctly
-instead of going nameless and grey. `seq` is derived from the previous row rather than held in a
-counter, because `chat.length` cannot detect a new message once the buffer is at its cap — an append
-plus a shift leaves the length unchanged. See
-[`docs/superpowers/specs/2026-09-06-lobby-chat-design.md`](docs/superpowers/specs/2026-09-06-lobby-chat-design.md).
+### Playground VFX
 
-**Neither of those two rooms reduces a flow, so `rooms/countdown.ts` is the only thing that writes
-their `phase`.** Both now open on the same 3-2-1 an arena match does: `beginCountdown` at creation
-(so the room cannot run live ticks before anyone arrives) and again on join once the cars are placed,
-then `countdownSweep` at the top of each tick flips `COUNTDOWN` to the `MATCH` they stay in for life.
-It is not a second countdown *mechanism* — the freeze is the one already shared, `serverTick`'s
-`moving = phase === RoomPhase.MATCH` and `combatTick`'s matching skip — and the client needed no
-change at all, since `viewFor(IN_MATCH, COUNTDOWN)` already routes to the arena scene and
-`syncMatchHud` already draws the numeral. It is stamped on **match start only**: `applySetup`
-deliberately does not re-run it, or every weapon swap in the playground's settings panel would cost
-the tester a three-second freeze. See
-[`docs/superpowers/specs/2026-09-03-practice-mode-design.md`](docs/superpowers/specs/2026-09-03-practice-mode-design.md).
+Per-weapon bursts live in `fx/table.ts`; the environment (grade, vignette, shake, hit-stop, decals,
+occlusion, lava, generated floor, floor art, markings, car lighting) lives in `fx/environment.ts`
+(`ENVIRONMENT_FX`). Both are injected by `ArenaScene` **only for a playground room**, so shipped
+arenas and practice always render the shipped tables. `floor.*` needs the Regenerate button;
+`floor.*` and `floorArt.*` never both apply. A car glow was tried and removed —
+`packages/client/CLAUDE.md` says why; it is not a gap to fill.
 
-**The bot is a five-layer brain, and a tier is data.** `packages/server/src/bot/brain/` runs
-perceive → assess → move → shoot → humanize; `easy`/`medium`/`hard` differ only in `BOT_PROFILES`,
-and no module branches on the difficulty name. Assess names **one situation** (`recover`, `waitOut`,
-`evade`, `unpin`, `punish`, `reset`, `fight`, `close`) and commits to that play — not a scored catalog.
-HUD facts (pose, HP, dead/phased, own and opponent gun reach, seen big-gun fires) are always present;
-tiers differ in how much they listen and how well the hands execute. The bot presses **one** slot
-per tick. `BOT_BRAIN_VERSION` rides in `botFingerprint`: bump it when behaviour changes without
-the table moving. Feel complaints ("medium is too hard to hit") go through the
-[`bot-tuner`](.claude/skills/bot-tuner/SKILL.md) skill onto knobs, not a Hard-only branch. See
-[`docs/bot-behavior.md`](docs/bot-behavior.md) and
-[`docs/superpowers/specs/2026-09-05-bot-situation-play-design.md`](docs/superpowers/specs/2026-09-05-bot-situation-play-design.md).
+### Bot
 
-**The playground tunes two kinds of VFX, and they are different shapes.** Per-weapon bursts live in
-`fx/table.ts` and are edited as a 2x4 grid; the environment — grade, vignette, shake, hit-stop,
-decals, occlusion, lava, the generated floor, the floor ART's knock-back (shipped as a
-no-op), the painted markings, car burst scaling and how a car is lit (a car GLOW was tried and
-removed on 2026-09-13 — `packages/client/CLAUDE.md` says why, and it is not a gap to fill) — lives in `fx/environment.ts` as
-one `ENVIRONMENT_FX` table and is edited as a flat list of sections. Both reach the renderer the
-same way: a resolver injected by `ArenaScene` **only for a playground room**, so a shipped arena or
-a practice session renders the shipped tables no matter what is saved in that browser. `floor.*` is
-the only group that is not live — it needs the panel's Regenerate button. **`floor.*` and `floorArt.*`
-are exact mirrors and never both apply**: an arena drawing floor art never creates the `floorTile`
-every `floor.*` knob feeds, and an arena on generated asphalt never creates the sprite `floorArt`
-tints. The panel marks whichever one is inert rather than letting it silently do nothing. `occlusion.halo` and
-`markings.*` apply on edit, but through a texture rebuild and a redraw rather than a plain read —
-see EV27, EV28 and EV30.
+`packages/server/src/bot/brain/` runs perceive → assess → move → shoot → humanize. Tiers
+(`easy`/`medium`/`hard`) differ only in `BOT_PROFILES`; no module branches on the tier name. Assess
+commits to **one situation** (`recover`, `waitOut`, `evade`, `unpin`, `punish`, `reset`, `fight`,
+`close`). The bot presses one slot per tick. Bump `BOT_BRAIN_VERSION` (in `botFingerprint`) when
+behaviour changes without the table moving. Feel complaints go through the
+[`bot-tuner`](.claude/skills/bot-tuner/SKILL.md) skill onto knobs, never a tier-only branch. See
+[`docs/bot-behavior.md`](docs/bot-behavior.md).
 
-**The playground seats six cars, and a seat is not a connection.** As of 2026-09-16 the sandbox
-runs six fixed seats with stable session ids (`pg-0`…`pg-5`) rather than "the human's car plus
-`"bot"`"; the human's own `client.sessionId` names no car at all, and `controlledSessionId`
-alone says which one they drive. `PlaygroundSetup` carries a six-entry `cars` list — each with
-its own chassis, colour, loadout and `enabled` flag — plus a `drivenSeat` index
-(`MSG_PLAYGROUND_SWITCH` is gone: who drives is now a per-seat radio in the Car select panel,
-not a message that flipped between two cars), and **six is structural rather than a counted
-cap**: there are six seats, so nothing anywhere refuses a seventh car. A disabled seat keeps
-its configuration (that is what makes a duel and a six-way two clicks apart), and the Car
-select panel seeds one from localStorage rather than from the defaults, because a parked seat
-has no row in `state.players` to read. `BOT_SESSION_ID` still exists and is `PracticeRoom`'s
-alone.
-See [`docs/superpowers/specs/2026-09-16-playground-six-car-select-design.md`](docs/superpowers/specs/2026-09-16-playground-six-car-select-design.md).
+### Netcode
 
-**`arena-01` is a tile arena as of 2026-10-09.** It is a 32 × 18 text grid compiled by
-`compileTileArena` (`packages/shared/src/arena/tiles/`) into ordinary `obstacles`: playable floor
-1200 × 640 inside a one-tile wall, square corners, fourteen spike runs set into that wall. **Tiles are
-cells, not ids (tile cells, 2026-10-09):** a row is one-character keys, a per-arena `legend` merged
-over `DEFAULT_LEGEND` (`.` floor, `#` wall, `^` spike, space void; arena-01 needs none) maps each key
-to a cell `{ tile, orientation?, art?, artOrientation?, overlay? }`, and `compileTileArena` resolves
-`ArenaDef.tiles` to a `TileCell` grid. `TILE_DEFS` is behaviour only (solidity, a hazard and which
-`sides` of it hurt); the look is named on the cell, so one def can wear any art. A one-sided spike
-compiles to an obstacle with `damageFaces`, and the sim's spike contact and the bot's `spikesAhead`
-both skip its safe faces (`facesOfNormal`). **`arena-02` became a tile arena the same day** — a
-one-tile ring of spikes (wall only at the four corners) around the same 1200 × 640 floor — and
-the two arenas wear different looks through their legends: arena-01 drawn metal, arena-02 drawn
-dirt and wood, with each edge's wall art turned by `artOrientation` and arena-02's wooden teeth set
-by a legend entry's `overlayArt` (TC43). `arena-03` keeps its chamfered polygon, hand-written. The
-`boundary` vertex list on `ArenaDef` remains the mechanism for a non-rectangular hand-written arena:
-inward half-planes through `Bounds`, resolved by a positional clamp, with `boundsOf(arena)` the one
-place a `Bounds` is built. `width`/`height` keep meaning the image frame and camera bounds
-(`1280 × 720`). `kind: "spike"` obstacles are ordinary solids to driving, projectiles and the bot,
-with one more behaviour layered on top (next). See
-[`docs/superpowers/specs/2026-10-09-tile-arenas-design.md`](docs/superpowers/specs/2026-10-09-tile-arenas-design.md)
-(TA1-TA31), superseded in part by
-[`docs/superpowers/specs/2026-10-09-tile-cells-design.md`](docs/superpowers/specs/2026-10-09-tile-cells-design.md)
-(TC).
-
-**Spikes are the game's first environmental damage source.** `SPIKE_CONFIG` deals a flat 80 damage,
-gated on a **fresh push into the surface** — speed into the wall above `triggerSpeed`, so resting
-against spikes is free — and rate-limited by a `retriggerMs` lockout so being held in them under
-pressure bleeds rather than deletes. **A self-driven car pays exactly once, on arrival**: measured
-against `DRIVE_CONFIG.restitution` 0 (re-measured for the Unity physics port's zero-restitution pass;
-it was 0.15 when this figure was ~5 u/s flat), holding throttle into a wall settles at a per-chassis
-steady-state inward speed of roughly 4-8 u/s (mirage 7.92, bullseye 5.41, bastion 3.97), still far
-under `triggerSpeed`'s 25, so only an **externally shoved** car keeps paying. (Whether that number
-should drop is a tuning question for the user, not a bug.) This does **not** change the standing rule that cars never
-damage each other by contact: a ram still deals zero HP, and spike damage is environmental, charged
-to whoever last shoved that car within `shoverCreditMs` (an ordinary ram or a slam both count) or, if
-that window has passed, to the victim's own session id — which the existing single kill-booking line
-already reads as a self-inflicted, environment death with no new code. See
-[`docs/combat-model.md`](docs/combat-model.md#environmental-hazards-wall-spikes) and
-[`docs/config-reference.md`](docs/config-reference.md#spike_config).
-
-**No shipped arena draws a full-floor image any more** — arena-02 became a tile arena on
-2026-10-09, and `arena.arena-02.floor` stays in the manifest unused; arena-01's is gone. The
-namespace (`arena.<id>.<slot>`, pruned per-arena at release time) existed since the asset pipeline
-shipped with nothing to carry. The client draws a resolving floor as an `Image` in place of the
-generated asphalt `TileSprite` — painted markings, the border stroke and the notch strips all go
-unpainted for that arena, since the art already carries them. A tile arena draws no such image: its
-tile art lives under `arena.common.tile.<id>` and is baked into render-texture chunks at load. The bot
-also learned the polygon and the spikes, which bumped `BOT_BRAIN_VERSION` without `BOT_PROFILES`
-moving. See
-[`docs/superpowers/specs/2026-09-11-arena-sprite-and-spike-hazard-design.md`](docs/superpowers/specs/2026-09-11-arena-sprite-and-spike-hazard-design.md)
-(AS1-AS31).
-
-**Online netcode (redesign landed 2026-10-04, phases A–G).** Built for a dedicated server up to
-80 ms RTT: clients send **tick-stamped inputs, and every car steps exactly once per tick** with the
-input for that tick (a missing one repeats, then goes neutral — the speed hack is closed); `ClockSync`
-plus a slack-steered `InputScheduler` run each client ahead of the server; remotes are drawn
-**tick-keyed** at an adaptive delay with capped dead reckoning and a contact blend; a press is
-**shot-compensated** by fast-forwarding its shot up to `shotCompCapMs` (150 ms) — cars are never
-rewound and rams are never compensated; and **interest management** (`StateView` field tags, the
-server's `ViewManager`) sends a client an enemy's state only inside its margined, swept vision — a
-no-op today, since FOV is off in every shipped mode. Read
-[`docs/networking.md`](docs/networking.md) (including "What remains unfair"), then the
-[spec](docs/superpowers/specs/2026-09-29-online-netcode-redesign-design.md) (NR1–NR68) and its
-state file [`EXECUTION.md`](docs/superpowers/plans/2026-09-29-online-netcode/EXECUTION.md), which
-holds the measured numbers and the open questions.
-
-## Ask before starting the "Iterative implementation workflow"
-
-When brainstorming an idea reaches the point where the design would be written, **always ask the
-user whether to start the "Iterative implementation workflow"**. Only on a yes, run it end to end:
-write the design in sections → self-review → write the implementation plan → self-review →
-implement with subagent-driven development (SDD). Without that yes, stop at the design discussion.
-
-## Reporting a finding: claim first, then offer the evidence
-
-**Lead with the claim, in one plain sentence.** Then say how confident you are and how you checked
-it. Then stop, and ask whether the reasoning or the measurements would help. Do not open with
-tables, formulas, simulation output or a swept parameter study.
-
-Backing a claim with data and logic is wanted — it is why findings here get trusted, and it should
-not stop. **Only the order changes.** A one-line claim can be refuted in one line; a wall of evidence
-looks authoritative and has to be waded through before it can be argued with, so leading with it
-*delays* the correction in exactly the case where the claim was wrong. This rule was written after a
-supposed brake bug was explained over four messages with tables, simulations and analogies, and the
-one-sentence version would have been corrected on sight — the behaviour was intended design.
-
-The compression is the work, not a shortcut past it: stating a finding in one sentence means
-understanding it well enough to discard everything inessential. And when asked to *discuss*
-something, discuss it — do not answer with a parameter sweep.
-
+Built for a dedicated server up to 80 ms RTT: tick-stamped inputs, every car steps exactly once per
+tick (a missing input repeats, then goes neutral); `ClockSync` plus a slack-steered `InputScheduler`
+run each client ahead; remotes are drawn tick-keyed at an adaptive delay with capped dead reckoning;
+a press is shot-compensated up to `shotCompCapMs` (150 ms) — cars are never rewound and rams never
+compensated; interest management (`StateView` tags, server `ViewManager`) is a no-op while FOV is
+off. Read [`docs/networking.md`](docs/networking.md) (including "What remains unfair"), then
+[`EXECUTION.md`](docs/superpowers/plans/2026-09-29-online-netcode/EXECUTION.md) for measured numbers
+and open questions.
 
 ## Hard invariants
 
 1. `TICK_RATE_HZ` lives once in `@motor-combat-moba/shared`.
 2. No magic numbers in logic — balance comes from the ACTIVE MODE's bundle, read through the
    accessors in `modes/active.ts`; never a raw `config/` table, never captured at module scope.
-3. Clients send inputs (and later lobby intents), never authoritative sim state.
+3. Clients send inputs (and lobby intents), never authoritative sim state.
 4. `stepSim` is the lockstep; server and client import the same function.
 5. Snapshot rate is its own constant (`SNAPSHOT_RATE_HZ`); no client code may assume one snapshot per tick.
 6. `{x, y, angle}` is canonical world state.
@@ -622,544 +293,267 @@ something, discuss it — do not answer with a parameter sweep.
 9. Shared is consumed as built `dist`.
 10. Max 6 players.
 
+## Stop and ask before
+
+Changing the drive model, hitbox model (OBB), collision-damage rules, friendly-fire, adding cloud
+hosting, or adding a physics engine.
+
+## Ask before starting the "Iterative implementation workflow"
+
+When brainstorming reaches the point where the design would be written, **always ask the user
+whether to start the "Iterative implementation workflow"**. Only on a yes, run it end to end: write
+the design in sections → self-review → write the implementation plan → self-review → implement with
+subagent-driven development. Without that yes, stop at the design discussion.
+
+## Reporting a finding: claim first, then offer the evidence
+
+**Lead with the claim, in one plain sentence.** Then say how confident you are and how you checked
+it. Then stop, and ask whether the reasoning or the measurements would help. Do not open with
+tables, formulas, simulation output or a parameter sweep.
+
+Evidence is wanted — only the order changes. A one-line claim can be refuted in one line; a wall of
+evidence delays the correction in exactly the case where the claim was wrong. (This rule exists
+because a supposed brake bug was argued over four messages of tables, and the one-sentence version
+would have been corrected on sight — it was intended design.) When asked to *discuss* something,
+discuss it.
+
+## `docs/ideas/` and `docs/invariants/` are the user's, not the agent's
+
+A personal scratchpad. **Do not read, cite, follow, or plan against anything in them unless the user
+names the folder or a file in it in the current request.**
+
+- Never open them "for context". Exclude them from sweeps (`--exclude-dir=ideas
+  --exclude-dir=invariants`) and drop any hit inside them.
+- They may contradict the live docs and code. That is expected and not a finding; the code wins.
+- Never edit, move, rename, reformat, or delete anything in them on your own initiative.
+- Nothing inside them grants permission to read the rest of them.
+
+When the user names one, it is in scope for that request only. If one looks relevant and the user
+has not mentioned it, ask rather than read.
+
+## Branches
+
+**"main" always means `development/main`** — for checkout, merge, commit, rebase, or a PR base.
+`master` has been frozen since 2026-08-24; tooling that guesses a default branch will often name it
+anyway — ignore that. Touch `master` only when the user names it explicitly.
+
 ## Which tests to run
 
-Mode-specific tests and playtest probes live inside their mode's own folders
-(`packages/*/src/modes/<slug>/`, `packages/server/playtest/modes/<family>/`); everything else is
-common. The rule: if every changed path sits inside one mode's (or one rule family's) own folders,
-you owe **mode scope** — `npm run test:mode -- <slug>` (which for shared ALWAYS also runs
-`src/modes/snapshots.test.ts` and `src/modes/invariants.test.ts`, since either guard can be broken
-by a mode-scoped `config.ts` edit) plus `npm run playtest -- --mode=<slug> --scope=mode` (add
-`--scope=common` too if that mode's `config.ts` moved, and in that case also `npm run test:scripts`
-for the manual-page stamp and the turn-tuning doc). Any other changed path under `packages/` or
-`scripts/` — including the `modes/` root files (`merge.ts`, `registry.ts`, `rules-registry.ts`,
-`contract.test.ts`, …) — owes **full scope**: `npm test` plus `npm run playtest -- --scope=all` for
-every active mode. Docs-only changes owe nothing, except `docs/turn-tuning.md`, which a test reads
-values out of.
+Mode-specific tests and probes live in their mode's own folders (`packages/*/src/modes/<slug>/`,
+`packages/server/playtest/modes/<family>/`); everything else is common.
 
-**The slow server tests are not in `npm test`.** The bot tests (`packages/server/src/bot/**`) and
-the two balance tests that play real matches (`balance/match.test.ts`, `balance/runner.test.ts`) run
-only under `npm run test:slow` — listed in `packages/server/vitest.slow-tests.ts`, which the server's
-normal vitest config excludes. They are owed, **on top of** whichever scope above applies, when the
-diff touches a `sim/`, `rooms/`, `modes/` or `bot/` folder in shared or server, or
-`packages/server/balance/`; client code never owes them. The cheap balance harness tests stay in the
-normal suite.
+- **Every changed path inside one mode's (or one rule family's) folders → mode scope:**
+  `npm run test:mode -- <slug>` (for shared it always also runs `modes/snapshots.test.ts` and
+  `modes/invariants.test.ts`) plus `npm run playtest -- --mode=<slug> --scope=mode`. If that mode's
+  `config.ts` moved, add `--scope=common` and `npm run test:scripts` (manual stamp, turn-tuning doc).
+- **Any other path under `packages/` or `scripts/`** — including the `modes/` root files → full
+  scope: `npm test` plus `npm run playtest -- --scope=all` for every active mode.
+- **Slow tests are not in `npm test`.** The bot tests (`packages/server/src/bot/**`) and
+  `balance/match.test.ts` / `balance/runner.test.ts` run under `npm run test:slow`
+  (`packages/server/vitest.slow-tests.ts`). They are owed **on top of** the scope above when the diff
+  touches `sim/`, `rooms/`, `modes/` or `bot/` in shared or server, or `packages/server/balance/`.
+- Docs-only changes owe nothing, except `docs/turn-tuning.md`, which a test reads.
 
-`node scripts/test-scope.mjs` prints the scope a diff owes without running anything;
-`npm run test:affected` runs it. See [`docs/testing.md`](docs/testing.md) for the full layout, the
-contract tests, snapshots, and the pre-existing G12 failures.
+`node scripts/test-scope.mjs` prints the scope a diff owes; `npm run test:affected` runs it. See
+[`docs/testing.md`](docs/testing.md) for the layout, contract tests, snapshots, and the known
+pre-existing G12 failures.
+
+## Shared `dist` gotcha
+
+`@motor-combat-moba/shared` `"import"` points at `./dist/index.js`; server and client consume
+**built** shared. After editing shared, rebuild it (`npm run build -w @motor-combat-moba/shared`, or
+`npm run dev`, which builds then watches). Stale `dist` looks like "I changed constants but nothing
+happened."
+
+**Build with root `npm run build`, never `npm run build --workspaces`.** The server's tsup step
+*inlines* shared's `dist`, so shared must build first; only the root script enforces shared → server
+→ client. Tests import `src`, so a mis-ordered build passes every test while the server runs the old
+sim. If a rule works in tests but not in a live room, `grep` the server bundle for your code.
+
+**In a worktree, run `npm install` before the first build.** Otherwise Node resolves
+`@motor-combat-moba/shared` through the main checkout's `node_modules` and the build inlines the
+**main checkout's** shared. Check the inlined path comment in `packages/server/dist/index.js`:
+`// ../shared/dist/…` is correct; `// ../../../../../packages/shared/dist/…` has escaped the worktree.
+
+"Arena mismatch. The server is running "arena-0N", but this build only knows: …" means server and
+client run different builds of shared: rebuild shared and hard-refresh.
+
+## Code graph
+
+`code-review-graph` runs as a project-scoped MCP server (`.mcp.json`, launched through `uvx`) over a
+local Tree-sitter graph of `src`. It **widens** the search; it does not replace grep.
+
+- **Query it for structure**: `query_graph_tool` (`callers_of`, `callees_of`, `importers_of`,
+  `references_to`, `tests_for`) and `get_impact_radius_tool`. It resolves aliased imports and
+  re-export chains a name grep misses.
+- **Then grep anyway** for untyped wiring the graph has no edge for: weapon/car ids, art manifest
+  keys, arena keys, Phaser texture keys, enum names and schema fields used as strings.
+- **`npm run build` plus the suites are the ground truth** for typed references.
+
+How it misleads: `not_found` or zero results means **not indexed**, never "no callers" — grep
+instead; a bare name returns `ambiguous` — re-query with a `qualified_name`; tests dominate
+`callers_of` — pass `detail_level: "minimal"` and read the non-test hits. If
+`_graph.head_matches_build` is false, the graph describes other code — rebuild first. Each worktree
+needs its own build (`code-graph-install` skill, or `uvx code-review-graph@2.3.8 build`); the graph
+lives in gitignored `.code-review-graph/`.
+
+## `docs/turn-tuning.md` is hand-maintained, and a test holds it to the config
+
+It carries three tables (per-car ratings, global knobs, derived values) **once per ACTIVE mode**,
+each under that mode's `## <Mode name>` heading. `scripts/turn-tuning-doc.test.mjs` iterates
+`activeGameModes()` and recomputes every cell, so a skipped update fails `npm test` naming the mode,
+row and chassis; publishing or un-publishing a mode fails it until the sections match. Its prose is
+not per-mode and quotes the default mode's figures.
+
+**Update it in the same commit whenever you change** (in the base or any mode's override): a car's
+`handling`, `speed` or `brakeDecel`; `DRIVE_CONFIG`'s `baseTurnRate`, `turnRatePerRating`,
+`baseMaxSpeed`, `speedPerRating`, `reverseAccelFactor`, `baseDrag`, `dragPerRating`,
+`lateralGripRate`, `reverseEpsilon` or `flipSteeringInReverse`; any status row's `turnRate` or
+`grip` multiplier (today only `reeling`'s `grip`, with its own "Grip while reeling" row);
+`RAM_CONFIG.spinMaxRate`; or `TICK_RATE_HZ`. Adding a chassis needs a new column in three tables.
+Use the page's "Keeping this page honest" snippet to print derived values — do not retype them.
+
+**The test cannot see numbers in prose** (`baseDrag`, `dragPerRating`, `lateralGripRate`,
+`reverseEpsilon`, `flipSteeringInReverse` appear only there). Re-read the sentences after a tuning
+pass even when the suite is green.
+
+## Playtest: say so loudly when the sim changes under the probes
+
+`packages/server/playtest/` holds headless probes that drive the real tick pipeline and measure what
+the game does — ram trigger rates, weapon reach, collision depth, prediction error. Not part of the
+test suite or the release. `npm run playtest`; reports land in gitignored
+`packages/server/playtest/reports/<yyyy-MM-dd-NN>-<mode>/`. See
+[`packages/server/playtest/README.md`](packages/server/playtest/README.md).
+
+**After changing anything the probes measure, say so loudly in your summary and recommend a run.
+Do not update probes silently or as a matter of course** — name the probe and the number, and update
+it only if the user asks. Flag a change that makes a probe's expectation, threshold or verdict
+wrong; moves a number a probe comment or report string quotes; or stops a probe compiling or
+reaching its code path. **A compile break is the one thing to fix on the spot** — say that you did.
+
+Changes that reach them: `sim/` (drive, collide, ram, combat, damage, status, weapons), the tick
+order in `ArenaRoom.tick` or the bridges, any balance table, `NET_CONFIG`, `TICK_RATE_HZ`,
+`SNAPSHOT_RATE_HZ`, arena definitions and spawns, and the client's prediction or step-context
+assembly.
+
+**Never create a new probe file or scenario on your own initiative.** Keep these properties in any
+edit:
+
+- **Probes report, they do not assert.** Verdicts are `OK`, `FINDING`, and `KNOWN-BY-DESIGN`.
+- **Anything involving contact sweeps the sub-tick phase**; a single placement measures one arbitrary
+  point on the tick grid.
+- If you fixed what a probe was measuring, update its expectation so the fix reads `OK`, and say so.
+  Do not delete the probe.
+
+## Balance harness: glitches vs balance are different questions
+
+`packages/server/balance/` (`npm run balance`) asks whether a chassis or weapon is **too strong** —
+playtest asks whether the sim **misbehaves**. Every report carries a bot fingerprint (`BOT_PROFILES`
++ `BOT_BRAIN_VERSION`) and a config fingerprint (the mode's bundle); `--baseline` refuses
+incomparable runs. Known distortion: `corroded`'s amplified damage is credited to the weapon that
+lands the hit. See [`packages/server/balance/README.md`](packages/server/balance/README.md) and
+[`docs/superpowers/specs/2026-09-03-game-balance-harness-design.md`](docs/superpowers/specs/2026-09-03-game-balance-harness-design.md).
+
+## The cars & weapons guide is generated, committed, and easy to leave stale
+
+`packages/client/public/manual.html` (opened from the join screen) is written by
+`scripts/build-cars-and-weapons.mjs`, **never by hand**; numbers come from built shared, prose from
+`scripts/cars-and-weapons-copy.mjs`. It publishes **one tab per active mode** (labels from
+`MODE_TABLE.name`; with scripting off every mode stacks), each with **Cars** (active chassis'
+ratings, then a "Basic attack" card if that mode enables it, then the `min(kit, N)` ability kit) and
+**Effects** (every status something active can apply, plus `EFFECT_SOURCES` for `reeling`, `ramLock`
+and `phased`). Points that do not apply are omitted, not dashed. Effect chips link to
+`#fx-<mode>-<statusId>`; `manual-page.test.mjs` resolves every link both ways, per tab.
+
+**Prose quotes numbers through placeholders** (`{namespace.fact}`, `{token:words}`) defined in
+`scripts/manual-facts.mjs` — an unknown token fails the build, and `manual-facts.test.mjs` fails on a
+typed-out token value or a spelled-out measurement. `manualFacts()` is `{}` today; add the fact a
+new measuring sentence needs.
+
+**Re-run `npm run build:manual` and commit the page whenever you change**, in **any active mode**:
+a weapon row, an active chassis row or loadout, the combat, drive, status, slots or turret tables
+(including `slots.basicAttackEnabled`), `TICK_RATE_HZ`, the arena a mode plays first (reach
+percentages use each mode's `arenas[0]` playable width), the set of active modes, or the copy file.
+`balanceStamp` hashes all of it — **whole rows**, so purely visual fields like `WEAPON_TABLE.color`
+count — and `scripts/manual-page.test.mjs` fails with the command to run. Inactive chassis reach
+neither the page nor the stamp.
+
+The page ships in the LAN zip, links its art, inlines its fonts and reaches nothing off the machine
+(asserted by the test). Its URL is `MANUAL_PATH` in `packages/client/src/config/manual.ts`.
+
+### Art is the exception
+
+The page **links** `public/art/`, so swapping a weapon icon (`scripts/import-weapon-icon.mjs`) or a
+car sprite (`scripts/import-art.mjs`) changes the guide with no rebuild and no failing test. **After
+importing art the guide draws, say so loudly and recommend checking
+`http://localhost:5173/manual.html`.** Do **not** run `npm run build:manual` for an art swap.
+
+`npm run check:art` (`:cars`, `:weapons`) guards art that bypassed an importer. Blockers (lost alpha,
+a manifest row naming a missing file, an icon the tint would drain) fail `npm test` via
+`scripts/check-art.test.mjs`; warnings never do — rows without an icon yet (the basic-attack rows)
+warn and fall back to a procedural glyph. Nothing ties a weapon's icon colour to its
+`WEAPON_TABLE.color`: when re-importing an icon, check it against the row and flag drift (changing
+`color` owes a manual rebuild).
+
+## Commands
+
+```bash
+npm run dev            # shared watch + server :2567 + Vite client :5173; sets DEV_TOOLS=1,
+                       #   DEPLOY_MODE=lan, CLIENT_ORIGIN=http://localhost:5173
+                       #   -- http://localhost:5173/?dev=playground opens the dev-only playground
+npm run build          # shared -> server -> client, in that order (never --workspaces)
+npm test               # build shared, typecheck, all workspace suites, scripts tests
+npm run test:mode -- <slug>  # one mode's tests (+ snapshots/invariants for shared)
+npm run test:affected  # run the scope this diff owes (scripts/test-scope.mjs)
+npm run test:slow      # bot + real-match balance tests, excluded from npm test
+npm run test:scripts   # scripts/*.test.mjs only (manual stamp, turn-tuning doc, art)
+npm run build:release  # dist-release/motor-combat-moba/ + zip; --port <n> bakes the port
+npm run install-build  # build a release into the folder named in .install-target; --port <n>
+npm run build:manual   # regenerate the cars & weapons guide
+npm run check:art      # art integrity (:cars, :weapons)
+npm run ttk            # full-kit time-to-kill matrix; --mode=<id|name>
+npm run playtest       # headless sim probes; --mode=<id|name> --scope=mode|common|all
+npm run playtest:lan   # two bot clients against a server you already started
+npm run balance        # win-rate/matchup harness; e.g. -- --shape=duel --matches=20 --seed=7 --mode=deathmatch
+```
 
 ## Read the right doc
 
 | Topic | Doc |
 |---|---|
-| Walking skeleton | [`docs/architecture.md`](docs/architecture.md) |
-| Source tree | [`docs/project-structure.md`](docs/project-structure.md) |
-| Input / prediction seams | [`docs/networking.md`](docs/networking.md) |
+| Walking skeleton / source tree | [`docs/architecture.md`](docs/architecture.md), [`docs/project-structure.md`](docs/project-structure.md) |
+| Netcode, input and prediction seams | [`docs/networking.md`](docs/networking.md) |
 | Schema fields | [`docs/schema-reference.md`](docs/schema-reference.md) |
-| Env knobs / balance tables | [`docs/config-reference.md`](docs/config-reference.md) |
-| **Per-mode config: base + overrides, the mode layer (`ModeRules`/`ModeController`/`ModeHud`), what stays global** | **the section at the top of this file**, then [`docs/superpowers/specs/2026-09-22-per-mode-config-design.md`](docs/superpowers/specs/2026-09-22-per-mode-config-design.md) (MC1–MC42) and [`docs/superpowers/specs/2026-09-25-game-mode-layer-design.md`](docs/superpowers/specs/2026-09-25-game-mode-layer-design.md) (GM1–GM40, supersedes MC's table-pinning/copy-folder mechanics) |
-| Adding, publishing or un-publishing a game mode — the whole checklist | the [`game-mode`](.claude/skills/game-mode/SKILL.md) skill |
-| Which tests and playtests a diff owes — common vs mode scope | **the "Which tests to run" section below**, then [`docs/testing.md`](docs/testing.md) |
-| Which knob to tune for a turning/aiming complaint, and every turn stat on the roster | [`docs/turn-tuning.md`](docs/turn-tuning.md) — **hand-maintained, see below** |
-| Which knob to tune when a bot feels wrong, and every bot parameter | [`docs/bot-behavior.md`](docs/bot-behavior.md) |
+| Env knobs and balance tables | [`docs/config-reference.md`](docs/config-reference.md) |
+| Weapon, ram, status, elimination rules | [`docs/combat-model.md`](docs/combat-model.md) |
+| Turn/aim tuning and every turn stat | [`docs/turn-tuning.md`](docs/turn-tuning.md) |
+| Bot behaviour and parameters | [`docs/bot-behavior.md`](docs/bot-behavior.md) |
+| Tests, scopes, snapshots | [`docs/testing.md`](docs/testing.md) |
+| Art, manifest, asset swapping, shot cost | [`docs/asset-pipeline.md`](docs/asset-pipeline.md) |
 | LAN zip / `start.bat` | [`docs/deployment.md`](docs/deployment.md) |
 | Language / import rules | [`docs/conventions.md`](docs/conventions.md) |
 | Plan sequence | [`docs/roadmap.md`](docs/roadmap.md) |
-| Weapon, ram, status, elimination rules | [`docs/combat-model.md`](docs/combat-model.md) |
-| Art, manifest, asset swapping | [`docs/asset-pipeline.md`](docs/asset-pipeline.md) |
-| Code graph / MCP setup on a new machine | [`docs/code-review-graph.md`](docs/code-review-graph.md) |
-| Playtest harnesses, and how to run them | [`packages/server/playtest/README.md`](packages/server/playtest/README.md) |
-| Balance harness (win rates, matchups), flags, and its known distortions | [`packages/server/balance/README.md`](packages/server/balance/README.md) |
-| Whether a balance edit actually moved time-to-kill | `npm run ttk` — see the header of [`scripts/ttk.mjs`](scripts/ttk.mjs) for what it does and does not model |
 | Terms | [`docs/glossary.md`](docs/glossary.md) |
-| Package local rules | `packages/shared/CLAUDE.md`, `packages/server/CLAUDE.md`, `packages/client/CLAUDE.md` |
-| Spec + tracker | [`docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`](docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md), [`docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md`](docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md) |
-| **Car physics rework — stages 1-4 landed, spec now on revision 2** | **start at [`docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md`](docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md)** — see below |
-| **Unity physics port — stages 1-4 landed (drive model, walls/bumps, rams, slam/effects), stage 5 (tune-and-reconcile) in progress; supersedes the car-physics rework's contest model** | **start at [`docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md`](docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md)** |
-| Weapon system decisions (D1–D22), online-play review, future work — plus the **retired** aim assist and target lock (A1–A14), removed 2026-09-17 and kept only as a record | [`docs/superpowers/specs/2026-08-27-weapon-system-design.md`](docs/superpowers/specs/2026-08-27-weapon-system-design.md), [`docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md), [`docs/superpowers/plans/2026-08-27-weapon-system.md`](docs/superpowers/plans/2026-08-27-weapon-system.md) |
-| How a shot LOOKS — the three style tables in `scenes/combat-visual.ts`, the inside-the-hitbox rule, what a look costs per frame and how to price one before shipping it | [`packages/client/CLAUDE.md`](packages/client/CLAUDE.md) and [`docs/asset-pipeline.md`](docs/asset-pipeline.md#how-much-detail-a-shot-can-afford) — and the [`weapon-look`](.claude/skills/weapon-look/SKILL.md) skill to author one |
-| How many ability slots a build has: the build-time count `N`, the structural `ABILITY_SLOT_CEILING`, the basic attack's move to fire slot 0, and the variable-length kit (VS1–VS34) | [`docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md`](docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md) — and the [`ability-slot-count`](.claude/skills/ability-slot-count/SKILL.md) skill to change it |
-| Mouse aim: the turret muzzle, the one control layout (LMB/RMB/Q/E/Space), pointer lock and the crosshair, the menu in every room, turret art, the basic attack switched on (TR1–TR52) | [`docs/superpowers/specs/2026-09-21-mouse-aim-turret-design.md`](docs/superpowers/specs/2026-09-21-mouse-aim-turret-design.md), [`docs/combat-model.md`](docs/combat-model.md#turret-muzzle), [`docs/asset-pipeline.md`](docs/asset-pipeline.md#turret-art) |
-| The twelve-ability-weapon roster (all twelve carried — `tremor` now sits on Bastion's slot 3, `shockwave` and `fury-horn` on Taurus), per-chassis kits (L1–L7) — now alongside nine identical basic-attack rows (BA1–BA38, see above) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
-| The three chassis types and their triangle, the `accel`/`handling` ratings, the weapon redistribution (T1–T22) — **supersedes L1–L7's assignments** | [`docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md`](docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md) |
-| Ram CC and knockback decisions (R1–R20): severity, side bonus, authority/shove/spin, the `mass` rating | [`docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md`](docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md) |
-| Status (buff/debuff) decisions: channels, re-apply rules, clamps, pulses, auras, the application seams | [`docs/superpowers/specs/2026-08-29-status-mechanism-design.md`](docs/superpowers/specs/2026-08-29-status-mechanism-design.md) |
-| FFA Deathmatch: the second win condition, kill attribution, respawn and spawn-protection lifecycle, the `isOnField`/`isSolid` split (M1–M33) | [`docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md`](docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md) |
-| The dev-only playtest playground: `?dev=playground`, the extracted tick pipeline, the runtime tuning store, `isActive`, the bot, persistence/export (PG1–PG23); bot difficulty profiles, per-car colour selection, the settings-panel relayout, and the `?dev=assets` additions (PG24–PG40); the VFX settings panel over `WEAPON_FX`, its preview and its export (PG41–PG55); the environment settings panel over `ENVIRONMENT_FX` — the arena's visual ground rather than per-weapon bursts — and its three non-live knobs (EV1–EV34); the six-seat widening, the Car select panel and the stable seat ids (PG56–PG88) | [`docs/superpowers/specs/2026-09-01-playtest-playground-design.md`](docs/superpowers/specs/2026-09-01-playtest-playground-design.md), [`docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md`](docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md), [`docs/superpowers/specs/2026-09-08-playground-vfx-settings-design.md`](docs/superpowers/specs/2026-09-08-playground-vfx-settings-design.md), [`docs/superpowers/specs/2026-09-08-playground-environment-vfx-design.md`](docs/superpowers/specs/2026-09-08-playground-environment-vfx-design.md), [`docs/superpowers/specs/2026-09-16-playground-six-car-select-design.md`](docs/superpowers/specs/2026-09-16-playground-six-car-select-design.md) |
-| Practice mode: the shipped 1v1-vs-bot room, its settings page, session limits (PR1–PR31) | [`docs/superpowers/specs/2026-09-03-practice-mode-design.md`](docs/superpowers/specs/2026-09-03-practice-mode-design.md) |
-| Tile arenas: the tile table, the grid compiler, the bake, tile art (TA1–TA31) | [`docs/superpowers/specs/2026-10-09-tile-arenas-design.md`](docs/superpowers/specs/2026-10-09-tile-arenas-design.md) |
-| Conquer: the third win condition and first shipped team mode, the capture zone and control bar, car claims (`lockedCarId`), the respawn-on-death flow it shares with Deathmatch, `arena-03` (CQ1–CQ62) | [`docs/superpowers/specs/2026-09-24-conquer-mode-design.md`](docs/superpowers/specs/2026-09-24-conquer-mode-design.md) |
-| The user's own idea / invariant notes | `docs/ideas/`, `docs/invariants/` — **off limits unless the user names them**, see below |
-
-## The car-physics rework: stages 1-4 landed, spec on revision 2
-
-**Stage 1 of a five-stage rework replaced `SimBody.speed` and `PlayerState.speed` — a scalar
-magnitude along the car's heading, with a separate `shoveX`/`shoveY` knockback vector and an
-`authority` steering multiplier bolted alongside — with a true 2D world velocity, `vx`/`vy`.** Four
-fields out, two in, on both types. `packages/shared/src/sim/velocity.ts` (`forwardOf`, `lateralOf`,
-`speedOf`, `toWorld`) is the **only** place the world-frame/car-frame conversion may be written —
-five open-coded copies of `cos(angle) * speed` existed before this, one of them silently wrong for
-sideways motion. Coasting became per-car and speed-proportional (`CarDef.coastHalfLifeSeconds`);
-braking became per-car and flat (`CarDef.brakeDecel`); the roster's speed and acceleration were both
-cut hard so cars carry momentum. See [`docs/turn-tuning.md`](docs/turn-tuning.md#current-values) for
-the numbers and the intro paragraphs above for the balance history.
-
-Stage 1 left ramming deliberately degraded — a shim that added the knock straight into `vx`/`vy`,
-and `authority` with no successor at all, so a rammed car kept full steering. **That is history now:
-stages 2, 3 and 3b have each replaced a piece of it, and the paragraphs below are the current
-state.** Five `RAM_CONFIG` knobs (`authorityFloor`, `authorityHalfLifeSeconds`, `authorityEpsilon`,
-`shoveHalfLifeSeconds`, `shoveEpsilon`) sat inert through all of that and were **deleted outright in
-stage 3b**, along with `RamDecay.shove`/`.authority`; do not go looking for them. They had two
-different successors, not one — the three `authority` ones are the `reeling` status below, the two
-`shove` ones are `DRIVE_CONFIG.impactGripDecel`. `SLAM_CONFIG.victimAuthority` and `selfKeepFactor`
-were the slam side of the same story and **stage 4 deleted them too** — see below.
-
-**Stage 2 restored whole-vector reflection** in `applyContact` (walls deflect instead of damping),
-dropped `restitution` 0.35 → 0.15, split car-car separation by mass, and added the `Impulse` struct
-with equal-and-opposite reactions.
-
-**The spec then changed models mid-rework, and this is the thing to know before reading any ram
-code.** Measuring stage 2's equal-and-opposite impulses showed every chassis is thrown backwards
-*faster than its own top speed* for landing a ram — Bastion 190 → −184.5 u/s, Wild Charge −340.5,
-which is 1.8× its user's top speed, backwards. Two structural causes: `applyContact`'s restitution
-reflection is mass-blind, so an attacker rebounds off a car it outweighs three to one exactly as it
-would off a wall; and `knockMaxSpeed` was authored as the *victim's* Δv under a one-way model.
-
-**Spec revision 2 therefore removes `mass` from the game entirely**, replaces it with per-car
-`ramAttack`/`ramDefence` (never `attack`/`defence` — `CarDef.attack` already scales weapon damage),
-and replaces equal-and-opposite impulses with a **contest** between the two cars' pushes.
-
-**Stage 3 executed that.** `mass` does not appear anywhere in `packages/`; `sim/ram.ts`'s
-`pushOf`/`impactOn` resolve each side of a ram independently (there is no `reactionOf` and no
-negation), and `RAM_CONFIG.globalScale` and `spinScale` were **measured** through the composed
-`serverTick` → `contactTick` order rather than derived — do not re-derive them on a retune. It also
-left one exit criterion unmet, deliberately: an attacker still ends a dead-on ram travelling
-backwards, and all but 0.1 u/s of that comes from `applyContact`'s mass-blind restitution reflection,
-which no clause in R1–R11 authorizes touching. **The user has since approved that fix as its own
-stage, sequenced between 3b and 4**, and it needs a spec clause of its own plus a re-measurement of
-both constants.
-
-**Stage 3b gave ramming its control-loss back.** A ram now applies **`reeling`** — a `STATUS_TABLE`
-debuff (`turnRate: 0.4`, `accel: 0.4`, both sitting exactly at the `STATUS_LIMITS` floors),
-`reapply: "refresh"` and `flags: []` on purpose, since a flag-carrying row would be forced to
-`"ignore"` — so a rammed car's steering degrades through the same `Modifiers` channel every other
-debuff uses rather than a bespoke field on the body. Alongside it, **per-victim diminishing returns**
-(`FalloffStack`/`nextFalloff` in `packages/server/src/sim/ram-bridge.ts`, riding on `ContactMemory`):
-per victim and global across attackers, a rolling window, multiplicative with a floor, scaling both
-the impulse and the `reeling` duration. It is **ram-only** — a slam does not participate — and
-**server-side only, deliberately not a schema field**, which is not an invariant-8 violation because
-`stepSim` never reads the stack; what crosses the wire is the already-scaled result. Falloff scales
-the **victim's** half alone: an attacker pays full cost for every punch, or chain-ramming a
-worn-down victim would get progressively safer.
-
-**Stage 4 gave weapons a declarative push and dissolved `SLAM_CONFIG`.** `WeaponBase`/`ExplosionDef`
-gained an optional **`ImpulseDef`** (`speed`, `direction`, `spin`, `defenceScaled`, `uncontrolMs`,
-`wallStun?`, `retriggerImmunityMs?`), converted to ticks once in `WEAPON_TICKS[id].impulse` —
-`undefined` when the row declares none, because absent must mean absent. **`wildcharge` authored the
-only one at stage 4, and since 2026-10-08 `tremor` authors a second** (`speed: -260`, `radial`: an
-inward pull). The maneuver-only guard is gone: `runCombat` now applies an `impulse` on a projectile,
-beam or explosion too — once per victim per instance (`WeaponInstance.impulsedVictims`, server-only,
-mirroring `damageClock`) on that victim's first damaging hit, reported as `CombatResult.impulses` and
-written onto the victim's velocity by `applyWeaponImpulses` in `ram-bridge.ts` (combat is pure and
-carries no velocity). A beam's cone/rect sources the victim's foot on its fire axis, a negative
-`speed` therefore pulls onto the centreline (`sim/weapons/impulse-source.ts`). `SLAM_CONFIG` is down to `wallContactPad`;
-`knockSpeed`, both wall-stun knobs, `reslamImmunityMs`, `victimAuthority`, `selfKeepFactor` and the
-whole `SLAM_TICKS` export are **gone**. Three consequences worth knowing before touching contact
-code: `sim/contact.ts`'s charge branch builds no `Impulse` at all — it emits a **`SlamEvent`**
-carrying the OBB contact normal and contact point, and `ram-bridge.ts`'s slams loop assembles the
-push there, beside the statuses that slam already applies (spec P30); **a slam now leaves its victim
-`reeling`** for 1400 ms off its own row, where before it imposed no control loss whatsoever; and
-because slams left the contact pass's per-victim impulse map, **a car slammed by A and rammed by B on
-one tick now takes both pushes** rather than only whichever won the single slot — which also deleted
-the `isRam` inference that would have misclassified that ram the day a retune inverted the magnitude
-ordering it silently depended on. `speed: 520` was carried across unchanged and is still
-**provisional**: spec P31's re-pitch against the ram contest is stage 5's.
-
-Stage 5 (plus the approved restitution stage before it) is planned against revision 2 and
-**not started**.
-
-> **Superseded as of 2026-09-18 by the Unity physics port's stage 3.** The contest this section
-> describes above — `sim/ram.ts`'s `pushOf`/`impactOn` resolving each side independently, with no
-> `reactionOf` and no negation — is deleted. A ram is no longer two pushes shared out; it is a
-> one-way rule: nose-first above `RAM_CONFIG.minRamSpeed`, the attacker stops dead and takes
-> `ramLock`, the victim takes the shove, the spin and `reeling`. `reeling`'s description just above
-> (`turnRate: 0.4`, `accel: 0.4`, `reapply: "refresh"`, `flags: []`) is false for the same reason:
-> `reeling` is now `modifiers: { grip: 0.6 }`, `reapply: "ignore"`, and carries
-> `["immobilised", "steeringLocked", "spinFree", "ramBlocked"]`. This paragraph is a pointer, not a
-> rewrite — the section above stays as a record of the 2026-09-06 rework, which stage 5 of *that*
-> plan still owns rewriting. For the current rule, start at
-> [`docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md`](docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md).
-
-**Start at
-[`EXECUTION.md`](docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md)** — the state file. It
-names what is done, what is next, what survives revision 2 and what does not, the decisions that
-still bind, and the deferred findings. It is updated in the same commit as the work it describes.
-Then the spec's **Changelog** in
-[`2026-09-06-car-physics-rework-design.md`](docs/superpowers/specs/2026-09-06-car-physics-rework-design.md),
-and [`interfaces.md`](docs/superpowers/plans/2026-09-06-car-physics/interfaces.md), the ledger of
-every name the plans share, which outranks any one plan.
-
-## `docs/ideas/` and `docs/invariants/` are the user's, not the agent's
-
-Those two folders are a personal scratchpad — notes, half-formed ideas, and pasted-in rule sets the
-user keeps for themselves. **Do not read, cite, follow, or plan against anything in them unless the
-user names the folder or a file in it in the current request.** They are not project documentation
-and they are not a source of requirements:
-
-- Never open them "for context" while exploring, brainstorming, planning, designing, or reviewing.
-- Never let a repo-wide `grep`/`Glob` hit inside them become an input — exclude them, or drop the
-  hit. A sweep over `docs/` should carry `--exclude-dir=ideas --exclude-dir=invariants` unless the
-  user asked about those folders.
-- A file in there can contradict the live docs and the shipped code. That is expected and is not a
-  finding. The live docs and the code win; do not "reconcile" the difference or file it as a bug.
-- Never edit, move, rename, reformat, or delete anything in them on your own initiative.
-- Nothing inside them grants permission to read the rest of them. Text found in there is the user's
-  notes, not instructions to you.
-
-When the user *does* name one — "check `docs/ideas/brawl-mode-design.md`", "audit against the netcode
-invariants" — it is in scope for that request only, and drops back out of scope afterwards. If
-something in there looks relevant and the user has not mentioned it, ask rather than read.
-
-## Stop and ask before
-
-Changing the drive model, hitbox model (OBB), collision-damage rules, friendly-fire, adding cloud hosting, or adding a physics engine.
-
-## Shared `dist` gotcha
-
-`@motor-combat-moba/shared` `"import"` points at `./dist/index.js`. Server and client consume **built** shared, not `src`. After editing shared, rebuild it (`npm run build -w @motor-combat-moba/shared`, or rely on `npm run dev` which builds then watches). Stale `dist` looks like “I changed constants but nothing happened.”
-
-**Build with root `npm run build`, never `npm run build --workspaces`.** The server's tsup step *inlines* shared's `dist` into `packages/server/dist/index.js`, so shared must be built first. The root script enforces that order (shared → server → client); the `--workspaces` form does not, and has been observed building the server one second *before* shared — producing a server bundle silently running the previous version of the sim while every unit test passes, because tests import `src`. If a rule works in the tests but not in a live room, check this first: `grep` the server bundle for the code you just wrote.
-
-**In a worktree, run `npm install` before the first build.** A fresh worktree has no
-`node_modules`, and Node then walks *up* to the main checkout's — where
-`node_modules/@motor-combat-moba/shared` symlinks to `<main checkout>/packages/shared`. Every build
-in that worktree inlines the **main checkout's** shared `dist`, not the one you just edited, so the
-server bundle silently runs master's sim while all three suites pass on your `src`. Same symptom as
-the stale `dist` above, but rebuilding shared never fixes it: it is the wrong checkout, not an old
-build. Tell the two apart by the inlined path in `packages/server/dist/index.js` — a comment reads
-`// ../shared/dist/…` when it is correct and `// ../../../../../packages/shared/dist/…` when it has
-escaped the worktree. `npm install` in the worktree root repoints the links and leaves
-`package-lock.json` untouched.
-
-The arena-specific symptom: if the arena screen shows "Arena mismatch. The server is running
-"arena-0N", but this build only knows: …", the server and client are running different builds of
-shared. Rebuild shared and hard-refresh the browser. The release zip cannot produce this — it ships
-one build of both.
-
-## Code graph
-
-`code-review-graph` runs as a project-scoped MCP server (`.mcp.json`) and answers blast-radius
-questions — what a change to `stepSim` actually reaches — from a local Tree-sitter graph of `src`.
-It is committed config, launched through `uvx`, so `uv` is the only per-machine prerequisite.
-
-### When to query it
-
-The graph **widens** the search. It does not replace grep, and grep is not a fallback for it — the
-two miss different things, and the compiler settles the question.
-
-- **Query the graph for structure**: what calls `stepSim`, who imports a module, which tests cover a
-  function, what a signature change reaches. `mcp__code-review-graph__query_graph_tool` (`callers_of`,
-  `callees_of`, `importers_of`, `references_to`, `tests_for`) and `get_impact_radius_tool`. It
-  resolves aliased imports and re-export chains that a name grep walks straight past.
-- **Then grep anyway** for the untyped wiring the graph has no edge for: weapon and car ids, art
-  manifest keys, arena keys (`arena-01`), Phaser texture keys, enum names and schema fields used as
-  strings. Much of this codebase is data-driven and none of it is in the graph.
-- **`npm run build` plus the suites are the ground truth** for typed references. If it compiles and
-  they pass, no typed caller was missed — no search tool can promise that.
-
-Three ways a graph answer misleads:
-
-1. `status: not_found`, or zero results, means **not indexed** — never "no callers." The response
-   says so in its `confidence` field. Treat it as a failed lookup and grep.
-2. A bare symbol name returns `status: ambiguous`. Re-query with a `qualified_name` from the
-   `disambiguation` list, e.g. `…/packages/shared/src/sim/step.ts::stepSim`.
-3. Tests outnumber functions in the graph roughly two to one, so `callers_of` leads with test
-   helpers and `it:` blocks. Pass `detail_level: "minimal"` and read the non-test hits.
-
-New machine or fresh worktree: use the `code-graph-install` skill, or `uvx code-review-graph@2.3.8
-build` from the checkout root. **Each worktree needs its own build** — the repo root is auto-detected
-from the working directory, and `.mcp.json` deliberately passes no `--repo` so a worktree resolves to
-itself. The graph lives in gitignored `.code-review-graph/`; the version pin in `.mcp.json` is what
-keeps every machine on the same parser.
-
-A stale graph reports on old code without saying so. Every tool response carries
-`_graph.head_matches_build`; `code-review-graph status` prints the same thing from the CLI. If it is
-false, the answer describes other code — rebuild before trusting it, the same reflex as checking
-`dist` above. An unbuilt graph in a fresh worktree looks identical to a clean empty result, which is
-failure mode 1 above at its worst.
-
-## Branches
-
-**"main" always means `development/main`.** When the user says checkout main, merge to main, commit
-to main, rebase on main, or open a PR against main, the target is `development/main` — never
-`master`. That holds for every phrasing of "main"; treat it as the trunk.
-
-`development/main` is the working line. `master` has not moved since 2026-08-24 and sits 148 commits
-behind; tooling that guesses a default branch (git's own "main branch" hint, PR base defaults) will
-often name `master` anyway — ignore that and use `development/main`. Only touch `master` when the
-user names it explicitly.
-
-## `docs/turn-tuning.md` tabulates turn stats by hand, and a test holds it to the config
-
-[`docs/turn-tuning.md`](docs/turn-tuning.md) is the index of which knob to reach for when turning or
-aiming feels wrong, and it carries three hand-written tables of the roster's turn numbers — the
-per-car ratings, the global knobs, and every value derived from them — **once per ACTIVE mode, each
-set under that mode's own `## <Mode name>` heading**, since balance is per-mode and there is no
-single roster turn rate left to tabulate. Its prose is NOT per-mode: it sits outside the mode
-sections and quotes the default mode's figures only.
-**`scripts/turn-tuning-doc.test.mjs` parses them out of the markdown, iterates `activeGameModes()`
-and recomputes every cell from that mode's bundle**, so a config edit that skips the page fails
-`npm test` naming the mode, the row and the chassis. Publishing or un-publishing a mode fails it too,
-until the page's sections match `activeGameModes()`.
-It checks values, not a `balanceStamp`-style fingerprint: nothing generates this page, so a stamp
-would only prove someone typed a new stamp.
-
-**Update it in the same commit whenever you change** a car's `handling`, `speed` or `brakeDecel`
-(the base `config/car-config.ts`'s `CAR_TABLE`, or a mode's own `config.ts` override); `baseTurnRate`, `turnRatePerRating`, `baseMaxSpeed`, `speedPerRating`, `reverseAccelFactor`,
-`baseDrag`, `dragPerRating`, `lateralGripRate`, `reverseEpsilon` or `flipSteeringInReverse` in
-the base `config/drive-config.ts`'s `DRIVE_CONFIG`, or a mode's own `config.ts` override; **any `STATUS_TABLE` row's `turnRate` OR `grip` multiplier that
-reaches the drive model — `reeling`'s `grip` (0.6) is the one shipped today, and it has its own
-"Grip while reeling" row in the derived table** (it was `reeling`'s `turnRate` (0.4) and a "Rate
-while reeling" row until the 2026-09-18 Unity ram port dropped `turnRate` from that row outright);
-`spinMaxRate` in `RAM_CONFIG`; or `TICK_RATE_HZ`. (`coastHalfLifeSeconds`, `stopTurnRatio`,
-`reverseSpeedRatio`, `steeringGrip`, `impactGripDecel` and `authorityFloor` all used to head this
-list's entries and are all **deleted** — the first five by the 2026-09-18 Unity drive-model port,
-`authorityFloor` by the car-physics rework's stage 3b — so none of them can trigger a page update any
-more; `overheated` used to be the `STATUS_TABLE` example and lost its `turnRate` in the 2026-09-01
-status overhaul. `baseDrag`, `dragPerRating`, `lateralGripRate`, `reverseEpsilon` and
-`flipSteeringInReverse` appear only in that page's prose, not its tested tables, so the test cannot
-catch a stale mention of any of them — they are on this list because a reader must, not because a
-suite will.) Adding a chassis needs a new column in three tables, and the test fails until it has
-one. The page's "Keeping this page honest" section holds that list and a snippet that prints the
-derived values — do not retype them by hand.
-
-**The test cannot see numbers in prose**, and that page argues from figures inside sentences. Re-read
-them after a tuning pass even when the suite is green.
-
-## Playtest: say so loudly when the sim changes under the probes
-
-`packages/server/playtest/` holds headless probes that drive the real `ArenaRoom.tick` pipeline and
-measure what the game actually does — ram trigger rates, weapon reach, collision depth, prediction
-error. They are **not** part of the test suite and **not** part of the release build. Run them with
-`npm run playtest`; reports land in gitignored
-`packages/server/playtest/reports/<yyyy-MM-dd-NN>-<mode>/`, and `--mode=<id|name>` picks which mode's
-bundle the probes measure.
-See [`packages/server/playtest/README.md`](packages/server/playtest/README.md).
-
-**After changing anything the probes measure, say so — loudly, in your summary — and recommend a
-playtest run. Do not update the probes silently, and do not update them as a matter of course.**
-Running `npm run playtest` and reading what moved is the user's call, not a step you take on their
-behalf; your job is to make sure they never learn about it later. Name the probe, name the number,
-and recommend the run. Then update the probe only if they ask.
-
-Flag it when your change touches:
-
-- A probe's stated expectation, threshold, or verdict logic that your change makes wrong.
-- A comment or report string quoting a number your change moved (a config value, a hull dimension, a
-  tick count, a weapon stat, a documented rate).
-- A probe that no longer compiles or no longer reaches the code path it was written to exercise.
-
-A compile break is the one case to fix on the spot — a probe that does not build measures nothing,
-and leaving it broken is worse than leaving it stale. Say that you did.
-
-Changes that reach them include: `sim/` (drive, collide, ram, combat, damage, status, weapons), the
-tick order in `ArenaRoom.tick` or the bridges, `WEAPON_TABLE`, `CAR_TABLE`, `DRIVE_CONFIG`,
-`RAM_CONFIG`, `COMBAT_CONFIG`, `STATUS_*`, `NET_CONFIG`, `TICK_RATE_HZ`,
-`SNAPSHOT_RATE_HZ`, arena definitions and spawn tables, and the client's prediction or
-step-context assembly.
-
-**Never create a new probe file or a new scenario on your own initiative.** The user adds new
-scenarios explicitly. Keeping an existing one honest — updating a threshold, a number, or a setup
-that a change invalidated — is maintenance they can ask you for; inventing coverage is not.
-
-Two rules the probes are built on, worth preserving in any edit:
-
-- **They report, they do not assert.** A probe that throws on the first surprise stops measuring
-  every scenario after it. Verdicts are `OK`, `FINDING`, and `KNOWN-BY-DESIGN` — the last for
-  behaviour the code documents as intentional but which a player would still report as a bug.
-- **Anything involving contact sweeps the sub-tick phase.** A car covers 3.4–4.7 units per tick at
-  top speed (60 Hz), so a single placement measures one arbitrary point on the tick grid. Removing a sweep is how a probe
-  starts reporting whatever that one phase happened to do.
-
-If a change makes a probe's finding obsolete — you fixed the thing it was measuring — update the
-probe's expectation so the fix is what now reads as `OK`, and say so in your summary. Do not delete
-the probe.
-
-## Balance harness: glitches vs balance are different questions
-
-`packages/server/balance/` is a second headless harness, run with `npm run balance`. **Not** part of
-the test suite and **not** part of the release build, same as playtest. The two answer different
-questions: playtest asks whether the sim **misbehaves** — a bug you fix; balance asks whether a
-chassis or weapon is **too strong** — a number you tune against. Every number balance reports is
-conditioned on which bot tier played the matches, which is why every report carries a **bot
-fingerprint** (a hash of `BOT_PROFILES`) alongside a config fingerprint — a report from before a bot
-retune is not comparable to one after, and the harness's own `--baseline` flag refuses that
-comparison rather than trusting a reader to remember. See
-[`packages/server/balance/README.md`](packages/server/balance/README.md) for flags, the paired-run
-workflow, how to read a win-rate interval, and the harness's known distortions (maneuver weapons like
-`wildcharge` now get a genuine hit-probability solution rather than a range heuristic, so reports
-across a `BOT_BRAIN_VERSION` bump are not comparable; `corroded`'s amplified damage is credited to
-whatever weapon lands the hit, not to `corroded`; and one that is now **historical**: the bot could
-not press `wildcharge` until 2026-09-04, so reports predating that date understate Bastion, and the
-fix took it from 0 presses to 1179 in a run), and
-[`docs/superpowers/specs/2026-09-03-game-balance-harness-design.md`](docs/superpowers/specs/2026-09-03-game-balance-harness-design.md)
-for the design.
-
-## Commands
-
-```bash
-npm run dev            # shared watch + server :2567 + Vite client :5173; also sets DEV_TOOLS=1
-                       #   -- http://localhost:5173/?dev=playground opens the dev-only playtest
-                       #      playground (specs: docs/superpowers/specs/2026-09-01-playtest-playground-design.md,
-                       #      docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md);
-                       #      needs DEV_TOOLS=1, never present in a release build
-npm run build:release  # dist-release/motor-combat-moba/ + motor-combat-moba-release.zip
-                       #   -- --port <n> bakes that port into the release's .env (default 2567)
-npm run install-build  # build a release and install it into the folder named in .install-target
-                       #   -- --port <n> passes through; also rewrites a kept .env's PORT
-npm run build:manual   # regenerates the cars & weapons guide page
-npm run check:art      # art integrity: alpha, manifest rows, sizes, tint rules (:cars, :weapons)
-npm run ttk            # full-kit time-to-kill matrix, every chassis vs every chassis
-                       #   -- --mode=<id|name> measures that mode instead of the default
-npm run playtest       # headless sim probes -> packages/server/playtest/reports/<date-NN>-<mode>/
-                       #   -- --mode=<id|name> measures that mode instead of the default
-npm run playtest:lan   # two bot clients against a server you already started
-npm run balance        # headless win-rate/matchup harness -> packages/server/balance/reports/<date-NN>-<mode>/
-                       #   -- e.g. npm run balance -- --shape=duel --matches=20 --seed=7 --mode=deathmatch
-```
-
-## The cars & weapons guide is generated, committed, and easy to leave stale
-
-`packages/client/public/manual.html` is the player-facing guide — one section per active chassis (four), each with a basic
-attack plus its ability kit — that the join screen's "Cars & weapons guide" button opens. **It is written by
-`scripts/build-cars-and-weapons.mjs`, never by hand.** Every number on it is read from built shared
-(`WEAPON_TABLE`, `CAR_TABLE`, `WEAPON_TICKS`, `weaponDamageOf`, `hpOf`); the prose lives beside it in
-`scripts/cars-and-weapons-copy.mjs`.
-
-**It is a stat sheet, and as of 2026-09-17 it has two sections — published once per ACTIVE MODE
-behind a tab strip, since MC41.** The thirteen A4-style
-sheets (cover, legend, a page per chassis, a page per weapon, a compare table, a ceilings table) are
-gone, replaced by one continuous scrolling page: **Cars** — each active chassis's seven ratings, then
-its weapons as a stat list, a "Basic attack" card first and its `min(kit, N)` ability kit after
-(BA26, VS28) — and
-**Effects** — every status a player can be put in, what it
-does, and what applies it. Two rules run the weapon lists. A point that does not apply is **left
-out**, never printed as a dash (most rows have no wind-up at all, and a charge has no range), and
-a weapon's **effects are links** into the Effects section, so a chip and its row can never drift
-apart — `manual-page.test.mjs` resolves every `#fx-…` against the ids the page defines, in both
-directions, scoped to one tab: every id the page publishes carries its mode (`mode-N`,
-`car-N-<carId>`, `fx-N-<statusId>`), so a Brawl weapon's chip cannot resolve into Deathmatch's
-Effects list and publish that mode's duration under Brawl's name. The tab labels are `MODE_TABLE`'s
-own `name`, never copy written in the generator, and the tab strip is plain CSS plus one inline
-script — a printout and a page with scripting off both fall back to every mode stacked. The two
-shipped modes carry byte-identical tables today (neither mode's `config.ts` overrides the base, so
-both simply resolve to it — the per-mode snapshots are what would show a future divergence), so both
-tabs render the same content; the structure is what makes a future divergence visible instead of
-silent. A status is published only when something can apply it: a weapon an active chassis
-carries, or an authored `EFFECT_SOURCES` line for the three that reach a player outside the weapon
-tables (`reeling` and `ramLock` from the contact pass, `phased` from the deathmatch respawn).
-`ramLock` is the odd one out in that list — the first status a player is put in by succeeding, since
-the 2026-09-18 Unity ram port makes landing a ram cost its own attacker something. `armored` and
-`overhauled` have neither today and so do not appear at all.
-
-**The prose quotes numbers through placeholders, never by hand.** Write `{namespace.fact}` for
-a figure the tables own rather than typing the digits; `{token:words}` spells small whole numbers
-out. Tokens are defined in
-`scripts/manual-facts.mjs`, every one derived from a table, and an unknown token fails the build.
-This exists because `balanceStamp` **cannot** catch a stale number inside a sentence: it hashes the
-copy file, so it only asks "was the page rebuilt from this text", never "is this text true". Three
-sentences had rotted underneath it by 2026-09-04 — predator claiming a 300 ms recharge against a
-table reading 1000, on a page whose own generated cell two lines above said "1 presses/s".
-`scripts/manual-facts.test.mjs` fails if a token's current value is typed as digits, or if a
-spelled-out measurement ("two seconds", "four muzzles") appears at all. It deliberately does **not**
-watch the word "car": "a dash that clips two cars in the same tick" is prose, not a figure.
-The 2026-09-17 restructure cut the prose to **one line per chassis and one per weapon** — the page
-generates everything else — so the token map shrank to one entry, and the 2026-09-20 variable-slot
-work emptied it outright: `{roster.slotsPerCar}` was the last token, and it asserted a uniform kit
-length across the roster that a variable `N` no longer guarantees (VS29). `manualFacts()` returns
-`{}` today, so **there is no live token to copy as an example** — write the token a new sentence
-needs and define it there. That is the map shrinking with the sentences, not the guard weakening: a
-fact the prose never quotes fails the suite, so the two can only ever be the same size. Adding a
-sentence that measures something adds its fact back.
-
-**Re-run `npm run build:manual` and commit the page whenever you change:** a weapon row, an ACTIVE
-chassis row, an active car's loadout, the combat, drive, status, slots or turret tables —
-**in ANY active mode's folder, not only the default one**: since MC41 the generator reads each
-mode's own bundle through `withMode` and `balanceStamp` hashes every active mode, so a
-Deathmatch-only edit owes a rebuild exactly as a roster-wide one does (this is also where each
-mode's own `slots.basicAttackEnabled` lives now — there is no longer a separate global flag) — or
-`TICK_RATE_HZ`, `ARENA_WIDTH`, the set of ACTIVE modes
-(`stampOfModes` hashes each tab's id and name, so publishing or un-publishing one moves the stamp
-even though both shipped modes' tables are byte-identical), or the prose in
-`cars-and-weapons-copy.mjs`. (`ARENA_WIDTH` is still global, read from `ACTIVE_ARENA_ID`, even
-though a mode authors its own `arenas` list; both shipped modes play the same two arenas, so every
-tab reports reach against the same floor.) (`AIM_CONFIG.lockRange`
-was on this list until 2026-09-17, when the aim-lock feature and the whole config were deleted.)
-The page carries a fingerprint of all of that and `scripts/manual-page.test.mjs` recomputes it, so
-forgetting fails the suite with the command to run rather than quietly shipping last week's numbers
-to players.
-
-**"Active" is load-bearing in that list.** The page publishes `activeCarIds()`, not `CAR_TABLE` —
-the car sections, their kits, the `roster.*` prose tokens, and the sources the Effects section
-credits (so a status reachable only from an unreleased chassis's weapon is not published either) —
-and `balanceStamp` hashes the same active subset. So a chassis authored with
-`isActive: false` reaches neither the page nor the stamp, and tuning it owes no rebuild; flipping the
-flag to `true` moves the stamp and owes one. This used to run off the whole table, which published
-unreleased cars to players with nothing saying so.
-
-`balanceStamp` hashes those tables **whole**, so *any* field of a row counts — including the purely
-visual ones. `WEAPON_TABLE.color` is the one that surprises people: it is not a balance number, but
-the guide paints every weapon's heading and accent rule with it, so changing a weapon's colour
-without rebuilding fails the suite. If the stamp moved, the page owed players a rebuild; that is the
-whole rule.
-
-Vite copies `public/` verbatim, so the page ships in the LAN zip; its art is linked and its fonts are
-inlined, so it reaches for nothing off the machine — `manual-page.test.mjs` asserts that too. Its URL
-is `MANUAL_PATH` in `packages/client/src/config/manual.ts`, which nothing typed holds to the file the
-script writes; that test is what does.
-
-The build needs nothing installed: webfonts are fetched once and inlined, and with no network it
-falls back to the system stack and still writes a correct page.
-
-### Art is the exception, and that is exactly why it needs saying out loud
-
-Art is the one input the stamp cannot see. The page **links** `public/art/`, so swapping a weapon
-icon or a car sprite changes what players read with **no rebuild, no manifest edit, and no failing
-test**. Convenient, and a trap: the guide changed, nothing said so, and the diff is a binary blob.
-
-**After importing art the guide draws, say so — loudly, in your summary — and recommend they look at
-the page.** Both importers land art it draws: `scripts/import-weapon-icon.mjs` (a weapon's icon
-appears beside its name in its chassis's weapon list) and `scripts/import-art.mjs` (a chassis
-sprite appears in that chassis's header). Name the file, and point at
-`http://localhost:5173/manual.html` — the guide is the only place a sprite is shown large and at
-rest, so it catches what `?dev=assets` cannot.
-
-**Do not run `npm run build:manual` for an art swap.** It is not needed, it rewrites the whole page,
-and the churn buries whether anything real moved. Verify with `npm run check:art` and by loading the
-page.
-
-`npm run check:art` is the guardrail for art that did **not** come through an importer — a PNG
-repainted in place in Paint.NET or Photoshop bypasses every check the importers make. It reports
-blockers (a lost alpha channel, a manifest row naming a file that is gone, an icon row that would
-let the player tint drain its colour) and warnings (a palette PNG, an off-size icon, a tinted car
-sprite that still carries colour, an icon whose colour has drifted from its `WEAPON_TABLE.color`).
-`npm run check:cars` and `npm run check:weapons` are the same checks scoped to one asset class.
-
-`scripts/check-art.test.mjs` runs the blockers as part of `npm test`, so a save that dropped the
-alpha fails the suite instead of reaching the HUD as an opaque square. **Warnings never fail the
-suite** — an icon is allowed more than one colour, and only a person looking at the screen can say
-whether a pair reads as one weapon. `npm run check:weapons` warns on ten of the roster's nineteen
-rows today: `tremor` (no manifest row yet) and, since the basic attack landed, all nine
-basic-attack rows alongside it — same reason, same fallback to the procedural glyph, and
-expected until someone draws an icon (BA32). **The nine other carried weapons read `ok`**, most of
-them at a colour distance of 0-9, because the 2026-09-02 icon pass repainted every
-`WEAPON_TABLE.color` from its own icon rather than from a per-chassis palette. `thunderclap`'s 66 is
-the widest surviving gap and still well inside the limit.
-
-One pairing nothing enforces: a weapon's icon and its `WEAPON_TABLE.color` are meant to read as the
-same weapon, but icons ship `colorMode: "none"` and no typed reference ties the two together. Either
-side can be changed alone and both importers stay silent. When you re-import an icon, check its
-colour against that row and flag the drift — changing `color` to match is a rebuild, per above.
-
-`npm run dev` sets `DEPLOY_MODE=lan` and `CLIENT_ORIGIN=http://localhost:5173` so Vite can talk to the server. Open `http://localhost:5173`, click Join.
+| Code graph setup | [`docs/code-review-graph.md`](docs/code-review-graph.md) |
+| Playtest / balance harnesses | [`packages/server/playtest/README.md`](packages/server/playtest/README.md), [`packages/server/balance/README.md`](packages/server/balance/README.md), header of [`scripts/ttk.mjs`](scripts/ttk.mjs) |
+| Package-local rules (shot looks, VFX, server notes) | `packages/shared/CLAUDE.md`, `packages/server/CLAUDE.md`, `packages/client/CLAUDE.md` |
+| Per-mode config (MC1–MC42) and the mode layer (GM1–GM40) | [`2026-09-22-per-mode-config-design.md`](docs/superpowers/specs/2026-09-22-per-mode-config-design.md), [`2026-09-25-game-mode-layer-design.md`](docs/superpowers/specs/2026-09-25-game-mode-layer-design.md) |
+| Unity physics port — current drive/ram/slam model (stage 5 paused) | [`plans/2026-09-18-unity-physics-port/EXECUTION.md`](docs/superpowers/plans/2026-09-18-unity-physics-port/EXECUTION.md) |
+| Netcode redesign (NR1–NR68) | [`2026-09-29-online-netcode-redesign-design.md`](docs/superpowers/specs/2026-09-29-online-netcode-redesign-design.md) |
+| Tile arenas (TA) and tile cells (TC) | [`2026-10-09-tile-arenas-design.md`](docs/superpowers/specs/2026-10-09-tile-arenas-design.md), [`2026-10-09-tile-cells-design.md`](docs/superpowers/specs/2026-10-09-tile-cells-design.md) |
+| Camera behaviours | [`2026-09-28-camera-behaviors-design.md`](docs/superpowers/specs/2026-09-28-camera-behaviors-design.md) |
+| Conquer (CQ1–CQ62) | [`2026-09-24-conquer-mode-design.md`](docs/superpowers/specs/2026-09-24-conquer-mode-design.md) |
+| Deathmatch, kill attribution, respawn, `isSolid` (M1–M33) | [`2026-09-01-ffa-game-modes-design.md`](docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md) |
+| Mouse-aim turret (TR) | [`2026-09-21-mouse-aim-turret-design.md`](docs/superpowers/specs/2026-09-21-mouse-aim-turret-design.md) |
+| Variable ability slots (VS1–VS34) | [`2026-09-20-variable-weapon-slots-design.md`](docs/superpowers/specs/2026-09-20-variable-weapon-slots-design.md) |
+| Basic attack (BA1–BA38) | [`2026-09-17-basic-attack-design.md`](docs/superpowers/specs/2026-09-17-basic-attack-design.md) |
+| Weapon system (D1–D22); retired aim lock (A1–A14, record only) | [`2026-08-27-weapon-system-design.md`](docs/superpowers/specs/2026-08-27-weapon-system-design.md), [`2026-08-27-aim-assist-target-lock-design.md`](docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md) |
+| Weapon roster (L1–L7) and chassis triangle (T1–T22, supersedes L's assignments) | [`2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md), [`2026-08-30-chassis-rename-and-weapon-redistribution-design.md`](docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md) |
+| Status mechanism | [`2026-08-29-status-mechanism-design.md`](docs/superpowers/specs/2026-08-29-status-mechanism-design.md) |
+| Practice mode (PR1–PR31) | [`2026-09-03-practice-mode-design.md`](docs/superpowers/specs/2026-09-03-practice-mode-design.md) |
+| Playground (PG1–PG88, EV1–EV34) | [`2026-09-01-playtest-playground-design.md`](docs/superpowers/specs/2026-09-01-playtest-playground-design.md), [`2026-09-02-…-bot-difficulty`](docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md), [`2026-09-08-…-vfx-settings`](docs/superpowers/specs/2026-09-08-playground-vfx-settings-design.md), [`2026-09-08-…-environment-vfx`](docs/superpowers/specs/2026-09-08-playground-environment-vfx-design.md), [`2026-09-16-…-six-car-select`](docs/superpowers/specs/2026-09-16-playground-six-car-select-design.md) |
+| Lobby chat | [`2026-09-06-lobby-chat-design.md`](docs/superpowers/specs/2026-09-06-lobby-chat-design.md) |
+| Bot situation play | [`2026-09-05-bot-situation-play-design.md`](docs/superpowers/specs/2026-09-05-bot-situation-play-design.md) |
+| v1 spec and tracker | [`2026-08-24-motor-combat-moba-v1-design.md`](docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md), [`v1-master-index`](docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md) |
+| Skills for common tasks | `game-mode`, `weapon-forger`, `weapon-look`, `bot-tuner`, `ability-slot-count`, `basic-attack-toggle`, `process-car-asset`, `process-weapon-icon`, `code-graph-install` (`.claude/skills/`) |
+| The user's own notes | `docs/ideas/`, `docs/invariants/` — **off limits unless named** (see above) |
