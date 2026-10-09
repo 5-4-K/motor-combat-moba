@@ -1,5 +1,5 @@
 import {
-  cars, fireSlotsOf, slots, weaponDefOf, type CarId, type WeaponId,
+  cars, cfg, fireSlotsOf, slots, weaponDefOf, type CarId, type WeaponId,
 } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS, resolveBrainConstants, type BotProfile } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSlotView } from "../types.js";
@@ -33,29 +33,42 @@ export function carrierOf(weaponId: WeaponId): { carId: CarId; slotIndex: number
   throw new Error(`carrierOf: no chassis carries ${weaponId}`);
 }
 
-const reachCache = new Map<string, number>();
+/**
+ * Keyed on the active bundle object: the playground tunes through a sibling bundle and a mode may
+ * override weapon rows, so a bare (weapon, sigma, bar) key would serve one bundle's reach to another.
+ * Server-side twin of the client's `memoOnBundle`.
+ */
+const reachCache = new WeakMap<object, Map<string, number>>();
 const OPEN_ARENA: BotArenaView = { width: 1_000_000, height: 1_000_000, obstacles: [] };
+/**
+ * The sweep stands mid-arena: a beam's wall clip treats a point on the bounds edge as outside, so a
+ * shooter at (0, 0) clips every beam aimed along the edge to nothing.
+ */
+const ORIGIN = 500_000;
 
 /**
  * The farthest distance at which `solve()` against a stationary target straight ahead still clears
  * `bar` (BB42). Memoised per (weapon, sigma, bar); a kit is fixed for a match.
  */
 export function effectiveReachOf(weaponId: WeaponId, aimSigmaRad: number, bar: number): number {
+  const bundle = cfg();
+  let memo = reachCache.get(bundle);
+  if (!memo) reachCache.set(bundle, (memo = new Map()));
   const key = `${weaponId}|${aimSigmaRad}|${bar}`;
-  const cached = reachCache.get(key);
+  const cached = memo.get(key);
   if (cached !== undefined) return cached;
 
   const { carId, slotIndex } = carrierOf(weaponId);
   const reach = weaponReachOf(weaponId);
   const min = BRAIN_CONSTANTS.minEngageUnits;
-  const shooter: SolverShooter = { sessionId: "reach-shooter", carId, team: 0, x: 0, y: 0, angle: 0, vx: 0, vy: 0 };
+  const shooter: SolverShooter = { sessionId: "reach-shooter", carId, team: 0, x: ORIGIN, y: ORIGIN, angle: 0, vx: 0, vy: 0 };
   const slot: BotSlotView = { weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0, range: weaponDefOf(weaponId).range };
   let best: number = min;
   const n = BRAIN_CONSTANTS.effectiveReachSamples;
   for (let i = 0; i <= n; i++) {
-    const distance = min + ((reach - min) * i) / n;
+    const distance = Math.min(reach, min + ((reach - min) * i) / n);
     const target: BotCarView = {
-      sessionId: "reach-target", carId, team: 1, x: distance, y: 0, angle: Math.PI, vx: 0, vy: 0,
+      sessionId: "reach-target", carId, team: 1, x: ORIGIN + distance, y: ORIGIN, angle: Math.PI, vx: 0, vy: 0,
       hp: Number.POSITIVE_INFINITY, maxHp: Number.POSITIVE_INFINITY, alive: true, phased: false, statuses: [], maneuver: 0,
     };
     const solution = solve({
@@ -64,7 +77,7 @@ export function effectiveReachOf(weaponId: WeaponId, aimSigmaRad: number, bar: n
     });
     if (solution.hitChance >= bar) best = distance;
   }
-  reachCache.set(key, best);
+  memo.set(key, best);
   return best;
 }
 

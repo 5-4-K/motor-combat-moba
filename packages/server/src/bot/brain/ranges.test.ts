@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf, weaponDefOf, type WeaponId } from "@motor-combat-moba/shared";
+import { DEFAULT_GAME_MODE, applyOverrides, installMode, modeConfigOf, weaponDefOf, type WeaponId } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS, RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
 import type { BotSlotView } from "../types.js";
 import { effectiveReachOf, fightRangeOf, ownComfortOf, slotIsReady, usableSlots } from "./ranges.js";
-import { weaponReachOf } from "./reach.js";
+import { kitReachOf, weaponReachOf } from "./reach.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 installMode(modeConfigOf(DEFAULT_GAME_MODE));
@@ -22,8 +22,29 @@ describe("effectiveReachOf (BB42)", () => {
   });
 
   it("shrinks as the hands get worse or the bar rises", () => {
-    expect(effectiveReachOf("predator", 0.18, 0.7)).toBeLessThanOrEqual(effectiveReachOf("predator", 0.035, 0.7));
+    expect(effectiveReachOf("predator", 0.18, 0.7)).toBeLessThan(effectiveReachOf("predator", 0.035, 0.7));
     expect(effectiveReachOf("predator", 0.035, 0.9)).toBeLessThanOrEqual(effectiveReachOf("predator", 0.035, 0.3));
+  });
+
+  it("pins the measured hard values (sigma 0.035, bar 0.7)", () => {
+    // Measured from the solver on the 13-sample grid (minEngageUnits..reach in 12 steps), shooter
+    // mid-arena: a number moves only when a weapon row, a node weight or the grid does.
+    expect(effectiveReachOf("predator", 0.035, 0.7)).toBeCloseTo(646.67, 1);
+    expect(effectiveReachOf("thumper", 0.035, 0.7)).toBeCloseTo(893.33, 1);
+    expect(effectiveReachOf("magmablast", 0.035, 0.7)).toBeCloseTo(900, 1);
+  });
+
+  it("gives a held beam its full reach (lance regression: a shooter on the bounds edge clipped it to nothing)", () => {
+    expect(effectiveReachOf("lance", 0.035, 0.7)).toBeGreaterThanOrEqual(900);
+  });
+
+  it("is keyed on the active bundle, not just (weapon, sigma, bar)", () => {
+    const stock = effectiveReachOf("predator", 0.035, 0.7);
+    expect(stock).toBeGreaterThan(300);
+    installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "weapon.predator.range": 300 }));
+    expect(effectiveReachOf("predator", 0.035, 0.7)).toBeLessThanOrEqual(300);
+    installMode(modeConfigOf(DEFAULT_GAME_MODE));
+    expect(effectiveReachOf("predator", 0.035, 0.7)).toBe(stock);
   });
 
   it("is the full reach when only the exact aim has to land", () => {
@@ -40,6 +61,9 @@ describe("ownComfortOf (BB43)", () => {
     const kit = [basic, slot("predator"), slot("pepperbox"), slot("lance")];
     const shortest = Math.min(...kit.slice(1).map((s) => effectiveReachOf(s.weaponId, hard.aimErrorSigmaRad, hard.hitChanceBar)));
     expect(ownComfortOf(kit, hard, 0)).toBeCloseTo(Math.max(BRAIN_CONSTANTS.minEngageUnits, shortest * BRAIN_CONSTANTS.comfortFraction), 6);
+  });
+  it("is the engage floor for an empty kit", () => {
+    expect(ownComfortOf([], hard, 0)).toBe(BRAIN_CONSTANTS.minEngageUnits);
   });
   it("ignores a slot that is not ready soon", () => {
     const far = 10_000;
@@ -59,7 +83,7 @@ describe("fightRangeOf (BB44)", () => {
   it("is the larger of own comfort and the opponent's keep-out", () => {
     const hard = RESOLVED_BOT_PROFILES.hard;
     const target = { sessionId: "t", carId: "mirage" as const, team: 1 as const, x: 0, y: 0, angle: 0, vx: 0, vy: 0, hp: 1, maxHp: 1, alive: true, phased: false, statuses: [], maneuver: 0 };
-    expect(fightRangeOf(10, target, [], hard)).toBeGreaterThan(10);
+    expect(fightRangeOf(10, target, [], hard)).toBe(kitReachOf("mirage", []).shortest * hard.opponentRangeRespect);
     expect(fightRangeOf(5000, target, [], hard)).toBe(5000);
     expect(fightRangeOf(10, undefined, [], hard)).toBe(10);
   });
