@@ -710,6 +710,15 @@ function beamsThroughWalls(): void {
       "arena-02",
     );
     const bit = slotBitFor(carrier, id);
+    // `weaponDefOf`, not `WEAPON_TABLE[id]`: indexing the table with a bare `WeaponId` yields the
+    // union of each row's own literal type (see the comment on `buildBurstDefs` in
+    // weapon-config.ts), which does not discriminate on `.kind` the way the plain `WeaponDef`
+    // union does. Only `weaponDefOf`'s declared return type narrows `piercesWalls` below.
+    const def = weaponDefOf(id);
+    // A centre-origin disc (an aura, `shockwave`'s rings) has no axis for the wall raycast to clip
+    // along, so its extent is its radius wherever the walls are — the P17 class `combat.test.ts`
+    // pins, not a shot travelling into the strip. Counting it here reads a ring as a leak.
+    const disc = def.kind === "beam" && def.hitbox.shape === "disc" && def.origin === "center";
     let maxBeamExtent = 0;
     let projectilePastFar = false;
     for (let i = 0; i < ticksFor(4); i++) {
@@ -718,7 +727,7 @@ function beamsThroughWalls(): void {
       for (const inst of w.instances()) {
         // afterburner (and any future dual-muzzle beam) also fires a tail cone into the open pit;
         // only the wallward instance can leak through the strip.
-        if (inst.kind === "beam" && !inst.isExplosion && Math.cos(inst.angle) < 0) {
+        if (!disc && inst.kind === "beam" && !inst.isExplosion && Math.cos(inst.angle) < 0) {
           maxBeamExtent = Math.max(maxBeamExtent, inst.extent);
         }
         // A shell whose centre has crossed the far face has gone through the strip. The disc burst
@@ -728,18 +737,15 @@ function beamsThroughWalls(): void {
         }
       }
     }
-    // `weaponDefOf`, not `WEAPON_TABLE[id]`: indexing the table with a bare `WeaponId` yields the
-    // union of each row's own literal type (see the comment on `buildBurstDefs` in
-    // weapon-config.ts), which does not discriminate on `.kind` the way the plain `WeaponDef`
-    // union does. Only `weaponDefOf`'s declared return type narrows `piercesWalls` below.
-    const def = weaponDefOf(id);
     const authored = def.kind === "projectile" && def.piercesWalls === true;
     const inRange = def.range >= clipDist;
     const beamLeaked = maxBeamExtent > clipDist + 8 && inRange;
     const leaked = !authored && (beamLeaked || projectilePastFar);
     const note = authored
       ? "<- through the wall by authored piercesWalls"
-      : leaked
+      : disc
+        ? "<- centre-origin disc: no axis to clip, not measured here (P17)"
+        : leaked
         ? "<- SHOT THROUGH THE WALL"
         : "";
     rows.push(
@@ -755,66 +761,17 @@ function beamsThroughWalls(): void {
   );
 }
 
-/* ------------------------------------------------- W9. magmablast's burst through a wall */
-/**
- * Documented (spec P17): the burst is a `disc`, and a disc has no axis for the wall raycast to
- * follow, so its splash reaches the far side of level geometry. Confirm the play impact.
- *
- * Arena-02's west strip is one tile thick since the 2026-10-09 tile conversion — thicker than
- * the 20u wall the P17 unit test authors, but still thinner than the burst radius, so a burst on the near
- * face still covers the far face. The far-side victim starts in
- * the wall band and will be clamped onto the floor; they stay inside the field either way.
+/*
+ * W9 measured Magma Blast's burst reaching a car on the far side of a wall (spec P17: a disc has
+ * no axis for the wall raycast to follow). It needs a wall with floor on BOTH sides and thinner than
+ * the burst radius, and since arena-01 and arena-02 became tile arenas (2026-10-09) no shipped
+ * 1280x720 arena has one: every wall sits on the frame edge, so the "far-side" victim spawned off
+ * the arena and was shoved back onto the floor — the verdict measured that shove, not the burst.
+ * arena-03's interior boxes are thicker than the burst, so re-siting it there would read OK by
+ * construction. The mechanism stays pinned by `combat.test.ts`'s P17 case; this scenario was
+ * retired rather than rewritten into something it was never asked to check. The number is left as
+ * a hole on purpose, as G5 is: renumbering W10-W13 would silently invalidate every earlier report.
  */
-function auraThroughWall(): void {
-  const arena = getArena("arena-02");
-  const west = westSpike(arena);
-  const wall = floorRect(arena);
-  const y = (wall.top + wall.bottom) / 2;
-  const inner = west.x + west.w;
-  // `weaponDefOf`, not `weapons().magmablast`: both read the active bundle, but only the accessor's
-  // declared `WeaponDef` return narrows on `.kind` to the projectile variant that owns `explosion`
-  // (the same typing note W8 below carries). The throw replaces a `!` — if magmablast ever stops
-  // authoring a detonation, this probe has nothing to measure and should say so, not print
-  // `undefined` into the report.
-  const magma = weaponDefOf("magmablast");
-  if (magma.kind !== "projectile" || !magma.explosion) {
-    throw new Error("magmablast no longer authors an explosion — W9 has nothing to measure");
-  }
-  const radius = magma.explosion.radius;
-  // Mirage hugging the inner face, firing west into the strip; victim just past the far face,
-  // matching combat.test.ts's P17 case (20u wall, far car inside the 60u radius).
-  const w = new PlaytestWorld(
-    [
-      { id: "mir", carId: "mirage", x: inner + 25, y, angle: Math.PI },
-      { id: "victim", carId: "bastion", x: west.x - 10, y, angle: 0 },
-    ],
-    "ffa",
-    "arena-02",
-  );
-  const bit = slotBitFor("mirage", "magmablast");
-  const startHp = w.get("victim").hp;
-  // One press: the shell (600u/s) covers the ~25u to the strip in a few ticks, dies there, and the
-  // resulting burst lingers `explosion.lingerMs`. Three seconds (90 ticks as authored at 30 Hz)
-  // leaves the 2 s field time to exist.
-  for (let i = 0; i < ticksFor(3); i++) {
-    w.input("mir", { fireSlots: i === 0 ? bit : 0 });
-    w.tick();
-  }
-  const dealt = startHp - w.get("victim").hp;
-  report(
-    "W9. Magma Blast's burst reaching through a wall",
-    dealt > 0 ? "KNOWN-BY-DESIGN" : "OK",
-    `Mirage on the inner face of arena-02's ${west.w}u west strip, firing west; ` +
-      `victim starts just past the far face: dealt ${dealt} (splash alone is 15 base, up to ~17 at ` +
-      `Mirage's 1.13x attack), victim statuses ` +
-      `${statusesOf(w.get("victim")).map((s) => s.statusId).join(",") || "none"}.\n` +
-      `weapon-config.ts documents the burst as passing through level geometry by design (P17) — ` +
-      `intentional, but corrosion damage reaching through a solid wall still reads as a bug from ` +
-      `the receiving end. The strip is thinner than the ${radius}u burst radius, so this is the ` +
-      `case combat.test.ts's P17 pin uses; the victim may be clamped onto the floor before the ` +
-      `shell dies, and still sits inside the field.`,
-  );
-}
 
 /* ---------------------------------------------------------------- W10. pierce accounting */
 /**
@@ -933,7 +890,6 @@ damageAfterDeath();
 fireRateExploit();
 statusChain();
 beamsThroughWalls();
-auraThroughWall();
 pierce();
 instanceLeak();
 beamOwnerDeath();

@@ -317,12 +317,14 @@ function beamInWall(): void {
     const w = new PlaytestWorld(
       [
         { id: "s", carId: carrier, x: sx, y: CY, angle: Math.PI, team: 0 },
-        { id: "t", carId: "bastion", x: WEST.x - 40, y: CY, angle: 0, team: 0 },
+        // A second car so a one-car match cannot end on its own; parked on the open floor, well
+        // out of either beam's reach. Arena-02's spike ring sits on the frame edge since the tile
+        // conversion, so there is no far side of this wall to put a target on any more.
+        { id: "t", carId: "bastion", x: FLOOR.right - 100, y: CY, angle: 0, team: 0 },
       ],
       "ffa",
       "arena-02",
     );
-    const hp0 = w.get("t").hp;
     let maxExtent = 0;
     for (let i = 0; i < ticksFor(5); i++) {
       w.input("s", { fireSlots: i === 0 ? bit : 0 });
@@ -333,13 +335,10 @@ function beamInWall(): void {
         if (Math.cos(inst.angle) < 0) maxExtent = Math.max(maxExtent, inst.extent);
       }
     }
-    const dealt = hp0 - w.get("t").hp;
-    // The far-side target is in the wall band and will be clamped inward; damage after that clamp
-    // is not a through-wall leak. Extent growing past the strip is.
+    // Extent growing past the strip is the leak.
     if (maxExtent > RING + 4) leak = true;
     rows.push(
-      `${id.padEnd(11)} muzzle in the west strip, firing west: max wallward extent ${maxExtent.toFixed(0)}u, ` +
-        `damage to the far-side car ${dealt}` +
+      `${id.padEnd(11)} muzzle in the west strip, firing west: max wallward extent ${maxExtent.toFixed(0)}u` +
         (maxExtent > RING + 4 ? " <- BEAM GREW PAST THE STRIP" : ""),
     );
   }
