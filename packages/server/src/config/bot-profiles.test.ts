@@ -14,38 +14,21 @@ type Direction = "rises" | "falls" | "equal" | "rises-or-equal";
  *
  * This exists because a tier is DATA (H8): no module under `bot/` branches on the difficulty name,
  * so the only thing keeping `easy` and `hard` apart is that their numbers differ in the right
- * direction. A single collapsed field is invisible to every other test in this suite — a bot that
- * suddenly aims like a pro on easy still passes "orders perceived latency", still passes the tier
- * characterisation scenes that do not happen to read that knob, and still plays a whole match.
- * The per-field monotonicity assertions that used to live in the deleted `bot/input.test.ts` were
- * the guard against exactly that, and the final review measured what replaced them: of the 25
- * single-field collapses it tried, 14 passed silently.
+ * direction. A single collapsed field is invisible to every other test in this suite: a bot that
+ * suddenly aims like a pro on easy still passes "orders perceived latency" and still plays a whole
+ * match.
  *
  * Typed as a TOTAL record over `BotProfile`, so adding a knob without deciding its direction is a
- * COMPILE error rather than a silently unguarded field.
+ * COMPILE error rather than a silently unguarded field. These are the 23 v7 fields (BB49).
  *
- * Two fields are deliberately `"equal"` and must stay listed as such rather than dropped:
- *   - `ultWindowHpFraction` — what counts as a wounded target is a fact about the game, not about
- *     the pilot. Tiers differ in whether they WAIT for that window (`ultDisciplineChance`), not in
- *     where they think it is.
- *   - `blunderTicks` — how long a mistake lasts once made. Tiers differ in how OFTEN they blunder
- *     (`blunderChance`); a pro's mistake is not shorter, it is rarer.
+ * `punishHpFraction` is deliberately `"equal"` and must stay listed as such rather than dropped:
+ * what counts as a wounded target is a fact about the game, not about the pilot.
  *
- * And one runs BACKWARDS on purpose: `vengefulness` (H33) — a casual chases whoever hurt them, a
- * pro is not distracted — which is why this is a direction table and not a "harder is bigger" loop.
+ * `vengefulness` runs BACKWARDS on purpose (H33): a casual chases whoever hurt them, a pro is not
+ * distracted. That is why this is a direction table and not a "harder is bigger" loop.
  *
- * A fourth direction, `"rises-or-equal"`, exists for fields that may hold flat on ONE rung rather
- * than strictly rise on both: `targetBranches` (1, 1, 3) is flat easy -> medium and only rises
- * medium -> hard. Medium genuinely does not need a second target branch to play its role on the
- * ladder — inventing a value that rises on both rungs just to keep the table monotone-strict would
- * be tuning the field for this test, not for the bot. The direction still asserts SOMEWHERE, on the
- * ends (`hard > easy`), so a field that never moves at all still fails.
- *
- * `planDepth` used to share this direction too (1, 1, 2), until R-PF1 (fix round 1, 2026-09-06)
- * dropped hard back to 1 because the measured planning cost missed its budget by 3x — see
- * `planDepth`'s own doc comment in `bot-profiles.ts` for the numbers. It is `"equal"` now: all
- * three tiers ship depth 1, and the field keeps its `1 | 2` type and its depth-2 machinery for
- * whichever tier next earns the budget to raise it.
+ * `"rises-or-equal"` is for a field that may hold flat on ONE rung but must still rise on the ends.
+ * No v7 field uses it today; it stays so the next one does not need the test reshaped.
  */
 const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
   // Perception
@@ -61,53 +44,27 @@ const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
   // Aim
   aimErrorSigmaRad: "falls",
   aimErrorDriftTicks: "falls",
-  // Fire economy
+  // Fire
   burstGapTicks: "falls",
   hitChanceBar: "rises",
-  minShotValueFraction: "rises",
-  ultDisciplineChance: "rises",
-  ultWindowHpFraction: "equal",
-  // Target politics
+  // Targets
   targetCommitTicks: "falls",
   woundedBias: "rises",
   vengefulness: "falls",
-  // Positioning and survival
+  // Positioning
   wallLookaheadUnits: "rises",
   retreatHpFraction: "rises",
   punishHpFraction: "equal",
-  ramIntentChance: "rises",
-  // Threat reaction and consistency
-  dodgeChance: "rises",
+  opponentRangeRespect: "rises",
+  // Reaction
   dodgeReactionTicks: "falls",
   dodgeHorizonTicks: "rises",
-  blunderChance: "falls",
-  blunderTicks: "equal",
-  idleFidgetChance: "falls",
-  scoreNoiseSigma: "falls",
-  hearChance: "rises",
-  deadRespect: "rises",
-  opponentRangeRespect: "rises",
-  cornerRespect: "rises",
-  incomingCarChance: "rises",
   situationCommitTicks: "falls",
-  slotStickTicks: "rises",
-  // Planning
-  planHorizonTicks: "rises",
-  planDepth: "equal",
-  targetBranches: "rises-or-equal",
-  commitPenalty: "rises",
 };
 
 const PROBABILITY_FIELDS = [
-  "ultDisciplineChance", "ultWindowHpFraction", "woundedBias",
-  "vengefulness", "retreatHpFraction", "hitChanceBar", "punishHpFraction",
-  "ramIntentChance", "dodgeChance", "blunderChance", "idleFidgetChance",
-  "hearChance", "deadRespect", "opponentRangeRespect", "cornerRespect", "incomingCarChance",
-  "commitPenalty",
+  "hitChanceBar", "punishHpFraction", "woundedBias", "vengefulness", "retreatHpFraction", "opponentRangeRespect",
 ] as const;
-// KEPT BYTE-IDENTICAL, BY HAND, with `UNIT_INTERVAL_FIELDS` in `bot/brain/personality.ts` (R-M2).
-// Nothing typed holds the two lists in step, so an entry added or removed here must be made there in
-// the same edit. `standoffFraction` and `deadbandFraction` came off BOTH when P35 deleted them.
 
 describe("BOT_PROFILES", () => {
   it("carries every tier", () => {
@@ -143,9 +100,9 @@ describe("BOT_PROFILES", () => {
   });
 
   it("moves every knob in its intended direction up the ladder, and no other", () => {
-    // One assertion per field per rung — the guard the deleted `bot/input.test.ts` used to carry.
-    // A collapsed field (easy given hard's aim error, say) fails HERE, naming the field and the
-    // rung, rather than surviving until someone notices the tiers play alike.
+    // One assertion per field per rung. A collapsed field (easy given hard's aim error, say) fails
+    // HERE, naming the field and the rung, rather than surviving until someone notices the tiers
+    // play alike.
     for (const key of Object.keys(LADDER) as (keyof BotProfile)[]) {
       const [easy, medium, hard] = [
         RESOLVED_BOT_PROFILES.easy[key], RESOLVED_BOT_PROFILES.medium[key], RESOLVED_BOT_PROFILES.hard[key],
@@ -174,16 +131,24 @@ describe("BOT_PROFILES", () => {
     }
   });
 
+  it("carries exactly the 23 v7 fields (BB49)", () => {
+    expect(Object.keys(LADDER)).toHaveLength(23);
+    for (const tier of TIERS) {
+      expect(Object.keys(RESOLVED_BOT_PROFILES[tier]).sort()).toEqual(Object.keys(LADDER).sort());
+    }
+  });
+
+  it("carries no coin flip (BB6)", () => {
+    for (const tier of TIERS) {
+      expect(Object.keys(RESOLVED_BOT_PROFILES[tier]).filter((k) => k.endsWith("Chance"))).toEqual([]);
+    }
+    expect(Object.keys(BRAIN_CONSTANTS)).not.toContain("planHorizonMs");
+    expect(Object.keys(BRAIN_CONSTANTS)).not.toContain("ultFireSlots");
+  });
+
   it("exposes the shared constants and a brain version", () => {
     expect(BRAIN_CONSTANTS.minEngageUnits).toBe(70);
     expect(BRAIN_CONSTANTS.contactTriggerUnits).toBe(150);
-    expect(BRAIN_CONSTANTS.ultFireSlots).toEqual([3]);
-    expect(BRAIN_CONSTANTS.personalityJitter).toBe(0.25);
-    expect(BRAIN_CONSTANTS.assumedOpponentAimSigmaRad).toBe(0.06);
-    // `dangerEvadeFraction` and `dangerEvadeCooldownTicks` were deleted with the anticipatory evade
-    // (spec P27, 2026-09-06): danger is a STANDING condition and is now a continuously-weighted
-    // score term (`objectives.ts`'s `theirEv`), so it needs neither a trip threshold nor a
-    // refractory period to keep it out of an EVENT's priority slot.
     expect(BRAIN_CONSTANTS.punishRangeFraction).toBe(0.5);
     expect(BRAIN_CONSTANTS.resetRangeMultiplier).toBe(1.15);
     expect(BOT_BRAIN_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
@@ -202,13 +167,24 @@ describe("BOT_PROFILES", () => {
     expect(resolveBrainConstants().ramDryWindowTicks).toBe(Math.round(1.5 * TICK_RATE_HZ));
     expect(BOT_BRAIN_VERSION).toBe("7.0.0");
   });
+
+  it("drops the 6.x constants (BB52)", () => {
+    for (const gone of [
+      "preferredRangePlateauFraction", "preferredRangeSampleCount", "preferredRangeMinStepUnits", "ultFireSlots",
+      "personalityJitter", "assumedOpponentAimSigmaRad", "targetBranchMaxHeadingOffsetRad", "trajectorySampleCount",
+      "commitWindowFraction", "minRolledHorizonMs",
+    ]) {
+      expect(Object.keys(BRAIN_CONSTANTS), gone).not.toContain(gone);
+    }
+    expect(Object.keys(resolveBrainConstants())).not.toContain("minRolledHorizonTicks");
+  });
 });
 
 /** Today's table, in ticks at 30 Hz, copied verbatim before the ms conversion (NR14). */
 const AT_30HZ = {
-  easy: { viewStalenessTicks: 4, reactionDelayTicks: 9, recomputeTicks: 12, acquireTicks: 15, memoryTicks: 15, aimErrorDriftTicks: 20, burstGapTicks: 14, targetCommitTicks: 150, dodgeReactionTicks: 12, dodgeHorizonTicks: 12, blunderTicks: 10, situationCommitTicks: 20, slotStickTicks: 4, planHorizonTicks: 0 },
-  medium: { viewStalenessTicks: 3, reactionDelayTicks: 6, recomputeTicks: 6, acquireTicks: 9, memoryTicks: 45, aimErrorDriftTicks: 14, burstGapTicks: 7, targetCommitTicks: 60, dodgeReactionTicks: 8, dodgeHorizonTicks: 18, blunderTicks: 10, situationCommitTicks: 12, slotStickTicks: 8, planHorizonTicks: 8 },
-  hard: { viewStalenessTicks: 2, reactionDelayTicks: 4, recomputeTicks: 2, acquireTicks: 5, memoryTicks: 90, aimErrorDriftTicks: 9, burstGapTicks: 3, targetCommitTicks: 25, dodgeReactionTicks: 2, dodgeHorizonTicks: 24, blunderTicks: 10, situationCommitTicks: 6, slotStickTicks: 12, planHorizonTicks: 22 },
+  easy: { viewStalenessTicks: 4, reactionDelayTicks: 9, recomputeTicks: 12, acquireTicks: 15, memoryTicks: 15, aimErrorDriftTicks: 20, burstGapTicks: 14, targetCommitTicks: 150, dodgeReactionTicks: 12, dodgeHorizonTicks: 12, situationCommitTicks: 20 },
+  medium: { viewStalenessTicks: 3, reactionDelayTicks: 6, recomputeTicks: 6, acquireTicks: 9, memoryTicks: 45, aimErrorDriftTicks: 14, burstGapTicks: 7, targetCommitTicks: 60, dodgeReactionTicks: 8, dodgeHorizonTicks: 18, situationCommitTicks: 12 },
+  hard: { viewStalenessTicks: 2, reactionDelayTicks: 4, recomputeTicks: 2, acquireTicks: 5, memoryTicks: 90, aimErrorDriftTicks: 9, burstGapTicks: 3, targetCommitTicks: 25, dodgeReactionTicks: 2, dodgeHorizonTicks: 24, situationCommitTicks: 6 },
 } as const;
 
 describe("bot timing is authored in ms (NR14)", () => {
