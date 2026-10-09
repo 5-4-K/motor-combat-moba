@@ -1316,6 +1316,9 @@ lingers, and already re-applies on the per-target damage clock. Three things are
   routes it to `circleOverlapsObb`, which projectiles already used.
 - **It passes through walls.** `wallClipDistance` raycasts along a single angle and a disc has none.
   Clipping a radial field would mean an occlusion test per target, which is a different feature.
+  **This is intended for every disc**, including Taurus's `shockwave` rings: their 180 u reach
+  covers a car hiding behind `arena-03`'s 100 u cover boxes, and that is design, not a bug
+  (confirmed by the owner, 2026-10-09). Playtest W8 lists discs rather than measuring them.
 - **It is drawn as a ring, not a solid.** Every other shot is drawn *as* its hitbox (D19), which works
   because a shot is small; a filled disc would hide the cars inside it. The ring sits exactly
   on the hitbox edge, so what you see is still what will hit you.
