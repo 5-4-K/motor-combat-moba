@@ -79,6 +79,22 @@
     "turret.default": {
       "origin": [0.31, 0.5],
       "file": "turrets/default.png"
+    },
+    "arena.common.tile.floor": {
+      "file": "arenas/common/tile-floor.png",
+      "colorMode": "none"
+    },
+    "arena.common.tile.wall": {
+      "file": "arenas/common/tile-wall.png",
+      "colorMode": "none"
+    },
+    "arena.common.tile.spike": {
+      "file": "arenas/common/tile-spike.png",
+      "colorMode": "none"
+    },
+    "arena.common.tile.spike-teeth": {
+      "file": "arenas/common/tile-spike-teeth.png",
+      "colorMode": "none"
     }
   }
 }

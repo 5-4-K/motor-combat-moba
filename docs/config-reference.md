@@ -1506,7 +1506,7 @@ keep hand-in-sync as more arenas land.
 
 | id | width × height (image frame) | playable area | obstacles | palette |
 |---|---|---|---|---|
-| `arena-01` | 1280 × 720 (32 × 18 tiles) | 1120 × 640 rect (tile arena) | compiled from the grid (14 `kind: "spike"` runs set into the wall row) | `#3b4747` floor / `#4a5568` obstacle / `#2d3436` border |
+| `arena-01` | 1280 × 720 (32 × 18 tiles) | 1200 × 640 rect (tile arena) | compiled from the grid (14 `kind: "spike"` runs set into the wall row) | `#3b4747` floor / `#4a5568` obstacle / `#2d3436` border |
 | `arena-02` | 1280 × 720 | 1161 × 607 rect | 4 (all `kind: "spike"`) | `#9a7a58` floor / `#4a3e34` obstacle / `#2a2420` border |
 | `arena-03` | 1280 × 2160 | chamfered octagon (100 u chamfers) | 12 (2 `kind: "spike"`) | `#2b2f35` floor / `#4b5362` obstacle / `#1a1d22` border |
 

@@ -519,7 +519,7 @@ See [`docs/superpowers/specs/2026-09-16-playground-six-car-select-design.md`](do
 
 **`arena-01` is a tile arena as of 2026-10-09.** It is a 32 × 18 text grid compiled by
 `compileTileArena` (`packages/shared/src/arena/tiles/`) into ordinary `obstacles`: playable floor
-1120 × 640, square corners, fourteen spike runs set into the innermost wall row. `arena-02` keeps its
+1200 × 640 inside a one-tile wall, square corners, fourteen spike runs set into that wall. `arena-02` keeps its
 rectangle with a continuous spike ring and `arena-03` its chamfered polygon, both hand-written. The
 `boundary` vertex list on `ArenaDef` remains the mechanism for a non-rectangular hand-written arena:
 inward half-planes through `Bounds`, resolved by a positional clamp, with `boundsOf(arena)` the one

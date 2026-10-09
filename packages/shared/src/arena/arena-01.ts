@@ -10,17 +10,17 @@ import { compileTileArena } from "./tiles/compile.js";
  * `CAMERA_CONFIG.zoom` of 1 the camera covers the arena exactly and every car is always visible.
  * Rescaling this arena without rescaling the zoom to match breaks that.
  *
- * The playable floor is x 80..1200, y 40..680 (1120 x 640). The spike runs sit in the innermost wall
- * row, so they take no floor; they are the old strips' spans rounded to the 40 u grid and are
- * mirrored about both centre lines. The corners are square — the octagon's chamfers wait for
+ * The playable floor is x 40..1240, y 40..680 (1200 x 640): a one-tile wall on every side. The
+ * spike runs sit in the wall row, so they take no floor; they are the old strips' spans rounded to
+ * the 40 u grid and are mirrored about both centre lines. The corners are square — the octagon's chamfers wait for
  * diagonal tiles (TA2).
  *
  * The spawn tables are symmetric to the unit, because with no cover to duck behind, position is the
  * only advantage a spawn can confer.
  */
 const EDGE = "###^^^^^###^^^####^^^###^^^^^###";
-const PLAIN = "##" + ".".repeat(28) + "##";
-const SPIKED = "#^" + ".".repeat(28) + "^#";
+const PLAIN = "#" + ".".repeat(30) + "#";
+const SPIKED = "^" + ".".repeat(30) + "^";
 
 export const ARENA_01: ArenaDef = compileTileArena({
   id: "arena-01",

@@ -93,8 +93,8 @@ classified from, not movers.
 ask "how close is this pose to a wall": `wallAhead` and `spikesAhead` above, `boundsPenalty` behind
 the planner's `wallPenalty` term, and `inCorner`, the third input to `pinned`. All four take
 `BotArenaView.planes` and fall back to `rectPlanes(width, height)` when an arena declares no polygon.
-That distinction is load-bearing on `arena-01`, whose playable floor (1120 × 640, a tile arena) is inset inside its
-`1280 × 720` frame; a tile arena's view is built from `playablePlanesOf` (TA31), not from a polygon. Against the frame rect, a car centre can reach the tile floor's edge (`x ∈ [80, 1200]`, `y ∈ [40, 680]`, inset by the hull half-extent, at least 20 u side-on) while the rect rule's margin sits off `0`/`1280`/`720`, so
+That distinction is load-bearing on `arena-01`, whose playable floor (1200 × 640, a tile arena) is inset inside its
+`1280 × 720` frame; a tile arena's view is built from `playablePlanesOf` (TA31), not from a polygon. Against the frame rect, a car centre can reach the tile floor's edge (`x ∈ [40, 1240]`, `y ∈ [40, 680]`, inset by the hull half-extent, at least 20 u side-on) while the rect rule's margin sits off `0`/`1280`/`720`, so
 a margin measured off `width`/`height` either never fires or only fires for a rollout pose that has
 already punched through a wall. If a wall-related term reads 0 where it visibly should not, check that
 its arena view carries `planes` before reaching for a weight.

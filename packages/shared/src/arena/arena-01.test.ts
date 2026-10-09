@@ -26,8 +26,8 @@ describe("ARENA_01 grid", () => {
     expect(ARENA_01.boundary).toBeUndefined();
   });
 
-  it("plays on the 1120 x 640 floor inside a 2-tile side band and a 1-tile end band", () => {
-    expect(floor).toEqual({ x: 2 * TILE_SIZE, y: TILE_SIZE, w: 28 * TILE_SIZE, h: 16 * TILE_SIZE });
+  it("plays on the 1200 x 640 floor inside a 1-tile wall on every side", () => {
+    expect(floor).toEqual({ x: TILE_SIZE, y: TILE_SIZE, w: 30 * TILE_SIZE, h: 16 * TILE_SIZE });
   });
 
   it("is mirror-symmetric about both centre lines, tile for tile", () => {
@@ -45,8 +45,8 @@ describe("ARENA_01 grid", () => {
 describe("ARENA_01 spike runs", () => {
   const top = spikes.filter((s) => s.y === 0);
   const bottom = spikes.filter((s) => s.y + s.h === ARENA_01.height);
-  const left = spikes.filter((s) => s.x === TILE_SIZE && s.w === TILE_SIZE);
-  const right = spikes.filter((s) => s.x === 30 * TILE_SIZE && s.w === TILE_SIZE);
+  const left = spikes.filter((s) => s.x === 0 && s.w === TILE_SIZE);
+  const right = spikes.filter((s) => s.x === 31 * TILE_SIZE && s.w === TILE_SIZE);
 
   it("has fourteen of them, each on exactly one wall", () => {
     expect(spikes).toHaveLength(14);
