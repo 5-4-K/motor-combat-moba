@@ -7,6 +7,7 @@ import { TILE_SIZE, TILE_TABLE, tileDefOf, type TileId } from "./tile-config.js"
  */
 export interface TileArenaSource {
   readonly id: string;
+  readonly displayName: string;
   readonly rows: readonly string[];
   readonly ffaSpawns: readonly Spawn[];
   readonly teamASpawns: readonly Spawn[];
@@ -91,6 +92,7 @@ export function compileTileArena(src: TileArenaSource): ArenaDef {
   const tiles = parseTileGrid(src.id, src.rows);
   return {
     id: src.id,
+    displayName: src.displayName,
     width: tiles.cols * TILE_SIZE,
     height: tiles.rows * TILE_SIZE,
     obstacles: mergeSolids(tiles),

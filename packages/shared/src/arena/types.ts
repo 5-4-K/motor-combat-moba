@@ -62,6 +62,11 @@ export interface TileGrid {
 
 export interface ArenaDef {
   id: string;
+  /**
+   * What players read on the arena select screen (AR1). Unique across `ARENAS`, ignoring case and
+   * surrounding space — `display-names.test.ts` holds it. Never used as a key: `id` is the key.
+   */
+  displayName: string;
   width: number;
   height: number;
   obstacles: readonly Obstacle[];

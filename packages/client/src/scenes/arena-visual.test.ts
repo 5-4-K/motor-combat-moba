@@ -13,6 +13,7 @@ import {
 
 const bare: ArenaDef = {
   id: "test",
+  displayName: "Test arena",
   width: 100,
   height: 100,
   obstacles: [],

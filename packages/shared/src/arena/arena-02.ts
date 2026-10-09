@@ -22,6 +22,7 @@ const DEPTH = 20;
 
 export const ARENA_02 = {
   id: "arena-02",
+  displayName: "Arena 02",
   width: 1280,
   height: 720,
   /**

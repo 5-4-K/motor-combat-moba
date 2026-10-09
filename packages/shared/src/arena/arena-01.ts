@@ -24,6 +24,7 @@ const SPIKED = "^" + ".".repeat(30) + "^";
 
 export const ARENA_01: ArenaDef = compileTileArena({
   id: "arena-01",
+  displayName: "Arena 01",
   rows: [
     EDGE, //    0
     PLAIN, //   1

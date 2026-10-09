@@ -22,6 +22,7 @@ const SPIKE_LENGTH = 640;
 
 export const ARENA_03 = {
   id: "arena-03",
+  displayName: "Arena 03",
   width: W,
   height: H,
   palette: { floor: "#2b2f35", obstacle: "#4b5362", border: "#1a1d22" },
