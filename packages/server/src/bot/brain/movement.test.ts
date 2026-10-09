@@ -104,3 +104,28 @@ describe("spikesAhead", () => {
     expect(spikesAhead({ x: 640, y: 360, angle: 0 }, withPlainBox, 100)).toBe(false);
   });
 });
+
+describe("spikesAhead on one-sided spikes (TC40)", () => {
+  // y grows downward: a car with larger y is on the box's "s" face.
+  const box = { x: 500, y: 300, w: 100, h: 20, kind: "spike" as const };
+  const viewOf = (damageFaces?: readonly ("n" | "e" | "s" | "w")[]) => ({
+    width: 1280,
+    height: 720,
+    obstacles: [damageFaces === undefined ? box : { ...box, damageFaces }],
+  });
+  const south = { x: 550, y: 400, angle: -Math.PI / 2 }; // south of the box, facing north
+  const north = { x: 550, y: 200, angle: Math.PI / 2 }; // north of the box, facing south
+
+  it("fires from the damaging face", () => {
+    expect(spikesAhead(south, viewOf(["s"]), 100)).toBe(true);
+  });
+
+  it("ignores the safe face", () => {
+    expect(spikesAhead(north, viewOf(["s"]), 100)).toBe(false);
+  });
+
+  it("fires from every face when damageFaces is absent", () => {
+    expect(spikesAhead(south, viewOf(), 100)).toBe(true);
+    expect(spikesAhead(north, viewOf(), 100)).toBe(true);
+  });
+});
