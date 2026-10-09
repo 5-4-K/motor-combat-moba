@@ -84,7 +84,8 @@ roll and the `reacting` field's dice semantics; from `firing.ts`: `preferredRang
 
 **BB11 New or rewritten:** `navigate.ts` (goal types and the steering law), `target.ts` (target
 choice), `ranges.ts` (effective reach and the range band), `situation.ts` (adds `ram`, new inputs),
-`firing.ts` (the shooter), `controller.ts` (glue), `humanize.ts` (delay only).
+`shooter.ts` (the shooter; `firing.ts` is deleted), `controller.ts` (glue), `humanize.ts` (delay
+only).
 
 **BB12 Every tick:** `perceive`, `stepAimError`, the delay line. **Every recompute** (`recomputeTicks`,
 67/200/400 ms by tier): everything else, including target choice (BB46), so the target and the
@@ -108,17 +109,18 @@ whole-brain determinism test (old P51) stays and is the guard.
 | # | Id | When | Fires? |
 |---|---|---|---|
 | 0 | `recover` | self dead, or carrying `phased`, `stunned`, `reeling` or `ramLock` | no |
-| 1 | `waitOut` | no hittable target noticed | no |
-| 2 | `evade` | a reacted-to shot in flight (BB19), or an incoming car (BB20) | yes |
-| 3 | `unpin` | `wallPush` reports a wall, spike or corner ahead (BB33) | yes |
+| 1 | `evade` | a reacted-to shot in flight (BB19), or an incoming car (BB20) | yes |
+| 2 | `unpin` | `wallPush` reports a wall, spike or corner ahead (BB33) | yes |
+| 3 | `waitOut` | no hittable target noticed | no |
 | 4 | `punish` | target `stunned` or `reeling`, or target HP ≤ `punishHpFraction` | yes |
 | 5 | `reset` | own HP < `retreatHpFraction` (0 at easy: never) | yes |
 | 6 | `ram` | target hittable, within `ramRangeUnits`, and the kit is dry (BB21) | yes |
 | 7 | `fight` | a slot that is ready now reaches the target | yes |
 | 8 | `close` | target hittable but out of reach | no |
 
-`ram` is new. `unpin` no longer needs a target (a hunting bot can be pinned too) and is no longer a
-coin flip. `punish` drops the "they just spent a big gun" trigger and the ult concept with it.
+`ram` is new. `evade` and `unpin` outrank `waitOut` so a hunting bot still dodges and un-pins:
+`unpin` no longer needs a target and is no longer a coin flip. `punish` drops the "they just spent
+a big gun" trigger and the ult concept with it.
 
 **BB16 Hysteresis** keeps `pickSituation` exactly: the same situation re-commits every
 `situationCommitTicks`; a higher-priority situation cuts in at once; a lower one waits out the
