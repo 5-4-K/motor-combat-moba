@@ -64,6 +64,9 @@ describe("acceptPick (AR16, AR18)", () => {
     expect(acceptPick(gate(), { random: true }, () => 0)).toEqual({ arenaId: "arena-01", random: true });
     expect(acceptPick(gate(), { random: true }, () => 0.999999)).toEqual({ arenaId: "arena-02", random: true });
   });
+  it.each([[NaN], [-0.5], [-0]])("lands on the first arena when rand returns %s", (r) => {
+    expect(acceptPick(gate(), { random: true }, () => r)?.arenaId).toBe("arena-01");
+  });
   it("never lands outside the list, whatever rand returns in [0, 1)", () => {
     for (let i = 0; i < 100; i++) {
       const r = i / 100;

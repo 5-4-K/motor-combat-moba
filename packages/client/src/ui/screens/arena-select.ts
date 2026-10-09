@@ -17,9 +17,9 @@ const CARD_WIDTH = 340;
 const GAP = 22;
 const CHOSEN_WIDTH = 560;
 
-function preview(card: ArenaCard, width: number): HTMLElement {
+function preview(card: ArenaCard, width: string): HTMLElement {
   // AR30: the same 16:9 well with or without art, so a card never changes height for lack of it.
-  const style = `width: ${width}px; aspect-ratio: 16 / 9; background: var(--color-neutral-200); display: block; object-fit: cover;`;
+  const style = `width: ${width}; aspect-ratio: 16 / 9; background: var(--color-neutral-200); display: block; object-fit: cover;`;
   return card.previewUrl
     ? h("img", { src: card.previewUrl, alt: "", style })
     : h("div", { "aria-hidden": "true", style });
@@ -38,7 +38,7 @@ function cardEl(card: ArenaSelectCardView, view: ArenaSelectView, onClick: () =>
         `cursor: ${view.canAct ? "pointer" : "default"};`,
     },
     [
-      preview(card, CARD_WIDTH),
+      preview(card, "100%"),
       h("div", { style: "padding: 10px 14px; font-family: var(--font-heading); font-size: 20px; text-transform: uppercase; letter-spacing: 0.04em;" }, [card.name]),
     ],
   );
@@ -59,7 +59,7 @@ function revealStage(view: ArenaSelectView): HTMLElement | null {
     [
       h("div", { style: "font-size: 13px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--color-accent-700); margin-bottom: 16px;" }, ["Arena selected"]),
       h("div", { class: "mc-arena-chosen", style: "border: 2px solid var(--color-accent); border-radius: 4px; overflow: hidden; background: var(--color-surface); box-shadow: var(--shadow-lg);" }, [
-        preview(view.chosen, CHOSEN_WIDTH),
+        preview(view.chosen, `${CHOSEN_WIDTH}px`),
         h("div", { style: "padding: 14px 18px; text-align: center; font-family: var(--font-heading); font-size: 34px; text-transform: uppercase; letter-spacing: 0.05em;" }, [view.chosen.name]),
       ]),
       h("div", { "data-reveal-count": "", style: "margin-top: 16px; font-size: 14px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-700);" }, [view.revealLabel]),
@@ -72,7 +72,7 @@ export function renderArenaSelect(view: ArenaSelectView, handlers: ArenaSelectHa
     h("div", { style: "display: flex; align-items: flex-end; gap: 14px;" }, [
       h("h2", { style: "margin: 0; font-size: 36px; line-height: 1;" }, ["Choose the arena"]),
       h("span", { class: "tag tag-accent", style: "position: relative; bottom: 3px;" }, [view.modeLabel]),
-      h("div", { style: "margin-left: auto; display: flex; align-items: baseline; gap: 8px;" }, [
+      view.showClock && h("div", { style: "margin-left: auto; display: flex; align-items: baseline; gap: 8px;" }, [
         h("div", { style: "font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-600);" }, ["Picks in"]),
         h("div", { style: `font-family: var(--font-heading); font-size: 34px; color: ${view.urgent ? "var(--color-accent)" : "var(--color-text)"};` }, [view.clock]),
       ]),

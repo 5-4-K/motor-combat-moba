@@ -71,7 +71,9 @@ export function acceptPick(gate: ArenaSelectGate, msg: unknown, rand: () => numb
   if (isArenaHighlightPayload(msg)) {
     return gate.arenas.includes(msg.arenaId) ? { arenaId: msg.arenaId, random: false } : null;
   }
-  const index = Math.min(gate.arenas.length - 1, Math.floor(rand() * gate.arenas.length));
+  const r = rand();
+  const drawn = Math.floor((Number.isFinite(r) ? r : 0) * gate.arenas.length);
+  const index = Math.max(0, Math.min(gate.arenas.length - 1, drawn));
   return { arenaId: gate.arenas[index], random: true };
 }
 

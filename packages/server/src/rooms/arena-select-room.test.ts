@@ -81,6 +81,24 @@ describe("Start (AR13-AR14)", () => {
     expect(state.arenaRevealEndsTick).toBe(50 + 3 * TICK_RATE_HZ);
   });
 
+  it("does not carry the previous match's deadline into a one-arena start", () => {
+    const { state, start } = room(conquer(), ["h", "a", "b", "c"]);
+    state.tick = 50;
+    state.arenaSelectDeadlineTick = 99999;
+    start();
+    expect(state.arenaSelectDeadlineTick).toBe(50);
+  });
+
+  it("does not carry the previous match's deadline into a screen-off start", () => {
+    const base = brawl();
+    const off = { ...base, flow: { ...base.flow, arenaSelectEnabled: false } } as ModeConfig;
+    const { state, start } = room(off);
+    state.tick = 70;
+    state.arenaSelectDeadlineTick = 99999;
+    start();
+    expect(state.arenaSelectDeadlineTick).toBe(70);
+  });
+
   it("with the screen off, goes straight to CAR_SELECT on arenas[0]", () => {
     const base = brawl();
     const off = { ...base, flow: { ...base.flow, arenaSelectEnabled: false } } as ModeConfig;

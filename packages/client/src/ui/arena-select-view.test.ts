@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TICK_RATE_HZ } from "@motor-combat-moba/shared";
-import { arenaSelectView, inRouletteWindow, type ArenaSelectInput } from "./arena-select-view.js";
+import { arenaSelectView, inRouletteWindow, rouletteBudgetMs, type ArenaSelectInput } from "./arena-select-view.js";
 
 const cards = [
   { id: "arena-01", name: "Arena 01", previewUrl: null },
@@ -48,5 +48,27 @@ describe("inRouletteWindow (AR34)", () => {
     const revealStart = ends - 3 * TICK_RATE_HZ;
     expect(inRouletteWindow(revealStart - 1, ends, 3)).toBe(true);
     expect(inRouletteWindow(revealStart, ends, 3)).toBe(false);
+  });
+});
+
+describe("showClock", () => {
+  it("is true only while choosing", () => {
+    expect(arenaSelectView(base).showClock).toBe(true);
+    expect(arenaSelectView({ ...base, stage: "roulette" }).showClock).toBe(false);
+    expect(arenaSelectView({ ...base, stage: "revealed" }).showClock).toBe(false);
+  });
+});
+
+describe("rouletteBudgetMs", () => {
+  const ends = 2000;
+  const pickTick = ends - 3 * TICK_RATE_HZ - 5 * TICK_RATE_HZ;
+  it("is the full roulette when seen at the pick tick", () => {
+    expect(rouletteBudgetMs(pickTick, ends, 3, 5)).toBe(5000);
+  });
+  it("shrinks when seen later and never goes negative", () => {
+    const later = rouletteBudgetMs(pickTick + TICK_RATE_HZ, ends, 3, 5);
+    expect(later).toBeLessThan(5000);
+    expect(later).toBeGreaterThan(0);
+    expect(rouletteBudgetMs(ends, ends, 3, 5)).toBe(0);
   });
 });

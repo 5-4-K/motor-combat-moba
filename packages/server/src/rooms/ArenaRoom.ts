@@ -510,18 +510,20 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.state.players.forEach((p) => {
       p.lockedCarId = "";
     });
-          // Whatever pre-match display state the family owns (Conquer's zone bars, holder, streak,
-          // contested, overtime; nothing for the others) must not still be showing when CAR_SELECT /
-          // REVEAL / COUNTDOWN come up for this match. The results screen reads the final values
-          // before this fires, so it is unaffected. Resolved fresh, not cached — same as every other
-          // call site.
+    // Whatever pre-match display state the family owns (Conquer's zone bars, holder, streak,
+    // contested, overtime; nothing for the others) must not still be showing when CAR_SELECT /
+    // REVEAL / COUNTDOWN come up for this match. The results screen reads the final values
+    // before this fires, so it is unaffected. Resolved fresh, not cached — same as every other
+    // call site.
     controllerOf(this.state.mode).onStartRequested(this.modeView());
 
     this.state.arenaRevealEndsTick = 0;
     this.state.arenaPickRandom = false;
     if (opening.kind === "skip") {
+      this.state.arenaSelectDeadlineTick = this.state.tick;
       this.state.arenaId = opening.arenaId;
     } else if (opening.kind === "reveal") {
+      this.state.arenaSelectDeadlineTick = this.state.tick;
       this.pickArena(opening.arenaId, false);
     } else {
       this.state.arenaHighlightId = opening.highlightId;

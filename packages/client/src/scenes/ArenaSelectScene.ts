@@ -3,7 +3,7 @@ import type { Room } from "@colyseus/sdk";
 import { ArenaState, MSG_ARENA_HIGHLIGHT, MSG_ARENA_PICK, modeConfigOrDefault } from "@motor-combat-moba/shared";
 import { bindViewRouter } from "../net/view.js";
 import { arenaCards, type ArenaCard } from "../ui/arena-cards.js";
-import { arenaSelectView, inRouletteWindow, type ArenaSelectStage } from "../ui/arena-select-view.js";
+import { arenaSelectView, inRouletteWindow, rouletteBudgetMs, type ArenaSelectStage } from "../ui/arena-select-view.js";
 import { secondsLeft } from "../ui/reveal-view.js";
 import { modeLabel } from "../ui/lobby-view.js";
 import { rouletteFrames } from "../ui/roulette.js";
@@ -91,7 +91,10 @@ export class ArenaSelectScene extends Phaser.Scene {
         const playRoulette =
           s.arenaPickRandom && this.cards.length > 1 && target >= 0 &&
           inRouletteWindow(s.tick, s.arenaRevealEndsTick, flowTable.arenaRevealSeconds);
-        if (playRoulette) this.startRoulette(target, flowTable.arenaRouletteSeconds * 1000);
+        if (playRoulette) this.startRoulette(
+            target,
+            rouletteBudgetMs(s.tick, s.arenaRevealEndsTick, flowTable.arenaRevealSeconds, flowTable.arenaRouletteSeconds),
+          );
         else this.stage = "revealed";
       }
     }
