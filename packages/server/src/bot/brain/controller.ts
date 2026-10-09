@@ -527,6 +527,9 @@ export class HumanController implements BotController {
         : 1),
       aimSigmaRad: profile.aimErrorSigmaRad,
       preferredRange,
+      // G12: a hunt scores cost-to-go (distance + turning still owed), so facing the waypoint counts
+      // as progress when no candidate can close distance inside the horizon. Hunt only.
+      huntCostToGo: hunt !== undefined,
       // R-P8, P40: the reactive dodge, restored as a score term. `shotThreats` was computed above
       // for `classifySituation`'s `evade` clause and is passed straight through — the same list,
       // already filtered by `dodgeChance` and `dodgeReactionTicks` inside `perceive`/`activeThreats`,

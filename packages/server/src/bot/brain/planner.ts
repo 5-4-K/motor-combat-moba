@@ -1,7 +1,7 @@
 import {
-  TICK_RATE_HZ, NEUTRAL_MODIFIERS, drive, forwardOf, rectPlanes, speedOf, turnRateOf,
-  weaponDefOf,
-  type BoundaryPlane, type SimBody, type WeaponDef, type WeaponId,
+  TICK_RATE_HZ, NEUTRAL_MODIFIERS, drive, forwardMaxSpeedOf, forwardOf, rectPlanes, speedOf,
+  turnRateOf, weaponDefOf,
+  type BoundaryPlane, type CarId, type SimBody, type WeaponDef, type WeaponId,
 } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS, resolveBrainConstants } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSelfView, BotSlotView } from "../types.js";
@@ -88,6 +88,17 @@ export interface PlanArgs {
   readiness: (weaponId: WeaponId) => number;
   aimSigmaRad: number;
   preferredRange: number;
+  /**
+   * A targetless HUNT (`waitOut`, R-O6): read `rangeError` as COST TO GO — terminal distance plus
+   * what turning to face the waypoint still costs (`huntTurnCostUnits`). Absent everywhere else, so
+   * every fight situation keeps its swept distance-only reading.
+   *
+   * Why the hunt needs it (G12): the waypoint is usually off the nose, and over a plan's ~0.7 s a
+   * heavy car cannot turn round AND close distance, so every driving candidate ends further away than
+   * standing still, while turning in place — yaw is speed-independent — scores the same as coasting.
+   * Distance alone therefore picked the coast, every tick, and a bot that had seen nobody sat still.
+   */
+  huntCostToGo?: boolean;
   weights: PlanWeights;
   /**
    * Shots already in the air that this bot has noticed and decided to react to (P40, R-P8) —
@@ -744,6 +755,20 @@ interface SharedConstants {
  * when there is nobody to fight — and only the genuinely target-shaped terms are zeroed. A shortcut
  * here is what would force the hunt behaviours into a second, parallel mover.
  */
+/**
+ * What a hunt still owes, in distance units, for ending a candidate pointed away from its waypoint:
+ * the time left to turn to face it (`|bearing error| / turnRate` — yaw is speed-independent) spent
+ * at top speed instead of driving. Added to the hunt's terminal distance (`PlanArgs.huntCostToGo`),
+ * it makes "turned toward the goal" progress the planner can see inside a horizon too short to
+ * close any distance. Zero when the car already faces the waypoint, so a straight hunt is unchanged.
+ */
+function huntTurnCostUnits(carId: CarId, body: SimBody, goal: { x: number; y: number }): number {
+  const turnRate = turnRateOf(carId);
+  if (turnRate <= 0) return 0;
+  const bearing = Math.atan2(goal.y - body.y, goal.x - body.x);
+  return (forwardMaxSpeedOf(carId) * Math.abs(signedDelta(body.angle, bearing))) / turnRate;
+}
+
 function scoreCandidate(
   args: PlanArgs,
   path: readonly SimBody[],
@@ -783,6 +808,7 @@ function scoreCandidate(
       rangeError = Math.abs(
         Math.hypot(future.x - body.x, future.y - body.y) - args.preferredRange,
       );
+      if (args.huntCostToGo) rangeError += huntTurnCostUnits(args.self.carId, body, future);
       // `threatAvoid` AT THE TERMINUS (R-P11, fix round 4, 2026-09-07). Displacement along a
       // threat's `awayHeadingRad` asks "am I out of the line", which is a destination: a maximum
       // over the arc rewards an arc that steps aside and then drifts straight back, because the

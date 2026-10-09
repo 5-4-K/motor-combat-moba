@@ -8,6 +8,7 @@ import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotView } from "../types.js";
 import { HumanController, inCorner } from "./controller.js";
+import { bodyFromSelf, rollForward } from "./predict.js";
 import { runDuel } from "./duel.fixture.js";
 import { legacyOctagonView } from "./legacy-octagon.fixture.js";
 
@@ -163,29 +164,53 @@ describe("HumanController", () => {
     }
   });
 
+  /**
+   * Closed loop for the hunt (G12): the bot's own outputs drive its pose through the real drive model,
+   * as a room does. A frozen pose cannot test a hunt — the waypoint is usually off the nose, and since
+   * the 2026-09-06 heavy-car pass the fastest way to it is to turn first (yaw is speed-independent)
+   * and then drive, so a bot held facing away forever correctly keeps turning and never drives.
+   */
+  function huntRun(
+    bot: HumanController,
+    start: BotView["self"],
+    others: BotView["others"],
+    ticks: number,
+  ): { path: { x: number; y: number }[]; fired: boolean; situations: Set<string | undefined> } {
+    let self = start;
+    let body = bodyFromSelf(start);
+    const path: { x: number; y: number }[] = [];
+    const situations = new Set<string | undefined>();
+    let fired = false;
+    for (let tick = 0; tick < ticks; tick++) {
+      const out = bot.decide(view({ tick, self, others }));
+      if (out.fireSlots !== 0) fired = true;
+      situations.add(bot.debug()?.situation);
+      body = rollForward(body, self.carId, out, 1, NEUTRAL_MODIFIERS).at(-1)!;
+      self = { ...self, x: body.x, y: body.y, angle: body.angle, vx: body.vx, vy: body.vy };
+      path.push({ x: body.x, y: body.y });
+    }
+    return { path, fired, situations };
+  }
+
   it("hunts a quadrant waypoint when it has never seen anyone, never the arena centre (G12)", () => {
-    // Sit ON the centre facing +x. Centre-seeking would keep heading 0 (steer 0). Quadrant search
-    // from (640, 360) toward (320, 180) is a rear-left heading, so steer is visibly non-zero.
-    // Task 7's humanize layer coasts for `reactionDelayTicks` (hard: 4) before a decision reaches
-    // the output, so this loops past that window.
+    // Start ON the centre facing +x. Centre-seeking would leave it parked where it is. Quadrant
+    // search from (640, 360) heads for (320, 180), behind and to the left, so the bot must turn
+    // round and drive there. Three seconds is ample: the turn is ~1.2 s, the 367 u run ~1.5 s.
     const bot = new HumanController("hard", {
       profile: { ...RESOLVED_BOT_PROFILES.hard, blunderChance: 0, idleFidgetChance: 0, aimErrorSigmaRad: 0 },
     });
     const selfAtCentre = { ...view().self, x: 640, y: 360, angle: 0 };
-    let out = { steer: 0, throttle: 0, fireSlots: 0 };
-    for (let tick = 0; tick < 8; tick++) {
-      out = bot.decide(view({ tick, self: selfAtCentre }));
-    }
-    expect(out.throttle).toBe(1);
-    expect(out.steer).not.toBe(0);
-    expect(out.fireSlots).toBe(0);
-    expect(bot.debug()?.situation).toBe("waitOut");
+    const { path, fired, situations } = huntRun(bot, selfAtCentre, [], 3 * TICK_RATE_HZ);
+    const start = Math.hypot(320 - 640, 180 - 360);
+    const closest = Math.min(...path.map((p) => Math.hypot(320 - p.x, 180 - p.y)));
+    expect(closest).toBeLessThan(start - 200);
+    expect(fired).toBe(false);
+    expect([...situations]).toEqual(["waitOut"]);
   });
 
   it("hunts toward a last-known pose, not the arena centre (G12)", () => {
-    // Sit ON the arena centre. Centre-seeking keeps heading 0 (steer 0). A phased car due west
-    // is on screen (Deathmatch respawn) but is not a target — hunt must drive at that visible
-    // pose, which is a 180° heading, so steer is visibly non-zero.
+    // Start ON the arena centre facing +x. A phased car due west is on screen (Deathmatch respawn)
+    // but is not a target — the hunt must drive at that visible pose, a 180° turn and then west.
     const profile = {
       ...RESOLVED_BOT_PROFILES.hard,
       blunderChance: 0, idleFidgetChance: 0, aimErrorSigmaRad: 0, acquireTicks: 2,
@@ -197,14 +222,10 @@ describe("HumanController", () => {
       x: 100, y: 360, angle: 0, vx: 0, vy: 0, hp: 70, maxHp: 70,
       alive: true, phased: true, statuses: [], maneuver: 0,
     };
-    let out = { steer: 0, throttle: 0, fireSlots: 0 };
-    for (let tick = 0; tick < 20; tick++) {
-      out = bot.decide(view({ tick, self: selfView, others: [ghost] }));
-    }
-    expect(out.steer).not.toBe(0);
-    expect(out.throttle).toBe(1);
-    expect(out.fireSlots).toBe(0);
-    expect(bot.debug()?.situation).toBe("waitOut");
+    const { path, fired, situations } = huntRun(bot, selfView, [ghost], 3 * TICK_RATE_HZ);
+    expect(Math.min(...path.map((p) => p.x))).toBeLessThan(640 - 200);
+    expect(fired).toBe(false);
+    expect([...situations]).toEqual(["waitOut"]);
   });
 
   it("continues the previous heading during acquire delay, rather than seeking the centre (G13)", () => {

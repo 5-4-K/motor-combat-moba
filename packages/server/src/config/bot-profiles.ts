@@ -840,7 +840,11 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // 6.7.0 (2026-10-09): an ult is decided by fire slot (`BRAIN_CONSTANTS.ultFireSlots`, [3]), not by
 // `cooldownMs >= 5000` — after the cooldown retune that rule made Mirage's and Bastion's whole kits
 // ults, and medium/hard bots held every slot and never fired. `BOT_PROFILES` did not move.
-export const BOT_BRAIN_VERSION = "6.7.0";
+// 6.8.0 (2026-10-09): a targetless hunt (`waitOut`) scores cost-to-go — terminal distance plus the
+// turn still owed (`PlanArgs.huntCostToGo`) — so a bot whose waypoint is off the nose turns to it
+// and drives, instead of coasting in place every tick (G12, broken since the 2026-09-06 heavy-car
+// pass). Fight situations are unchanged. `BOT_PROFILES` did not move.
+export const BOT_BRAIN_VERSION = "6.8.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency

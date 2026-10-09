@@ -122,7 +122,7 @@ else about how the car moves falls out of scoring nine candidate arcs against it
 | Id | When | Objective | Fire |
 |---|---|---|---|
 | `recover` | self dead or phased | nothing but `wallPenalty` 60; the intent is forced to coast anyway | off |
-| `waitOut` | nobody hittable | `rangeError` 0.375 against a synthetic hunt waypoint projected at `awarenessRadiusUnits`, with `preferredRange` 0 — "arrive"; `wallPenalty` 240 | **off** |
+| `waitOut` | nobody hittable | `rangeError` 0.375 against a synthetic hunt waypoint projected at `awarenessRadiusUnits`, with `preferredRange` 0 — "arrive" — read as COST TO GO: distance plus the turn still owed to face the waypoint (`PlanArgs.huntCostToGo`, G12 fix 2026-10-09; without it a waypoint off the nose left every driving candidate further away than coasting, and the bot sat still); `wallPenalty` 240 | **off** |
 | `evade` | a noticed shot in flight (rolled `dodgeChance`), or an incoming car (`incomingCarChance`) | `threatAvoid` 0.6 and `theirEv` 4 — get off the line, and out of their solution; `rangeError` 0 | still fires |
 | `unpin` | on a bound/corner with a target, `cornerRespect` | `wallPenalty` **2400** — the play whose entire content is "leave"; `rangeError` 0 | fight rules |
 | `punish` | stunned, low HP, or they just spent a 5s+ gun | `myEv` 3, at half its own comfortable range (`punishRangeFraction`) | dump, including ult |
