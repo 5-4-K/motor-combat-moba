@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TILE_DEFS, TILE_SIZE, rotateSides, type TileDef } from "./tile-config.js";
+import { TILE_DEFS, TILE_SIZE, rotateSides, type TileDef, type TileSide } from "./tile-config.js";
 
 const rows = Object.entries(TILE_DEFS) as ReadonlyArray<[string, TileDef]>;
 
@@ -54,5 +54,9 @@ describe("rotateSides (TC3, TC4)", () => {
 
   it("answers every face for all sides", () => {
     expect(rotateSides("all", 90)).toEqual(["n", "e", "s", "w"]);
+  });
+
+  it("throws on an unknown side, naming it", () => {
+    expect(() => rotateSides(["top"] as unknown as readonly TileSide[], 0)).toThrow(/"top"/);
   });
 });

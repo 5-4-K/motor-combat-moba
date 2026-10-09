@@ -77,6 +77,12 @@ const SIDES: readonly TileSide[] = ["front", "right", "back", "left"];
 export function rotateSides(sides: "all" | readonly TileSide[], orientation: TileRotation): WorldFace[] {
   if (sides === "all") return [...WORLD_FACES];
   const steps = orientation / 90;
-  const hit = new Set(sides.map((s) => (SIDES.indexOf(s) + steps) % 4));
+  const hit = new Set(
+    sides.map((s) => {
+      const i = SIDES.indexOf(s);
+      if (i < 0) throw new Error(`Unknown tile side ${JSON.stringify(s)}; expected front, right, back or left`);
+      return (i + steps) % 4;
+    }),
+  );
   return WORLD_FACES.filter((_, i) => hit.has(i));
 }

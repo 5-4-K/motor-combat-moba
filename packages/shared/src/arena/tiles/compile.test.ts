@@ -95,6 +95,15 @@ describe("compileTileArena load errors (TC18)", () => {
     expect(loading(["x"], { x: { tile: "void", art: "stars" } })).toThrow(/arena-x.*"x".*art/);
   });
 
+  it("throws on an explicit overlay on an undrawn cell, naming the key", () => {
+    const bad: TileLegend = { x: { tile: "void", overlay: { art: "saw", orientation: 0 } } };
+    expect(loading(["x"], bad)).toThrow(/arena-x.*"x".*overlay.*undrawn/);
+  });
+
+  it("accepts overlay none on an undrawn cell", () => {
+    expect(loading(["x"], { x: { tile: "void", overlay: "none" } })).not.toThrow();
+  });
+
   it("throws on a legend key that is not one character", () => {
     expect(loading(["#"], { xy: { tile: "wall" } })).toThrow(/arena-x.*"xy"/);
   });

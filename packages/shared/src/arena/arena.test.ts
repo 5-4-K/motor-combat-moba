@@ -182,12 +182,13 @@ describe.each(entries)("arena %s", (id, arena) => {
       if (cell.hazard !== "spike") return;
       const c = i % g.cols;
       const r = Math.floor(i / g.cols);
-      const reachable = [
-        [c, r - 1],
-        [c + 1, r],
-        [c, r + 1],
-        [c - 1, r],
-      ].some(([nc, nr]) => nc! >= 0 && nr! >= 0 && nc! < g.cols && nr! < g.rows && !g.cells[nr! * g.cols + nc!]!.solid);
+      const step = { n: [0, -1], e: [1, 0], s: [0, 1], w: [-1, 0] } as const;
+      // A spike can hurt someone only across one of its damaging faces, onto a non-solid neighbour.
+      const reachable = cell.faces.some((face) => {
+        const nc = c + step[face][0];
+        const nr = r + step[face][1];
+        return nc >= 0 && nr >= 0 && nc < g.cols && nr < g.rows && !g.cells[nr * g.cols + nc]!.solid;
+      });
       if (!reachable) untouchable.push(`spike at col ${c}, row ${r}`);
     });
     expect(untouchable).toEqual([]);

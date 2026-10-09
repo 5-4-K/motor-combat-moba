@@ -49,6 +49,9 @@ function validateLegend(id: string, legend: TileLegend, defs: TileDefs): void {
     if (spec.overlay !== undefined && spec.overlay !== "none" && !isRotation(spec.overlay.orientation)) {
       throw new Error(`${where} has an overlay orientation ${spec.overlay.orientation}; expected 0, 90, 180 or 270`);
     }
+    if (spec.overlay !== undefined && spec.overlay !== "none" && def.draw === "none") {
+      throw new Error(`${where} names an overlay on undrawn tile ${JSON.stringify(spec.tile)}`);
+    }
     if (spec.art !== undefined && def.draw === "none") {
       throw new Error(`${where} names art ${JSON.stringify(spec.art)} on undrawn tile ${JSON.stringify(spec.tile)}`);
     }
@@ -131,6 +134,7 @@ function resolveGrid(src: TileArenaSource, defs: TileDefs): TileGrid {
  */
 function classOf(cell: TileCell): string | null {
   if (!cell.solid) return null;
+  // faces.join("") is a stable key only because rotateSides answers in n-e-s-w order.
   return `${cell.hazard ?? "solid"}|${cell.faces.join("")}`;
 }
 
