@@ -162,7 +162,68 @@ describe("wallPush (BB31)", () => {
     // Approaching the west (safe) face head-on.
     expect(wallPush({ x: 540, y: 360, angle: 0 }, arena, 40)).toBeUndefined();
     // Approaching the east (damaging) face head-on.
-    expect(wallPush({ x: 700, y: 360, angle: Math.PI }, arena, 40)).toBeDefined();
+    const push = wallPush({ x: 700, y: 360, angle: Math.PI }, arena, 40);
+    expect(push).toBeDefined();
+    expect(push!.x).toBeGreaterThan(0);
+    expect(Math.abs(push!.y)).toBeLessThan(1e-9);
+  });
+
+  it("keeps a hit that cancels: two symmetric strips flanking the look-ahead point", () => {
+    // Car at (640, 360) facing +x; one strip above (y 300-340), one below (y 380-420), both spanning
+    // x 600-700, so their outward unit vectors are (0, +1) and (0, -1) and sum to zero.
+    const arena = {
+      width: 1280, height: 720,
+      obstacles: [
+        { x: 600, y: 300, w: 100, h: 40, kind: "spike" as const },
+        { x: 600, y: 380, w: 100, h: 40, kind: "spike" as const },
+      ],
+    };
+    const self = { x: 640, y: 360, angle: 0 };
+    expect(spikesAhead(self, arena, 40)).toBe(true);
+    const push = wallPush(self, arena, 40);
+    expect(push).toBeDefined();
+    // No net direction, so the fallback: a unit push opposite the heading.
+    expect(push!.x).toBeCloseTo(-1, 9);
+    expect(Math.abs(push!.y)).toBeLessThan(1e-9);
+  });
+
+  it("is defined for a car at the exact centre of a spike box", () => {
+    const arena = {
+      width: 1280, height: 720,
+      obstacles: [{ x: 600, y: 340, w: 80, h: 40, kind: "spike" as const }],
+    };
+    const self = { x: 640, y: 360, angle: 0 };
+    expect(spikesAhead(self, arena, 20)).toBe(true);
+    expect(wallPush(self, arena, 20)).toBeDefined();
+  });
+
+  it("weights a long wall like a short one: every obstacle push is a unit vector", () => {
+    // A 1000-wide wall (x 100-1100, y 0-40); the car sits at (900, 80), 40 u below its face
+    // (y grows downward), with the nose toward the wall so the look-ahead point (900, 40) is inside
+    // it. The nearest wall point is straight above, so the push is straight down the screen
+    // (0, +1), not the mostly-horizontal car-minus-box-centre vector (400, 60).
+    const arena = {
+      width: 1280, height: 720,
+      obstacles: [{ x: 100, y: 0, w: 1000, h: 40 }],
+    };
+    const push = wallPush({ x: 900, y: 80, angle: -Math.PI / 2 }, arena, 40);
+    expect(push).toBeDefined();
+    expect(push!.x).toBeCloseTo(0, 9);
+    expect(push!.y).toBeCloseTo(1, 9);
+  });
+
+  it("sees a thin strip at the plain look-ahead that the longer sample overshoots", () => {
+    // Strip x 330-340 (inflated 300-370). Car at (300, 360) facing +x, look-ahead 40: the 1x point
+    // (340, 360) is inside it, the 2x point (380, 360) is past it.
+    const arena = {
+      width: 1280, height: 720,
+      obstacles: [{ x: 330, y: 300, w: 10, h: 120, kind: "spike" as const }],
+    };
+    const self = { x: 300, y: 360, angle: 0 };
+    expect(spikesAhead(self, arena, 80)).toBe(false);
+    const push = wallPush(self, arena, 40);
+    expect(push).toBeDefined();
+    expect(push!.x).toBeLessThan(0);
   });
 
   it("inCorner moved here keeps its meaning", () => {
