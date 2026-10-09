@@ -1,5 +1,6 @@
 import { drive } from "../modes/active.js";
 import { planePenetration, rectPlanes, supportRadius, type BoundaryPlane } from "./boundary.js";
+import type { WorldFace } from "../arena/faces.js";
 import type { SimBody } from "./step.js";
 
 /**
@@ -13,6 +14,8 @@ export interface Aabb {
   h: number;
   /** Mirrors `Obstacle.kind` (`arena/types.ts`) — absent means an ordinary block. */
   kind?: "spike";
+  /** Mirrors `Obstacle.damageFaces` — absent means every face. */
+  damageFaces?: readonly WorldFace[];
 }
 
 /** Oriented box. `x, y` is the CENTRE (matching `PlayerState.x/y`); `angle` is radians, +y down. */

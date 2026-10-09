@@ -1,5 +1,6 @@
 import type { WeaponId } from "../config/weapon-types.js";
 import { impulse, ram, spike } from "../modes/active.js";
+import { facesOfNormal } from "../arena/faces.js";
 import { rectPlanes } from "./boundary.js";
 import {
   aabbCorners,
@@ -236,7 +237,7 @@ export function resolveContacts(
   // Spike detection: raw observation, no threshold, no lockout, no attribution — those are
   // server-side state (AS19) that `ram-bridge.ts` layers on top next. One report per car per tick:
   // a car overlapping two strips (a corner of the octagon) is still one set of spikes, so the inner
-  // loop stops at the first hit.
+  // loop stops at the first strip that damages from the car's side.
   const spikeContacts: SpikeContact[] = [];
   for (const c of ordered) {
     const hull = carHullOf(c.x, c.y, c.angle);
@@ -244,6 +245,10 @@ export function resolveContacts(
       if (box.kind !== "spike") continue;
       const n = contactNormalBetween(hull, aabbToObb(box), spike().contactPad);
       if (n === null) continue;
+      // A safe face (tile cells TC24) is not reported, and the loop keeps looking: a car on the safe
+      // face of one strip and the damaging face of another is still hit by the second.
+      const faces = box.damageFaces;
+      if (faces !== undefined && !facesOfNormal(n.x, n.y).some((f) => faces.includes(f))) continue;
       // `contactNormalBetween(a, b)` points from b toward a — out of the strip, into the arena.
       // Speed INTO the surface is therefore the NEGATIVE of the velocity's component along it:
       // positive when the car is closing, negative when it is driving away.
