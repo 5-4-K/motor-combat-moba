@@ -18,7 +18,7 @@ const PAD = 2;
 const SPAWN = { x: 0, y: 0, angle: 0 };
 
 function arenaOf(rows: string[]) {
-  return compileTileArena({ id: "t", rows, ffaSpawns: [SPAWN], teamASpawns: [SPAWN], teamBSpawns: [SPAWN] });
+  return compileTileArena({ id: "t", displayName: "T", rows, ffaSpawns: [SPAWN], teamASpawns: [SPAWN], teamBSpawns: [SPAWN] });
 }
 
 function body(patch: Partial<SimBody>): SimBody {

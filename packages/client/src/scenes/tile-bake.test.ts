@@ -6,7 +6,7 @@ const SPAWN = { x: 0, y: 0, angle: 0 };
 
 /** The resolved grid shared compiles from `rows` with the default legend. */
 function grid(rows: string[]): TileGrid {
-  return compileTileArena({ id: "t", rows, ffaSpawns: [SPAWN], teamASpawns: [SPAWN], teamBSpawns: [SPAWN] }).tiles!;
+  return compileTileArena({ id: "t", displayName: "T", rows, ffaSpawns: [SPAWN], teamASpawns: [SPAWN], teamBSpawns: [SPAWN] }).tiles!;
 }
 const overlays = (plan: BakeStamp[]) => plan.filter((s) => s.overlay);
 
