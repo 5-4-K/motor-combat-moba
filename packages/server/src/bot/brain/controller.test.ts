@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import { DEFAULT_GAME_MODE, applyOverrides, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   ARENA_01, driveOf, NEUTRAL_MODIFIERS, slotsOf, stepDrive, TICK_RATE_HZ, turretPivotOf,
   weaponDefOf, wrapAngle, type SimBody,
@@ -722,6 +722,12 @@ describe("HumanController", () => {
   });
 
   describe("turret aim (TR25, TR26)", () => {
+    // The target sits 90 degrees off the nose, outside the shipped swing arc
+    // (`turret.maxSwingDeg`); an unrestricted arc keeps these about the bearing, not the clamp.
+    beforeEach(() =>
+      installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.maxSwingDeg": 360 })),
+    );
+
     // Fire slot 0 is the basic attack, which ships switched off on this build and so is never
     // pressed; fire slot 1 is a single ability, and it has to carry a `turret` row for every press
     // the bot makes to be a turret press.
