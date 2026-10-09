@@ -449,6 +449,10 @@ active mode lists at all.
 The consequence worth knowing: an arena you are experimenting with costs the shipped zip nothing, so
 there is no reason to delete an arena to keep the download small.
 
+**`arena.<id>.preview` is the arena select card's image** (`arenaPreviewKey(arenaId)`, file
+`public/art/arenas/<id>/preview.png`, beside the `floor` slot): 16:9, at least 640 x 360, optional. A missing
+preview renders a blank card. It follows the same per-arena release pruning as any `arena.<id>.*` key.
+
 **`arena.arena-02.floor` is the arena-specific key in this namespace with a file behind it** (a dusty rectangular
 pit with a continuous spike ring; `arena.arena-01.floor` landed with the 2026-09-11 arena-sprite-and-spike-hazard work and was removed on 2026-10-09 when arena-01 became a tile arena). `arenaFloorKey(arenaId)`
 resolves it through the same chain as a car sprite — manifest lookup, then texture, then fallback —

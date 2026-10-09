@@ -464,6 +464,17 @@ counter, because `chat.length` cannot detect a new message once the buffer is at
 plus a shift leaves the length unchanged. See
 [`docs/superpowers/specs/2026-09-06-lobby-chat-design.md`](docs/superpowers/specs/2026-09-06-lobby-chat-design.md).
 
+**Arena select is a phase, and the host drives it (2026-10-09).** Start now opens
+`RoomPhase.ARENA_SELECT` (5) when the mode's `flow.arenaSelectEnabled` is true: the host highlights
+and picks one of the mode's `arenas` (Select, or Select random — drawn on the server, then a
+client-side roulette scripted to land on it) within `flow.arenaSelectSeconds`, the deadline picks
+the highlight, and the chosen card holds for `flow.arenaRevealSeconds` before car select. One
+arena skips straight to the reveal; `false` skips the screen and plays `arenas[0]`. The server's
+decisions are pure (`rooms/arena-select.ts`); the client screen sees only `ArenaCard`
+(`{ id, name, previewUrl }`) from the adapter `ui/arena-cards.ts`. `ArenaDef.displayName` is the
+card's name and is unique case-insensitively; previews are optional `arena.<id>.preview` art. See
+[`docs/superpowers/specs/2026-10-09-arena-select-screen-design.md`](docs/superpowers/specs/2026-10-09-arena-select-screen-design.md) (AR1–AR40).
+
 **Neither of those two rooms reduces a flow, so `rooms/countdown.ts` is the only thing that writes
 their `phase`.** Both now open on the same 3-2-1 an arena match does: `beginCountdown` at creation
 (so the room cannot run live ticks before anyone arrives) and again on join once the cars are placed,
@@ -675,6 +686,7 @@ contract tests, snapshots, and the pre-existing G12 failures.
 | FFA Deathmatch: the second win condition, kill attribution, respawn and spawn-protection lifecycle, the `isOnField`/`isSolid` split (M1–M33) | [`docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md`](docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md) |
 | The dev-only playtest playground: `?dev=playground`, the extracted tick pipeline, the runtime tuning store, `isActive`, the bot, persistence/export (PG1–PG23); bot difficulty profiles, per-car colour selection, the settings-panel relayout, and the `?dev=assets` additions (PG24–PG40); the VFX settings panel over `WEAPON_FX`, its preview and its export (PG41–PG55); the environment settings panel over `ENVIRONMENT_FX` — the arena's visual ground rather than per-weapon bursts — and its three non-live knobs (EV1–EV34); the six-seat widening, the Car select panel and the stable seat ids (PG56–PG88) | [`docs/superpowers/specs/2026-09-01-playtest-playground-design.md`](docs/superpowers/specs/2026-09-01-playtest-playground-design.md), [`docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md`](docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md), [`docs/superpowers/specs/2026-09-08-playground-vfx-settings-design.md`](docs/superpowers/specs/2026-09-08-playground-vfx-settings-design.md), [`docs/superpowers/specs/2026-09-08-playground-environment-vfx-design.md`](docs/superpowers/specs/2026-09-08-playground-environment-vfx-design.md), [`docs/superpowers/specs/2026-09-16-playground-six-car-select-design.md`](docs/superpowers/specs/2026-09-16-playground-six-car-select-design.md) |
 | Practice mode: the shipped 1v1-vs-bot room, its settings page, session limits (PR1–PR31) | [`docs/superpowers/specs/2026-09-03-practice-mode-design.md`](docs/superpowers/specs/2026-09-03-practice-mode-design.md) |
+| Arena select screen: the host's pick, roulette, reveal, per-mode switch, display names, preview art (AR1–AR40) | [docs/superpowers/specs/2026-10-09-arena-select-screen-design.md](docs/superpowers/specs/2026-10-09-arena-select-screen-design.md) |
 | Tile arenas: the tile table, the grid compiler, the bake, tile art (TA1–TA31) | [`docs/superpowers/specs/2026-10-09-tile-arenas-design.md`](docs/superpowers/specs/2026-10-09-tile-arenas-design.md) |
 | Conquer: the third win condition and first shipped team mode, the capture zone and control bar, car claims (`lockedCarId`), the respawn-on-death flow it shares with Deathmatch, `arena-03` (CQ1–CQ62) | [`docs/superpowers/specs/2026-09-24-conquer-mode-design.md`](docs/superpowers/specs/2026-09-24-conquer-mode-design.md) |
 | The user's own idea / invariant notes | `docs/ideas/`, `docs/invariants/` — **off limits unless the user names them**, see below |

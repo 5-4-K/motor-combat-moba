@@ -1173,6 +1173,10 @@ arena-authored flag; on `arena-03` that reproduces the old 180°-for-team-B view
 | Knob | Value |
 |---|---|
 | `carSelectSeconds` | 60 |
+| `arenaSelectEnabled` | `true` (see [Arena selection](#arena-selection)) |
+| `arenaSelectSeconds` | 10 |
+| `arenaRevealSeconds` | 3 |
+| `arenaRouletteSeconds` | 1.5 |
 | `countdownSeconds` | 3 |
 | `nameMin` | 1 |
 | `nameMax` | 16 |
@@ -1468,18 +1472,35 @@ ram falloff stack beside it).
 
 ## Arena selection
 
-Which arena a match plays is now a per-mode question, not one shared constant. Each `GameMode`'s
-`ModeTables.arenas` — an ordered `ArenaId[]` in that mode's own folder,
-`packages/shared/src/modes/<mode>/index.ts` (`BRAWL_TABLES.arenas` in `modes/brawl/index.ts`,
-`DEATHMATCH_TABLES.arenas` in `modes/deathmatch/index.ts`) — is the arena set that mode can play, and
-`arenas[0]` is the one it does: `ArenaRoom` writes it into `state.arenaId` in `onCreate` and again
-whenever the host switches mode in the lobby, and `newPracticeState()` writes it from Deathmatch's
-bundle the same way. Changing which arena a mode plays is an edit to that list:
+Which arenas a mode can play is per mode: `ModeTables.arenas`, an ordered `ArenaId[]`. The base list is
+`["arena-01", "arena-02"]` in `packages/shared/src/modes/base.ts`; a mode overrides it in its own
+`config.ts` (Conquer overrides it to `["arena-03"]` in `modes/conquer/config.ts`). `arenas[0]` is the
+mode's default arena: `ArenaRoom` writes it into `state.arenaId` in `onCreate` and again whenever the host
+switches mode in the lobby, and `newPracticeState()` writes it from Deathmatch's bundle the same way.
 
-1. Reorder or replace the entries in `arenas` inside the mode's own `index.ts`. Both shipped modes
-   list `["arena-01", "arena-02"]` today, so moving `"arena-02"` to the front is what makes a Brawl
-   match open on it; the two modes' lists are independent, so this never touches Deathmatch's.
-2. Rebuild shared — `npm run build -w @motor-combat-moba/shared`, or just restart `npm run dev`.
+Who chooses among them is the arena select screen (spec AR1-AR40,
+[`docs/superpowers/specs/2026-10-09-arena-select-screen-design.md`](superpowers/specs/2026-10-09-arena-select-screen-design.md)).
+With the mode's `flow.arenaSelectEnabled` true, Start opens `RoomPhase.ARENA_SELECT` and the host picks one of
+the mode's `arenas`; with it false the screen is skipped and `arenas[0]` plays. A mode with a single arena
+shows only the reveal. Four `flow` keys drive it (`config/flow-config.ts`; any mode may override them in its
+own `config.ts`):
+
+| Key | Base value | Meaning |
+|---|---|---|
+| `arenaSelectEnabled` | `true` | Whether the screen runs at all. |
+| `arenaSelectSeconds` | `10` | The host's choosing countdown; the deadline picks the highlight. |
+| `arenaRevealSeconds` | `3` | How long the chosen card holds in the centre. |
+| `arenaRouletteSeconds` | `1.5` | Extra reveal time when the pick was random, for the roulette. |
+
+Each card shows `ArenaDef.displayName` (unique case-insensitively) and an optional preview image, art key
+`arena.<id>.preview` (`arenaPreviewKey`), 16:9, at least 640 x 360; a missing preview renders a blank card.
+
+Changing which arena a mode plays by default is an edit to that list:
+
+1. Reorder or replace the entries in `arenas` — in `modes/base.ts` for every mode that does not override it,
+   or in one mode's `config.ts` for that mode alone.
+2. Rebuild shared — `npm run build -w @motor-combat-moba/shared`, or just restart `npm run dev`. Accept the moved
+   mode snapshot(s) by name, never with a blanket `-u`.
 
 A value that is not a registered id, or an empty list, fails `packages/shared/src/modes/invariants.test.ts`
 (an empty `arenas` leaves `arenas[0]` `undefined` and `getArena` throws mid-match), so a typo or an

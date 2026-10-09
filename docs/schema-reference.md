@@ -29,11 +29,15 @@ the server keeps full precision internally and never rounds its own state.
 
 | Field | Type | Tag | Default | Notes |
 |---|---|---|---|---|
-| `phase` | uint8 `RoomPhase` | public | `LOBBY` | LOBBY=0, CAR_SELECT=1, COUNTDOWN=2, MATCH=3, REVEAL=4 |
+| `phase` | uint8 `RoomPhase` | public | `LOBBY` | LOBBY=0, CAR_SELECT=1, COUNTDOWN=2, MATCH=3, REVEAL=4, ARENA_SELECT=5 (appended) |
 | `tick` | uint32 | public | `0` | Sim tick counter |
 | `hostSessionId` | string | public | `""` | First joiner; transfers on leave |
 | `mode` | uint8 `GameMode` | public | `FFA_LAST_STANDING` | FFA_LAST_STANDING=0 (renamed from FFA; wire value unchanged), TEAM=1, FFA_DEATHMATCH=2, CONQUER=3 |
 | `arenaId` | string | public | `"arena-01"` | Current arena definition id |
+| `arenaHighlightId` | string | public | `""` | The arena the host's highlight sits on during `ARENA_SELECT`. Display only — `stepSim` never reads it |
+| `arenaSelectDeadlineTick` | uint32 | public | `0` | When arena choosing ends; 0 if not choosing |
+| `arenaRevealEndsTick` | uint32 | public | `0` | 0 while choosing; set when the pick lands, and the chosen card holds until it |
+| `arenaPickRandom` | boolean | public | `false` | The pick came from Select random, so clients play the roulette. The existing `arenaId` is written at the moment of the pick |
 | `carSelectDeadlineTick` | uint32 | public | `0` | 0 if not selecting |
 | `revealEndsTick` | uint32 | public | `0` | When the reveal grid gives way to the countdown; server-authoritative so every client leaves together |
 | `countdownEndsTick` | uint32 | public | `0` | 0 if not counting down |
@@ -311,7 +315,7 @@ client sends: a client that lies gains at most the cap — see
 
 ## Join options
 
-`joinOrCreate(ROOM_NAME, { name, protocol })`. `protocol` is the client's `PROTOCOL_VERSION` (8 today); every room refuses a mismatch, or its absence, with `CLOSE_CODES.PROTOCOL_MISMATCH` (NR55, see [`networking.md`](networking.md#hardening-nr54nr56)). `name` is required (1–16 characters after trim). The server rejects invalid names (`4000`) and duplicates (`4001`, `"Name is taken"`). A 7th joiner is rejected by `maxClients`; creating a second `arena` room is rejected with `4003` `"Room is full"` so LAN stays one room.
+`joinOrCreate(ROOM_NAME, { name, protocol })`. `protocol` is the client's `PROTOCOL_VERSION` (9 today); every room refuses a mismatch, or its absence, with `CLOSE_CODES.PROTOCOL_MISMATCH` (NR55, see [`networking.md`](networking.md#hardening-nr54nr56)). `name` is required (1–16 characters after trim). The server rejects invalid names (`4000`) and duplicates (`4001`, `"Name is taken"`). A 7th joiner is rejected by `maxClients`; creating a second `arena` room is rejected with `4003` `"Room is full"` so LAN stays one room.
 
 ## Lobby messages
 
