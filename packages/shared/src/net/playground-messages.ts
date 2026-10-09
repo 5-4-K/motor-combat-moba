@@ -36,68 +36,34 @@ export interface BotDebugPayload {
   tick: number;
   situation: string;
   targetSessionId: string;
-  preferredRange: number;
-  personality: string;
+  /** The current goal's hold distance, rounded; 0 means arrive. */
+  goalRange: number;
+  goalFacing: string;
   /** -1 when the bot held fire; a slot index otherwise. */
   firedSlot: number;
-  /** Damage per second the bot believes it is standing in front of (P16). */
-  dangerEv: number;
-  /** The action the planner chose, and what it scored (P45). */
-  planSteer: -1 | 0 | 1;
-  planThrottle: -1 | 0 | 1;
-  planScore: number;
-  /**
-   * Per-term contributions of the winning candidate (P45), as an OPEN map rather than one wire
-   * field per term.
-   *
-   * The server's `BotDebug.planTerms` is `Record<keyof PlanWeights, number>` — a real derivation, so
-   * a seventh planner term is picked up there for free. A flattened `termMyEv`…`termThreatAvoid`
-   * spread did NOT inherit that: the names were declared here, written by name in
-   * `PlaygroundRoom`'s broadcast, and read by name in the overlay, and reading six named properties
-   * off a wider `Record` compiles cleanly while silently dropping the seventh. That is the
-   * hand-kept-mirror failure class this codebase has already been bitten by twice
-   * (`PROBABILITY_FIELDS`/`UNIT_INTERVAL_FIELDS` is the other), so the mirror is gone rather than
-   * guarded: the room copies `Object.entries(planTerms)` wholesale and the overlay renders whatever
-   * keys arrive. Shared cannot import the server-only `PlanWeights`, so the KEYS are deliberately
-   * unconstrained here; `isBotDebugPayload` still pins the SHAPE at the boundary — a plain object
-   * whose every value is a finite number.
-   */
-  terms: Record<string, number>;
-  /** Best available shot value against the tier's RESOLVED absolute threshold (P45, R-V2). */
-  shotEvBest: number;
-  shotEvThreshold: number;
+  /** Best solved hit chance among ready slots, against the tier's bar (BB55). */
+  bestHitChance: number;
+  hitChanceBar: number;
+  steer: -1 | 0 | 1;
+  throttle: -1 | 0 | 1;
 }
 
-/**
- * Validates the open `terms` map: a plain object (an array is not one, and neither is `null`) whose
- * every OWN enumerable value is a finite number. `Object.values` rather than a key list, because the
- * whole point of the map is that shared does not know the key set; `Number.isFinite` rather than
- * `typeof === "number"`, because `NaN` and `±Infinity` both survive `JSON` round-trips as `null` and
- * neither is a term contribution the overlay could print.
- */
-function isTermMap(value: unknown): value is Record<string, number> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  return Object.values(value as Record<string, unknown>).every((v) => Number.isFinite(v));
-}
+const FACINGS = ["nose", "orbit", "free", "none"] as const;
 
 export function isBotDebugPayload(value: unknown): value is BotDebugPayload {
   if (typeof value !== "object" || value === null) return false;
   const rec = value as Record<string, unknown>;
+  const tri = (v: unknown): boolean => v === -1 || v === 0 || v === 1;
   return (
     typeof rec.tick === "number" &&
-    typeof rec.situation === "string" &&
-    (SITUATIONS as readonly string[]).includes(rec.situation) &&
+    typeof rec.situation === "string" && (SITUATIONS as readonly string[]).includes(rec.situation) &&
     typeof rec.targetSessionId === "string" &&
-    typeof rec.preferredRange === "number" &&
-    typeof rec.personality === "string" &&
+    typeof rec.goalRange === "number" &&
+    typeof rec.goalFacing === "string" && (FACINGS as readonly string[]).includes(rec.goalFacing) &&
     typeof rec.firedSlot === "number" &&
-    typeof rec.dangerEv === "number" &&
-    (rec.planSteer === -1 || rec.planSteer === 0 || rec.planSteer === 1) &&
-    (rec.planThrottle === -1 || rec.planThrottle === 0 || rec.planThrottle === 1) &&
-    typeof rec.planScore === "number" &&
-    isTermMap(rec.terms) &&
-    typeof rec.shotEvBest === "number" &&
-    typeof rec.shotEvThreshold === "number"
+    typeof rec.bestHitChance === "number" &&
+    typeof rec.hitChanceBar === "number" &&
+    tri(rec.steer) && tri(rec.throttle)
   );
 }
 

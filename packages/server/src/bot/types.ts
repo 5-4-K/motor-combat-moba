@@ -1,7 +1,7 @@
 import type {
   ActiveStatus, CarId, FiredEvent, Aabb, BoundaryPlane, WeaponId,
 } from "@motor-combat-moba/shared";
-import type { PlanWeights } from "./brain/planner.js";
+import type { Facing } from "./brain/navigate.js";
 import type { Rng } from "./rng.js";
 
 /** What the bot asks for. Deliberately NOT an `InputFrame`: the tick is the host's business. */
@@ -147,49 +147,23 @@ export interface BotController {
 export type SituationId =
   | "recover" | "waitOut" | "evade" | "unpin" | "punish" | "reset" | "ram" | "fight" | "close";
 
-/** The five personality archetypes (H47). */
-export type PersonalityId = "brawler" | "kiter" | "sprayer" | "grudge" | "opportunist";
-
-export interface BotPersonality {
-  readonly id: PersonalityId;
-  /** Preference weight per slot index, rolled per bot. Biases both firing and the range model. */
-  readonly slotWeights: readonly number[];
-}
-
 /**
- * What the bot was thinking, for the playground overlay (H12).
+ * What the bot was thinking, for the playground overlay (H12, BB53).
  *
- * The deliberate answer to a scored decision layer's one weakness — that "why did it do that?" is
- * answered by reading a scoreboard. Never read by the sim, never on the wire from the bot's side.
+ * Never read by the sim, never on the wire from the bot's side.
  */
 export interface BotDebug {
   tick: number;
   situation: SituationId;
   targetSessionId: string | undefined;
-  preferredRange: number;
-  personality: PersonalityId;
-  /** The slot pressed this tick, or `undefined` when the bot held fire. */
+  /** The current goal's hold distance; 0 means arrive. */
+  goalRange: number;
+  goalFacing: Facing | "none";
+  /** The slot pressed on the last recompute, or `undefined` when the bot held fire. */
   firedSlot: number | undefined;
-  /** Damage per second the bot believes it is standing in front of (P16). Overlay only. */
-  dangerEv: number;
-  /** The action the planner chose, and what it scored. Overlay only (P45). */
-  plan: { steer: -1 | 0 | 1; throttle: -1 | 0 | 1; score: number } | undefined;
-  /**
-   * Per-term contributions of the winning candidate (P45). Keyed off `PlanWeights` itself — not
-   * retyped by hand — so a term added to the planner's weight vector cannot silently go unreported
-   * here. Overlay only.
-   *
-   * The WIRE inherits that derivation rather than re-declaring it: `BotDebugPayload.terms` is an
-   * open `Record<string, number>` and `PlaygroundRoom` copies this map's entries wholesale. It used
-   * to flatten to six named fields, which meant this comment's guarantee stopped at the room's
-   * broadcast — see that field's doc for why the mirror was deleted instead of guarded.
-   */
-  planTerms: Record<keyof PlanWeights, number> | undefined;
-  /**
-   * The best EV/s this bot's own kit could deal from its current pose, against the tier's resolved
-   * absolute threshold — `profile.minShotValueFraction * bestAchievableValueOf(...)`, NOT the raw
-   * fraction, so the overlay's `best/threshold` reads as a like-for-like ratio (R-V2). The primary
-   * tuning diagnostic (P45).
-   */
-  shotEv: { best: number; threshold: number };
+  /** Best solved hit chance among ready slots, read against `hitChanceBar` (the holds-fire diagnostic). */
+  bestHitChance: number;
+  hitChanceBar: number;
+  steer: -1 | 0 | 1;
+  throttle: -1 | 0 | 1;
 }

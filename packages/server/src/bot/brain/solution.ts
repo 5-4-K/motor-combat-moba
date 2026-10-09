@@ -1,14 +1,13 @@
 import {
-  TICK_RATE_HZ, beamOriginOf, beamReachOf, beamShapeAt, carHullOf, derived, drive, forwardMaxSpeedOf,
-  instanceExpired, projectileShapeAt, shapeHitsObb, slotsOf, smear, spawnInstances, stepInstance,
+  TICK_RATE_HZ, beamOriginOf, beamReachOf, beamShapeAt, carHullOf, derived, forwardMaxSpeedOf,
+  instanceExpired, projectileShapeAt, shapeHitsObb, smear, spawnInstances, stepInstance,
   clampBearingToSwing, clampToSwing, turret, turretPivotOf, turretTurnDelta, weaponDamageOf, weaponDefOf,
   weaponTicksOf, wrapAngle, type CarId, type WeaponId,
   type WeaponInstance, type WorldShape,
 } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSlotView } from "../types.js";
-import { signedDelta } from "./aim.js";
-import { kitWeaponIds, weaponReachOf } from "./reach.js";
+import { weaponReachOf } from "./reach.js";
 
 /**
  * Where the aim error is sampled, and how much each sample counts (P43).
@@ -42,8 +41,8 @@ export type PosePredictor = (ticksAhead: number) => { x: number; y: number; angl
 /**
  * Straight-line extrapolation. No longer what the controller solves against — phase A's task 4
  * (2026-09-06) put `predict.ts`'s `physicsPredictor` behind this same `PosePredictor` seam there —
- * but still the right answer for a target that provably is not moving: `bestAchievableValueOf`
- * below solves against a stationary synthetic target, where a physics rollout would buy nothing and
+ * but still the right answer for a target that provably is not moving: `effectiveReachOf`
+ * (`ranges.ts`) solves against a stationary synthetic target, where a physics rollout would buy nothing and
  * cost four rng draws (two gaussians, and `gaussian` is Box-Muller — a pair each). Also the fixture
  * `solution.test.ts` pins the solver with.
  */
@@ -254,86 +253,6 @@ function turretLeadOf(
     bearing = bearingTo(aimPoint);
   }
   return { bearing, turnTicks: turretTurnTicksOf(shooter, bearing, maxSwingDeg) };
-}
-
-/** `bestAchievableValueOf` keys its cache on carId and sigma together — a kit is fixed per match,
- * so this only needs computing once per (chassis, tier) combination the whole process ever sees. */
-const bestAchievableValueCache = new Map<string, number>();
-
-/**
- * Fractions of a slot's `weaponReachOf` tried when hunting for its best-case `value` (R20). A grid
- * rather than a closed form because "best range" is not the same shape for every weapon: a pellet
- * spread and a beam both want to stand close (a target subtends a wider angle, so aim noise is less
- * likely to miss it), a long gun's ceiling is flat across most of its reach, and a maneuver's
- * hull-sweep can connect anywhere along its own travel line. Sampling densely near 0 and
- * coarsely out to the full reach covers all three shapes without hand-deriving one per weapon kind.
- *
- * Each sampled distance is still floored at `BRAIN_CONSTANTS.minEngageUnits` (below) — without that
- * floor, a short-range weapon's small fractions (e.g. 2% of `pepperbox`'s 600u range, 12 units) put
- * the target's hull CENTRE closer than the two cars' own half-lengths, so the synthetic geometry has
- * shooter and target overlapping and every one of `pepperbox`'s four muzzles (three pointed sideways
- * and backward, per `weapons()`) lands on a target that is, physically, inside the shooter. That
- * measured a 235 ceiling for Bullseye — a number no real engagement can ever produce, since no two
- * cars stand inside each other — instead of the roughly-78 pepperbox actually achieves at a distance
- * where only its forward muzzle's fan can connect.
- */
-const CEILING_RANGE_FRACTIONS: readonly number[] = Object.freeze([
-  0.02, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.98,
-]);
-
-/**
- * The best `value` (expected damage per second) this chassis's kit can produce anywhere, at this
- * aim sigma, with perfect aim GEOMETRY — nose pointed exactly at a stationary target (R20).
- *
- * This is the denominator `minShotValueFraction` (bot-profiles.ts) divides against: an absolute EV
- * threshold cannot compare across kits whose ceilings differ by a factor of four (see that field's
- * doc comment for the measured per-chassis numbers this fixes), so the gate instead asks "is this
- * shot worth taking, relative to the best this kit can ever do at this shooter's own aim quality".
- *
- * Built the same way `solve` itself works — a synthetic stationary target, straight ahead, at a grid
- * of candidate ranges per slot (`CEILING_RANGE_FRACTIONS`) — and taking the best `value` any slot
- * reaches at any sampled range, at the same aim noise `solve` itself would charge.
- *
- * MEMOISED (`bestAchievableValueCache`): a kit is fixed for the whole match, so this must never be
- * recomputed per tick — only look it up once per (carId, aimSigma) pair.
- */
-export function bestAchievableValueOf(carId: CarId, aimSigmaRad: number): number {
-  const key = `${carId}|${aimSigmaRad}`;
-  const cached = bestAchievableValueCache.get(key);
-  if (cached !== undefined) return cached;
-
-  const arena: BotArenaView = { width: 1_000_000, height: 1_000_000, obstacles: [] };
-  const shooter: SolverShooter = {
-    sessionId: "ceiling-shooter", carId, team: 0,
-    x: 0, y: 0, angle: 0, vx: 0, vy: 0,
-  };
-
-  let best = 0;
-  const weaponIds = slotsOf(carId);
-  for (let i = 0; i < weaponIds.length; i++) {
-    const weaponId = weaponIds[i]!;
-    const reach = weaponReachOf(weaponId);
-    const slot: BotSlotView = {
-      weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
-      range: weaponDefOf(weaponId).range,
-    };
-    for (const fraction of CEILING_RANGE_FRACTIONS) {
-      const distance = Math.max(BRAIN_CONSTANTS.minEngageUnits, reach * fraction);
-      const target: BotCarView = {
-        sessionId: "ceiling-target", carId, team: 1, x: distance, y: 0, angle: 0,
-        vx: 0, vy: 0, hp: Number.POSITIVE_INFINITY, maxHp: Number.POSITIVE_INFINITY,
-        alive: true, phased: false, statuses: [], maneuver: 0,
-      };
-      const solution = solve({
-        shooter, slot, slotIndex: i, target, targetAt: constantVelocityPredictor(target),
-        aimSigmaRad, tick: 0, arena,
-      });
-      if (solution.value > best) best = solution.value;
-    }
-  }
-
-  bestAchievableValueCache.set(key, best);
-  return best;
 }
 
 /**
@@ -629,169 +548,4 @@ function shapeOf(instance: WeaponInstance): WorldShape {
     return beamShapeAt(def.hitbox, instance.x, instance.y, instance.angle, instance.extent);
   }
   throw new Error(`shapeOf: ${instance.weaponId} spawns no instance`);
-}
-
-export interface DangerArgs {
-  /** The car that might shoot us, as observed. */
-  threat: BotCarView;
-  /** Us, in the shape the solver takes a target in. */
-  me: BotCarView;
-  meAt: PosePredictor;
-  /** How loaded this bot believes each of their weapons is, 0..1 (P21). */
-  readiness: (weaponId: WeaponId) => number;
-  /** What competence to assume of them — their real hands are unknowable. */
-  assumedAimSigmaRad: number;
-  tick: number;
-  arena: BotArenaView;
-}
-
-/**
- * How much damage per second we are currently standing in front of (P16).
- *
- * `solve()` with the arguments swapped, summed across their kit and weighted by what we believe is
- * off cooldown. Two things on their side are unknowable and are therefore assumed rather than read:
- * their aim error (a fixed nominal — the bot assumes competence, never incompetence) and their slot
- * state (`readiness`, from watched presses only).
- *
- * The kit is the chassis default (`kitWeaponIds(threat.carId)`, no extras) — a weapon they carry
- * but have not used still counts, exactly as a human would assume from the car.
- */
-export function dangerEvAgainst(args: DangerArgs): number {
-  const { threat, me, meAt, readiness, assumedAimSigmaRad, tick, arena } = args;
-  let total = 0;
-  for (const weaponId of kitWeaponIds(threat.carId)) {
-    const ready = readiness(weaponId);
-    if (ready <= 0) continue;
-    const solution = solve({
-      shooter: {
-        sessionId: threat.sessionId, carId: threat.carId, team: threat.team,
-        x: threat.x, y: threat.y, angle: threat.angle, vx: threat.vx, vy: threat.vy,
-      },
-      slot: {
-        weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
-        range: weaponDefOf(weaponId).range,
-      },
-      slotIndex: 0,
-      target: me,
-      targetAt: meAt,
-      aimSigmaRad: assumedAimSigmaRad,
-      tick,
-      arena,
-    });
-    total += solution.value * ready;
-  }
-  return total;
-}
-
-export interface ProxyArgs {
-  shooter: { x: number; y: number; angle: number };
-  slot: BotSlotView;
-  targetX: number;
-  targetY: number;
-  aimSigmaRad: number;
-}
-
-/**
- * A cheap stand-in for `solve().value`, for scoring a planner candidate (P9).
- *
- * ~20 flops against the exact solver's ~90 shape tests. It answers "is this a better place to be
- * standing", never "should I pull the trigger" — the trigger keeps the exact solver. That split is
- * deliberate and mirrors how people play: move on intuition, shoot on confirmation.
- *
- * The model is: how wide does the target look from here, against how badly do my hands wander.
- *
- * A KNOWN, MEASURED, ACCEPTED LOSS: IT DOES NOT COUNT A TICKING BEAM'S PULSES (R-S1, fix wave 3,
- * 2026-09-07). `damage` on a ticking row is a PULSE, not a press, so `lance` and `afterburner`
- * (both `damageFrequencyMs: 500`, four and five pulses a press) are scored at roughly a quarter and
- * a fifth of their worth here — `lance` reads 2.7 EV/s where `solve()` and `chooseSlot`'s own
- * comment put it at ~10.8, against `predator`'s 30. Everything reading this proxy inherits that:
- * `preferredRangeOf`'s plateau, the planner's `myEv`, and `proxyDangerAgainst`'s read of an
- * opponent's kit. The TRIGGER is unaffected — `chooseSlot` ranks on the exact `solve().value`.
- *
- * This is not an oversight. A `pulsesPerPress` correction shipped in `firing.ts` beside
- * `weaponValueOf` for exactly this defect, phase D deleted that function's only caller, and the
- * correction went out with it while `proxyValue` kept the raw-`damage` model. Restoring it was
- * IMPLEMENTED AND MEASURED, and reverted on the measurement:
- *
- *   - The nine resolved `preferredRangeOf` standoffs did not move at all (bullseye 70/170/470,
- *     mirage 86.7/186.7/220, bastion 90.8/132.5/132.5, before and after).
- *   - Both closed-loop duel canaries did not move (on-axis 136/300 offset 0, off-axis 128/300
- *     offset 0.0442, before and after — the bar is > 90).
- *   - `balance/` WENT RED: 115/116, `match.test.ts`'s "shortening matchSeconds still lets the
- *     deathmatch clock fire" fixture returning `winnerSessionId: ""` on its pinned `seed: 3`. Its
- *     kills assertion still passed; the match ended tied. That fixture may not be reseeded, and
- *     absorbing the move by tuning something else is not on the table either.
- *   - It also cost R-D5's one live cell. `slotWeights` move the standoff in 1 of 9 chassis-by-tier
- *     cells today (Mirage at hard), and that cell exists BECAUSE `afterburner` is under-valued
- *     here: at its true 18.8 EV/s its 220 u cliff is too large a share of Mirage's peak for any
- *     vector in `rollPersonality`'s 0.5-1.5 draw to hold the total over the 0.95 bar past it. With
- *     the pulse count restored a 5x5x5 sweep reads 0 of 9.
- *
- * So the loss is: two of nine rows are under-valued ~4x in every consumer of this proxy, and one of
- * R-D5's stated benefits rests on that error. What is bought is a green `balance/` fixture that
- * cannot be reseeded. Anyone revisiting this should expect the fixture to be the thing that has to
- * move first, and should re-measure all three numbers above rather than trusting this note.
- */
-export function proxyValue(args: ProxyArgs): number {
-  const { shooter, slot, targetX, targetY, aimSigmaRad } = args;
-  const def = weaponDefOf(slot.weaponId);
-  const reach = weaponReachOf(slot.weaponId);
-  const dx = targetX - shooter.x;
-  const dy = targetY - shooter.y;
-  const distance = Math.hypot(dx, dy);
-  if (distance > reach || distance < 1) return 0;
-
-  // Half the target's angular width from here — how much room the shot has to be wrong by.
-  const subtense = Math.atan2(drive().carHeight / 2, distance);
-  const offBy = Math.abs(signedDelta(shooter.angle, Math.atan2(dy, dx)));
-  // Total angular budget: how far off I am now, plus how far my hands wander.
-  const spread = Math.hypot(offBy, aimSigmaRad);
-  const chance = spread <= 0 ? 1 : Math.min(1, subtense / spread);
-
-  const damage = def.damage * (def.kind === "projectile" ? def.pellets.pelletsPerVolley : 1);
-  const cooldownSeconds = Math.max(def.cooldownMs, 1) / 1000;
-  return (chance * damage) / cooldownSeconds;
-}
-
-export interface ProxyDangerArgs {
-  /** The opponent, at the pose being considered. */
-  threat: BotCarView;
-  /** Where I would be. */
-  meX: number;
-  meY: number;
-  /** How loaded this bot believes each of their weapons is, 0..1 (P21). */
-  readiness: (weaponId: WeaponId) => number;
-  /** What competence to assume of them — their real hands are unknowable. */
-  assumedAimSigmaRad: number;
-}
-
-/**
- * `proxyDangerAgainst` is `dangerEvAgainst`'s cheap sibling: `proxyValue` with the arguments
- * swapped, for the planner to weigh how exposed a CANDIDATE pose would be (P9, P26) without paying
- * `dangerEvAgainst`'s exact-solver cost across nine candidates times K ticks.
- *
- * Mirrors `dangerEvAgainst` exactly in shape — same kit (`kitWeaponIds`, chassis default, no
- * extras), same synthetic slot (`stocks: 1`, off cooldown, `range` from `weaponDefOf`), same
- * `readiness`-weighted sum — except the per-weapon number comes from `proxyValue` rather than
- * `solve`.
- */
-export function proxyDangerAgainst(args: ProxyDangerArgs): number {
-  const { threat, meX, meY, readiness, assumedAimSigmaRad } = args;
-  let total = 0;
-  for (const weaponId of kitWeaponIds(threat.carId)) {
-    const ready = readiness(weaponId);
-    if (ready <= 0) continue;
-    const value = proxyValue({
-      shooter: { x: threat.x, y: threat.y, angle: threat.angle },
-      slot: {
-        weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
-        range: weaponDefOf(weaponId).range,
-      },
-      targetX: meX,
-      targetY: meY,
-      aimSigmaRad: assumedAimSigmaRad,
-    });
-    total += value * ready;
-  }
-  return total;
 }

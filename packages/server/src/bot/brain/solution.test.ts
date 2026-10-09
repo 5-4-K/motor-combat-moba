@@ -15,7 +15,7 @@ import {
 } from "@motor-combat-moba/shared";
 import type { BotArenaView, BotCarView, BotSlotView } from "../types.js";
 import {
-  AIM_QUADRATURE, constantVelocityPredictor, dangerEvAgainst, proxyDangerAgainst, proxyValue, solve,
+  AIM_QUADRATURE, constantVelocityPredictor, solve,
   marchTicksOf, turretTurnTicksOf, type PosePredictor, type SolverShooter,
 } from "./solution.js";
 
@@ -579,114 +579,6 @@ function firesAndConnects(
   return false;
 }
 
-describe("dangerEvAgainst (P16)", () => {
-  const loaded = () => 1;
-
-  // CONTROLLER RULING: the brief's own draft hands BOTH `me` and the threat the sessionId "them",
-  // because `targetAt()` hardcodes it. Harmless here (the threat's `lockTargetSessionId` is "", so
-  // no aim-assist lock can match either name) but a latent trap for anyone extending these cases --
-  // `me` gets its own distinct sessionId below instead. Every assertion and numeric value is kept
-  // exactly as the brief wrote it.
-
-  it("is higher when the threat is pointed at us than when it is pointed away", () => {
-    const me: BotCarView = { ...targetAt(300, 0), sessionId: "me" };
-    const facing: BotCarView = { ...targetAt(0, 0), sessionId: "them", carId: "bullseye", angle: 0 };
-    const away: BotCarView = { ...facing, angle: Math.PI };
-    const at = (threat: BotCarView) => dangerEvAgainst({
-      threat, me, meAt: constantVelocityPredictor(me), readiness: loaded,
-      assumedAimSigmaRad: 0.05, tick: 0, arena,
-    });
-    expect(at(facing)).toBeGreaterThan(at(away));
-  });
-
-  it("is zero when the threat is out of every weapon's reach", () => {
-    const me: BotCarView = { ...targetAt(5000, 0), sessionId: "me" };
-    const threat: BotCarView = { ...targetAt(0, 0), sessionId: "them", carId: "bullseye", angle: 0 };
-    expect(dangerEvAgainst({
-      threat, me, meAt: constantVelocityPredictor(me), readiness: loaded,
-      assumedAimSigmaRad: 0.05, tick: 0, arena,
-    })).toBe(0);
-  });
-
-  it("discounts a weapon this bot believes is still recharging (P21)", () => {
-    const me: BotCarView = { ...targetAt(300, 0), sessionId: "me" };
-    const threat: BotCarView = { ...targetAt(0, 0), sessionId: "them", carId: "bullseye", angle: 0 };
-    const common = {
-      threat, me, meAt: constantVelocityPredictor(me),
-      assumedAimSigmaRad: 0.05, tick: 0, arena,
-    };
-    const all = dangerEvAgainst({ ...common, readiness: loaded });
-    const spent = dangerEvAgainst({ ...common, readiness: () => 0 });
-    expect(spent).toBeLessThan(all);
-    expect(spent).toBe(0);
-  });
-});
-
-describe("proxyValue (P9)", () => {
-  const slot = () => slotFor("predator");
-
-  it("agrees with the exact solver about which of two positions is better", () => {
-    const near = { shooter: { x: 0, y: 0, angle: 0 }, slot: slot(), targetX: 250, targetY: 0, aimSigmaRad: 0.05 };
-    const off = { ...near, shooter: { x: 0, y: 0, angle: 0.6 } };
-    expect(proxyValue(near)).toBeGreaterThan(proxyValue(off));
-  });
-
-  it("falls with distance", () => {
-    const at = (targetX: number) => proxyValue({
-      shooter: { x: 0, y: 0, angle: 0 }, slot: slot(), targetX, targetY: 0,
-      aimSigmaRad: 0.05,
-    });
-    expect(at(200)).toBeGreaterThan(at(700));
-  });
-
-  it("is 0 beyond reach", () => {
-    expect(proxyValue({
-      shooter: { x: 0, y: 0, angle: 0 }, slot: slot(), targetX: 5000, targetY: 0,
-      aimSigmaRad: 0.05,
-    })).toBe(0);
-  });
-
-  it("counts the nose for every shot, now that nothing points one for the bot", () => {
-    // Was "ignores the nose when the shot is assisted": an `assisted: true` proxy zeroed the angle
-    // term, so a car turned 0.6 rad away scored exactly as well as one pointed at the target. The
-    // flag is gone with the lock, so the turned car must now score strictly worse.
-    const common = { slot: slot(), targetX: 250, targetY: 0, aimSigmaRad: 0.05 };
-    const straight = { ...common, shooter: { x: 0, y: 0, angle: 0 } };
-    const turned = { ...common, shooter: { x: 0, y: 0, angle: 0.6 } };
-    expect(proxyValue(turned)).toBeLessThan(proxyValue(straight));
-  });
-});
-
-describe("proxyDangerAgainst (P9, P26, CONTROLLER RULING R-P1)", () => {
-  // Mirrors the `dangerEvAgainst` tests above exactly in shape, but against the cheap proxy: the
-  // planner's "how exposed would I be there" needs to stay affordable across nine candidates times
-  // K ticks, same reason `proxyValue` exists at all.
-  const loaded = () => 1;
-
-  it("rises as the threat gets closer", () => {
-    const threat: BotCarView = { ...targetAt(0, 0), sessionId: "them", carId: "bullseye", angle: 0 };
-    const at = (meX: number) => proxyDangerAgainst({
-      threat, meX, meY: 0, readiness: loaded, assumedAimSigmaRad: 0.05,
-    });
-    expect(at(200)).toBeGreaterThan(at(700));
-  });
-
-  it("is 0 when every weapon's readiness is 0", () => {
-    const threat: BotCarView = { ...targetAt(0, 0), sessionId: "them", carId: "bullseye", angle: 0 };
-    expect(proxyDangerAgainst({
-      threat, meX: 300, meY: 0, readiness: () => 0, assumedAimSigmaRad: 0.05,
-    })).toBe(0);
-  });
-
-  it("a weapon at readiness 0.5 contributes half what it does at 1", () => {
-    const threat: BotCarView = { ...targetAt(0, 0), sessionId: "them", carId: "bullseye", angle: 0 };
-    const common = { threat, meX: 300, meY: 0, assumedAimSigmaRad: 0.05 };
-    const full = proxyDangerAgainst({ ...common, readiness: loaded });
-    const half = proxyDangerAgainst({ ...common, readiness: () => 0.5 });
-    expect(half).toBeCloseTo(full / 2, 6);
-  });
-});
-
 describe("solver determinism (P43)", () => {
   it("draws no random numbers at all", () => {
     const target = targetAt(400, 0);
@@ -709,27 +601,6 @@ describe("solver determinism (P43)", () => {
     }
   });
 
-  it("draws no random numbers from the danger entry point either (P43)", () => {
-    // `dangerEvAgainst` is `solve` with the arguments swapped, and it is read by the anticipatory
-    // `evade` gate in `controller.ts` — a gate that must never make the number of `rng()` draws
-    // depend on a branch, or a seeded replay desynchronises (H21).
-    const me: BotCarView = { ...targetAt(300, 0), sessionId: "me" };
-    const threat: BotCarView = { ...targetAt(0, 0), sessionId: "them", carId: "bullseye", angle: 0 };
-    const throwing = () => {
-      throw new Error("the solver must not draw rng (P43)");
-    };
-    const original = Math.random;
-    Math.random = throwing as unknown as typeof Math.random;
-    try {
-      expect(() => dangerEvAgainst({
-        threat, me, meAt: constantVelocityPredictor(me),
-        readiness: () => 1, assumedAimSigmaRad: 0.05, tick: 0, arena,
-      })).not.toThrow();
-    } finally {
-      Math.random = original;
-    }
-  });
-
   it("returns identical results for identical inputs", () => {
     const target = targetAt(400, 25);
     const once = () => solve({
@@ -739,29 +610,6 @@ describe("solver determinism (P43)", () => {
       aimSigmaRad: 0.05, tick: 0, arena,
     });
     expect(once()).toEqual(once());
-  });
-
-  it("draws no random numbers from the planner's cheap proxies either (P43)", () => {
-    // `proxyValue`/`proxyDangerAgainst` are read by the planner across nine candidates times K
-    // ticks — the same desync risk `dangerEvAgainst` documents above, just paid more often.
-    const throwing = () => {
-      throw new Error("the solver must not draw rng (P43)");
-    };
-    const original = Math.random;
-    Math.random = throwing as unknown as typeof Math.random;
-    try {
-      expect(() => proxyValue({
-        shooter: { x: 0, y: 0, angle: 0 }, slot: slotFor("predator"),
-        targetX: 250, targetY: 0, aimSigmaRad: 0.05,
-      })).not.toThrow();
-
-      const threat: BotCarView = { ...targetAt(0, 0), sessionId: "them", carId: "bullseye", angle: 0 };
-      expect(() => proxyDangerAgainst({
-        threat, meX: 300, meY: 0, readiness: () => 1, assumedAimSigmaRad: 0.05,
-      })).not.toThrow();
-    } finally {
-      Math.random = original;
-    }
   });
 });
 

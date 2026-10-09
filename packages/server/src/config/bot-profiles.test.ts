@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, TICK_RATE_HZ, installMode, modeConfigOf } from "@motor-combat-moba/shared";
-import { makeRng } from "../bot/rng.js";
-import { rollPersonality } from "../bot/brain/personality.js";
 import { BOT_PROFILES, RESOLVED_BOT_PROFILES, BRAIN_CONSTANTS, BOT_BRAIN_VERSION, resolveBotProfile, resolveBrainConstants, type BotProfile } from "./bot-profiles.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
@@ -140,25 +138,6 @@ describe("BOT_PROFILES", () => {
       for (const key of PROBABILITY_FIELDS) {
         expect(RESOLVED_BOT_PROFILES[tier][key]).toBeGreaterThanOrEqual(0);
         expect(RESOLVED_BOT_PROFILES[tier][key]).toBeLessThanOrEqual(1);
-      }
-    }
-  });
-
-  it("keeps every probability in [0, 1] on a ROLLED personality too, not just the table", () => {
-    // The table is not what the brain runs — `rollPersonality` shifts up to three fields per bot and
-    // clamps them into the tier's band, and a band is a bound on how FAR a value may move, not on
-    // what it may become: a hard `opportunist` reached `ultDisciplineChance` 1.125 (0.9 x 1.25,
-    // comfortably inside +-25%). It saturated harmlessly, but "keeps every probability in [0, 1]"
-    // was then a claim about a table nothing reads. Sweeping seeds rather than picking one, because
-    // which archetype a bot rolls is itself a draw and only two of the five shift a probability past
-    // its tier value.
-    for (const tier of TIERS) {
-      for (let seed = 1; seed <= 200; seed++) {
-        const { profile } = rollPersonality(makeRng(seed), tier);
-        for (const key of PROBABILITY_FIELDS) {
-          expect(profile[key], `${tier} seed ${seed} ${key}`).toBeGreaterThanOrEqual(0);
-          expect(profile[key], `${tier} seed ${seed} ${key}`).toBeLessThanOrEqual(1);
-        }
       }
     }
   });

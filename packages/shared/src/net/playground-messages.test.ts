@@ -191,22 +191,22 @@ describe("isPlaygroundSetup (PG63)", () => {
 
 describe("isBotDebugPayload", () => {
   const payload = {
-    tick: 10, situation: "fight",
-    targetSessionId: "them", preferredRange: 300, personality: "kiter", firedSlot: 1,
-    dangerEv: 12,
-    planSteer: 1, planThrottle: -1, planScore: 8.4,
-    terms: {
-      myEv: 5.2, theirEv: -1.1, rangeError: -0.3, wallPenalty: 0, threatAvoid: 0, facingError: 0,
-    },
-    shotEvBest: 24, shotEvThreshold: 26,
+    tick: 10, situation: "fight", targetSessionId: "them",
+    goalRange: 300, goalFacing: "orbit", firedSlot: 1,
+    bestHitChance: 0.72, hitChanceBar: 0.7, steer: 1, throttle: -1,
   };
 
   it("accepts a well-formed payload", () => {
     expect(isBotDebugPayload(payload)).toBe(true);
   });
 
-  it("rejects a payload with an unknown situation", () => {
+  it("accepts the ram situation and the no-goal facing (BB54)", () => {
+    expect(isBotDebugPayload({ ...payload, situation: "ram", goalFacing: "none" })).toBe(true);
+  });
+
+  it("rejects a payload with an unknown situation or facing", () => {
     expect(isBotDebugPayload({ ...payload, situation: "vibing" })).toBe(false);
+    expect(isBotDebugPayload({ ...payload, goalFacing: "sideways" })).toBe(false);
   });
 
   it("rejects a payload missing any field", () => {
@@ -217,40 +217,13 @@ describe("isBotDebugPayload", () => {
     }
   });
 
-  it("rejects a planSteer/planThrottle outside -1|0|1", () => {
-    expect(isBotDebugPayload({ ...payload, planSteer: 2 })).toBe(false);
-    expect(isBotDebugPayload({ ...payload, planThrottle: 0.5 })).toBe(false);
+  it("rejects a steer/throttle outside -1|0|1", () => {
+    expect(isBotDebugPayload({ ...payload, steer: 2 })).toBe(false);
+    expect(isBotDebugPayload({ ...payload, throttle: 0.5 })).toBe(false);
   });
 
   it("rejects non-objects", () => {
     expect(isBotDebugPayload(null)).toBe(false);
     expect(isBotDebugPayload("fight")).toBe(false);
-  });
-
-  // `terms` is an OPEN map — shared cannot import the server-only `PlanWeights` to check its keys —
-  // so the guard is the only thing standing between a malformed map and an overlay printing
-  // "[object Object]" or "undefined". These pin exactly what it does and does not accept.
-  it("accepts any key set on terms, including an empty map and an unseen seventh term", () => {
-    expect(isBotDebugPayload({ ...payload, terms: {} })).toBe(true);
-    expect(isBotDebugPayload({ ...payload, terms: { ...payload.terms, futureTerm: -2.5 } }))
-      .toBe(true);
-  });
-
-  it("rejects a terms map that is not a plain object", () => {
-    expect(isBotDebugPayload({ ...payload, terms: null })).toBe(false);
-    expect(isBotDebugPayload({ ...payload, terms: 5 })).toBe(false);
-    expect(isBotDebugPayload({ ...payload, terms: "myEv" })).toBe(false);
-    // An array's values could all be numbers, so this is a real case the value check would miss.
-    expect(isBotDebugPayload({ ...payload, terms: [1, 2, 3] })).toBe(false);
-  });
-
-  it("rejects a terms map with a non-number or non-finite value", () => {
-    expect(isBotDebugPayload({ ...payload, terms: { myEv: "5.2" } })).toBe(false);
-    expect(isBotDebugPayload({ ...payload, terms: { myEv: null } })).toBe(false);
-    expect(isBotDebugPayload({ ...payload, terms: { myEv: undefined } })).toBe(false);
-    expect(isBotDebugPayload({ ...payload, terms: { myEv: 1, theirEv: {} } })).toBe(false);
-    // `NaN`/`Infinity` both cross a JSON boundary as `null`; neither is printable as a term.
-    expect(isBotDebugPayload({ ...payload, terms: { myEv: NaN } })).toBe(false);
-    expect(isBotDebugPayload({ ...payload, terms: { myEv: Infinity } })).toBe(false);
   });
 });
