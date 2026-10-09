@@ -192,7 +192,10 @@ const reelingGripOf = (config) =>
     modifiersOf([{ statusId: "reeling", startTick: 0, endsTick: 1, sourceSessionId: "" }], 0).grip,
   );
 
-const doc = fs.readFileSync(DOC, "utf8");
+// LF, whatever the checkout wrote: on Windows (`core.autocrlf`) the page arrives CRLF, every line
+// ends in "\r", and the `## <mode>` heading regex's `(.*)$` cannot match across it — so no mode
+// section was ever found and every check failed.
+const doc = fs.readFileSync(DOC, "utf8").replace(/\r\n/g, "\n");
 const sections = sectionsIn(doc);
 const deg = (radians) => (radians * 180) / Math.PI;
 
