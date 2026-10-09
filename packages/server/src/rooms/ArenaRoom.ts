@@ -21,6 +21,8 @@ import {
   MSG_KICK,
   MSG_START_ERROR,
   MSG_SELECT_CAR,
+  MSG_ARENA_HIGHLIGHT,
+  MSG_ARENA_PICK,
   MSG_PREVIEW_CAR,
   MSG_RETURN_TO_LOBBY,
   MSG_CHAT,
@@ -94,6 +96,7 @@ import {
 } from "./match-helpers.js";
 import { controllerOf } from "../modes/registry.js";
 import type { ModeRoomView } from "../modes/types.js";
+import { acceptHighlight, acceptPick, openArenaSelect, revealEndsTickFor, type ArenaSelectGate } from "./arena-select.js";
 import { selectNextHost } from "./select-next-host.js";
 import { ROOM_FULL_ERROR, shouldRejectSecondArena } from "./singleton-arena.js";
 import { canSendChat, formatClockTime, pushChatMessage } from "./chat.js";
@@ -115,6 +118,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    */
   private prevFireMasks = new Map<string, number>();
   private pendingCarId = new Map<string, CarId>();
+  /** Random source for the arena roulette; a test swaps it for a fixed one. */
+  private arenaRandom: () => number = Math.random;
   private matchRoster = new Set<string>();
   /**
    * Per-player tick at which spawn protection must end no matter what. Server-only: the client reads
@@ -276,24 +281,15 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
             client.send(MSG_START_ERROR, { error: result.error });
             return;
           }
-          this.reduce({
-            type: "start",
-            readyIds,
-            nowTick: this.state.tick,
-            carSelectTicks: getCarSelectSeconds(flow().carSelectSeconds) * TICK_RATE_HZ,
-          });
-          this.pendingCarId.clear();
-          // CQ29: last match's chassis claims must not block this car select.
-          this.state.players.forEach((p) => {
-            p.lockedCarId = "";
-          });
-          // Whatever pre-match display state the family owns (Conquer's zone bars, holder, streak,
-          // contested, overtime; nothing for the others) must not still be showing when CAR_SELECT /
-          // REVEAL / COUNTDOWN come up for this match. The results screen reads the final values
-          // before this fires, so it is unaffected. Resolved fresh, not cached — same as every other
-          // call site.
-          controllerOf(this.state.mode).onStartRequested(this.modeView());
+          this.beginMatch(readyIds);
         })),
+      );
+
+      this.onMessage(MSG_ARENA_HIGHLIGHT, limited(this.limits, "lobby", (client, msg: unknown) =>
+        scoped(this.modeConfig, () => this.onArenaHighlight(client.sessionId, msg))),
+      );
+      this.onMessage(MSG_ARENA_PICK, limited(this.limits, "lobby", (client, msg: unknown) =>
+        scoped(this.modeConfig, () => this.onArenaPick(client.sessionId, msg))),
       );
 
       this.onMessage(MSG_SELECT_CAR, limited(this.limits, "lobby", (client, msg: unknown) =>
@@ -499,15 +495,86 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.broadcastPatch();
   }
 
-  private step(): void {
-    this.state.tick += 1;
-    if (
-      this.state.phase === RoomPhase.MATCH &&
-      rulesOf(this.state.mode).respawns
-    ) {
-      respawnSweep(this.ctx());
+  /** Start, after `canStart` passed (AR13-AR14). Every branch forms the roster exactly as before. */
+  private beginMatch(readyIds: string[]): void {
+    const opening = openArenaSelect(flow().arenaSelectEnabled, this.modeConfig.arenas);
+    this.reduce({
+      type: "start",
+      readyIds,
+      nowTick: this.state.tick,
+      carSelectTicks: getCarSelectSeconds(flow().carSelectSeconds) * TICK_RATE_HZ,
+      firstPhase: opening.kind === "skip" ? "car_select" : "arena_select",
+    });
+    this.pendingCarId.clear();
+    // CQ29: last match's chassis claims must not block this car select.
+    this.state.players.forEach((p) => {
+      p.lockedCarId = "";
+    });
+          // Whatever pre-match display state the family owns (Conquer's zone bars, holder, streak,
+          // contested, overtime; nothing for the others) must not still be showing when CAR_SELECT /
+          // REVEAL / COUNTDOWN come up for this match. The results screen reads the final values
+          // before this fires, so it is unaffected. Resolved fresh, not cached — same as every other
+          // call site.
+    controllerOf(this.state.mode).onStartRequested(this.modeView());
+
+    this.state.arenaRevealEndsTick = 0;
+    this.state.arenaPickRandom = false;
+    if (opening.kind === "skip") {
+      this.state.arenaId = opening.arenaId;
+    } else if (opening.kind === "reveal") {
+      this.pickArena(opening.arenaId, false);
+    } else {
+      this.state.arenaHighlightId = opening.highlightId;
+      this.state.arenaSelectDeadlineTick =
+        this.state.tick + Math.ceil(flow().arenaSelectSeconds * TICK_RATE_HZ);
     }
-    if (
+  }
+
+  private arenaGate(sessionId: string): ArenaSelectGate {
+    return {
+      senderId: sessionId,
+      hostSessionId: this.state.hostSessionId,
+      senderOnRoster: this.matchRoster.has(sessionId),
+      phase: this.state.phase,
+      arenaRevealEndsTick: this.state.arenaRevealEndsTick,
+      arenas: this.modeConfig.arenas,
+    };
+  }
+
+  private onArenaHighlight(sessionId: string, msg: unknown): void {
+    const arenaId = acceptHighlight(this.arenaGate(sessionId), msg);
+    if (arenaId !== null) this.state.arenaHighlightId = arenaId;
+  }
+
+  private onArenaPick(sessionId: string, msg: unknown): void {
+    const pick = acceptPick(this.arenaGate(sessionId), msg, this.arenaRandom);
+    if (pick) this.pickArena(pick.arenaId, pick.random);
+  }
+
+  /** AR17: the one place a pick lands — a button, the deadline, or a one-arena mode. */
+  private pickArena(arenaId: string, random: boolean): void {
+    this.state.arenaId = arenaId;
+    this.state.arenaHighlightId = arenaId;
+    this.state.arenaPickRandom = random;
+    this.state.arenaRevealEndsTick = revealEndsTickFor(this.state.tick, flow(), random);
+  }
+
+  /** The phase-deadline chain of `step()`: arena select, car select, reveal, countdown. */
+  private advanceFlow(): void {
+    if (this.state.phase === RoomPhase.ARENA_SELECT) {
+      if (this.state.arenaRevealEndsTick === 0) {
+        if (this.state.tick >= this.state.arenaSelectDeadlineTick) {
+          // AR19: the clock picks whatever the host left highlighted.
+          this.pickArena(this.state.arenaHighlightId, false);
+        }
+      } else if (this.state.tick >= this.state.arenaRevealEndsTick) {
+        this.reduce({
+          type: "begin_car_select",
+          nowTick: this.state.tick,
+          carSelectTicks: getCarSelectSeconds(flow().carSelectSeconds) * TICK_RATE_HZ,
+        });
+      }
+    } else if (
       this.state.phase === RoomPhase.CAR_SELECT &&
       this.state.tick >= this.state.carSelectDeadlineTick
     ) {
@@ -540,6 +607,17 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     ) {
       this.reduce({ type: "go" });
     }
+  }
+
+  private step(): void {
+    this.state.tick += 1;
+    if (
+      this.state.phase === RoomPhase.MATCH &&
+      rulesOf(this.state.mode).respawns
+    ) {
+      respawnSweep(this.ctx());
+    }
+    this.advanceFlow();
     const { combatPlayers } = runPipeline(this.ctx());
     // Combat was skipped this tick (no match, or no roster), so there is nothing to win on.
     if (!combatPlayers) return;
