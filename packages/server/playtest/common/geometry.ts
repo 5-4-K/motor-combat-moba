@@ -2,8 +2,9 @@
  * Level-geometry probes, on arena-02 — the dusty rectangular pit with a continuous spike ring.
  *
  * Until 2026-09-12 this file drove into Crossroads' free-standing bunkers and the plus-shape's
- * concave inner corners. That arena is gone: both shipped floors are 1280×720 pits, and arena-02's
- * only solids are four `kind: "spike"` strips flush to an inset rectangular boundary. The questions
+ * concave inner corners. That arena is gone: both shipped floors are 1280×720 pits, and arena-02 is
+ * a tile arena (2026-10-09) whose only solids are a one-tile spike ring on the frame edge, with a
+ * wall tile in each corner, around a 1200×640 floor. The questions
  * (wedging, wall crush, lock/LOS, muzzle-in-wall, spawn clearance) are the same; the geometry they
  * are asked against is the spike ring.
  */
@@ -14,7 +15,7 @@ import {
   muzzleOffset,
   activeCarIds,
   fireSlotsOf,
-  spike,
+  playableRectOf,
   type ArenaDef,
   type CarId,
   type WeaponId,
@@ -61,33 +62,35 @@ function slotBitFor(c: CarId, w: WeaponId): number {
   return 1 << i;
 }
 
-/** Axis-aligned envelope of the inset `boundary` rect. arena-02's polygon is that rect. */
-function boundaryRect(arena: ArenaDef): { left: number; right: number; top: number; bottom: number } {
-  const verts = arena.boundary;
-  if (!verts || verts.length === 0) {
-    return { left: 0, right: arena.width, top: 0, bottom: arena.height };
-  }
-  const xs = verts.map((v) => v.x);
-  const ys = verts.map((v) => v.y);
-  return {
-    left: Math.min(...xs),
-    right: Math.max(...xs),
-    top: Math.min(...ys),
-    bottom: Math.max(...ys),
-  };
+/**
+ * The drivable floor's rectangle. `playableRectOf` answers a polygon arena's box, or a tile arena's
+ * non-solid cells — arena-02 has been tiles since 2026-10-09, with no `boundary` and its spike ring
+ * one tile deep on the frame edge, so neither the polygon nor the frame is the floor any more.
+ */
+function floorRect(arena: ArenaDef): { left: number; right: number; top: number; bottom: number } {
+  const r = playableRectOf(arena);
+  return { left: r.x, right: r.x + r.w, top: r.y, bottom: r.y + r.h };
 }
 
+/** The spike obstacle whose inner face is the floor's west edge, at the floor's mid-height. */
 function westSpike(arena: ArenaDef) {
-  const { left } = boundaryRect(arena);
-  const strip = arena.obstacles.find((o) => o.x === left && o.w === spike().depth);
+  const f = floorRect(arena);
+  const cy = (f.top + f.bottom) / 2;
+  const strip = arena.obstacles.find(
+    (o) => o.kind === "spike" && o.x + o.w === f.left && o.y <= cy && o.y + o.h >= cy,
+  );
   if (!strip) throw new Error(`${arena.id} has no west spike strip`);
   return strip;
 }
 
-/** Inclusive-on-the-edge, matching `pointOutsideBounds`: a centre ON a wall face has left the floor. */
+/**
+ * Has the centre left through the spike ring's OUTER face? Inclusive on the edge, matching
+ * `pointOutsideBounds`. Overlap with the ring itself is `insideObstacle`'s question, not this one.
+ */
 function outsidePlayable(arena: ArenaDef, x: number, y: number): boolean {
-  const b = boundaryRect(arena);
-  return x <= b.left || x >= b.right || y <= b.top || y >= b.bottom;
+  const f = floorRect(arena);
+  const d = westSpike(arena).w;
+  return x <= f.left - d || x >= f.right + d || y <= f.top - d || y >= f.bottom + d;
 }
 
 /** Is this pose inside any obstacle? Measured on the hull's axis-aligned envelope. */
@@ -107,21 +110,14 @@ function insideObstacle(arena: ArenaDef, x: number, y: number, angle: number): n
   return worst;
 }
 
-const WALL = boundaryRect(ARENA);
-// `WALL` may be a module-scope const — it is arena geometry, and arenas are a registry of their own
-// rather than part of any mode bundle. The west strip is NOT: `westSpike` matches a strip by
-// `spike().depth`, a per-mode number, so resolving it here would read the bundle at module scope and
-// freeze it for the process. Lazy, and memoised only because the arena cannot change under a run.
-let westStrip: ReturnType<typeof westSpike> | undefined;
-function west(): ReturnType<typeof westSpike> {
-  return (westStrip ??= westSpike(ARENA));
-}
-/** x of the west strip's inner face — the left edge of the drivable floor. */
-function innerLeft(): number {
-  return west().x + west().w;
-}
-const CX = (WALL.left + WALL.right) / 2;
-const CY = (WALL.top + WALL.bottom) / 2;
+// Arena geometry only — arenas are a registry of their own, not part of any mode bundle — so these
+// may be module-scope consts. The ring's depth is the west strip's own width (one tile on a tile
+// arena), not `spike().depth`, which is the per-mode notch depth hand-authored arenas use.
+const FLOOR = floorRect(ARENA);
+const WEST = westSpike(ARENA);
+const RING = WEST.w;
+const CX = (FLOOR.left + FLOOR.right) / 2;
+const CY = (FLOOR.top + FLOOR.bottom) / 2;
 
 /* --------------------------------------------- G1. driving into every wall from the centre */
 /**
@@ -175,7 +171,7 @@ function driveIntoGeometry(): void {
     "G1. Driving full-throttle into the spike-lined walls from 36 headings",
     stuckCases > 0 || ejectedCases > 0 ? "FINDING" : "OK",
     `deepest hull overlap with a spike strip: ${deepest.toFixed(2)}u (${worstCase || "none"}; ` +
-      `strips are ${spike().depth}u deep, so overlap up to that is the wall, not a clip)\n` +
+      `strips are ${RING}u deep, so overlap up to that is the wall, not a clip)\n` +
       `cars unable to reverse back out: ${stuckCases}/${total}\n` +
       `cars whose centre left the playable boundary: ${ejectedCases}/${total}`,
   );
@@ -188,20 +184,19 @@ function driveIntoGeometry(): void {
  * axis and either wedges or ejects a car — just no longer a concave notch.
  */
 function pitCorners(): void {
-  const depth = spike().depth;
   const corners = [
-    { x: WALL.left + depth, y: WALL.top + depth, name: "NW inner" },
-    { x: WALL.right - depth, y: WALL.top + depth, name: "NE inner" },
-    { x: WALL.left + depth, y: WALL.bottom - depth, name: "SW inner" },
-    { x: WALL.right - depth, y: WALL.bottom - depth, name: "SE inner" },
+    { x: FLOOR.left, y: FLOOR.top, name: "NW inner" },
+    { x: FLOOR.right, y: FLOOR.top, name: "NE inner" },
+    { x: FLOOR.left, y: FLOOR.bottom, name: "SW inner" },
+    { x: FLOOR.right, y: FLOOR.bottom, name: "SE inner" },
   ];
   // Keep starts on the floor: 200u out from a corner along some headings leaves the pit entirely.
   const pad = 80;
   const floor = {
-    left: WALL.left + depth + pad,
-    right: WALL.right - depth - pad,
-    top: WALL.top + depth + pad,
-    bottom: WALL.bottom - depth - pad,
+    left: FLOOR.left + pad,
+    right: FLOOR.right - pad,
+    top: FLOOR.top + pad,
+    bottom: FLOOR.bottom - pad,
   };
   const rows: string[] = [];
   let bad = false;
@@ -229,7 +224,7 @@ function pitCorners(): void {
         if (outsidePlayable(ARENA, p.x, p.y)) ejected = true;
       }
       // Overlap with the strips is the wall; past the strip depth, or off the floor, is the bug.
-      if (maxInside > spike().depth + 4 || ejected) {
+      if (maxInside > RING + 4 || ejected) {
         bad = true;
         rows.push(
           `${corner.name} @${deg} deg: spike overlap ${maxInside.toFixed(2)}u${ejected ? " EJECTED FROM ARENA" : ""}`,
@@ -242,7 +237,7 @@ function pitCorners(): void {
     bad ? "FINDING" : "OK",
     rows.length > 0
       ? rows.join("\n")
-      : `no overlap past the ${spike().depth}u strip depth and nothing ejected from the playable floor`,
+      : `no overlap past the ${RING}u strip depth and nothing ejected from the playable floor`,
   );
 }
 
@@ -254,7 +249,7 @@ function crushAgainstObstacle(): void {
   let deepestGeom = 0;
   let ejected = false;
   // Victim flush against the west strip's inner face; a bastion at top speed drives it into the wall.
-  const vicX = innerLeft() + DRIVE_CONFIG.carWidth / 2 + 1;
+  const vicX = FLOOR.left + DRIVE_CONFIG.carWidth / 2 + 1;
   const atkX = vicX + 60;
   for (let deg = 0; deg < 360; deg += 45) {
     const a = (deg * Math.PI) / 180;
@@ -318,11 +313,11 @@ function beamInWall(): void {
     const bit = slotBitFor(carrier, id);
     // Centre just inside the floor, firing west: the muzzle lands inside the west strip. Collision
     // pushes the hull east onto the inner face, which is still a blocked d=0 sample (inclusive).
-    const sx = innerLeft() + muzzleOffset() - 8;
+    const sx = FLOOR.left + muzzleOffset() - 8;
     const w = new PlaytestWorld(
       [
         { id: "s", carId: carrier, x: sx, y: CY, angle: Math.PI, team: 0 },
-        { id: "t", carId: "bastion", x: west().x - 40, y: CY, angle: 0, team: 0 },
+        { id: "t", carId: "bastion", x: WEST.x - 40, y: CY, angle: 0, team: 0 },
       ],
       "ffa",
       "arena-02",
@@ -341,11 +336,11 @@ function beamInWall(): void {
     const dealt = hp0 - w.get("t").hp;
     // The far-side target is in the wall band and will be clamped inward; damage after that clamp
     // is not a through-wall leak. Extent growing past the strip is.
-    if (maxExtent > spike().depth + 4) leak = true;
+    if (maxExtent > RING + 4) leak = true;
     rows.push(
       `${id.padEnd(11)} muzzle in the west strip, firing west: max wallward extent ${maxExtent.toFixed(0)}u, ` +
         `damage to the far-side car ${dealt}` +
-        (maxExtent > spike().depth + 4 ? " <- BEAM GREW PAST THE STRIP" : ""),
+        (maxExtent > RING + 4 ? " <- BEAM GREW PAST THE STRIP" : ""),
     );
   }
   report("G6. Beam fired with its muzzle buried in a spike strip", leak ? "FINDING" : "OK", rows.join("\n"));

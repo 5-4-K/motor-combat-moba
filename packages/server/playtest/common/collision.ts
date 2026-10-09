@@ -18,6 +18,7 @@ import {
   speedOf,
   getArena,
   msToTicks,
+  playableRectOf,
   NET_CONFIG,
   type CarId,
 } from "@motor-combat-moba/shared";
@@ -34,6 +35,12 @@ import { Reporter } from "./reporter.js";
 installPlaytestMode();
 
 const ARENA = getArena("arena-01");
+// The drivable floor, not the image frame: since 2026-10-09 arena-01 is a tile arena whose wall
+// tiles sit inside its 1280x720 frame, so `ARENA.width` is a point inside the right-hand wall.
+// Arena geometry, not a mode number, so a module-scope const is fine.
+const FLOOR = playableRectOf(ARENA);
+const FLOOR_LEFT = FLOOR.x;
+const FLOOR_RIGHT = FLOOR.x + FLOOR.w;
 // The OBB hull, and the ONE raw read in this file that is correct (MC35): `carWidth`/`carHeight`
 // are GLOBAL — one hull for every mode, excluded from `ModeTables` by type — so reading them off
 // the raw global says where the value comes from, and is the only banned identifier a module-scope
@@ -159,7 +166,7 @@ function wallSandwich(): void {
     // B parked flush against the left wall, A driving into it at full speed.
     const w = new PlaytestWorld([
       { id: "A", carId, x: 400, y: 360, angle: Math.PI, speed: forwardMaxSpeedOf(carId) },
-      { id: "B", carId, x: W / 2, y: 360, angle: Math.PI },
+      { id: "B", carId, x: FLOOR_LEFT + W / 2, y: 360, angle: Math.PI },
     ]);
     let maxDepth = 0;
     let minX = Infinity;
@@ -172,12 +179,12 @@ function wallSandwich(): void {
       minX = Math.min(minX, w.get("B").x);
     }
     // Out-of-arena is measured on the hull, not the centre.
-    const outside = minX < W / 2 - 0.01;
+    const outside = minX < FLOOR_LEFT + W / 2 - 0.01;
     if (outside) escaped = true;
     deepest = Math.max(deepest, maxDepth);
     rows.push(
       `${carId.padEnd(9)} peak overlap ${maxDepth.toFixed(1)}u, victim min x ${minX.toFixed(1)} ` +
-        `(wall-flush is ${(W / 2).toFixed(0)}) ${outside ? "<- LEFT THE ARENA" : ""}`,
+        `(wall-flush is ${(FLOOR_LEFT + W / 2).toFixed(0)}) ${outside ? "<- LEFT THE ARENA" : ""}`,
     );
   }
   report(
@@ -214,7 +221,7 @@ function pileUp(): void {
     for (const a of ids) {
       const pa = w.get(a);
       if (!Number.isFinite(pa.x) || !Number.isFinite(pa.y) || !Number.isFinite(pa.angle)) nan = true;
-      if (pa.x < 0 || pa.y < 0 || pa.x > ARENA.width || pa.y > ARENA.height) outOfBounds = true;
+      if (pa.x < FLOOR.x || pa.y < FLOOR.y || pa.x > FLOOR_RIGHT || pa.y > FLOOR.y + FLOOR.h) outOfBounds = true;
       for (const b of ids) {
         if (a >= b) continue;
         maxDepth = Math.max(maxDepth, overlapDepth(pa, w.get(b)));
@@ -274,7 +281,7 @@ function ramIntoWall(): void {
   for (const victim of ["mirage", "bullseye", "bastion"] as CarId[]) {
     // Bastion (the roster's highest ramAttack/ramDefence, 70/90) at top speed rear-ending a victim
     // parked against the right wall.
-    const wallX = ARENA.width - W / 2;
+    const wallX = FLOOR_RIGHT - W / 2;
     const w = new PlaytestWorld([
       { id: "attacker", carId: "bastion", x: wallX - W - 4, y: 360, angle: 0, speed: forwardMaxSpeedOf("bastion") },
       { id: "victim", carId: victim, x: wallX, y: 360, angle: 0 },
@@ -585,7 +592,7 @@ function ramChain(): void {
  * break in ten seconds of trying is pressure; one they cannot is a cage.
  */
 function wallPin(): void {
-  const wallX = ARENA.width;
+  const wallX = FLOOR_RIGHT;
   const strategies = [
     { name: "reverse straight", input: { throttle: -1, steer: 0 } },
     { name: "reverse, full lock", input: { throttle: -1, steer: 1 } },
