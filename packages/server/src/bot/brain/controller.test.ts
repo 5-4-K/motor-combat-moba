@@ -924,8 +924,8 @@ describe("inCorner", () => {
   });
 
   it("classifies a rectangular arena exactly as the width/height rule did", () => {
-    // The same three cases the old `onX && onY` answered, so `arena-02` is untouched: a corner is
-    // near two planes, an edge near one, open floor near none.
+    // The same three cases the old `onX && onY` answered, so a plane-less rectangle reads exactly
+    // as before: a corner is near two planes, an edge near one, open floor near none.
     expect(inCorner({ x: 95, y: 95 }, rect)).toBe(false);
     expect(inCorner({ x: 30, y: 30 }, rect)).toBe(true);
     expect(inCorner({ x: 30, y: 360 }, rect)).toBe(false);

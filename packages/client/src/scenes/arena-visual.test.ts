@@ -105,7 +105,7 @@ describe("art-less arena extras (CQ49–CQ51)", () => {
     expect(gaps).toHaveLength(4);
     for (const g of gaps) expect(g).toHaveLength(3);
   });
-  it("finds no gaps on a boundary equal to its frame, and skips the centre circle only when a zone exists", () => {
+  it("skips the centre circle only when a zone exists", () => {
     expect(markingsCircleVisible(ARENA_03)).toBe(false);
     expect(markingsCircleVisible(ARENA_02)).toBe(true);
   });

@@ -35,7 +35,7 @@ describe("planesOf", () => {
   });
 
   it("points a chamfer's normal into the arena", () => {
-    // The top-left chamfer of ARENA_01, as its own two-vertex edge. Vertex order matters: this is
+    // The top-left chamfer of the retired ARENA_01 octagon, as its own two-vertex edge. Vertex order matters: this is
     // the CLOCKWISE direction, the same one the octagon winds. Reversed, the normal points out.
     const [plane] = planesOf([{ x: 74, y: 104 }, { x: 124, y: 54 }]);
     expect(plane!.nx).toBeCloseTo(Math.SQRT1_2, 12);

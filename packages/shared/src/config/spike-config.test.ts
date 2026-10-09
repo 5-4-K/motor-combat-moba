@@ -7,7 +7,7 @@ describe("SPIKE_CONFIG", () => {
     expect(SPIKE_CONFIG.damage).toBe(80);
   });
 
-  it("states the notch depth the arena geometry is authored against", () => {
+  it("states the notch depth hand-written arena geometry is authored against", () => {
     expect(SPIKE_CONFIG.depth).toBe(20);
   });
 
