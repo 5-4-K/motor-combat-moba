@@ -57,7 +57,8 @@ motor-combat-MOBA/
 │   │   ├── types.ts              # ArenaDef, Obstacle, Spawn, ArenaPalette
 │   │   ├── arena-01.ts           # first arena layout
 │   │   ├── arena-02.ts           # second arena layout
-│   │   ├── tiles/                # tile arenas (TA): tile-config.ts (TILE_SIZE, TILE_TABLE), compile.ts (compileTileArena, parseTileGrid, greedy merge), tile-collision.test.ts
+│   │   ├── tiles/                # tile arenas (TA): tile-config.ts (TILE_SIZE, TILE_DEFS, rotateSides), legend.ts (DEFAULT_LEGEND, effectiveLegend), compile.ts (compileTileArena: legend -> TileCell grid, greedy merge), art-ids.ts (overlayArtIds, referencedTileArtIds), tile-collision.test.ts
+│   │   ├── faces.ts              # WorldFace, facesOfNormal (which face a contact normal hits; spike damage + bot)
 │   │   ├── bounds.ts             # boundsOf, playableRectOf / playableExtentOf / playablePlanesOf
 │   │   ├── registry.ts           # ARENAS map, ArenaId, isArenaId, getArena, ARENA_IDS
 │   │   └── art-keys.ts           # arena.<id>.<slot> namespace parser, used by client and release script

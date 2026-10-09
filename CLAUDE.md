@@ -81,7 +81,7 @@ on the moved file(s), never a blanket `-u`. `table-pinning.test.ts` and `parity.
 ### What is NOT per-mode, and why
 
 `TICK_RATE_HZ`, `NET_CONFIG`, `SNAPSHOT_RATE_HZ`, the enum wire values, `ABILITY_SLOT_CEILING`,
-`MAX_PLAYERS`, `TILE_SIZE` and `TILE_TABLE` (tile arenas, 2026-10-09), `COLOR_TABLE`, `PRACTICE_CONFIG`, `CHAT_CONFIG`, `LOGICAL_CANVAS`, and the OBB hull
+`MAX_PLAYERS`, `TILE_SIZE` and `TILE_DEFS` (tile arenas, 2026-10-09), `COLOR_TABLE`, `PRACTICE_CONFIG`, `CHAT_CONFIG`, `LOGICAL_CANVAS`, and the OBB hull
 (`DRIVE_CONFIG.carWidth` / `carHeight`) are global. The hull is excluded from `ModeTables` **by
 type**, so a mode folder cannot author one even by accident. `MAX_PLAYERS` is on that list as the
 CEILING, not as the seat count: a mode authors its own `maxPlayers` in its `index.ts`, and
@@ -519,7 +519,14 @@ See [`docs/superpowers/specs/2026-09-16-playground-six-car-select-design.md`](do
 
 **`arena-01` is a tile arena as of 2026-10-09.** It is a 32 × 18 text grid compiled by
 `compileTileArena` (`packages/shared/src/arena/tiles/`) into ordinary `obstacles`: playable floor
-1200 × 640 inside a one-tile wall, square corners, fourteen spike runs set into that wall. `arena-02` keeps its
+1120 × 640 inside a one-tile wall, square corners, fourteen spike runs set into that wall. **Tiles are
+cells, not ids (tile cells, 2026-10-09):** a row is one-character keys, a per-arena `legend` merged
+over `DEFAULT_LEGEND` (`.` floor, `#` wall, `^` spike, space void; arena-01 needs none) maps each key
+to a cell `{ tile, orientation?, art?, artOrientation?, overlay? }`, and `compileTileArena` resolves
+`ArenaDef.tiles` to a `TileCell` grid. `TILE_DEFS` is behaviour only (solidity, a hazard and which
+`sides` of it hurt); the look is named on the cell, so one def can wear any art. A one-sided spike
+compiles to an obstacle with `damageFaces`, and the sim's spike contact and the bot's `spikesAhead`
+both skip its safe faces (`facesOfNormal`). `arena-02` keeps its
 rectangle with a continuous spike ring and `arena-03` its chamfered polygon, both hand-written. The
 `boundary` vertex list on `ArenaDef` remains the mechanism for a non-rectangular hand-written arena:
 inward half-planes through `Bounds`, resolved by a positional clamp, with `boundsOf(arena)` the one
@@ -527,7 +534,9 @@ place a `Bounds` is built. `width`/`height` keep meaning the image frame and cam
 (`1280 × 720`). `kind: "spike"` obstacles are ordinary solids to driving, projectiles and the bot,
 with one more behaviour layered on top (next). See
 [`docs/superpowers/specs/2026-10-09-tile-arenas-design.md`](docs/superpowers/specs/2026-10-09-tile-arenas-design.md)
-(TA1-TA31).
+(TA1-TA31), superseded in part by
+[`docs/superpowers/specs/2026-10-09-tile-cells-design.md`](docs/superpowers/specs/2026-10-09-tile-cells-design.md)
+(TC).
 
 **Spikes are the game's first environmental damage source.** `SPIKE_CONFIG` deals a flat 80 damage,
 gated on a **fresh push into the surface** — speed into the wall above `triggerSpeed`, so resting
