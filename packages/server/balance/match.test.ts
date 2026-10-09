@@ -234,18 +234,6 @@ describe("runMatch", () => {
     // rate than earlier reseeds in this history, consistent with an anticipatory reflex that now
     // fires through most of a fight rather than only near a wall.
     //
-    // `seed: 124`, not 59: the final whole-branch review's fix wave (2026-09-06) made two changes
-    // that both move WHEN a hard bot presses a slot, which is exactly this matchup's clock. R20
-    // replaced `minShotValue` (an absolute EV-per-second number) with `minShotValueFraction` (a
-    // fraction of `bestAchievableValueOf`, the shooter's own kit ceiling) after measurement showed
-    // the absolute version made a hard Bastion never fire at all; the new values (easy 0.01, medium
-    // 0.05, hard 0.3) are calibrated against a genuinely different quantity than the old ones (0.5,
-    // 7, 25) ever were, so a hard bot's fire timing shifts. R21 separately restored `leadFactor`
-    // (0.95 on hard), which had been silently hardcoded to 1 — a hands upgrade in exactly the axis
-    // that separates the tiers — so `interceptPoint`'s aim point moves too. Swept 1-150 against the
-    // fixed brain: 10, 15, 26, 30, 32, 39, 40, 65, 70, 71, 75, 77, 85, 87, 95, 106, 124, 127, 135,
-    // 136, 138, 142, and 147 land a kill inside the window.
-    //
     // `seed: 59`, not 10: Task 7 (2026-09-05) replaced the angular fire gate with the solver's
     // expected-value threshold (`minShotValue`) and re-keyed `compensateForLag`'s steering deadzone
     // cap onto `aimToleranceRad` now that `fireConeRad` is gone (`BRAIN_CONSTANTS.deadzoneCapMultiplier`)
@@ -479,8 +467,8 @@ describe("runMatch", () => {
     // FIXTURE ROBUSTNESS FIX (final review, finding 8, applied to this test's sibling defect). This
     // used to pin ONE seed and assert it came back `[1, 2]` — which is a claim about that seed
     // being decisive, not about the ranking rule, and it needed a fresh seed after every layer of
-    // the brain that moved this matchup (2 -> 11 -> 9 -> 40 -> 8, and the ram/blunder fixes in this
-    // very review broke seed 8 in turn). The RULE — more kills places ahead; equal kills, fewer
+    // the brain that moved this matchup (2 -> 11 -> 9 -> 40 -> 8, then 8 broke in
+    // turn). The RULE — more kills places ahead; equal kills, fewer
     // deaths places ahead; equal on both places equal — is checkable on EVERY outcome, decisive or
     // drawn, so it is asserted across a spread of seeds instead of hidden behind one lucky one.
     // Seeds 9 and 10 replace 7 and 8 for the same reason the sibling test above re-seeded: the

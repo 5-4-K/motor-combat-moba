@@ -18,6 +18,8 @@ for the design this implements.
 Two things distort every run today, and two more distorted runs before fixes that have since landed.
 Read all four before you read a report.
 
+**`BOT_BRAIN_VERSION` 7.0.0 (2026-10-10) is a different pilot, and no 6.x report compares to a 7.0.0 one.** The 7.0.0 bot fires any weapon whose solved hit chance clears its tier's bar, cooldown ignored, so long-cooldown weapons are pressed as often as they land (6.x's EV-per-second gate left three of twelve weapons unfired); it rams when its kit is dry, so `ramAttack`/`ramDefence` are measured for the first time; and it carries no coin flips, so match variance comes from seeds and hands alone. Design: `docs/superpowers/specs/2026-10-09-bot-brain-v7-design.md`. Measured on the 30 s seed-7 deathmatch: 6.8.0 8.2 s, 7.0.0 5.0 s.
+
 **`wildcharge` was unpressable until 2026-09-04, so reports from before then understate Bastion.**
 The bot's fire logic only pressed slot `i` when `distance < slotRanges[i]`, and `WEAPON_TABLE.wildcharge`
 has `range: 0` (a charge dashes nowhere, so it was never meant to be range-gated) — a distance is
@@ -80,19 +82,6 @@ dealt-versus-taken asymmetry on a spiked arena as that, not as a bug.
 (`overheated`, not `corroded`, is the game's only *damaging* status pulse — 8 damage every 400 ms,
 applied only by `afterburner`. An earlier project draft had that backwards; the harness's own
 `attribution.ts` carries the correction in its header. Don't reintroduce the swap.)
-
-**`proxyValue` still scores a turret weapon (TR26) by the shooter's nose, not its turret bearing —
-this does not touch a report's pressed-shot numbers, only what the bot's planner reads into them.**
-The exact gate a report's bots actually fire on, `solution.ts`'s `solve()`, is correct for a turret
-row: it leads from the pivot and budgets the swing before pricing the shot, so hit rates and
-per-weapon damage in a report are unaffected by this. `proxyValue` (and `proxyDangerAgainst`, built
-on it) is the cheap stand-in the PLANNER uses to judge a candidate pose, and it was never updated to
-know a weapon can be turreted — it still measures the angle off the nose. So a report's win rates and
-positioning-driven numbers for a turret-armed chassis are conditioned on a planner that under-rates
-danger from an opponent who is nose-off but turret-on-target, and may steer its own bot to face a
-target it does not need to face. See [`docs/bot-behavior.md`](../../../docs/bot-behavior.md#known-limitations)
-for the fuller note; this is a known bot limitation carried into every report, not something a
-config edit here can fix.
 
 ---
 
