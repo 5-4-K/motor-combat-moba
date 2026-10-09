@@ -7,6 +7,7 @@ import {
 export function toFlowPhase(
   phase: RoomPhase,
 ): "lobby" | "arena_select" | "car_select" | "reveal" | "countdown" | "match" {
+  if (phase === RoomPhase.ARENA_SELECT) return "arena_select";
   if (phase === RoomPhase.CAR_SELECT) return "car_select";
   if (phase === RoomPhase.REVEAL) return "reveal";
   if (phase === RoomPhase.COUNTDOWN) return "countdown";
@@ -17,6 +18,7 @@ export function toFlowPhase(
 export function fromFlowPhase(
   phase: "lobby" | "arena_select" | "car_select" | "reveal" | "countdown" | "match",
 ): RoomPhase {
+  if (phase === "arena_select") return RoomPhase.ARENA_SELECT;
   if (phase === "car_select") return RoomPhase.CAR_SELECT;
   if (phase === "reveal") return RoomPhase.REVEAL;
   if (phase === "countdown") return RoomPhase.COUNTDOWN;

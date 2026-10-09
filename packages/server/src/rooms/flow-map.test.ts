@@ -8,6 +8,11 @@ import {
 } from "./flow-map.js";
 
 describe("fromFlowPhase / toFlowPhase", () => {
+  it("maps ARENA_SELECT both ways (AR10)", () => {
+    expect(toFlowPhase(RoomPhase.ARENA_SELECT)).toBe("arena_select");
+    expect(fromFlowPhase("arena_select")).toBe(RoomPhase.ARENA_SELECT);
+  });
+
   it("maps RoomPhase to flow phase strings and back", () => {
     expect(toFlowPhase(RoomPhase.LOBBY)).toBe("lobby");
     expect(toFlowPhase(RoomPhase.CAR_SELECT)).toBe("car_select");
