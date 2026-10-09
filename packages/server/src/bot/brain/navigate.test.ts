@@ -23,11 +23,13 @@ describe("steerToward: nose (BB24, BB25)", () => {
     const out = steerToward({ self: at(0, 0), goal: goal({ x: 100, y: 0, range: 300 }), aimOffsetRad: 0, state: newNavState() });
     expect(out).toEqual({ steer: 0, throttle: -1 });
   });
-  it("drives away at an angle when too close and reversing is not allowed", () => {
-    const state = newNavState();
-    const out = steerToward({ self: at(0, 0), goal: goal({ x: 100, y: 0, range: 300, reverseOk: false }), aimOffsetRad: 0, state });
-    expect(out.throttle).toBe(1);
-    expect(out.steer).not.toBe(0);
+  it("holds still when too close and reversing is not allowed", () => {
+    const out = steerToward({ self: at(0, 0), goal: goal({ x: 100, y: 0, range: 300, reverseOk: false }), aimOffsetRad: 0, state: newNavState() });
+    expect(out).toEqual({ steer: 0, throttle: 0 });
+  });
+  it("forwardOnly too close still drives forward, nose on", () => {
+    const out = steerToward({ self: at(0, 0), goal: goal({ x: 100, y: 0, range: 300, forwardOnly: true }), aimOffsetRad: 0, state: newNavState() });
+    expect(out).toEqual({ steer: 0, throttle: 1 });
   });
   it("the realised aim offset wanders the nose", () => {
     const out = steerToward({ self: at(0, 0), goal: goal({ x: 500, y: 0, range: 100 }), aimOffsetRad: 0.2, state: newNavState() });
@@ -45,7 +47,15 @@ describe("steerToward: orbit (BB24, BB27)", () => {
     const out = steerToward({ self: at(0, 0), goal: goal({ x: 300, y: 1, range: 300, facing: "orbit" }), aimOffsetRad: 0, state });
     expect(out.throttle).toBe(1);
     expect(state.orbitSide).toBe(1);
-    expect(out.steer).toBe(-1); // desired offset +0.6, current ~0: error negative
+    expect(out.steer).toBe(-1); // desired offset +0.45, current ~0: error negative
+  });
+  it("backs out nose-on when too close and reversing is allowed", () => {
+    const out = steerToward({ self: at(0, 0), goal: goal({ x: 100, y: 1, range: 300, facing: "orbit" }), aimOffsetRad: 0, state: newNavState() });
+    expect(out).toEqual({ steer: 0, throttle: -1 });
+  });
+  it("lifts off when too close and reversing is not allowed", () => {
+    const out = steerToward({ self: at(0, 0), goal: goal({ x: 100, y: 1, range: 300, facing: "orbit", reverseOk: false }), aimOffsetRad: 0, state: newNavState() });
+    expect(out.throttle).toBe(0);
   });
   it("drives straight at a target that is far outside the band", () => {
     const state = newNavState();
@@ -79,6 +89,11 @@ describe("steerToward: free (BB25, BB26)", () => {
     expect(out.throttle).toBe(1);
     expect(out.steer).toBe(1);
   });
+  it("forwardOnly turns toward a point behind it and never takes the tail path", () => {
+    const out = steerToward({ self: at(0, 0), goal: goal({ x: -200, y: 20, facing: "free", forwardOnly: true }), aimOffsetRad: 0, state: newNavState() });
+    expect(out.throttle).toBe(1);
+    expect(out.steer).toBe(1);
+  });
 });
 
 describe("the latch (BB28)", () => {
@@ -90,6 +105,13 @@ describe("the latch (BB28)", () => {
     expect(aimed(dead * 0.8)).toBe(1);
     expect(aimed(dead * 0.4)).toBe(0);
     expect(aimed(dead * 0.8)).toBe(0);
+  });
+  it("does not hold the wheel across a sign change inside the hold window", () => {
+    const state = newNavState();
+    const aimed = (err: number) => steerToward({ self: at(0, 0, 0), goal: goal({ x: Math.cos(err) * 1000, y: Math.sin(err) * 1000, range: 100 }), aimOffsetRad: 0, state }).steer;
+    expect(aimed(0.12)).toBe(1);
+    expect(aimed(-0.045)).toBe(0);
+    expect(aimed(-0.12)).toBe(-1);
   });
 });
 

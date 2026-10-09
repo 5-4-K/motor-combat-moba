@@ -29,19 +29,19 @@ export function newNavState(): NavState {
   return { orbitSide: 0, steering: 0 };
 }
 
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.min(hi, Math.max(lo, v));
-}
-
 function sign(v: number): -1 | 0 | 1 {
   return v > 0 ? 1 : v < 0 ? -1 : 0;
 }
 
-/** Hysteresis on the wheel: start beyond the deadband, stop inside half of it (BB28). */
+/**
+ * Hysteresis on the wheel (BB28): start beyond the deadband, stop inside half of it, and between
+ * the two keep the wheel only while the error still has the sign it was held for.
+ */
 function latch(state: NavState, err: number): -1 | 0 | 1 {
   const dead = BRAIN_CONSTANTS.steerDeadbandRad;
-  if (Math.abs(err) > dead) state.steering = sign(err);
-  else if (Math.abs(err) < dead / 2) state.steering = 0;
+  const mag = Math.abs(err);
+  if (mag > dead) state.steering = sign(err);
+  else if (mag < dead / 2 || sign(err) !== state.steering) state.steering = 0;
   return state.steering;
 }
 
@@ -59,6 +59,8 @@ export function steerToward(args: {
   const d = Math.hypot(dx, dy);
   const e = d - goal.range;
   const bearing = Math.atan2(dy, dx);
+  // A ram (forwardOnly) cannot reverse, so the tail-steer path never runs under it.
+  const canReverse = goal.reverseOk && !goal.forwardOnly;
   let delta = signedDelta(self.angle, bearing);
   let desiredOff = 0;
   let throttle: -1 | 0 | 1;
@@ -66,26 +68,24 @@ export function steerToward(args: {
   if (goal.facing === "nose") {
     delta = wrapAngle(delta + args.aimOffsetRad);
     if (e > c.rangeBandUnits) throttle = 1;
-    else if (e < -c.rangeBandUnits) {
-      if (goal.reverseOk) throttle = -1;
-      else {
-        throttle = 1;
-        if (state.orbitSide === 0) state.orbitSide = sign(delta) || 1;
-        desiredOff = state.orbitSide * 2 * c.orbitOffsetRad;
-      }
-    } else throttle = 0;
+    else if (e < -c.rangeBandUnits) throttle = canReverse ? -1 : 0;
+    else throttle = 0;
   } else if (goal.facing === "orbit") {
-    throttle = 1;
+    // A weave: drive in at an angle across the band, back out nose-on, never stop moving (BB24).
     if (state.orbitSide === 0) state.orbitSide = sign(delta) || 1;
     else if (sign(delta) !== state.orbitSide && Math.abs(delta) > Math.PI / 2) state.orbitSide = state.orbitSide === 1 ? -1 : 1;
-    const k = clamp(e / c.rangeBandUnits, -1, 1);
-    desiredOff = state.orbitSide * c.orbitOffsetRad * (1 - k);
+    if (e > c.rangeBandUnits) throttle = 1;
+    else if (e < -c.rangeBandUnits) throttle = canReverse ? -1 : 0;
+    else {
+      throttle = 1;
+      desiredOff = state.orbitSide * c.orbitOffsetRad;
+    }
   } else {
     if (d <= c.rangeBandUnits) {
       state.steering = 0;
       return { steer: 0, throttle: goal.forwardOnly ? 1 : 0 };
     }
-    if (Math.abs(delta) <= Math.PI / 2 || !goal.reverseOk) throttle = 1;
+    if (Math.abs(delta) <= Math.PI / 2 || !canReverse) throttle = 1;
     else {
       throttle = -1;
       delta = signedDelta(self.angle + Math.PI, bearing);

@@ -214,7 +214,7 @@ describe("BOT_PROFILES", () => {
     expect(BRAIN_CONSTANTS.comfortFraction).toBe(0.85);
     expect(BRAIN_CONSTANTS.rangeBandUnits).toBe(40);
     expect(BRAIN_CONSTANTS.steerDeadbandRad).toBe(0.06);
-    expect(BRAIN_CONSTANTS.orbitOffsetRad).toBe(0.6);
+    expect(BRAIN_CONSTANTS.orbitOffsetRad).toBe(0.45);
     expect(BRAIN_CONSTANTS.dodgeDistanceUnits).toBe(120);
     expect(BRAIN_CONSTANTS.unpinDistanceUnits).toBe(180);
     expect(BRAIN_CONSTANTS.ramRangeUnits).toBe(400);

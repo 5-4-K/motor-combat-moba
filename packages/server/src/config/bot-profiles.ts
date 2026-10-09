@@ -364,8 +364,12 @@ export const BRAIN_CONSTANTS = Object.freeze({
   rangeBandUnits: 40,
   /** Steering latch: start steering beyond this error, stop inside half of it (BB28). */
   steerDeadbandRad: 0.06,
-  /** Where an orbiting bot holds the target off its nose; inside the 60° turret arc (BB24). */
-  orbitOffsetRad: 0.6,
+  /**
+   * How far off its nose an orbiting bot holds the target while inside the range band (BB24).
+   * `maxSwingDeg` 60 is the TOTAL turret arc, so the reachable half-arc is ±0.524 rad; 0.45 leaves
+   * a 4° margin.
+   */
+  orbitOffsetRad: 0.45,
   /** How far a dodge goal is projected off the shot's line (BB23). */
   dodgeDistanceUnits: 120,
   /** How far an unpin goal is projected along the wall push (BB23). */
