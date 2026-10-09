@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, applyOverrides, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import {
+  DEFAULT_GAME_MODE,
+  applyOverrides,
+  assembleModeConfig,
+  installMode,
+  modeConfigOf,
+  type ModeConfig,
+  type ModeTables,
+} from "@motor-combat-moba/shared";
 import {
   TICK_RATE_HZ, TURRET_TICKS, boundsOf, msToTicks, carHullOf, instanceExpired, resolveInstanceHits,
   spawnInstances, stepInstance, turretPivotOf, weaponDefOf, weaponTicksOf, weapons, wrapAngle,
@@ -12,6 +20,20 @@ import {
 } from "./solution.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+
+/**
+ * The default bundle with `roadblock`'s `turret` removed. The fixed-muzzle cases below test how the
+ * solver handles A fixed muzzle, not which shipped rows have one: `roadblock` became a turret row in
+ * the 2026-10-08 turret decoupling, and every remaining fixed-muzzle projectile is a multi-pellet fan
+ * that would invalidate P48's hand-measured edge. Deleting the field is the only way to drop an
+ * optional row field, so the row is otherwise exactly the shipped one.
+ */
+function withFixedMuzzleRoadblock(): ModeConfig {
+  const base = modeConfigOf(DEFAULT_GAME_MODE);
+  const tables = structuredClone(base) as ModeTables & { weapons: Record<string, { turret?: unknown }> };
+  delete tables.weapons.roadblock!.turret;
+  return assembleModeConfig(base.id, tables);
+}
 // Also installed directly, synchronously, at module scope: fixture constants below (and
 // some describe bodies) read config during test COLLECTION, which happens once, before any
 // beforeEach hook ever fires.
@@ -68,6 +90,7 @@ describe("solve — projectile", () => {
   });
 
   it("is near zero when a fixed muzzle is pointed 90 degrees away", () => {
+    installMode(withFixedMuzzleRoadblock());
     // `roadblock`, not `predator`: predator is a turret row now (TR26), and a turret aims by
     // bearing — see "solve — turret" below for what the same geometry reads there.
     const target = targetAt(400, 0);
@@ -257,6 +280,7 @@ describe("solve — explosion", () => {
 
 describe("solve — nose, not bearing", () => {
   it("prices every weapon through the shooter's own aim error, off-nose included", () => {
+    installMode(withFixedMuzzleRoadblock());
     // Was "solve — aim assist": `predator` held a live lock used to be steered onto the bearing
     // with sigma forced to 0, so an off-nose shot read as near certain. Nothing steers a shot now,
     // so a shooter aimed off a target 300 units away must read as a likely miss, and the same
@@ -387,6 +411,7 @@ describe("solve — turret (TR26)", () => {
   });
 
   it("keeps a fixed muzzle bound to the nose, and reports no bearing for it", () => {
+    installMode(withFixedMuzzleRoadblock());
     const target = targetAt(300, 400);
     const solution = solve({
       shooter: { ...shooterAt(300, 100, 0), carId: "bastion" },
@@ -407,6 +432,7 @@ describe("solver ground truth (P48)", () => {
   // fixed-muzzle projectile. The comments below keep predator's measurements as the record of what
   // was found; the turret path's own ground truth is "leads a crossing target" in "solve — turret".
   it("agrees with resolveInstanceHits about whether a fixed-muzzle shot lands", () => {
+    installMode(withFixedMuzzleRoadblock());
     // Walk the target across a range of lateral offsets. For each, ask the solver with perfect
     // hands, then fire the real shot through the sim and see whether it connects. The two must
     // agree on every offset -- this is what makes the solver honest about the game rather than

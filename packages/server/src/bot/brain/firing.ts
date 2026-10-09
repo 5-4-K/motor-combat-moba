@@ -1,4 +1,12 @@
-import { hasStatus, slots, weaponDefOf } from "@motor-combat-moba/shared";
+import {
+  cars,
+  fireSlotsOf,
+  hasStatus,
+  slots,
+  weaponDefOf,
+  type CarId,
+  type WeaponId,
+} from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
 import type { Rng } from "../rng.js";
 import type { BotCarView, BotSelfView, BotSlotView, SituationId } from "../types.js";
@@ -20,9 +28,29 @@ export function slotIsReady(slot: BotSlotView, tick: number): boolean {
   return slot.stocks >= 1 && tick >= slot.refireLockUntilTick;
 }
 
-/** A long-cooldown weapon, worth saving for a moment (H30). */
-export function isUlt(slot: BotSlotView): boolean {
-  return weaponDefOf(slot.weaponId).cooldownMs >= BRAIN_CONSTANTS.ultCooldownMs;
+/**
+ * Whether the weapon in this FIRE SLOT is an ult, worth saving for a moment (H30).
+ *
+ * Decided by slot, not by cooldown: `BRAIN_CONSTANTS.ultFireSlots` names the slots (fire slot 3, the
+ * third ability, by default). The cooldown rule this replaced (`cooldownMs >= 5000`) quietly turned
+ * whole kits into ults once cooldowns were retuned upward, and a bot holding every slot for a good
+ * moment against a healthy target never fires at all.
+ */
+export function isUlt(fireSlotIndex: number): boolean {
+  return BRAIN_CONSTANTS.ultFireSlots.includes(fireSlotIndex);
+}
+
+/**
+ * Whether this weapon sits in an ult slot of the chassis that carries it — for reading an
+ * OPPONENT's fire, where only the weapon id was seen. Weapon exclusivity (L1) means a weapon has one
+ * carrier, so its fire slot is unambiguous.
+ */
+export function isUltWeapon(weaponId: WeaponId): boolean {
+  for (const carId of Object.keys(cars()) as CarId[]) {
+    const index = fireSlotsOf(carId).indexOf(weaponId);
+    if (index !== -1) return isUlt(index);
+  }
+  return false;
 }
 
 /**
@@ -74,6 +102,14 @@ export function isUlt(slot: BotSlotView): boolean {
  * standoff: the 470 quoted in the paragraph above was measured at 48x32, and a neutral hard Bullseye
  * now stands at 570. (The count is sensitive to hull size rather than structural — at 72x48 a second
  * cell, Mirage at medium, comes alive.)
+ *
+ * NOW ZERO CELLS OF NINE (re-measured 2026-10-09). The 2026-10-08 cooldown retune (magmablast 16 s)
+ * took Mirage at hard mute too: its long-gun pair no longer carries the total past afterburner's
+ * cliff. The MECHANISM is intact — a constructed kit of shipped weapons (predator, roadblock,
+ * shockwave) still stands at 445 or 145 by weighting, and `firing.test.ts` guards it there — but no
+ * shipped chassis's kit has that shape, so on the roster `slotWeights` move no standoff at all.
+ * Neutral standoffs now: Bullseye 70 / 220 / 595, Mirage 107.5 / 220 / 220, Bastion 70 / 233.1 /
+ * 450.6 (easy / medium / hard). The paragraphs above are the history of how the count got here.
  *
  * IT TAKES TWO PASSES OVER THE SAMPLES, but only ONE evaluation of each (M7, fix wave 3,
  * 2026-09-07). The two-pass STRUCTURE is forced: the bar is a fraction of the maximum, so the
@@ -272,7 +308,7 @@ export function chooseSlot(args: {
     const def = weaponDefOf(slot.weaponId);
 
     let windowBonus = 1;
-    if (isUlt(slot)) {
+    if (isUlt(i)) {
       const goodMoment =
         targetHpFraction <= profile.ultWindowHpFraction ||
         targetStunned ||

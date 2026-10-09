@@ -2,13 +2,17 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, applyOverrides, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   TICK_RATE_HZ,
+  basicAttackOf,
   forwardMaxSpeedOf,
   hpOf,
   slotsOf,
   weaponDefOf,
 } from "@motor-combat-moba/shared";
 import { makeRng } from "../rng.js";
-import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
+import { BRAIN_CONSTANTS, RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
+
+/** The fire slot the bot treats as an ult (`BRAIN_CONSTANTS.ultFireSlots`). */
+const ULT = BRAIN_CONSTANTS.ultFireSlots[0]!;
 import type { BotCarView, BotSlotView, BotView } from "../types.js";
 import { HumanController } from "./controller.js";
 import { bestSustainedDpsOf, pressCeilingOf, runDuel } from "./duel.fixture.js";
@@ -221,7 +225,7 @@ describe("tier characterisation", () => {
     // regardless of discipline. Setting easy's `ultDisciplineChance` to hard's 0.9 left the test
     // green — the confound the hard half's own comment names, walked into on the easy half.
     //
-    // Mirage's slot 2 (`afterburner`) is the row that fits: an ult by `ultCooldownMs` (13000 ms)
+    // Mirage's fire slot 3 (`afterburner`) is the row that fits: an ult by `BRAIN_CONSTANTS.ultFireSlots`
     // with a reach of only 220, so its bad-moment band is (110, 220] — a band every tier can see
     // into. At 200 u both tiers are in range, at full target hp, unstunned, in a bad moment.
     // Verified by mutation, both ways: easy at medium's `ultDisciplineChance` 0.5 stops pressing,
@@ -229,9 +233,10 @@ describe("tier characterisation", () => {
     const ultOnly = (base: BotView["self"]): BotView["self"] => ({
       ...base,
       carId: "mirage",
-      slots: slotsFor("mirage").map((slot, i) =>
-        i === 2 ? slot : { ...slot, stocks: 0 },
-      ),
+      // FIRE-slot order, as the real view builds it: the basic attack at 0, the kit at 1..3. Only the
+      // ult slot (fire slot 3) is loaded.
+      slots: [{ ...slotsFor("mirage")[0]!, weaponId: basicAttackOf("mirage"), range: weaponDefOf(basicAttackOf("mirage")).range }, ...slotsFor("mirage")]
+        .map((slot, i) => (i === ULT ? slot : { ...slot, stocks: 0 })),
     });
     // Seed 12, not the file's usual 17: 17 rolls the `grudge` archetype, which is fine here, but 12
     // (`kiter`, which shifts no firing knob) is the seed under which BOTH halves are sensitive to
@@ -259,7 +264,7 @@ describe("tier characterisation", () => {
           rng,
         });
         const intent = bot.decide({ ...scene, self: ultOnly(scene.self) });
-        if (intent.fireSlots === 1 << 2) fired = true;
+        if (intent.fireSlots === 1 << ULT) fired = true;
       }
       return fired;
     };

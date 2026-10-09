@@ -705,15 +705,15 @@ describe("HumanController", () => {
     // pressed; fire slot 1 is a single ability, and it has to carry a `turret` row for every press
     // the bot makes to be a turret press.
     //
-    // That row is a BASIC ATTACK sitting in an ability slot, not `predator`: `development/main`
-    // returned `predator`, `magmablast` and `thumper` to fixed muzzles when the basic attack went
-    // off, so the nine `basic-attack-*` rows are the only turret carriers left. The flag gates the
-    // slot INDEX and never the row, so index 1 is pressed normally here.
+    // That row is `predator`, a turret row again since the 2026-10-08 turret decoupling (it was a
+    // `basic-attack-*` row stand-in while predator had a fixed muzzle; halving basic-attack damage
+    // then dropped that stand-in below hard's firing gate, so the bot never pressed it). Index 0 holds
+    // `pepperbox` only as a placeholder in the disabled basic-attack slot, which is never pressed.
     const slot = (weaponId: "basic-attack-bullseye" | "predator" | "pepperbox") => ({
       weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
       range: weaponDefOf(weaponId).range,
     });
-    const predatorKit = [slot("pepperbox"), slot("basic-attack-bullseye")];
+    const predatorKit = [slot("pepperbox"), slot("predator")];
     // Stationary, 350 units off the bot's left flank: the nose never faces it inside the run.
     const them = {
       sessionId: "them", carId: "mirage" as const, team: 1 as const,

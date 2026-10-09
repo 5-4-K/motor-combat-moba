@@ -398,7 +398,9 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * Only THREE of the nine neutral-weight cells move at all. (This table and paragraph were
    * measured at the 48x32 hull. Re-measured 2026-09-16 at 60x40, the count at 0.95 is still 1 / 9;
    * the neutral standoffs it produces moved, though — see `firing.ts` — and fractions below 0.95
-   * were not re-swept at the new hull.)
+   * were not re-swept at the new hull. Re-measured again 2026-10-09 after the cooldown retune: the
+   * count at 0.95 is now 0 / 9 — mirage/hard went mute — and no other row was re-swept; see
+   * `firing.ts` for the current neutral standoffs and the constructed kit that still reads.)
    *
    * Going further down buys nothing measured and costs behaviour. 0.92 and 0.90 are still 1/9 —
    * no extra cell comes alive — but they take mirage/hard's neutral standoff from 220 to 386.7, a
@@ -452,8 +454,15 @@ export const BRAIN_CONSTANTS = Object.freeze({
   preferredRangeMinStepUnits: 10,
   /** Range at which a `range: 0` weapon (`wildcharge`) is worth pressing. */
   contactTriggerUnits: 150,
-  /** `cooldownMs` at or above which a weapon counts as an ult for discipline purposes. */
-  ultCooldownMs: 5000,
+  /**
+   * The FIRE SLOTS whose weapon the bot treats as an ult: held for a good moment (`ultDisciplineChance`,
+   * `ultWindowHpFraction`) and read as an opponent's "big gun" (S21). Fire slot 0 is the basic attack,
+   * 1..N the abilities, so `[3]` is every chassis's third ability — lance, afterburner, tremor,
+   * wildcharge on the shipped roster. Edit this list to change which slots count; nothing else
+   * hardcodes it. Replaced `ultCooldownMs` (5000), a cooldown threshold that made whole kits ults
+   * once cooldowns were retuned past it, so those bots never fired.
+   */
+  ultFireSlots: [3] as readonly number[],
   /** How far a personality may move a parameter from its tier value, as a fraction. */
   personalityJitter: 0.25,
   /**
@@ -828,7 +837,10 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // projectile broad phase in `marchOne` are exact. `BOT_PROFILES` did not move.
 // 6.6.0 (2026-10-09): tile arenas hand the bot their floor-rect planes (TA31), so wall avoidance sees
 // arena-01's floor edge. `BOT_PROFILES` did not move. Balance reports across this line are not comparable.
-export const BOT_BRAIN_VERSION = "6.6.0";
+// 6.7.0 (2026-10-09): an ult is decided by fire slot (`BRAIN_CONSTANTS.ultFireSlots`, [3]), not by
+// `cooldownMs >= 5000` — after the cooldown retune that rule made Mirage's and Bastion's whole kits
+// ults, and medium/hard bots held every slot and never fired. `BOT_PROFILES` did not move.
+export const BOT_BRAIN_VERSION = "6.7.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency

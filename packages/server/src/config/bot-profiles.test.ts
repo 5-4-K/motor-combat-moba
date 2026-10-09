@@ -196,7 +196,7 @@ describe("BOT_PROFILES", () => {
   it("exposes the shared constants and a brain version", () => {
     expect(BRAIN_CONSTANTS.minEngageUnits).toBe(70);
     expect(BRAIN_CONSTANTS.contactTriggerUnits).toBe(150);
-    expect(BRAIN_CONSTANTS.ultCooldownMs).toBe(5000);
+    expect(BRAIN_CONSTANTS.ultFireSlots).toEqual([3]);
     expect(BRAIN_CONSTANTS.personalityJitter).toBe(0.25);
     expect(BRAIN_CONSTANTS.assumedOpponentAimSigmaRad).toBe(0.06);
     // `dangerEvadeFraction` and `dangerEvadeCooldownTicks` were deleted with the anticipatory evade

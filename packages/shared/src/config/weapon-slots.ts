@@ -155,6 +155,9 @@ export function slotsOf(carId: CarId): readonly WeaponId[] {
  *    client tab's installed bundle.
  * 7. `packages/server/playtest/modes/shared.ts` — `projectileAbilities`'s slot bit; one-shot probe
  *    processes that call `installPlaytestMode()`.
+ * 8. `packages/server/src/bot/brain/firing.ts` — `isUltWeapon`, which reads an opponent's observed
+ *    weapon as an ult by the FIRE slot its carrier holds it in (`BRAIN_CONSTANTS.ultFireSlots`).
+ *    Runs inside the room's `scoped(...)` decision tick, like the rest of the bot brain.
  *
  * `newFireState` (`sim/weapons/fire.ts`) does **not** call this — its explicit-loadout path builds
  * the same `[basicAttackOf(carId), ...kit]` list inline, because it also has to accept a caller-given

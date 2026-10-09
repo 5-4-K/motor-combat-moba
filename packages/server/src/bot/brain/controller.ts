@@ -9,7 +9,7 @@ import type {
   BotCarView, BotController, BotDebug, BotIntent, BotPersonality, BotView, SituationId,
 } from "../types.js";
 import { newAimErrorState, stepAimError, type AimErrorState } from "./aim.js";
-import { chooseSlot, preferredRangeOf, slotIsReady, type UltHoldEntry } from "./firing.js";
+import { chooseSlot, isUltWeapon, preferredRangeOf, slotIsReady, type UltHoldEntry } from "./firing.js";
 import { scoreTargets } from "./goals.js";
 import { applyHumanize, newHumanizeState, type HumanizeState } from "./humanize.js";
 import { spikesAhead, wallAhead } from "./movement.js";
@@ -733,7 +733,7 @@ function enemyUltSpent(
   withinTicks: number,
 ): boolean {
   for (const id of Object.keys(weapons()) as WeaponId[]) {
-    if (weaponDefOf(id).cooldownMs < BRAIN_CONSTANTS.ultCooldownMs) continue;
+    if (!isUltWeapon(id)) continue;
     if (ultIsSpent(perception, sessionId, id, tick, withinTicks)) return true;
   }
   return false;

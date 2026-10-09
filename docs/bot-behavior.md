@@ -130,7 +130,7 @@ else about how the car moves falls out of scoring nine candidate arcs against it
 | `fight` | a ready gun's reach covers them | `myEv` 2, `theirEv` 0.6, `rangeError` 0.3 against `fightRange` | `chooseSlot` |
 | `close` | they're up but not in reach yet | `rangeError` 0.875 against `minEngageUnits` — drive to contact | off |
 
-A big gun is `cooldownMs >= 5000` (not predator).
+A big gun is the weapon in an ult fire slot (`BRAIN_CONSTANTS.ultFireSlots`, slot 3 — each chassis's third ability), not predator.
 
 Own reach is the gun's authored `range` — there is no separate aim reach since the target lock was
 removed on 2026-09-17, so predator now reports 1800 where it used to report 800. Opponent keep-out is their **shortest** gun × `opponentRangeRespect`, and `fightRange` is
@@ -312,16 +312,18 @@ The personality's `slotWeights` reach this function, which is why the plateau ba
 rather than an exact tie: under an exact tie the answer was provably a veto by the shortest-reaching
 ready slot, and the weights could not move the standoff at all.
 
-**They reach it in one chassis-by-tier cell of nine, and that is a documented limitation rather than
-a repair.** A 5x5x5 sweep of `rollPersonality`'s own 0.5-1.5 draw over all nine cells returns more
-than one standoff for exactly one of them - Mirage at hard, 386.7 with the long pair heavy against
-220 with `afterburner` heavy. Everywhere else the shortest ready slot's cliff is too large a share
+**On the shipped roster they reach it in no chassis-by-tier cell at all (re-measured 2026-10-09),
+and that is a documented limitation rather than a repair.** A 5x5x5 sweep of `rollPersonality`'s own
+0.5-1.5 draw over all nine cells returns one standoff per cell. Until the 2026-10-08 cooldown retune
+exactly one cell read - Mirage at hard, 386.7 with the long pair heavy against 220 with
+`afterburner` heavy - and the mechanism still works for a kit with the right shape (predator,
+roadblock and shockwave stand at 445 or 145 by weighting, which `firing.test.ts` guards). Everywhere else the shortest ready slot's cliff is too large a share
 of the kit's peak for any weighting in that range to hold the total over 0.95 of it, so the answer is
 the same whatever the personality rolled. (The count survived the 2026-09-16 hull growth to 60x40
 unchanged, standoffs aside; it is not structural, though — at a 72x48 hull Mirage at medium comes
 alive too, so a further resize is a reason to re-run the sweep.) Two consequences for a tuner:
 
-- **Do not reach for `slotWeights` to change where a bot stands.** In eight of nine cells it does
+- **Do not reach for `slotWeights` to change where a bot stands.** On the shipped roster it does
   nothing. Its live job is ranking which gun gets pressed - `chooseSlot` multiplies the solver's
   value by it - which is where "it never uses its second weapon" is tuned.
 - **That one live cell rests on a known valuation error**, and would go away if the error were
@@ -485,7 +487,7 @@ both predictors built in `controller.ts`'s `plan()`:
 | `fullLockAngVelFraction` | 0.5 | Fraction of a chassis's own turn rate an observed turn must reach before it reads as deliberate STEERING rather than a ram's residual spin. A half, because the sim has no partial steer — `stepDrive`'s steer is only ever -1/0/1, so a car genuinely turning is at FULL lock and there is nothing between the two cases to discriminate. Per-chassis by construction: Bastion's bar is lower than Mirage's. |
 | `interceptFixedPointRounds` | 3 | Rounds of fixed-point iteration behind "how many ticks ahead do I aim". A curving path has no closed form, so this converges what a straight-line intercept solves in one shot. Fixed rather than looped to a tolerance because the solver must do bounded work every tick (H21). |
 | `personalityJitter` | 0.25 | How far an archetype may move a parameter from its tier value. |
-| `ultCooldownMs` | 5000 | `cooldownMs` at or above which a weapon counts as an ult for discipline purposes. |
+| `ultFireSlots` | [3] | The FIRE SLOTS whose weapon counts as an ult: held for a good moment by `ultDisciplineChance`, and read as an opponent's "big gun". Fire slot 0 is the basic attack, so [3] is each chassis's third ability. Replaced `ultCooldownMs` (5000) on 2026-10-09: after the cooldown retune that threshold made Mirage's and Bastion's whole kits ults, and medium/hard bots on them never fired. |
 
 ### Fire economy
 

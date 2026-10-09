@@ -12,6 +12,7 @@ import type { BotCarView, BotSelfView, BotSlotView } from "../types.js";
 import {
   chooseSlot,
   isUlt,
+  isUltWeapon,
   preferredRangeOf,
   slotIsReady,
   type UltHoldEntry,
@@ -178,50 +179,41 @@ describe("preferredRangeOf", () => {
     // multipliers cancel out of "every term ties its own maximum". `rollPersonality`'s `slotWeights`
     // moved nothing at all, and nothing failed.
     //
-    // Mirage at hard is the cell that reads it, and it reads it in the direction the mechanism
-    // predicts. Its slots are magmablast (400 u), thunderclap (400 u), afterburner (220 u).
-    // Weighting the long pair holds the total above `preferredRangePlateauFraction` past
-    // afterburner's cliff, so the bot stands off; weighting afterburner instead makes that cliff a
-    // big enough share of the peak to pull the total under the bar there, and it stands close.
-    // Both vectors are inside `rollPersonality`'s own 0.5-1.5 draw.
-    const longGunHeavy = preferredRangeOf(
-      self("mirage"),
-      RESOLVED_BOT_PROFILES.hard,
-      [1.5, 1.5, 0.5],
-      0,
-    );
-    const afterburnerHeavy = preferredRangeOf(
-      self("mirage"),
-      RESOLVED_BOT_PROFILES.hard,
-      [0.5, 0.5, 1.5],
-      0,
-    );
-    expect(longGunHeavy).not.toBe(afterburnerHeavy);
-    expect(longGunHeavy).toBeGreaterThan(afterburnerHeavy);
+    // No shipped CHASSIS reads it any more (2026-10-09, see the pinned count below), so this uses a
+    // constructed kit of shipped weapons that does: predator (long) and roadblock (long) against
+    // shockwave (short). Weighting the long pair holds the total above
+    // `preferredRangePlateauFraction` past shockwave's cliff, so the bot stands off; weighting
+    // shockwave instead pulls the total under the bar there, and it stands close (445 vs 145 at
+    // measurement). Both vectors are inside `rollPersonality`'s own 0.5-1.5 draw. What this guards is
+    // the MECHANISM (a fractional bar lets weights reach the standoff), not any one chassis's kit.
+    const kit = { ...self("mirage"), slots: (["predator", "roadblock", "shockwave"] as const).map((weaponId) => ({
+      weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0, range: weaponDefOf(weaponId).range,
+    })) };
+    const longGunHeavy = preferredRangeOf(kit, RESOLVED_BOT_PROFILES.hard, [1.5, 1.5, 0.5], 0);
+    const shortGunHeavy = preferredRangeOf(kit, RESOLVED_BOT_PROFILES.hard, [0.5, 0.5, 1.5], 0);
+    expect(longGunHeavy).not.toBe(shortGunHeavy);
+    expect(longGunHeavy).toBeGreaterThan(shortGunHeavy);
   });
 
-  it("lets a slot preference read in exactly ONE cell of nine, and pins that (R-D5 pushback)", () => {
-    // The claim "`slotWeights` reach the standoff" is true and much narrower than it reads, and the
-    // narrowness is what a tuner needs. Sweeping `rollPersonality`'s own 0.5-1.5 draw over all
-    // three chassis at all three tiers, exactly one cell returns more than one standoff.
+  it("lets a slot preference read in NO cell of nine on the shipped roster, and pins that (R-D5 pushback)", () => {
+    // The claim "`slotWeights` reach the standoff" is true of the mechanism (the test above) and much
+    // narrower on the roster, and the narrowness is what a tuner needs. Sweeping `rollPersonality`'s
+    // own 0.5-1.5 draw over all three chassis at all three tiers counts the cells that return more
+    // than one standoff.
     //
-    // RE-MEASURED 2026-09-16 (bigger cars, 48x32 -> 60x40): still ONE cell, `mirage/hard`, and at
-    // the same pair of standoffs (220 / 386.7). `proxyValue`'s subtense is
-    // `atan2(carHeight / 2, distance)`, so a taller hull keeps hit chance saturated further out and
-    // every plateau edge moves outward — enough to move the neutral standoffs (now bullseye
-    // 70 / 220 / 570, mirage 103.3 / 220 / 220, bastion 111.7 / 132.5 / 132.5, against
-    // 120 / 270 / 470, 136.7 / 220 / 220, 132.5 / 132.5 / 132.5 at 48x32), but not enough to bring
-    // a second cell alive. It does at 72x48, where `mirage/medium` joins: this count is sensitive to
-    // the hull size and the 1.25x resize lands under that threshold, which is worth knowing before
-    // reading "one cell" as a structural fact.
+    // RE-MEASURED 2026-10-09: ZERO cells. `mirage/hard` — the one live cell since 2026-09-07, at
+    // 220 / 386.7 — went mute with the 2026-10-08 cooldown retune (magmablast 16 s): its long-gun
+    // pair no longer carries the total past afterburner's cliff. Neutral standoffs now: bullseye
+    // 70 / 220 / 595, mirage 107.5 / 220 / 220, bastion 70 / 233.1 / 450.6 (easy / medium / hard),
+    // against 70 / 220 / 570, 103.3 / 220 / 220, 111.7 / 132.5 / 132.5 on 2026-09-16. The count has
+    // moved with the hull (it was 2 at a 72x48 hull) and now with the weapon table, so it is a
+    // measurement, not a structural fact.
     //
     // THIS TEST IS ALLOWED TO FAIL ON AN IMPROVEMENT. If a roster change, a new chassis or a
     // `proxyValue` correction moves the count either way, the right response is to update this
-    // number AND the two prose claims that quote it (`preferredRangeOf`'s doc comment, and
-    // `docs/bot-behavior.md`'s "one chassis-by-tier cell of nine"). Pinning it is what stops those
-    // two drifting silently, which is how the general-sounding claim got written in the first place.
-    // Known: restoring `proxyValue`'s pulse count takes this to 0 — see the accepted-loss note on
-    // `proxyValue` in `solution.ts`.
+    // number AND the prose that quotes it (`preferredRangeOf`'s doc comment in `firing.ts`,
+    // `preferredRangePlateauFraction`'s table in `bot-profiles.ts`, and `docs/bot-behavior.md`).
+    // Pinning it is what stops those drifting silently.
     const grid = [0.5, 0.75, 1, 1.25, 1.5];
     const live: string[] = [];
     for (const carId of ["bullseye", "mirage", "bastion"] as const) {
@@ -237,7 +229,7 @@ describe("preferredRangeOf", () => {
         if (seen.size > 1) live.push(`${carId}/${tier}`);
       }
     }
-    expect(live).toEqual(["mirage/hard"]);
+    expect(live).toEqual([]);
   });
 
   it("gives different chassis different distances, because their kits differ (P31)", () => {
@@ -311,11 +303,25 @@ describe("preferredRangeOf", () => {
 });
 
 describe("isUlt", () => {
-  it("counts a long cooldown and not a short one", () => {
-    const [predator, pepperbox, lance] = slotsFor("bullseye");
-    expect(isUlt(predator!)).toBe(false);
-    expect(isUlt(pepperbox!)).toBe(false);
-    expect(isUlt(lance!)).toBe(true);
+  it("counts the configured ult fire slot and no other", () => {
+    // `BRAIN_CONSTANTS.ultFireSlots` is [3]: the third ability. Fire slot 0 is the basic attack.
+    expect(BRAIN_CONSTANTS.ultFireSlots).toEqual([3]);
+    expect([0, 1, 2, 3, 4].map(isUlt)).toEqual([false, false, false, true, false]);
+  });
+
+  it("decides by slot, not cooldown: a 16 s weapon in slot 1 is not an ult", () => {
+    // magmablast (Mirage slot 1) and thumper (Bastion slot 1) carry 16 s cooldowns; under the old
+    // `cooldownMs >= 5000` rule every slot of those kits was an ult and the bot never fired.
+    expect(weaponDefOf("magmablast").cooldownMs).toBeGreaterThanOrEqual(5000);
+    expect(isUltWeapon("magmablast")).toBe(false);
+    expect(isUltWeapon("thumper")).toBe(false);
+  });
+
+  it("reads an opponent's weapon by the fire slot its carrier holds it in", () => {
+    expect(isUltWeapon("lance")).toBe(true); // Bullseye slot 3
+    expect(isUltWeapon("afterburner")).toBe(true); // Mirage slot 3
+    expect(isUltWeapon("tremor")).toBe(true); // Bastion slot 3
+    expect(isUltWeapon("predator")).toBe(false); // Bullseye slot 1
   });
 });
 
@@ -376,14 +382,32 @@ describe("chooseSlot", () => {
    * measuring nothing.
    */
   function ultOnly(carId: "bullseye"): BotSelfView {
-    const base = self(carId);
+    const base = fireLayout(carId);
     return {
       ...base,
-      slots: base.slots.map((slot, i) =>
-        i === 2 ? slot : { ...slot, stocks: 0 },
-      ),
+      slots: base.slots.map((slot, i) => (i === ULT ? slot : { ...slot, stocks: 0 })),
     };
   }
+
+  /**
+   * The kit in FIRE-SLOT order, as the real view builds it (`view.ts`, from `FireState.slots`): the
+   * basic attack at 0, the abilities at 1..3. `self()` above is kit-only, which is fine where slot
+   * indices do not matter, but ult-ness is decided by fire slot (`BRAIN_CONSTANTS.ultFireSlots`).
+   */
+  function fireLayout(carId: "bullseye"): BotSelfView {
+    const base = self(carId);
+    const basic = basicAttackOf(carId);
+    return {
+      ...base,
+      slots: [
+        { weaponId: basic, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0, range: weaponDefOf(basic).range },
+        ...base.slots,
+      ],
+    };
+  }
+
+  /** The fire slot these cases treat as the ult — Bullseye's `lance`. */
+  const ULT = BRAIN_CONSTANTS.ultFireSlots[0]!;
 
   it("a disciplined bot holds its ult against a full-hp target (H30)", () => {
     // A fresh `ultHold` per seed, deliberately: each iteration is its OWN single-shot episode (a
@@ -400,9 +424,9 @@ describe("chooseSlot", () => {
         profile: RESOLVED_BOT_PROFILES.hard,
         rng: makeRng(seed),
         ultHold: new Map(),
-        solutions: solutionsFor([[2, 30]]),
+        solutions: solutionsFor([[ULT, 30]]),
       });
-      if (out.slot === 2) ultPresses++;
+      if (out.slot === ULT) ultPresses++;
     }
     expect(ultPresses).toBeLessThan(16); // ~10% at ultDisciplineChance 0.9, with seed slack
   });
@@ -418,9 +442,9 @@ describe("chooseSlot", () => {
         profile: RESOLVED_BOT_PROFILES.easy,
         rng: makeRng(seed),
         ultHold: new Map(),
-        solutions: solutionsFor([[2, 10]]),
+        solutions: solutionsFor([[ULT, 10]]),
       });
-      if (out.slot === 2) ultPresses++;
+      if (out.slot === ULT) ultPresses++;
     }
     expect(ultPresses).toBe(40); // ultDisciplineChance 0 never holds
   });
@@ -439,7 +463,7 @@ describe("chooseSlot", () => {
     // same position every tick, which is a different bug this file does not want to reintroduce.
     const ultHold = new Map<number, UltHoldEntry>();
     const persistentRng = makeRng(7);
-    const solutions = solutionsFor([[2, 30]]);
+    const solutions = solutionsFor([[ULT, 30]]);
     let ultPresses = 0;
     for (let tick = 0; tick < 500; tick++) {
       const out = chooseSlot({
@@ -452,7 +476,7 @@ describe("chooseSlot", () => {
         ultHold,
         solutions,
       });
-      if (out.slot === 2) ultPresses++;
+      if (out.slot === ULT) ultPresses++;
     }
     expect(ultPresses).toBe(0);
     // Reverting to a per-tick reroll (a brand-new `Map()` handed in on every iteration instead of
@@ -470,7 +494,7 @@ describe("chooseSlot", () => {
         ultHold: new Map(),
         solutions,
       });
-      if (out.slot === 2) rerolledPresses++;
+      if (out.slot === ULT) rerolledPresses++;
     }
     expect(rerolledPresses).toBeGreaterThan(0);
   });
@@ -484,18 +508,18 @@ describe("chooseSlot", () => {
     // gated-out slot cannot still win by default.
     const out = chooseSlot({
       ...base,
-      self: self("bullseye"),
+      self: fireLayout("bullseye"),
       profile: RESOLVED_BOT_PROFILES.hard,
       target: { ...target, hp: 5 },
       rng: makeRng(1),
       ultHold: new Map(),
       solutions: solutionsFor([
-        [0, 35],
-        [1, 20],
-        [2, 30],
+        [1, 35],
+        [2, 20],
+        [ULT, 30],
       ]),
     });
-    expect(out.slot).toBe(2);
+    expect(out.slot).toBe(ULT);
   });
 
   it("respects the switch lock rather than throwing a press away (H27a)", () => {
