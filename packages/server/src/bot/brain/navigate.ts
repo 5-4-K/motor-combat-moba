@@ -23,10 +23,12 @@ export interface NavState {
   orbitSide: 1 | -1 | 0;
   /** The latched wheel (BB28). */
   steering: -1 | 0 | 1;
+  /** Orbit weave hysteresis: set past the inner edge of the band, cleared past the outer edge (BB24). */
+  backingOut: boolean;
 }
 
 export function newNavState(): NavState {
-  return { orbitSide: 0, steering: 0 };
+  return { orbitSide: 0, steering: 0, backingOut: false };
 }
 
 function sign(v: number): -1 | 0 | 1 {
@@ -74,11 +76,12 @@ export function steerToward(args: {
     // A weave: drive in at an angle across the band, back out nose-on, never stop moving (BB24).
     if (state.orbitSide === 0) state.orbitSide = sign(delta) || 1;
     else if (sign(delta) !== state.orbitSide && Math.abs(delta) > Math.PI / 2) state.orbitSide = state.orbitSide === 1 ? -1 : 1;
-    if (e > c.rangeBandUnits) throttle = 1;
-    else if (e < -c.rangeBandUnits) throttle = canReverse ? -1 : 0;
+    if (e < -c.rangeBandUnits) state.backingOut = true;
+    else if (e > c.rangeBandUnits) state.backingOut = false;
+    if (state.backingOut) throttle = canReverse ? -1 : 0; // nose on, out across the whole band
     else {
       throttle = 1;
-      desiredOff = state.orbitSide * c.orbitOffsetRad;
+      if (e <= c.rangeBandUnits) desiredOff = state.orbitSide * c.orbitOffsetRad; // in, at an angle
     }
   } else {
     if (d <= c.rangeBandUnits) {

@@ -53,9 +53,23 @@ describe("steerToward: orbit (BB24, BB27)", () => {
     const out = steerToward({ self: at(0, 0), goal: goal({ x: 100, y: 1, range: 300, facing: "orbit" }), aimOffsetRad: 0, state: newNavState() });
     expect(out).toEqual({ steer: 0, throttle: -1 });
   });
-  it("lifts off when too close and reversing is not allowed", () => {
-    const out = steerToward({ self: at(0, 0), goal: goal({ x: 100, y: 1, range: 300, facing: "orbit", reverseOk: false }), aimOffsetRad: 0, state: newNavState() });
-    expect(out.throttle).toBe(0);
+  it("lifts off with the target dead ahead when too close and reversing is not allowed", () => {
+    const out = steerToward({ self: at(0, 0), goal: goal({ x: 100, y: 0, range: 300, facing: "orbit", reverseOk: false }), aimOffsetRad: 0, state: newNavState() });
+    expect(out).toEqual({ steer: 0, throttle: 0 });
+  });
+  it("backs out across the whole band, then drives in across it (no dither at the inner edge)", () => {
+    expect(newNavState().backingOut).toBe(false);
+    const state = newNavState();
+    const at300 = (dist: number) => steerToward({ self: at(0, 0), goal: goal({ x: dist, y: 1, range: 300, facing: "orbit" }), aimOffsetRad: 0, state });
+    expect(at300(250)).toEqual({ steer: 0, throttle: -1 });
+    expect(state.backingOut).toBe(true);
+    expect(at300(300).throttle).toBe(-1); // in band, but still backing out
+    expect(state.backingOut).toBe(true);
+    expect(at300(345)).toEqual({ steer: 0, throttle: 1 }); // past the outer edge: straight at it
+    expect(state.backingOut).toBe(false);
+    const driveIn = at300(300);
+    expect(driveIn.throttle).toBe(1);
+    expect(driveIn.steer).toBe(-1); // target slightly on the + side: the nose turns off it
   });
   it("drives straight at a target that is far outside the band", () => {
     const state = newNavState();
