@@ -1,194 +1,147 @@
 # `@motor-combat-moba/shared`
 
-Lockstep constants, Colyseus schema, input types, and `stepSim`. Server and client import this package’s **built `dist`**.
+Lockstep constants, Colyseus schema, input types, config, the mode layer, and `stepSim`. Server and
+client import this package's **built `dist`** — rebuild after editing.
 
-**Local invariant:** only this package owns sim math. Do not duplicate `stepSim` or tick constants in server/client.
+**Local invariant:** only this package owns sim math. Do not duplicate `stepSim` or tick constants in
+server/client.
 
-P0: `TICK_RATE_HZ` / `MS_PER_TICK` / `SNAPSHOT_RATE_HZ` / `MAX_PLAYERS` / `ROOM_NAME`, enums (`RoomPhase`, `GameMode`, `PlayerStatus`), `PlayerState` / `ArenaState`, `INPUT_MESSAGE` + `InputFrame`/`InputPacket`, identity `stepSim`.
+This file describes the current state; history lives in the specs. Update facts in place.
 
-Netcode lives here too, pure and Phaser-free so the server, the client and the netsim run the same code (NR59): `net/` (`TickInputBuffer`, `ClockSync`, `InputScheduler`, `TickPrediction`, `RemoteTimeline`, `ShotView`, `ProvisionalShots`, `isShotEnding`, the message validators) and `vision/` (the field-of-vision geometry and spectate rules both the client's drawn cone and the server's `ViewManager` use). Schema fields carry `@view` tags (`schema/view-tags.ts`'s `VIEW_OWNER`); a field a client may not always see must carry one, and every wire change bumps `PROTOCOL_VERSION`. See [`docs/networking.md`](../../docs/networking.md) and [`docs/schema-reference.md`](../../docs/schema-reference.md#what-each-client-receives).
+## Layout
 
-**`modes/` owns configuration; `config/` owns its TYPES and its BASE values.** `modes/base.ts`
-assembles `BASE_TABLES` straight from the `config/` globals (hull stripped from `drive`) — these are
-now the common defaults, read whenever a mode does not override them, not a pinned baseline nothing
-reads. Each mode folder (`modes/brawl/`, `modes/team-brawl/`, `modes/deathmatch/`, `modes/conquer/`)
-holds a `config.ts` (a `ModeOverrides` — only what that mode changes) and an `index.ts` exporting
-`<MODE>_TABLES = mergeTables(BASE_TABLES, <MODE>_OVERRIDES)`; `modes/merge.ts`'s `mergeTables`
-merges plain objects key by key, replaces arrays/primitives whole, and throws at load naming the
-path for a typo'd override key. `modes/build.ts`'s `assembleModeConfig` clones the merged tables,
-resolves the nine derived artifacts and deep-freezes the result; `modes/registry.ts`'s `MODE_TABLE`
-binds each `GameMode` to its bundle; `modes/active.ts` holds the installed one behind seventeen
-accessors (`cars()`, `weapons()`, `drive()`, … `derived()`) and `cfg()`, which **throws outside a
-`withMode` scope** — there is deliberately no default-mode fallback. `withMode` is strictly
-synchronous and refuses a thenable; `installMode` is the no-restore, one-per-process form, used by
-the client's boot and by tests, never by a server room. Guards ride on this: `modes/snapshots.test.ts`
-(each mode's resolved `ModeTables` written to `modes/__snapshots__/<slug>.tables.json` — an edit to
-one mode's `config.ts` moves only that file, an edit to the base moves every mode that does not
-override the changed value; `vitest -u` scoped to the moved file(s) is how a deliberate change is
-accepted), `modes/no-raw-config-in-sim.test.ts` (no non-test file under shared, server, client or
-either harness may name a raw table at all) and `modes/invariants.test.ts` (every config invariant
-re-run per `MODE_TABLE` row, naming the mode). The old "every raw global equals both folders' copies"
-tests (`table-pinning.test.ts`, `parity.test.ts`) are deleted — the snapshot replaced them.
-`modes/rules-registry.ts`, `modes/rules-types.ts` and each mode's own `rules.ts` are the shared half
-of the mode layer (`ModeRules`: `sides`, `respawns`, `hasMatchClock`, `winRuleLabel`, `canStart`,
-`claimsChassis`) — the server's `ModeController` and the client's `ModeHud` are the other two thirds,
-in their own packages. Adding a mode is the
-[`game-mode`](../../.claude/skills/game-mode/SKILL.md) skill. Nothing in this package may read an
-accessor at MODULE scope — that freezes whichever bundle was installed first. See the root
-`CLAUDE.md`'s per-mode section,
-[`docs/superpowers/specs/2026-09-22-per-mode-config-design.md`](../../docs/superpowers/specs/2026-09-22-per-mode-config-design.md)
-(MC1–MC42) and
-[`docs/superpowers/specs/2026-09-25-game-mode-layer-design.md`](../../docs/superpowers/specs/2026-09-25-game-mode-layer-design.md)
-(GM1–GM40).
+- `constants.ts` — `TICK_RATE_HZ`, `MS_PER_TICK`, `SNAPSHOT_RATE_HZ`, `MAX_PLAYERS`, `ROOM_NAME`,
+  `PROTOCOL_VERSION`. Enums (`RoomPhase`, `GameMode`, `PlayerStatus`) have frozen uint8 values.
+- `schema/` — `PlayerState`, `ArenaState`. Fields carry `@view` tags (`schema/view-tags.ts`'s
+  `VIEW_OWNER`); a field a client may not always see must carry one, and **every wire change bumps
+  `PROTOCOL_VERSION`**. See [`docs/schema-reference.md`](../../docs/schema-reference.md#what-each-client-receives).
+- `net/` — pure, Phaser-free netcode so server, client and netsim run the same code:
+  `TickInputBuffer`, `ClockSync`, `InputScheduler`, `TickPrediction`, `RemoteTimeline`, `ShotView`,
+  `ProvisionalShots`, `isShotEnding`, `step-context.ts`, message validators. See
+  [`docs/networking.md`](../../docs/networking.md).
+- `vision/` — field-of-vision geometry and spectate rules, used by both the client's drawn cone and
+  the server's `ViewManager`.
+- `config/` — config TYPES and BASE values. `modes/` — per-mode assembly (below).
+- `arena/` — arena defs, `boundsOf`, and `arena/tiles/` (`compileTileArena`, `TILE_DEFS`,
+  `DEFAULT_LEGEND`).
+- `sim/` — drive, contact, combat, damage, statuses, weapons.
 
-P5 combat: `sim/damage.ts` (the **only** place hp moves — `applyDamage` and `applyHeal` — plus `damageFor` and `scaleDamage`, the only places a hit's size is decided), `sim/combat.ts` (`runCombat`, one pure tick of combat over POJOs). `runCombat` runs *after* driving, never moves a car, and is server-only — the client draws its results and predicts none of them. Collision deals no damage.
+## Configuration: `config/` owns types and base values, `modes/` owns assembly
 
-Weapon system: `sim/weapons/` — `shapes.ts` (shape → convex polygon, SAT wrappers, the swept smear hull), `fire.ts` (the per-car fire state machine: slots, the three clocks, stocks, volley scheduling), `instances.ts` (projectile travel; beam grow/linger/wall-clip; expiry), `hits.ts` (pose-snapshot hit resolution, per-target damage clocks, pierce), `targets.ts` (`canDamage`, the one friendly-fire predicate). Config TYPES live in `config/weapon-types.ts` (the `WeaponDef` discriminated union), `config/weapon-slots.ts` (`WeaponSlotConfig`, `slotsOf`) and `config/weapon-ticks.ts` (`resolveTicks`, the ms→ticks resolver); the VALUES the sim reads are the active mode's — `weapons()`, `slots()`, `derived().weaponTicks` — authored in `modes/<mode>/weapons.ts` and `slots.ts`. The raw `WEAPON_TABLE`, `WEAPON_SLOT_CONFIG` and `WEAPON_TICKS` globals still exist as the pinned baseline and are unreadable from any non-test file (`no-raw-config-in-sim.test.ts`). `runCombat` stays the orchestrator; it shrank rather than grew. See [`docs/combat-model.md`](../../docs/combat-model.md) and [`docs/config-reference.md`](../../docs/config-reference.md).
+`modes/base.ts` assembles `BASE_TABLES` from the `config/` globals (hull stripped from `drive`) —
+the common defaults every mode reads unless it overrides them. Each mode folder (`modes/brawl/`,
+`modes/team-brawl/`, `modes/deathmatch/`, `modes/conquer/`) holds exactly `config.ts` (a
+`ModeOverrides`), `index.ts` (`<MODE>_TABLES = mergeTables(BASE_TABLES, <MODE>_OVERRIDES)`) and
+`rules.ts`. `modes/last-standing/` holds the shared last-standing outcome.
 
-Statuses (buffs and debuffs): `sim/status/` — `statuses.ts` (the `ActiveStatus` list: apply, expire,
-the two re-apply rules, pulses, cleanse, wire validation) and `modifiers.ts` (`modifiersOf`, the one
-function that turns a status list into the multipliers the sim reads). Config TYPES live in
-`config/status-types.ts` (the `StatusDef` shape, `StatusChannel`, `StatusFlag`, `StatusPulse`),
-`config/status-config.ts` (`StatusConfig`, `StatusLimits`) and `config/status-ticks.ts`
-(`resolveStatusPulseTicks`, sharing `msToTicks` with `weapon-ticks.ts`); the VALUES are the active
-mode's — `statusTable()`, `statusConfig()`, `statusLimits()`, `derived().statusPulseTicks` —
-authored in `modes/<mode>/status.ts`.
+- `modes/merge.ts`'s `mergeTables` merges plain objects key by key, replaces arrays/primitives
+  whole, and throws at load naming the path for an override key the base lacks.
+- `modes/build.ts`'s `assembleModeConfig` clones the merged tables, resolves the derived tick
+  artifacts and deep-freezes the result.
+- `modes/registry.ts`'s `MODE_TABLE` binds each `GameMode` to its bundle and `isActive`.
+- `modes/active.ts` holds the installed bundle behind the accessors (`cars()`, `weapons()`,
+  `drive()`, … `derived()`) and `cfg()`, which **throws outside a `withMode` scope** — there is
+  deliberately no default-mode fallback. `withMode` is strictly synchronous and refuses a thenable;
+  `installMode` (no restore, one per process) is for the client's boot and tests, never a server room.
+- `modes/rules-registry.ts`, `modes/rules-types.ts` and each `rules.ts` are the shared third of the
+  mode layer (`ModeRules`); the server's `ModeController` and the client's `ModeHud` are the others.
 
-**Every channel is a multiplier with 1 as neutral, and `Modifiers` is the only type that reaches the
-sim.** Driving, ramming and combat never look at a status list — they read a `Modifiers`. That is what
-makes adding a status free and adding a channel a one-call-site change, and why `NEUTRAL_MODIFIERS`
-reproduces the pre-status sim exactly (`golden.test.ts` pins it).
+Guards: `modes/snapshots.test.ts` (each mode's resolved `ModeTables` in
+`modes/__snapshots__/<slug>.tables.json`; accept a deliberate move with `vitest -u` scoped to the
+moved file), `modes/no-raw-config-in-sim.test.ts` (no non-test file in shared, server, client or the
+harnesses may read a raw table), `modes/invariants.test.ts` (every config invariant re-run per mode).
+**Nothing may read an accessor at MODULE scope.** Adding a mode is the
+[`game-mode`](../../.claude/skills/game-mode/SKILL.md) skill. Specs:
+[per-mode config](../../docs/superpowers/specs/2026-09-22-per-mode-config-design.md) (MC1–MC42),
+[mode layer](../../docs/superpowers/specs/2026-09-25-game-mode-layer-design.md) (GM1–GM40).
 
-Two rows carry flags rather than modifiers. `stunned` is `fullStop` on top of the older
-`immobilised`/`steeringLocked`/`disarmed` trio — engine, steering and trigger dead. **`fullStop` now
-zeroes BOTH velocity components every tick, forward and lateral, and that is a real combat-feel
-change the 2026-09-18 Unity drive-model port made**: it used to zero the forward component alone and
-leave an imposed sideways velocity to bleed off through `bleedLateral`, so a slammed-then-stunned car
-kept sliding into the wall. It does not any more — a stunned car pushed sideways by a slam stops dead
-where it stands. (`bleedLateral` and `DRIVE_CONFIG.impactGripDecel` are both deleted; one grip model
-covers the whole car now.) Injected ram spin is a separate story with a rule of its own — see the
-`angVel` note under `stepDrive` below. `armored` is `invulnerable` alone: 0 damage from every source, weapon hits,
-contact hits and pulses alike — status riders still land, only hp loss stops. A flag is boolean and
-has no counterplay gradient, so every flag-carrying DEBUFF is required to be `reapply: "ignore"`,
-and a flag-carrying buff may be `refresh` only by declaring `chainable: true` on its own row
-(`status-config.test.ts` polices both, and that a chainable row is always a buff). `armored` and
-`phased` are the two chainable rows today: a repeatedly-refreshed invulnerability is a risk owned by
-whatever future applier grants it, the same way a stun's duty cycle is owned by its own applier's
-cooldown rather than by this rule, and `phased` (spawn protection) must be extendable by the room
-while a respawned car still overlaps someone.
+## Combat
 
-**A status does not own its duration** — the applier does (`WeaponDef.applies`, the room's
-`statusRequests`, or `contactTick`, which applies two statuses of its own off a ram: `reeling` to
-the victim off `RAM_CONFIG.ramUncontrolMs`, scaled by that victim's falloff, and — since the
-2026-09-18 Unity ram port — `ramLock` to the attacker off `RAM_CONFIG.attackerLockMs`, unscaled,
-since falloff is ram-victim-only), so `applyStatus` takes an explicit `durationTicks`. A status
-never stacks with itself; different statuses on one channel stack by multiplication.
+- `sim/damage.ts` is the **only** place HP moves (`applyDamage`, `applyHeal` — clamped to `hpOf`,
+  never lifting a dead car off 0) and, with `damageFor`/`scaleDamage`, the only place a hit's size is
+  decided.
+- `sim/combat.ts`'s `runCombat` is one pure tick of combat over POJOs. It runs *after* driving,
+  never moves a car, and is server-only — the client draws its results and predicts none of them.
+  Collision deals no damage.
+- `sim/weapons/`: `shapes.ts` (shape → convex polygon, SAT, swept smear hull), `fire.ts` (the
+  per-car fire state machine: slots, the three clocks, stocks, volley scheduling), `instances.ts`
+  (projectile travel; beam grow/linger/wall-clip; expiry), `hits.ts` (pose-snapshot hits, per-target
+  damage clocks, pierce), `targets.ts` (`canDamage`, the one friendly-fire predicate),
+  `press.ts`, `turret.ts`, `impulse-source.ts`.
+- Weapon config TYPES: `config/weapon-types.ts` (the `WeaponDef` union), `config/weapon-slots.ts`
+  (`WeaponSlotConfig`, `slotsOf`), `config/weapon-ticks.ts` (`resolveTicks`, ms → ticks). The sim
+  reads the active mode's VALUES: `weapons()`, `slots()`, `derived().weaponTicks`.
+- **Volleys are on `WeaponBase`, pellets on the projectile.** `VolleyDef` (`volleys`,
+  `volleyIntervalMs`) applies to every kind and `beginFire` reads it for all of them; `PelletDef`
+  stays on `ProjectileWeaponDef` so a beam need not author `pelletsPerVolley: 1`. Live users:
+  `shockwave` (three-ring disc beam, Taurus), `pepperbox` (3 pellets × 4 muzzles).
+- `StatusApplication.onWave` (`"all" | "final"`, absent = `"all"`) gates a status on one wave. The
+  wave is frozen at spawn and **never networked** (`ShotOrder.finalVolley` →
+  `WeaponInstance.finalWave`). `"final"` is unused by any shipped row.
+- An **aura** is a beam with a `disc` hitbox at `origin: "center"`; it reuses `WorldShape`'s circle
+  arm and needs no `canDamage` change (that already refuses the owner). `magmablast`'s detonation is
+  one: `instanceDefOf(id, true)` (`config/weapon-config.ts`) synthesizes a detached centre-origin
+  disc beam from its `ExplosionDef`. That explosion is the only source of `corroded`.
 
-`applyDamage` is no longer the only HP writer — **`sim/damage.ts` is.** `applyHeal` sits beside it for
-repair pulses, clamped to `hpOf` and refusing to lift a dead car off 0. Keeping the pair in one file is
-what preserves the property the original rule protected.
+## Statuses
 
-Expiry runs once per tick, before driving; pulses run first inside `runCombat`; new statuses are only
-ever added, at the far end of the tick, and take hold on the next one. `PlayerState.statuses` is
-networked in full (to every client whose view holds the car — the `statuses` array is `@view()`) — unlike `FireState` and the lock, a status has no server-only half, because the
-client predicts through the same modifiers (invariant 8). See
-[`docs/combat-model.md`](../../docs/combat-model.md#statuses).
+`sim/status/`: `statuses.ts` (the `ActiveStatus` list: apply, expire, the two re-apply rules, pulses,
+cleanse, wire validation) and `modifiers.ts` (`modifiersOf`, the one function that turns a status
+list into multipliers). Types in `config/status-types.ts`, `config/status-config.ts`,
+`config/status-ticks.ts`; the sim reads `statusTable()`, `statusConfig()`, `statusLimits()`,
+`derived().statusPulseTicks`.
 
-**Maneuvers (spec S3) own three files.** `sim/maneuver.ts` declares `ManeuverKind`
-(NONE/DASH/HOLD/CHARGE, frozen uint8 values) and `NO_MANEUVER`, the four-field neutral spread used to
-reset a car. `sim/contact.ts`'s `resolveContacts` is where a maneuver actually does something: it
-extends `applyRams`'s pair loop with a dash (reports a `ContactHit`) and a charge (reports a
-`SlamEvent` carrying the OBB contact normal and contact point) ahead of the ordinary ram fallback,
-and runs where `applyRams` used to. **Neither of those two builds an `Impulse` — only the ram
-fallback does.** A slam's push is assembled from the weapon's own `ImpulseDef` in
-`packages/server/src/sim/ram-bridge.ts`, beside the statuses that same slam applies (spec P30), which
-is what stage 4 of the 2026-09-06 car-physics rework moved and why `contact.ts` got smaller.
+- **Every channel is a multiplier with 1 as neutral, and `Modifiers` is the only type that reaches
+  the sim.** Driving, ramming and combat never look at a status list. `NEUTRAL_MODIFIERS` reproduces
+  the status-free sim exactly (`golden.test.ts` pins it).
+- **Flags.** `stunned` is `fullStop` plus `immobilised`/`steeringLocked`/`disarmed`; `fullStop`
+  zeroes **both** velocity components every tick, so a slammed-then-stunned car stops where it
+  stands. `armored` is `invulnerable`: 0 damage from every source, but status riders still land.
+  Every flag-carrying DEBUFF must be `reapply: "ignore"`; a flag-carrying buff may `refresh` only by
+  declaring `chainable: true` (`armored`, `phased`). `status-config.test.ts` polices both.
+- **A status does not own its duration** — the applier does (`WeaponDef.applies`, the room's
+  `statusRequests`, or `contactTick`: `reeling` to the victim off `RAM_CONFIG.ramUncontrolMs`
+  scaled by falloff, `ramLock` to the attacker off `attackerLockMs`, unscaled). `applyStatus` takes
+  explicit `durationTicks`. A status never stacks with itself; different statuses on one channel
+  multiply.
+- Order: expiry once per tick before driving; pulses first inside `runCombat`; new statuses are
+  added at the end of the tick and take hold on the next. `PlayerState.statuses` is networked in full
+  (`@view()`), because the client predicts through the same modifiers (invariant 8). See
+  [`docs/combat-model.md`](../../docs/combat-model.md#statuses).
 
-**`config/impulse-config.ts`'s `IMPULSE_CONFIG` — renamed from `SLAM_CONFIG` on 2026-09-19, because
-neither member turned out to be slam-specific — is two knobs now: `wallContactPad`, a hull inflation
-for "is this touching level geometry", and `spinScale`, the slam's own spin calibration, moved here
-once a real lever arm made it live (see `ImpulseDef.spin` below).** `knockSpeed`, `wallStunWindowMs`,
-`wallStunDurationMs`, `reslamImmunityMs`, `victimAuthority`, `selfKeepFactor` and the whole
-`SLAM_TICKS` export were **deleted in stage 4**: the first four moved onto
-`WEAPON_TABLE.wildcharge.impulse` (as `speed`, `onWallImpact.windowMs` and its `applies[].durationMs`,
-`retriggerImmunityMs`), `victimAuthority`'s successor is that row's own `applies` entry for
-`"reeling"` — its `durationMs` is a real `reeling` application, so a slam finally imposes control
-loss where before it imposed none — and `selfKeepFactor` has no successor at all, because a slam's
-attacker is simply never pushed. (`applies` itself is a 2026-09-19 restructure: the field used to be
-a bare `uncontrolMs: number` with `ram-bridge.ts` supplying the status id `"reeling"` in code — the
-one place a weapon's effect was decided outside its own row. It is now `ImpulseStatusApplication[]`,
-so a row declares which status as well as how long.)
-`RAM_CONFIG`'s five equivalents (`authorityFloor`, the two `authority` decay knobs, and the two
-`shove` ones) had already gone the same way in stage 3b; an ordinary ram's control loss **came back
-in stage 3b as the `reeling` status**, applied by `contactTick` and scaled by a per-victim
-diminishing-returns stack that a slam deliberately does not share. **No longer dormant as of the
-2026-09-01 weapon-status overhaul (Plan 3):** `thunderclap` (Mirage) is a `kind: "maneuver"` dash and
-`wildcharge` (Taurus, since it moved off Bastion) is a `kind: "maneuver"` charge, both real rows in `WEAPON_TABLE`, so
-`resolveContacts` and the slam path now run from a real match, not only from tests. `wildcharge` is
-also the roster's one `isUnInterruptable: true` row, and the only MANEUVER row declaring an
-`impulse` (`tremor`, a beam, authors an inward-pulling one too, applied once per victim per instance by
-`runCombat`'s damaged loop and reported on `CombatResult.impulses` — `WeaponInstance.impulsedVictims`). See
-[`docs/combat-model.md`](../../docs/combat-model.md#maneuvers-and-the-contact-pass).
+## Maneuvers and impulses
 
-An **aura** is a beam with a `disc` hitbox at `origin: "center"`. It reuses `WorldShape`'s circle arm,
-so the hit test needed no new geometry, and it needs no change to `canDamage` — that already refuses
-the owner. `shockwave` shipped as the one aura, on the old Mirage slot 2, but the 2026-09-01 overhaul
-gave it a plain single-volley-dart identity on **Bullseye's** slot 1 instead — later renamed
-`magmablast` alongside its display name. From there the mechanism sat **dormant** for one release:
-the geometry and hit-test path stayed live and covered by generic unit tests with no row driving
-them. **The 2026-09-02 predator/magmablast pass ended that.** `magmablast` (now on **Mirage's** slot
-1, swapped with `predator`) authors an `ExplosionDef`: on death for any reason, `instanceDefOf(id,
-true)` (`config/weapon-config.ts`) synthesizes a detached, centre-origin `disc`-hitbox `BeamWeaponDef`
-from it, so a real aura instance spawns on every detonation. `corroded`'s only source in the game is
-this explosion. The multi-wave `VolleyDef` machinery below is **live** as well: `shockwave`
-(carried by Taurus) is a centre-origin, attached `disc` beam that authors three volleys, so the aura
-geometry and multi-wave both run from a real match. Only `onWave: "final"` (below) is still unused.
+- `sim/maneuver.ts` declares `ManeuverKind` (NONE/DASH/HOLD/CHARGE, frozen uint8) and `NO_MANEUVER`.
+- `sim/contact.ts`'s `resolveContacts` extends the ram pair loop with a dash (reports a `ContactHit`)
+  and a charge (reports a `SlamEvent` with the OBB contact normal and point) ahead of the ordinary
+  ram. **Only the ram fallback builds an `Impulse`**; a slam's push is assembled from the weapon's
+  `ImpulseDef` in `packages/server/src/sim/ram-bridge.ts`, beside the statuses it applies.
+- Live maneuvers: `thunderclap` (Mirage, dash) and `wildcharge` (Taurus, charge — the one
+  `isUnInterruptable: true` row). `wildcharge.impulse` carries `speed`, `applies` (`reeling`),
+  `onWallImpact` (`stunned`) and `retriggerImmunityMs`. `ImpulseDef.applies` is an
+  `ImpulseStatusApplication[]`, so the row names the status, not code.
+- A non-maneuver `impulse` (`tremor`, an inward radial pull) is applied once per victim per instance
+  on its first damaging hit (`WeaponInstance.impulsedVictims`), reported on `CombatResult.impulses`.
+- `config/impulse-config.ts`'s `IMPULSE_CONFIG` has two knobs: `wallContactPad` (hull inflation for
+  "touching level geometry") and `spinScale` (the slam's spin calibration). See
+  [`docs/combat-model.md`](../../docs/combat-model.md#maneuvers-and-the-contact-pass).
 
-**`stepDrive` does not read the roster.** It takes a resolved `ChassisDrive` — **nine** fields as of
-the 2026-09-18 Unity drive-model port: `maxSpeed` (emergent, `engineAccel / dragRate` — nothing
-clamps to it), `engineAccel`, `reverseAccel`, `brakeDecel` (flat deceleration while braking, resolved
-from `CarDef.brakeDecel`), `turnRate` (speed-independent), `dragRate` (the authored per-second rate,
-which is what a status scales), `dragPerTick` (what an unmodified tick multiplies the WHOLE velocity
-by), `gripPerTick` (`DRIVE_CONFIG.lateralGripRate` per tick, applied to the lateral component alone —
-whatever survives it is the drift) and `spinPerTick`. **`reverseMaxSpeed`, `accel`, `turnRateAtStop`
-and `coastPerTick` are gone**, along with `CarDef.coastHalfLifeSeconds`: yaw is speed-independent so
-there is no at-rest rate, reverse top speed is the emergent `maxSpeed × reverseAccelFactor`, and one
-always-on drag rate sets top speed, wind-up and roll together in place of a separate coast curve.
+## Drive
 
-**`spinPerTick` is a real decay, and ram spin reaches the car through `spinFree` alone.** The Unity
-ram port's stage 3 set `RAM_CONFIG.reelingSpinDecayRate` to 2.0/s and `spinPerTick` to
-`reelingSpinPerTick()` — `perTickDecay(2.0)` ≈ 0.9672 per tick at 60 Hz (0.9355 at the old 30 Hz) — replacing stage 1's
-identity placeholder, and put `spinFree` on `reeling`'s flags. Steering SETS `angVel` every tick
-(U16), so an injected spin survives only while a status carries `spinFree` (`reeling`, for
-`RAM_CONFIG.ramUncontrolMs`) or the car is in a HOLD; outside that window the next ordinary tick
-overwrites it, which is the model rather than a bug. `docs/turn-tuning.md` tabulates both the knob
-and the per-tick factor, and its doc test recomputes them.
+**`stepDrive` does not read the roster.** It takes a resolved `ChassisDrive` (nine fields):
+`maxSpeed` (emergent, `engineAccel / dragRate` — nothing clamps to it), `engineAccel`,
+`reverseAccel`, `brakeDecel` (flat), `turnRate` (speed-independent; there is no at-rest rate),
+`dragRate` (the per-second rate a status scales), `dragPerTick` (applied to the whole velocity),
+`gripPerTick` (`DRIVE_CONFIG.lateralGripRate`, lateral component only — what survives is the drift)
+and `spinPerTick`. Reverse top speed is emergent, `maxSpeed × reverseAccelFactor`.
 
-The resolved fields come from `driveOf(carId)` (`config/car-config.ts`), which reads the ACTIVE
-MODE's own `derived().chassisDrive` — resolved once per mode by `assembleModeConfig` and frozen with
-the bundle, not a module-load table. (`CHASSIS_DRIVE` still exports the shipped-roster values and is
-what a few tests compare against; `driveOf` no longer reads it.)
-`stepSim` resolves it at the single production call site. Every other caller of `stepDrive` here is
-a test, and that is the point: `golden.test.ts` and `drive.test.ts` pin the drive *equation* against
-a frozen fixture, so a per-car `accel` or `handling` retune can never look like a change to the
-integration. Balance still lives in shared config; the sim receives it rather than reaching into
-`CAR_TABLE` for it.
+**Ram spin reaches a car through `spinFree` alone.** Steering SETS `angVel` every tick, so injected
+spin survives only while a status carries `spinFree` (`reeling`) or the car is in a HOLD; it then
+decays by `spinPerTick` (`reelingSpinPerTick()`, from `RAM_CONFIG.reelingSpinDecayRate`). Outside that window the
+next tick overwrites it — that is the model, not a bug. `docs/turn-tuning.md` tabulates both.
 
-**Volleys are on `WeaponBase`, pellets are on the projectile.** `VolleyDef` (`volleys`,
-`volleyIntervalMs`) applies to both kinds, so a beam can be a wave sequence in principle — the old
-`shockwave` shipped that way, three aura instances 500 ms apart, each with its own `spawnTick` and its
-own damage clock. The 2026-09-01 overhaul left no row authoring more than one volley, but `shockwave`
-is back as a real row: `volley: { volleys: 3, volleyIntervalMs: 500 }`, `cooldownMs` 5000, carried by
-Taurus's slot 2, so multi-wave is **live**, not dormant machinery (`magmablast`'s aura explosion is
-still a single volley). `PelletDef` (`pelletsPerVolley`,
-`spreadAngleDeg`) stays on `ProjectileWeaponDef`, because a beam should not have to author
-`pelletsPerVolley: 1`; `pepperbox` is the shipped multi-pellet row today (3 pellets × 4 muzzles).
-`beginFire` reads `def.volley.volleys` for every kind rather than hardcoding 1 for beams.
-
-`StatusApplication.onWave` (`"all" | "final"`, absent means `"all"`) gates a status on one wave of a
-multi-wave press. The wave is frozen at spawn and **never networked**: `ShotOrder.finalVolley` →
-`WeaponInstance.finalWave` → the two status-application helpers in `sim/combat.ts`. No schema field
-was added; invariant 8 holds because nothing new that `stepSim` reads crosses the wire. Unlike
-multi-wave volleys above, `onWave: "final"` is still **dormant machinery**: the only shipped
-`applies` entry that sets `onWave` at all is `shockwave`'s `spiked`, and it sets `"all"` explicitly,
-so every current status application runs as `"all"`.
+`driveOf(carId)` (`config/car-config.ts`) reads the active mode's `derived().chassisDrive`, resolved
+once per mode by `assembleModeConfig`. `stepSim` calls it at the single production call site; every
+other `stepDrive` caller is a test, so `golden.test.ts` and `drive.test.ts` pin the drive *equation*
+against a frozen fixture and a rating retune can never look like an integration change.
+(`CHASSIS_DRIVE` still exports shipped-roster values for a few tests; `driveOf` does not read it.)
