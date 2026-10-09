@@ -326,3 +326,38 @@ describe("begin_reveal", () => {
     expect(counting.players[0]?.carId).toBe("oval");
   });
 });
+
+describe("arena select (AR15)", () => {
+  const ready = () => lobbyState([player({ sessionId: "a" }), player({ sessionId: "b" })]);
+
+  it("start with firstPhase arena_select forms the roster without a car-select deadline", () => {
+    const next = reduceFlow(ready(), {
+      type: "start", readyIds: ["a", "b"], nowTick: 100, carSelectTicks: 3600, firstPhase: "arena_select",
+    });
+    expect(next.phase).toBe("arena_select");
+    expect(next.roster).toEqual(["a", "b"]);
+    expect(next.carSelectDeadlineTick).toBe(0);
+    expect(next.players.every((p) => p.status === "in_match")).toBe(true);
+  });
+
+  it("start without firstPhase still goes straight to car_select", () => {
+    const next = reduceFlow(ready(), { type: "start", readyIds: ["a", "b"], nowTick: 100, carSelectTicks: 3600 });
+    expect(next.phase).toBe("car_select");
+    expect(next.carSelectDeadlineTick).toBe(3700);
+  });
+
+  it("begin_car_select moves arena_select to car_select and starts the car clock then", () => {
+    const picking = reduceFlow(ready(), {
+      type: "start", readyIds: ["a", "b"], nowTick: 100, carSelectTicks: 3600, firstPhase: "arena_select",
+    });
+    const next = reduceFlow(picking, { type: "begin_car_select", nowTick: 900, carSelectTicks: 3600 });
+    expect(next.phase).toBe("car_select");
+    expect(next.carSelectDeadlineTick).toBe(4500);
+    expect(next.roster).toEqual(["a", "b"]);
+  });
+
+  it("begin_car_select outside arena_select is a no-op", () => {
+    const lobby = ready();
+    expect(reduceFlow(lobby, { type: "begin_car_select", nowTick: 5, carSelectTicks: 60 })).toBe(lobby);
+  });
+});

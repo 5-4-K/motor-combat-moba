@@ -72,3 +72,16 @@ describe("viewFor — reveal", () => {
     expect(viewFor("in_match", RoomPhase.COUNTDOWN)).toBe("match");
   });
 });
+
+describe("arena select routing (AR25)", () => {
+  it("routes an in-match player to arena_select", () => {
+    expect(viewFor("in_match", RoomPhase.ARENA_SELECT)).toBe("arena_select");
+    expect(viewFor(PlayerStatus.IN_MATCH, RoomPhase.ARENA_SELECT)).toBe("arena_select");
+  });
+  it("keeps a lobby player in the lobby", () => {
+    expect(viewFor("ready", RoomPhase.ARENA_SELECT)).toBe("lobby");
+  });
+  it("keeps the wire value", () => {
+    expect(RoomPhase.ARENA_SELECT).toBe(5);
+  });
+});

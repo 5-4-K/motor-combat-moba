@@ -34,8 +34,10 @@ export const ROOM_NAME = "arena";
  * writes every ending — not only a birth-tick one — onto the shot's row as an ENDED row for
  * `endedShotRowMs`, and a client draws an impact only from one (`isShotEnding`); a row that vanishes
  * has merely left the view, so a client of 7 would draw no impact for any shot that lived.
+ * 9 adds `RoomPhase.ARENA_SELECT` and the four arena-select `ArenaState` fields (AR11–AR12); a client
+ * of 8 would route that phase to its lobby fallback and never leave it.
  */
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 export enum RoomPhase {
   LOBBY = 0,
@@ -48,6 +50,11 @@ export enum RoomPhase {
    * or MATCH would silently repoint every client that had not been rebuilt.
    */
   REVEAL = 4,
+  /**
+   * The host choosing the match's arena, then that arena's reveal, between Start and car select
+   * (arena select screen spec, AR9). Appended with an explicit 5 for the same reason REVEAL was.
+   */
+  ARENA_SELECT = 5,
 }
 
 /**

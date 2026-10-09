@@ -2,6 +2,7 @@ import { viewFor, type RoomPhase, type StatusInput, type ViewId } from "@motor-c
 
 export const VIEW_TO_SCENE: Record<ViewId, string> = {
   lobby: "lobby",
+  arena_select: "arena_select",
   car_select: "car_select",
   reveal: "reveal",
   match: "arena",

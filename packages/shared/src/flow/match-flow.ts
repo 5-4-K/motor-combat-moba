@@ -10,7 +10,7 @@ export interface FlowPlayer {
 }
 
 export interface FlowState {
-  phase: "lobby" | "car_select" | "reveal" | "countdown" | "match";
+  phase: "lobby" | "arena_select" | "car_select" | "reveal" | "countdown" | "match";
   mode: "ffa" | "team";
   tick: number;
   carSelectDeadlineTick: number;
@@ -24,7 +24,8 @@ export interface FlowState {
 }
 
 export type FlowEvent =
-  | { type: "start"; readyIds: string[]; nowTick: number; carSelectTicks: number }
+  | { type: "start"; readyIds: string[]; nowTick: number; carSelectTicks: number; firstPhase?: "arena_select" | "car_select" }
+  | { type: "begin_car_select"; nowTick: number; carSelectTicks: number }
   | { type: "lock_car"; sessionId: string }
   | { type: "reveal"; cars: Record<string, string> }
   | { type: "begin_reveal"; nowTick: number; revealTicks: number }
@@ -37,6 +38,13 @@ export function reduceFlow(state: FlowState, event: FlowEvent): FlowState {
   switch (event.type) {
     case "start":
       return applyStart(state, event);
+    case "begin_car_select":
+      if (state.phase !== "arena_select") return state;
+      return {
+        ...state,
+        phase: "car_select",
+        carSelectDeadlineTick: event.nowTick + event.carSelectTicks,
+      };
     case "lock_car":
       return applyLockCar(state, event.sessionId);
     case "reveal":
@@ -66,14 +74,17 @@ function applyStart(
   state: FlowState,
   event: Extract<FlowEvent, { type: "start" }>,
 ): FlowState {
+  const arenaFirst = event.firstPhase === "arena_select";
   const present = new Map(state.players.map((p) => [p.sessionId, p]));
   const roster = event.readyIds.filter((id) => present.get(id)?.status === "ready");
   const rosterSet = new Set(roster);
 
   return {
     ...state,
-    phase: "car_select",
-    carSelectDeadlineTick: event.nowTick + event.carSelectTicks,
+    // AR15: with the arena select screen on, the car-select clock starts when car select opens
+    // (`begin_car_select`), not here.
+    phase: arenaFirst ? "arena_select" : "car_select",
+    carSelectDeadlineTick: arenaFirst ? 0 : event.nowTick + event.carSelectTicks,
     roster,
     players: state.players.map((p) =>
       rosterSet.has(p.sessionId)

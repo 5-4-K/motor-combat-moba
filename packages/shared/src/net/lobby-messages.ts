@@ -29,3 +29,22 @@ export function isChatPayload(msg: unknown): msg is { text: string } {
   if (!Object.hasOwn(msg, "text")) return false;
   return typeof (msg as { text: unknown }).text === "string";
 }
+
+/** Host only, during ARENA_SELECT: move the highlight. Never commits (AR16). */
+export const MSG_ARENA_HIGHLIGHT = "arena_highlight";
+/** Host only, during ARENA_SELECT: commit a named arena, or ask the server to draw one at random. */
+export const MSG_ARENA_PICK = "arena_pick";
+
+/** Wire shape only; whether the arena is in the mode's list is the room's question. */
+export function isArenaHighlightPayload(msg: unknown): msg is { arenaId: string } {
+  if (msg === null || typeof msg !== "object") return false;
+  if (!Object.hasOwn(msg, "arenaId")) return false;
+  return typeof (msg as { arenaId: unknown }).arenaId === "string";
+}
+
+/** `{ arenaId }` or exactly `{ random: true }`. */
+export function isArenaPickPayload(msg: unknown): msg is { arenaId: string } | { random: true } {
+  if (isArenaHighlightPayload(msg)) return true;
+  if (msg === null || typeof msg !== "object") return false;
+  return Object.hasOwn(msg, "random") && (msg as { random: unknown }).random === true;
+}

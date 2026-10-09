@@ -17,6 +17,17 @@ export class ArenaState extends Schema {
   @type("uint32") revealEndsTick = 0;
   @type("uint32") countdownEndsTick = 0;
   /**
+   * Arena select (AR11). Room-flow display state only — `stepSim` reads none of these. The arena
+   * the host's highlight sits on, mirrored to every client so watchers see it move.
+   */
+  @type("string") arenaHighlightId = "";
+  /** When the host's choosing clock runs out. */
+  @type("uint32") arenaSelectDeadlineTick = 0;
+  /** 0 while choosing; the tick the reveal ends once a pick has landed. */
+  @type("uint32") arenaRevealEndsTick = 0;
+  /** The pick came from Select random, so clients play the roulette before the reveal. */
+  @type("boolean") arenaPickRandom = false;
+  /**
    * The tick the match began, so results can show a duration every client agrees on. Display only —
    * `stepSim` never reads it. A local stopwatch would start whenever each machine loaded the arena
    * and drift apart over a match; this is one number, set once, patched to everyone.

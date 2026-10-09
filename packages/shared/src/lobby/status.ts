@@ -1,7 +1,7 @@
 import { PlayerStatus, RoomPhase } from "../constants.js";
 
 export type StatusInput = PlayerStatus | "ready" | "in_match" | "post_match";
-export type ViewId = "lobby" | "car_select" | "reveal" | "match" | "results";
+export type ViewId = "lobby" | "arena_select" | "car_select" | "reveal" | "match" | "results";
 
 const BADGE_READY = "#2ECC71";
 const BADGE_IN_MATCH = "#F1C40F";
@@ -29,6 +29,7 @@ export function badgeColor(status: StatusInput): string {
 export function viewFor(status: StatusInput, phase: RoomPhase): ViewId {
   if (isPostMatch(status)) return "results";
   if (isReady(status)) return "lobby";
+  if (phase === RoomPhase.ARENA_SELECT) return "arena_select";
   if (phase === RoomPhase.CAR_SELECT) return "car_select";
   if (phase === RoomPhase.REVEAL) return "reveal";
   if (phase === RoomPhase.COUNTDOWN || phase === RoomPhase.MATCH) return "match";

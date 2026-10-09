@@ -62,6 +62,10 @@ export {
   MSG_RETURN_TO_LOBBY,
   MSG_CHAT,
   isChatPayload,
+  MSG_ARENA_HIGHLIGHT,
+  MSG_ARENA_PICK,
+  isArenaHighlightPayload,
+  isArenaPickPayload,
 } from "./net/lobby-messages.js";
 export {
   BOT_SESSION_ID,
