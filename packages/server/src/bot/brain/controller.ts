@@ -73,6 +73,8 @@ export class HumanController implements BotController {
   private lastShot: ShotDecision | undefined;
   private lastAction: DriveAction = COAST_ACTION;
   private lastFiredSlot: number | undefined;
+  /** The last live dodge direction, held while `evade` outlives its threats (BB35). */
+  private lastDodge: { x: number; y: number } | undefined;
 
   constructor(
     profileId: BotDifficulty,
@@ -130,7 +132,10 @@ export class HumanController implements BotController {
     const tick = view.tick;
 
     const target = this.pickTarget(view);
-    if (target?.sessionId !== this.target) this.heldSinceTick = tick;
+    if (target?.sessionId !== this.target) {
+      this.heldSinceTick = tick;
+      this.nav = newNavState(); // a new target starts a fresh orbit side and back-out flag
+    }
     this.target = target?.sessionId;
 
     // --- facts ---
@@ -144,7 +149,9 @@ export class HumanController implements BotController {
     const usable = usableSlots(self.slots);
     const inOwnReach = target !== undefined
       && usable.some(({ slot }) => slotIsReady(slot, tick) && distance <= weaponReachOf(slot.weaponId));
-    const kitDry = usable.every(({ slot }) => readyInTicksOf(slot, tick) > consts.ramDryWindowTicks);
+    // BB21: a car with nothing to fire is dry by definition.
+    const kitDry = usable.length === 0
+      || usable.every(({ slot }) => readyInTicksOf(slot, tick) > consts.ramDryWindowTicks);
     const hpFraction = self.maxHp > 0 ? self.hp / self.maxHp : 1;
     const targetHpFraction = target && target.maxHp > 0 ? target.hp / target.maxHp : 1;
     const targetHeld = target !== undefined
@@ -165,7 +172,10 @@ export class HumanController implements BotController {
     const sit = this.situation.current;
     // A fresh situation starts a fresh navigator: a stale orbit side or back-out flag would steer
     // the new goal by the old one's state.
-    if (sit !== previous) this.nav = newNavState();
+    if (sit !== previous) {
+      this.nav = newNavState();
+      if (previous === "evade") this.lastDodge = undefined;
+    }
 
     // --- predict (unconditional draws, BB14) ---
     const predictTarget = target ?? ABSENT_TARGET;
@@ -242,8 +252,17 @@ export class HumanController implements BotController {
         return { ...ahead(heading, profile.awarenessRadiusUnits), range: 0, facing: "nose", reverseOk: false };
       }
       case "evade": {
-        const carAway = f.carIncoming && target ? awayFromCarHeading(self, target) : undefined;
-        const dir = dodgeDirection(f.shotThreats, carAway);
+        // `evade` is held for its commit window after its facts end (BB35), and a threat leaves
+        // perception the moment the shot stops heading at the bot: keep the last live dodge rather
+        // than let an empty sum snap the heading to 0. With none, back up.
+        let dir: { x: number; y: number };
+        if (f.shotThreats.length > 0 || (f.carIncoming && target)) {
+          const carAway = f.carIncoming && target ? awayFromCarHeading(self, target) : undefined;
+          dir = dodgeDirection(f.shotThreats, carAway);
+          this.lastDodge = dir;
+        } else {
+          dir = this.lastDodge ?? { x: -Math.cos(self.angle), y: -Math.sin(self.angle) };
+        }
         return {
           x: self.x + dir.x * c.dodgeDistanceUnits, y: self.y + dir.y * c.dodgeDistanceUnits,
           range: 0, facing: "free", reverseOk: true,

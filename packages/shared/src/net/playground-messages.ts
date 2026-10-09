@@ -55,14 +55,14 @@ export function isBotDebugPayload(value: unknown): value is BotDebugPayload {
   const rec = value as Record<string, unknown>;
   const tri = (v: unknown): boolean => v === -1 || v === 0 || v === 1;
   return (
-    typeof rec.tick === "number" &&
+    Number.isFinite(rec.tick) &&
     typeof rec.situation === "string" && (SITUATIONS as readonly string[]).includes(rec.situation) &&
     typeof rec.targetSessionId === "string" &&
-    typeof rec.goalRange === "number" &&
+    Number.isFinite(rec.goalRange) &&
     typeof rec.goalFacing === "string" && (FACINGS as readonly string[]).includes(rec.goalFacing) &&
-    typeof rec.firedSlot === "number" &&
-    typeof rec.bestHitChance === "number" &&
-    typeof rec.hitChanceBar === "number" &&
+    Number.isInteger(rec.firedSlot) && (rec.firedSlot as number) >= -1 &&
+    Number.isFinite(rec.bestHitChance) &&
+    Number.isFinite(rec.hitChanceBar) &&
     tri(rec.steer) && tri(rec.throttle)
   );
 }

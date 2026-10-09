@@ -114,6 +114,34 @@ describe("HumanController v7", () => {
     expect(out.throttle).toBe(1);
   });
 
+  it("holds a dodge's heading through the commit window after the shot is gone (BB35)", () => {
+    const bot = new HumanController("hard");
+    const rng = makeRng(1);
+    const hard = RESOLVED_BOT_PROFILES.hard;
+    const cadence = hard.recomputeTicks;
+    // A predator shot 250 u straight above the bot, flying down at it: the away heading is -x,
+    // directly behind the nose, so the dodge backs up (throttle -1). Heading 0 would drive +x.
+    const shot = { id: "s1", ownerSessionId: "them", weaponId: "predator" as const, x: 200, y: 110, angle: Math.PI / 2 };
+    expect(weaponDefOf("predator").speed).toBeGreaterThan(0);
+    const shotFrom = Math.ceil((hard.acquireTicks + 1) / cadence) * cadence; // target noticed by then
+    const dodgeAt = shotFrom + Math.ceil(hard.dodgeReactionTicks / cadence) * cadence;
+    const goneAt = dodgeAt + cadence; // the next recompute, inside the commit window
+    expect(goneAt - dodgeAt).toBeLessThan(hard.situationCommitTicks);
+    let dodging: { steer: number; throttle: number } | undefined;
+    for (let tick = 0; tick <= goneAt; tick++) {
+      const instances = tick >= shotFrom && tick < goneAt ? [shot] : [];
+      bot.decide(view(tick, { others: [{ ...enemy, x: 450, vx: 0 }], instances, rng }));
+      if (tick === dodgeAt) {
+        expect(bot.debug()?.situation).toBe("evade");
+        dodging = { steer: bot.debug()!.steer, throttle: bot.debug()!.throttle };
+        expect(dodging.throttle).toBe(-1);
+      }
+    }
+    expect(bot.debug()?.situation).toBe("evade");
+    expect(bot.debug()?.throttle).toBe(dodging!.throttle);
+    expect(Math.sign(bot.debug()!.steer)).toBe(Math.sign(dodging!.steer));
+  });
+
   it("draws rng only in the aim error and the predictor (BB14)", () => {
     const bot = new HumanController("hard");
     let draws = 0;

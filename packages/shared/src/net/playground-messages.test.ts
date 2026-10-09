@@ -217,6 +217,11 @@ describe("isBotDebugPayload", () => {
     }
   });
 
+  it("rejects a non-finite number and a slot below the -1 sentinel", () => {
+    expect(isBotDebugPayload({ ...payload, goalRange: NaN })).toBe(false);
+    expect(isBotDebugPayload({ ...payload, firedSlot: -2 })).toBe(false);
+  });
+
   it("rejects a steer/throttle outside -1|0|1", () => {
     expect(isBotDebugPayload({ ...payload, steer: 2 })).toBe(false);
     expect(isBotDebugPayload({ ...payload, throttle: 0.5 })).toBe(false);
