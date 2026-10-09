@@ -1,10 +1,10 @@
-import { TICK_RATE_HZ } from "@motor-combat-moba/shared";
+import { TICK_RATE_HZ, weaponDefOf, type WeaponId } from "@motor-combat-moba/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotCarView, BotView } from "../types.js";
-import { activeThreats, acquiringUnnoticed, knownCars, lastKnownAnchor, nearestHeardShot, newPerception, observedAngVelOf, perceive, predictedPose, readinessOf, searchWaypoint, ultIsSpent } from "./perception.js";
+import { activeThreats, acquiringUnnoticed, knownCars, lastKnownAnchor, nearestHeardShot, newPerception, observedAngVelOf, perceive, predictedPose, readinessOf, searchWaypoint, threatEtaTicks, ultIsSpent } from "./perception.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
@@ -273,5 +273,50 @@ describe("readinessOf", () => {
     // has dropped the sighting, so easy believes it is loaded. That gap IS the tier difference.
     expect(easy).toBe(1);
     expect(readinessOf(state, "them", "lance", 60, RESOLVED_BOT_PROFILES.hard)).toBeLessThan(1);
+  });
+});
+
+describe("reacting is a timing fact (BB19)", () => {
+  // `view()` puts `self` at x 100, y 100. ETA in ticks = distance / speed * TICK_RATE_HZ.
+  // Easy's dodgeHorizonTicks equals its dodgeReactionTicks, so a shot only registers as a threat
+  // for easy inside horizon + the lateral slack (~3 ticks at predator speed): "far" is therefore
+  // just beyond easy's reaction time, not far beyond it. The near shot sits between hard's and easy's.
+  const SELF = { x: 100, y: 100 };
+  // Read inside a test, never at module scope: the weapon accessor needs the mode beforeEach installs.
+  const geometry = () => {
+    const speed = weaponDefOf("predator").speed;
+    const easyTicks = RESOLVED_BOT_PROFILES.easy.dodgeReactionTicks;
+    const hardTicks = RESOLVED_BOT_PROFILES.hard.dodgeReactionTicks;
+    return {
+      speed,
+      farX: SELF.x + (speed * (easyTicks + 2)) / TICK_RATE_HZ,
+      nearX: SELF.x + (speed * ((hardTicks + easyTicks) / 2)) / TICK_RATE_HZ,
+    };
+  };
+  const shot = (x: number, weaponId: WeaponId = "predator") => ({
+    id: "s1", ownerSessionId: "them", weaponId, x, y: SELF.y, angle: Math.PI,
+  });
+
+  it("a shot with time to react to is reacted to by every tier; a near one only by the quick", () => {
+    const { farX, nearX } = geometry();
+    for (const tier of ["easy", "medium", "hard"] as const) {
+      const far = perceive(newPerception(), view({ instances: [shot(farX)] }), RESOLVED_BOT_PROFILES[tier]);
+      expect(far.threats.get("s1")?.reacting).toBe(true);
+    }
+    expect(perceive(newPerception(), view({ instances: [shot(nearX)] }), RESOLVED_BOT_PROFILES.easy).threats.get("s1")?.reacting).toBe(false);
+    expect(perceive(newPerception(), view({ instances: [shot(nearX)] }), RESOLVED_BOT_PROFILES.hard).threats.get("s1")?.reacting).toBe(true);
+  });
+  it("draws no rng", () => {
+    const { farX } = geometry();
+    let draws = 0;
+    const rng = () => { draws += 1; return 0.5; };
+    perceive(newPerception(), view({ instances: [shot(farX)], rng }), RESOLVED_BOT_PROFILES.hard);
+    expect(draws).toBe(0);
+  });
+  it("threatEtaTicks is distance over speed, and 0 for a speedless weapon", () => {
+    const { speed } = geometry();
+    expect(weaponDefOf("wildcharge").speed).toBe(0);
+    expect(threatEtaTicks(SELF, shot(SELF.x + speed))).toBeCloseTo(TICK_RATE_HZ, 6);
+    expect(threatEtaTicks({ x: 0, y: 0 }, shot(500, "wildcharge"))).toBe(0);
   });
 });

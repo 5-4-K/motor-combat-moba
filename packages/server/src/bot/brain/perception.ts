@@ -41,7 +41,7 @@ export interface KnownThreat {
   noticedAtTick: number;
   /** When the bot's hands may move about it — `noticedAtTick + dodgeReactionTicks`. */
   reactAtTick: number;
-  /** The result of this threat's ONE `dodgeChance` roll. Re-rolling per tick would dodge everything. */
+  /** Whether the shot was far enough away to react to (BB19): its ETA exceeded `dodgeReactionTicks` when first noticed. */
   reacting: boolean;
   /** A heading that takes the car off this shot's line. */
   awayHeadingRad: number;
@@ -75,8 +75,7 @@ export function newPerception(): PerceptionState {
  * One tick of taking the world in. Mutates and returns `state` — perception is the bot's memory, and
  * copying it every tick for six bots at 60 Hz buys nothing.
  *
- * Draws no random numbers except the ONE `dodgeChance` roll per newly-noticed threat, which is drawn
- * unconditionally for stream alignment (H21) and discarded when the threat is already known.
+ * Draws no random numbers: whether a shot is reacted to is a timing fact (BB19), not a roll.
  */
 export function perceive(
   state: PerceptionState,
@@ -121,9 +120,6 @@ export function perceive(
     live.add(instance.id);
     state.blameTick.set(instance.ownerSessionId, tick);
     const existing = state.threats.get(instance.id);
-    // Drawn every time, used only for a new threat: a conditional draw makes the stream depend on
-    // the branch, and one seed would stop replaying (H21).
-    const roll = view.rng();
     if (existing) {
       existing.awayHeadingRad = away;
       continue;
@@ -135,7 +131,7 @@ export function perceive(
       weaponId: instance.weaponId,
       noticedAtTick: tick,
       reactAtTick: tick + profile.dodgeReactionTicks,
-      reacting: roll < profile.dodgeChance,
+      reacting: threatEtaTicks(self, instance) > profile.dodgeReactionTicks,
       awayHeadingRad: away,
     });
   }
@@ -144,6 +140,16 @@ export function perceive(
   }
 
   return state;
+}
+
+/** Ticks until this shot reaches the bot (BB19). A weapon with no travel speed arrives at once. */
+export function threatEtaTicks(
+  self: { x: number; y: number },
+  instance: { x: number; y: number; weaponId: WeaponId },
+): number {
+  const speed = weaponDefOf(instance.weaponId).speed;
+  if (speed <= 0) return 0;
+  return (Math.hypot(self.x - instance.x, self.y - instance.y) / speed) * TICK_RATE_HZ;
 }
 
 /**
@@ -244,7 +250,7 @@ export function searchWaypointCount(): number {
   return SEARCH_FRACTIONS.length;
 }
 
-/** Threats the bot both rolled to react to and has had time to react to. */
+/** Threats the bot had time to react to (BB19) and whose reaction delay has now elapsed. */
 export function activeThreats(state: PerceptionState, tick: number): KnownThreat[] {
   return [...state.threats.values()].filter((t) => t.reacting && tick >= t.reactAtTick);
 }
