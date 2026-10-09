@@ -1620,7 +1620,7 @@ export class ArenaScene extends Phaser.Scene {
         if (stamp.row < chunk.row || stamp.row >= chunk.row + chunk.rows) continue;
         const x = (stamp.col - chunk.col) * tilePx;
         const y = (stamp.row - chunk.row) * tilePx;
-        const draw = resolveTileDraw(textures, stamp.art, colors);
+        const draw = resolveTileDraw(textures, stamp, colors);
         if (draw.kind === "texture") {
           // Centred (stamp's default origin 0.5) so `angle` turns the art about the tile's centre.
           const frame = this.textures.getFrame(draw.key);

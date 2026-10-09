@@ -1,4 +1,4 @@
-import { drive, rectPlanes } from "@motor-combat-moba/shared";
+import { drive, facesOfNormal, rectPlanes } from "@motor-combat-moba/shared";
 import type { BotArenaView } from "../types.js";
 
 /**
@@ -102,10 +102,22 @@ export function spikesAhead(
   const aheadY = self.y + Math.sin(self.angle) * lookaheadUnits;
   const d = drive();
   const margin = Math.max(d.carWidth, d.carHeight) / 2;
-  return arena.obstacles.some(
-    (box) =>
-      box.kind === "spike" &&
-      aheadX > box.x - margin && aheadX < box.x + box.w + margin &&
-      aheadY > box.y - margin && aheadY < box.y + box.h + margin,
-  );
+  return arena.obstacles.some((box) => {
+    if (
+      box.kind !== "spike" ||
+      !(aheadX > box.x - margin && aheadX < box.x + box.w + margin &&
+        aheadY > box.y - margin && aheadY < box.y + box.h + margin)
+    ) {
+      return false;
+    }
+    const faces = box.damageFaces;
+    if (faces === undefined) return true;
+    // A one-sided spike (tile cells TC26) only counts when the car is on a face that damages: the
+    // nearest point of the box to the car centre gives the outward direction. A centre inside the
+    // box counts, since the car is already past any face.
+    const qx = Math.min(Math.max(self.x, box.x), box.x + box.w);
+    const qy = Math.min(Math.max(self.y, box.y), box.y + box.h);
+    if (qx === self.x && qy === self.y) return true;
+    return facesOfNormal(self.x - qx, self.y - qy).some((f) => faces.includes(f));
+  });
 }

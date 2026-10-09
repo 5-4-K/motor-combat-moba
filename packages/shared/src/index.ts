@@ -330,18 +330,33 @@ export { PRACTICE_CONFIG } from "./config/practice-config.js";
 export { CHAT_CONFIG } from "./config/chat-config.js";
 export { SPIKE_CONFIG, SPIKE_TICKS } from "./config/spike-config.js";
 
-export type { ArenaDef, ArenaPalette, ArenaZone, Obstacle, Spawn, TileGrid } from "./arena/types.js";
-export { TILE_SIZE, TILE_TABLE, isSolidTile, tileDefOf } from "./arena/tiles/tile-config.js";
-export { compileTileArena, parseTileGrid } from "./arena/tiles/compile.js";
-export type { TileArenaSource } from "./arena/tiles/compile.js";
 export type {
-  TileCollision,
+  ArenaDef,
+  ArenaPalette,
+  ArenaZone,
+  Obstacle,
+  Spawn,
+  TileCell,
+  TileGrid,
+  TileStamp,
+} from "./arena/types.js";
+export { WORLD_FACES, facesOfNormal } from "./arena/faces.js";
+export type { WorldFace } from "./arena/faces.js";
+export { TILE_SIZE, TILE_DEFS, rotateSides } from "./arena/tiles/tile-config.js";
+export type {
   TileDef,
+  TileDefId,
   TileHazard,
-  TileId,
-  TileShape,
+  TileOverlayRule,
+  TileRotation,
+  TileSide,
   TileSurface,
 } from "./arena/tiles/tile-config.js";
+export { DEFAULT_LEGEND, effectiveLegend } from "./arena/tiles/legend.js";
+export type { TileCellSpec, TileLegend } from "./arena/tiles/legend.js";
+export { compileTileArena } from "./arena/tiles/compile.js";
+export type { TileArenaSource } from "./arena/tiles/compile.js";
+export { overlayArtIds, referencedTileArtIds } from "./arena/tiles/art-ids.js";
 export { ARENA_01 } from "./arena/arena-01.js";
 export { ARENA_02 } from "./arena/arena-02.js";
 export { ARENA_03 } from "./arena/arena-03.js";

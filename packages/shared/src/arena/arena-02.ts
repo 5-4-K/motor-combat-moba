@@ -1,64 +1,64 @@
 import type { ArenaDef } from "./types.js";
+import { compileTileArena } from "./tiles/compile.js";
 
 /**
- * A dusty rectangular pit: inset wall faces, a continuous spike ring, small enough that the whole
- * of it is on screen.
+ * A dusty rectangular pit: a continuous ring of wooden spikes for a wall, and a drawn dirt floor,
+ * small enough that the whole of it is on screen. Authored as tiles since 2026-10-09 (spec tile
+ * cells, TC7): `#` wall, `^` spike, `.` floor, compiled into `obstacles`.
  *
- * 1280x720 is the client's logical canvas, same as `ARENA_01`, so at `CAMERA_CONFIG.zoom` of 1 the
- * camera covers the arena exactly. The painted walls live in the band between that frame and the
- * `boundary` rect; the four spike strips occupy the inward 20 units of that wall, matching
- * `SPIKE_CONFIG.depth`.
+ * 1280x720 (32 x 18 tiles) is the client's logical canvas, same as `ARENA_01`, so at
+ * `CAMERA_CONFIG.zoom` of 1 the camera covers the arena exactly.
  *
- * Unlike `ARENA_01`'s octagon and fourteen gapped strips, this floor is a rectangle and the spikes
- * run the full length of every wall (top and bottom take the corners; left and right sit between
- * them so each strip maps to exactly one wall).
+ * The edge is ONE tile thick, and every edge tile is a spike except the four corners, which are
+ * wall since a corner spike could face no floor. So the playable floor is x 40..1240, y 40..680
+ * (1200 x 640) — the same floor as `ARENA_01`, but spiked the whole way round instead of in runs.
+ *
+ * The art on the left and right sides is turned 90° clockwise so its grain runs along the wall; the
+ * top and bottom rows (corners included) keep it as authored. Only the ART turns — the spikes hurt
+ * from every side. Lower-case `l` is a turned spike.
  */
+const WALL = "wooden-wall";
+const EDGE = "#" + "^".repeat(30) + "#";
+const FLOOR_ROW = "l" + ".".repeat(30) + "l";
 
-const WALL_L = 61;
-const WALL_T = 61;
-const WALL_R = 1222;
-const WALL_B = 668;
-const DEPTH = 20;
-
-export const ARENA_02 = {
+export const ARENA_02: ArenaDef = compileTileArena({
   id: "arena-02",
   displayName: "Arena 02",
-  width: 1280,
-  height: 720,
+  legend: {
+    ".": { tile: "floor", art: "dirt-floor-drawn" },
+    "#": { tile: "wall", art: WALL },
+    "^": { tile: "spike", art: WALL, overlayArt: "wooden-spike" },
+    l: { tile: "spike", art: WALL, artOrientation: 90, overlayArt: "wooden-spike" },
+  },
+  rows: [
+    EDGE, //       0
+    FLOOR_ROW, //  1
+    FLOOR_ROW, //  2
+    FLOOR_ROW, //  3
+    FLOOR_ROW, //  4
+    FLOOR_ROW, //  5
+    FLOOR_ROW, //  6
+    FLOOR_ROW, //  7
+    FLOOR_ROW, //  8
+    FLOOR_ROW, //  9
+    FLOOR_ROW, // 10
+    FLOOR_ROW, // 11
+    FLOOR_ROW, // 12
+    FLOOR_ROW, // 13
+    FLOOR_ROW, // 14
+    FLOOR_ROW, // 15
+    FLOOR_ROW, // 16
+    EDGE, //      17
+  ],
   /**
-   * Warm dust to match the floor art if the PNG is missing. Obstacle and border stay dark so a
-   * procedural fallback still reads as a pit, not as the old cream Crossroads.
+   * Warm dust to match the floor art if a tile PNG is missing. Obstacle and border stay dark so a
+   * procedural fallback still reads as a pit.
    */
   palette: { floor: "#9a7a58", obstacle: "#4a3e34", border: "#2a2420" },
   /**
-   * Inner wall faces the art draws, clockwise from top-left, `+y` down. `width`/`height` stay
-   * 1280x720 — the image frame and the camera bounds. This rect is inset INSIDE them.
-   */
-  boundary: [
-    { x: WALL_L, y: WALL_T },
-    { x: WALL_R, y: WALL_T },
-    { x: WALL_R, y: WALL_B },
-    { x: WALL_L, y: WALL_B },
-  ],
-  /**
-   * One continuous strip per wall, flush to the boundary, `DEPTH` inward. Top and bottom span the
-   * full wall so the corners are covered; left and right start inside those so the four rects do
-   * not overlap.
-   */
-  obstacles: [
-    { x: WALL_L, y: WALL_T, w: WALL_R - WALL_L, h: DEPTH, kind: "spike" as const },
-    { x: WALL_L, y: WALL_B - DEPTH, w: WALL_R - WALL_L, h: DEPTH, kind: "spike" as const },
-    { x: WALL_L, y: WALL_T + DEPTH, w: DEPTH, h: WALL_B - WALL_T - 2 * DEPTH, kind: "spike" as const },
-    { x: WALL_R - DEPTH, y: WALL_T + DEPTH, w: DEPTH, h: WALL_B - WALL_T - 2 * DEPTH, kind: "spike" as const },
-  ],
-  /**
-   * Four corners and the midpoint of each long wall, one margin off the spiked edge. Corner cars
-   * face across the arena and the two midpoint cars face each other — the same facing rule
-   * `ARENA_01` uses, re-seated in this rect. The rows moved inward on 2026-09-16 for the 60x40 hull
-   * (y 150/570 -> 187/543, spec BC10), so every spawn clears the spike ring by about 106 u, well
-   * past a car diagonal (72.1); `x` and `angle` did not move. Unlike `ARENA_01`'s, the old rows here
-   * did not merely scrape the bar — they cleared by 69 u, inside the diagonal, so this move is
-   * forced rather than tidy.
+   * Four corners and the midpoint of each long wall. Corner cars face across the arena and the two
+   * midpoint cars face each other — the same facing rule `ARENA_01` uses. Every spawn clears the
+   * spike ring (faces at x 40/1240, y 40/680) by at least 137 u, past a car diagonal (72.1).
    */
   ffaSpawns: [
     { x: 200, y: 187, angle: 0 },
@@ -69,16 +69,17 @@ export const ARENA_02 = {
     { x: 640, y: 543, angle: -Math.PI / 2 },
   ],
   /**
-   * A line down each side, facing the other team, spread through the playable height.
+   * A line down each side, facing the other team. The y values divide the playable height
+   * (40..680) into four equal parts, so no seat on the line is more exposed than another.
    */
   teamASpawns: [
-    { x: 200, y: 213, angle: 0 },
-    { x: 200, y: 365, angle: 0 },
-    { x: 200, y: 517, angle: 0 },
+    { x: 200, y: 200, angle: 0 },
+    { x: 200, y: 360, angle: 0 },
+    { x: 200, y: 520, angle: 0 },
   ],
   teamBSpawns: [
-    { x: 1080, y: 213, angle: Math.PI },
-    { x: 1080, y: 365, angle: Math.PI },
-    { x: 1080, y: 517, angle: Math.PI },
+    { x: 1080, y: 200, angle: Math.PI },
+    { x: 1080, y: 360, angle: Math.PI },
+    { x: 1080, y: 520, angle: Math.PI },
   ],
-} as const satisfies ArenaDef;
+});

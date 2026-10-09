@@ -10,7 +10,7 @@ import {
   activeCarIds,
   basicAttackIds,
   cars,
-  spike,
+  playableRectOf,
   statusConfig,
   statusTable,
   weapons,
@@ -656,24 +656,23 @@ function statusChain(): void {
   );
 }
 
-function boundaryRect(arena: ArenaDef): { left: number; right: number; top: number; bottom: number } {
-  const verts = arena.boundary;
-  if (!verts || verts.length === 0) {
-    return { left: 0, right: arena.width, top: 0, bottom: arena.height };
-  }
-  const xs = verts.map((v) => v.x);
-  const ys = verts.map((v) => v.y);
-  return {
-    left: Math.min(...xs),
-    right: Math.max(...xs),
-    top: Math.min(...ys),
-    bottom: Math.max(...ys),
-  };
+/**
+ * The drivable floor's rectangle. `playableRectOf` answers a polygon arena's box, or a tile arena's
+ * non-solid cells — arena-02 has been tiles since 2026-10-09, with no `boundary` and its spike ring
+ * one tile deep on the frame edge, so neither the polygon nor the frame is the floor any more.
+ */
+function floorRect(arena: ArenaDef): { left: number; right: number; top: number; bottom: number } {
+  const r = playableRectOf(arena);
+  return { left: r.x, right: r.x + r.w, top: r.y, bottom: r.y + r.h };
 }
 
+/** The spike obstacle whose inner face is the floor's west edge, at the floor's mid-height. */
 function westSpike(arena: ArenaDef) {
-  const { left } = boundaryRect(arena);
-  const strip = arena.obstacles.find((o) => o.x === left && o.w === spike().depth);
+  const f = floorRect(arena);
+  const cy = (f.top + f.bottom) / 2;
+  const strip = arena.obstacles.find(
+    (o) => o.kind === "spike" && o.x + o.w === f.left && o.y <= cy && o.y + o.h >= cy,
+  );
   if (!strip) throw new Error(`${arena.id} has no west spike strip`);
   return strip;
 }
@@ -688,7 +687,7 @@ function westSpike(arena: ArenaDef) {
 function beamsThroughWalls(): void {
   const arena = getArena("arena-02");
   const west = westSpike(arena);
-  const wall = boundaryRect(arena);
+  const wall = floorRect(arena);
   const y = (wall.top + wall.bottom) / 2;
   const inner = west.x + west.w;
   const far = west.x;
@@ -761,14 +760,15 @@ function beamsThroughWalls(): void {
  * Documented (spec P17): the burst is a `disc`, and a disc has no axis for the wall raycast to
  * follow, so its splash reaches the far side of level geometry. Confirm the play impact.
  *
- * Arena-02's west strip is `SPIKE_CONFIG.depth` (20) thick — the same thin wall the P17 unit test
- * authors — so the 60u burst on the near face covers the far face. The far-side victim starts in
+ * Arena-02's west strip is one tile thick since the 2026-10-09 tile conversion — thicker than
+ * the 20u wall the P17 unit test authors, but still thinner than the burst radius, so a burst on the near
+ * face still covers the far face. The far-side victim starts in
  * the wall band and will be clamped onto the floor; they stay inside the field either way.
  */
 function auraThroughWall(): void {
   const arena = getArena("arena-02");
   const west = westSpike(arena);
-  const wall = boundaryRect(arena);
+  const wall = floorRect(arena);
   const y = (wall.top + wall.bottom) / 2;
   const inner = west.x + west.w;
   // `weaponDefOf`, not `weapons().magmablast`: both read the active bundle, but only the accessor's
@@ -804,7 +804,7 @@ function auraThroughWall(): void {
   report(
     "W9. Magma Blast's burst reaching through a wall",
     dealt > 0 ? "KNOWN-BY-DESIGN" : "OK",
-    `Mirage on the inner face of arena-02's ${spike().depth}u west strip, firing west; ` +
+    `Mirage on the inner face of arena-02's ${west.w}u west strip, firing west; ` +
       `victim starts just past the far face: dealt ${dealt} (splash alone is 15 base, up to ~17 at ` +
       `Mirage's 1.13x attack), victim statuses ` +
       `${statusesOf(w.get("victim")).map((s) => s.statusId).join(",") || "none"}.\n` +

@@ -445,3 +445,39 @@ describe("spike contacts", () => {
     expect(events.spikeContacts).toHaveLength(1);
   });
 });
+
+describe("one-sided spikes (TC39)", () => {
+  const bounds = { width: 1280, height: 720 };
+  // y grows downward, so a normal pointing +y leaves the box through its "s" face.
+  const southOnly = { x: 500, y: 300, w: 100, h: 20, kind: "spike" as const, damageFaces: ["s"] as const };
+
+  it("reports a car on the damaging face", () => {
+    const c = car({ x: 550, y: 335, vy: -100 });
+    const { events } = resolveContacts([c], new Set(), "ffa", 1, new Map(), [southOnly], bounds);
+    expect(events.spikeContacts).toHaveLength(1);
+  });
+
+  it("reports nothing for a car on the safe face", () => {
+    const c = car({ x: 550, y: 285, vy: 100 });
+    const { events } = resolveContacts([c], new Set(), "ffa", 1, new Map(), [southOnly], bounds);
+    expect(events.spikeContacts).toHaveLength(0);
+  });
+
+  it("keeps looking past a safe face and reports the second box's damaging face", () => {
+    // The car sits north of `southOnly` (its safe face) and south of `above` (its damaging face).
+    const above = { x: 500, y: 246, w: 100, h: 20, kind: "spike" as const, damageFaces: ["s"] as const };
+    const c = car({ x: 550, y: 285, vy: -100 });
+    const { events } = resolveContacts([c], new Set(), "ffa", 1, new Map(), [southOnly, above], bounds);
+    expect(events.spikeContacts).toHaveLength(1);
+    expect(events.spikeContacts[0]!.ny).toBeGreaterThan(0);
+  });
+
+  it("reports from every face when damageFaces is absent", () => {
+    const all = { x: 500, y: 300, w: 100, h: 20, kind: "spike" as const };
+    for (const y of [285, 335]) {
+      const c = car({ x: 550, y });
+      const { events } = resolveContacts([c], new Set(), "ffa", 1, new Map(), [all], bounds);
+      expect(events.spikeContacts).toHaveLength(1);
+    }
+  });
+});

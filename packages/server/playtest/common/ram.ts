@@ -13,6 +13,7 @@ import {
   DRIVE_CONFIG,
   TICK_RATE_HZ,
   boundsOf,
+  playablePlanesOf,
   drive,
   getArena,
   ram,
@@ -327,7 +328,10 @@ function chaseRamLock(): void {
         },
         { id: "vic", carId: "bullseye", x: 260, y: 360, angle: 0 },
       ]);
-      const runway = boundsOf(getArena(w.state.arenaId));
+      // The floor's planes, not `boundsOf`: a tile arena carries no `boundary`, so `boundsOf` is
+      // its image frame, a tile past the wall, and the break below could never fire.
+      const arena = getArena(w.state.arenaId);
+      const runway = { ...boundsOf(arena), planes: playablePlanesOf(arena) };
       let rams = 0;
       let prevShove = 0;
       let midGap = 0;
@@ -365,7 +369,7 @@ function chaseRamLock(): void {
         prevShove = shove;
         if (t === Math.floor(ticks / 2)) midGap = w.get("vic").x - w.get("atk").x - 48;
         // The runway ends where open space does: stop once the far wall is within one car length of
-        // the victim's centre, judge what we have. Read from the arena's own boundary planes — the
+        // the victim's centre, judge what we have. Read from the arena's floor planes — the
         // old literal (`1280 - 60`, the image frame) sat past arena-01's octagon wall (a centre
         // clamps at ~1176), so the break could never fire and every run ended pinned at the wall.
         if (outsideArena(afterVic.x + DRIVE_CONFIG.carWidth, afterVic.y, runway)) break;
