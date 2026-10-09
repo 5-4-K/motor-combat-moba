@@ -526,8 +526,11 @@ to a cell `{ tile, orientation?, art?, artOrientation?, overlay? }`, and `compil
 `ArenaDef.tiles` to a `TileCell` grid. `TILE_DEFS` is behaviour only (solidity, a hazard and which
 `sides` of it hurt); the look is named on the cell, so one def can wear any art. A one-sided spike
 compiles to an obstacle with `damageFaces`, and the sim's spike contact and the bot's `spikesAhead`
-both skip its safe faces (`facesOfNormal`). `arena-02` keeps its
-rectangle with a continuous spike ring and `arena-03` its chamfered polygon, both hand-written. The
+both skip its safe faces (`facesOfNormal`). **`arena-02` became a tile arena the same day** — a
+wall ring and a spike ring around a 1120 × 560 floor, its old hand-written pit to within 7 u — and
+the two arenas wear different looks through their legends: arena-01 drawn metal, arena-02 drawn
+dirt and wood, with each edge's wall art turned by `artOrientation` and arena-02's wooden teeth set
+by a legend entry's `overlayArt` (TC43). `arena-03` keeps its chamfered polygon, hand-written. The
 `boundary` vertex list on `ArenaDef` remains the mechanism for a non-rectangular hand-written arena:
 inward half-planes through `Bounds`, resolved by a positional clamp, with `boundsOf(arena)` the one
 place a `Bounds` is built. `width`/`height` keep meaning the image frame and camera bounds
@@ -554,7 +557,8 @@ already reads as a self-inflicted, environment death with no new code. See
 [`docs/combat-model.md`](docs/combat-model.md#environmental-hazards-wall-spikes) and
 [`docs/config-reference.md`](docs/config-reference.md#spike_config).
 
-**`arena.arena-02.floor` is the live floor key in the arena art namespace; arena-01's is gone.** The
+**No shipped arena draws a full-floor image any more** — arena-02 became a tile arena on
+2026-10-09, and `arena.arena-02.floor` stays in the manifest unused; arena-01's is gone. The
 namespace (`arena.<id>.<slot>`, pruned per-arena at release time) existed since the asset pipeline
 shipped with nothing to carry. The client draws a resolving floor as an `Image` in place of the
 generated asphalt `TileSprite` — painted markings, the border stroke and the notch strips all go

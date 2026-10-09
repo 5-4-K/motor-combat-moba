@@ -15,6 +15,12 @@ export interface TileCellSpec {
   readonly artOrientation?: TileRotation;
   /** Automatic by default (TC6); an explicit stamp replaces it, `"none"` suppresses it. */
   readonly overlay?: { readonly art: string; readonly orientation: TileRotation } | "none";
+  /**
+   * The art the definition's AUTOMATIC overlay wears on this cell (TC43) — same edges, another look,
+   * so one arena can have wooden teeth without a second spike definition. Only on a definition with
+   * an overlay rule, and never beside an explicit `overlay`.
+   */
+  readonly overlayArt?: string;
 }
 
 export type TileLegend = Readonly<Record<string, TileCellSpec>>;

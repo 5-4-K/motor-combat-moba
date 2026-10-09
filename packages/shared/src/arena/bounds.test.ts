@@ -4,6 +4,7 @@ import { compileTileArena } from "./tiles/compile.js";
 import { TILE_SIZE } from "./tiles/tile-config.js";
 import { ARENA_01 } from "./arena-01.js";
 import { ARENA_02 } from "./arena-02.js";
+import { ARENA_03 } from "./arena-03.js";
 
 describe("boundsOf", () => {
   it("gives an arena with no polygon no planes at all", () => {
@@ -13,9 +14,9 @@ describe("boundsOf", () => {
   });
 
   it("carries the width and height of a polygon arena unchanged", () => {
-    const bounds = boundsOf(ARENA_02);
-    expect(bounds.width).toBe(ARENA_02.width);
-    expect(bounds.height).toBe(ARENA_02.height);
+    const bounds = boundsOf(ARENA_03);
+    expect(bounds.width).toBe(ARENA_03.width);
+    expect(bounds.height).toBe(ARENA_03.height);
   });
 });
 
@@ -27,8 +28,8 @@ describe("playableExtentOf", () => {
     expect(playableExtentOf(ARENA_01).width).not.toBe(ARENA_01.width);
   });
 
-  it("measures arena-02's inset wall-face rect the same way", () => {
-    expect(playableExtentOf(ARENA_02)).toEqual({ width: 1161, height: 607 });
+  it("measures arena-02's tile floor inside its wall and spike rings the same way", () => {
+    expect(playableExtentOf(ARENA_02)).toEqual({ width: 1120, height: 560 });
     expect(playableExtentOf(ARENA_02).width).not.toBe(ARENA_02.width);
   });
 
@@ -71,7 +72,7 @@ describe("tile arenas (TA30, TA31)", () => {
 
   it("keeps a plain rectangle plane-less, and a polygon arena on its own planes", () => {
     expect(playablePlanesOf({ width: 100, height: 50 })).toBeUndefined();
-    expect(playablePlanesOf(ARENA_02)).toEqual(boundsOf(ARENA_02).planes);
+    expect(playablePlanesOf(ARENA_03)).toEqual(boundsOf(ARENA_03).planes);
     expect(playableRectOf({ width: 100, height: 50 })).toEqual({ x: 0, y: 0, w: 100, h: 50 });
   });
 });

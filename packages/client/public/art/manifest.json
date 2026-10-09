@@ -91,6 +91,26 @@
     "arena.common.tile.spike-teeth": {
       "file": "arenas/common/tile-spike-teeth.png",
       "colorMode": "none"
+    },
+    "arena.common.tile.metal-floor-drawn": {
+      "file": "arenas/common/tile-metal-floor-drawn.png",
+      "colorMode": "none"
+    },
+    "arena.common.tile.metal-wall-drawn": {
+      "file": "arenas/common/tile-metal-wall-drawn.png",
+      "colorMode": "none"
+    },
+    "arena.common.tile.dirt-floor-drawn": {
+      "file": "arenas/common/tile-dirt-floor-drawn.png",
+      "colorMode": "none"
+    },
+    "arena.common.tile.wooden-wall": {
+      "file": "arenas/common/tile-wooden-wall.png",
+      "colorMode": "none"
+    },
+    "arena.common.tile.wooden-spike": {
+      "file": "arenas/common/tile-wooden-spike.png",
+      "colorMode": "none"
     }
   }
 }

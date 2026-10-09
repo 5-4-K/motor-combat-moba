@@ -55,6 +55,12 @@ function validateLegend(id: string, legend: TileLegend, defs: TileDefs): void {
     if (spec.art !== undefined && def.draw === "none") {
       throw new Error(`${where} names art ${JSON.stringify(spec.art)} on undrawn tile ${JSON.stringify(spec.tile)}`);
     }
+    if (spec.overlayArt !== undefined && def.overlay === undefined) {
+      throw new Error(`${where} names overlayArt on tile ${JSON.stringify(spec.tile)}, which has no automatic overlay`);
+    }
+    if (spec.overlayArt !== undefined && spec.overlay !== undefined) {
+      throw new Error(`${where} names both overlayArt and overlay; overlayArt only reskins the automatic one`);
+    }
   }
 }
 
@@ -119,7 +125,8 @@ function resolveGrid(src: TileArenaSource, defs: TileDefs): TileGrid {
     if (spec.overlay !== undefined && spec.overlay !== "none") {
       overlays = [{ art: spec.overlay.art, rotation: spec.overlay.orientation }];
     } else if (spec.overlay === undefined && rule !== undefined) {
-      overlays = cell.faces.filter((face) => exposed(i, face)).map((face) => ({ art: rule.art, rotation: FACE_ROTATION[face] }));
+      const art = spec.overlayArt ?? rule.art;
+      overlays = cell.faces.filter((face) => exposed(i, face)).map((face) => ({ art, rotation: FACE_ROTATION[face] }));
     }
     return { ...cell, overlays };
   });

@@ -269,7 +269,16 @@ export interface TileGrid {
   user's standing instruction; `playtest` is not owed, since no shipped geometry or rule moves —
   say so in the summary.
 
+## 8a. Addendum — per-arena overlay art (2026-10-09, after the arena-02 conversion)
+
+- **TC43** A legend entry may carry `overlayArt`: the art the definition's AUTOMATIC overlay wears
+  on that cell, placed on exactly the edges TC17 already picks. It exists because previewing arena
+  looks showed one arena could not have wooden teeth without a second spike definition that differs
+  only in look, which TC1 forbids. Refused (TC18 style, naming arena and key) on a definition with no
+  overlay rule, and beside an explicit `overlay`. `overlayArtIds()` sees it through the resolved
+  cells, so `check:art`'s alpha blocker covers it with no change.
+
 ## 9. Out of scope
 
-Recreating `arena-02` (next task, built on this); driving surfaces (TA12); diagonal shapes (TA2);
-random per-cell art variants; the visual editor.
+Driving surfaces (TA12); diagonal shapes (TA2); random per-cell art variants; the visual editor.
+(`arena-02` was converted to tiles on 2026-10-09, after this spec — see the root `CLAUDE.md`.)

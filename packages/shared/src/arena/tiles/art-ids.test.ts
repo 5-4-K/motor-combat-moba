@@ -16,8 +16,9 @@ const SAW_ARENA = compileTileArena({
 });
 
 describe("tile art ids (TC31)", () => {
-  it("names the overlay art the definitions carry", () => {
-    expect(overlayArtIds()).toEqual(["spike-teeth"]);
+  it("names the overlay art the definitions and the shipped arenas carry", () => {
+    // spike-teeth from the spike definition; wooden-spike from arena-02's `overlayArt` (TC43).
+    expect(overlayArtIds()).toEqual(["spike-teeth", "wooden-spike"]);
   });
 
   it("includes overlay art a registered arena names on a cell, sorted and unique", () => {
@@ -25,6 +26,15 @@ describe("tile art ids (TC31)", () => {
   });
 
   it("lists every art id the definitions and the registered arenas reference, sorted and unique", () => {
-    expect(referencedTileArtIds()).toEqual(["checker-plate", "metal-plate", "spike-teeth"]);
+    expect(referencedTileArtIds()).toEqual([
+      "checker-plate",
+      "dirt-floor-drawn",
+      "metal-floor-drawn",
+      "metal-plate",
+      "metal-wall-drawn",
+      "spike-teeth",
+      "wooden-spike",
+      "wooden-wall",
+    ]);
   });
 });

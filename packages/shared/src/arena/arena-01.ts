@@ -12,20 +12,40 @@ import { compileTileArena } from "./tiles/compile.js";
  *
  * The playable floor is x 40..1240, y 40..680 (1200 x 640): a one-tile wall on every side. The
  * spike runs sit in the wall row, so they take no floor; they are the old strips' spans rounded to
- * the 40 u grid and are mirrored about both centre lines. The corners are square — the octagon's chamfers wait for
- * diagonal tiles (TA2).
+ * the 40 u grid and are mirrored about both centre lines. The corners are square — the octagon's
+ * chamfers wait for diagonal tiles (TA2).
+ *
+ * The look is drawn metal (2026-10-09): the wall art is turned per side so its grain runs along the
+ * wall — top row (corners included) 90° clockwise, bottom row 90° counter-clockwise, right column
+ * 180°, left column as authored. Only the ART turns (`artOrientation`); every spike here hurts from
+ * all sides, so behaviour is the same on every edge. The upper-case key is the wall, the lower-case
+ * one the spike, on each turned edge.
  *
  * The spawn tables are symmetric to the unit, because with no cover to duck behind, position is the
  * only advantage a spawn can confer.
  */
+const WALL = "metal-wall-drawn";
 const EDGE = "###^^^^^###^^^####^^^###^^^^^###";
-const PLAIN = "#" + ".".repeat(30) + "#";
-const SPIKED = "^" + ".".repeat(30) + "^";
+const TOP = EDGE.replace(/#/g, "T").replace(/\^/g, "t");
+const BOTTOM = EDGE.replace(/#/g, "B").replace(/\^/g, "b");
+const PLAIN = "#" + ".".repeat(30) + "R";
+const SPIKED = "^" + ".".repeat(30) + "r";
 
 export const ARENA_01: ArenaDef = compileTileArena({
   id: "arena-01",
+  legend: {
+    ".": { tile: "floor", art: "metal-floor-drawn" },
+    "#": { tile: "wall", art: WALL },
+    "^": { tile: "spike", art: WALL },
+    T: { tile: "wall", art: WALL, artOrientation: 90 },
+    t: { tile: "spike", art: WALL, artOrientation: 90 },
+    B: { tile: "wall", art: WALL, artOrientation: 270 },
+    b: { tile: "spike", art: WALL, artOrientation: 270 },
+    R: { tile: "wall", art: WALL, artOrientation: 180 },
+    r: { tile: "spike", art: WALL, artOrientation: 180 },
+  },
   rows: [
-    EDGE, //    0
+    TOP, //     0
     PLAIN, //   1
     PLAIN, //   2
     SPIKED, //  3
@@ -42,7 +62,7 @@ export const ARENA_01: ArenaDef = compileTileArena({
     SPIKED, // 14
     PLAIN, //  15
     PLAIN, //  16
-    EDGE, //   17
+    BOTTOM, // 17
   ],
   /** What the procedural fallback paints until tile art is imported, and the background beneath. */
   palette: { floor: "#3b4747", obstacle: "#4a5568", border: "#2d3436" },

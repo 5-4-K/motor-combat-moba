@@ -1507,12 +1507,14 @@ keep hand-in-sync as more arenas land.
 | id | width × height (image frame) | playable area | obstacles | palette |
 |---|---|---|---|---|
 | `arena-01` | 1280 × 720 (32 × 18 tiles) | 1200 × 640 rect (tile arena) | compiled from the grid (14 `kind: "spike"` runs set into the wall row) | `#3b4747` floor / `#4a5568` obstacle / `#2d3436` border |
-| `arena-02` | 1280 × 720 | 1161 × 607 rect | 4 (all `kind: "spike"`) | `#9a7a58` floor / `#4a3e34` obstacle / `#2a2420` border |
+| `arena-02` | 1280 × 720 (32 × 18 tiles) | 1120 × 560 rect (tile arena) | compiled from the grid (4 `kind: "spike"` runs, one continuous ring) | `#9a7a58` floor / `#4a3e34` obstacle / `#2a2420` border |
 | `arena-03` | 1280 × 2160 | chamfered octagon (100 u chamfers) | 12 (2 `kind: "spike"`) | `#2b2f35` floor / `#4b5362` obstacle / `#1a1d22` border |
 
 `arena-01` is a **tile arena** as of 2026-10-09 (see [Tile arenas](#tile-arenas) below): a 32 × 18 grid compiled into ordinary `obstacles`, no `boundary`, playable floor **1200 × 640** (x 40..1240, y 40..680), square corners. `ArenaDef.boundary` — an optional convex polygon, wound clockwise, carried as inward half-planes and consumed by every boundary reader (`boundsOf(arena)` is the one place a `Bounds` is built from an arena) — remains the mechanism for a non-rectangular hand-written arena such as `arena-03`. Absent means the plain rectangle `0,0 → width,height`. `width`/`height` keep their meaning throughout: the image frame and the camera bounds, so on a one-screen arena like this one the camera clamp leaves no room to scroll (CB2).
 
-`arena-01`'s spikes are `kind: "spike"` rectangles the compiler emits from the `^` cells, one `TILE_SIZE` (40) deep, in the innermost wall row (fourteen runs). The hand-written arenas' rule — spikes flush against a boundary plane, `SPIKE_CONFIG.depth` deep — applies to `arena-02`/`arena-03` only (TA19). Absent `kind` still means an ordinary solid.
+`arena-01`'s spikes are `kind: "spike"` rectangles the compiler emits from the `^` cells, one `TILE_SIZE` (40) deep, in the innermost wall row (fourteen runs). The hand-written arenas' rule — spikes flush against a boundary plane, `SPIKE_CONFIG.depth` deep — applies to `arena-03` only (TA19). Absent `kind` still means an ordinary solid.
+
+`arena-02` is a **tile arena** too, as of 2026-10-09: a 1280 × 720 dusty pit, one ring of wall tiles and one ring of spike tiles around a playable **1120 × 560** floor (x 80..1200, y 80..640) — its old hand-written pit (wall faces at 61/1222 and 61/668, 20 u strips) to within 7 u. The spike ring runs the full length of every wall; its four corners are wall, since a corner spike could face no floor. Its team spawns are at `y=220/360/500`, quartering the floor. The two arenas differ only in their legends: arena-01 is drawn metal, arena-02 drawn dirt with a wooden wall and wooden spike teeth (`overlayArt`, TC43). On both, each edge's wall art is turned with `artOrientation` so its grain runs along the wall. `arena.arena-02.floor` is still in the manifest but is no longer drawn.
 
 Its 3 `teamASpawns` sit at `x=200` facing `0` and its 3 `teamBSpawns` at `x=1080` facing `π`, at `y=200/360/520`; its 6 `ffaSpawns` use the same facing pattern. Every spawn is on a floor cell (TA20).
 
@@ -1530,19 +1532,12 @@ Its 3 `teamASpawns` sit at `x=200` facing `0` and its 3 `teamBSpawns` at `x=1080
 | `spike` | yes | `checker-plate` | `hazard: { kind: "spike", sides: "all" }`; overlay art `spike-teeth`; damage numbers stay in the mode's `spike()` table |
 | `void` | yes | none | `draw: "none"`, backdrop |
 
-- **Cells and legends** — rows are one-character keys. `DEFAULT_LEGEND` (`tiles/legend.ts`) maps `.` floor, `#` wall, `^` spike, space void; an arena may add a `legend`, and an arena key replaces a default key whole. A legend entry is `{ tile, orientation?, art?, artOrientation?, overlay? }` and resolves to the `TileCell` on `ArenaDef.tiles`. `orientation` rotates the def's hazard `sides` (`rotateSides`), so a `front`-only spike can face any way; `artOrientation` defaults to it. `compileTileArena` throws naming the arena id, row and column on an unknown key, rows of unequal length or an empty grid, and names the arena on a legend key that is not one character (TC18). Solid cells merge into rectangles by a deterministic row-major greedy pass, **keyed by identical behaviour** (hazard plus damaging faces; `wall` and `void` share a class, TA15), and the rectangles tile the solid cells exactly (TA16). A spike hurting fewer than four faces compiles to an obstacle with `damageFaces`; all four is the absent default (TC22).
+- **Cells and legends** — rows are one-character keys. `DEFAULT_LEGEND` (`tiles/legend.ts`) maps `.` floor, `#` wall, `^` spike, space void; an arena may add a `legend`, and an arena key replaces a default key whole. A legend entry is `{ tile, orientation?, art?, artOrientation?, overlay?, overlayArt? }` (`overlayArt` reskins the def's automatic overlay on that cell, keeping its edges — TC43) and resolves to the `TileCell` on `ArenaDef.tiles`. `orientation` rotates the def's hazard `sides` (`rotateSides`), so a `front`-only spike can face any way; `artOrientation` defaults to it. `compileTileArena` throws naming the arena id, row and column on an unknown key, rows of unequal length or an empty grid, and names the arena on a legend key that is not one character (TC18). Solid cells merge into rectangles by a deterministic row-major greedy pass, **keyed by identical behaviour** (hazard plus damaging faces; `wall` and `void` share a class, TA15), and the rectangles tile the solid cells exactly (TA16). A spike hurting fewer than four faces compiles to an obstacle with `damageFaces`; all four is the absent default (TC22).
 - **Reserved `surface`** — `{ grip?, drag?, accel? }` multipliers (1 = neutral) are declared on `TileDef` but no row may author one until the sim reads it; a config test refuses it (TA12). A hazard def must be solid (TA11).
 - **Grid rules in `arena.test.ts`** — TA18: every floor cell belongs to some 2 × 2 block of non-solid cells (no passage narrower than a car). TA19: every spike tile has at least one damaging face (the faces it hurts from are authored, TC22) whose in-grid neighbour is non-solid, so a spike that can hurt nobody is an authoring error. TA20: every spawn sits on a floor cell and its hull is clear of every solid cell.
 - **Bounds** — `playableRectOf`, `playableExtentOf` (a tile arena's non-solid bounding box; the frame for a plain arena — the players' guide quotes weapon reach against it, TA30) and `playablePlanesOf` (what the bot's wall readings walk, TA31) live in `arena/bounds.ts`.
 
 ### Hand-written arenas
-
-`arena-02` is a 1280 × 720 dusty pit with an inset rectangular `boundary` (wall faces at
-`x = 61/1222`, `y = 61/668`, playable **1161 × 607**) and four continuous `kind: "spike"` strips,
-one per wall, each `SPIKE_CONFIG.depth` (20) inward. Top and bottom take the corners; left and
-right sit between them. It ships `arena.arena-02.floor`. Spawns reuse the same facing pattern as
-`arena-01`, reseated in this rect. `arena-01` and `arena-02` fit the viewport at `CAMERA_CONFIG.zoom`
-of 1.
 
 `arena-03` is Conquer's own arena (CQ37–CQ40): a tall pitch, one screen wide and three tall, with the
 capture zone (`zone: { x: 640, y: 1080, radius: 150 }`) at its centre and each team's base at an end.

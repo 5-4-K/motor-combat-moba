@@ -234,6 +234,23 @@ describe("compileTileArena overlays (TC6, TC17)", () => {
   it("draws no overlay when the cell says none", () => {
     expect(centre({ x: { tile: "spike", overlay: "none" } }).overlays).toEqual([]);
   });
+
+  it("reskins the automatic overlay with overlayArt, keeping its edges (TC43)", () => {
+    expect(centre({ x: { tile: "spike-front", orientation: 180, overlayArt: "wooden-spike" } }).overlays).toEqual([
+      { art: "wooden-spike", rotation: 180 },
+    ]);
+  });
+});
+
+describe("compileTileArena overlayArt errors (TC43)", () => {
+  it("throws on overlayArt for a tile with no automatic overlay, naming the key", () => {
+    expect(loading(["x"], { x: { tile: "wall", overlayArt: "wooden-spike" } })).toThrow(/arena-x.*"x".*overlayArt.*no automatic overlay/);
+  });
+
+  it("throws on overlayArt beside an explicit overlay, naming the key", () => {
+    const bad: TileLegend = { x: { tile: "spike", overlay: "none", overlayArt: "wooden-spike" } };
+    expect(loading(["x"], bad)).toThrow(/arena-x.*"x".*both overlayArt and overlay/);
+  });
 });
 
 describe("compileTileArena base art (TC5, TC17)", () => {
