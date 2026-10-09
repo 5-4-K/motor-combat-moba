@@ -26,9 +26,9 @@ describe("ARENA_02 grid", () => {
     expect(ARENA_02.boundary).toBeUndefined();
   });
 
-  it("plays on the 1120 x 560 floor inside a one-tile wall and a one-tile spike ring", () => {
-    expect(floor).toEqual({ x: 2 * TILE_SIZE, y: 2 * TILE_SIZE, w: 28 * TILE_SIZE, h: 14 * TILE_SIZE });
-    expect(playableExtentOf(ARENA_02)).toEqual({ width: 1120, height: 560 });
+  it("plays on the 1200 x 640 floor inside a one-tile spike ring", () => {
+    expect(floor).toEqual({ x: TILE_SIZE, y: TILE_SIZE, w: 30 * TILE_SIZE, h: 16 * TILE_SIZE });
+    expect(playableExtentOf(ARENA_02)).toEqual({ width: 1200, height: 640 });
   });
 
   it("is mirror-symmetric about both centre lines in behaviour, tile for tile", () => {
@@ -50,22 +50,22 @@ describe("ARENA_02 grid", () => {
       expect(rotation(c, g.rows - 1)).toBe(0);
     }
     for (let r = 1; r < g.rows - 1; r += 1) {
-      for (const c of [0, 1, g.cols - 2, g.cols - 1]) expect(rotation(c, r)).toBe(90);
+      for (const c of [0, g.cols - 1]) expect(rotation(c, r)).toBe(90);
     }
   });
 
   it("wears wooden spike teeth on every spike edge that faces the floor", () => {
     const teeth = ARENA_02.tiles!.cells.flatMap((cell) => cell.overlays.map((o) => o.art));
-    expect(teeth.length).toBe(2 * 28 + 2 * 14);
+    expect(teeth.length).toBe(2 * 30 + 2 * 16);
     expect(new Set(teeth)).toEqual(new Set(["wooden-spike"]));
   });
 });
 
 describe("ARENA_02 spike ring", () => {
-  const top = spikes.filter((s) => s.y === TILE_SIZE && s.h === TILE_SIZE);
-  const bottom = spikes.filter((s) => s.y === 16 * TILE_SIZE && s.h === TILE_SIZE);
-  const left = spikes.filter((s) => s.x === TILE_SIZE && s.w === TILE_SIZE);
-  const right = spikes.filter((s) => s.x === 30 * TILE_SIZE && s.w === TILE_SIZE);
+  const top = spikes.filter((s) => s.y === 0 && s.h === TILE_SIZE);
+  const bottom = spikes.filter((s) => s.y === 17 * TILE_SIZE && s.h === TILE_SIZE);
+  const left = spikes.filter((s) => s.x === 0 && s.w === TILE_SIZE);
+  const right = spikes.filter((s) => s.x === 31 * TILE_SIZE && s.w === TILE_SIZE);
 
   it("has four strips, one continuous run per wall", () => {
     expect(spikes).toHaveLength(4);

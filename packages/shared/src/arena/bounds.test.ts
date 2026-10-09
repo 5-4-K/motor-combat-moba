@@ -28,8 +28,8 @@ describe("playableExtentOf", () => {
     expect(playableExtentOf(ARENA_01).width).not.toBe(ARENA_01.width);
   });
 
-  it("measures arena-02's tile floor inside its wall and spike rings the same way", () => {
-    expect(playableExtentOf(ARENA_02)).toEqual({ width: 1120, height: 560 });
+  it("measures arena-02's tile floor inside its spike ring the same way", () => {
+    expect(playableExtentOf(ARENA_02)).toEqual({ width: 1200, height: 640 });
     expect(playableExtentOf(ARENA_02).width).not.toBe(ARENA_02.width);
   });
 

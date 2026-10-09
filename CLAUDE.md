@@ -527,7 +527,7 @@ to a cell `{ tile, orientation?, art?, artOrientation?, overlay? }`, and `compil
 `sides` of it hurt); the look is named on the cell, so one def can wear any art. A one-sided spike
 compiles to an obstacle with `damageFaces`, and the sim's spike contact and the bot's `spikesAhead`
 both skip its safe faces (`facesOfNormal`). **`arena-02` became a tile arena the same day** — a
-wall ring and a spike ring around a 1120 × 560 floor, its old hand-written pit to within 7 u — and
+one-tile ring of spikes (wall only at the four corners) around the same 1200 × 640 floor — and
 the two arenas wear different looks through their legends: arena-01 drawn metal, arena-02 drawn
 dirt and wood, with each edge's wall art turned by `artOrientation` and arena-02's wooden teeth set
 by a legend entry's `overlayArt` (TC43). `arena-03` keeps its chamfered polygon, hand-written. The
