@@ -53,6 +53,13 @@ import { describe, expect, it } from "vitest";
 // `fileURLToPath` on a directory URL keeps its trailing slash; strip it so `label +
 // file.slice(dir.length)` below reconstructs the separator correctly instead of eating it.
 const SHARED_SRC = fileURLToPath(new URL("..", import.meta.url)).replace(/[/\\]+$/, "");
+
+/**
+ * Windows builds paths with backslashes; every path this file compares against (allow-list keys,
+ * labels, expected fixture names) is written with "/". Normalise at each comparison point so the
+ * guard reads the same on every OS - before this it failed on Windows for every file it walked.
+ */
+const toPosix = (path: string): string => path.split("\\").join("/");
 const PACKAGES_ROOT = join(SHARED_SRC, "..", "..");
 const REPO_ROOT = join(PACKAGES_ROOT, "..");
 
@@ -108,7 +115,7 @@ describe("client and server read config only through the bundle (MC13, task 5b)"
         .filter(hasRawConfigReference)
         // Normalise to a project-relative path (the walk root is a relative fragment of it) so it
         // matches ALLOWED's keys and reads the same regardless of which package's `cwd` ran the test.
-        .map((file) => label + file.slice(dir.length))
+        .map((file) => label + toPosix(file.slice(dir.length)))
         .filter((file) => !(file in ALLOWED)),
     );
     expect(offenders).toEqual([]);
@@ -188,7 +195,7 @@ function isAllowedRawReference(file: string): boolean {
   // `pathRelative` rather than a "src/" prefix-strip: `file` is now an absolute path (or, for the
   // tripwire fixture, a temp-dir path outside `SHARED_SRC` entirely, which correctly relativizes to
   // something starting with "..", matching neither ALLOWED_FILES nor ALLOWED_DIRS below).
-  const relative = pathRelative(SHARED_SRC, file);
+  const relative = toPosix(pathRelative(SHARED_SRC, file));
   if (relative in ALLOWED_FILES) return true;
   return Object.keys(ALLOWED_DIRS).some((dir) => relative === dir || relative.startsWith(`${dir}/`));
 }
@@ -318,7 +325,7 @@ describe("the headless harnesses measure the mode they say they measure (MC41)",
     const offenders = HARNESS_ROOTS.flatMap(({ label, dir }) =>
       walk(dir)
         .filter(harnessHasRawConfigRead)
-        .map((file) => label + file.slice(dir.length)),
+        .map((file) => label + toPosix(file.slice(dir.length))),
     );
     expect(offenders).toEqual([]);
   });
@@ -352,7 +359,7 @@ describe("the headless harnesses measure the mode they say they measure (MC41)",
       roots.flatMap(({ label, dir }) =>
         walk(dir)
           .filter(harnessHasRawConfigRead)
-          .map((file) => label + file.slice(dir.length)),
+          .map((file) => label + toPosix(file.slice(dir.length))),
       );
     try {
       writeFileSync(

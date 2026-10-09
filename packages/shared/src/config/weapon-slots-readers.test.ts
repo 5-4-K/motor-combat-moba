@@ -38,6 +38,13 @@ import { describe, expect, it } from "vitest";
 // file.slice(dir.length)` below (dir === SHARED_SRC) reconstructs the separator correctly instead
 // of eating it.
 const SHARED_SRC = fileURLToPath(new URL("..", import.meta.url)).replace(/[/\\]+$/, "");
+
+/**
+ * Windows builds paths with backslashes; every path this file compares against (allow-list keys,
+ * labels, expected fixture names) is written with "/". Normalise at each comparison point so the
+ * guard reads the same on every OS - before this it failed on Windows for every file it walked.
+ */
+const toPosix = (path: string): string => path.split("\\").join("/");
 const PACKAGES_ROOT = join(SHARED_SRC, "..", "..");
 const REPO_ROOT = join(PACKAGES_ROOT, "..");
 
@@ -108,7 +115,7 @@ function callsFireSlotsOf(file: string): boolean {
 /** Every file in the tree that calls `fireSlotsOf`, as project-relative paths, sorted. */
 function callSiteFiles(extraRoots: ReadonlyArray<{ label: string; dir: string }> = []): string[] {
   return [...ROOTS, ...extraRoots]
-    .flatMap(({ label, dir }) => walk(dir).map((file) => ({ file, path: label + file.slice(dir.length) })))
+    .flatMap(({ label, dir }) => walk(dir).map((file) => ({ file, path: label + toPosix(file.slice(dir.length)) })))
     .filter(({ path }) => path !== SOURCE_PATH)
     .filter(({ file }) => callsFireSlotsOf(file))
     .map(({ path }) => path)

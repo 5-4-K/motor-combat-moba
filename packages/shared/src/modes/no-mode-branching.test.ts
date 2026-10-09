@@ -17,6 +17,13 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const SHARED_SRC = fileURLToPath(new URL("..", import.meta.url)).replace(/[/\\]+$/, "");
+
+/**
+ * Windows builds paths with backslashes; every path this file compares against (allow-list keys,
+ * labels, expected fixture names) is written with "/". Normalise at each comparison point so the
+ * guard reads the same on every OS - before this it failed on Windows for every file it walked.
+ */
+const toPosix = (path: string): string => path.split("\\").join("/");
 const PACKAGES_ROOT = join(SHARED_SRC, "..", "..");
 
 const ROOTS: ReadonlyArray<{ label: string; dir: string }> = [
@@ -96,7 +103,7 @@ describe("common code never branches on a specific game mode (GM2)", () => {
     const offenders = ROOTS.flatMap(({ label, dir }) =>
       walk(dir)
         .filter((file) => !isUnderModeOrFamilyDir(file))
-        .map((file) => ({ file, rel: label + file.slice(dir.length) }))
+        .map((file) => ({ file, rel: label + toPosix(file.slice(dir.length)) }))
         .filter(({ rel }) => !(rel in ALLOWED))
         .flatMap(({ file }) => offendingLines(file)),
     );
