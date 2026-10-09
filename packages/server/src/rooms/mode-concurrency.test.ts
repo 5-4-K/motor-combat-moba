@@ -51,7 +51,7 @@ const ARENA_CENTRE_X = 640;
 const ARENA_CENTRE_Y = 360;
 const SESSION_ID = "p1";
 const CAR_ID = "mirage";
-// 10 ticks keeps even FAST's 6x top speed well inside arena-01's ~560u clearance from centre
+// 10 ticks keeps even FAST's 6x top speed well inside arena-01's ~290u clearance from centre
 // (estimated ~45u of travel under FAST vs ~18u under SLOW over this span) so neither room's car
 // reaches a wall or a spike — this fixture is about mode isolation, not boundary/contact resolution.
 const TICKS = 10;

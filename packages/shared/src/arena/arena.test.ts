@@ -7,7 +7,7 @@ import { SPIKE_CONFIG } from "../config/spike-config.js";
 import { MAX_PLAYERS } from "../constants.js";
 import { pointOutsideBounds } from "../sim/collide.js";
 import { planePenetration, rectPlanes, supportRadius } from "../sim/boundary.js";
-import { boundsOf } from "./bounds.js";
+import { boundsOf, playablePlanesOf } from "./bounds.js";
 import { TILE_SIZE } from "./tiles/tile-config.js";
 import { ARENA_IDS, ARENAS, getArena, isArenaId } from "./registry.js";
 import type { ArenaDef, Spawn } from "./types.js";
@@ -38,6 +38,20 @@ const entries = Object.entries(ARENAS) as ReadonlyArray<[string, ArenaDef]>;
 
 function insideObstacle(s: Spawn, arena: ArenaDef): boolean {
   return arena.obstacles.some((o) => s.x > o.x && s.x < o.x + o.w && s.y > o.y && s.y < o.y + o.h);
+}
+
+/**
+ * Does the spawn's HULL overlap an obstacle? Measured on the rotated hull's axis-aligned envelope,
+ * which is conservative: it can only call a spawn too close, never miss an embedded one.
+ */
+function hullTouchesObstacle(s: Spawn, arena: ArenaDef): boolean {
+  const c = Math.abs(Math.cos(s.angle));
+  const n = Math.abs(Math.sin(s.angle));
+  const hx = (c * DRIVE_CONFIG.carWidth + n * DRIVE_CONFIG.carHeight) / 2;
+  const hy = (n * DRIVE_CONFIG.carWidth + c * DRIVE_CONFIG.carHeight) / 2;
+  return arena.obstacles.some(
+    (o) => s.x + hx > o.x && s.x - hx < o.x + o.w && s.y + hy > o.y && s.y - hy < o.y + o.h,
+  );
 }
 
 /**
@@ -215,17 +229,21 @@ describe.each(entries)("arena %s", (id, arena) => {
     // FINDING 4 fix (2026-09-11 review): the point-inside check above only tests the spawn's
     // centre. A point a few units inside a plane still embeds the car's HULL, which reaches up to
     // `supportRadius` further along that plane's normal, and gets shoved on tick 1 — impossible
-    // under the old flat 80-unit margin this test replaced. `planes` falls back to the rectangle's
-    // own four planes for an arena with no polygon `boundary`, so this check is never skipped for
-    // lack of a `boundary`.
-    const planes = bounds.planes ?? rectPlanes(arena.width, arena.height);
+    // under the old flat 80-unit margin this test replaced.
+    //
+    // The planes are the FLOOR's (`playablePlanesOf`): a polygon arena's own, or a tile arena's
+    // floor rect. `boundsOf` alone is the image frame for a tile arena — a tile outside the floor —
+    // so checking against it would pass a hull buried in the wall band. A plain rectangle with
+    // neither falls back to its frame's four planes, so the check is never skipped.
+    const planes = playablePlanesOf(arena) ?? rectPlanes(arena.width, arena.height);
     for (const s of all) {
       expect(pointOutsideBounds(s.x, s.y, bounds)).toBe(false);
       expect(Number.isFinite(s.angle)).toBe(true);
       expect(insideObstacle(s, arena)).toBe(false);
+      expect(hullTouchesObstacle(s, arena), `spawn ${s.x},${s.y} hull overlaps an obstacle`).toBe(false);
       for (const p of planes) {
         const penetration = planePenetration(s.x, s.y, supportRadius(s.angle, p.nx, p.ny), p);
-        expect(penetration).toBeLessThanOrEqual(0);
+        expect(penetration, `spawn ${s.x},${s.y} hull crosses the floor edge`).toBeLessThanOrEqual(0);
       }
     }
   });

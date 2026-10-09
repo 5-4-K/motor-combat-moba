@@ -561,10 +561,11 @@ describe("plan", () => {
    * against `0`/`width`/`height` — which on the octagon is not the playable edge, so the whole term
    * was dead there except for poses already outside the arena.
    *
-   * Both cases use an OBSTACLE-FREE view of `arena-01`: the real arena's fourteen spike strips sit
-   * against the same walls and the binary obstacle term inside `boundsPenalty` would fire on this
-   * pose regardless of which edge the bounds half compared against, which is exactly why the dead
-   * gradient went unnoticed. Isolating the planes is what makes this discriminate.
+   * Both cases are obstacle-free (the legacy octagon fixture, and a bare rectangle the size of
+   * arena-01's frame): on a real arena the walls' obstacles would fire the binary obstacle term
+   * inside `boundsPenalty` on this pose regardless of which edge the bounds half compared against,
+   * which is exactly why the dead gradient went unnoticed. Isolating the planes is what makes this
+   * discriminate.
    */
   describe("wallPenalty on a polygon arena", () => {
     const bare = { width: ARENA_01.width, height: ARENA_01.height, obstacles: [] };
@@ -578,7 +579,7 @@ describe("plan", () => {
       expect(result.terms.wallPenalty).toBeGreaterThan(0);
     });
 
-    it("scores that same pose at zero on a rectangle, so arena-02 is untouched", () => {
+    it("scores that same pose at zero on a plane-less rectangle", () => {
       const result = plan({ ...base, arena: bare, self: nearChamfer, horizonTicks: 0 });
       expect(result.terms.wallPenalty).toBe(0);
     });

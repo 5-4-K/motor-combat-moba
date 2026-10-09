@@ -140,11 +140,9 @@ function forwardAfterThrottleTicks(carId: CarId, ticks: number): number {
 
 /**
  * A clear east-west corridor in arena-01, for tests that drive straight and never turn far enough
- * to approach a wall or a spike strip. Not a claim that every point at this y is clear at every x —
- * arena-01's spikes (landed 2026-09-11) include a strip on the top wall spanning x 129-310, which a
- * test that curves or loops (see the dedicated centre-spawn spot below) must avoid instead. Moved
- * from 100 with the 2026-09-16 hull resize: it keeps a 10 u clearance under that strip (bottom edge
- * y 74) for a car half-width of 20 (74 + 20 + 10).
+ * to approach a wall or a spike strip. Arena-01's top wall row (spike runs included) ends at y 40
+ * since the 2026-10-09 tile conversion, so 104 clears it by 34 u for a car half-width of 30; a test
+ * that curves or loops should use the dedicated centre-spawn spot below instead.
  */
 const CORRIDOR_Y = 104;
 

@@ -455,7 +455,21 @@ describe("runMatch", () => {
     // does not rest on the deaths tiebreak. No existing history comment was deleted, reworded or
     // reordered.
     //
-    const out = runMatch({ ...SETUP, seed: 3, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    // `seed: 98`, not 3: the turret swing arc went 360 -> 60 degrees (`8c674bf`, 2026-10-09). Seed 3
+    // is now a 0-0 window — no kill inside 30 s, which fails the kills premise below, not the
+    // clock. Swept 1-60 against this build: 28 of 60 seeds are decisive, down from the previous
+    // entry's 43, and all 32 non-decisive seeds are 0-0 windows rather than 1-1 ties (the previous
+    // entry had two). Every decisive seed checked is `a: 0/1, b: 1/0` — Bastion's kill; Mirage
+    // scores none inside the window. A regime move, reported rather than smoothed over: it is an
+    // `npm run balance` question, not this test's.
+    // Non-decisive seeds in 1-60: 2, 3, 5, 8, 9, 10, 11, 12, 15, 18, 20, 25, 27, 29, 31, 34, 35,
+    // 38, 42, 43, 44, 45, 46, 49, 50, 51, 52, 54, 56, 57, 58, 59.
+    //
+    // 98 by the durability rule: "the one seed present in every known-good set this test has ever
+    // had" (the seed-98 entry above), decisive here on KILLS ALONE (`b: 1 kill / 0 deaths`). No
+    // existing history comment was deleted, reworded or reordered.
+    //
+    const out = runMatch({ ...SETUP, seed: 98, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);

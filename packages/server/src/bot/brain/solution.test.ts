@@ -323,7 +323,14 @@ describe("solve — nose, not bearing", () => {
 describe("solve — turret (TR26)", () => {
   // A turret that takes time to swing: whether the default mode hides its turret (and so turns it
   // instantly) is that mode's choice, and these cases budget a real turn.
-  beforeEach(() => installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.visible": true })));
+  // The bearings below sit up to 90 degrees off the nose, outside the shipped swing arc
+  // (`turret.maxSwingDeg`); an unrestricted arc keeps these about the bearing and lead maths, not
+  // the clamp.
+  beforeEach(() =>
+    installMode(
+      applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.visible": true, "turret.maxSwingDeg": 360 }),
+    ),
+  );
 
   // Mirage's own BASIC ATTACK, a turret row (`WeaponDef.turret`), so the shot leaves the pivot along
   // a bearing rather than the nose. `magmablast` played this part until `development/main` returned

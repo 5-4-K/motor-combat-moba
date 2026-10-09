@@ -8,7 +8,7 @@ import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import { DEFAULT_CAR_ID } from "../../config/car-config.js";
 import { WEAPON_TABLE } from "../../config/weapon-config.js";
 import { ARENA_01 } from "../../arena/arena-01.js";
-import { boundsOf } from "../../arena/bounds.js";
+import { boundsOf, playableRectOf } from "../../arena/bounds.js";
 import { rectPlanes } from "../boundary.js";
 import { weaponDamageOf } from "../damage.js";
 import {
@@ -507,16 +507,21 @@ describe("bounce", () => {
     const STEP = 7.5; // thumper-scale per-tick travel at 60 Hz
     const inside = (x: number, y: number) =>
       ARENA_01.obstacles.some((o) => x > o.x && x < o.x + o.w && y > o.y && y < o.y + o.h);
+    // The floor's own corners, read from the arena rather than typed: when the side walls went
+    // from two tiles to one, hand-typed corners at x 80/1200 silently became points on the flat
+    // top and bottom walls, and this case stopped reaching a corner at all.
+    const f = playableRectOf(ARENA_01);
     const corners = [
-      { x: 80, y: 40, dx: -1, dy: -1 },
-      { x: 1200, y: 40, dx: 1, dy: -1 },
-      { x: 80, y: 680, dx: -1, dy: 1 },
-      { x: 1200, y: 680, dx: 1, dy: 1 },
+      { x: f.x, y: f.y, dx: -1, dy: -1 },
+      { x: f.x + f.w, y: f.y, dx: 1, dy: -1 },
+      { x: f.x, y: f.y + f.h, dx: -1, dy: 1 },
+      { x: f.x + f.w, y: f.y + f.h, dx: 1, dy: 1 },
     ];
     for (const c of corners) {
       for (const off of [-0.06, -0.03, 0, 0.03, 0.06]) {
         for (const shift of [0, 1.3, 2.7, 4.1]) {
-          // ~20 u off both walls, so the shot runs into the concave corner itself.
+          // 20 u off the top or bottom wall and 20-24 u off the side one, so the shot runs into the
+          // concave corner itself.
           let x = c.x - c.dx * (20 + shift);
           let y = c.y - c.dy * 20;
           let ang = Math.atan2(c.dy, c.dx) + off;

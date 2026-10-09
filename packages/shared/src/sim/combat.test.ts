@@ -48,12 +48,12 @@ beforeEach(() => installMode(assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES)
 // installed at that point too.
 installMode(assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES));
 
-/** Open floor in arena-01: no obstacle spans y < 350. */
+/** A y well inside the floor; the test worlds below carry `obstacles: []`, so nothing spans it. */
 const OPEN_Y = 150;
 
 /**
  * A box for the obstacle tests to fire at. Authored here rather than borrowed from `ARENA_01`,
- * which ships empty: obstacle collision is still live behaviour that other arenas rely on, and a
+ * whose obstacles are all perimeter wall and spike tiles: obstacle collision is still live behaviour that other arenas rely on, and a
  * sim test should not go dark because the arena the game happens to ship was refurnished.
  * Positioned clear of the shooter at the origin end of the arena and of every wall.
  */

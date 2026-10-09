@@ -445,7 +445,7 @@ describe("resolveWorld - purity and determinism", () => {
 });
 
 describe("resolveWorld - deep penetration (containment on a separating axis)", () => {
-  // ARENA_01's centre block. Spans x[1080,1320], y[620,980].
+  // A centre block from a retired arena layout. Spans x[1080,1320], y[620,980].
   const block: Aabb = { x: 1080, y: 620, w: 240, h: 360 };
   const ARENA = { width: 2400, height: 1600 };
 
@@ -594,7 +594,7 @@ function penetrationDepth(a: Obb, b: Obb): number {
 }
 
 describe("resolveWorld - contact priority ordering", () => {
-  // ARENA_01's lower-right block. Spans x[1680,1900], y[1170,1250].
+  // A lower-right block from a retired arena layout. Spans x[1680,1900], y[1170,1250].
   const block: Aabb = { x: 1680, y: 1170, w: 220, h: 80 };
   const ARENA = { width: 2400, height: 1600 };
 
@@ -1048,7 +1048,8 @@ describe("contact reflection preserves direction", () => {
 
 describe("polygon bounds", () => {
   const RECT = { width: 1280, height: 720 };
-  // ARENA_01's top-left chamfer, as a boundary with that one plane plus the rectangle.
+  // The retired ARENA_01 octagon's top-left chamfer, as a boundary with that one plane plus the
+  // rectangle.
   const OCTAGON = {
     width: 1280,
     height: 720,

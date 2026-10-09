@@ -380,8 +380,8 @@ describe("hullTouchesWorld", () => {
 });
 
 describe("spike contacts", () => {
-  // Flush against the left wall, matching how `ARENA_01` authors a strip: 20 units deep, kind
-  // "spike". An ordinary obstacle of the same footprint (`plain`) is the control for "not every
+  // Flush against the left wall, matching how a hand-written arena authors a strip: 20 units
+  // deep, kind "spike". An ordinary obstacle of the same footprint (`plain`) is the control for "not every
   // box is a hazard".
   const strip = { x: 74, y: 105, w: 20, h: 95, kind: "spike" as const };
   const plain = { x: 400, y: 400, w: 20, h: 95 };
@@ -414,8 +414,8 @@ describe("spike contacts", () => {
   });
 
   it("reports exactly one contact for a car straddling two spike strips at once", () => {
-    // A car parked on the seam between two vertically-stacked strips (the shape of an octagon
-    // corner in ARENA_01, where two strips meet at an angle but both still overlap one hull). `strip`
+    // A car parked on the seam between two vertically-stacked strips (two adjacent spike runs on
+    // one wall, both overlapping one hull). `strip`
     // covers y:[105,200]; `stripBelow` picks up immediately at y:200 and runs on. A car centred on
     // y:200 with the standard 40-unit-tall hull overlaps both by half its height.
     const stripBelow = { x: strip.x, y: strip.y + strip.h, w: strip.w, h: strip.h, kind: "spike" as const };

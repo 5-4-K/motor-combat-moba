@@ -48,10 +48,9 @@ describe("buildStepContext", () => {
   it("takes obstacles and bounds from the state's arena", () => {
     const ctx = buildStepContext(ARENA, state({ me: player() }), "me", 0, NEUTRAL_MODIFIERS);
     expect(ctx.obstacles).toEqual(ARENA.obstacles);
-    // Was a plain `{ width, height }` literal before arena-01 grew a `boundary` (Task 5, 2026-09-11):
-    // `boundsOf` is the one place a `Bounds` is built from an arena, and the active arena's now
-    // includes `planes`, so the expectation has to go through the same function `buildStepContext`
-    // does rather than hand-build the old rectangle-only shape.
+    // `boundsOf` is the one place a `Bounds` is built from an arena — a polygon arena's carries
+    // `planes`, a tile arena's (arena-01 today) does not — so the expectation goes through the same
+    // function `buildStepContext` does rather than hand-building either shape.
     expect(ctx.bounds).toEqual(boundsOf(ARENA));
   });
 

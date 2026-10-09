@@ -452,7 +452,8 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     // OLD rectangle's left wall (x=0) with the victim 47 units clear of it, close enough to land the
     // slam but far enough that the wall-stun sweep below would not ALSO fire this same tick — this
     // test is about the clocks' *source*, not the wall-stun sweep, which has its own dedicated test
-    // right above. Now that the playable area's left wall sits at x=74, the old victim position (47)
+    // right above. Now that the playable area's left wall sits at x=74 (x=40 since the 2026-10-09
+    // tile conversion, which 200 still clears by a wide margin), the old victim position (47)
     // is inside the wall band and gets an immediate stun, closing `wallWindowUntilTick` at `tick` and
     // failing this assertion. Moving the whole pair inward by the same 200 units keeps the 47-unit
     // spacing the charge contact needs while clearing the new wall by a wide margin. That spacing
