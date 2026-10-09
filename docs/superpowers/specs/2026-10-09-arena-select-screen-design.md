@@ -121,8 +121,9 @@ Flow, disabled: `LOBBY --Start--> CAR_SELECT --> …` — unchanged from today.
 - **AR21.** **A roster player leaves mid-pick.** No new code: `onLeave` already runs
   `controllerOf(mode).afterLeave(...)` for any roster leaver in every phase but `LOBBY`, and ends
   the match through `endMatch` when the controller says so — exactly what it does during
-  `CAR_SELECT` today. `ARENA_SELECT` inherits it. A test holds it (a two-player FFA where one
-  leaves mid-pick ends back in the lobby, as it does mid car-select).
+  `CAR_SELECT` today. `ARENA_SELECT` inherits it. No unit test: `onLeave` needs the room's
+  transport, which the white-box room harnesses deliberately do not stand up; the browser check
+  in the plan's client task exercises it by hand.
 - **AR22.** A player who joins during `ARENA_SELECT` is `READY` and sees the lobby, as during car
   select today.
 - **AR23.** **Back to the lobby.** After a match `arenaId` keeps the arena last played, exactly as
@@ -201,7 +202,7 @@ Matches the approved mockup.
   malformed payload; deadline picks the highlight; random always lands inside the list (injected
   RNG); reveal duration with and without roulette; reveal end enters `CAR_SELECT` with a fresh
   car-select deadline; `toFlowPhase`/`fromFlowPhase` round-trip; host leaves mid-pick (roster and
-  non-roster successor); roster empties mid-pick.
+  non-roster successor).
 - **AR39.** Client: `arena-cards` (name from the def, `null` preview without a manifest row);
   `arena-select-view` (buttons disabled for non-host and after pick, urgent clock); `rouletteFrames`
   (ends on target for every from/target pair up to 5 cards, total within budget, monotone holds);

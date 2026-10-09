@@ -1695,6 +1695,7 @@ Ensure the worktree's `.claude/launch.json` has a `dev` configuration (create it
 2. Host clicks Arena 02 — the guest's highlight moves.
 3. Host presses Select random — both tabs spin and land on the same card, then the reveal (dimmed backdrop, big card, "Car select in N"), then car select opens.
 4. Return to the lobby, Start again, and let the clock run out — the highlighted arena is picked and revealed.
+5. Start once more and close the guest's tab mid-pick (AR21) — the host's tab ends back in the lobby (or the results screen), exactly as leaving mid car-select does; it must not hang on the arena screen.
 Check `read_console_messages` in both tabs for errors. One-arena (Conquer) behaviour is covered by Task 5's test; Conquer's `canStart` needs a full 3v3, so do not try it here. Stop the dev server when done.
 
 - [ ] **Step 7: Commit**
