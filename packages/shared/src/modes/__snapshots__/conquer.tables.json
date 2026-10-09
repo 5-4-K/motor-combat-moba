@@ -248,6 +248,10 @@
     "turnRatePerRating": 0.02535
   },
   "flow": {
+    "arenaRevealSeconds": 3,
+    "arenaRouletteSeconds": 1.5,
+    "arenaSelectEnabled": true,
+    "arenaSelectSeconds": 10,
     "carSelectSeconds": 60,
     "countdownSeconds": 3,
     "nameMax": 16,

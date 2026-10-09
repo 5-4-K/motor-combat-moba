@@ -299,6 +299,12 @@ describe("weapon / combat / drive / flow knobs exist", () => {
     expect(FLOW_CONFIG.carSelectSeconds).toBe(60);
     expect(FLOW_CONFIG.countdownSeconds).toBe(3);
   });
+  it("carries the arena select screen's base values (AR6)", () => {
+    expect(FLOW_CONFIG.arenaSelectEnabled).toBe(true);
+    expect(FLOW_CONFIG.arenaSelectSeconds).toBe(10);
+    expect(FLOW_CONFIG.arenaRevealSeconds).toBe(3);
+    expect(FLOW_CONFIG.arenaRouletteSeconds).toBe(1.5);
+  });
   it("camera follows softly and pushes the view in", () => {
     // Pinned, not ranged: these are the tuned values, and a camLerp outside (0, 1] either never
     // reaches the car or overshoots it every frame. Zoom 2 would draw the 2x car textures at 1:1;
