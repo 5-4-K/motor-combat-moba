@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { ARENA_01 } from "@motor-combat-moba/shared";
 import { legacyOctagonView } from "./legacy-octagon.fixture.js";
-import { spikesAhead, wallAhead } from "./movement.js";
+import { inCorner, spikesAhead, wallAhead, wallPush } from "./movement.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
@@ -127,5 +127,46 @@ describe("spikesAhead on one-sided spikes (TC40)", () => {
   it("fires from every face when damageFaces is absent", () => {
     expect(spikesAhead(south, viewOf(), 100)).toBe(true);
     expect(spikesAhead(north, viewOf(), 100)).toBe(true);
+  });
+});
+
+describe("wallPush (BB31)", () => {
+  const rect = { width: 1280, height: 720, obstacles: [] as const };
+
+  it("is undefined on open floor", () => {
+    expect(wallPush({ x: 640, y: 360, angle: 0 }, rect, 150)).toBeUndefined();
+  });
+
+  it("points away from a wall the look-ahead point is inside", () => {
+    // Facing +x, 100 u from the right wall, 150 u look-ahead: the ahead point is past x = 1280.
+    const push = wallPush({ x: 1180, y: 360, angle: 0 }, rect, 150);
+    expect(push).toBeDefined();
+    expect(push!.x).toBeLessThan(0);
+    expect(Math.abs(push!.y)).toBeLessThan(1e-9);
+  });
+
+  it("sums two normals in a corner even with the nose pointed at open floor", () => {
+    // 50 u from both the left and top walls (inside minEngageUnits of each), facing +x along the
+    // top wall: the look-ahead point is clear, the corner is not.
+    const push = wallPush({ x: 50, y: 50, angle: 0 }, rect, 40);
+    expect(push).toBeDefined();
+    expect(push!.x).toBeGreaterThan(0);
+    expect(push!.y).toBeGreaterThan(0);
+  });
+
+  it("ignores a one-sided spike's safe face", () => {
+    const arena = {
+      width: 1280, height: 720,
+      obstacles: [{ x: 600, y: 300, w: 40, h: 120, kind: "spike" as const, damageFaces: ["e"] as const }],
+    };
+    // Approaching the west (safe) face head-on.
+    expect(wallPush({ x: 540, y: 360, angle: 0 }, arena, 40)).toBeUndefined();
+    // Approaching the east (damaging) face head-on.
+    expect(wallPush({ x: 700, y: 360, angle: Math.PI }, arena, 40)).toBeDefined();
+  });
+
+  it("inCorner moved here keeps its meaning", () => {
+    expect(inCorner({ x: 50, y: 50 }, rect)).toBe(true);
+    expect(inCorner({ x: 640, y: 50 }, rect)).toBe(false);
   });
 });

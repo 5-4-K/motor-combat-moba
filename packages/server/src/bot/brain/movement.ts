@@ -1,4 +1,5 @@
 import { drive, facesOfNormal, rectPlanes } from "@motor-combat-moba/shared";
+import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import type { BotArenaView } from "../types.js";
 
 /**
@@ -12,12 +13,95 @@ import type { BotArenaView } from "../types.js";
  * that failure mode" — so it was deleted rather than kept behind a flag.
  *
  * `wallAhead` is the survivor, and it is not a leftover: `controller.ts` reads it as the `pinned`
- * predicate the `unpin` situation is classified from. The FILE KEEPS ITS NAME on purpose. It still
+ * predicate the `unpin` situation is classified from. Since BB31 it is a thin wrapper over
+ * `wallPush`'s accumulators, beside `spikesAhead` and `inCorner`. The FILE KEEPS ITS NAME on purpose. It still
  * answers exactly one question and that question is a movement question — may the car go this way —
  * and the name is what the R-O2 provenance comments in `controller.ts` and `bot-profiles.ts` point
  * at. Renaming it to `walls.ts` would buy accuracy today and cost that thread, on a seam future
  * movement helpers are expected to land on.
  */
+
+export interface Push { x: number; y: number }
+
+type Pose = { x: number; y: number; angle: number };
+
+function hullMargin(): number {
+  const d = drive();
+  return Math.max(d.carWidth, d.carHeight) / 2;
+}
+
+/**
+ * Boundary planes and plain obstacles near the look-ahead point: `wallAhead`'s geometry, as a
+ * vector. Spike strips are skipped here (`spikePush` owns them) so a spike is not counted twice.
+ *
+ * Every boundary plane, not two axes: a chamfer is neither, and a bot that only knows the
+ * rectangle drives into one believing it is open floor. The push is accumulated rather than
+ * short-circuited on the first wall found (R-O2): two pushes that cancel read as "nothing", as
+ * `wallDesire` did.
+ */
+function aheadPush(self: Pose, arena: BotArenaView, lookaheadUnits: number): Push {
+  const aheadX = self.x + Math.cos(self.angle) * lookaheadUnits;
+  const aheadY = self.y + Math.sin(self.angle) * lookaheadUnits;
+  const margin = hullMargin();
+  let x = 0, y = 0;
+  for (const plane of arena.planes ?? rectPlanes(arena.width, arena.height)) {
+    if (plane.nx * aheadX + plane.ny * aheadY - plane.d < margin) { x += plane.nx; y += plane.ny; }
+  }
+  for (const box of arena.obstacles) {
+    if (box.kind === "spike") continue;
+    if (aheadX > box.x - margin && aheadX < box.x + box.w + margin &&
+        aheadY > box.y - margin && aheadY < box.y + box.h + margin) {
+      x += self.x - (box.x + box.w / 2);
+      y += self.y - (box.y + box.h / 2);
+    }
+  }
+  return { x, y };
+}
+
+/**
+ * Spike strips near the look-ahead point, honouring one-sided faces: `spikesAhead`'s geometry.
+ * A one-sided spike (tile cells TC26) only counts when the car is on a face that damages: the
+ * nearest point of the box to the car centre gives the outward direction. A centre inside the box
+ * counts, since the car is already past any face.
+ */
+function spikePush(self: Pose, arena: BotArenaView, lookaheadUnits: number): Push {
+  const aheadX = self.x + Math.cos(self.angle) * lookaheadUnits;
+  const aheadY = self.y + Math.sin(self.angle) * lookaheadUnits;
+  const margin = hullMargin();
+  let x = 0, y = 0;
+  for (const box of arena.obstacles) {
+    if (box.kind !== "spike") continue;
+    if (!(aheadX > box.x - margin && aheadX < box.x + box.w + margin &&
+          aheadY > box.y - margin && aheadY < box.y + box.h + margin)) continue;
+    const qx = Math.min(Math.max(self.x, box.x), box.x + box.w);
+    const qy = Math.min(Math.max(self.y, box.y), box.y + box.h);
+    const nx = self.x - qx, ny = self.y - qy;
+    const inside = qx === self.x && qy === self.y;
+    const faces = box.damageFaces;
+    if (!inside && faces !== undefined && !facesOfNormal(nx, ny).some((f) => faces.includes(f))) continue;
+    if (inside) { x += self.x - (box.x + box.w / 2); y += self.y - (box.y + box.h / 2); }
+    else { x += nx; y += ny; }
+  }
+  return { x, y };
+}
+
+/**
+ * Two or more boundary planes within `minEngageUnits` of the car centre: a corner (AS28). An edge
+ * puts you near one plane, a corner near two, and a chamfer near three. On a rectangle this is
+ * exactly "near a left/right wall and near a top/bottom wall"; `rectPlanes` is the fallback.
+ */
+function cornerPush(self: { x: number; y: number }, arena: BotArenaView): Push {
+  const m = BRAIN_CONSTANTS.minEngageUnits;
+  let x = 0, y = 0, near = 0;
+  for (const plane of arena.planes ?? rectPlanes(arena.width, arena.height)) {
+    if (plane.nx * self.x + plane.ny * self.y - plane.d < m) { near += 1; x += plane.nx; y += plane.ny; }
+  }
+  return near >= 2 ? { x, y } : { x: 0, y: 0 };
+}
+
+function nonZero(p: Push): Push | undefined {
+  return p.x !== 0 || p.y !== 0 ? p : undefined;
+}
 
 /**
  * Would the car reach a wall or an obstacle within `lookaheadUnits` (H39)?
@@ -46,38 +130,11 @@ import type { BotArenaView } from "../types.js";
  * HP.
  */
 export function wallAhead(
-  self: { x: number; y: number; angle: number },
+  self: Pose,
   arena: BotArenaView,
   lookaheadUnits: number,
 ): boolean {
-  const aheadX = self.x + Math.cos(self.angle) * lookaheadUnits;
-  const aheadY = self.y + Math.sin(self.angle) * lookaheadUnits;
-  const d = drive();
-  const margin = Math.max(d.carWidth, d.carHeight) / 2;
-
-  let pushX = 0;
-  let pushY = 0;
-  // Every boundary plane, not two axes: a chamfer is neither, and a bot that only knows the
-  // rectangle drives into one believing it is open floor. Accumulating rather than short-circuiting
-  // is deliberate and pre-existing — see this function's own note about R-O2, above.
-  for (const plane of arena.planes ?? rectPlanes(arena.width, arena.height)) {
-    if (plane.nx * aheadX + plane.ny * aheadY - plane.d < margin) {
-      pushX += plane.nx;
-      pushY += plane.ny;
-    }
-  }
-
-  for (const box of arena.obstacles) {
-    if (
-      aheadX > box.x - margin && aheadX < box.x + box.w + margin &&
-      aheadY > box.y - margin && aheadY < box.y + box.h + margin
-    ) {
-      pushX += self.x - (box.x + box.w / 2);
-      pushY += self.y - (box.y + box.h / 2);
-    }
-  }
-
-  return pushX !== 0 || pushY !== 0;
+  return nonZero(aheadPush(self, arena, lookaheadUnits)) !== undefined;
 }
 
 /**
@@ -94,30 +151,31 @@ export function wallAhead(
  * `bot-tuner` skill exists to prevent.
  */
 export function spikesAhead(
-  self: { x: number; y: number; angle: number },
+  self: Pose,
   arena: BotArenaView,
   lookaheadUnits: number,
 ): boolean {
-  const aheadX = self.x + Math.cos(self.angle) * lookaheadUnits;
-  const aheadY = self.y + Math.sin(self.angle) * lookaheadUnits;
-  const d = drive();
-  const margin = Math.max(d.carWidth, d.carHeight) / 2;
-  return arena.obstacles.some((box) => {
-    if (
-      box.kind !== "spike" ||
-      !(aheadX > box.x - margin && aheadX < box.x + box.w + margin &&
-        aheadY > box.y - margin && aheadY < box.y + box.h + margin)
-    ) {
-      return false;
-    }
-    const faces = box.damageFaces;
-    if (faces === undefined) return true;
-    // A one-sided spike (tile cells TC26) only counts when the car is on a face that damages: the
-    // nearest point of the box to the car centre gives the outward direction. A centre inside the
-    // box counts, since the car is already past any face.
-    const qx = Math.min(Math.max(self.x, box.x), box.x + box.w);
-    const qy = Math.min(Math.max(self.y, box.y), box.y + box.h);
-    if (qx === self.x && qy === self.y) return true;
-    return facesOfNormal(self.x - qx, self.y - qy).some((f) => faces.includes(f));
-  });
+  return nonZero(spikePush(self, arena, lookaheadUnits)) !== undefined;
+}
+
+/**
+ * Is this car wedged where two walls meet? Counts the BOUNDARY PLANES the car sits within
+ * `minEngageUnits` of (AS28); two or more is a corner. Moved here from `controller.ts` (BB31),
+ * which re-exports it for its unit test. `pinned` ORs it with `wallAhead` and `spikesAhead`,
+ * either of which would mask it in most corner poses, so test it directly.
+ */
+export function inCorner(self: { x: number; y: number }, arena: BotArenaView): boolean {
+  return nonZero(cornerPush(self, arena)) !== undefined;
+}
+
+/**
+ * Everything the car should move away from, summed (BB31): walls and obstacles near the look-ahead
+ * point, spikes (damaging faces only) near the longer spike look-ahead, and a corner at the car's
+ * own position. `undefined` when there is nothing.
+ */
+export function wallPush(self: Pose, arena: BotArenaView, lookaheadUnits: number): Push | undefined {
+  const a = aheadPush(self, arena, lookaheadUnits);
+  const sp = spikePush(self, arena, lookaheadUnits * BRAIN_CONSTANTS.spikeLookaheadFactor);
+  const c = cornerPush(self, arena);
+  return nonZero({ x: a.x + sp.x + c.x, y: a.y + sp.y + c.y });
 }
