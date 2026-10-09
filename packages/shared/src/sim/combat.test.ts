@@ -875,7 +875,7 @@ describe("turret press through a real tick (TR18-TR24)", () => {
   // Brawl hides its turret, which turns it instantly; these cases are about a turret that has to
   // swing, so they run on Brawl's tables with the turret shown.
   beforeEach(() =>
-    installMode(assembleModeConfig(DEFAULT_GAME_MODE, { ...BRAWL_TABLES, turret: { ...BRAWL_TABLES.turret, visible: true } })),
+    installMode(assembleModeConfig(DEFAULT_GAME_MODE, { ...BRAWL_TABLES, turret: { ...BRAWL_TABLES.turret, visible: true, maxSwingDeg: 360 } })),
   );
   it("waits for the turret to turn onto the aimed bearing before firing", () => {
     const shooter = turretPlayer("a", { x: 300, y: 300, angle: 0, fireMask: 1 << 1, aimBearing: Math.PI / 2 });
@@ -903,6 +903,11 @@ describe("turret press through a real tick (TR18-TR24)", () => {
 });
 
 describe("TR15: a turret press's lifecycle at the runCombat level (final-fixes item 3)", () => {
+  // These presses aim 90 degrees off the nose; an unrestricted arc keeps them about the lifecycle,
+  // not the shipped swing clamp.
+  beforeEach(() =>
+    installMode(assembleModeConfig(DEFAULT_GAME_MODE, { ...BRAWL_TABLES, turret: { ...BRAWL_TABLES.turret, maxSwingDeg: 360 } })),
+  );
   it("(a) a car that becomes disarmed mid-turn still finishes the turn and fires", () => {
     // `stunned` (which carries the `disarmed` flag) has been running since tick 40 and is still
     // active going into tick 50 — an OLD stun, already reflected in `wasStunned`, not a fresh one

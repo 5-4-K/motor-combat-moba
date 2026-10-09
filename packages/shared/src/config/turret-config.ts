@@ -42,7 +42,7 @@ export interface TurretConfig {
 export const TURRET_CONFIG: TurretConfig = {
   turnRateDegPerSec: 540,
   defaultOffset: 25,
-  maxSwingDeg: 360,
+  maxSwingDeg: 60,
   visible: true,
 };
 

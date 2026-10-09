@@ -460,7 +460,7 @@
   },
   "turret": {
     "defaultOffset": 25,
-    "maxSwingDeg": 360,
+    "maxSwingDeg": 60,
     "turnRateDegPerSec": 540,
     "visible": true
   },

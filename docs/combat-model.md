@@ -567,7 +567,7 @@ describes machinery that is present and correct, not machinery this build exerci
   any pending press (turret or not) for a car freshly stunned this tick, unless the weapon is
   `isUnInterruptable`. A stun already running when the tick starts does not re-trigger this: it only
   fires for a stun that is new this tick.
-- **The swing arc (TR55).** `TURRET_CONFIG.maxSwingDeg` (360 shipped, i.e. unrestricted) is the arc
+- **The swing arc (TR55).** `TURRET_CONFIG.maxSwingDeg` (60 shipped in every mode, i.e. ±30° off the nose; 360 is unrestricted) is the arc
   the turret may point in, centred on the nose. Aim outside it is **clamped to the nearer arc edge and
   fires there** — never refused. The clamp runs three times, each against the car's heading at that
   moment: `beginFire` stores `carAngle + clampToSwing(wrap(aim − carAngle))` as the press bearing;

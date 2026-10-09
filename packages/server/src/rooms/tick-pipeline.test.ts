@@ -94,7 +94,7 @@ describe("runPipeline: a mouse-aimed turret press (TR7, TR10-TR24)", () => {
     ...(SHIPPED as unknown as ModeTables),
     slots: { ...SHIPPED.slots, basicAttackEnabled: true },
     // Shown, so it turns over several ticks: Brawl (the default) hides its turret, which snaps.
-    turret: { ...SHIPPED.turret, visible: true },
+    turret: { ...SHIPPED.turret, visible: true, maxSwingDeg: 360 },
   });
   beforeEach(() => installMode(BASIC_ATTACK_ON));
   afterEach(() => installMode(SHIPPED));

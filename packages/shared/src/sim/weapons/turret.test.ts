@@ -20,7 +20,7 @@ import {
  * whether a given shipped mode hides its turret is that mode's choice, not one these tests inherit.
  */
 function installTurretMode(visible: boolean): void {
-  installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.visible": visible }));
+  installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.visible": visible, "turret.maxSwingDeg": 360 }));
 }
 
 beforeEach(() => installTurretMode(true));

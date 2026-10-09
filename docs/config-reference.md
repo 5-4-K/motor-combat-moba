@@ -552,7 +552,7 @@ The knobs every turret weapon shares (spec TR1), in
 |---|---|---|
 | `turnRateDegPerSec` | 540 | How fast the turret turns toward a press's frozen bearing. The weapon's wind-up starts only once it is on target, so this is added reaction time for a shot aimed off the turret's current facing — up to 1/3 s for a full 180° |
 | `defaultOffset` | 25 | World units from the turret **pivot** to the barrel tip at the shipped drawn size — where a turret shot is born, before a row's own `turret.additionalOffset` |
-| `maxSwingDeg` | 360 | The arc the turret may point in, centred on the car's nose — ±`maxSwingDeg`/2 either side (spec TR55). Aim outside it is **clamped** to the nearer arc edge and fires there, at press and again at release. 360 (or more) is unrestricted: the turret turns the short way round, through the back when that is shorter — the shipped value, and exactly the behaviour before the knob existed |
+| `maxSwingDeg` | 60 | The arc the turret may point in, centred on the car's nose — ±`maxSwingDeg`/2 either side (spec TR55). Aim outside it is **clamped** to the nearer arc edge and fires there, at press and again at release. 360 (or more) is unrestricted: the turret turns the short way round, through the back when that is shorter — exactly the behaviour before the knob existed. Shipped at 60 (±30°) in every mode since 2026-10-09 |
 
 `TURRET_TICKS.turnPerTick` is the rate resolved to radians per tick from `TICK_RATE_HZ`, once, at
 module load. `defaultOffset` is a sim number because the server spawns the shot there; resizing the
