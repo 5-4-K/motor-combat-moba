@@ -162,6 +162,8 @@ export function slotsOf(carId: CarId): readonly WeaponId[] {
  * 9. `packages/server/src/bot/brain/fixtures.ts` — `fireSlotsFor`, the test fixtures' fire-slot
  *    views (index 0 the basic attack, abilities after it); its callers `installMode` the default
  *    bundle first.
+ * 10. `packages/server/playtest/bot/tiers.ts` — `bastionPunishes`'s read of Bastion's fire slots, to
+ *    find `roadblock`'s slot; a one-shot probe process that calls `installMode` before running.
  *
  * `newFireState` (`sim/weapons/fire.ts`) does **not** call this — its explicit-loadout path builds
  * the same `[basicAttackOf(carId), ...kit]` list inline, because it also has to accept a caller-given
