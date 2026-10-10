@@ -202,7 +202,8 @@ describe("solve — a polygon boundary, not the bare width/height rectangle", ()
   const target = targetAt(100, 100);
 
   it("clips a beam at the chamfer instead of letting it reach through the cut corner", () => {
-    // Regression target: `marchOne` must build its `Bounds` from `arena.planes` directly, NOT
+    // Regression target: the marches (`marchProjectile`, `marchBeam`) must build their `Bounds`
+    // from `arena.planes` directly, NOT
     // `boundsOf(arena)`. `arena` here is a `BotArenaView`, which has no `boundary` field — feeding
     // it to `boundsOf` always silently returns the bare rectangle, no matter what `planes` the view
     // actually carries, and this shot would then reach straight through the chamfer below.
