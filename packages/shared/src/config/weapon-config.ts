@@ -362,7 +362,7 @@ export const WEAPON_TABLE = {
    * **The stun's whole history paragraph is superseded (O16).** Hard CC now enters Bastion's kit
    * through `roadblock`, not this row.
    * Thumper is the bouncing pressure shot that spikes instead: `spiked` (0.6 topSpeed, no bleed) for
-   * 3 s, a slow that keeps a target inside the fight rather than a stop that takes the fight away.
+   * 1 s (was 3 s until 2026-10-10), a slow that keeps a target inside the fight rather than a stop that takes the fight away.
    *
    * `damage` drops 75 -> 60 to pay for it: 55 on Bastion's 0.92x attack, a shot that opens a fight
    * rather than one that wins an exchange on its own.
@@ -403,7 +403,7 @@ export const WEAPON_TABLE = {
     lifetimeMs: 3000, // longer than the 2000 ms cooldown: two shells may be out at once (2026-10-10)
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
-    applies: [{ statusId: "spiked", target: "opponents", durationMs: 3000 }],
+    applies: [{ statusId: "spiked", target: "opponents", durationMs: 1000 }],
   },
   /**
    * Bastion's slot 2: a wall that stops what it touches (O15). The bar is 120 wide by 12 thick,
@@ -428,14 +428,14 @@ export const WEAPON_TABLE = {
     speed: 600,
     range: 500,
     startUpMs: 0,
-    cooldownMs: 6000,
+    cooldownMs: 8000,
     // turret: { additionalOffset: 0 }, — turret system off (see BASIC_ATTACK_BASE); fixed front muzzle
     recoveryMs: 200,
     hitbox: { shape: "bar", radiusAlong: 6, radiusAcross: 60 },
     pierce: 4,
     // The wall stops for nothing: cars are pierced (above) and level geometry too — the bar's 60u
     // wingtips otherwise killed it in `hitsWorld` the tick it spawned whenever Bastion fired
-    // within a wingtip of a wall, reading as a dud press that still spent the 6 s cooldown. Range
+    // within a wingtip of a wall, reading as a dud press that still spent the 8 s cooldown. Range
     // alone ends it, and a camper's cover is no cover from it.
     piercesWalls: true,
     volley: { volleys: 1, volleyIntervalMs: 0 },
