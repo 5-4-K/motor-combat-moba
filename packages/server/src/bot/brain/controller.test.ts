@@ -8,6 +8,7 @@ import { makeRng } from "../rng.js";
 import type { BotCarView, BotIntent, BotView } from "../types.js";
 import { signedDelta } from "./aim.js";
 import { HumanController } from "./controller.js";
+import { enemy as fixtureEnemy, view as fixtureView } from "./fixtures.js";
 import { searchWaypoint } from "./perception.js";
 import { bodyFromSelf, physicsPredictor, rollForward } from "./predict.js";
 import { solve } from "./solution.js";
@@ -16,35 +17,18 @@ beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 // Also installed at module scope: the helpers below read config while the suite is collected.
 installMode(modeConfigOf(DEFAULT_GAME_MODE));
 
-/** A hard Bullseye mid-arena, every fire slot (index 0 is the basic attack) ready. */
+/**
+ * The shared open-loop scene (`fixtures.ts`, also `tiers.test.ts`'s and the bench's) at rest: a hard
+ * Bullseye at (200, 360) facing +x, every fire slot (index 0 is the basic attack) ready. These tests
+ * start the car still, since several roll its pose forward themselves.
+ */
 function view(tick: number, overrides: Partial<BotView> = {}): BotView {
-  return {
-    tick,
-    self: {
-      sessionId: "me", carId: "bullseye", team: 0,
-      x: 200, y: 360, angle: 0, vx: 0, vy: 0, hp: 100, maxHp: 100, alive: true,
-      statuses: [],
-      slots: fireSlotsOf("bullseye").map((weaponId) => ({
-        weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0, range: weaponDefOf(weaponId).range,
-      })),
-      switchLockUntilTick: 0,
-      maneuver: 0, maneuverTicksLeft: 0,
-    },
-    others: [],
-    instances: [],
-    arena: { width: 1280, height: 720, obstacles: [] },
-    observedFires: [],
-    rng: makeRng(1),
-    ...overrides,
-  };
+  const base = fixtureView(tick, { rng: makeRng(1) });
+  return { ...base, self: { ...base.self, vx: 0 }, ...overrides };
 }
 
-/** A stationary, unhurt opponent on the bot's own line, facing it. */
-const enemy: BotCarView = {
-  sessionId: "them", carId: "mirage", team: 1,
-  x: 600, y: 360, angle: Math.PI, vx: 0, vy: 0, hp: 100, maxHp: 100,
-  alive: true, phased: false, statuses: [], maneuver: 0,
-};
+/** The fixture's opponent 400 u down the bot's own line, facing it, stationary. */
+const enemy: BotCarView = { ...fixtureEnemy(), x: 600, vx: 0 };
 
 const COAST = { steer: 0, throttle: 0, fireSlots: 0 } as const;
 

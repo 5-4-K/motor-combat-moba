@@ -41,11 +41,16 @@ describe("chooseShot (BB38, BB39)", () => {
     const stunned: BotCarView = { ...target, statuses: [stun] };
     expect(chooseShot({ self, target: stunned, profile: hard, tick: 100, lastPressTick: -999, solutions }).slot).toBe(big);
   });
-  it("holds inside the burst gap and the switch lock", () => {
-    const solutions = new Map([[1, sol(0.9, 40)]]);
-    expect(chooseShot({ self: selfOf("mirage"), target, profile: hard, tick: 100, lastPressTick: 99, solutions }).slot).toBeUndefined();
-    const locked = { ...selfOf("mirage"), switchLockUntilTick: 200 };
-    expect(chooseShot({ self: locked, target, profile: hard, tick: 100, lastPressTick: -999, solutions }).slot).toBeUndefined();
+  it("holds inside the burst gap and the switch lock, still reporting wantsNose and bestHitChance", () => {
+    const self = selfOf("bullseye");
+    const fixed = fixedSlotsOf(self);
+    // Fixed muzzles not landing, turrets landing: held fire, nose wanted, the best chance reported.
+    const solutions = new Map([1, 2, 3].map((i) => [i, fixed.includes(i) ? sol(0, 0) : sol(0.9, 40)] as const));
+    const gapped = chooseShot({ self, target, profile: hard, tick: 100, lastPressTick: 99, solutions });
+    expect(gapped).toEqual({ slot: undefined, wantsNose: true, bestHitChance: 0.9 });
+    const locked = { ...self, switchLockUntilTick: 200 };
+    expect(chooseShot({ self: locked, target, profile: hard, tick: 100, lastPressTick: -999, solutions }))
+      .toEqual({ slot: undefined, wantsNose: true, bestHitChance: 0.9 });
   });
   it("skips the disabled basic-attack slot", () => {
     const solutions = new Map([[0, sol(1, 100)], [1, sol(0.9, 40)]]);
@@ -53,7 +58,29 @@ describe("chooseShot (BB38, BB39)", () => {
   });
 });
 
+function fixedSlotsOf(self: BotSelfView): number[] {
+  return self.slots.map((s, i) => ({ i, turret: weaponDefOf(s.weaponId).turret })).filter(({ i, turret }) => i !== 0 && turret === undefined).map(({ i }) => i);
+}
+
 describe("wantsNose (BB47)", () => {
+  it("never wants the nose for a turret slot, landing or not", () => {
+    const self = selfOf("bullseye");
+    const fixed = fixedSlotsOf(self);
+    const turrets = [1, 2, 3].filter((i) => !fixed.includes(i));
+    expect(turrets.length).toBeGreaterThan(0);
+    // Every fixed slot spent; the turret slots ready and missing.
+    const slots = self.slots.map((s, i) => (fixed.includes(i) ? { ...s, stocks: 0, rechargeEndsTick: 10_000 } : s));
+    const missing = new Map(turrets.map((i) => [i, sol(0, 0)] as const));
+    expect(chooseShot({ self: selfOf("bullseye", slots), target, profile: hard, tick: 100, lastPressTick: -999, solutions: missing }).wantsNose).toBe(false);
+  });
+  it("never wants the nose for a fixed slot whose reach falls short of the target", () => {
+    const self = selfOf("bullseye");
+    const fixed = fixedSlotsOf(self);
+    const far = { ...target, x: 5000 };
+    expect(Math.max(...fixed.map((i) => self.slots[i]!.range))).toBeLessThan(5000);
+    const missing = new Map([1, 2, 3].map((i) => [i, sol(0, 0)] as const));
+    expect(chooseShot({ self, target: far, profile: hard, tick: 100, lastPressTick: -999, solutions: missing }).wantsNose).toBe(false);
+  });
   it("is true when a ready fixed-muzzle slot in reach is not landing, false when only turret slots are up", () => {
     const self = selfOf("bullseye");
     const fixed = self.slots.map((s, i) => ({ i, turret: weaponDefOf(s.weaponId).turret })).filter(({ i, turret }) => i !== 0 && turret === undefined).map(({ i }) => i);

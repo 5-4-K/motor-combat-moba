@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, applyOverrides, installMode, modeConfigOf, weaponDefOf, type WeaponId } from "@motor-combat-moba/shared";
+import { DEFAULT_GAME_MODE, applyOverrides, fireSlotsOf, installMode, modeConfigOf, weaponDefOf, withMode, type WeaponId } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS, RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
 import type { BotSlotView } from "../types.js";
-import { effectiveReachOf, fightRangeOf, ownComfortOf, slotIsReady, usableSlots } from "./ranges.js";
+import { carrierOf, effectiveReachOf, fightRangeOf, ownComfortOf, slotIsReady, usableSlots } from "./ranges.js";
 import { kitReachOf, weaponReachOf } from "./reach.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
@@ -95,5 +95,20 @@ describe("usableSlots / slotIsReady", () => {
     expect(usableSlots(kit).map((u) => u.index)).toEqual([1]); // index 0 is the basic attack, off in every mode
     expect(slotIsReady(kit[1]!, 10)).toBe(false);
     expect(slotIsReady(kit[1]!, 50)).toBe(true);
+  });
+  it("includes slot 0 when a bundle turns the basic attack on", () => {
+    const kit = fireSlotsOf("bullseye").map((id) => slot(id));
+    const on = applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "slots.basicAttackEnabled": true });
+    expect(withMode(on, () => usableSlots(kit).map((u) => u.index))).toEqual([0, 1, 2, 3]);
+    expect(usableSlots(kit).map((u) => u.index)).toEqual([1, 2, 3]);
+  });
+});
+
+describe("carrierOf (L1)", () => {
+  it("names the one chassis and fire slot that carries a weapon", () => {
+    expect(carrierOf("lance")).toEqual({ carId: "bullseye", slotIndex: fireSlotsOf("bullseye").indexOf("lance") });
+  });
+  it("throws for a weapon no chassis carries", () => {
+    expect(() => carrierOf("no-such-weapon" as WeaponId)).toThrow(/no chassis carries no-such-weapon/);
   });
 });

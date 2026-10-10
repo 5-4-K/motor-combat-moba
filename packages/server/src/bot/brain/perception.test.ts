@@ -311,7 +311,8 @@ describe("reacting is a timing fact (BB19)", () => {
     const { farX } = geometry();
     let draws = 0;
     const rng = () => { draws += 1; return 0.5; };
-    perceive(newPerception(), view({ instances: [shot(farX)], rng }), RESOLVED_BOT_PROFILES.hard);
+    const state = perceive(newPerception(), view({ instances: [shot(farX)], rng }), RESOLVED_BOT_PROFILES.hard);
+    expect(state.threats.size).toBeGreaterThan(0); // the shot was tracked, so the tracking path ran
     expect(draws).toBe(0);
   });
   it("threatEtaTicks is distance over speed, and 0 for a speedless weapon", () => {

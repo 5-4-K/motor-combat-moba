@@ -49,6 +49,22 @@ describe("pickSituation (BB16)", () => {
   });
 });
 
+describe("pickSituation leaves waitOut and recover at once (BB16)", () => {
+  const hard = RESOLVED_BOT_PROFILES.hard;
+  it("drops a fresh waitOut or recover for a lower-priority play without waiting out the commit", () => {
+    for (const held of ["waitOut", "recover"] as const) {
+      // Entered at tick 10; one tick later is well inside the commit window.
+      expect(1).toBeLessThan(hard.situationCommitTicks);
+      const next = pickSituation({ current: held, sinceTick: 10 }, "close", 11, hard);
+      expect(next).toEqual({ current: "close", sinceTick: 11 });
+    }
+  });
+  it("still holds any other play through its commit", () => {
+    const s = { current: "fight" as const, sinceTick: 10 };
+    expect(pickSituation(s, "close", 11, hard).current).toBe("fight");
+  });
+});
+
 describe("isIncomingCar (BB20)", () => {
   const hard = RESOLVED_BOT_PROFILES.hard;
   const car = (vx: number) => ({ sessionId: "t", carId: "mirage" as const, team: 1 as const, x: 300, y: 0, angle: Math.PI, vx, vy: 0, hp: 1, maxHp: 1, alive: true, phased: false, statuses: [], maneuver: 0 });
