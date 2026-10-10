@@ -15,8 +15,8 @@
  * - **Turret HUD** — the crosshair, the ring at its reach, and the turret's swing limits. Every one
  *   of these is about a weapon that fires along a bearing the player chose. A car with no turret
  *   weapon in its fire slots (`carHasTurretWeapon`, TR53) draws no turret at all, and the whole
- *   group goes with it: `ArenaScene.wantsPointerLock` hides all three AND stops asking the browser
- *   for pointer lock, since a crosshair nobody can see is not worth a captured cursor.
+ *   group goes with it: `ArenaScene.aimsTurret` hides all three. Pointer lock is held whenever a car
+ *   is driven, whether or not a crosshair is drawn.
  * - **Muzzle HUD** — the four arrows at the fixed muzzle directions. These are about the car's own
  *   heading, which every chassis has, so they are drawn whatever the loadout is.
  *

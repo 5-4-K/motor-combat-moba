@@ -522,6 +522,7 @@ the car centre. A **turret** shot (a row carrying `turret`, see [Turret muzzle](
 below) leaves along the world bearing the player aimed with the mouse. There is no targeting aid of
 any kind on either: no lock, no snap, no assist, no lead. Where the nose — or the crosshair — points
 is where the shot goes, and carrying the lead against a moving target is entirely the player's job.
+With the turret system switched off, every shipped weapon takes the heading path.
 
 A pellet fan spreads around its axis (`pellets.spreadAngleDeg`) — the heading for a fixed muzzle,
 the bearing for the turret — and a multi-muzzle row fans its muzzles off the heading (`muzzles`,
@@ -537,11 +538,11 @@ degrees off the heading — `0` the nose, which is also what an absent `muzzles`
 grows from), and the **turret**. A row opts into the turret with `WeaponBase.turret`
 (`{ additionalOffset }`); presence is the flag. A config test holds it to single-muzzle
 `kind: "projectile"` rows, so a beam, a maneuver or a multi-muzzle row carrying it fails the suite by
-name. On `development/main` it ships on **the nine basic-attack rows and nothing else**, and those
-sit on a fire slot each shipped mode's own `slots.basicAttackEnabled` keeps shut — so no car can reach a turret at all and
-every row a player can actually fire uses a fixed muzzle. (`predator`, `magmablast` and `thumper`
-carried a turret on `feature/mouse-aim` and gave it back when that branch merged.) Everything below
-describes machinery that is present and correct, not machinery this build exercises.
+name. **The turret system is switched off in every mode**: each row's `turret` (the nine
+basic-attack rows through `BASIC_ATTACK_BASE`, `predator`, `magmablast`, `thumper`, `fury-horn`,
+`roadblock`) is commented out in `weapon-config.ts`, so no live row carries one and every weapon
+fires from its fixed muzzle along the heading. Everything below describes machinery that is present
+and correct, not machinery this build exercises; its tests run on a test-only turret-restored bundle.
 
 - **The bearing is frozen at the click.** A turret press records a **world** bearing in `beginFire`:
   the input's `aimAngle` (the mouse ray from the turret pivot to the crosshair — a world offset
@@ -731,7 +732,8 @@ a build-time override on that mode's `config.ts`: flip it, rebuild, `npm run bui
 It shipped `false` from 2026-09-20 and `true` from 2026-09-21 on `feature/mouse-aim` (spec TR46),
 bound to LMB (that branch predates the per-mode split, so it was a single global flag at the time);
 **all four shipped modes on `development/main` ship it `false`**, alongside returning the three
-turret abilities to fixed muzzles — the pair that leaves this build with no reachable turret at all.
+turret abilities to fixed muzzles — the pair that left this build with no reachable turret; the turret
+rows are now commented out entirely.
 Five
 things read it when it is `false`: `beginFire` refuses a press on fire slot 0, so the key does
 nothing; the bot's `chooseSlot` never selects that slot either, so it does not waste a tick's press
@@ -739,8 +741,7 @@ on a weapon that cannot fire; the client's `hintSlotOrder` drops the slot from t
 hint entirely, so the `LMB` pill disappears rather than sitting there doing nothing; the guide
 skips every chassis's "Basic attack" card, with the flag folded into `balanceStamp` so a stale
 manual build fails the suite; and `carHasTurretWeapon` skips the basic-attack fire slot, so turning
-the flag ON for a mode also turns on turret drawing for it, since the nine basic-attack rows are this
-build's only turret-carrying rows. `fireSlotsOf` and the balance/ttk/playtest tooling do not read it —
+the flag ON for a mode has no turret-drawing effect while no row carries `turret`. `fireSlotsOf` and the balance/ttk/playtest tooling do not read it —
 they sweep `WEAPON_TABLE` structurally and must always be able to find a carrier for each of the
 nine rows. See the `basic-attack-toggle` skill for the full flip checklist.
 

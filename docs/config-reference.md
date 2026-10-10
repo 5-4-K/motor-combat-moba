@@ -280,13 +280,13 @@ reads (`derived().weaponTicks`) — see "Authoring in milliseconds" below.
 
 | id | kind | damage | damageFrequencyMs | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys / intervalMs) | pellets (perVolley / spreadDeg) | attached | lifetimeMs | hitbox | unlocksAt | color |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `predator` | projectile | 30 | 0 | 900 | 1800 (no real range — speed × 2000 ms lifetime; see below) | 1000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | 2000 | capsule, along 19 / across 6 (homing: proximity acquire, 200u radius, 300°/s) | 1 | `#606060` |
+| `predator` | projectile | 30 | 0 | 900 | 1800 (no real range — speed × 2000 ms lifetime; see below) | 1300 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | 2000 | capsule, along 19 / across 6 (homing: proximity acquire, 200u radius, 300°/s) | 1 | `#606060` |
 | `thunderclap` | maneuver (dash) | 90 | 0 | 1600 (dash speed) | 400 (dash distance) | 5000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — | 1 | `#3ED1FA` |
 | `afterburner` | beam | 49 | 500 | 1100 | 220 | 13000 | 0 | 200 | — | — | 1 / 0 | — | true | 2000 | cone, 55° (muzzles `[0, 180]`) | 1 | `#FF9000` |
-| `magmablast` | projectile | 50 | 0 | 600 | 900 | 16000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 (explosion on death: 60u disc, +15 splash, 150 ms linger, corrodes 2s; see below) | 1 | `#FF6000` |
+| `magmablast` | projectile | 50 | 0 | 600 | 900 | 1600 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 (explosion on death: 60u disc, +15 splash, 150 ms linger, corrodes 2s; see below) | 1 | `#FF6000` |
 | `pepperbox` | projectile | 45 (per pellet) | 0 | 800 | 600 | 1800 | 0 | 200 | — | 0 | 1 / 0 | 3 / 12 | — | — | ellipse, along 9 / across 3 (muzzles `[0, 90, 180, 270]`) | 1 | `#C04818` |
 | `lance` | beam | 43 (per pulse; 4 pulses == 172 full connect point-blank, 3 == 129 at the tip) | 500 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | 1 / 0 | — | true | 1500 | rect, width 57.5 (`holdsDuringFire`) | 1 | `#F0FF00` |
-| `thumper` | projectile | 60 | 0 | 450 | 1305 (bounce, 2900 ms lifetime) | 16000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 24 / across 15 (flat tail) | 1 | `#FFD800` |
+| `thumper` | projectile | 60 | 0 | 450 | 1350 (bounce, 3000 ms lifetime) | 2000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 24 / across 15 (flat tail) | 1 | `#FFD800` |
 | `roadblock` | projectile | 100 | 0 | 600 | 500 | 6000 | 0 | 200 | — | 4 | 1 / 0 | 1 / 0 | — | — | bar, along 6 / across 60 (`piercesWalls`) | 1 | `#D89000` |
 | `wildcharge` | maneuver (charge) | 250 | 0 | 0 | 0 | 20000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — (`isUnInterruptable`, 10 s window, `slamsStunned`) | 1 | `#F06000` |
 | `tremor` | beam | 25 (per tick; 10 ticks == 250 full connect) | 400 | 492 | 492 | 15000 | 0 | 200 | — | — | 1 / 0 | — | false | 2875 | cone, 60° | 1 | `#8A6D12` |
@@ -328,12 +328,16 @@ bindings and how it fits the fire state machine, and BA1–BA7 in
 for the numbers' authoring rationale.
 
 **`turret` (optional, `WeaponBase.turret`, spec TR2)** — `{ additionalOffset }`, world units ≥ 0.
-**Presence is the flag**: a row carrying it fires from the car's turret along the bearing the
+**The turret system is switched off in every mode: each row's `turret: { additionalOffset: 0 }`
+(`BASIC_ATTACK_BASE`, `predator`, `magmablast`, `thumper`, `fury-horn`, `roadblock`) is commented
+out in `weapon-config.ts`, so every weapon fires from its fixed muzzle along the heading. The
+machinery is intact and tested on a test-only turret-restored bundle.** **Presence is the flag**: a row carrying it fires from the car's turret along the bearing the
 player aimed with the mouse, after the turret turns to it; a row without it fires from its fixed
 muzzle exactly as before. The shot spawns `TURRET_CONFIG.defaultOffset + additionalOffset` from the
 turret pivot. `turret-config.test.ts` holds it to `kind: "projectile"` rows with no `muzzles`, and
-pins the exact set carrying it: the nine `basic-attack-*` rows (through `BASIC_ATTACK_BASE`),
-`predator`, `magmablast`, `thumper`, `fury-horn` and `roadblock`, all at `additionalOffset: 0`. See
+pins the exact set carrying it in the live table (none today; uncommenting a row's `turret` brings
+it back, e.g. the nine `basic-attack-*` rows through `BASIC_ATTACK_BASE`, `predator`, `magmablast`,
+`thumper`, `fury-horn` and `roadblock`, all at `additionalOffset: 0`). See
 [`combat-model.md`](combat-model.md#turret-muzzle).
 
 `fireball`, `needler`, `skewer` and `bulwark` were retired outright by the 2026-09-01 weapon-status
@@ -371,7 +375,8 @@ acquisition rule still has to be named rather than inherited.
 
 **`ProjectileWeaponDef.lifetimeMs` and `.bounces`** (optional, hoisted off the deleted `BounceDef`)
 give a projectile its own expiry clock instead of dying at `range`. `bounces: true` (`thumper`)
-reflects off walls until the clock runs out; `predator` sets `lifetimeMs` with no `bounces` at all —
+reflects off walls until the clock runs out (its 3000 ms lifetime exceeds its 2000 ms cooldown, so two
+shells may be in flight at once); `predator` sets `lifetimeMs` with no `bounces` at all —
 it simply expires in the open after 2000 ms, `range` authored only because `WEAPON_TICKS.flight`, the
 guide's reach figure all read it (at `900 × 2000ms =
 1800` the flight-tick count equals the lifetime, so the two clocks can never disagree). Reading
