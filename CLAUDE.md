@@ -359,8 +359,11 @@ Mode-specific tests and probes live in their mode's own folders (`packages/*/src
   `npm run test:mode -- <slug>` (for shared it always also runs `modes/snapshots.test.ts` and
   `modes/invariants.test.ts`) plus `npm run playtest -- --mode=<slug> --scope=mode`. If that mode's
   `config.ts` moved, add `--scope=common` and `npm run test:scripts` (manual stamp, turn-tuning doc).
+  A mode path under server or client also owes `npm run test:guards`.
 - **Every non-mode path in `packages/server/**` and/or `packages/client/**` → package scope:**
-  `npm run test:server` / `test:client` per package, `npm run test:scripts`, and
+  `npm run test:server` / `test:client` per package, `npm run test:guards` (shared's source guards
+  that walk server/client source: raw config reads, mode branching, weapon-slot readers),
+  `npm run test:scripts`, and
   `npm run playtest -- --scope=all` for every active mode (plus the mode commands if mode folders
   moved too).
 - **Anything else** — shared outside a mode folder (the `modes/` root files included), `scripts/`, a
@@ -527,6 +530,7 @@ npm run dev            # shared watch + server :2567 + Vite client :5173; sets D
 npm run build          # shared -> server -> client, in that order (never --workspaces)
 npm test               # build shared, typecheck, every package's fast group, scripts tests
 npm run test:shared    # one package's typecheck + fast group (also test:server, test:client)
+npm run test:guards    # shared's source guards over server/client source (raw config, mode branching, slot readers)
 npm run test:mode -- <slug>  # one mode's tests (+ snapshots/invariants for shared)
 npm run test:affected  # run the scope this diff owes (scripts/test-scope.mjs)
 npm run test:slow      # real-match balance tests + bot determinism, excluded from npm test

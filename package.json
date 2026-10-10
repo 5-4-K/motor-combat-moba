@@ -22,6 +22,7 @@
     "test:shared": "npm run build -w @motor-combat-moba/shared && npm run typecheck -w @motor-combat-moba/shared && npm run test -w @motor-combat-moba/shared",
     "test:server": "npm run build -w @motor-combat-moba/shared && npm run typecheck -w @motor-combat-moba/server && npm run test -w @motor-combat-moba/server",
     "test:client": "npm run build -w @motor-combat-moba/shared && npm run typecheck -w @motor-combat-moba/client && npm run test -w @motor-combat-moba/client",
+    "test:guards": "npm run build -w @motor-combat-moba/shared && npm run test -w @motor-combat-moba/shared -- src/modes/no-raw-config-in-sim.test.ts src/modes/no-mode-branching.test.ts src/config/weapon-slots-readers.test.ts",
     "playtest": "npm run build -w @motor-combat-moba/shared && npm run playtest -w @motor-combat-moba/server --",
     "playtest:lan": "npm run playtest:lan -w @motor-combat-moba/server",
     "balance": "npm run build -w @motor-combat-moba/shared && npm run balance -w @motor-combat-moba/server --",

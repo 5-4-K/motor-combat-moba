@@ -7,11 +7,11 @@ test("docs-only is none", () => assert.deepEqual(scopeOf(["docs/roadmap.md", "RE
 test("tested doc is full", () => assert.equal(scopeOf(["docs/turn-tuning.md"]).scope, "full"));
 test("one mode's overrides → mode scope with common probes", () =>
   assert.deepEqual(scopeOf(["packages/shared/src/modes/conquer/config.ts", "packages/shared/src/modes/__snapshots__/conquer.tables.json"]),
-    { scope: "mode", modes: ["conquer"], commonProbes: true }));
+    { scope: "mode", modes: ["conquer"], commonProbes: true, guards: false }));
 test("client hud only → mode scope without common probes", () =>
-  assert.deepEqual(scopeOf(["packages/client/src/modes/deathmatch/hud.ts"]), { scope: "mode", modes: ["deathmatch"], commonProbes: false }));
+  assert.deepEqual(scopeOf(["packages/client/src/modes/deathmatch/hud.ts"]), { scope: "mode", modes: ["deathmatch"], commonProbes: false, guards: true }));
 test("family path expands to its modes", () =>
-  assert.deepEqual(scopeOf(["packages/server/src/modes/last-standing/controller.ts"]), { scope: "mode", modes: ["brawl", "team-brawl"], commonProbes: false }));
+  assert.deepEqual(scopeOf(["packages/server/src/modes/last-standing/controller.ts"]), { scope: "mode", modes: ["brawl", "team-brawl"], commonProbes: false, guards: true }));
 test("two modes stay mode scope", () =>
   assert.deepEqual(scopeOf(["packages/client/src/modes/brawl/hud.ts", "packages/client/src/modes/conquer/hud.ts"]).modes, ["brawl", "conquer"]));
 test("a common path makes it full", () =>
@@ -27,10 +27,10 @@ test("mode commands", () =>
 // family name, never a mode slug.
 test("shared family folder expands to its modes", () =>
   assert.deepEqual(scopeOf(["packages/shared/src/modes/last-standing/rules.ts"]),
-    { scope: "mode", modes: ["brawl", "team-brawl"], commonProbes: false }));
+    { scope: "mode", modes: ["brawl", "team-brawl"], commonProbes: false, guards: false }));
 test("client family folder expands to its modes", () =>
   assert.deepEqual(scopeOf(["packages/client/src/modes/last-standing/hud.ts"]),
-    { scope: "mode", modes: ["brawl", "team-brawl"], commonProbes: false }));
+    { scope: "mode", modes: ["brawl", "team-brawl"], commonProbes: false, guards: true }));
 test("an unknown modes folder is full", () =>
   assert.equal(scopeOf(["packages/shared/src/modes/bogus/x.ts"]).scope, "full"));
 
@@ -86,7 +86,7 @@ test("a client-only diff is client package scope", () =>
     { scope: "packages", packages: ["client"], modes: [], commonProbes: false }));
 test("package scope commands: package suite, scripts, then every active mode's playtest", () =>
   assert.deepEqual(commandsFor(scopeOf(["packages/client/src/scenes/hud.ts"])),
-    ["npm run test:client", "npm run test:scripts", ...fullPlaytests()]));
+    ["npm run test:client", "npm run test:guards", "npm run test:scripts", ...fullPlaytests()]));
 test("a client-only diff owes no shared suite", () =>
   assert.ok(!commandsFor(scopeOf(["packages/client/src/scenes/hud.ts"])).some((c) => c === "npm test" || c.includes("test:shared"))));
 test("server plus client is both packages, sorted", () =>
@@ -105,6 +105,29 @@ test("mode plus package is package scope with the mode commands appended", () =>
   assert.deepEqual(scope, { scope: "packages", packages: ["client"], modes: ["brawl"], commonProbes: false });
   assert.ok(commandsFor(scope).includes("npm run test:mode -- brawl"));
 });
+
+// Final review 1 — shared's source guards (raw config, mode branching, weapon-slot readers) walk
+// server and client source, so a server- or client-only diff must still run them.
+test("a server-only diff runs the shared source guards", () =>
+  assert.ok(commandsFor(scopeOf(["packages/server/src/rooms/ArenaRoom.ts"])).includes("npm run test:guards")));
+test("a server and client diff runs the source guards once", () =>
+  assert.equal(commandsFor(scopeOf(["packages/server/src/rooms/x.ts", "packages/client/src/a.ts"]))
+    .filter((c) => c === "npm run test:guards").length, 1));
+test("a server mode folder runs the source guards", () =>
+  assert.deepEqual(commandsFor(scopeOf(["packages/server/src/modes/conquer/controller.ts"])), [
+    "npm run test:mode -- conquer",
+    "npm run playtest -- --mode=conquer --scope=mode",
+    "npm run test:guards",
+  ]));
+test("a client mode folder runs the source guards", () =>
+  assert.ok(commandsFor(scopeOf(["packages/client/src/modes/deathmatch/hud.ts"])).includes("npm run test:guards")));
+test("a playtest mode folder runs the source guards", () =>
+  assert.ok(commandsFor(scopeOf(["packages/server/playtest/modes/conquer/zone.ts"])).includes("npm run test:guards")));
+test("a shared-only mode folder owes no source guards", () =>
+  assert.ok(!commandsFor(scopeOf(["packages/shared/src/modes/conquer/config.ts"])).includes("npm run test:guards")));
+test("package plus mode diff runs the source guards once", () =>
+  assert.equal(commandsFor(scopeOf(["packages/client/src/a.ts", "packages/client/src/modes/brawl/hud.ts"]))
+    .filter((c) => c === "npm run test:guards").length, 1));
 
 // TS17 — the slow-trigger gap: config and arena edits change what a real match plays.
 test("bot profiles owe the slow tests", () => assert.equal(owesSlowTests(["packages/server/src/config/bot-profiles.ts"]), true));

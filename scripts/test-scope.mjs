@@ -8,11 +8,13 @@
  *
  *   - `"none"`     — nothing that owes a test moved (docs, READMEs outside packages/scripts).
  *   - `"mode"`     — every changed path sits inside one or more modes' own folders. Only those
- *                    modes' scoped tests and playtest runs are owed.
+ *                    modes' scoped tests and playtest runs are owed, plus the source guards
+ *                    (`guards`) when any of those paths is server or client code.
  *   - `"packages"` — every non-mode path sits in `packages/server/**` and/or `packages/client/**`
  *                    (playtest and balance count as server, `public/` as client). Only those
- *                    packages' suites are owed (`npm run test:<pkg>`), plus `test:scripts` and the
- *                    playtests the full scope emits; any mode paths append their mode commands.
+ *                    packages' suites are owed (`npm run test:<pkg>`), plus `test:guards`,
+ *                    `test:scripts` and the playtests the full scope emits; any mode paths append
+ *                    their mode commands.
  *   - `"full"`     — at least one changed path is in shared (outside a mode folder), under
  *                    `scripts/`, a build/test file (`package.json`, `package-lock.json`,
  *                    `tsconfig*.json`, `vitest.*.ts`), or an unrecognised shape, so nothing short of
@@ -30,6 +32,11 @@
  * directory depth — is common, and common shared code anywhere in the diff promotes the whole diff to
  * `"full"`: a shared accessor or a rules-registry edit can change every mode's behaviour at once,
  * so scoping it to "whichever mode's folder happened to also be touched" would be a lie.
+ *
+ * The SOURCE GUARDS (`npm run test:guards`: shared's `no-raw-config-in-sim`, `no-mode-branching`
+ * and `weapon-slots-readers` tests) live in shared but walk server and client source, so no
+ * server/client package suite and no `test:mode` run reaches them; any server or client path owes
+ * them on its own.
  *
  * `docs/turn-tuning.md` is a deliberate exception to "docs never owe tests": it is the one doc a
  * test (`scripts/turn-tuning-doc.test.mjs`) reads values out of, so a change to it is treated as
@@ -144,7 +151,7 @@ function packageOf(path) {
  *
  * @param {string[]} changedPaths
  * @returns {{ scope: "none" }
- *   | { scope: "mode", modes: string[], commonProbes: boolean }
+ *   | { scope: "mode", modes: string[], commonProbes: boolean, guards: boolean }
  *   | { scope: "packages", packages: ("server" | "client")[], modes: string[], commonProbes: boolean }
  *   | { scope: "full" }}
  */
@@ -155,6 +162,7 @@ export function scopeOf(changedPaths) {
   const modes = new Set();
   const packages = new Set();
   let commonProbes = false;
+  let guards = false;
 
   for (const path of kept) {
     const slugs = slugsForPath(path);
@@ -165,6 +173,7 @@ export function scopeOf(changedPaths) {
       continue;
     }
     for (const slug of slugs) modes.add(slug);
+    if (/^packages\/(?:server|client)\//.test(path)) guards = true;
 
     const isConfigFile = /^packages\/(?:shared|client)\/src\/modes\/[^/]+\/config\.ts$/.test(path);
     const isSnapshot = /^packages\/shared\/src\/modes\/__snapshots__\/[^/]+\.tables\.json$/.test(path);
@@ -173,7 +182,7 @@ export function scopeOf(changedPaths) {
 
   const modeList = [...modes].sort();
   if (packages.size > 0) return { scope: "packages", packages: [...packages].sort(), modes: modeList, commonProbes };
-  return { scope: "mode", modes: modeList, commonProbes };
+  return { scope: "mode", modes: modeList, commonProbes, guards };
 }
 
 /** Whether any changed path matches any of `patterns`. */
@@ -260,6 +269,9 @@ export function commandsFor(scope, { slowTests = false, net = false, bench = fal
   return commands;
 }
 
+/** Shared's source guards, which walk server and client source (see the header). */
+const GUARDS_COMMAND = "npm run test:guards";
+
 /** The one owed command whose failure never fails the run: it reports, it does not gate. */
 const BOT_REPORT_COMMAND = "npm run bot:report";
 
@@ -283,12 +295,22 @@ function modeCommands(modes, commonProbes) {
 
 function scopeCommands(scope) {
   if (scope.scope === "none") return [];
-  if (scope.scope === "mode") return modeCommands(scope.modes, scope.commonProbes);
+  if (scope.scope === "mode") {
+    const commands = modeCommands(scope.modes, scope.commonProbes);
+    if (scope.guards) commands.push(GUARDS_COMMAND);
+    return commands;
+  }
 
   if (scope.scope === "packages") {
-    // `test:scripts` always: `scripts/` reads `packages/client/public/` and build paths, and 2 s is
-    // cheaper than proving a diff cannot reach it. Probe routing is not narrowed (TS16).
-    const commands = [...scope.packages.map((pkg) => `npm run test:${pkg}`), "npm run test:scripts", ...fullPlaytestCommands()];
+    // The source guards always: a server/client path is exactly what they walk. `test:scripts`
+    // always: `scripts/` reads `packages/client/public/` and build paths, and 2 s is cheaper than
+    // proving a diff cannot reach it. Probe routing is not narrowed (TS16).
+    const commands = [
+      ...scope.packages.map((pkg) => `npm run test:${pkg}`),
+      GUARDS_COMMAND,
+      "npm run test:scripts",
+      ...fullPlaytestCommands(),
+    ];
     for (const command of modeCommands(scope.modes, scope.commonProbes)) {
       if (!commands.includes(command)) commands.push(command);
     }

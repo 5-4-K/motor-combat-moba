@@ -58,14 +58,20 @@ description and its behaviour ever disagree.
   slug in that family), and `--scope=common` too if the mode's `config.ts` changed — overrides moving
   is exactly what the common probes measure differently. A `config.ts` or snapshot change also owes
   `npm run test:scripts` (the manual-page stamp and the turn-tuning doc), which `commandsFor` emits
-  whenever `commonProbes` is true.
+  whenever `commonProbes` is true. A mode path under `packages/server/**` or `packages/client/**`
+  also owes `npm run test:guards` (below).
 - Every non-mode path sits in `packages/server/**` and/or `packages/client/**` (outside mode
   folders; `packages/server/playtest/**` and `packages/server/balance/**` count as server,
   `packages/client/public/**` as client) → **package scope**. You owe `npm run test:<pkg>` for each
-  package touched, then `npm run test:scripts` (`scripts/` reads `packages/client/public/` and build
+  package touched, then `npm run test:guards`, then `npm run test:scripts` (`scripts/` reads `packages/client/public/` and build
   paths, and it costs 2 s), then the same `playtest --scope=all` runs the full scope emits — probe
   routing is not narrowed by package. A diff that mixes mode folders with package paths is package
   scope with the mode commands appended.
+- **The source guards** — shared's `modes/no-raw-config-in-sim.test.ts`,
+  `modes/no-mode-branching.test.ts` and `config/weapon-slots-readers.test.ts` — live in shared but
+  walk server and client source, so neither `test:server`/`test:client` nor `test:mode` reaches
+  them. `npm run test:guards` (shared build, then those three files) runs them; every package-scope
+  diff, and every mode-scope diff with a server or client path, owes it.
 - Any other changed path — anything in `packages/shared/**` outside a mode folder (including a
   `modes/` ROOT file), anything under `scripts/`, a build or test file (`package.json`,
   `package-lock.json`, `tsconfig*.json`, any `vitest.*.ts`), or an unrecognised shape → **full
@@ -89,13 +95,13 @@ Client code owes no slow or net group: none of it runs in those matches or sweep
 | Example diff | Scope | Commands |
 |---|---|---|
 | `packages/shared/src/modes/conquer/config.ts` | mode: `conquer` | `test:mode -- conquer`; `playtest --mode=conquer --scope=mode`; `playtest --mode=conquer --scope=common` (config changed); `npm run test:scripts` (config changed); `npm run test:slow` |
-| `packages/client/src/modes/brawl/hud.ts` | mode: `brawl` | `test:mode -- brawl`; `playtest --mode=brawl --scope=mode` |
-| `packages/server/src/modes/last-standing/controller.ts` | mode: `brawl` **and** `team-brawl` (the family) | `test:mode -- brawl`; `test:mode -- team-brawl`; a `--scope=mode` playtest run for each; `npm run test:slow` |
-| `packages/client/src/scenes/ArenaScene.ts` | packages: client | `npm run test:client`; `npm run test:scripts`; `playtest --scope=all` for every active mode |
+| `packages/client/src/modes/brawl/hud.ts` | mode: `brawl` | `test:mode -- brawl`; `playtest --mode=brawl --scope=mode`; `npm run test:guards` |
+| `packages/server/src/modes/last-standing/controller.ts` | mode: `brawl` **and** `team-brawl` (the family) | `test:mode -- brawl`; `test:mode -- team-brawl`; a `--scope=mode` playtest run for each; `npm run test:guards`; `npm run test:slow` |
+| `packages/client/src/scenes/ArenaScene.ts` | packages: client | `npm run test:client`; `npm run test:guards`; `npm run test:scripts`; `playtest --scope=all` for every active mode |
 | `packages/client/src/fx/decals.ts` | packages: client | as above, then `npm run test:bench` |
-| `packages/server/src/config/bot-profiles.ts` | packages: server | `npm run test:server`; `npm run test:scripts`; `playtest --scope=all`; `npm run test:slow`; `npm run test:bench`; `npm run bot:report` (report only) |
-| `packages/server/src/netsim/link.ts` | packages: server | `npm run test:server`; `npm run test:scripts`; `playtest --scope=all`; `npm run test:net` |
-| `packages/server/src/rooms/ArenaRoom.ts` + `packages/client/src/modes/conquer/hud.ts` | packages: server (+ mode `conquer`) | `npm run test:server`; `npm run test:scripts`; `playtest --scope=all`; `test:mode -- conquer`; `playtest --mode=conquer --scope=mode`; `npm run test:slow` |
+| `packages/server/src/config/bot-profiles.ts` | packages: server | `npm run test:server`; `npm run test:guards`; `npm run test:scripts`; `playtest --scope=all`; `npm run test:slow`; `npm run test:bench`; `npm run bot:report` (report only) |
+| `packages/server/src/netsim/link.ts` | packages: server | `npm run test:server`; `npm run test:guards`; `npm run test:scripts`; `playtest --scope=all`; `npm run test:net` |
+| `packages/server/src/rooms/ArenaRoom.ts` + `packages/client/src/modes/conquer/hud.ts` | packages: server (+ mode `conquer`) | `npm run test:server`; `npm run test:guards`; `npm run test:scripts`; `playtest --scope=all`; `test:mode -- conquer`; `playtest --mode=conquer --scope=mode`; `npm run test:slow` |
 | `packages/shared/src/modes/registry.ts` | full (a `modes/` root file) | `npm test`; `playtest --scope=all` for every active mode; `npm run test:slow` |
 | `packages/shared/src/sim/drive.ts` | full (common shared code) | `npm test`; `playtest --scope=all`; `npm run test:slow` |
 | `packages/shared/src/net/input-scheduler.ts` | full | `npm test`; `playtest --scope=all`; `npm run test:net` |
@@ -125,6 +131,7 @@ npm test                    # shared build, typecheck, every package's fast grou
 npm run test:shared         # shared build, then typecheck + fast group of that one package
 npm run test:server         #   (likewise; each builds shared first, since server and client read its dist)
 npm run test:client
+npm run test:guards         # shared build, then the three source guards that walk server/client source
 npm run test:slow           # balance/match, balance/runner, bot/brain/tiers (BB63)
 npm run test:net            # full scheduler grid + full netsim link sweep (~2 min)
 npm run test:bench          # timing checks (brain bench, client fx perf)
