@@ -78,14 +78,14 @@ describe("boundsOf", () => {
 
 describe("playableExtentOf", () => {
   it("measures arena-01's tile floor, not the image frame", () => {
-    // The floor tiles' own rect: x 40-1240, y 40-680. Deliberately NOT `width`/`height`, which
+    // The floor tiles' own rect: x 40-1560, y 40-840. Deliberately NOT `width`/`height`, which
     // are the frame the walls are drawn in and the camera's bounds.
-    expect(playableExtentOf(ARENA_01)).toEqual({ width: 1200, height: 640 });
+    expect(playableExtentOf(ARENA_01)).toEqual({ width: 1520, height: 800 });
     expect(playableExtentOf(ARENA_01).width).not.toBe(ARENA_01.width);
   });
 
   it("measures arena-02's tile floor inside its spike ring the same way", () => {
-    expect(playableExtentOf(ARENA_02)).toEqual({ width: 1200, height: 640 });
+    expect(playableExtentOf(ARENA_02)).toEqual({ width: 1520, height: 800 });
     expect(playableExtentOf(ARENA_02).width).not.toBe(ARENA_02.width);
   });
 

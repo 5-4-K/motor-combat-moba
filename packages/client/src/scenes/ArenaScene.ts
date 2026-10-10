@@ -150,6 +150,7 @@ import { AIM_HUD_CONFIG } from "../config/aim-hud.js";
 import { aimHudIsEmpty, aimHudSignature, drawAimHud, type AimHudSpec } from "./aim-hud.js";
 import {
   arenaBorderRect,
+  type Rect,
   arenaColorsOf,
   arenaDecoration,
   boundaryGaps,
@@ -248,6 +249,7 @@ import {
   statusStripLayout,
 } from "./status-hud.js";
 import { arrowBlinkOn, arrowBobOffset, countdownArrowPoints } from "./countdown-arrow.js";
+import { cameraBackgroundOf, cameraBoundsOf } from "../camera/bounds.js";
 import { boundsAlignedFor, resolveViewRotation } from "../camera/rotation.js";
 import { SpectateReport } from "../camera/spectate-report.js";
 import {
@@ -1558,10 +1560,12 @@ export class ArenaScene extends Phaser.Scene {
     // colour flooding the gutter the way it used to flood the whole canvas.
     cam.setViewport(0, 0, ARENA_VIEW_WIDTH, VIEW_HEIGHT);
     // Scene-scoped: the global game background stays dark for the lobby and results screens.
-    cam.setBackgroundColor(colors.floor);
+    const bounds = this.cameraBoundsFor(arena);
+    cam.setBackgroundColor(cameraBackgroundOf(arena, colors, bounds));
     cam.setZoom(camera().zoom);
-    // Stops the soft follow from panning past the arena edge into empty space.
-    cam.setBounds(0, 0, arena.width, arena.height);
+    // Stops the soft follow from panning past the arena edge into empty space, and centres an arena
+    // smaller than the view (Phaser would otherwise pin it to the top-left corner).
+    cam.setBounds(bounds.x, bounds.y, bounds.w, bounds.h);
     this.cameraBounded = true;
     this.snapRotation = true;
     // Team B's 180° view on a flip arena (CQ46), set here so the first frame is already turned, and
@@ -2258,6 +2262,11 @@ export class ArenaScene extends Phaser.Scene {
     this.cameras.main.setRotation(rotation);
   }
 
+  /** The arena camera's bounds, centring an arena smaller than the view (BAR14). */
+  private cameraBoundsFor(arena: ArenaDef): Rect {
+    return cameraBoundsOf(arena, { width: ARENA_VIEW_WIDTH, height: VIEW_HEIGHT }, camera().zoom);
+  }
+
   /**
    * Clamp to the arena only when the MODE's `rotate` choice says the angle is fixed-axis-aligned
    * (I2, CB15) — `boundsAlignedFor` decides by mode, not by this frame's instantaneous angle, so a
@@ -2267,8 +2276,10 @@ export class ArenaScene extends Phaser.Scene {
   private applyCameraBounds(arena: ArenaDef, aligned: boolean): void {
     if (aligned === this.cameraBounded) return;
     this.cameraBounded = aligned;
-    if (aligned) this.cameras.main.setBounds(0, 0, arena.width, arena.height);
-    else this.cameras.main.removeBounds();
+    if (aligned) {
+      const bounds = this.cameraBoundsFor(arena);
+      this.cameras.main.setBounds(bounds.x, bounds.y, bounds.w, bounds.h);
+    } else this.cameras.main.removeBounds();
   }
 
   /**

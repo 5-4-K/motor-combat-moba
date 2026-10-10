@@ -2527,7 +2527,7 @@ describe("magma blast detonation (spec P13-P21)", () => {
 
   it("detonates at max range with nothing hit at all", () => {
     // No obstacles, no other cars, aimed along open floor, firing from x=100: muzzle at 124, range
-    // 900 expires at x=1024 — well inside arena-01's 1280-unit width, so this is a genuine RANGE
+    // 900 expires at x=1024 — well inside arena-01's width, so this is a genuine RANGE
     // kill (not a bounds kill; see the separate test below for that one).
     const ticks = weaponTicksOf("magmablast").flight + 3;
     const result = fire({ x: 100, y: OPEN_Y, angle: 0 }, [], ticks);
@@ -2535,13 +2535,13 @@ describe("magma blast detonation (spec P13-P21)", () => {
   });
 
   it("detonates on leaving the arena, before its own range clock ever runs (P13, bounds kill)", () => {
-    // Firing from x=1250 puts the muzzle at 1274, six units short of arena-01's 1280-unit edge — the
+    // Firing 30 u short of arena-01's right edge puts the muzzle six units short of it — the
     // shell crosses the boundary in `hitsWorld` within a tick or two, nowhere near its 900u range.
     // This is the only test in the file that isolates a BOUNDS removal from a range removal: the
     // "shots in flight" describe covers `hitsWorld` generically, but converting its "leaves the
     // arena" case to `shellGone` (once magmablast started leaving a burst behind) removed the last
     // place a bounds-kill detonation was actually observed.
-    const result = fire({ x: 1250, y: OPEN_Y, angle: 0 }, [], 5);
+    const result = fire({ x: ARENA_01.width - 30, y: OPEN_Y, angle: 0 }, [], 5);
     expect(bursts(result)).toHaveLength(1);
   });
 

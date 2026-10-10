@@ -61,10 +61,10 @@ export function buildBotView(args: {
     instances = liveInstances(combat);
   }
 
-  // B17: a bot may see only what a human player could. `arena-01` (1280x720) is authored to fit the
-  // viewport exactly, so filtering there would change nothing but cost a pass over every car and
-  // instance for free — skipped entirely, not just filtered down to a no-op, so the shipped rooms
-  // (`arena-01` always) stay on the exact allocation-free path they always ran.
+  // B17: a bot may see only what a human player could. The default arenas (1600 × 880) are sized
+  // to fit the viewport at the base zoom of 0.8 (1600 × 900), so filtering there would change
+  // nothing but cost a pass over every car and instance for free — skipped entirely, not just
+  // filtered down to a no-op, so those rooms stay on the exact allocation-free path they always ran.
   const viewport = viewportWorldSize();
   const arenaFits = arena.width <= viewport.width && arena.height <= viewport.height;
 
@@ -74,10 +74,11 @@ export function buildBotView(args: {
     others = cars.filter((car) => car.sessionId !== selfSessionId);
     visibleInstances = instances;
   } else {
-    // A rectangle the size of a human's screen, centred on the viewing car — exactly what `zoom: 1`
+    // A rectangle the size of a human's screen, centred on the viewing car — exactly what the camera
     // draws around whoever the camera follows. Anything outside it is off-screen for a human, so it
     // must be invisible to the bot too, or the bot would be measuring a fairness the game does not
-    // actually offer a player on an arena this size. Both shipped arenas currently fit.
+    // actually offer a player on an arena this size. Conquer's `arena-03`
+    // (1360 × 2240) is the arena that takes this branch.
     const halfW = viewport.width / 2;
     const halfH = viewport.height / 2;
     const inViewport = (x: number, y: number): boolean =>
@@ -108,9 +109,10 @@ export function buildBotView(args: {
 /**
  * The world-unit rectangle a human's screen actually shows (B17): the client's logical canvas
  * (`LOGICAL_CANVAS`) divided by how far the camera is zoomed in (`camera().zoom`) — at zoom 1
- * this is exactly `LOGICAL_CANVAS`, at zoom 2 it is half that in each dimension, same as the client's
- * own camera math. Pulled out as its own function so `buildBotView`'s fairness check reads as what
- * it is ("does the arena fit on a human's screen") rather than as an inlined division.
+ * this is exactly `LOGICAL_CANVAS`, at the base zoom of 0.8 it is 1600 × 900, at zoom 2 it is half
+ * that in each dimension, same as the client's own camera math. Pulled out as its own function so
+ * `buildBotView`'s fairness check reads as what it is ("does the arena fit on a human's screen")
+ * rather than as an inlined division.
  */
 function viewportWorldSize(): { width: number; height: number } {
   const zoom = camera().zoom;

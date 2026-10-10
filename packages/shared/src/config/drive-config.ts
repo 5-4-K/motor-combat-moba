@@ -340,9 +340,14 @@ export const DRIVE_CONFIG = {
  *
  * `zoom` above 1 pushes the view in. Car art is stored at twice the hull (`scripts/import-art.mjs`
  * `SUPERSAMPLE`), so a zoom of 2 draws every texture at exactly 1:1 — the sharpest the sprites can
- * be; the price is a 640x360 world-unit view at 1280x720. 1 is the other end of that trade: the
- * full 1280x720 world-unit view, with the 2x textures drawn at half size. It is the widest setting
- * inside the 1–2 range — below 1 the textures shimmer.
+ * be; the price is a 640x360 world-unit view at 1280x720. 1 shows the full 1280x720 world-unit
+ * view, with the 2x textures drawn at half size. The base default is 0.8 (BAR5): a 1600x900
+ * world-unit view, which is what lets the default 1600 × 880 arenas show whole, at the cost of
+ * textures drawn at 0.4 of their stored size. That is below the 0.5 the importer's `SUPERSAMPLE = 2`
+ * was tuned for, so car and turret textures may shimmer as cars move: a known, accepted trade-off
+ * pending the owner's in-browser art check (a re-bake at `SUPERSAMPLE` 1.6, or mipmaps, is the fix
+ * if it shows). Conquer overrides it back to 1 (`arena-03` is 1360 × 2240, larger than the view on
+ * both axes at zoom 1, so the camera follows).
  *
  * `freeRoamSpeed` is how fast a spectator's free-look camera pans, in world units per **second**, so
  * the pan covers the same ground on a 60 Hz and a 144 Hz display. It is pitched a little above the
@@ -404,7 +409,7 @@ export interface CameraConfig {
 
 export const CAMERA_CONFIG: CameraConfig = {
   camLerp: 0.18,
-  zoom: 1,
+  zoom: 0.8,
   /**
    * Cut from 1050 to 340 on 2026-09-06 alongside the vector-drive rework's heavy-car speed cut
    * (`DRIVE_CONFIG.baseMaxSpeed`/`speedPerRating`), which dropped the fastest car from 449.5 to
@@ -430,17 +435,18 @@ export const CAMERA_CONFIG: CameraConfig = {
 
 /**
  * The client's logical canvas the arena camera renders into, before any HUD gutter or letterboxing
- * — `ARENA_01`'s own header calls this out by name: "1280x720 is not a taste call — it is the
- * client's logical canvas, so at `CAMERA_CONFIG.zoom` of 1 the camera covers the arena exactly."
+ * — the default arenas (1600 × 880) are sized so that at the base `CAMERA_CONFIG.zoom` of 0.8 the
+ * camera covers the arena whole (1280 / 0.8 = 1600 wide, 720 / 0.8 = 900 tall).
  * `packages/client/src/config/display.ts` is where that fact actually drives the Phaser game config
  * (`ARENA_VIEW_WIDTH`, `VIEW_HEIGHT`) — `shared` cannot import from `client`, so this is that same
  * fact restated here, for a second consumer client-side code never had: the SERVER.
  *
  * `buildBotView` (B17) is that consumer. A bot's fairness rests on "a human sees every car" being
  * true, which only holds while the arena fits inside this rectangle (divided by `CAMERA_CONFIG.zoom`
- * — `arena-01`, 1280x720, fits exactly; `arena-02` is the same size now). Once an arena is larger
- * than this, "could a human see this car" stops being "yes, always" and becomes a real question the
- * server has to answer, and this is the fact it answers it with. Named and pulled from config
+ * — the default arenas, 1600 × 880, fit at the base zoom of 0.8; Conquer's `arena-03` is taller
+ * than the view and does not). Once an arena is larger than this, "could a human see this car"
+ * stops being "yes, always" and becomes a real question the server has to answer, and this is the
+ * fact it answers it with. Named and pulled from config
  * instead of a literal 1280/720 inside `buildBotView` because invariant 2 (no magic numbers in
  * logic) does not stop applying just because the number in question happens to be about rendering
  * rather than balance.

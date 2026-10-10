@@ -78,7 +78,7 @@ them apart is a decision to name in the summary, not a default.
 
 ## 5. Look at it
 
-Open the playground and watch the shot at rest, in flight and dying, at the arena's zoom of 1.
+Open the playground and watch the shot at rest, in flight and dying, at the default modes' zoom of 0.8 (Conquer renders at 1).
 Palette tests prove ordering, not readability against the light floor. Say in the summary that you
 looked, or that you could not and why.
 
@@ -91,5 +91,5 @@ looked, or that you could not and why.
 | Counting fills as the budget | Vertices through Earcut are; ribbons are free |
 | A new station-walk builder without `ribbon` | Return `ribbon`; the guard names the weapon |
 | Look recoloured, `color` left as it was | Move both, rebuild the manual, check icon drift |
-| Shipping without opening the playground | Look, at zoom 1, on the light floor |
+| Shipping without opening the playground | Look, at zoom 0.8 (1 for Conquer), on the light floor |
 | Authoring a distance in world units | Fractions of the hitbox, so a re-tune carries the look |

@@ -1098,7 +1098,7 @@ Render knobs only — nothing in `stepSim` reads them.
 | Knob | Value |
 |---|---|
 | `camLerp` | 0.18 (fraction of remaining distance closed per **60 Hz frame**, rescaled to the real frame time by `smoothFollow`) |
-| `zoom` | 1 (above 1 = zoomed in; keep within 1–2 so the 2x car textures stay sharp) |
+| `zoom` | 0.8 in the base (the default arenas are sized to be shown whole at it); Conquer overrides it to 1. Above 1 = zoomed in; keep within 1–2 so the 2x car textures stay sharp. At 0.8 the car and turret textures draw at 0.4x their stored size and may shimmer — accepted pending the owner's art check |
 | `freeRoamSpeed` | 340 (was 1050 — cut on 2026-09-06 alongside the fastest car dropping to 267; spectator free-look pan, world units per **second**; must exceed the fastest car) |
 
 `camLerp` is per *reference* frame, not per rendered frame. Applied flat per frame it would close the
@@ -1108,11 +1108,11 @@ display would see meaningfully less road ahead (the "75... against 31" this line
 corresponds to a speed near 810 u/s and was already wrong before this branch touched it). `smoothFollow`
 compounds it per elapsed millisecond instead, matching `panFreeCam`.
 
-At `zoom` 1 the visible world is the full 1280x720 units, so the fastest car (mirage, 189.03 u/s as
+At the base `zoom` of 0.8 the visible world is 1600x900 units, so the fastest car (mirage, 189.03 u/s as
 of the 2026-09-16 cut — 267 after the 2026-09-06 heavy-car pass, and 449.5 before the rework) crosses
-it in 6.8 seconds, against 4.8 and 2.4 at those two earlier figures. The camera's trailing offset
-from `smoothFollow`'s steady-state formula (`speed / (fps × camLerp)`) is about 2.7% of the half-view
-at that speed, and was about 6.5% even at the old 449.5 — the "12%" this line once claimed was
+it in 8.5 seconds, against 6.0 and 3.6 at those two earlier figures. The camera's trailing offset
+from `smoothFollow`'s steady-state formula (`speed / (fps × camLerp)`) is about 2.2% of the half-view
+at that speed, and was about 5.2% even at the old 449.5 — the "12%" this line once claimed was
 already wrong before the heavy-car pass touched it, not a figure any of these reworks moved.
 
 **As of 2026-09-28, `CAMERA_CONFIG` is per-mode too** — it is the base `CameraConfig` the mode
@@ -1529,17 +1529,17 @@ keep hand-in-sync as more arenas land.
 
 | id | width × height (image frame) | playable area | obstacles | palette |
 |---|---|---|---|---|
-| `arena-01` | 1280 × 720 (32 × 18 tiles) | 1200 × 640 rect (tile arena) | compiled from the grid (14 `kind: "spike"` runs set into the wall row) | `#3b4747` floor / `#4a5568` obstacle / `#2d3436` border |
-| `arena-02` | 1280 × 720 (32 × 18 tiles) | 1200 × 640 rect (tile arena) | compiled from the grid (4 `kind: "spike"` runs, one continuous ring) | `#9a7a58` floor / `#4a3e34` obstacle / `#2a2420` border |
+| `arena-01` | 1600 × 880 (40 × 22 tiles) | 1520 × 800 rect (tile arena) | compiled from the grid (14 `kind: "spike"` runs set into the wall row) | `#3b4747` floor / `#4a5568` obstacle / `#2d3436` border |
+| `arena-02` | 1600 × 880 (40 × 22 tiles) | 1520 × 800 rect (tile arena) | compiled from the grid (4 `kind: "spike"` runs, one continuous ring) | `#9a7a58` floor / `#4a3e34` obstacle / `#2a2420` border |
 | `arena-03` | 1360 × 2240 (34 × 56 tiles) | 1280 × 2160 rect (tile arena, square corners) | compiled from the grid: 18 (2 `kind: "spike"` runs on the side walls) | `#2b2f35` floor / `#4b5362` obstacle / `#1a1d22` border |
 
-`arena-01` is a **tile arena** as of 2026-10-09 (see [Tile arenas](#tile-arenas) below): a 32 × 18 grid compiled into ordinary `obstacles`, no `boundary`, playable floor **1200 × 640** (x 40..1240, y 40..680), square corners. `ArenaDef.boundary` — an optional convex polygon, wound clockwise, carried as inward half-planes and consumed by every boundary reader (`boundsOf(arena)` is the one place a `Bounds` is built from an arena) — remains the mechanism for a non-rectangular hand-written arena; no shipped arena uses it. Absent means the plain rectangle `0,0 → width,height`. `width`/`height` keep their meaning throughout: the image frame and the camera bounds, so on a one-screen arena like this one the camera clamp leaves no room to scroll (CB2).
+`arena-01` is a **tile arena** as of 2026-10-09 (see [Tile arenas](#tile-arenas) below): a 40 × 22 grid (grown from 32 × 18 on 2026-10-10) compiled into ordinary `obstacles`, no `boundary`, playable floor **1520 × 800** (x 40..1560, y 40..840), square corners. `ArenaDef.boundary` — an optional convex polygon, wound clockwise, carried as inward half-planes and consumed by every boundary reader (`boundsOf(arena)` is the one place a `Bounds` is built from an arena) — remains the mechanism for a non-rectangular hand-written arena; no shipped arena uses it. Absent means the plain rectangle `0,0 → width,height`. `width`/`height` keep their meaning throughout: the image frame, and the camera bounds are the arena rect (CB2). At the base zoom of 0.8 the view is 1600 × 900, taller than the frame, so `cameraBoundsOf` widens the bounds to what the camera sees and centres the arena on that axis (10 u of border-coloured band above and below the 1600 × 880 frame); the camera never scrolls on these arenas.
 
 `arena-01`'s spikes are `kind: "spike"` rectangles the compiler emits from the `^` cells, one `TILE_SIZE` (40) deep, in the innermost wall row (fourteen runs). The hand-written arenas' rule — spikes flush against a boundary plane, `SPIKE_CONFIG.depth` deep — guards no shipped arena (every shipped arena is a tile arena; TA19 holds for their spikes). Absent `kind` still means an ordinary solid.
 
-`arena-02` is a **tile arena** too, as of 2026-10-09: a 1280 × 720 dusty pit whose one-tile edge is a continuous ring of spikes around a playable **1200 × 640** floor (x 40..1240, y 40..680) — arena-01's floor, spiked the whole way round instead of in runs. Its four corners are wall, since a corner spike could face no floor. Its team spawns are at `y=200/360/520`, quartering the floor. The two arenas differ only in their legends: arena-01 is drawn metal, arena-02 drawn dirt with a wooden wall and wooden spike teeth (`overlayArt`, TC43). On both, each edge's wall art is turned with `artOrientation` so its grain runs along the wall. `arena.arena-02.floor` is still in the manifest but is no longer drawn.
+`arena-02` is a **tile arena** too, as of 2026-10-09: a 1600 × 880 dusty pit whose one-tile edge is a continuous ring of spikes around a playable **1520 × 800** floor (x 40..1560, y 40..840) — arena-01's floor, spiked the whole way round instead of in runs. Its four corners are wall, since a corner spike could face no floor. Its team spawns are at `y=240/440/640`, quartering the floor. The two arenas differ only in their legends: arena-01 is drawn metal, arena-02 drawn dirt with a wooden wall and wooden spike teeth (`overlayArt`, TC43). On both, each edge's wall art is turned with `artOrientation` so its grain runs along the wall. `arena.arena-02.floor` is still in the manifest but is no longer drawn.
 
-Its 3 `teamASpawns` sit at `x=200` facing `0` and its 3 `teamBSpawns` at `x=1080` facing `π`, at `y=200/360/520`; its 6 `ffaSpawns` use the same facing pattern. Every spawn is on a floor cell (TA20).
+Its 3 `teamASpawns` sit at `x=243` facing `0` and its 3 `teamBSpawns` at `x=1357` facing `π`, at `y=240/440/640` (both arenas use the same team spawns); its 6 `ffaSpawns` use the same facing pattern. Every spawn is on a floor cell (TA20).
 
 ### Tile arenas
 

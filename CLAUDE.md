@@ -62,7 +62,8 @@ the match"), and a client `ModeHud`. See
 
 **The camera is per mode** — `camera()` carries `rotate` (`"none"` / `"teamFacing"` /
 `"heading"`), `fov` (off in every shipped mode), `spectate`, `camLerp`, `zoom`, `freeRoamSpeed`. The
-arena decides nothing about the camera. See
+base zoom is 0.8 (the default arenas are sized to be shown whole at it) and Conquer overrides it to 1.
+The arena decides nothing about the camera. See
 [`docs/superpowers/specs/2026-09-28-camera-behaviors-design.md`](docs/superpowers/specs/2026-09-28-camera-behaviors-design.md).
 
 **The safety net is a resolved-bundle snapshot per mode.** `modes/snapshots.test.ts` writes each
@@ -215,8 +216,8 @@ status never stacks with itself, and a flag-carrying debuff is forced to `reappl
 
 ### Arenas and spikes
 
-- `arena-01` and `arena-02` are **tile arenas**: a 32 × 18 text grid compiled by `compileTileArena`
-  (`packages/shared/src/arena/tiles/`) into ordinary `obstacles`, 1200 × 640 playable. Rows are
+- `arena-01` and `arena-02` are **tile arenas**: a 40 × 22 text grid compiled by `compileTileArena`
+  (`packages/shared/src/arena/tiles/`) into ordinary `obstacles`, 1520 × 800 playable. Rows are
   one-character keys; a per-arena `legend` merged over `DEFAULT_LEGEND` (`.` floor, `#` wall, `^`
   spike, space void) maps each key to a cell `{ tile, orientation?, art?, artOrientation?, overlay? }`.
   `TILE_DEFS` is **behaviour only** (solidity, hazard, which `sides` hurt); the look is named on the
@@ -230,8 +231,9 @@ status never stacks with itself, and a flag-carrying debuff is forced to `reappl
   y 120 / 2120. No shipped arena uses `ArenaDef.boundary` now; the machinery (inward
   half-planes through `Bounds`, a positional clamp, `boundsOf(arena)` the one place a `Bounds` is
   built) remains for hand-written arenas.
-- `width`/`height` mean the image frame and camera bounds (1280 × 720 for arena-01/02, 1360 × 2240
-  for arena-03), not the playable area.
+- `width`/`height` mean the image frame (1600 × 880 for `arena-01`/`arena-02`, 1360 × 2240 for
+  `arena-03`), not the playable area. Camera bounds are the arena rect, widened and centred on any
+  axis where the view is larger (`cameraBoundsOf`, `packages/client/src/camera/bounds.ts`).
 - **Spikes** (`spike()`) are the only environmental damage: a flat hit gated on a fresh push into the
   surface above `triggerSpeed`, rate-limited by `retriggerMs`. Holding throttle into a wall does not
   re-trigger; only an externally shoved car keeps paying. Damage is credited to whoever shoved the

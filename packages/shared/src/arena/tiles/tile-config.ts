@@ -15,7 +15,7 @@ import { WORLD_FACES, type WorldFace } from "../faces.js";
  * refused by `tile-config.test.ts` until the sim reads it (TA12).
  */
 
-/** World units per tile side (TA3). 1280 x 720 is a 32 x 18 grid. */
+/** World units per tile side (TA3). The shipped 1600 x 880 default arenas are a 40 x 22 grid. */
 export const TILE_SIZE = 40;
 
 /** Clockwise degrees (TC3). At 0 a definition's `front` faces north (−y). */
