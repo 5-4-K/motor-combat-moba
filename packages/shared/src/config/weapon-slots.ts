@@ -155,9 +155,13 @@ export function slotsOf(carId: CarId): readonly WeaponId[] {
  *    client tab's installed bundle.
  * 7. `packages/server/playtest/modes/shared.ts` — `projectileAbilities`'s slot bit; one-shot probe
  *    processes that call `installPlaytestMode()`.
- * 8. `packages/server/src/bot/brain/firing.ts` — `isUltWeapon`, which reads an opponent's observed
- *    weapon as an ult by the FIRE slot its carrier holds it in (`BRAIN_CONSTANTS.ultFireSlots`).
- *    Runs inside the room's `scoped(...)` decision tick, like the rest of the bot brain.
+ * 8. `packages/server/src/bot/brain/ranges.ts` — `carrierOf`: which chassis carries a weapon and
+ *    in which FIRE slot, so `effectiveReachOf` can solve that weapon from the slot it is fired
+ *    from. Runs inside the room's `scoped(...)` decision tick, like the rest of the bot brain, or
+ *    under the slow tests' `installMode`.
+ * 9. `packages/server/src/bot/brain/fixtures.ts` — `fireSlotsFor`, the test fixtures' fire-slot
+ *    views (index 0 the basic attack, abilities after it); its callers `installMode` the default
+ *    bundle first.
  *
  * `newFireState` (`sim/weapons/fire.ts`) does **not** call this — its explicit-loadout path builds
  * the same `[basicAttackOf(carId), ...kit]` list inline, because it also has to accept a caller-given
@@ -165,8 +169,10 @@ export function slotsOf(carId: CarId): readonly WeaponId[] {
  *
  * Everything else wants `slotsOf`. The rule: **`fireSlotsOf` answers "what can this car fire",
  * `slotsOf` answers "what kit was this chassis designed around".** The HUD, the guide, the
- * playground's loadout editor, the balance seat filter, ttk's attacker axis and the bot's reach
- * model all ask the second question.
+ * playground's loadout editor, the balance seat filter, ttk's attacker axis and the bot's read of
+ * an opponent's kit (`kitReachOf`) all ask the second question. The bot's own reach model asks the
+ * first: its view of its own car is the fire-slot list, and `effectiveReachOf` solves a weapon from
+ * the fire slot `carrierOf` finds it in.
  */
 export function fireSlotsOf(carId: CarId): readonly WeaponId[] {
   return [basicAttackOf(carId), ...slotsOf(carId)];
