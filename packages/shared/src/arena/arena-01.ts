@@ -35,7 +35,7 @@ export const ARENA_01: ArenaDef = compileTileArena({
   id: "arena-01",
   displayName: "Arena 01",
   legend: {
-    ".": { tile: "floor", art: "metal-floor-drawn" },
+    ".": { tile: "floor", art: "metal-floor-drawn", artOrientation: "random" },
     "#": { tile: "wall", art: WALL },
     "^": { tile: "spike", art: WALL },
     T: { tile: "wall", art: WALL, artOrientation: 90 },
