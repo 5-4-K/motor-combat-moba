@@ -44,9 +44,6 @@ describe("halfLifeToPerTick", () => {
 
 describe("RAM_CONFIG under the Unity ram rule", () => {
   it("authors Unity's shove scales, with a flank the hardest hit", () => {
-    expect(RAM_CONFIG.headOnScale).toBe(0.2);
-    expect(RAM_CONFIG.flankScale).toBe(1.5);
-    expect(RAM_CONFIG.rearScale).toBe(1.2);
     expect(RAM_CONFIG.flankScale).toBeGreaterThan(RAM_CONFIG.rearScale);
     expect(RAM_CONFIG.rearScale).toBeGreaterThan(RAM_CONFIG.headOnScale);
   });

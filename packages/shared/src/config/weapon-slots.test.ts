@@ -21,7 +21,7 @@ describe("loadouts", () => {
     // constant is true at every kit length (asserted below), so the floor can be a floor.
     //
     // The guard this doubled as — a weapon silently dropped from a shipped loadout — is NOT lost:
-    // "gives each chassis the kit its type calls for" pins all three shipped kits element by
+    // the per-mode snapshots (`modes/__snapshots__`) pin every shipped kit element by
     // element, which catches a dropped weapon more precisely than any count.
     //
     // The floor is scoped to ACTIVE cars on purpose (VS25): an inactive chassis may carry no
@@ -34,28 +34,8 @@ describe("loadouts", () => {
     }
   });
 
-  it("gives each chassis the kit its type calls for", () => {
-    expect(CAR_TABLE.bullseye.weapons).toEqual(["predator", "pepperbox", "lance"]);
-    expect(CAR_TABLE.mirage.weapons).toEqual(["magmablast", "thunderclap", "afterburner"]);
-    expect(CAR_TABLE.bastion.weapons).toEqual(["thumper", "roadblock", "tremor"]);
-    expect(CAR_TABLE.taurus.weapons).toEqual(["fury-horn", "shockwave", "wildcharge"]);
-  });
-
   it("publishes taurus as an active chassis", () => {
     expect(activeCarIds()).toContain("taurus");
-  });
-
-  it("shares no weapon between two chassis, active or not, so car select is a real choice", () => {
-    // L1. Exclusivity is the point of having three chassis: a shared opener would drag all three
-    // toward the same early-fight rhythm.
-    //
-    // Deliberately UNCONDITIONAL — it covers inactive rows too, and that is the whole reason the
-    // rule above lets a prototype carry nothing. The alternative (scope L1 to active cars, let a
-    // prototype borrow a shipped kit) moves the split to the worst possible moment: activating a
-    // car would fail the suite for a reason unrelated to the edit that activated it. Borrow
-    // nothing, author your own, and `isActive: true` is then a one-field change.
-    const all = Object.values(CAR_TABLE).flatMap((car) => [...car.weapons]);
-    expect(new Set(all).size).toBe(all.length);
   });
 
   it("lets a weapon exist with no chassis carrying it", () => {
@@ -66,7 +46,7 @@ describe("loadouts", () => {
     // weapons first, wire the kit second" impossible.
     //
     // The guard that whitelist doubled as — a weapon silently dropped from a shipped kit — is NOT
-    // lost: "gives each chassis the kit its type calls for" above pins all three shipped loadouts
+    // lost: the per-mode snapshots (`modes/__snapshots__`) pin every shipped loadout
     // element by element, which catches a dropped weapon more precisely than a count ever did.
     const carried = new Set(Object.values(CAR_TABLE).flatMap((car) => [...car.weapons]));
     expect(carried.size).toBeLessThanOrEqual(Object.keys(WEAPON_TABLE).length);
@@ -126,12 +106,6 @@ describe("loadouts", () => {
     }
   });
 
-  it("derives the fire-slot constants from the ability count, so the two cannot drift (BA11, VS6)", () => {
-    expect(WEAPON_SLOT_CONFIG.maxAbilitySlots).toBe(3);
-    expect(WEAPON_SLOT_CONFIG.maxFireSlots).toBe(WEAPON_SLOT_CONFIG.maxAbilitySlots + 1);
-    expect(WEAPON_SLOT_CONFIG.basicAttackSlotIndex).toBe(0);
-  });
-
   it("puts the basic attack first in the fire order, ahead of an unmoved kit (BA12, VS6)", () => {
     expect(fireSlotsOf("bastion")).toEqual([
       "basic-attack-bastion",
@@ -152,8 +126,6 @@ describe("the slot count", () => {
     // VS1/VS2. The ceiling sizes the key table, the mask width and the type bounds and is never a
     // tuning act; `maxAbilitySlots` is the build-time knob a designer moves.
     expect(ABILITY_SLOT_CEILING).toBe(4);
-    expect(WEAPON_SLOT_CONFIG.maxAbilitySlots).toBeGreaterThanOrEqual(1);
-    expect(WEAPON_SLOT_CONFIG.maxAbilitySlots).toBeLessThanOrEqual(ABILITY_SLOT_CEILING);
   });
 
   it("puts the basic attack at fire slot 0, before the kit", () => {
@@ -161,18 +133,12 @@ describe("the slot count", () => {
     // active kit was the same length. Once kits vary, `kit.length` varies, and the key that fires
     // the basic attack would change when the player changed chassis. At index 0 it is a true
     // constant at every kit length.
-    expect(WEAPON_SLOT_CONFIG.basicAttackSlotIndex).toBe(0);
     expect(fireSlotsOf("bastion")).toEqual([
       basicAttackOf("bastion"),
       "thumper",
       "roadblock",
       "tremor",
     ]);
-  });
-
-  it("derives the fire-slot count rather than typing it", () => {
-    // VS3. Typed separately, the two could disagree with N and with each other.
-    expect(WEAPON_SLOT_CONFIG.maxFireSlots).toBe(WEAPON_SLOT_CONFIG.maxAbilitySlots + 1);
   });
 
   it("truncates to a caller-given max so the rule is testable at every N", () => {

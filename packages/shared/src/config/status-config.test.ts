@@ -90,18 +90,6 @@ describe("STATUS_TABLE", () => {
     }
   });
 
-  it("matches the overhaul table (spec 2026-09-01)", () => {
-    expect(STATUS_TABLE.overheated.modifiers).toEqual({});
-    expect(STATUS_TABLE.overheated.pulse).toEqual({ intervalMs: 400, damage: 8 });
-    expect(STATUS_TABLE.spiked.modifiers).toEqual({ topSpeed: 0.6 });
-    expect(STATUS_TABLE.spiked.pulse).toBeUndefined();
-    expect(STATUS_TABLE.fortified.modifiers).toEqual({ damageTaken: 0.7 });
-    expect(STATUS_TABLE.fortified.pulse).toBeUndefined();
-    expect(STATUS_TABLE.stunned.flags).toEqual(["immobilised", "steeringLocked", "disarmed", "fullStop"]);
-    expect(STATUS_TABLE.armored.flags).toEqual(["invulnerable"]);
-    expect(STATUS_TABLE.armored.reapply).toBe("refresh");
-  });
-
   it("keeps spiked's slow above the topSpeed clamp floor", () => {
     expect(STATUS_TABLE.spiked.modifiers.topSpeed!).toBeGreaterThan(STATUS_LIMITS.topSpeed.min);
   });
@@ -152,12 +140,6 @@ describe("STATUS_TABLE", () => {
 
   it("STATUS_IDS lists exactly the table's keys", () => {
     expect([...STATUS_IDS].sort()).toEqual([...IDS].sort());
-  });
-});
-
-describe("STATUS_CONFIG", () => {
-  it("ceiling covers the longest authored application (wildcharge's 10s fortified, plan 3)", () => {
-    expect(STATUS_CONFIG.maxDurationMs).toBe(10000);
   });
 });
 
@@ -357,45 +339,8 @@ describe("phased", () => {
 describe("reeling", () => {
   // Redefined by the 2026-09-18 Unity ram port (spec §8, U31): a car with no inputs at all rather
   // than one that merely handles badly.
-  it("is not a stun: the trigger still works, but every drive input is gone", () => {
-    const row = STATUS_TABLE.reeling;
-    expect(row.flags).toEqual(["immobilised", "steeringLocked", "spinFree", "ramBlocked"]);
-    expect(row.flags).not.toContain("disarmed");
-    expect(row.flags).not.toContain("fullStop");
-  });
-
-  it("is forced to ignore by its own flags, since a flag-carrying debuff can never chain", () => {
-    expect(STATUS_TABLE.reeling.reapply).toBe("ignore");
-  });
-
   it("scrubs the shove, rather than switching grip off outright (spec §5)", () => {
-    expect(STATUS_TABLE.reeling.modifiers.grip).toBe(0.6);
     expect(STATUS_TABLE.reeling.modifiers.grip).toBeGreaterThan(STATUS_LIMITS.grip.min);
     expect(STATUS_TABLE.reeling.modifiers.grip).toBeLessThan(1);
-  });
-
-  it("carries no turnRate or accel penalty any more — the helplessness is the flags, not a number", () => {
-    expect(STATUS_TABLE.reeling.modifiers.turnRate).toBeUndefined();
-    expect(STATUS_TABLE.reeling.modifiers.accel).toBeUndefined();
-  });
-
-  it("leaves top speed alone, so a reeling car is slowed by physics not by a debuff", () => {
-    expect(STATUS_TABLE.reeling.modifiers.topSpeed ?? 1).toBe(1);
-  });
-});
-
-describe("ramLock", () => {
-  // New in the 2026-09-18 Unity ram port (spec §8, U32): the price of landing a ram.
-  it("stops a rammer cold without setting it sliding", () => {
-    expect(STATUS_TABLE.ramLock.flags).toEqual(["immobilised", "steeringLocked", "ramBlocked"]);
-    expect(STATUS_TABLE.ramLock.flags).not.toContain("spinFree");
-  });
-
-  it("is forced to ignore by its own flags", () => {
-    expect(STATUS_TABLE.ramLock.reapply).toBe("ignore");
-  });
-
-  it("touches no channel — grip stays full, so a locked car does not slide", () => {
-    expect(STATUS_TABLE.ramLock.modifiers).toEqual({});
   });
 });

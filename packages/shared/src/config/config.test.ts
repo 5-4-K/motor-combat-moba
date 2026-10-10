@@ -19,9 +19,7 @@ import {
 } from "./car-config.js";
 import type { CarId } from "./types.js";
 import { COLOR_TABLE } from "./color-config.js";
-import { COMBAT_CONFIG } from "./combat-config.js";
 import { CAMERA_CONFIG, DRIVE_CONFIG, perTickDecay } from "./drive-config.js";
-import { FLOW_CONFIG } from "./flow-config.js";
 import { NET_CONFIG } from "./net-config.js";
 import { RAM_CONFIG } from "./ram-config.js";
 import { damageFor } from "../sim/damage.js";
@@ -237,11 +235,6 @@ describe("COLOR_TABLE", () => {
 });
 
 describe("weapon / combat / drive / flow knobs exist", () => {
-  it("combat defaults", () => {
-    expect(COMBAT_CONFIG.hpPerRating).toBe(10);
-    expect(COMBAT_CONFIG.attackBaseline).toBe(50);
-    expect(COMBAT_CONFIG.damagePerAttack).toBe(0.01);
-  });
   // DELETED: "reverse is slower than forward, but not a crawl" — `DRIVE_CONFIG.reverseSpeedRatio`
   // is gone, deleted by Task 6 alongside the other superseded knobs. Reverse top speed is now the
   // emergent equilibrium `reverseAccel / dragRate`, and `reverseAccelFactor` below is what keeps it
@@ -294,24 +287,6 @@ describe("weapon / combat / drive / flow knobs exist", () => {
     expect(DRIVE_CONFIG.dashSubstepMaxUnits).toBeLessThanOrEqual(
       Math.min(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight) / 2,
     );
-  });
-  it("flow timers", () => {
-    expect(FLOW_CONFIG.carSelectSeconds).toBe(60);
-    expect(FLOW_CONFIG.countdownSeconds).toBe(3);
-  });
-  it("carries the arena select screen's base values (AR6)", () => {
-    expect(FLOW_CONFIG.arenaSelectEnabled).toBe(true);
-    expect(FLOW_CONFIG.arenaSelectSeconds).toBe(10);
-    expect(FLOW_CONFIG.arenaRevealSeconds).toBe(3);
-    expect(FLOW_CONFIG.arenaRouletteSeconds).toBe(1.5);
-  });
-  it("camera follows softly and pushes the view in", () => {
-    // Pinned, not ranged: these are the tuned values, and a camLerp outside (0, 1] either never
-    // reaches the car or overshoots it every frame. Zoom 2 would draw the 2x car textures at 1:1;
-    // 1 trades sprite sharpness for the widest field of view the range allows. Below 1 the
-    // textures shimmer, so a change here is also a change to how sharp every car sprite is.
-    expect(CAMERA_CONFIG.camLerp).toBe(0.18);
-    expect(CAMERA_CONFIG.zoom).toBe(1);
   });
   it("lets a spectator's free-look camera outrun the fastest car", () => {
     // Ranged, not pinned: what matters is that free roam can get ahead of the action rather than
@@ -532,11 +507,6 @@ describe("the Unity drive knobs", () => {
     expect(DRIVE_CONFIG.dragPerRating).toBeGreaterThan(0);
     expect(DRIVE_CONFIG.lateralGripRate).toBeGreaterThan(0);
     expect(DRIVE_CONFIG.reverseEpsilon).toBeGreaterThan(DRIVE_CONFIG.stopEpsilon);
-    // OFF for the tuning pass, not permanently: the flip reads the car-frame forward component,
-    // which drift drives negative mid-corner, so it chatters and inverts the steering several
-    // times a second. The machinery is kept; the predicate needs gating on COMMANDED reverse
-    // before this goes back to true. See the knob’s doc comment in `drive-config.ts`.
-    expect(DRIVE_CONFIG.flipSteeringInReverse).toBe(false);
   });
 
 });

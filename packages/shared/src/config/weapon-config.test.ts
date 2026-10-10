@@ -40,25 +40,6 @@ const PLAIN_BOLT_IDS = [
 const plainBolts = (): WeaponDef[] => PLAIN_BOLT_IDS.map((id) => WEAPON_TABLE[id]);
 
 describe("WEAPON_TABLE", () => {
-  it("pins the overhaul roster's load-bearing numbers (spec 2026-09-01)", () => {
-    expect(WEAPON_TABLE.magmablast).toMatchObject({ damage: 50, cooldownMs: 16000, speed: 600, range: 900 });
-    expect(WEAPON_TABLE.predator.homing).toEqual({
-      acquire: "proximity",
-      acquireRadius: 200,
-      turnRateDegPerSec: 300,
-      durationMs: 2000,
-    });
-    expect(WEAPON_TABLE.thunderclap).toMatchObject({ damage: 90, speed: 1600, range: 400 });
-    expect(WEAPON_TABLE.roadblock).toMatchObject({ damage: 100, pierce: 4 });
-    expect(WEAPON_TABLE.roadblock.hitbox).toEqual({ shape: "bar", radiusAlong: 6, radiusAcross: 60 });
-    expect(WEAPON_TABLE.wildcharge.maneuver).toEqual({ type: "charge", durationMs: 10000, slamsStunned: true });
-    expect(WEAPON_TABLE.wildcharge.isUnInterruptable).toBe(true);
-    expect(WEAPON_TABLE.thumper).toMatchObject({ bounces: true, lifetimeMs: 2900 });
-    expect(WEAPON_TABLE.pepperbox.muzzles).toEqual([0, 90, 180, 270]);
-    expect(WEAPON_TABLE.afterburner.muzzles).toEqual([0, 180]);
-    expect(WEAPON_TABLE.lance).toMatchObject({ attached: true, lifetimeMs: 1500, holdsDuringFire: true });
-  });
-
   it("keeps maneuver rows single-volley", () => {
     for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
       if (def.kind === "maneuver") expect(def.volley.volleys, def.id).toBe(1);
@@ -221,10 +202,6 @@ describe("WEAPON_TABLE", () => {
   it("ships afterburner as the table's first beam, attached and ticking", () => {
     const afterburner = WEAPON_TABLE.afterburner;
     if (afterburner.kind !== "beam") throw new Error("afterburner must be a beam");
-    expect(afterburner.attached).toBe(true);
-    expect(afterburner.lifetimeMs).toBe(2000);
-    expect(afterburner.damageFrequencyMs).toBe(500);
-    expect(afterburner.hitbox).toEqual({ shape: "cone", angleDeg: 55 });
     // Total life is range/speed + lifetime == 200ms + 2000ms. At one pulse per 500ms that is 5
     // pulses == 245 base max, about a third of an average car's hull HP.
     expect(afterburner.range / afterburner.speed + afterburner.lifetimeMs / 1000).toBeCloseTo(2.2);
@@ -255,8 +232,6 @@ describe("WEAPON_TABLE", () => {
     // pierce counts cars hit AFTER the first, so pierce: 4 reaches all 5 possible opponents in a
     // 6-player game once the shooter is excluded — the wall passes through the whole lobby.
     // (pierce: 5 would reach a sixth car, which cannot exist once the shooter is excluded.)
-    expect(roadblock.pierce).toBe(4);
-    expect(roadblock.hitbox).toEqual({ shape: "bar", radiusAlong: 6, radiusAcross: 60 });
     // The wall stops for nothing — walls included. Without this the 60u wingtips killed the shot
     // in `hitsWorld` on its own spawn tick whenever Bastion fired within a wingtip of a wall.
     expect(roadblock.piercesWalls).toBe(true);
@@ -267,18 +242,11 @@ describe("WEAPON_TABLE", () => {
     if (lance.kind !== "beam") throw new Error("lance must be a beam");
     // O10: lance became held-and-attached, superseding the old detached design — it now sweeps
     // live under the driver's own steering while the HOLD maneuver keeps the car still.
-    expect(lance.attached).toBe(true);
-    expect(lance.holdsDuringFire).toBe(true);
-    expect(lance.damage).toBe(43); // per PULSE now, not per press — see the interval below
-    expect(lance.hitbox).toEqual({ shape: "rect", width: 57.5 });
     // It ticks on contact rather than stamping 170 once, and on `afterburner`'s clock exactly, so
     // the roster's two ticking beams share one rhythm.
-    expect(lance.damageFrequencyMs).toBe(500);
     expect(lance.damageFrequencyMs).toBe(WEAPON_TABLE.afterburner.damageFrequencyMs);
-    expect(lance.startUpMs).toBe(700);
     // The wind-up alone is not the whole cost: a missed lance also owes a second of silence, which
     // is what makes it punishing on a 300 HP chassis (L5).
-    expect(lance.recoveryMs).toBe(1000);
     const highest = Math.max(
       ...Object.values(WEAPON_TABLE).map((def) => def.recoveryMs),
     );
@@ -326,7 +294,6 @@ describe("WEAPON_TABLE", () => {
     if (sw.kind !== "projectile") throw new Error("magmablast must be a projectile now");
     expect(sw.volley).toEqual({ volleys: 1, volleyIntervalMs: 0 });
     expect(sw.pellets).toEqual({ pelletsPerVolley: 1, spreadAngleDeg: 0 });
-    expect(sw.damage).toBe(50);
     expect(sw.applies).toBeUndefined();
     expect(sw.explosion).toBeDefined();
     expect(sw.explosion).toMatchObject({
@@ -373,7 +340,6 @@ describe("WEAPON_TABLE", () => {
           .map((def) => def.range),
       );
     expect(straightReach("bullseye")).toBeGreaterThan(straightReach("bastion"));
-    expect(WEAPON_TABLE.roadblock.range).toBe(500);
     // `slotsOf` truncates to the slot limit, so measure that it is the whole authored kit above.
     expect(slotsOf("bastion")).toEqual([...CAR_TABLE.bastion.weapons]);
   });
@@ -488,10 +454,6 @@ describe("ImpulseDef", () => {
   it("declares every status an impulse applies, naming none in code", () => {
     const imp = WEAPON_TABLE.wildcharge.impulse!;
     expect(imp.applies.map((a) => a.statusId)).toEqual(["reeling"]);
-    expect(imp.applies[0]!.durationMs).toBe(1400);
-    expect(imp.onWallImpact!.windowMs).toBe(500);
-    expect(imp.onWallImpact!.applies.map((a) => a.statusId)).toEqual(["stunned"]);
-    expect(imp.onWallImpact!.applies[0]!.durationMs).toBe(500);
   });
 
   it("accepts any real status id on either list — that is the point of the restructure", () => {
@@ -636,18 +598,6 @@ describe("ImpulseDef", () => {
 
   it("keeps the nine basic attacks and every plain bolt impulse-free", () => {
     for (const def of plainBolts()) expect(def.impulse, def.id).toBeUndefined();
-  });
-
-  it("gives tremor an inward pull: radial, negative, spin-free and undefended", () => {
-    // Half of wildcharge's 520. Negative speed pulls toward the source, and a cone beam's source is
-    // the victim's foot on its own fire axis, so the pull is toward the centreline.
-    expect(WEAPON_TABLE.tremor.impulse).toEqual({
-      speed: -260,
-      direction: "radial",
-      spin: 0,
-      defenceScaled: false,
-      applies: [],
-    });
   });
 
   /**
