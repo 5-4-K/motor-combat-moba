@@ -36,12 +36,11 @@ const BASIC_ATTACK_BASE = {
   pierce: 0,
   volley: { volleys: 1, volleyIntervalMs: 0 },
   pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
-  // Kept on this build even though `slots().basicAttackEnabled` is `false` for every shipped mode
-  // and the three ability rows gave theirs back: the flag is what silences the weapon, and
-  // stripping the row as well would mean two edits to bring the basic attack back instead of one.
-  // It reaches nothing while the flag is off — `carHasTurretWeapon` skips fire slot 0 outright — so
-  // it costs a build nothing to leave authored.
-  turret: { additionalOffset: 0 },
+  // The turret system is switched off in every mode (2026-10-10): every turret row's `turret` is
+  // commented out rather than deleted, so each weapon fires from its fixed front muzzle along the
+  // heading. Uncomment to bring the turret back; the machinery (`TURRET_CONFIG`, aim input, turret
+  // drawing) is untouched and simply has no row to act on.
+  // turret: { additionalOffset: 0 },
 } as const;
 
 /**
@@ -104,7 +103,7 @@ export const WEAPON_TABLE = {
     range: 1800, // = speed x lifetimeMs; see the comment above for why this is authored at all
     startUpMs: 0,
     cooldownMs: 1000,
-    turret: { additionalOffset: 0 },
+    // turret: { additionalOffset: 0 }, — turret system off (see BASIC_ATTACK_BASE); fixed front muzzle
     recoveryMs: 0,
     // 38 units long, of which the rear 10 are the exhaust plume the client draws (2026-09-04).
     // Grown from 14 deliberately and as a BUFF, not a wash: the plume was drawn first as art
@@ -233,7 +232,7 @@ export const WEAPON_TABLE = {
     range: 900,
     startUpMs: 0,
     cooldownMs: 16000,
-    turret: { additionalOffset: 0 },
+    // turret: { additionalOffset: 0 }, — turret system off (see BASIC_ATTACK_BASE); fixed front muzzle
     recoveryMs: 0,
     hitbox: { shape: "circle", radius: 12 },
     pierce: 0,
@@ -395,7 +394,7 @@ export const WEAPON_TABLE = {
     range: 1305, // 450 u/s x 2.9 s — the honest reach figure now that expiry is clock-based
     startUpMs: 0,
     cooldownMs: 16000,
-    turret: { additionalOffset: 0 },
+    // turret: { additionalOffset: 0 }, — turret system off (see BASIC_ATTACK_BASE); fixed front muzzle
     recoveryMs: 0,
     hitbox: { shape: "capsule", radiusAlong: 24, radiusAcross: 15 },
     pierce: 0,
@@ -429,7 +428,7 @@ export const WEAPON_TABLE = {
     range: 500,
     startUpMs: 0,
     cooldownMs: 6000,
-    turret: { additionalOffset: 0 },
+    // turret: { additionalOffset: 0 }, — turret system off (see BASIC_ATTACK_BASE); fixed front muzzle
     recoveryMs: 200,
     hitbox: { shape: "bar", radiusAlong: 6, radiusAcross: 60 },
     pierce: 4,
@@ -632,7 +631,7 @@ export const WEAPON_TABLE = {
     range: 900,
     startUpMs: 0,
     cooldownMs: 3000,
-    turret: { additionalOffset: 0 },
+    // turret: { additionalOffset: 0 }, — turret system off (see BASIC_ATTACK_BASE); fixed front muzzle
     recoveryMs: 0,
     hitbox: { shape: "ellipse", radiusAlong: 8, radiusAcross: 16 },
     pierce: 0,
