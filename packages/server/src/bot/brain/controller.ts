@@ -7,7 +7,7 @@ import { botConfigOf, type BotModeConfig } from "../../config/mode-bot.js";
 import type { BotCarView, BotController, BotDebug, BotIntent, BotView, SituationId } from "../types.js";
 import { newAimErrorState, stepAimError, type AimErrorState } from "./aim.js";
 import { applyHumanize, newHumanizeState, type HumanizeState } from "./humanize.js";
-import { wallPush, type Push } from "./movement.js";
+import { inCorner, wallPush, type Push } from "./movement.js";
 import { avoidWalls, newNavState, steerToward, type Goal, type NavState } from "./navigate.js";
 import {
   activeThreats, acquiringUnnoticed, knownCars, lastKnownAnchor, nearestHeardShot, newPerception,
@@ -141,8 +141,14 @@ export class HumanController implements BotController {
     // --- facts ---
     const selfControlLost = !self.alive
       || CONTROL_LOST_STATUSES.some((id) => hasStatus(self.statuses, id, tick));
+    // Two wall reads (BB32, BB33). The tier's look-ahead feeds the reactive layer, which steers along
+    // a wall before the car reaches it. `pinned` is the STUCK test: a corner, or a push at
+    // `minEngageUnits` (hull contact), the same for every tier, since walls hurt everyone equally.
+    // `unpin` drives along the contact push, never the look-ahead one.
     const push = wallPush(self, view.arena, profile.wallLookaheadUnits);
-    if (push) this.lastPush = push;
+    const contactPush = wallPush(self, view.arena, consts.minEngageUnits);
+    const pinned = inCorner(self, view.arena) || contactPush !== undefined;
+    if (contactPush) this.lastPush = contactPush;
     const shotThreats = activeThreats(this.perception, tick);
     const carIncoming = target ? isIncomingCar(self, target, profile) : false;
     const distance = target ? Math.hypot(target.x - self.x, target.y - self.y) : Infinity;
@@ -165,7 +171,7 @@ export class HumanController implements BotController {
       selfControlLost,
       hittable: target !== undefined,
       evade: shotThreats.length > 0 || carIncoming,
-      pinned: push !== undefined,
+      pinned,
       punish: target !== undefined && (targetHeld || targetHpFraction <= profile.punishHpFraction),
       reset: profile.retreatHpFraction > 0 && hpFraction < profile.retreatHpFraction,
       kitDry,

@@ -182,16 +182,17 @@ export const BRAIN_CONSTANTS = Object.freeze({
    */
   fullLockAngVelFraction: 0.5,
   /**
-   * How much further ahead a bot looks for a spike strip than for a bare wall (Task 12, AS28) —
-   * `spikesAhead`'s lookahead is `wallLookaheadUnits * this`, so a spiked wall registers as "pinned"
-   * before a plain one does.
+   * How much further ahead a bot looks for a spike strip than for a bare wall (Task 12, AS28):
+   * `wallPush` samples damaging spike faces at `lookaheadUnits` and at `lookaheadUnits * this`. For
+   * the reactive wall layer (BB32, the tier's `wallLookaheadUnits`) that means a spiked wall turns
+   * the car before a plain one does; the contact test behind `pinned` (BB33, `minEngageUnits`) reads
+   * the same two samples, so a spike strip within about two car lengths of the nose counts as contact.
    *
    * Shared across every tier on purpose, not a per-profile knob: every bot understands that spikes
    * hurt equally, and the tiers already differ through their own `wallLookaheadUnits` and reaction
    * knobs — a Hard-only awareness of spikes here would be exactly the branch the `bot-tuner` skill
-   * exists to prevent. `spikesAhead` itself cannot push "harder" the way a per-tier weight might
-   * suggest: `wallAhead`'s push vector collapses to a boolean before this ever sees it, so the only
-   * lever left is noticing sooner.
+   * exists to prevent. A spike adds a unit vector to the push like any wall, so the only lever this
+   * constant has is noticing sooner.
    */
   spikeLookaheadFactor: 2,
 });

@@ -156,6 +156,49 @@ describe("HumanController v7", () => {
     expect(out.throttle).toBe(1);
   });
 
+  it("does not unpin on a spike strip it is only looking at (C2, BB33)", () => {
+    // A spike strip whose near face is 215 u off the nose: inside hard's 2 × 150 u spike look-ahead,
+    // far from contact. The reactive layer may steer; the stuck test must not fire.
+    const bot = new HumanController("hard");
+    const rng = makeRng(1);
+    const arena = { width: 1280, height: 720, obstacles: [{ x: 415, y: 300, w: 100, h: 120, kind: "spike" as const }] };
+    for (let tick = 0; tick < 60; tick++) {
+      bot.decide(view(tick, { arena, rng }));
+      expect(bot.debug()?.situation).not.toBe("unpin");
+    }
+  });
+
+  it("unpins a car whose nose is 40 u from a wall, at every tier (C2, BB33)", () => {
+    for (const tier of ["easy", "medium", "hard"] as const) {
+      const bot = new HumanController(tier);
+      const rng = makeRng(1);
+      // Facing +x with the centre 70 u (half a hull length plus 40) from the right wall.
+      const self = { ...view(0).self, x: 1280 - 70, angle: 0 };
+      bot.decide(view(0, { self, rng }));
+      expect(bot.debug()?.situation).toBe("unpin");
+    }
+  });
+
+  it("the reactive wall layer drives `fight` near a wall it is not pinned on (C2, BB32)", () => {
+    // A block 110 u off the nose: inside hard's 150 u look-ahead, outside the 70 u contact test. Same
+    // pose and target with and without it; only the reactive layer can tell the two apart.
+    const target = { ...enemy, x: 900, vx: 0 };
+    const block = { x: 310, y: 330, w: 110, h: 60 };
+    const runIn = (obstacles: { x: number; y: number; w: number; h: number }[]) => {
+      const bot = new HumanController("hard");
+      const rng = makeRng(1);
+      for (let tick = 0; tick < 60; tick++) bot.decide(view(tick, { arena: { width: 1280, height: 720, obstacles }, others: [target], rng }));
+      return bot.debug()!;
+    };
+    const open = runIn([]);
+    const walled = runIn([block]);
+    expect(open.situation).toBe("fight");
+    expect(walled.situation).toBe("fight");
+    expect(open.throttle).toBe(1);
+    expect(walled.throttle).toBe(-1); // dead ahead: back up for this decision
+    expect(walled.steer).not.toBe(0);
+  });
+
   it("holds a dodge's heading through the commit window after the shot is gone (BB35)", () => {
     const bot = new HumanController("hard");
     const rng = makeRng(1);

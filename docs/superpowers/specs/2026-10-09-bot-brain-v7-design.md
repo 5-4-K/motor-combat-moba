@@ -112,7 +112,7 @@ whole-brain determinism test (old P51) stays and is the guard.
 |---|---|---|---|
 | 0 | `recover` | self dead, or carrying `phased`, `stunned`, `reeling` or `ramLock` | no |
 | 1 | `evade` | a reacted-to shot in flight (BB19), or an incoming car (BB20) | yes |
-| 2 | `unpin` | `wallPush` reports a wall, spike or corner ahead (BB33) | yes |
+| 2 | `unpin` | stuck: a corner, or `wallPush` at `minEngageUnits` reports a push (contact, every tier alike; BB33) | yes |
 | 3 | `waitOut` | no hittable target noticed | no |
 | 4 | `punish` | target `stunned` or `reeling`, or target HP ≤ `punishHpFraction` | yes |
 | 5 | `reset` | own HP < `retreatHpFraction` (0 at easy: never) | yes |
@@ -263,17 +263,21 @@ consumer backs up rather than reading "clear". `wallAhead`, `spikesAhead` and `i
 hit counts of the same accumulators, not the vector, so two cancelling walls still read pinned and
 their existing tests keep their meaning.
 
-**BB32 The reactive layer** (`avoidWalls`). After the steering law, in every situation but `recover`
-and `unpin`: if `wallPush` reports a push, `throttle` is `+1` and the push does not already point
+**BB32 The reactive layer** (`avoidWalls`). After the steering law, the reactive layer runs whenever
+the tier look-ahead (`wallPush` at `wallLookaheadUnits`) reports a push and the bot is not in
+`recover` or `unpin`: if `throttle` is `+1` and the push does not already point
 along the heading (`heading · push ≤ 0`), steer toward the push's side (sign of
 `cross(heading, push)`, latched) and flip `orbitSide` to match; if the push is nearly dead ahead
 (`|cross| < 0.3` on unit vectors) set `throttle = -1` for this decision. This keeps a bot from
-driving into a wall it is not yet pinned on; `unpin` handles the pinned case with a goal.
+driving into a wall it is not yet pinned on; `unpin` handles the pinned case with a goal. (7.0.0
+defined pinned with the same look-ahead, so the state "near a wall, not pinned" never existed and
+this layer only ran under `evade`; 7.1.0 gave `pinned` its own, shorter test, BB33.)
 
-**BB33 `unpin`** is entered when `wallPush` at the tier's `wallLookaheadUnits` reports a push. Its
-goal is the push direction at `unpinDistanceUnits`, facing free, reverse allowed. It reads the last
-non-empty push (`lastPush`), so an `unpin` held through its commit window keeps its direction after
-the push clears. A corner or a wall dead ahead therefore backs out, a wall off the nose turns away
+**BB33 `unpin`** is entered when the car is in a corner or `wallPush` at `minEngageUnits` reports a
+push (contact), independent of tier: walls hurt every tier equally, and the tier's look-ahead is the
+reactive layer's (BB32). Its goal is the CONTACT push's direction at `unpinDistanceUnits`, facing
+free, reverse allowed. It reads the last non-empty contact push (`lastPush`), never the look-ahead
+one, so an `unpin` held through its commit window keeps its direction after the push clears. A corner or a wall dead ahead therefore backs out, a wall off the nose turns away
 from it.
 
 ### Dodging
