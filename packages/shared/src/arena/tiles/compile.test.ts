@@ -293,6 +293,17 @@ describe("compileTileArena base art (TC5, TC17)", () => {
     });
   });
 
+  it("turns random-oriented art per cell, the same way on every compile", () => {
+    const rows = Array.from({ length: 8 }, () => "xxxxxxxx");
+    const legend: TileLegend = { x: { tile: "floor", art: "rust", artOrientation: "random" } };
+    const turns = (id: string) =>
+      compileTileArena({ ...source(rows, legend), id }, FIXTURE_DEFS).tiles!.cells.map((c) => c.base!.rotation);
+    const a = turns("arena-x");
+    expect(turns("arena-x")).toEqual(a); // deterministic: every client bakes the same floor
+    expect(new Set(a)).toEqual(new Set([0, 90, 180, 270])); // all four quarter turns appear in 64 cells
+    expect(turns("arena-y")).not.toEqual(a); // seeded by the arena id
+  });
+
   it("resolves a void cell as undrawn, with no base and no overlays", () => {
     const v = cell({ x: { tile: "void" } });
     expect(v.drawn).toBe(false);

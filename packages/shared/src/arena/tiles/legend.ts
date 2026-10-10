@@ -11,8 +11,15 @@ export interface TileCellSpec {
   readonly tile: string;
   readonly orientation?: TileRotation;
   readonly art?: string;
-  /** Defaults to `orientation` (TC5); written only when the art must face differently. */
-  readonly artOrientation?: TileRotation;
+  /**
+   * Defaults to `orientation` (TC5); written only when the art must face differently. `"random"`
+   * turns each cell's art by a quarter turn chosen per cell, deterministically from the arena id and
+   * the cell's position, so a repeated floor tile does not read as a grid of identical squares.
+   * Meant for a quick hand-made arena whose individual turns nobody cares about: the turn is hidden
+   * in the compiler, and resizing, inserting a row or renaming the arena reshuffles every cell. A
+   * shipped arena or a generator writes explicit turns instead (arena-01/02 use four floor keys).
+   */
+  readonly artOrientation?: TileRotation | "random";
   /** Automatic by default (TC6); an explicit stamp replaces it, `"none"` suppresses it. */
   readonly overlay?: { readonly art: string; readonly orientation: TileRotation } | "none";
   /**

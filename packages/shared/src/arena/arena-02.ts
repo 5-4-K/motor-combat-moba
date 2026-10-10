@@ -16,43 +16,49 @@ import { compileTileArena } from "./tiles/compile.js";
  * The art on the left and right sides is turned 90° clockwise so its grain runs along the wall; the
  * top and bottom rows (corners included) keep it as authored. Only the ART turns — the spikes hurt
  * from every side. Lower-case `l` is a turned spike.
+ *
+ * The floor is four keys over the same dirt art: `.` as authored, `,` `:` `;` turned 90°, 180° and
+ * 270° clockwise. They were scattered at random once (2026-10-10) and committed, so the turns are
+ * plain data: every client draws the same floor, and editing a cell changes only that cell.
  */
 const WALL = "wooden-wall";
 const EDGE = "#" + "^".repeat(38) + "#";
-const FLOOR_ROW = "l" + ".".repeat(38) + "l";
 
 export const ARENA_02: ArenaDef = compileTileArena({
   id: "arena-02",
   displayName: "Arena 02",
   legend: {
     ".": { tile: "floor", art: "dirt-floor-drawn" },
+    ",": { tile: "floor", art: "dirt-floor-drawn", artOrientation: 90 },
+    ":": { tile: "floor", art: "dirt-floor-drawn", artOrientation: 180 },
+    ";": { tile: "floor", art: "dirt-floor-drawn", artOrientation: 270 },
     "#": { tile: "wall", art: WALL },
     "^": { tile: "spike", art: WALL, overlayArt: "wooden-spike" },
     l: { tile: "spike", art: WALL, artOrientation: 90, overlayArt: "wooden-spike" },
   },
   rows: [
-    EDGE, //       0
-    FLOOR_ROW, // 1
-    FLOOR_ROW, // 2
-    FLOOR_ROW, // 3
-    FLOOR_ROW, // 4
-    FLOOR_ROW, // 5
-    FLOOR_ROW, // 6
-    FLOOR_ROW, // 7
-    FLOOR_ROW, // 8
-    FLOOR_ROW, // 9
-    FLOOR_ROW, // 10
-    FLOOR_ROW, // 11
-    FLOOR_ROW, // 12
-    FLOOR_ROW, // 13
-    FLOOR_ROW, // 14
-    FLOOR_ROW, // 15
-    FLOOR_ROW, // 16
-    FLOOR_ROW, // 17
-    FLOOR_ROW, // 18
-    FLOOR_ROW, // 19
-    FLOOR_ROW, // 20
-    EDGE, //      21
+    EDGE, // 0
+    "l.;.;:.:.;;;,;.:;;::.;;:,;;,,.;,,;;;,.:l", // 1
+    "l::;.,,:.,;.;,,,;,;,.:.:;:,,:..:;:.:;.:l", // 2
+    "l::;,:.;,.:,::,.;::..,;.;.;,,:;,,;;,,;;l", // 3
+    "l:;.,,.,;,,;...:::;,;.::;.:.,,;::.:.;.,l", // 4
+    "l.;.:::.,:;.::..,;:::,:.,.:.:;..,;,,::,l", // 5
+    "l.::,,:;.;;.,,.,;....:,,;.:;;.::.,,;,.;l", // 6
+    "l:,:,.::;;.;;,,,::,..,,:..,;;;...;,,:.:l", // 7
+    "l,,,:,;;,..:,,.;.;,;,;..,:,:;,::.;.:;:,l", // 8
+    "l:;,:,,.:;...:::.,,.,:,;:;::,...;,;;;::l", // 9
+    "l;,.:,;.:;.,,.;;::;.,,:,,;.;.,.,.:.;:::l", // 10
+    "l,.,,.:;.::.::;;:::.;;;..;;;;,:;.;;....l", // 11
+    "l;:,:,.,::.;:.:;::...:,,::,.;,;::,;::;.l", // 12
+    "l:,,.;,.;:,;,:;...:,:.:.,;..:..:,;:;;.;l", // 13
+    "l,;;;,.:.;;::;,.::;:,.,;;:.:;.:,..,;;,,l", // 14
+    "l::,;,.;:.,;;..:.:;..;.:;..:.,;.,;,.,:;l", // 15
+    "l:..:,.;;.;.;:,:;..;,..:;,;,::,:.;:.;.;l", // 16
+    "l.:,...:.::,.:;;;:,:;,...;:;:,:;:.,.:;;l", // 17
+    "l;:::.;:.:,.;:;.:.:;:;;.:.;;,:;.;.;,,;;l", // 18
+    "l,;;:,;,;..,:;.,;...:,,..;;,:;;;;;,:::,l", // 19
+    "l.;;::;;;,:.;,,:.:;:..::;;:;;;..,,;;,,:l", // 20
+    EDGE, // 21
   ],
   /**
    * Warm dust to match the floor art if a tile PNG is missing. Obstacle and border stay dark so a
