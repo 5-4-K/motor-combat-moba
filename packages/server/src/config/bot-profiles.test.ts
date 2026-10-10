@@ -165,7 +165,7 @@ describe("BOT_PROFILES", () => {
     expect(BRAIN_CONSTANTS.effectiveReachSamples).toBe(12);
     expect(resolveBrainConstants().soonReadyTicks).toBe(Math.round(TICK_RATE_HZ));
     expect(resolveBrainConstants().ramDryWindowTicks).toBe(Math.round(1.5 * TICK_RATE_HZ));
-    expect(BOT_BRAIN_VERSION).toBe("7.0.0");
+    expect(BOT_BRAIN_VERSION).toBe("7.1.0");
   });
 
   it("drops the 6.x constants (BB52)", () => {

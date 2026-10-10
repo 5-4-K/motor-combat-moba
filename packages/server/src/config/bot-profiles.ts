@@ -205,7 +205,8 @@ export const BRAIN_CONSTANTS = Object.freeze({
  * without the table moving, or the balance harness will happily compare two incomparable pilots.
  */
 // BOT_BRAIN_VERSION 7.0.0 — the deterministic core (docs/superpowers/specs/2026-10-09-bot-brain-v7-design.md).
-export const BOT_BRAIN_VERSION = "7.0.0";
+// BOT_BRAIN_VERSION 7.1.0 — fight while reloading, contact-only unpin, fire under non-disarmed control loss, ram ignores its own target's approach.
+export const BOT_BRAIN_VERSION = "7.1.0";
 
 /**
  * The tick-valued knobs, authored in ms (NR14) and resolved to ticks at the build's tick rate.

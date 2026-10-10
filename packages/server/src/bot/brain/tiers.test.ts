@@ -250,9 +250,9 @@ describe("tier characterisation (BB60)", () => {
  * `immortalTarget` restores the dummy's hp after every combat tick, so a hit rate is measured over
  * the same window for every tier. The time-to-kill test obviously does not use it.
  */
-function duelAgainstDummy(tier: "easy" | "medium" | "hard", ticks = 600, immortalTarget = false) {
+function duelAgainstDummy(tier: "easy" | "medium" | "hard", ticks = 600, immortalTarget = false, seed = 17) {
   const { presses, hits, hitRate, ticks: elapsed, killed, hittableTicks, idleHittableTicks } = runDuel({
-    tier, ticks, resolveCombat: true, immortalTarget, targetPos: { x: 600, y: 360 },
+    tier, ticks, seed, resolveCombat: true, immortalTarget, targetPos: { x: 600, y: 360 },
   });
   const idleShare = hittableTicks > 0 ? idleHittableTicks / hittableTicks : 0;
   return { fires: presses, hits, hitRate, ticks: elapsed, killed, idleShare };
@@ -293,11 +293,24 @@ describe("the reported symptoms stay fixed (BB3)", () => {
   it("hits far more often above the easy tier [P50]", () => {
     // Accuracy only: volume is a separate ladder ("presses rise with tier"). `fires` is combat's own
     // committed-press count, so a held fire bit cannot inflate it.
-    const easy = duelAgainstDummy("easy", 600, true);
-    const medium = duelAgainstDummy("medium", 600, true);
-    const hard = duelAgainstDummy("hard", 600, true);
-    expect(medium.hitRate).toBeGreaterThan(easy.hitRate);
-    expect(hard.hitRate).toBeGreaterThan(easy.hitRate);
+    //
+    // Pooled over five seeds: easy presses 5-7 times in 600 ticks, so one landed shot moves a single
+    // seed's rate by 15-20 points. Seed 17 alone reads easy 4/5 against medium 7/9 on 7.1.0, the one
+    // outlier in ten seeds (17, 3, 7, 42, 99, 1, 2, 5, 2026, 11 pooled: easy 31/68 = 0.456, medium
+    // 60/90 = 0.667, hard 90/121 = 0.744). These five pool to 14/33, 29/45 and 45/61.
+    const pooled = (tier: "easy" | "medium" | "hard") => {
+      let hits = 0;
+      let fires = 0;
+      for (const seed of [17, 3, 7, 42, 99]) {
+        const r = duelAgainstDummy(tier, 600, true, seed);
+        hits += r.hits;
+        fires += r.fires;
+      }
+      return hits / fires;
+    };
+    const easy = pooled("easy");
+    expect(pooled("medium")).toBeGreaterThan(easy);
+    expect(pooled("hard")).toBeGreaterThan(easy);
   });
 });
 
