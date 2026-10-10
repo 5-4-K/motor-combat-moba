@@ -11,6 +11,7 @@ describe("CONQUER_CONFIG (CQ25)", () => {
       controlTargetSeconds: 60,
       teamSize: 3,
       uniqueChassisPerTeam: true,
+      zoneEdgeInset: 20,
     });
     expect(Object.isFrozen(CONQUER_CONFIG)).toBe(true);
   });

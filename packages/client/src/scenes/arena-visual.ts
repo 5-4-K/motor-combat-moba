@@ -1,4 +1,4 @@
-import { boundsOf, rectPlanes, type ArenaDef } from "@motor-combat-moba/shared";
+import { TILE_SIZE, boundsOf, rectPlanes, type ArenaDef, type TileGrid } from "@motor-combat-moba/shared";
 
 /** Spacing of the procedural spike teeth along a strip's long side, in world units (CQ49). */
 export const SPIKE_TOOTH_PX = 12;
@@ -165,8 +165,8 @@ export function spikeStrips(arena: ArenaDef): SpikeStrip[] {
 }
 
 /**
- * The regions between an art-less arena's frame and its boundary polygon (CQ50) — arena-03's four
- * chamfer corners, filled in the border colour so the cut corners read as wall rather than as floor.
+ * The regions between an art-less arena's frame and its boundary polygon (CQ50) — a hand-written
+ * polygon arena's cut corners, filled in the border colour so they read as wall rather than as floor.
  *
  * Deliberately narrow: only a boundary whose every vertex lies on the frame, where each gap is the
  * triangle between a frame corner and the two boundary vertices either side of it. Anything else
@@ -214,9 +214,35 @@ export function boundaryGaps(arena: ArenaDef): Array<Array<{ x: number; y: numbe
 
 /**
  * Whether the painted markings' centre circle is drawn (CQ51). A zone sits at the centre of the one
- * arena that has one, and its ring is drawn separately in the capture colours; a second, unrelated
- * circle under it would read as part of the zone.
+ * arena that has one, and its outline is drawn separately in the capture colours; a circle under it
+ * would read as part of the zone.
  */
 export function markingsCircleVisible(arena: ArenaDef): boolean {
   return arena.zone === undefined;
+}
+
+/**
+ * The capture patch's outline (CT11) as world-space segments `[x1, y1, x2, y2]`, one per capture
+ * cell face whose neighbour is not a capture cell (the grid edge counts as not). Inner seams between
+ * capture cells are not drawn, so the merge into rects never shows.
+ */
+export function zoneOutlineSegments(grid: TileGrid): Array<[number, number, number, number]> {
+  const { cols, rows, cells } = grid;
+  const capture = (c: number, r: number): boolean =>
+    c >= 0 && r >= 0 && c < cols && r < rows && cells[r * cols + c]!.capture;
+  const out: Array<[number, number, number, number]> = [];
+  for (let r = 0; r < rows; r += 1) {
+    for (let c = 0; c < cols; c += 1) {
+      if (!capture(c, r)) continue;
+      const x0 = c * TILE_SIZE;
+      const y0 = r * TILE_SIZE;
+      const x1 = x0 + TILE_SIZE;
+      const y1 = y0 + TILE_SIZE;
+      if (!capture(c, r - 1)) out.push([x0, y0, x1, y0]);
+      if (!capture(c + 1, r)) out.push([x1, y0, x1, y1]);
+      if (!capture(c, r + 1)) out.push([x0, y1, x1, y1]);
+      if (!capture(c - 1, r)) out.push([x0, y0, x0, y1]);
+    }
+  }
+  return out;
 }

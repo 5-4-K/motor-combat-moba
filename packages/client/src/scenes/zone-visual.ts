@@ -1,7 +1,7 @@
 /**
- * How the capture zone's ring is tinted for one viewer (CQ52). Viewer-relative like the hp bars:
+ * How the capture zone's tint and outline are coloured for one viewer (CQ52, CT11). Viewer-relative like the hp bars:
  * the local player's own team holding it reads as "ally", the other team as "enemy". Contested or
- * unheld is "neutral": the ring shows no owner while either is true.
+ * unheld is "neutral": the zone shows no owner while either is true.
  */
 export type ZoneTint = "ally" | "enemy" | "neutral";
 

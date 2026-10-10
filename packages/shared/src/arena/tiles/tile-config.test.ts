@@ -25,6 +25,19 @@ describe("TILE_DEFS", () => {
     expect(authored, "tile surfaces are not wired into the sim yet").toEqual([]);
   });
 
+  it("ships a zone floor that captures (CT7)", () => {
+    const defs: Readonly<Record<string, TileDef>> = TILE_DEFS;
+    expect(defs.zone!.collision).toBe("none");
+    expect(defs.zone!.capture).toBe(true);
+    expect(defs.zone!.defaultArt).toBe("metal-floor-drawn");
+  });
+
+  it("only lets non-solid definitions capture (CT7)", () => {
+    for (const [id, def] of rows) {
+      if (def.capture === true) expect(def.collision, id).toBe("none");
+    }
+  });
+
   it("only uses the full shape (TA2)", () => {
     for (const [, def] of rows) expect(def.shape).toBe("full");
   });

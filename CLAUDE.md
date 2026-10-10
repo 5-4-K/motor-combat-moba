@@ -52,7 +52,9 @@ the match"), and a client `ModeHud`. See
   the kills-then-deaths ranking in `deathmatchOutcome`.
 - **Conquer** shares Deathmatch's respawn flow and reads `deathmatch()` for clock/respawn/phase
   windows, but wins when a team fills a control bar by holding `ArenaDef.zone` uncontested
-  (`conquer()`: `captureDelaySeconds`, `controlTargetSeconds`, `teamSize`, `uniqueChassisPerTeam`).
+  (`conquer()`: `captureDelaySeconds`, `controlTargetSeconds`, `teamSize`, `uniqueChassisPerTeam`,
+  `zoneEdgeInset`). The zone is its capture tiles (`zone.rects`); a car is present when its hull
+  reaches `zoneEdgeInset` into them (`zoneCoreOf`).
   See [`docs/superpowers/specs/2026-09-24-conquer-mode-design.md`](docs/superpowers/specs/2026-09-24-conquer-mode-design.md).
 - **`isOnField` vs `isSolid`.** `isOnField` is the mover gate (may this car be simulated);
   `isSolid` (`isOnField && !phased`) gates contacts, rams and weapon targeting. A phased car is the
@@ -224,10 +226,12 @@ status never stacks with itself, and a flag-carrying debuff is forced to `reappl
   `arena.common.tile.<id>` and is baked into render-texture chunks at load. Specs:
   [tile arenas](docs/superpowers/specs/2026-10-09-tile-arenas-design.md) (TA), superseded in part by
   [tile cells](docs/superpowers/specs/2026-10-09-tile-cells-design.md) (TC).
-- `arena-03` (Conquer) is a hand-written chamfered polygon using `ArenaDef.boundary` — inward
-  half-planes through `Bounds`, resolved by a positional clamp; `boundsOf(arena)` is the one place a
-  `Bounds` is built.
-- `width`/`height` mean the image frame (1600 × 880 for `arena-01`/`arena-02`, 1280 × 2160 for
+- `arena-03` (Conquer) is a tile arena too: 34 × 56 cells, 1360 × 2240, with a 76-cell `zone` patch
+  (the scoring zone is those cells, `zone.rects`), spike runs on the side walls only, and spawns at
+  y 120 / 2120. No shipped arena uses `ArenaDef.boundary` now; the machinery (inward
+  half-planes through `Bounds`, a positional clamp, `boundsOf(arena)` the one place a `Bounds` is
+  built) remains for hand-written arenas.
+- `width`/`height` mean the image frame (1600 × 880 for `arena-01`/`arena-02`, 1360 × 2240 for
   `arena-03`), not the playable area. Camera bounds are the arena rect, widened and centred on any
   axis where the view is larger (`cameraBoundsOf`, `packages/client/src/camera/bounds.ts`).
 - **Spikes** (`spike()`) are the only environmental damage: a flat hit gated on a fresh push into the

@@ -29,7 +29,7 @@ export function cameraBoundsOf(
  * The colour behind the world (BAR15, BAR19). The band outside the arena is its border colour when
  * the arena is a tile arena, or when `bounds` (from `cameraBoundsOf`) exceed the arena rect on
  * either axis, so the centred, uncovered margin reads as more wall. Otherwise nothing is uncovered
- * and the arena keeps its floor colour (Conquer's `arena-03` at zoom 1).
+ * and the arena keeps its floor colour (a hand-written arena at least as large as the view).
  */
 export function cameraBackgroundOf(arena: ArenaDef, colors: ArenaColors, bounds: Rect): number {
   const widened = bounds.w > arena.width + 1e-6 || bounds.h > arena.height + 1e-6;

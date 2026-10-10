@@ -346,8 +346,8 @@ export const DRIVE_CONFIG = {
  * textures drawn at 0.4 of their stored size. That is below the 0.5 the importer's `SUPERSAMPLE = 2`
  * was tuned for, so car and turret textures may shimmer as cars move: a known, accepted trade-off
  * pending the owner's in-browser art check (a re-bake at `SUPERSAMPLE` 1.6, or mipmaps, is the fix
- * if it shows). Conquer overrides it back to 1 (`arena-03` is 1280 × 2160, one screen wide at zoom
- * 1, scrolling vertically).
+ * if it shows). Conquer overrides it back to 1 (`arena-03` is 1360 × 2240, larger than the view on
+ * both axes at zoom 1, so the camera follows).
  *
  * `freeRoamSpeed` is how fast a spectator's free-look camera pans, in world units per **second**, so
  * the pan covers the same ground on a 60 Hz and a 144 Hz display. It is pitched a little above the

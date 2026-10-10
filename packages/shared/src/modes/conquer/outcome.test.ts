@@ -19,18 +19,46 @@ const run = (z: ZoneState, present: [number, number], n: number): ZoneState => {
   return s;
 };
 
-describe("zonePresence (CQ18)", () => {
-  const zone = { x: 0, y: 0, radius: 100 };
-  it("counts living roster cars whose CENTRE is inside, per team", () => {
-    expect(
-      zonePresence(zone, [
-        { x: 0, y: 100, team: 0, alive: true, inRoster: true }, // on the rim: in
-        { x: 0, y: 101, team: 0, alive: true, inRoster: true }, // just out
-        { x: 10, y: 0, team: 1, alive: true, inRoster: true },
-        { x: 0, y: 0, team: 1, alive: false, inRoster: true }, // dead: out
-        { x: 0, y: 0, team: 0, alive: true, inRoster: false }, // left the match: out
-      ]),
-    ).toStrictEqual([1, 1]);
+describe("zonePresence (CT8)", () => {
+  const core = [{ x: 0, y: 0, w: 200, h: 200 }];
+  /** A 60 x 40 hull (w along the heading), as `carHullOf` builds it. */
+  const car = (x: number, y: number, angle: number, team = 0, alive = true, inRoster = true) => ({
+    hull: { x, y, angle, w: 60, h: 40 },
+    team,
+    alive,
+    inRoster,
+  });
+  const count = (...cars: ReturnType<typeof car>[]) => zonePresence(core, cars);
+
+  it("a hull whose edge only touches the core does not count", () => {
+    expect(count(car(-30, 100, 0))).toStrictEqual([0, 0]);
+  });
+
+  it("a hull reaching 1 u into the core counts", () => {
+    expect(count(car(-29, 100, 0))).toStrictEqual([1, 0]);
+  });
+
+  it("a hull centred inside counts", () => {
+    expect(count(car(100, 100, 0, 1))).toStrictEqual([0, 1]);
+  });
+
+  it("reads the hull's angle: nose along +y spans y -50..10 and reaches in", () => {
+    expect(count(car(100, -20, Math.PI / 2))).toStrictEqual([1, 0]);
+  });
+
+  it("a 45-degree hull whose nearest corner stops 1 u short does not count", () => {
+    // The corner's furthest reach along +x from the centre is the half-diagonal projection.
+    const reach = (30 + 20) * Math.SQRT1_2;
+    expect(count(car(-reach - 1, 100, Math.PI / 4))).toStrictEqual([0, 0]);
+    expect(count(car(-reach + 1, 100, Math.PI / 4))).toStrictEqual([1, 0]);
+  });
+
+  it("dead and out-of-roster cars do not count", () => {
+    expect(count(car(100, 100, 0, 0, false), car(100, 100, 0, 1, true, false))).toStrictEqual([0, 0]);
+  });
+
+  it("counts per team", () => {
+    expect(count(car(50, 50, 0), car(150, 150, 0), car(100, 100, 1, 1))).toStrictEqual([2, 1]);
   });
 });
 

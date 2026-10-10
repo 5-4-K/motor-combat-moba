@@ -78,7 +78,7 @@ export function buildBotView(args: {
     // draws around whoever the camera follows. Anything outside it is off-screen for a human, so it
     // must be invisible to the bot too, or the bot would be measuring a fairness the game does not
     // actually offer a player on an arena this size. Conquer's `arena-03`
-    // (1280 × 2160) is the arena that takes this branch.
+    // (1360 × 2240) is the arena that takes this branch.
     const halfW = viewport.width / 2;
     const halfH = viewport.height / 2;
     const inViewport = (x: number, y: number): boolean =>

@@ -3,7 +3,7 @@
 // passes its own state straight in.
 import {
   conquerOutcome, stepZone, zonePresence,
-  type ArenaZone, type ZonePresenceCar, type ZoneState,
+  type Aabb, type ZonePresenceCar, type ZoneState,
 } from "@motor-combat-moba/shared";
 
 export interface ZoneFields {
@@ -43,15 +43,18 @@ export function resetZone(f: ZoneFields): void {
   f.overtime = false;
 }
 
-/** One Conquer tick: step the zone from the roster, write it, and say whether the match ended. */
+/**
+ * One Conquer tick: step the zone from the roster, write it, and say whether the match ended.
+ * `core` is the zone's counting core (`zoneCoreOf`, CT9), built by the caller.
+ */
 export function advanceConquer(
   f: ZoneFields & { tick: number; matchEndsTick: number },
-  zone: ArenaZone,
+  core: readonly Aabb[],
   cars: readonly ZonePresenceCar[],
   delayTicks: number,
   targetTicks: number,
 ): { ended: false } | { ended: true; winnerTeam: -1 | 0 | 1 } {
-  const next = stepZone(readZone(f), zonePresence(zone, cars), delayTicks, targetTicks);
+  const next = stepZone(readZone(f), zonePresence(core, cars), delayTicks, targetTicks);
   writeZone(f, next);
   const outcome = conquerOutcome(next, f.tick, f.matchEndsTick, f.overtime, delayTicks, targetTicks);
   if (outcome.ended) return outcome;

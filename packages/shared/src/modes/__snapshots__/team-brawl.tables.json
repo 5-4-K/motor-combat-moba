@@ -223,7 +223,8 @@
     "captureDelaySeconds": 5,
     "controlTargetSeconds": 60,
     "teamSize": 3,
-    "uniqueChassisPerTeam": true
+    "uniqueChassisPerTeam": true,
+    "zoneEdgeInset": 20
   },
   "deathmatch": {
     "matchSeconds": 180,

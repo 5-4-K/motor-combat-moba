@@ -86,6 +86,7 @@ turned into rules.
   - *fill tick*: a tick on which the holder is in control **and** its streak was already `≥ D`
     before this tick, i.e. the tick after the countdown finishes and every tick after that.
     Taking control happens on the tick the streak reaches `D`. Filling starts on the next tick.
+  **Superseded (2026-10-10):** see [Conquer on tiles](2026-10-10-conquer-tile-arena-design.md), CT8.
 - **CQ19** `stepZone(prev, presentA, presentB, D)` is a pure function in `flow/conquer.ts`:
   - only A present → `holder = 0`, `streak = prev.holder === 0 ? min(prev.streak + 1, D) : 1`.
     The streak **saturates at `D`**, so the room and the wire hold the same value
@@ -101,6 +102,7 @@ turned into rules.
   `zone?: { x, y, radius }` and `flipForTeamB?: boolean` (CQ46). A mode whose
   win rule is `"conquer"` may list only arenas that have a zone. `invariants.test.ts` enforces this.
   Arena-03's zone is `{ x: 640, y: 1080, radius: 150 }`.
+  **Superseded (2026-10-10):** see [Conquer on tiles](2026-10-10-conquer-tile-arena-design.md), CT7.
 
 ## 4. Rules — ending the match
 
@@ -190,6 +192,7 @@ turned into rules.
   the frame with 100 u chamfered corners, clockwise from the top-left:
   `(100,0) (1180,0) (1280,100) (1280,2060) (1180,2160) (100,2160) (0,2060) (0,100)`.
   It has no floor art, so it renders procedurally (CQ49–CQ51).
+  **Superseded (2026-10-10):** see [Conquer on tiles](2026-10-10-conquer-tile-arena-design.md), CT1, CT3.
 - **CQ38** Obstacles (top-left x, y, w, h). The layout is symmetric about both centre lines, so
   a 180° rotation maps it onto itself:
   - **B**, lane pillars `100 × 100`: (200,480) (980,480) (200,1580) (980,1580)
@@ -199,16 +202,21 @@ turned into rules.
     (0,760,20,640) (1260,760,20,640)
 
   A and E from draft 1 were removed by the user.
+  **Superseded (2026-10-10):** see [Conquer on tiles](2026-10-10-conquer-tile-arena-design.md), CT2, CT4, CT5.
 - **CQ39** Spawns, with angle 0 = +x and `+y` down:
   - `teamASpawns`: (460,2040) (640,2040) (820,2040), angle `−π/2` (facing up the map)
   - `teamBSpawns`: (460,120) (640,120) (820,120), angle `π/2`
   - `ffaSpawns`: those six, required by the type and by the ≥ 6 test, and unused by Conquer
+  **Superseded (2026-10-10):** see [Conquer on tiles](2026-10-10-conquer-tile-arena-design.md), CT10.
 - **CQ40** Palette `{ floor: "#2b2f35", obstacle: "#4b5362", border: "#1a1d22" }`. **Correction
   (2026-09-24, found in the browser check):** `palette.floor` is only the main camera's background
   colour, and on an arena without floor art the generated asphalt `TileSprite` covers the whole
   arena above it. So the visible floor is `ENVIRONMENT_FX.floor`'s texture seen through the global
   camera grade (`brightness 1.5`, warm tint), which reads sandy, the same as every art-less arena.
   `palette.floor` never shows. `obstacle` and `border` do apply.
+  **Note (2026-10-10):** the grade is now the identity (`warmR`/`warmB`/`brightness` all 1), so
+  arena-03's floor is the asphalt texture ungraded — darker and greyer than the sandy look above.
+  **Superseded (2026-10-10):** see [Conquer on tiles](2026-10-10-conquer-tile-arena-design.md), CT1.
 - **CQ41** Arena-03 appears in `activeArenaIds()` only once Conquer is published. BootScene
   therefore loads nothing new before that, and after that there is no art to load.
 - **CQ42** The spawn-to-zone distance (≈ 810 u) and the phase ceiling (3 s) together keep a
@@ -262,10 +270,12 @@ turned into rules.
   `drawableObstacles` drops every `kind` obstacle. With this change, art-less arenas draw each spike
   obstacle as a dark strip with a row of teeth pointing into the playable area, in
   `SPIKE_VISUAL`-style constants in `arena-visual.ts`. Arenas with floor art are unchanged.
+  **Superseded (2026-10-10):** see [Conquer on tiles](2026-10-10-conquer-tile-arena-design.md), CT4.
 - **CQ50** Procedural **chamfer corners**. An art-less arena with a `boundary` fills the region
   between the frame rect and the boundary polygon in the palette's border colour, and strokes the
   boundary itself. Today the rect border is drawn instead. For arena-03 that region is the four
   corner triangles. Arenas with floor art are unchanged.
+  **Superseded (2026-10-10):** see [Conquer on tiles](2026-10-10-conquer-tile-arena-design.md), CT3.
 - **CQ51** The **painted markings'** centre circle is skipped on an arena that has a `zone`, because
   the zone ring replaces it. The dashed centre line stays.
 - **CQ52** The **zone ring** is a world-space `Graphics` in `worldObjects`, drawn above the floor and
@@ -277,6 +287,7 @@ turned into rules.
   - **white** while contested or empty
 
   It is redrawn only when that colour changes.
+  **Superseded (2026-10-10):** see [Conquer on tiles](2026-10-10-conquer-tile-arena-design.md), CT11.
 - **CQ53** Health bars: `ArenaScene` passes `sidesOf(mode)` to `allegianceOf` instead of collapsing
   on `GameMode.TEAM` (CQ16). Teammates turn green, enemies red, and ram sparks stop firing between
   teammates.

@@ -356,7 +356,7 @@ export type {
 } from "./arena/tiles/tile-config.js";
 export { DEFAULT_LEGEND, effectiveLegend } from "./arena/tiles/legend.js";
 export type { TileCellSpec, TileLegend } from "./arena/tiles/legend.js";
-export { compileTileArena } from "./arena/tiles/compile.js";
+export { compileTileArena, captureRectsOf } from "./arena/tiles/compile.js";
 export type { TileArenaSource } from "./arena/tiles/compile.js";
 export { overlayArtIds, referencedTileArtIds } from "./arena/tiles/art-ids.js";
 export { ARENA_01 } from "./arena/arena-01.js";
@@ -367,6 +367,7 @@ export type { ArenaId } from "./arena/registry.js";
 export { ACTIVE_ARENA_ID } from "./config/arena-config.js";
 export { ARENA_ART_COMMON, ARENA_ART_PREFIX, arenaIdFromArtKey } from "./arena/art-keys.js";
 export { boundsOf, playableExtentOf, playablePlanesOf, playableRectOf } from "./arena/bounds.js";
+export { zoneCoreOf, zoneCentreOf } from "./arena/zone.js";
 export { planesOf, rectPlanes, supportRadius, planePenetration, type BoundaryPlane } from "./sim/boundary.js";
 
 export { normalizeName, validateName, isNameTaken } from "./lobby/names.js";
