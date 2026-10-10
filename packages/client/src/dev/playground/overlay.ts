@@ -535,13 +535,14 @@ function selectFor(
 
 /**
  * The bot read-out as one line (BB55): `situation | range N facing | slot K | hit BEST/BAR |
- * drive(steer,throttle)`. `slot -` means held fire, and `hit` against the bar is the whole
- * holds-fire diagnostic. Steer and throttle are signed so a held wheel reads at a glance.
+ * drive(steer,throttle)`. `slot K` is the pressed FIRE slot itself, so the abilities read 1/2/3
+ * (LMB/RMB/SPACE) and the basic attack (Q) 0; `slot -` means held fire, and `hit` against the bar is
+ * the whole holds-fire diagnostic. Steer and throttle are signed so a held wheel reads at a glance.
  */
 export function debugLine(p: BotDebugPayload): string {
   const signed = (n: number): string => (n > 0 ? `+${n}` : `${n}`);
   return `${p.situation} | range ${p.goalRange} ${p.goalFacing}` +
-    ` | slot ${p.firedSlot < 0 ? "-" : p.firedSlot + 1}` +
+    ` | slot ${p.firedSlot < 0 ? "-" : p.firedSlot}` +
     ` | hit ${p.bestHitChance.toFixed(2)}/${p.hitChanceBar.toFixed(2)}` +
     ` | drive(${signed(p.steer)},${signed(p.throttle)})`;
 }
