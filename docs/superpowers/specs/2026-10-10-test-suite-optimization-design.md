@@ -225,3 +225,71 @@ firing, a status gate). Calibration moves to the bot report; invariants stay gat
   back to back, and recorded in the final summary.
 - **TS40** Playtest probes changed by TS26–TS28 compile and run (`npm run playtest -- --scope=common`)
   and the summary names the probe and the new number, per the root `CLAUDE.md` playtest rule.
+
+## 11. Rulings made during implementation
+
+Decisions taken while executing the plan, where the spec was silent or contradicted itself. Each
+names what it costs if it was wrong.
+
+- **R1 — a fourth gating group, `net`.** TS5 put the 4-link × 20 s netsim sweep in `test:slow`, but
+  that sweep alone is ~98 s against §2's ≤ 30 s slow target. `NET_TESTS` (shared
+  `input-scheduler.envelope.test.ts`, server `netsim.sweep.test.ts`) and `npm run test:net` hold it.
+  *If wrong:* one more command to know about.
+- **R2 — `test:net` is not owed for `sim/` edits.** The 3 s netsim smoke in `npm test` (TS4) runs
+  the real sim through the net stack on every diff; the sweep is owed for net code, `net-config.ts`,
+  and the two room files it imports (`rooms/tick-pipeline.ts`, `rooms/snapshot-cadence.ts`).
+  *If wrong:* a sim change that only breaks netcode beyond 3 s goes uncaught until the next
+  net-path edit.
+- **R3 — the `npm test` target was missed, not chased.** 111 s against ≤ 90 s. What remains is the
+  serial shared build, typecheck and three vitest runs (~25 s each, mostly startup); closing it is
+  approach B (parallel projects), outside this change. *If wrong:* none — it is a measurement.
+- **R4 — test-only helpers compile into shared's `dist`.** `net/input-scheduler.fixture.ts` and
+  `test-support/source-walk.ts` are not exported from `index.ts`, so no bundle reaches them;
+  excluding them from the tsconfig would also drop them from typecheck. *If wrong:* two unused
+  files in `dist`.
+- **R5 — package scope also runs the shared source guards.** `no-raw-config-in-sim`,
+  `no-mode-branching` and `weapon-slots-readers` live in shared but scan server and client source,
+  so a server- or client-only diff owes `npm run test:guards` (added after the final review; TS15
+  did not anticipate it). *If wrong:* ~6 s per package-scoped run.
+- **R6 — no gating test asserts a seeded outcome, including a death.** The final fix wave briefly
+  added "someone dies" to the deathmatch clock test; it was removed because it re-pinned seed 1
+  (§5). No fast or slow test now asserts a respawn happens. *If wrong:* a respawn regression is
+  caught only by the deathmatch controller tests and the bot report.
+
+## 12. Open follow-ups
+
+Minor findings from the task and final reviews, judged safe to defer. None makes a gating test give
+a wrong answer.
+
+1. **Replay depth.** Deleting `runner.test.ts` "replays identically" (20 s matches) left the digest
+   test at 5 s per match: a desync appearing between 5 and 20 s in a pairing other than
+   `match.test.ts`'s 30 s one is no longer caught. Fix: raise the digest test's `matchSeconds` to 20
+   (~+13 s to `test:slow`).
+2. **Probe scenario 9 has no sub-tick phase sweep** (`playtest/common/collision.ts`). It runs one
+   placement, against the root `CLAUDE.md` contact-probe rule, and its longest lock sits one tick
+   under its bound. A scenario-shape change — the user's call.
+3. **Scenario 9 counts any `steeringLocked` status**, not only `reeling` — accurate while the victim
+   takes no stun.
+4. **`test:bench` is never owed by a shared change**, and full scope's `npm test` does not run it: a
+   shared sim change that slows the bot's decide cost surfaces at the next bot or FX edit.
+5. **Net or bench config edits also owe `test:slow`** (TS17's "every `vitest.*.ts`" applied
+   literally) — over-runs, harmless.
+6. **`playtest/bot/tiers.ts` catches per module, not per probe**: one crashing probe loses the
+   remaining tier rows.
+7. **Stale "14/33"** in a `playtest/bot/tiers.ts` comment (the report measured 14/35).
+8. **The bot report header names the default mode (Brawl)** while occupancy runs Deathmatch; the
+   subtitle explains it.
+9. **The group guard test is copied into three packages** (plan-mandated); the copies drifted once.
+10. **`step.test.ts`'s comment names Mirage** as the reference dasher — true while it is the worst
+    one.
+11. **`input-scheduler.test.ts`** has stray blank lines and an uncommented single-seed loop.
+12. **Root `CLAUDE.md`'s slow-tests bullet** is overlong and does not list `vitest.*.ts` as a slow
+    trigger, unlike `docs/testing.md`.
+13. **Housekeeping:** `export { createRunDirIn }` is misplaced in `playtest/common/reporter.ts`; the
+    source walker's mtime-and-size cache could return stale text after a same-size rewrite within
+    one mtime tick.
+14. **`rollPersonality` is still cited** in `docs/config-reference.md:529` and
+    `.claude/skills/ability-slot-count/SKILL.md:96` as the reason a change of `N` owes a
+    `BOT_BRAIN_VERSION` bump. The function was deleted in `515ca95`; `N` reaches the bot only through
+    the truncated kit, and balance's config fingerprint already hashes `slots`. Root `CLAUDE.md` is
+    corrected; these two are not.

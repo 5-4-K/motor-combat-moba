@@ -173,9 +173,10 @@ status never stacks with itself, and a flag-carrying debuff is forced to `reappl
 - **Ability slots.** `ABILITY_SLOTS` (`config/weapon-slots.ts`) seeds
   `WEAPON_SLOT_CONFIG.maxAbilitySlots` = `N` = **3**, legal 1..`ABILITY_SLOT_CEILING` (4).
   `maxFireSlots` (`N + 1`) and `basicAttackSlotIndex` (0) are derived. A kit longer than `N` is
-  truncated silently. Changing `N` changes `rollPersonality`'s RNG draw count, so it owes a
-  `BOT_BRAIN_VERSION` bump. Use the [`ability-slot-count`](.claude/skills/ability-slot-count/SKILL.md)
-  skill.
+  truncated silently. `N` reaches the bot only through that truncated kit (`slotsOf`/`fireSlotsOf`),
+  so it owes no `BOT_BRAIN_VERSION` bump; balance's config fingerprint hashes `slots`, so reports
+  across an `N` change are already refused as incomparable. Use the
+  [`ability-slot-count`](.claude/skills/ability-slot-count/SKILL.md) skill.
 - **Basic attack.** Every car has `CarDef.basicAttack`, a `WeaponId` beside the ability kit, always
   **fire slot 0**. `CarDef.weapons` and `slotsOf` mean the **ability** slots only; `fireSlotsOf`
   joins the two. `basicAttackIds()` is the only honest way to ask which rows are basic attacks (nine
