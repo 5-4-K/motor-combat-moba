@@ -54,7 +54,7 @@ test("MODE_FAMILY covers exactly the slugs in MODE_TABLE", () =>
     Object.keys(MODE_TABLE).map((mode) => modeSlug(Number(mode))).sort(),
   ));
 
-// The slow server tests (bot brain, `balance/match`, `balance/runner` — `vitest.slow-tests.ts`) are
+// The slow server tests (bot brain, `balance/match`, `balance/runner` — `vitest.groups.ts`) are
 // out of `npm test` and owed only when the diff touches what they exercise: a `sim/`, `rooms/`,
 // `modes/`, `bot/` or `balance/` folder in shared or server. Client code never reaches them.
 test("shared sim owes the slow tests", () => assert.equal(owesSlowTests(["packages/shared/src/sim/drive.ts"]), true));
@@ -64,7 +64,7 @@ test("a modes root file owes the slow tests", () => assert.equal(owesSlowTests([
 test("the bot owes the slow tests", () => assert.equal(owesSlowTests(["packages/server/src/bot/brain/solution.ts"]), true));
 test("the balance harness owes the slow tests", () => assert.equal(owesSlowTests(["packages/server/balance/match.ts"]), true));
 test("the slow-test list itself owes the slow tests", () =>
-  assert.equal(owesSlowTests(["packages/server/vitest.slow-tests.ts"]), true));
+  assert.equal(owesSlowTests(["packages/server/vitest.groups.ts"]), true));
 test("client modes do not owe the slow tests", () => assert.equal(owesSlowTests(["packages/client/src/modes/brawl/hud.ts"]), false));
 test("client sim-named folders do not owe the slow tests", () =>
   assert.equal(owesSlowTests(["packages/client/src/net/prediction.ts", "packages/client/src/sim/x.ts"]), false));

@@ -1,5 +1,7 @@
 import { configDefaults, defineConfig } from "vitest/config";
-import { SLOW_TESTS } from "./vitest.slow-tests";
+import { BENCH_TESTS, SLOW_TESTS } from "./vitest.groups";
 
-// The slow tests run separately, under `npm run test:slow` (see `vitest.slow-tests.ts`).
-export default defineConfig({ test: { environment: "node", exclude: [...configDefaults.exclude, ...SLOW_TESTS] } });
+// Slow and bench tests run separately (`npm run test:slow`, see `vitest.groups.ts`).
+export default defineConfig({
+  test: { environment: "node", exclude: [...configDefaults.exclude, ...SLOW_TESTS, ...BENCH_TESTS] },
+});

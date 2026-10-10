@@ -145,7 +145,7 @@ export function scopeOf(changedPaths) {
 }
 
 /**
- * What the SLOW server tests exercise (`packages/server/vitest.slow-tests.ts`: the bot brain,
+ * What the SLOW server tests exercise (`packages/server/vitest.groups.ts`: the bot brain,
  * `balance/match.test.ts`, `balance/runner.test.ts`) — a `sim/`, `rooms/`, `modes/` or `bot/`
  * folder anywhere under shared's or server's `src/`, the server's `balance/` harness, or the
  * slow-test configs themselves. Client code never runs in those matches, so it never owes them,
@@ -154,7 +154,7 @@ export function scopeOf(changedPaths) {
 const SLOW_TEST_PATTERNS = [
   /^packages\/(?:shared|server)\/src\/(?:[^/]+\/)*(?:sim|rooms|modes|bot)\//,
   /^packages\/server\/balance\//,
-  /^packages\/server\/vitest\.(?:slow-tests|slow\.config)\.ts$/,
+  /^packages\/server\/vitest\.(?:groups|slow\.config)\.ts$/,
 ];
 
 /** Whether a set of changed paths owes `npm run test:slow` — independent of the mode/full scope,

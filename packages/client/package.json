@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
+    "test:bench": "vitest run -c vitest.bench.config.ts",
     "test:common": "vitest run --passWithNoTests --exclude \"**/modes/*/**\"",
     "test:mode": "vitest run --passWithNoTests"
   },
