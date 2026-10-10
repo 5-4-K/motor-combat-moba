@@ -143,13 +143,8 @@ describe("runAll (B43)", () => {
   } as const;
 
   it("runs matches x pairs in duel", () => {
-    expect(runAll(config).totalMatches).toBe(16);
-  });
-
-  it("replays identically for a seed", () => {
-    const a = runAll(config);
-    const b = runAll(config);
-    expect(b.outcomes.map((o) => o.ticks)).toEqual(a.outcomes.map((o) => o.ticks));
+    // Counts matches only, so each one may be as short as the harness allows.
+    expect(runAll({ ...config, matchSeconds: 1 }).totalMatches).toBe(16);
   });
 
   it("produces an identical stats digest for the same seed twice (B43)", () => {
@@ -159,12 +154,15 @@ describe("runAll (B43)", () => {
     // config so the test stays fast: `duel` at `matches: 1` is 16 short matches, `matchSeconds: 5`
     // caps each one well under its safety-cap default.
     const small = { ...config, matchSeconds: 5 } as const;
-    const a = aggregate(runAll(small).outcomes);
-    const b = aggregate(runAll(small).outcomes);
-    const digestA = digest(a);
-    const digestB = digest(b);
+    const runA = runAll(small);
+    const runB = runAll(small);
+    const digestA = digest(aggregate(runA.outcomes));
+    const digestB = digest(aggregate(runB.outcomes));
     expect(digestA.length).toBeGreaterThan(0); // sanity: not vacuously comparing "{}"
     expect(digestB).toBe(digestA);
+    // The digest sees tick counts only as means (`pace.meanMatchSeconds`, and `matchups[].meanTicks`
+    // pooling both orders of a pair), so per-match tick counts are compared directly too.
+    expect(runB.outcomes.map((o) => o.ticks)).toEqual(runA.outcomes.map((o) => o.ticks));
   });
 
   it("gives each match its own derived seed, so two matches are not the same match", () => {

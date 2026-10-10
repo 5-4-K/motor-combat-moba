@@ -397,6 +397,21 @@ function competitionRank<T>(
 }
 
 /**
+ * The deathmatch placement rule on its own: `deathmatchOutcome`'s most kills, then fewest deaths,
+ * applied across the whole roster, ties sharing a place (`competitionRank`). Exported so the rule
+ * is unit-tested directly instead of through seeded matches.
+ */
+export function rankDeathmatch(
+  players: readonly { sessionId: string; kills: number; deaths: number }[],
+): Map<string, number> {
+  return competitionRank(
+    players,
+    (a, b) => b.kills - a.kills || a.deaths - b.deaths,
+    (player) => player.sessionId,
+  );
+}
+
+/**
  * Rank every seat, 1 first. Ties share a place (competition ranking, see `competitionRank`) rather
  * than being broken by `setup.seats` order — that order is chassis seating order (`ffaSeats` in
  * `runner.ts` groups by `activeCarIds()`), so breaking ties by it would silently turn "who is
@@ -420,13 +435,7 @@ function placementsFor(
   respawns: boolean,
   deathTick: ReadonlyMap<string, number>,
 ): Map<string, number> {
-  if (respawns) {
-    return competitionRank(
-      deathmatchPlayers(setup, state),
-      (a, b) => b.kills - a.kills || a.deaths - b.deaths,
-      (player) => player.sessionId,
-    );
-  }
+  if (respawns) return rankDeathmatch(deathmatchPlayers(setup, state));
 
   return competitionRank(
     setup.seats,
