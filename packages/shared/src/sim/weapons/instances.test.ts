@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { installMode } from "../../modes/active.js";
 import { applyOverrides } from "../../modes/overlay.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../../modes/registry.js";
+import { turretRestored } from "../../modes/test-setup.js";
 import { MS_PER_TICK, TICK_RATE_HZ } from "../../constants.js";
 import { TURRET_CONFIG } from "../../config/turret-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
@@ -23,7 +24,7 @@ import {
   type WeaponInstance,
 } from "./instances.js";
 
-beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+beforeEach(() => installMode(turretRestored(modeConfigOf(DEFAULT_GAME_MODE))));
 
 const DT = MS_PER_TICK / 1000;
 const BOUNDS = { width: 2000, height: 1200 };
@@ -294,7 +295,7 @@ describe("turret spawn (TR18-TR19)", () => {
   const TURRET_ROW = "basic-attack-mirage" as const;
 
   // The bearings below sit outside the shipped swing arc; an unrestricted one keeps these about spawn.
-  beforeEach(() => installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.maxSwingDeg": 360 })));
+  beforeEach(() => installMode(applyOverrides(turretRestored(modeConfigOf(DEFAULT_GAME_MODE)), { "turret.maxSwingDeg": 360 })));
 
   it("spawns along the bearing from the pivot, not from the nose", () => {
     const order = { weaponId: TURRET_ROW, slot: 1, finalVolley: true, pressId: "p", bearing: Math.PI / 2 };

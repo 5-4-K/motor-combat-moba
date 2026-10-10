@@ -4,8 +4,9 @@ import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
 import type { BotCarView, BotSelfView, BotSlotView } from "../types.js";
 import { chooseShot, isPressable, setupSlotIndex } from "./shooter.js";
 import type { FiringSolution } from "./solution.js";
+import { turretRestored } from "./turret-restored.fixture.js";
 
-beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+beforeEach(() => installMode(turretRestored(modeConfigOf(DEFAULT_GAME_MODE))));
 
 function kit(carId: CarId): BotSlotView[] {
   return fireSlotsOf(carId).map((weaponId) => ({ weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0, range: weaponDefOf(weaponId).range }));

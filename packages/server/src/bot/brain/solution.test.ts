@@ -18,8 +18,9 @@ import {
   AIM_QUADRATURE, constantVelocityPredictor, solve,
   marchTicksOf, turretTurnTicksOf, type PosePredictor, type SolverShooter,
 } from "./solution.js";
+import { turretRestored } from "./turret-restored.fixture.js";
 
-beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+beforeEach(() => installMode(turretRestored(modeConfigOf(DEFAULT_GAME_MODE))));
 
 /**
  * The default bundle with `roadblock`'s `turret` removed. The fixed-muzzle cases below test how the
@@ -29,7 +30,7 @@ beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
  * optional row field, so the row is otherwise exactly the shipped one.
  */
 function withFixedMuzzleRoadblock(): ModeConfig {
-  const base = modeConfigOf(DEFAULT_GAME_MODE);
+  const base = turretRestored(modeConfigOf(DEFAULT_GAME_MODE));
   const tables = structuredClone(base) as ModeTables & { weapons: Record<string, { turret?: unknown }> };
   delete tables.weapons.roadblock!.turret;
   return assembleModeConfig(base.id, tables);
@@ -37,7 +38,7 @@ function withFixedMuzzleRoadblock(): ModeConfig {
 // Also installed directly, synchronously, at module scope: fixture constants below (and
 // some describe bodies) read config during test COLLECTION, which happens once, before any
 // beforeEach hook ever fires.
-installMode(modeConfigOf(DEFAULT_GAME_MODE));
+installMode(turretRestored(modeConfigOf(DEFAULT_GAME_MODE)));
 
 const arena: BotArenaView = { width: 1280, height: 720, obstacles: [] };
 
@@ -329,7 +330,7 @@ describe("solve — turret (TR26)", () => {
   // the clamp.
   beforeEach(() =>
     installMode(
-      applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.visible": true, "turret.maxSwingDeg": 360 }),
+      applyOverrides(turretRestored(modeConfigOf(DEFAULT_GAME_MODE)), { "turret.visible": true, "turret.maxSwingDeg": 360 }),
     ),
   );
 
@@ -400,7 +401,7 @@ describe("solve — turret (TR26)", () => {
   });
 
   it("budgets no turn at all when the mode hides the turret (it snaps)", () => {
-    installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.visible": false }));
+    installMode(applyOverrides(turretRestored(modeConfigOf(DEFAULT_GAME_MODE)), { "turret.visible": false }));
     expect(turretTurnTicksOf({ ...shooter, turretAngle: 0 }, Math.PI / 2)).toBe(0);
   });
 

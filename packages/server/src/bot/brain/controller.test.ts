@@ -12,10 +12,11 @@ import { enemy as fixtureEnemy, view as fixtureView } from "./fixtures.js";
 import { searchWaypoint } from "./perception.js";
 import { bodyFromSelf, physicsPredictor, rollForward } from "./predict.js";
 import { solve } from "./solution.js";
+import { turretRestored } from "./turret-restored.fixture.js";
 
-beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+beforeEach(() => installMode(turretRestored(modeConfigOf(DEFAULT_GAME_MODE))));
 // Also installed at module scope: the helpers below read config while the suite is collected.
-installMode(modeConfigOf(DEFAULT_GAME_MODE));
+installMode(turretRestored(modeConfigOf(DEFAULT_GAME_MODE)));
 
 /**
  * The shared open-loop scene (`fixtures.ts`, also `tiers.test.ts`'s and the bench's) at rest: a hard

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { installMode, slots } from "../../modes/active.js";
 import { applyOverrides } from "../../modes/overlay.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../../modes/registry.js";
+import { turretRestored } from "../../modes/test-setup.js";
 import { TURRET_TICKS } from "../../config/turret-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import { beginFire, newFireState, releaseShots, tickRecharge, type FireState } from "./fire.js";
@@ -20,7 +21,7 @@ import {
  * whether a given shipped mode hides its turret is that mode's choice, not one these tests inherit.
  */
 function installTurretMode(visible: boolean): void {
-  installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.visible": visible, "turret.maxSwingDeg": 360 }));
+  installMode(applyOverrides(turretRestored(modeConfigOf(DEFAULT_GAME_MODE)), { "turret.visible": visible, "turret.maxSwingDeg": 360 }));
 }
 
 beforeEach(() => installTurretMode(true));

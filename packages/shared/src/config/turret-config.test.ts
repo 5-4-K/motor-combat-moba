@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { installMode, slots } from "../modes/active.js";
+import { installMode, withMode } from "../modes/active.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { GameMode, TICK_RATE_HZ } from "../constants.js";
-import { CAR_TABLE, activeCarIds, basicAttackIds, turretMountOf } from "./car-config.js";
+import { CAR_TABLE, activeCarIds, turretMountOf } from "./car-config.js";
 import { carHasTurretWeapon } from "../sim/weapons/turret.js";
 import { fireSlotsOf } from "./weapon-slots.js";
 import { TURRET_CONFIG, TURRET_TICKS, resolveTurretTicks } from "./turret-config.js";
@@ -27,27 +27,24 @@ describe("turret config (TR1-TR5)", () => {
     }
   });
 
-  it("ships the turret on the basic attacks plus the chosen turret-aimed abilities (TR4)", () => {
-    const turretIds = Object.values(WEAPON_TABLE).filter((d) => d.turret).map((d) => d.id).sort();
-    // The basic attacks all carry a turret (so they COULD be turret-aimed if ever switched on),
-    // plus the deliberately turret-aimed ability weapons: each active chassis's slot-1 weapon
-    // (`predator`/`magmablast`/`thumper`/`fury-horn`) and `roadblock`. `basicAttackIds()` reads
-    // `CAR_TABLE` rather than a naming convention. This row is where any OTHER weapon quietly
-    // gaining a turret would be caught.
-    const basics = [...basicAttackIds()];
-    const turretAbilities = ["predator", "magmablast", "thumper", "fury-horn", "roadblock"];
-    expect(turretIds).toEqual([...basics, ...turretAbilities].sort());
+  it("ships no turret on any weapon row, in the global table or any mode bundle (turret system off)", () => {
+    // The turret system is switched off in every mode: the machinery stays (and is tested on a
+    // turret-restored bundle, see `turretRestored`), but no shipped row carries `turret`, so every
+    // weapon fires from the fixed front muzzle. A row quietly regaining one is caught here.
+    expect(Object.values(WEAPON_TABLE).filter((d) => d.turret).map((d) => d.id)).toEqual([]);
+    for (const mode of [GameMode.FFA_LAST_STANDING, GameMode.TEAM, GameMode.FFA_DEATHMATCH, GameMode.CONQUER]) {
+      const carrying = Object.values(modeConfigOf(mode).weapons).filter((d) => d.turret).map((d) => d.id);
+      expect(carrying, GameMode[mode]).toEqual([]);
+    }
   });
 
-  it("gives every active chassis a live turret through a carried ability, basic attack off (TR53)", () => {
-    // The posture decoupled the turret from the basic attack: the basic attack is off in every mode,
-    // yet every active chassis still draws a turret, captures the pointer and shows the crosshair,
-    // because each carries at least one turret ability weapon (its slot-1 weapon, plus roadblock on
-    // Bastion). Asserted over the real roster — `carHasTurretWeapon` skips the disabled slot 0 and
-    // still finds a turret on an ability slot.
-    expect(slots().basicAttackEnabled).toBe(false);
-    for (const carId of activeCarIds()) {
-      expect(carHasTurretWeapon(fireSlotsOf(carId)), carId).toBe(true);
+  it("gives no active chassis a turret weapon in any mode (turret system off)", () => {
+    for (const mode of [GameMode.FFA_LAST_STANDING, GameMode.TEAM, GameMode.FFA_DEATHMATCH, GameMode.CONQUER]) {
+      withMode(modeConfigOf(mode), () => {
+        for (const carId of activeCarIds()) {
+          expect(carHasTurretWeapon(fireSlotsOf(carId)), `${GameMode[mode]} ${carId}`).toBe(false);
+        }
+      });
     }
   });
 

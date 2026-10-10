@@ -7,7 +7,7 @@ import { WEAPON_SLOT_CONFIG } from "../../config/weapon-slots.js";
 import type { WeaponId } from "../../config/weapon-types.js";
 import { msToTicks } from "../../config/weapon-ticks.js";
 import { installMode } from "../../modes/active.js";
-import { assembleModeConfig } from "../../modes/build.js";
+import { assembleTurretRestored } from "../../modes/test-setup.js";
 import { BRAWL_TABLES } from "../../modes/brawl/index.js";
 import { beginFire, cancelPending, newFireState, releaseShots, tickRecharge, type FireState } from "./fire.js";
 import { spawnInstances, type ShotOrder } from "./instances.js";
@@ -44,18 +44,18 @@ const ABILITY_1 = 0b010;
 function pinBasicAttackEnabled(): void {
   beforeEach(() => {
     installMode(
-      assembleModeConfig(DEFAULT_GAME_MODE, {
+      assembleTurretRestored(DEFAULT_GAME_MODE, {
         ...BRAWL_TABLES,
         slots: { ...BRAWL_TABLES.slots, basicAttackEnabled: true },
       }),
     );
   });
   afterEach(() => {
-    installMode(assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES));
+    installMode(assembleTurretRestored(DEFAULT_GAME_MODE, BRAWL_TABLES));
   });
 }
 
-beforeEach(() => installMode(assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES)));
+beforeEach(() => installMode(assembleTurretRestored(DEFAULT_GAME_MODE, BRAWL_TABLES)));
 
 /** Bullseye, as shipped since the 2026-09-02 loadout swap: slot 1 predator, slot 2 pepperbox, slot 3 lance. */
 const fresh = () => newFireState("bullseye", 1);
@@ -588,14 +588,14 @@ describe("the basic-attack toggle (slots().basicAttackEnabled)", () => {
   // (what this file's own top-level `beforeEach` installs before every test) afterward.
   function installBasicAttackEnabled(enabled: boolean): void {
     installMode(
-      assembleModeConfig(DEFAULT_GAME_MODE, {
+      assembleTurretRestored(DEFAULT_GAME_MODE, {
         ...BRAWL_TABLES,
         slots: { ...BRAWL_TABLES.slots, basicAttackEnabled: enabled },
       }),
     );
   }
   afterEach(() => {
-    installMode(assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES));
+    installMode(assembleTurretRestored(DEFAULT_GAME_MODE, BRAWL_TABLES));
   });
 
   it("drops a basic-attack-only press when disabled — the key does nothing", () => {
