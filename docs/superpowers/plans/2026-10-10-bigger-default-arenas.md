@@ -63,7 +63,29 @@
 
 ---
 
-### Task 2: Resize arena-01 and arena-02 to 40 × 22
+### Task 2: Zoom 0.8 in the base, Conquer pinned to 1, snapshots and comment drift
+
+**Files:**
+- Modify: `packages/shared/src/config/drive-config.ts` (`CAMERA_CONFIG.zoom`, its doc block ~341–345, `LOGICAL_CANVAS` doc ~430–446)
+- Modify: `packages/shared/src/modes/conquer/config.ts` (`camera.zoom: 1`)
+- Modify: `packages/shared/src/modes/__snapshots__/{brawl,deathmatch,team-brawl}.tables.json` (via scoped `-u`)
+- Modify (comments only): `packages/server/src/bot/view.ts` (~64–81, ~91, ~108–113), `packages/client/src/scenes/combat-visual.ts` (`BOLT_VISIBLE_TEAR` doc), `packages/client/src/scenes/ribbon-fill.ts` (`DISC_SEGMENTS_PER_UNIT` doc)
+
+**Interfaces:** Consumes Task 1's centring (old 1280 × 720 arenas now show centred with bands at 0.8 until Task 3 lands). Produces `camera().zoom === 0.8` for Brawl/Deathmatch/Team brawl, `1` for Conquer.
+
+- [ ] **Step 1: Make the edits** (BAR5, BAR6). Conquer comment: `arena-03` is 1280 × 2160, one screen wide at zoom 1, scrolling vertically. Comment-drift per BAR18: at 0.8 a world unit is 0.8 px, so the two client thresholds are now conservative — no value change.
+
+- [ ] **Step 2: Verify the snapshot moves are exactly the expected ones:** `npx vitest run packages/shared/src/modes/snapshots.test.ts` → FAIL on brawl, deathmatch, team-brawl only (`zoom: 1 → 0.8`); conquer PASSES. If conquer fails, stop: the override is wrong.
+
+- [ ] **Step 3: Accept the three:** `npx vitest run packages/shared/src/modes/snapshots.test.ts -u -t "mode (0|1|2) matches"` (0 brawl, 1 team-brawl, 2 deathmatch; 3 conquer must stay out) (scoped; never blanket). `git diff --stat` must show only those three JSON files moved, each by one line.
+
+- [ ] **Step 4: Verify:** `npm run build -w @motor-combat-moba/shared`; `npm run test:mode -- conquer`; `npx vitest run packages/server/src/bot/view.test.ts` PASS (viewport 1600 × 900; the 1280 × 720 arenas fit).
+
+- [ ] **Step 5: Commit** `feat(modes): default camera zoom 0.8; Conquer keeps 1 (BAR5–BAR7, BAR17, BAR18)`.
+
+---
+
+### Task 3: Resize arena-01 and arena-02 to 40 × 22
 
 **Files:**
 - Modify: `packages/shared/src/arena/arena-01.ts`, `packages/shared/src/arena/arena-02.ts`
@@ -71,7 +93,7 @@
 - Modify: `packages/server/src/bot/view.test.ts` (B17 block: corner positions 1240/680 → derived from the arena, e.g. `arena.width - 40`, `arena.height - 40`; test names drop "1280x720")
 
 **Interfaces:**
-- Consumes: nothing new. Produces: `ARENA_01`, `ARENA_02` with `width 1600`, `height 880`.
+- Consumes: Task 2's zoom 0.8. Produces: `ARENA_01`, `ARENA_02` with `width 1600`, `height 880`.
 
 - [ ] **Step 1: Update the tests first** with the spec's values:
   - grid: `40 x 22`, no polygon; floor `1520 x 800` at x 40..1560, y 40..840 inside a one-tile ring; mirror-symmetric (existing assertions, new numbers).
@@ -85,31 +107,9 @@
 
 - [ ] **Step 3: Implement** the grids per BAR8/BAR9/BAR12 (arena-01: new `EDGE`, `PLAIN`/`SPIKED` 38 interior cells, 22 rows with spike rows 4–5, 10–11, 16–17; arena-02: `EDGE`/`FLOOR_ROW` with 38 interior cells, 22 rows) and the spawn tables above. Rewrite header and spawn comments per BAR11/BAR13 (new floor rect, "sized so zoom 0.8 shows it whole", new clearance figures; drop "1280x720 is the client's logical canvas").
 
-- [ ] **Step 4: Verify:** `npm run build -w @motor-combat-moba/shared`; `npm run test:shared` PASS; `npx vitest run packages/server/src/bot/view.test.ts` PASS (note: at zoom 1 still, the 1600 × 880 arenas do NOT fit a 1280 × 720 viewport — if the B17 tests fail here, that is expected until Task 3; do the edits so they pass after Task 3 and say so in the commit).
+- [ ] **Step 4: Verify:** `npm run build -w @motor-combat-moba/shared`; `npm run test:shared` PASS; `npx vitest run packages/server/src/bot/view.test.ts` PASS (zoom is already 0.8 from Task 2, so the 1600 × 880 arenas fit the 1600 × 900 viewport).
 
 - [ ] **Step 5: Commit** `feat(arena): grow arena-01 and arena-02 to 40x22 tiles (BAR1, BAR8–BAR13)`.
-
----
-
-### Task 3: Zoom 0.8 in the base, Conquer pinned to 1, snapshots and comment drift
-
-**Files:**
-- Modify: `packages/shared/src/config/drive-config.ts` (`CAMERA_CONFIG.zoom`, its doc block ~341–345, `LOGICAL_CANVAS` doc ~430–446)
-- Modify: `packages/shared/src/modes/conquer/config.ts` (`camera.zoom: 1`)
-- Modify: `packages/shared/src/modes/__snapshots__/{brawl,deathmatch,team-brawl}.tables.json` (via scoped `-u`)
-- Modify (comments only): `packages/server/src/bot/view.ts` (~64–81, ~91, ~108–113), `packages/client/src/scenes/combat-visual.ts` (`BOLT_VISIBLE_TEAR` doc), `packages/client/src/scenes/ribbon-fill.ts` (`DISC_SEGMENTS_PER_UNIT` doc)
-
-**Interfaces:** Consumes Task 2's arenas. Produces `camera().zoom === 0.8` for Brawl/Deathmatch/Team brawl, `1` for Conquer.
-
-- [ ] **Step 1: Make the edits** (BAR5, BAR6). Conquer comment: `arena-03` is 1280 × 2160, one screen wide at zoom 1, scrolling vertically. Comment-drift per BAR18: at 0.8 a world unit is 0.8 px, so the two client thresholds are now conservative — no value change.
-
-- [ ] **Step 2: Verify the snapshot moves are exactly the expected ones:** `npx vitest run packages/shared/src/modes/snapshots.test.ts` → FAIL on brawl, deathmatch, team-brawl only (`zoom: 1 → 0.8`); conquer PASSES. If conquer fails, stop: the override is wrong.
-
-- [ ] **Step 3: Accept the three:** `npx vitest run packages/shared/src/modes/snapshots.test.ts -u -t "<brawl|deathmatch|team-brawl test names>"` (scoped; never blanket). `git diff --stat` must show only those three JSON files moved, each by one line.
-
-- [ ] **Step 4: Verify:** `npm run build -w @motor-combat-moba/shared`; `npm run test:mode -- conquer`; `npx vitest run packages/server/src/bot/view.test.ts` PASS (B17 fits again: viewport 1600 × 900).
-
-- [ ] **Step 5: Commit** `feat(modes): default camera zoom 0.8; Conquer keeps 1 (BAR5–BAR7, BAR17, BAR18)`.
 
 ---
 
