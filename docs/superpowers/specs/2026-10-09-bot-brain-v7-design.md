@@ -110,7 +110,7 @@ whole-brain determinism test (old P51) stays and is the guard.
 
 | # | Id | When | Fires? |
 |---|---|---|---|
-| 0 | `recover` | self dead, or carrying `phased`, `stunned`, `reeling` or `ramLock` | no |
+| 0 | `recover` | self dead, or carrying `phased`, `stunned`, `reeling` or `ramLock` | unless disarmed (BB41) |
 | 1 | `evade` | a reacted-to shot in flight (BB19), or an incoming car (BB20) | yes |
 | 2 | `unpin` | stuck: a corner, or `wallPush` at `minEngageUnits` reports a push (contact, every tier alike; BB33) | yes |
 | 3 | `waitOut` | no hittable target noticed | no |
@@ -129,8 +129,10 @@ a big gun" trigger and the ult concept with it.
 commit; `recover` and `waitOut` are left the moment their facts stop holding.
 
 **BB17 Self control lost** reads the bot's own status list, which its HUD shows. Any of the four
-statuses above forces `recover` and a coast, which is what a player under a stun or a ram lock
-does anyway, and it stops the ram situation re-entering during its own `ramLock`.
+statuses above forces `recover`, which coasts the drive: a player under them cannot drive either,
+and it stops the ram situation re-entering during its own `ramLock`. It does not take the trigger
+away by itself (7.1.0): `reeling` and `ramLock` immobilise and lock the wheel but do not disarm, so
+a player under them still fires, and so does the bot (BB41).
 
 **BB18 `hittable`** is a noticed car that is alive, not phased and on the other team. Dead and
 phased cars are never targets: no ghost chasing, no `deadRespect`.
@@ -321,7 +323,11 @@ other. No ult window, no discipline roll, no stickiness.
 **BB40 Turret bearing** on a press is the solution's `turretBearingRad` plus the realised aim
 offset, as in 6.x (TR25/TR26).
 
-**BB41 `mayFire`** is the situation table's column: `recover`, `waitOut` and `close` hold fire.
+**BB41 `mayFire`** is the situation table's column: `waitOut` and `close` hold fire. `recover` fires
+unless the bot is `selfDisarmed`: dead, `phased`, or under an own status whose row in the active
+bundle's `statusTable()` carries the `disarmed` flag (today only `stunned`). 7.0.0 held fire in
+`recover` outright, which silenced a rammed victim for its whole `reeling` and the rammer for its
+`ramLock` at exactly the punish moment (final review I1).
 
 ## 7. Ranges
 

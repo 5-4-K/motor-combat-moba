@@ -104,6 +104,33 @@ describe("HumanController v7", () => {
     expect(bot.debug()?.situation).toBe("fight");
   });
 
+  describe("recover coasts the drive but keeps the shooter unless disarmed (I1, BB17, BB41)", () => {
+    // The "fights" scene: a turret press at high hit chance, 20° off the nose, 250 u out.
+    const off = { x: 200 + Math.cos(0.35) * 250, y: 360 + Math.sin(0.35) * 250 };
+    const under = (statusId: "reeling" | "ramLock" | "stunned" | "phased") => {
+      const bot = new HumanController("hard");
+      const rng = makeRng(1);
+      const statuses = [{ statusId, startTick: 0, endsTick: 100_000, sourceSessionId: "them" }];
+      const self = { ...view(0).self, statuses };
+      const out: BotIntent[] = [];
+      for (let tick = 0; tick < 120; tick++) out.push(bot.decide(view(tick, { self, others: [{ ...enemy, ...off }], rng })));
+      expect(bot.debug()?.situation).toBe("recover");
+      for (const o of out) expect([o.steer, o.throttle]).toEqual([0, 0]);
+      return out.filter((o) => o.fireSlots !== 0);
+    };
+    it("presses a ready turret slot while reeling or ram-locked", () => {
+      for (const status of ["reeling", "ramLock"] as const) {
+        const presses = under(status);
+        expect(presses.length).toBeGreaterThan(0);
+        for (const p of presses) expect(p.aimAngle).toBeDefined();
+      }
+    });
+    it("presses nothing while stunned (disarmed) or phased", () => {
+      expect(under("stunned")).toEqual([]);
+      expect(under("phased")).toEqual([]);
+    });
+  });
+
   it("rams when the kit is dry inside ram range (BB21)", () => {
     const bot = new HumanController("hard");
     const rng = makeRng(1);

@@ -1,5 +1,5 @@
 import {
-  DEFAULT_GAME_MODE, TICK_RATE_HZ, forwardMaxSpeedOf, hasStatus, wrapAngle,
+  DEFAULT_GAME_MODE, TICK_RATE_HZ, forwardMaxSpeedOf, hasStatus, statusTable, wrapAngle,
   type BotDifficulty, type WeaponId,
 } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS, resolveBrainConstants, type BotProfile } from "../../config/bot-profiles.js";
@@ -24,12 +24,15 @@ import { chooseTarget } from "./target.js";
 const COAST: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
 const COAST_ACTION: DriveAction = { steer: 0, throttle: 0 };
 
-/** Situations in which a trigger may be pulled (BB41). */
+/**
+ * Situations in which a trigger may be pulled (BB41). `recover` is one: a car under `reeling` or
+ * `ramLock` cannot drive but can still fire, as a player can; `selfDisarmed` holds fire for the rest.
+ */
 const FIRING_SITUATIONS: ReadonlySet<SituationId> = new Set<SituationId>([
-  "evade", "unpin", "punish", "reset", "ram", "fight",
+  "recover", "evade", "unpin", "punish", "reset", "ram", "fight",
 ]);
 
-/** Own statuses that take the car out of the bot's hands (BB17). */
+/** Own statuses that take the DRIVE out of the bot's hands (BB17): `recover` coasts under any of them. */
 const CONTROL_LOST_STATUSES = ["phased", "stunned", "reeling", "ramLock"] as const;
 
 /** Stands in for the target when there is none, so the predictor's four draws still happen (BB14). */
@@ -141,6 +144,12 @@ export class HumanController implements BotController {
     // --- facts ---
     const selfControlLost = !self.alive
       || CONTROL_LOST_STATUSES.some((id) => hasStatus(self.statuses, id, tick));
+    // Fire is lost only to death, `phased`, or an own status whose row carries `disarmed` (today
+    // only `stunned`), read through the active bundle (BB17, BB41).
+    const table = statusTable();
+    const selfDisarmed = !self.alive
+      || hasStatus(self.statuses, "phased", tick)
+      || self.statuses.some((s) => s.endsTick > tick && (table[s.statusId]?.flags?.includes("disarmed") ?? false));
     // Two wall reads (BB32, BB33). The tier's look-ahead feeds the reactive layer, which steers along
     // a wall before the car reaches it. `pinned` is the STUCK test: a corner, or a push at
     // `minEngageUnits` (hull contact), the same for every tier, since walls hurt everyone equally.
@@ -226,12 +235,13 @@ export class HumanController implements BotController {
     this.lastAction = action;
 
     // --- fire ---
-    const mayFire = FIRING_SITUATIONS.has(sit) && target !== undefined;
+    const mayFire = FIRING_SITUATIONS.has(sit) && target !== undefined && !selfDisarmed;
     const slot = mayFire ? shot.slot : undefined;
     if (slot !== undefined) this.lastPressTick = tick;
     this.lastFiredSlot = slot;
 
-    if (sit === "recover") return COAST;
+    // `recover` has no goal, so `action` is the coast there: the drive coasts and the press, if any,
+    // is built exactly as in every other firing situation (I1).
     const intent: BotIntent = {
       steer: action.steer, throttle: action.throttle, fireSlots: slot === undefined ? 0 : 1 << slot,
     };
