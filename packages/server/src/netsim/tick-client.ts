@@ -629,9 +629,9 @@ export class TickClient {
 
   /**
    * The contact blend's anchor, built by the same shared `localAnchorOf` `ArenaScene.localAnchor`
-   * calls: the DRAWN local pose (`predictedPrev` blended toward `predicted` at the server clock's
-   * phase), the fractional tick it stands at, and none while the local car is a wreck. The one
-   * difference from the scene: the scene reads `performance.now()` at draw time, this reads the
+   * calls: the DRAWN local pose (`predictedPrev` blended toward `predicted` at the scheduler's
+   * draw-tick phase), the fractional tick it stands at, and none while the local car is a wreck. The
+   * one difference from the scene: the scene reads `performance.now()` at draw time, this reads the
    * frame's harness time — the harness has no gap between a frame's start and its draw.
    */
   private localAnchor(nowMs: number) {
@@ -640,7 +640,7 @@ export class TickClient {
       predictedPrev: this.predictedPrev,
       newestPredictedTick: this.prediction.newestPredictedTick,
       alive: this.lastById.get(this.id)?.alive === true,
-      serverTickNow: this.clock.ready ? this.clock.serverTick(this.local(nowMs)) : undefined,
+      drawTickNow: this.scheduler.drawTick(this.local(nowMs)),
     });
   }
 

@@ -398,7 +398,7 @@ describe("ShotView against the server's own combat loop", () => {
     const view = new ShotView(shotViewMaxTicks());
     view.update(born.id, T, shotFromWire(wireOf(born), T)!, openWorld());
     // Newest predicted tick T, drawn at the end of it (phase 1).
-    const anchor = localAnchorOf({ predicted: body(T), predictedPrev: body(T - 1), newestPredictedTick: T, alive: true, serverTickNow: undefined })!;
+    const anchor = localAnchorOf({ predicted: body(T), predictedPrev: body(T - 1), newestPredictedTick: T, alive: true, drawTickNow: undefined })!;
     const drawn = view.at(born.id, anchor.tick)!;
     // predator (bullseye slot 1) is turret-aimed, so it is born at the turret muzzle, not the nose
     // `muzzleOf` returns. The tick convention is that at the spawn tick the drawn shot sits exactly
@@ -406,7 +406,7 @@ describe("ShotView against the server's own combat loop", () => {
     expect(drawn.x).toBeCloseTo(born.x, 9);
     expect(drawn.y).toBeCloseTo(born.y, 9);
     // Mid-tick, the car is half way through tick T+1 and the shot half a step past its tick-T spot.
-    const mid = localAnchorOf({ predicted: body(T + 1), predictedPrev: body(T), newestPredictedTick: T + 1, alive: true, serverTickNow: T + 1.5 })!;
+    const mid = localAnchorOf({ predicted: body(T + 1), predictedPrev: body(T), newestPredictedTick: T + 1, alive: true, drawTickNow: T + 1.5 })!;
     const server1 = byTick.get(T + 1)!.get(born.id)!;
     expect(view.at(born.id, mid.tick)!.x).toBeCloseTo((born.x + server1.x) / 2, 9);
   });

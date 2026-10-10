@@ -38,6 +38,7 @@ function spyScheduler(): DueTicks & { slacks: Array<number | undefined> } {
       slacks.push(slack);
       return [];
     },
+    drawTick: () => undefined,
   };
 }
 
@@ -73,6 +74,7 @@ describe("InputClock (NR21 slack, once per snapshot)", () => {
         if (slack !== undefined) stds.push(std);
         return [];
       },
+      drawTick: () => undefined,
     }));
     clock.onSnapshot(2, 0.75);
     clock.due(0, 16);
@@ -92,7 +94,7 @@ describe("InputClock (NR21 slack, once per snapshot)", () => {
 });
 
 describe("localBlendAlpha (the local car's render blend)", () => {
-  it("is the server clock's own fraction through the tick, and 1 before the clock is ready", () => {
+  it("is the draw tick's own fraction through the tick, and 1 before there is one", () => {
     expect(localBlendAlpha(undefined)).toBe(1);
     expect(localBlendAlpha(Number.NaN)).toBe(1);
     expect(localBlendAlpha(41.25)).toBeCloseTo(0.25, 12);
@@ -127,10 +129,9 @@ describe("localBlendAlpha (the local car's render blend)", () => {
       const drawn = prev + (predicted - prev) * input.blendAlpha(now);
       expect(drawn).toBeGreaterThanOrEqual(drawnBefore - 1e-9);
       drawnBefore = drawn;
-      // Precondition: the lead really is fractional, and the pre-fix blend (serverTick + lead)
-      // would have drawn the car stepping backwards on this same schedule.
-      const lead = scheduler!.leadMs / MS_PER_TICK;
-      const st = input.clock.serverTick(now) + lead;
+      // Precondition: the lead really is fractional, and blending at the server clock's phase alone
+      // (the pre-2026-10-10 blend) would have drawn the car stepping backwards on this schedule.
+      const st = input.clock.serverTick(now);
       const old = prev + (predicted - prev) * (st - Math.floor(st));
       if (old < oldBefore - 1e-9) oldFormulaWentBack = true;
       oldBefore = old;

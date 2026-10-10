@@ -173,22 +173,23 @@ export interface LocalAnchor {
  * How far the drawn local car is through the current predicted tick, in [0, 1), for `blendPose`
  * between the previous and the newest predicted pose.
  *
- * The phase is the SERVER clock's alone, never `serverTick + lead`. `InputScheduler` emits a new
- * predicted tick when `floor(serverTick) + ceil(leadTicks)` steps, which at a steady lead is exactly
- * when `frac(serverTick)` wraps — so that fraction is the one that runs 0 → 1 between two predicted
- * ticks. Adding a fractional lead shifts the wrap to somewhere mid-tick, and a display faster than
- * the tick rate would then draw the car stepping backwards once per tick. 1 (draw the newest pose)
- * before the clock has its first pong.
+ * Its input is `InputScheduler.drawTick` — the server clock PLUS the lead — never the server clock
+ * alone. The scheduler's newest emitted tick is `floor(drawTick) + 1`, so `frac(drawTick)` is the
+ * fraction that runs 0 → 1 between two predicted ticks however the lead moves. Blending at the
+ * server clock's own fraction instead only lined up while the lead's whole-tick count held still;
+ * on a LAN the lead sits near a tick boundary, the count flipped every few hundred ms, and the local
+ * car jumped a tick forward and then stepped back one. 1 (draw the newest pose) before there is a
+ * draw tick.
  */
-export function localBlendAlpha(serverTickNow: number | undefined): number {
-  if (serverTickNow === undefined || !Number.isFinite(serverTickNow)) return 1;
-  return serverTickNow - Math.floor(serverTickNow);
+export function localBlendAlpha(drawTickNow: number | undefined): number {
+  if (drawTickNow === undefined || !Number.isFinite(drawTickNow)) return 1;
+  return drawTickNow - Math.floor(drawTickNow);
 }
 
 /**
  * The local car as the contact blend measures from it (NR34), built the one way `ArenaScene` and the
  * netsim tick client both use: the DRAWN local pose — `predictedPrev` blended toward `predicted` at
- * the server clock's phase (`localBlendAlpha`) — and the fractional tick that pose stands at,
+ * the draw tick's phase (`localBlendAlpha`) — and the fractional tick that pose stands at,
  * `newestPredictedTick − 1 + phase` (`predicted` is the end of the newest predicted tick,
  * `predictedPrev` the end of the one before). Undefined with nothing predicted, or while the local
  * car is a wreck or not on the field: those get no blend.
@@ -199,13 +200,13 @@ export function localAnchorOf(input: {
   newestPredictedTick: number | undefined;
   /** The local car is alive (and on the field). */
   alive: boolean;
-  /** The synced server clock now, undefined before it is ready. */
-  serverTickNow: number | undefined;
+  /** `InputScheduler.drawTick` now, undefined before it has one. */
+  drawTickNow: number | undefined;
 }): LocalAnchor | undefined {
   const { predicted, predictedPrev, newestPredictedTick: tick } = input;
   if (!input.alive || !predicted || tick === undefined) return undefined;
   if (!predictedPrev) return { pose: predicted, tick };
-  const phase = localBlendAlpha(input.serverTickNow);
+  const phase = localBlendAlpha(input.drawTickNow);
   return { pose: blendPose(predictedPrev, predicted, phase), tick: tick - 1 + phase };
 }
 

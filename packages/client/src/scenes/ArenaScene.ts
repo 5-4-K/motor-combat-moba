@@ -3372,9 +3372,9 @@ export class ArenaScene extends Phaser.Scene {
 
   /**
    * The local car between ticks. Prediction steps on the server's tick clock, frames come faster, so
-   * the drawn pose is the previous tick blended toward the newest by how far the SERVER clock
-   * estimate has got through its current tick — the phase new predicted ticks are produced on
-   * (`localBlendAlpha`). Render-only: `predicted` itself is what the next step reads.
+   * the drawn pose is the previous tick blended toward the newest by how far the scheduler's draw
+   * tick (server clock plus lead) has got through its current tick — the phase new predicted ticks
+   * are produced on (`localBlendAlpha`). Render-only: `predicted` itself is what the next step reads.
    */
   private localRenderPose(serverPose: SimBody): SimBody {
     if (!this.predicted) return serverPose;
@@ -3399,7 +3399,6 @@ export class ArenaScene extends Phaser.Scene {
   private localAnchor(): LocalAnchor | undefined {
     const room = this.room;
     if (!room) return undefined;
-    const clock = this.inputClock?.clock;
     // The shared builder the netsim client also uses (phase E review I3): the pose `localRenderPose`
     // draws, and the tick it stands at.
     return localAnchorOf({
@@ -3407,7 +3406,7 @@ export class ArenaScene extends Phaser.Scene {
       predictedPrev: this.predictedPrev,
       newestPredictedTick: this.prediction.newestPredictedTick,
       alive: room.state.players.get(this.drivenSid(room))?.alive === true,
-      serverTickNow: clock?.ready ? clock.serverTick(performance.now()) : undefined,
+      drawTickNow: this.inputClock?.drawTick(performance.now()),
     });
   }
 

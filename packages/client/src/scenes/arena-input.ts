@@ -3,6 +3,8 @@ import { ClockSync, InputScheduler, NET_CONFIG, localBlendAlpha, type TimePong }
 /** The one call of `InputScheduler` the scene makes; an interface so a test can spy on it. */
 export interface DueTicks {
   due(nowMs: number, frameMs: number, slackTicks: number | undefined, slackStdTicks?: number): number[];
+  /** `InputScheduler.drawTick`: the fractional tick the local car is drawn at. */
+  drawTick(nowMs: number): number | undefined;
 }
 
 /**
@@ -102,9 +104,14 @@ export class InputClock {
     this.freshSlack = undefined;
   }
 
+  /** The scheduler's `drawTick` at `nowMs`: the fractional tick the local car is drawn at. */
+  drawTick(nowMs: number): number | undefined {
+    return this.scheduler.drawTick(nowMs);
+  }
+
   /** `localBlendAlpha` at `nowMs`. */
   blendAlpha(nowMs: number): number {
-    return localBlendAlpha(this.clockSync.ready ? this.clockSync.serverTick(nowMs) : undefined);
+    return localBlendAlpha(this.drawTick(nowMs));
   }
 }
 

@@ -59,7 +59,11 @@ export class InputScheduler {
     const step = NET_CONFIG.maxDilation * frameMs;
     this.lead += Math.max(-step, Math.min(step, wanted - this.lead));
 
-    const target = Math.floor(this.clock.serverTick(nowMs)) + Math.ceil(this.lead / MS_PER_TICK);
+    // `floor(drawTick) + 1`, not `floor(serverTick) + ceil(lead)`: the two agree at a steady lead,
+    // but the latter steps by a whole tick whenever the slewing lead crosses a tick boundary, and the
+    // local car is drawn at `drawTick`'s phase (`localBlendAlpha`), so every such step drew it
+    // jumping forward or back a tick. `drawTick` moves continuously, so this never decreases.
+    const target = Math.floor(this.drawTick(nowMs)!) + 1;
     if (!this.started || target - this.lastTick > NET_CONFIG.clientMaxCatchUpTicks) {
       this.started = true;
       this.lastTick = target - 1;
@@ -68,5 +72,17 @@ export class InputScheduler {
     for (let t = this.lastTick + 1; t <= target; t++) out.push(t);
     if (target > this.lastTick) this.lastTick = target;
     return out;
+  }
+
+  /**
+   * The fractional tick the client is producing input for: the server clock plus the lead as of the
+   * last `due`. The newest tick `due` has emitted is `floor(drawTick) + 1`, so the local car drawn
+   * `frac(drawTick)` of the way from the previous predicted pose to the newest one stands at exactly
+   * `drawTick` — continuous in both the clock and the slewing lead. Undefined before the clock is
+   * ready or before the first `due`.
+   */
+  drawTick(nowMs: number): number | undefined {
+    if (!this.clock.ready || Number.isNaN(this.lead)) return undefined;
+    return this.clock.serverTick(nowMs) + this.lead / MS_PER_TICK;
   }
 }

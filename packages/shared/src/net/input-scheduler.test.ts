@@ -5,6 +5,7 @@ import { ClockSync } from "./clock-sync.js";
 import { InputScheduler, SLACK_QUANTISATION_STD_TICKS } from "./input-scheduler.js";
 import { pongFields, meanSlack, simulate, WARMUP_MS } from "./input-scheduler.fixture.js";
 import { LATE_SLACK_FLOOR_TICKS, newTickInputBuffer } from "./tick-input.js";
+import { localBlendAlpha } from "./tick-interpolation.js";
 
 function syncedClock(oneWay: number): ClockSync {
   const c = new ClockSync();
@@ -16,6 +17,45 @@ function syncedClock(oneWay: number): ClockSync {
 }
 
 describe("InputScheduler", () => {
+  it("draws the local car smoothly while the lead wobbles across a tick boundary", () => {
+    // A LAN: the lead (rtt/2 + the default 1.5-tick safety) sits on the 2-tick boundary and the RTT
+    // estimate nudges it 0.5 ms either side every 250 ms. The car moves 1 u per predicted tick and is
+    // drawn as `localRenderPose` draws it. Until 2026-10-10 the newest tick was
+    // `floor(serverTick) + ceil(lead)` while the blend ran on `frac(serverTick)`, so each flip of
+    // `ceil(lead)` drew a 1.3-tick jump forward and a 0.7-tick step back at 200 fps.
+    const boundaryRtt = 2 * (2 - NET_CONFIG.targetSlackTicks) * MS_PER_TICK;
+    let rtt = boundaryRtt;
+    const clock = { ready: true, rttMs: () => rtt, serverTick: (now: number) => now / MS_PER_TICK } as unknown as ClockSync;
+    const s = new InputScheduler(clock);
+    const frameMs = 5;
+    const frameTicks = frameMs / MS_PER_TICK;
+    let prev: number | undefined;
+    let predicted: number | undefined;
+    let before: number | undefined;
+    let flips = 0;
+    let lastCeil: number | undefined;
+    for (let now = 1000; now < 4000; now += frameMs) {
+      rtt = boundaryRtt + (Math.floor(now / 250) % 2 === 0 ? 1 : -1);
+      for (const t of s.due(now, frameMs, undefined)) {
+        prev = predicted;
+        predicted = t;
+      }
+      const ceilLead = Math.ceil(s.leadMs / MS_PER_TICK);
+      if (lastCeil !== undefined && ceilLead !== lastCeil) flips++;
+      lastCeil = ceilLead;
+      if (prev === undefined || predicted === undefined) continue;
+      expect(predicted).toBe(Math.floor(s.drawTick(now)!) + 1);
+      const drawn = prev + (predicted - prev) * localBlendAlpha(s.drawTick(now));
+      if (before !== undefined) {
+        expect(drawn - before).toBeGreaterThanOrEqual(-1e-9);
+        expect(drawn - before).toBeLessThanOrEqual(frameTicks * (1 + NET_CONFIG.maxDilation) + 1e-9);
+      }
+      before = drawn;
+    }
+    // Precondition: the lead really did cross the boundary, many times.
+    expect(flips).toBeGreaterThan(10);
+  });
+
   it("produces each tick exactly once, ahead of the server by about half an RTT", () => {
     const s = new InputScheduler(syncedClock(40));
     const seen: number[] = [];
