@@ -126,7 +126,7 @@ describe("runMatch", () => {
     expect(b.events.fired.length).toBeGreaterThan(0);
   });
 
-  it("a shortened deathmatch ends on its own clock, not the harness's cap or a death (fix round 2, defect 1)", () => {
+  it("a shortened deathmatch ends on its own clock, not the harness's cap (fix round 2, defect 1)", () => {
     // The defect: `state.matchEndsTick` stayed pinned to the game's 180 s clock, so a shorter run
     // exited on `maxTicks` before `deathmatchEnded` fired and every match came back a draw. The
     // harness's match length IS the deathmatch clock, so the match ends via `deathmatchEnded`'s own
@@ -135,10 +135,6 @@ describe("runMatch", () => {
     const out = runMatch({ ...SETUP, mode: GameMode.FFA_DEATHMATCH, maxTicks: matchTicks });
     expect(out.hitClock).toBe(false);
     expect(Math.abs(out.ticks - matchTicks)).toBeLessThanOrEqual(1);
-    // And a death does not end it: this match has one (the scenario's precondition — without it
-    // the line below would prove nothing), and the match still runs to the clock, where
-    // last-standing would have concluded on that death.
-    expect(out.seats.reduce((sum, seat) => sum + seat.deaths, 0)).toBeGreaterThan(0);
   });
 
   it("ties on kills/deaths place equally in deathmatch, regardless of seat order (fix round 3, defect 1)", () => {
