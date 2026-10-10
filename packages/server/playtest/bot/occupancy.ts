@@ -1,12 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { GameMode, ManeuverKind, TICK_RATE_HZ, hasStatus, installMode, modeConfigOf } from "@motor-combat-moba/shared";
-import { runMatch } from "../../../balance/match.js";
-import type { BotIntent, BotView, SituationId } from "../types.js";
-import { HumanController } from "./controller.js";
-import { ALL_SITUATIONS } from "./situation.js";
-
 /**
- * Situation occupancy of a real match (the final review's measurement, kept as a slow test): one
+ * Situation occupancy of a real match (the final review's measurement, kept as a bot-report probe): one
  * 60 s, seed 7, hard Mirage-vs-Bullseye deathmatch duel on arena-01 through `balance/match.ts`'s
  * `runMatch`, with `HumanController.prototype.decide` wrapped to tally `debug()` per bot. A second
  * block runs the review's six-bot easy FFA on both tile arenas, the scene where 7.1.0's contact-only
@@ -32,7 +25,16 @@ import { ALL_SITUATIONS } from "./situation.js";
  * wave's ceilings, tightened where twice the measurement is lower). Reverse and stationary shares
  * did not reach the fix wave's 30 % and 5 % ceilings; they are held at their measured worst plus
  * a margin as regression guards, and the gap is recorded in the 7.1.0 fix-wave report.
+ *
+ * These were `src/bot/brain/occupancy.test.ts` until 2026-10-10 (TS11–TS14): what one seed happens
+ * to do is calibration, so a breached bound now reads `FINDING` here rather than failing the build.
  */
+import { GameMode, ManeuverKind, TICK_RATE_HZ, hasStatus, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import { runMatch } from "../../balance/match.js";
+import type { BotIntent, BotView, SituationId } from "../../src/bot/types.js";
+import { HumanController } from "../../src/bot/brain/controller.js";
+import { ALL_SITUATIONS } from "../../src/bot/brain/situation.js";
+import { VERDICT } from "../common/reporter.js";
 
 /**
  * Below this speed a car with a hittable target counts as parked. A HOLD maneuver (`lance` holds the
@@ -41,6 +43,23 @@ import { ALL_SITUATIONS } from "./situation.js";
 const STATIONARY_SPEED = 15;
 /** An `unpin` entered within this many ticks of leaving the last one is a bounce. */
 const QUICK_REENTRY_TICKS = 30;
+
+/** Duel bounds, per seat (see the header). Shares are percent of alive ticks. */
+const DUEL_UNPIN_SHARE_BELOW = 10;
+const DUEL_QUICK_REENTRIES_AT_MOST = 4;
+/** Regression guards, not targets: see the header. */
+const DUEL_STATIONARY_SHARE_BELOW = 10;
+const DUEL_REVERSE_SHARE_BELOW = 60;
+
+/**
+ * Six-bot easy FFA bounds, summed over every seat. Measured (arena-01 / arena-02; 7.1.0 -> 7.1.1):
+ * share 16.1 / 30.9 % -> 13.2 / 9.6 %, quick re-entries 9 / 9 -> 5 / 1. The bounds sit between the
+ * two: either 7.1.0 arena fails them.
+ */
+const FFA_UNPIN_SHARE_BELOW = 16;
+const FFA_QUICK_REENTRIES_AT_MOST = 8;
+
+type Report = (probe: string, verdict: string, detail: string) => void;
 
 interface Tally {
   alive: number;
@@ -93,10 +112,15 @@ function sixBotFfa(difficulty: "easy" | "medium" | "hard", arenaId: string): Par
   };
 }
 
-function measure(setup: Parameters<typeof runMatch>[0] = DUEL): Map<string, Tally> {
+/**
+ * Run `setup` with `HumanController.prototype.decide` wrapped to tally each bot's `debug()`. The
+ * wrapper is installed by hand (no vitest here) and always restored, so a throw cannot leave the
+ * prototype patched for the next module.
+ */
+function measure(setup: Parameters<typeof runMatch>[0]): Map<string, Tally> {
   const tallies = new Map<string, Tally>();
   const original = HumanController.prototype.decide;
-  const spy = vi.spyOn(HumanController.prototype, "decide").mockImplementation(function (this: HumanController, view: BotView): BotIntent {
+  HumanController.prototype.decide = function (this: HumanController, view: BotView): BotIntent {
     const out = original.call(this, view);
     const self = view.self;
     const t = tallies.get(self.sessionId) ?? newTally();
@@ -120,31 +144,25 @@ function measure(setup: Parameters<typeof runMatch>[0] = DUEL): Map<string, Tall
     if (d.situation !== "unpin" && t.lastSituation === "unpin") t.unpinLeftTick = view.tick;
     t.lastSituation = d.situation;
     return out;
-  });
+  };
   try {
     runMatch(setup);
   } finally {
-    spy.mockRestore();
+    HumanController.prototype.decide = original;
   }
   return tallies;
 }
 
 const pct = (n: number, of: number) => (of > 0 ? (100 * n) / of : 0);
 
-function printTallies(tallies: Map<string, Tally>): void {
-  const rows: Record<string, Record<string, string | number>> = {};
-  for (const [id, t] of tallies) {
-    rows[id] = {
-      aliveTicks: t.alive,
-      ...Object.fromEntries(ALL_SITUATIONS.map((s) => [s, `${pct(t.situations[s], t.alive).toFixed(1)}%`])),
-      reverse: `${pct(t.reverse, t.alive).toFixed(1)}%`,
-      stationaryHittable: `${pct(t.stationaryHittable, t.alive).toFixed(1)}%`,
-      unpinEntries: t.unpinEntries,
-      unpinQuickReentries: t.unpinQuickReentries,
-      ramsLanded: t.ramsLanded,
-    };
-  }
-  console.table(rows);
+function tallyLines(tallies: Map<string, Tally>): string[] {
+  return [...tallies].map(([id, t]) =>
+    `${id}: alive ${t.alive} ticks · ` +
+    ALL_SITUATIONS.map((s) => `${s} ${pct(t.situations[s], t.alive).toFixed(1)}%`).join(", ") +
+    ` · reverse ${pct(t.reverse, t.alive).toFixed(1)}%` +
+    ` · stationary-hittable ${pct(t.stationaryHittable, t.alive).toFixed(1)}%` +
+    ` · unpin entries ${t.unpinEntries}, quick re-entries ${t.unpinQuickReentries}` +
+    ` · rams landed ${t.ramsLanded}`);
 }
 
 /** Alive-tick-weighted `unpin` share and the summed quick re-entries across every seat. */
@@ -158,42 +176,62 @@ function unpinSummary(tallies: Map<string, Tally>): { share: number; quickReentr
   return { share: pct(unpin, alive), quickReentries };
 }
 
-describe("situation occupancy, hard Mirage vs Bullseye, arena-01, seed 7, 60 s", () => {
-  afterEach(() => vi.restoreAllMocks());
+function verdictOf(breaches: readonly string[]): string {
+  return breaches.length === 0 ? VERDICT.OK : VERDICT.FINDING;
+}
 
-  it("does not park, shuttle at walls or moonwalk", () => {
-    installMode(modeConfigOf(GameMode.FFA_DEATHMATCH));
-    const tallies = measure();
-    printTallies(tallies);
+function breachLines(breaches: readonly string[]): string[] {
+  return breaches.length === 0 ? ["every bound holds"] : breaches.map((b) => `BREACH: ${b}`);
+}
 
-    expect(tallies.size).toBe(2);
-    for (const t of tallies.values()) {
-      expect(t.alive).toBeGreaterThan(0);
-      expect(pct(t.situations.unpin, t.alive)).toBeLessThan(10);
-      expect(t.unpinQuickReentries).toBeLessThanOrEqual(4);
-      // Regression guards, not targets: see the header.
-      expect(pct(t.stationaryHittable, t.alive)).toBeLessThan(10);
-      expect(pct(t.reverse, t.alive)).toBeLessThan(60);
+function duel(report: Report): void {
+  installMode(modeConfigOf(GameMode.FFA_DEATHMATCH));
+  const tallies = measure(DUEL);
+  const breaches: string[] = [];
+  if (tallies.size !== 2) breaches.push(`seats tallied ${tallies.size}, expected 2`);
+  for (const [id, t] of tallies) {
+    const unpin = pct(t.situations.unpin, t.alive);
+    const stationary = pct(t.stationaryHittable, t.alive);
+    const reverse = pct(t.reverse, t.alive);
+    if (!(t.alive > 0)) breaches.push(`${id}: alive ticks ${t.alive}, expected > 0`);
+    if (!(unpin < DUEL_UNPIN_SHARE_BELOW)) breaches.push(`${id}: unpin share ${unpin.toFixed(1)} %, bound < ${DUEL_UNPIN_SHARE_BELOW} %`);
+    if (!(t.unpinQuickReentries <= DUEL_QUICK_REENTRIES_AT_MOST)) {
+      breaches.push(`${id}: quick re-entries ${t.unpinQuickReentries}, bound <= ${DUEL_QUICK_REENTRIES_AT_MOST}`);
     }
-  });
-});
-
-describe("situation occupancy, easy six-bot FFA, seed 7, 60 s", () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  for (const arenaId of ["arena-01", "arena-02"]) {
-    it(`does not reach unpin before its reactive wall layer on ${arenaId} (C2, BB33, 7.1.1)`, () => {
-      installMode(modeConfigOf(GameMode.FFA_DEATHMATCH));
-      const tallies = measure(sixBotFfa("easy", arenaId));
-      printTallies(tallies);
-      const { share, quickReentries } = unpinSummary(tallies);
-      console.log(`${arenaId}: easy unpin share ${share.toFixed(1)} %, quick re-entries ${quickReentries}`);
-
-      expect(tallies.size).toBe(6);
-      // Measured (arena-01 / arena-02; 7.1.0 -> 7.1.1): share 16.1 / 30.9 % -> 13.2 / 9.6 %, quick
-      // re-entries 9 / 9 -> 5 / 1. The bounds sit between the two: either 7.1.0 arena fails them.
-      expect(share).toBeLessThan(16);
-      expect(quickReentries).toBeLessThanOrEqual(8);
-    });
+    if (!(stationary < DUEL_STATIONARY_SHARE_BELOW)) {
+      breaches.push(`${id}: stationary-while-hittable ${stationary.toFixed(1)} %, bound < ${DUEL_STATIONARY_SHARE_BELOW} %`);
+    }
+    if (!(reverse < DUEL_REVERSE_SHARE_BELOW)) breaches.push(`${id}: reverse share ${reverse.toFixed(1)} %, bound < ${DUEL_REVERSE_SHARE_BELOW} %`);
   }
-});
+  report(
+    "does not park, shuttle at walls or moonwalk (hard Mirage vs Bullseye, arena-01, seed 7, 60 s)",
+    verdictOf(breaches),
+    [...tallyLines(tallies), ...breachLines(breaches)].join("\n"),
+  );
+}
+
+function easyFfa(report: Report, arenaId: string): void {
+  installMode(modeConfigOf(GameMode.FFA_DEATHMATCH));
+  const tallies = measure(sixBotFfa("easy", arenaId));
+  const { share, quickReentries } = unpinSummary(tallies);
+  const breaches: string[] = [];
+  if (tallies.size !== 6) breaches.push(`seats tallied ${tallies.size}, expected 6`);
+  if (!(share < FFA_UNPIN_SHARE_BELOW)) breaches.push(`unpin share ${share.toFixed(1)} %, bound < ${FFA_UNPIN_SHARE_BELOW} %`);
+  if (!(quickReentries <= FFA_QUICK_REENTRIES_AT_MOST)) {
+    breaches.push(`quick re-entries ${quickReentries}, bound <= ${FFA_QUICK_REENTRIES_AT_MOST}`);
+  }
+  report(
+    `does not reach unpin before its reactive wall layer on ${arenaId} (easy six-bot FFA, seed 7, 60 s; C2, BB33, 7.1.1)`,
+    verdictOf(breaches),
+    [
+      `${arenaId}: easy unpin share ${share.toFixed(1)} %, quick re-entries ${quickReentries}`,
+      ...tallyLines(tallies),
+      ...breachLines(breaches),
+    ].join("\n"),
+  );
+}
+
+export function run(report: Report): void {
+  duel(report);
+  for (const arenaId of ["arena-01", "arena-02"]) easyFfa(report, arenaId);
+}

@@ -6,8 +6,8 @@
  * Test-only. Nothing under `src/index.ts` imports it, so it is never bundled into the server; it
  * lives beside the brain rather than inside a `.test.ts` because two suites need the same fixture
  * and a second hand-rolled copy is how two "identical" harnesses quietly drift apart.
- * `controller.test.ts` (aim-line quality, press willingness) and `tiers.test.ts` (the reported
- * symptoms and the tier ladder) are its two callers.
+ * `controller.test.ts` (aim-line quality, press willingness) and `playtest/bot/tiers.ts` (the
+ * reported symptoms and the tier ladder, `npm run bot:report`) are its two callers.
  *
  * THE `.fixture.ts` SUFFIX IS WHAT SAYS THAT AT THE IMPORT SITE (ruling R-K3, 2026-09-07). This is
  * the only non-shipped module under `packages/server/src/`, and the repo's convention for

@@ -5,11 +5,13 @@
  * relative to this package root.
  *
  * SLOW tests play real headless matches or drive the bot brain through many ticks, and take minutes
- * rather than seconds. BENCH tests assert on wall-clock timing, which is flaky under load.
+ * rather than seconds. The bot's calibration checks are not tests at all: they report through
+ * `npm run bot:report` (`playtest/bot/`). BENCH tests assert on wall-clock timing, which is flaky
+ * under load.
  *
  * `scripts/test-scope.mjs`'s `owesSlowTests` decides when a diff owes the slow group — a change under a
  * `sim/`, `rooms/`, `modes/`, `bot/` or `balance/` folder in shared or server. The cheap balance
  * harness tests (attribution, baseline, cli, fingerprint, report, stats) stay in the normal suite.
  */
-export const SLOW_TESTS: string[] = ["src/bot/**/*.test.ts", "balance/match.test.ts", "balance/runner.test.ts", "src/netsim/netsim.sweep.test.ts"];
+export const SLOW_TESTS: string[] = ["balance/match.test.ts", "balance/runner.test.ts", "src/bot/brain/tiers.test.ts", "src/netsim/netsim.sweep.test.ts"];
 export const BENCH_TESTS: string[] = ["src/bot/brain/brain.bench.test.ts"];

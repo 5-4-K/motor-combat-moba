@@ -1,5 +1,6 @@
 /**
- * The open-loop scene `tiers.test.ts`, `brain.bench.test.ts` and `controller.test.ts` share (the last
+ * The open-loop scene `tiers.test.ts`, `playtest/bot/tiers.ts`, `brain.bench.test.ts` and
+ * `controller.test.ts` share (the last
  * starts the car at rest): a Bullseye mid-arena with every fire slot ready, and a Mirage opponent on
  * its line. "Open loop" means nothing moves — the
  * caller hands the bot the same pose every tick — so a test controls the geometry exactly.

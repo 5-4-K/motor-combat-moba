@@ -25,6 +25,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 // One level up from `common/`, where this file lived before Task 14 moved it — the report folder's
 // location and naming are unchanged by that move, and `.gitignore` still names
 // `packages/server/playtest/reports/`.
+/** The root-parameterised folder maker, for a report that names its own suffix (`playtest/bot/run.ts`). */
+export { createRunDirIn };
+
 export const REPORTS_ROOT = path.join(HERE, "..", "reports");
 
 /**

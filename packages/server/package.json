@@ -15,7 +15,8 @@
     "test:mode": "vitest run",
     "playtest": "tsx playtest/run-all.ts",
     "playtest:lan": "tsx playtest/lan.ts",
-    "balance": "tsx balance/run.ts"
+    "balance": "tsx balance/run.ts",
+    "bot:report": "tsx playtest/bot/run.ts"
   },
   "dependencies": {
     "@colyseus/core": "^0.18.17",
