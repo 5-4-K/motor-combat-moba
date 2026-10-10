@@ -1558,11 +1558,11 @@ export class ArenaScene extends Phaser.Scene {
     // colour flooding the gutter the way it used to flood the whole canvas.
     cam.setViewport(0, 0, ARENA_VIEW_WIDTH, VIEW_HEIGHT);
     // Scene-scoped: the global game background stays dark for the lobby and results screens.
-    cam.setBackgroundColor(cameraBackgroundOf(arena, colors));
+    const bounds = this.cameraBoundsFor(arena);
+    cam.setBackgroundColor(cameraBackgroundOf(arena, colors, bounds));
     cam.setZoom(camera().zoom);
     // Stops the soft follow from panning past the arena edge into empty space, and centres an arena
     // smaller than the view (Phaser would otherwise pin it to the top-left corner).
-    const bounds = this.cameraBoundsFor(arena);
     cam.setBounds(bounds.x, bounds.y, bounds.w, bounds.h);
     this.cameraBounded = true;
     this.snapRotation = true;

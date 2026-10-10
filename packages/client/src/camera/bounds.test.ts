@@ -41,11 +41,19 @@ describe("cameraBoundsOf", () => {
 describe("cameraBackgroundOf", () => {
   it("paints the border colour behind a tile arena", () => {
     const colors = arenaColorsOf(ARENA_01);
-    expect(cameraBackgroundOf(ARENA_01, colors)).toBe(colors.border);
+    const bounds = cameraBoundsOf(ARENA_01, VIEW, 0.8);
+    expect(cameraBackgroundOf(ARENA_01, colors, bounds)).toBe(colors.border);
+  });
+
+  it("paints the border colour behind a non-tile arena smaller than the view", () => {
+    const colors = arenaColorsOf(ARENA_03);
+    const bounds = cameraBoundsOf(ARENA_03, VIEW, 0.8);
+    expect(cameraBackgroundOf(ARENA_03, colors, bounds)).toBe(colors.border);
   });
 
   it("keeps the floor colour behind a non-tile arena", () => {
     const colors = arenaColorsOf(ARENA_03);
-    expect(cameraBackgroundOf(ARENA_03, colors)).toBe(colors.floor);
+    const bounds = cameraBoundsOf(ARENA_03, VIEW, 1);
+    expect(cameraBackgroundOf(ARENA_03, colors, bounds)).toBe(colors.floor);
   });
 });

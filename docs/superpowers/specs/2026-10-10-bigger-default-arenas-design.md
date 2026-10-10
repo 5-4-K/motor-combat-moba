@@ -169,7 +169,8 @@ and the 60 × 40 hull is a stop-and-ask item).
 
 - BAR19 (author's call, not the owner's). The dev Playground runs the default (Brawl) bundle and
   accepts any arena, including `arena-03`. At zoom 0.8 there, `arena-03` shows with border-coloured
-  bands left and right (centred by BAR14) and the bot's viewport is 1600 × 900. Accepted as is: the
+  bands left and right (centred by BAR14; `cameraBackgroundOf` paints the border colour whenever the
+  camera bounds exceed the arena rect, not only for tile arenas) and the bot's viewport is 1600 × 900. Accepted as is: the
   Playground is dev-only and this is visibly correct, not misleading. No Playground-specific zoom.
 
 - Exact mechanism for BAR15's band, within its constraint.
