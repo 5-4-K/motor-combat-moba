@@ -117,6 +117,10 @@ test("shared net owes the net tests", () => assert.equal(owesNet(["packages/shar
 test("server net owes the net tests", () => assert.equal(owesNet(["packages/server/src/net/shot-comp.ts"]), true));
 test("server netsim owes the net tests", () => assert.equal(owesNet(["packages/server/src/netsim/run.ts"]), true));
 test("a net config owes the net tests", () => assert.equal(owesNet(["packages/server/vitest.net.config.ts"]), true));
+test("NET_CONFIG owes the net tests", () => assert.equal(owesNet(["packages/shared/src/config/net-config.ts"]), true));
+test("the tick pipeline owes the net tests", () => assert.equal(owesNet(["packages/server/src/rooms/tick-pipeline.ts"]), true));
+test("the snapshot cadence owes the net tests", () => assert.equal(owesNet(["packages/server/src/rooms/snapshot-cadence.ts"]), true));
+test("other rooms code does not owe the net tests", () => assert.equal(owesNet(["packages/server/src/rooms/ArenaRoom.ts"]), false));
 test("client net does not owe the net tests", () => assert.equal(owesNet(["packages/client/src/net/prediction.ts"]), false));
 test("net paths do not owe the slow tests", () =>
   assert.equal(owesSlowTests(["packages/shared/src/net/clock-sync.ts", "packages/server/src/netsim/run.ts"]), false));

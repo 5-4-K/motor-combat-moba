@@ -197,11 +197,15 @@ const SLOW_TEST_PATTERNS = [
 /**
  * What the NET group exercises (`vitest.groups.ts` NET_TESTS: shared's full input-scheduler grid
  * and server's full netsim link sweep, `npm run test:net`): shared's and server's `net/`, server's
- * `netsim/`, and the net configs and group lists.
+ * `netsim/`, `NET_CONFIG` (the grid asserts on its slack targets), the two room modules the sweep
+ * imports (`tick-pipeline.ts`, `snapshot-cadence.ts` — not the rest of `rooms/`), and the net
+ * configs and group lists.
  */
 const NET_PATTERNS = [
   /^packages\/(?:shared|server)\/src\/net\//,
   /^packages\/server\/src\/netsim\//,
+  /^packages\/shared\/src\/config\/net-config\.ts$/,
+  /^packages\/server\/src\/rooms\/(?:tick-pipeline|snapshot-cadence)\.ts$/,
   /^packages\/[^/]+\/vitest\.net\.config\.ts$/,
   /^packages\/(?:shared|server)\/vitest\.groups\.ts$/,
 ];
