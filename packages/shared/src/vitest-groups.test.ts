@@ -25,11 +25,10 @@ for (const [name, list] of [
   }
 }
 
-// A SLOW glob may sweep up a bench file (server's `src/bot/**`): the slow config excludes BENCH_TESTS,
-// so the bench group wins. An exact-path SLOW entry that is also a bench file is a real mistake.
+// No file may sit in both groups: the slow config would silently drop it (it excludes BENCH_TESTS).
 it("no file is named in both the slow and the bench group", () => {
   const bench = filesOf(BENCH_TESTS);
-  expect(SLOW_TESTS.filter((entry) => !isGlob(entry) && bench.has(entry))).toEqual([]);
+  expect([...filesOf(SLOW_TESTS)].filter((file) => bench.has(file))).toEqual([]);
 });
 
 // The net group stands alone: every config but `vitest.net.config.ts` excludes NET_TESTS, so a file

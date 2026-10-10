@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { installMode } from "../modes/active.js";
+import { cars, installMode, weapons } from "../modes/active.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { MS_PER_TICK, TICK_RATE_HZ } from "../constants.js";
 import { ramDefenceOf } from "../config/car-config.js";
-import { cars, weapons } from "../modes/active.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { RAM_CONFIG } from "../config/ram-config.js";
 import { obbCorners, obbsInContact, type Obb } from "./collide.js";
@@ -209,10 +208,6 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
     const pastFailures: string[] = [];
     let worstDepth = 0;
     let worstDepthLabel = "";
-    // Every swept dasher is one a player can produce, so the reachable tracker equals the full one.
-    const MIRAGE_RAM_DEFENCE = ramDefenceOf("mirage");
-    let worstReachableDepth = 0;
-    let worstReachableDepthLabel = "";
 
     for (const selfRamDefence of DASHER_RAM_DEFENCES) {
       for (const otherRamDefence of ROSTER_RAM_DEFENCES) {
@@ -258,10 +253,6 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
                 if (depth > worstDepth) {
                   worstDepth = depth;
                   worstDepthLabel = label;
-                }
-                if (selfRamDefence === MIRAGE_RAM_DEFENCE && depth > worstReachableDepth) {
-                  worstReachableDepth = depth;
-                  worstReachableDepthLabel = label;
                 }
 
                 // Stop where the real lifecycle stops. `endDash` lives in the server's `ram-bridge`,
@@ -309,11 +300,13 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
     const MAX_PENETRATION = 34;
     expect(worstDepth, `worst penetration at [${worstDepthLabel}]`).toBeLessThan(MAX_PENETRATION);
 
-    // Half 3 (reachable subset): the 34u bound above covers the resolver's full symmetric
-    // behaviour and is about 1.4x looser than what a player can ever see, so a regression that doubled Mirage's actual worst case would
-    // still pass it silently. Pin the Mirage-as-dasher subset separately, with headroom picked the
-    // same way `MAX_PENETRATION` was: enough to absorb measurement noise across the phase/angle
-    // sweep, not enough to hide a doubled residual.
+    // Half 3 (reachable): every swept dasher is a chassis a player can field (`DASHER_IDS` is derived
+    // from the kits), so `worstDepth` IS the reachable worst case and can never be measured over an
+    // empty set. The 34u bound above is now a redundant ceiling — about 1.84x the measured reachable
+    // worst, so a regression growing the dashers' worst case by up to ~80% would still pass it. This
+    // tighter bound (~1.28x) is the one that discriminates, with headroom picked the same way
+    // `MAX_PENETRATION` was: enough to absorb measurement noise across the phase/angle sweep, not
+    // enough to hide a doubled residual.
     //
     // UNLIKE the bastion/bullseye pairing above, this figure DOES move under stage 3 Task 3: mirage's
     // ramDefence-to-others ratio (50:30 and 50:90) is not quite the same as its old mass-to-others
@@ -321,7 +314,7 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
     // rating — differ), so mirage's own worst-case share shifts slightly. Re-measured directly from
     // this exact sweep (not hand-derived from the pre-Task-3 17.96u figure, and not pasted from a
     // one-off run either — re-run this test with the bound removed, or read
-    // `worstReachableDepthLabel`, if this ever needs re-deriving again): mirage (ramDefence 50)
+    // `worstDepthLabel`, if this ever needs re-deriving again): mirage (ramDefence 50)
     // dashing into bullseye (ramDefence 30), 180deg approach, 0deg target, phase 16 tick 4 —
     // 18.49229600694457u. Applying the full bound's own headroom ratio (34 / 26.640625, its worst
     // case) to that gives ~23.6u; a doubled residual (~37.0u) would still fail it comfortably, so it
@@ -335,10 +328,7 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
     // `MAX_REACHABLE_PENETRATION`'s headroom is unchanged.
     const MEASURED_WORST_REACHABLE = 18.49229600694457;
     const MAX_REACHABLE_PENETRATION = MEASURED_WORST_REACHABLE * (MAX_PENETRATION / 26.640625);
-    expect(
-      worstReachableDepth,
-      `worst reachable (Mirage-as-dasher) penetration at [${worstReachableDepthLabel}]`,
-    ).toBeLessThan(MAX_REACHABLE_PENETRATION);
+    expect(worstDepth, `worst reachable penetration at [${worstDepthLabel}]`).toBeLessThan(MAX_REACHABLE_PENETRATION);
   });
 
   it("leaves an uncontested dash covering exactly the ground it always did", () => {

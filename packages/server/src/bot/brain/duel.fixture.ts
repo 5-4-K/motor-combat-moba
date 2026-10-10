@@ -62,8 +62,8 @@ const ARENA = { width: 1280, height: 720, obstacles: [] as const };
  * settling. That is not "already rolling", it is "starting from an impossible state the sim
  * immediately corrects", and the correction's exact shape (how hard it brakes, how far it overshoots
  * `preferredRangeOf` before settling) is exactly the kind of transient a hit-rate measurement
- * shouldn't be sensitive to. It is: `tiers.test.ts` P50 ("hits far more often above the easy tier")
- * went red at this port's stage 5 Task 5 (the settled 1.5x speed/turn-rate raise) precisely because
+ * shouldn't be sensitive to. It is: the P50 tier check ("hits far more often above the easy tier",
+ * now a `npm run bot:report` check in `playtest/bot/tiers.ts`) went red at this port's stage 5 Task 5 (the settled 1.5x speed/turn-rate raise) precisely because
  * that raise widened the gap between the stale 300 and the chassis's real cap. Re-deriving the start
  * speed per chassis (`driveOf(chassis).maxSpeed`, applied where `chassis` is in scope below) fixes
  * P50 outright with no `BOT_PROFILES` change and no other suite moving — confirmed by re-running the

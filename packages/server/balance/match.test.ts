@@ -38,7 +38,7 @@ const SETUP = {
   arenaId: "arena-01",
   difficulty: "hard",
   seed: 1,
-  maxTicks: 30 * 60,
+  maxTicks: 30 * TICK_RATE_HZ,
 } as const;
 
 describe("rankDeathmatch", () => {
@@ -126,24 +126,19 @@ describe("runMatch", () => {
     expect(b.events.fired.length).toBeGreaterThan(0);
   });
 
-  it("respawns in deathmatch, so both cars can outlive their first death", () => {
-    const out = runMatch({ ...SETUP, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * 60 });
-    expect(out.seats.every((s) => s.deaths >= 0)).toBe(true);
-    // The harness's own match length IS the deathmatch clock (fix round 2, defect 1): the match
-    // runs its full 60 s and ends via `deathmatchEnded`'s own clock check, which is a NORMAL
-    // conclusion for a timed mode, not the harness's `maxTicks` safety valve — so `hitClock` reads
-    // false here, and a real winner/draw comes out of `deathmatchOutcome`'s kills-then-deaths rank.
-    expect(out.ticks).toBe(30 * 60);
-    expect(out.hitClock).toBe(false);
-  });
-
-  it("a shortened deathmatch ends on its own clock, not the harness's cap (fix round 2, defect 1)", () => {
+  it("a shortened deathmatch ends on its own clock, not the harness's cap or a death (fix round 2, defect 1)", () => {
     // The defect: `state.matchEndsTick` stayed pinned to the game's 180 s clock, so a shorter run
-    // exited on `maxTicks` before `deathmatchEnded` fired and every match came back a draw.
+    // exited on `maxTicks` before `deathmatchEnded` fired and every match came back a draw. The
+    // harness's match length IS the deathmatch clock, so the match ends via `deathmatchEnded`'s own
+    // clock check — a NORMAL conclusion for a timed mode, so `hitClock` reads false.
     const matchTicks = 30 * TICK_RATE_HZ;
     const out = runMatch({ ...SETUP, mode: GameMode.FFA_DEATHMATCH, maxTicks: matchTicks });
     expect(out.hitClock).toBe(false);
     expect(Math.abs(out.ticks - matchTicks)).toBeLessThanOrEqual(1);
+    // And a death does not end it: this match has one (the scenario's precondition — without it
+    // the line below would prove nothing), and the match still runs to the clock, where
+    // last-standing would have concluded on that death.
+    expect(out.seats.reduce((sum, seat) => sum + seat.deaths, 0)).toBeGreaterThan(0);
   });
 
   it("ties on kills/deaths place equally in deathmatch, regardless of seat order (fix round 3, defect 1)", () => {

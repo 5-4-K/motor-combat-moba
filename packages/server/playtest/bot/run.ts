@@ -5,7 +5,7 @@
  * These are calibration checks — what a particular seed or tier happens to do — moved out of the
  * test suite (TS11–TS14): a miss reads `FINDING` here and never fails a build. Invariants about the
  * bot (determinism, BB63) stay tests. Not part of `run-all.ts`: it is the bot's report, not a sim
- * probe, and it takes minutes.
+ * probe, and it takes about 20 s.
  *
  * Each scenario module runs inside its own `try/catch`, so one that throws becomes a `FINDING`
  * row and the others still report. The exit code is always 0.
