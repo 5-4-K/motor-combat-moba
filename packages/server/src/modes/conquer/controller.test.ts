@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   ArenaState,
+  ARENA_03,
   GameMode,
   PlayerState,
+  carHullOf,
   derived,
   getArena,
   modeConfigOf,
   withMode,
   zoneCentreOf,
+  zoneCoreOf,
+  zonePresence,
 } from "@motor-combat-moba/shared";
 import { CONQUER_CONTROLLER } from "./controller.js";
 import type { ModeRoomView } from "../types.js";
@@ -106,5 +110,31 @@ describe("CONQUER_CONTROLLER", () => {
       CONQUER_CONTROLLER.afterLeave(viewOf(built)),
     );
     expect(outcome).toStrictEqual({ winnerSessionId: "", winnerTeam: 0 });
+  });
+});
+
+describe("zone edge inset on the real map (CT8)", () => {
+  // Bottom row's bottom edge, y 1320, x 600..760 (away from steps); the car approaches from below.
+  const EDGE_Y = 1320;
+  const present = (x: number, y: number, angle: number): number => {
+    return withMode(modeConfigOf(GameMode.CONQUER), () => {
+      const core = zoneCoreOf(ARENA_03.zone!.rects, 20);
+      const hull = carHullOf(x, y, angle);
+      return zonePresence(core, [{ hull, team: 0, alive: true, inRoster: true }])[0];
+    });
+  };
+
+  it("a nose-first car counts at 21 u onto the metal edge, not at 19 u", () => {
+    // Heading up (-pi/2): the 60 u long axis is vertical, the nose is the hull's top edge.
+    const centreY = (depth: number): number => EDGE_Y - depth + 30;
+    expect(present(680, centreY(19), -Math.PI / 2)).toBe(0);
+    expect(present(680, centreY(21), -Math.PI / 2)).toBe(1);
+  });
+
+  it("a side-first car counts at 21 u onto the metal edge, not at 19 u", () => {
+    // Heading +x: the 40 u short axis is vertical, so the hull's side is the top edge.
+    const centreY = (depth: number): number => EDGE_Y - depth + 20;
+    expect(present(680, centreY(19), 0)).toBe(0);
+    expect(present(680, centreY(21), 0)).toBe(1);
   });
 });

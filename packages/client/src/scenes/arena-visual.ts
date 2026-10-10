@@ -165,8 +165,8 @@ export function spikeStrips(arena: ArenaDef): SpikeStrip[] {
 }
 
 /**
- * The regions between an art-less arena's frame and its boundary polygon (CQ50) — arena-03's four
- * chamfer corners, filled in the border colour so the cut corners read as wall rather than as floor.
+ * The regions between an art-less arena's frame and its boundary polygon (CQ50) — a hand-written
+ * polygon arena's cut corners, filled in the border colour so they read as wall rather than as floor.
  *
  * Deliberately narrow: only a boundary whose every vertex lies on the frame, where each gap is the
  * triangle between a frame corner and the two boundary vertices either side of it. Anything else

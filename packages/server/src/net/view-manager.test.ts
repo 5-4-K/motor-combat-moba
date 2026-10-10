@@ -340,9 +340,11 @@ describe("ViewManager — FFA with FOV on", () => {
   it("drops an enemy only when its centre AND every hull corner are blocked", () => {
     const r = room(config);
     r.car("a", 100, 560);
-    // The line to its centre crosses the pillar (at x 200 it is at y 573, above the pillar's 580
-    // bottom edge); the line to its rear-lower corner (370, 680) passes under it: in.
-    r.car("peek", 400, 660);
+    // Pillar x 240-320, y 520-600. Both cars face +x, so peek's hull spans x 370-430, y 620-660. The
+    // line from (100, 560) to its centre (400, 640) is at y 597 where it reaches x 240: inside the
+    // pillar, so the centre is blocked. The line to its rear-lower corner (370, 660) is at y 608 at
+    // x 240 and clears the pillar's bottom edge (600): that corner alone keeps it in.
+    r.car("peek", 400, 640);
     r.join("a");
     expect(r.vm.carsIn("a").has("peek")).toBe(true);
   });
