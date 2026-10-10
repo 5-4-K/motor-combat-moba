@@ -23,19 +23,24 @@ import { compileTileArena } from "./tiles/compile.js";
  *
  * The spawn tables are symmetric to the unit, because with no cover to duck behind, position is the
  * only advantage a spawn can confer.
+ *
+ * The floor is four keys over the same metal art: `.` as authored, `,` `:` `;` turned 90°, 180° and
+ * 270° clockwise. They were scattered at random once (2026-10-10) and committed, so the turns are
+ * plain data: every client draws the same floor, and editing a cell changes only that cell.
  */
 const WALL = "metal-wall-drawn";
 const EDGE = "####^^^^^^####^^^^####^^^^####^^^^^^####";
 const TOP = EDGE.replace(/#/g, "T").replace(/\^/g, "t");
 const BOTTOM = EDGE.replace(/#/g, "B").replace(/\^/g, "b");
-const PLAIN = "#" + ".".repeat(38) + "R";
-const SPIKED = "^" + ".".repeat(38) + "r";
 
 export const ARENA_01: ArenaDef = compileTileArena({
   id: "arena-01",
   displayName: "Arena 01",
   legend: {
-    ".": { tile: "floor", art: "metal-floor-drawn", artOrientation: "random" },
+    ".": { tile: "floor", art: "metal-floor-drawn" },
+    ",": { tile: "floor", art: "metal-floor-drawn", artOrientation: 90 },
+    ":": { tile: "floor", art: "metal-floor-drawn", artOrientation: 180 },
+    ";": { tile: "floor", art: "metal-floor-drawn", artOrientation: 270 },
     "#": { tile: "wall", art: WALL },
     "^": { tile: "spike", art: WALL },
     T: { tile: "wall", art: WALL, artOrientation: 90 },
@@ -46,27 +51,27 @@ export const ARENA_01: ArenaDef = compileTileArena({
     r: { tile: "spike", art: WALL, artOrientation: 180 },
   },
   rows: [
-    TOP, //     0
-    PLAIN, // 1
-    PLAIN, // 2
-    PLAIN, // 3
-    SPIKED, // 4
-    SPIKED, // 5
-    PLAIN, // 6
-    PLAIN, // 7
-    PLAIN, // 8
-    PLAIN, // 9
-    SPIKED, // 10
-    SPIKED, // 11
-    PLAIN, // 12
-    PLAIN, // 13
-    PLAIN, // 14
-    PLAIN, // 15
-    SPIKED, // 16
-    SPIKED, // 17
-    PLAIN, // 18
-    PLAIN, // 19
-    PLAIN, // 20
+    TOP, // 0
+    "#.,,..::.,.:;.;:,,:;;:;;;..;,;:;:.:;.;.R", // 1
+    "#,.,,:::.;;,.,;,.::,...,::.::.;,;;;...;R", // 2
+    "#,:;.,;;;...,:,;,;;::.,,.,;;.,..;,..;,;R", // 3
+    "^:,:,.:;;..::.,,;:,,:.;:::..;.:,:,:;...r", // 4
+    "^:.:,;,.;;.;.,::,:.,;::..:..::...,::;::r", // 5
+    "#;.;;.;::,..:,.:::;,;.,:.;;..:.;;,;;:,:R", // 6
+    "#,..;:.::..;,.,,;:,.:.;;.:;::,::;;,;:..R", // 7
+    "#;,;::,.;:;..;;.,:...,;,,:.:;:,.,;,;;:.R", // 8
+    "#:::;,;.,..:,;,;;,.::,;::,.,.:.:,:..,,,R", // 9
+    "^::.,.;:.,..,:;,::,,.:::.,.:;;,;,.,;.,;r", // 10
+    "^;,;;:...:,:,,:;;.;:,;:,,;:;.;,:.,,:,:,r", // 11
+    "#,::;.;,.,:,:,:;:.,,.:..,,,:..::;;,,::.R", // 12
+    "#:,,;;,;;;;;,,.;:..;:;.::...:.;.,.::;;.R", // 13
+    "#;::,.;.:;,,;;.;.:,...,:.;,.,.,.:;;.;:.R", // 14
+    "#;...,;:,,,,:,:::.,,,;:.;:;.;.,.:.:..,,R", // 15
+    "^,:..,:;,,;;.;..:::.,::,::;:;;:,;;,,;;;r", // 16
+    "^.;,,.,,.:;:.;::.;;;;;:.:,;::.:.:,.,..,r", // 17
+    "#.:.,,;:;,,:,,:,,.,:...:,.;..;..:::.:,;R", // 18
+    "#;.,,,:.,;,,::,:;:.:,,,;:,;.,;;.:,;..:.R", // 19
+    "#:,.,,:;::;,;,:,;,:::;,,,::,;:.:;:,.;,;R", // 20
     BOTTOM, // 21
   ],
   /** What the procedural fallback paints until tile art is imported, and the background beneath. */

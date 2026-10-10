@@ -219,7 +219,7 @@ status never stacks with itself, and a flag-carrying debuff is forced to `reappl
 - `arena-01` and `arena-02` are **tile arenas**: a 40 × 22 text grid compiled by `compileTileArena`
   (`packages/shared/src/arena/tiles/`) into ordinary `obstacles`, 1520 × 800 playable. Rows are
   one-character keys; a per-arena `legend` merged over `DEFAULT_LEGEND` (`.` floor, `#` wall, `^`
-  spike, space void) maps each key to a cell `{ tile, orientation?, art?, artOrientation?, overlay? }`; `artOrientation: "random"` turns each cell's art by a quarter turn hashed from the arena id and cell index (deterministic, so every client bakes the same floor) — arena-01/02's floors use it.
+  spike, space void) maps each key to a cell `{ tile, orientation?, art?, artOrientation?, overlay? }`; `artOrientation: "random"` turns each cell's art by a quarter turn hashed from the arena id and cell index (deterministic, so every client bakes the same floor). No shipped arena uses it: arena-01/02 write their floor turns as data, four floor keys (`.` `,` `:` `;` = 0/90/180/270°) scattered once, and a generator should write explicit turns too.
   `TILE_DEFS` is **behaviour only** (solidity, hazard, which `sides` hurt); the look is named on the
   cell. A one-sided spike compiles to an obstacle with `damageFaces`; the sim and the bot's
   `spikesAhead` skip its safe faces (`facesOfNormal`). Tile art lives under
