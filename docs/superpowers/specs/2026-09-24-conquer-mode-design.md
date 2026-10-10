@@ -209,6 +209,8 @@ turned into rules.
   arena above it. So the visible floor is `ENVIRONMENT_FX.floor`'s texture seen through the global
   camera grade (`brightness 1.5`, warm tint), which reads sandy, the same as every art-less arena.
   `palette.floor` never shows. `obstacle` and `border` do apply.
+  **Note (2026-10-10):** the grade is now the identity (`warmR`/`warmB`/`brightness` all 1), so
+  arena-03's floor is the asphalt texture ungraded — darker and greyer than the sandy look above.
 - **CQ41** Arena-03 appears in `activeArenaIds()` only once Conquer is published. BootScene
   therefore loads nothing new before that, and after that there is no art to load.
 - **CQ42** The spawn-to-zone distance (≈ 810 u) and the phase ceiling (3 s) together keep a
