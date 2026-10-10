@@ -500,29 +500,35 @@ describe("beamDrawLayers", () => {
    */
   it("never draws past the cone hitbox, at any vertex of any layer, at any moment of the flame", () => {
     const tanHalf = Math.tan(coneHalfAngle());
+    // One assertion over the whole sweep: expect() per vertex costs seconds across 300 frames.
+    const violations: string[] = [];
     for (const nowMs of FRAMES) {
-      for (const layer of beamDrawLayers("afterburner", 0, 0, 0, EXTENT, nowMs)) {
-        for (const point of layer.points) {
-          expect(point.x, `t=${nowMs}`).toBeGreaterThanOrEqual(-1e-9);
-          expect(point.x, `t=${nowMs}`).toBeLessThanOrEqual(EXTENT + 1e-9);
-          expect(Math.abs(point.y), `t=${nowMs}`).toBeLessThanOrEqual(tanHalf * point.x + 1e-9);
-        }
-      }
+      beamDrawLayers("afterburner", 0, 0, 0, EXTENT, nowMs).forEach((layer, i) => {
+        layer.points.forEach((point, j) => {
+          if (point.x < -1e-9 || point.x > EXTENT + 1e-9 || Math.abs(point.y) > tanHalf * point.x + 1e-9) {
+            violations.push(`t=${nowMs} layer=${i} point=${j} x=${point.x} y=${point.y}`);
+          }
+        });
+      });
     }
+    expect(violations).toEqual([]);
   });
 
   it("holds containment as the beam grows, not just at full extent", () => {
     const tanHalf = Math.tan(coneHalfAngle());
+    const violations: string[] = [];
     for (let grown = 1; grown <= EXTENT; grown += 7) {
       // A different phase at every length, so growth and flicker are exercised together rather than
       // the whole growth ramp being checked on one frozen frame of the flame.
-      for (const layer of beamDrawLayers("afterburner", 0, 0, 0, grown, grown * 13)) {
-        for (const point of layer.points) {
-          expect(Math.abs(point.y)).toBeLessThanOrEqual(tanHalf * point.x + 1e-9);
-          expect(point.x).toBeLessThanOrEqual(grown + 1e-9);
-        }
-      }
+      beamDrawLayers("afterburner", 0, 0, 0, grown, grown * 13).forEach((layer, i) => {
+        layer.points.forEach((point, j) => {
+          if (Math.abs(point.y) > tanHalf * point.x + 1e-9 || point.x > grown + 1e-9) {
+            violations.push(`t=${grown * 13} layer=${i} point=${j} x=${point.x} y=${point.y}`);
+          }
+        });
+      });
     }
+    expect(violations).toEqual([]);
   });
 
   it("is a lumpy ribbon, not a triangle", () => {
