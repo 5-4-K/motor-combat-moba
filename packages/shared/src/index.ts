@@ -181,11 +181,13 @@ export {
   muzzleOf,
   muzzleOffset,
   type OwnerPose,
+  projectileExpired,
   spawnInstances,
   stepInstance,
+  stepProjectileMotion,
   wallClipDistance,
 } from "./sim/weapons/instances.js";
-export type { ShotOrder, WeaponInstance } from "./sim/weapons/instances.js";
+export type { ProjectileMotion, ShotOrder, StepInstanceContext, WeaponInstance } from "./sim/weapons/instances.js";
 export { resolveInstanceHits } from "./sim/weapons/hits.js";
 export type { PoseEntry, PoseSnapshot } from "./sim/weapons/hits.js";
 export { beamShapeAt, projectileShapeAt, shapeHitsObb, smear } from "./sim/weapons/shapes.js";

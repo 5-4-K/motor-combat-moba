@@ -404,36 +404,13 @@ export function stepInstance(
   if (def.kind === "maneuver") throw new Error(`stepInstance: maneuver weapon ${def.id} has no instance`);
 
   if (instance.kind === "projectile") {
-    let angle = instance.angle;
-    const homing = def.kind === "projectile" ? def.homing : undefined;
-    if (
-      homing &&
-      instance.homingTargetId !== "" &&
-      ctx.homingTarget !== null &&
-      ctx.tick <= instance.homingUntilTick
-    ) {
-      // Bend toward the target's live position, capped at the turn rate — the counterplay is the
-      // turning circle, so the cap is the whole mechanic (spec: Homing).
-      const desired = Math.atan2(ctx.homingTarget.y - instance.y, ctx.homingTarget.x - instance.x);
-      let delta = desired - angle;
-      while (delta > Math.PI) delta -= Math.PI * 2;
-      while (delta <= -Math.PI) delta += Math.PI * 2;
-      const maxTurn = ((homing.turnRateDegPerSec * Math.PI) / 180) * ctx.dt;
-      angle += Math.max(-maxTurn, Math.min(maxTurn, delta));
-    }
-    const step = def.speed * ctx.dt;
-    let x = instance.x + Math.cos(angle) * step;
-    let y = instance.y + Math.sin(angle) * step;
-    if (def.kind === "projectile" && def.bounces) {
-      const bounced = bounceOffWorld(instance.x, instance.y, x, y, angle, ctx.obstacles, ctx.bounds);
-      x = bounced.x; y = bounced.y; angle = bounced.angle;
-    }
+    const moved = stepProjectileMotion(instance, ctx, def);
     return {
       ...instance,
-      x,
-      y,
-      angle,
-      distance: instance.distance + step,
+      x: moved.x,
+      y: moved.y,
+      angle: moved.angle,
+      distance: moved.distance,
       // Fresh copy, not the input's reference: a shallow spread would otherwise alias `damageClock`
       // between the pre- and post-step instance, so a later write through either object would be
       // visible through both. Same reasoning as `pruneCooldowns` in combat.ts, which never hands
@@ -458,6 +435,54 @@ export function stepInstance(
   };
 }
 
+/** The part of a projectile `stepInstance` moves: where it is, which way it points, how far it has flown. */
+export interface ProjectileMotion {
+  x: number;
+  y: number;
+  angle: number;
+  distance: number;
+}
+
+/**
+ * One tick of a projectile's flight — homing bend, straight step, bounce — as plain numbers, with
+ * none of the instance's bookkeeping. `stepInstance`'s projectile branch IS this function plus the
+ * copy of the rest of the instance, so a caller that only needs the motion (the bot's shot solver
+ * marches thousands of these per decision, and was paying a `Map` and a `Set` copy on every one)
+ * gets the same arithmetic, bit for bit, without the allocation. The homing clock is read off the
+ * instance's own fields, exactly as before.
+ */
+export function stepProjectileMotion(
+  instance: ProjectileMotion & { homingTargetId: string; homingUntilTick: number },
+  ctx: StepInstanceContext,
+  def: WeaponDef,
+): ProjectileMotion {
+  let angle = instance.angle;
+  const homing = def.kind === "projectile" ? def.homing : undefined;
+  if (
+    homing &&
+    instance.homingTargetId !== "" &&
+    ctx.homingTarget !== null &&
+    ctx.tick <= instance.homingUntilTick
+  ) {
+    // Bend toward the target's live position, capped at the turn rate — the counterplay is the
+    // turning circle, so the cap is the whole mechanic (spec: Homing).
+    const desired = Math.atan2(ctx.homingTarget.y - instance.y, ctx.homingTarget.x - instance.x);
+    let delta = desired - angle;
+    while (delta > Math.PI) delta -= Math.PI * 2;
+    while (delta <= -Math.PI) delta += Math.PI * 2;
+    const maxTurn = ((homing.turnRateDegPerSec * Math.PI) / 180) * ctx.dt;
+    angle += Math.max(-maxTurn, Math.min(maxTurn, delta));
+  }
+  const step = def.speed * ctx.dt;
+  let x = instance.x + Math.cos(angle) * step;
+  let y = instance.y + Math.sin(angle) * step;
+  if (def.kind === "projectile" && def.bounces) {
+    const bounced = bounceOffWorld(instance.x, instance.y, x, y, angle, ctx.obstacles, ctx.bounds);
+    x = bounced.x; y = bounced.y; angle = bounced.angle;
+  }
+  return { x, y, angle, distance: instance.distance + step };
+}
+
 /**
  * Has this instance finished? A projectile dies at its range; a beam dies once it has been at full
  * extension for its linger. Obstacle and bounds death for projectiles is handled by the caller,
@@ -468,15 +493,21 @@ export function instanceExpired(
   tick: number,
   def: WeaponDef = instanceDefOf(instance.weaponId, instance.isExplosion),
 ): boolean {
-  if (instance.kind === "projectile") {
-    if (instance.expiresAtTick > 0) return tick >= instance.expiresAtTick;
-    return instance.distance >= def.range;
-  }
+  if (instance.kind === "projectile") return projectileExpired(instance.distance, instance.expiresAtTick, tick, def);
   const ticks = weaponTicksOf(instance.weaponId);
   const life = instance.isExplosion
     ? ticks.explosion!.flight + ticks.explosion!.lifetime
     : ticks.flight + ticks.lifetime;
   return tick - instance.spawnTick + (instance.lifeOffsetTicks ?? 0) >= life;
+}
+
+/**
+ * `instanceExpired`'s projectile rule on bare numbers: the flight clock when the row authors one
+ * (`expiresAtTick > 0`), else the range. Shared with the solver's allocation-free march.
+ */
+export function projectileExpired(distance: number, expiresAtTick: number, tick: number, def: WeaponDef): boolean {
+  if (expiresAtTick > 0) return tick >= expiresAtTick;
+  return distance >= def.range;
 }
 
 /**

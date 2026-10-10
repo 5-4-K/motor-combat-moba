@@ -16,15 +16,16 @@ beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
  * the figure the user set on 2026-09-30. v7 has no planner; every bot calls `decide` once a tick, so
  * six bots are 6 x `TICK_RATE_HZ` decides per simulated second.
  *
- * ⚠ THE v7 BRAIN DOES NOT MEET IT, AND THIS FILE SAYS SO RATHER THAN HIDING IT. Measured 2026-10-10:
- * hard costs ~0.55-0.58 ms of CPU per `decide` averaged over consecutive ticks (~2.2 ms on each
- * recompute tick, ~1.4 us on the others), 5.3-5.6x this budget — six hard bots would spend ~200 ms of
- * CPU per simulated second. Almost all of it is `solve()`: one call costs ~1.47 ms for `pepperbox`
- * (every pellet of every quadrature node marched), ~0.53 ms for `lance`, ~0.10 ms for `predator`;
- * the predictor's 180-tick rollout is ~0.06 ms. That is a question about the solver, not a stopwatch,
- * and it is printed on every run. It is NOT asserted: BB64 makes the reference ratio the gate, and an
- * assertion on a budget the shipped brain misses five-fold would only teach the next reader to delete
- * it. Never move this constant to make a number look better.
+ * ⚠ THE v7 BRAIN AS MERGED DID NOT MEET IT, AND THIS FILE SAYS SO RATHER THAN HIDING IT. Measured
+ * 2026-10-10 at `a673df66`: hard cost ~0.55-0.58 ms of CPU per `decide` averaged over consecutive
+ * ticks (~2.2 ms on each recompute tick, ~1.4 us on the others), 5.3-5.6x this budget — six hard bots
+ * would spend ~200 ms of CPU per simulated second. Almost all of it was `solve()`: one call cost
+ * ~1.47 ms for `pepperbox` (every pellet of every quadrature node marched), ~0.53 ms for `lance`,
+ * ~0.10 ms for `predator`; the predictor's 180-tick rollout is ~0.06 ms. The solver cost pass later
+ * that day (see `MEASURED_RATIO`) brought the same scene to ~0.125 ms, 1.2x this budget, without
+ * moving a decision. It is still NOT asserted: BB64 makes the reference ratio the gate, and an
+ * assertion on a budget the brain only just misses would teach the next reader to delete it on a
+ * loaded box. Never move this constant to make a number look better.
  */
 const BUDGET_MS = 37 / (6 * TICK_RATE_HZ);
 
@@ -64,20 +65,30 @@ const REFERENCE_ROLLOUTS = 10_000;
  * 1561.1, 1478.3, 1633.7; LOADED (`... src/bot/ src/config/`, 19 files) x2 medians 1541.3, 1445.5.
  * The worst is 1633.7, recorded as 1634; the gate trips at ~2124.
  *
+ * RE-MEASURED 2026-10-10 after the solver cost pass (`solution.ts`: target track shared across
+ * pellets and nodes, allocation-free projectile stepping, whole-march skip for straight pellets
+ * that cannot reach the target's path, beam broad phase). Same machine, same scene, ALONE: median
+ * 332.6 (repeats [451.5 332.6 334.9 296.2 285.4]) against 1731.5 on the merge commit `a673df66`
+ * run minutes earlier — 5.2x fewer drive ticks per decide, every pinned solution unchanged
+ * (`solution.pins.test.ts`). Recorded as 500: above the worst single repeat, so the gate (~650)
+ * still trips on a real creep without hugging this box's own spread.
+ *
  * IF THIS EVER FLAKES ON A DIFFERENT MACHINE, raise THIS or `NORMALISED_MARGIN` and record the
  * reading that made you — never `BUDGET_MS`.
  */
-const MEASURED_RATIO = 1634;
+const MEASURED_RATIO = 500;
 
 /** 30% on top of the measured reading: trips on a real creep, clears this box's own spread. */
 const NORMALISED_MARGIN = 1.3;
 
 /**
  * The worst BEST-of-five absolute reading over the same runs, in ms of CPU per `decide`: 0.546-0.562
- * alone, 0.562-0.578 loaded. The backstop below is anchored here rather than on `BUDGET_MS`, which the
- * v7 brain misses five-fold (see its doc).
+ * alone, 0.562-0.578 loaded, on the v7 brain as merged. After the 2026-10-10 solver cost pass the
+ * same scene reads 0.125 best (median 0.141) alone, 1.2x `BUDGET_MS`; recorded as 0.16 so the
+ * backstop (3x, below) sits at 0.48 — still above the old brain's own reading, so a change that
+ * undid the whole pass would trip it.
  */
-const MEASURED_DECIDE_MS = 0.578;
+const MEASURED_DECIDE_MS = 0.16;
 
 /**
  * The absolute assertion, kept as a backstop at 3x the measured reading. Normalising has one blind

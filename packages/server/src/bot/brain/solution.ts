@@ -1,9 +1,9 @@
 import {
   TICK_RATE_HZ, beamOriginOf, beamReachOf, beamShapeAt, carHullOf, derived, forwardMaxSpeedOf,
-  instanceExpired, projectileShapeAt, shapeHitsObb, smear, spawnInstances, stepInstance,
-  clampBearingToSwing, clampToSwing, turret, turretPivotOf, turretTurnDelta, weaponDamageOf, weaponDefOf,
-  weaponTicksOf, wrapAngle, type CarId, type WeaponId,
-  type WeaponInstance, type WorldShape,
+  instanceExpired, projectileExpired, projectileShapeAt, shapeHitsObb, smear, spawnInstances,
+  stepProjectileMotion, clampBearingToSwing, clampToSwing, turret, turretPivotOf, turretTurnDelta,
+  weaponDamageOf, weaponDefOf, weaponTicksOf, wrapAngle, type CarId, type StepInstanceContext,
+  type WeaponDef, type WeaponId, type WeaponInstance, type WorldShape,
 } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSlotView } from "../types.js";
@@ -170,13 +170,18 @@ export function solve(args: SolveArgs): FiringSolution {
   // nothing.
   const nominal = lead ? lead.bearing : shooter.angle;
 
+  // The target's path and hull, read ONCE per solve: every pellet of every quadrature node marches
+  // against the same predicted poses, so sixty pepperbox marches used to rebuild the same 47 hulls
+  // sixty times over. A maneuver sweeps the car itself over its own tick count, so it has no track.
+  const track = def.kind === "maneuver" ? undefined : trackOf(marchArgs.targetAt, marchTicksOf(slot.weaponId));
+
   let hitChance = 0;
   let expectedDamage = 0;
   for (const node of AIM_QUADRATURE) {
     const aim = nominal + node.z * sigma;
     // A turret press moves the barrel, never the hull: the owner keeps its own heading and the
     // bearing rides on the order, exactly as `releaseShots` hands it to `spawnInstances`.
-    const landed = lead ? marchPress(marchArgs, shooter.angle, aim) : marchPress(marchArgs, aim);
+    const landed = lead ? marchPress(marchArgs, track, shooter.angle, aim) : marchPress(marchArgs, track, aim);
     if (landed.hits > 0) hitChance += node.weight;
     expectedDamage += node.weight * landed.damage;
   }
@@ -261,6 +266,7 @@ function turretLeadOf(
  */
 function marchPress(
   args: SolveArgs,
+  track: TargetTrack | undefined,
   heading: number,
   bearing?: number,
 ): { hits: number; damage: number } {
@@ -268,7 +274,7 @@ function marchPress(
   // spawns, and hands the whole `args` to `marchOne`, which is what actually walks the shot.
   const { shooter, slot, slotIndex, tick } = args;
   const def = weaponDefOf(slot.weaponId);
-  if (def.kind === "maneuver") return marchManeuver(args, heading, def);
+  if (def.kind === "maneuver" || track === undefined) return marchManeuver(args, heading, def);
 
   const spawned = spawnInstances(
     {
@@ -291,7 +297,9 @@ function marchPress(
   let hits = 0;
   let damage = 0;
   for (const spawnedInstance of spawned.instances) {
-    const landed = marchOne(spawnedInstance, args, heading);
+    const landed = def.kind === "beam"
+      ? marchBeam(spawnedInstance, args, track, heading, def)
+      : marchProjectile(spawnedInstance, args, track, heading, def);
     if (landed > 0) {
       hits += 1;
       damage += landed;
@@ -371,11 +379,47 @@ function obbShape(hull: ReturnType<typeof carHullOf>): WorldShape {
 }
 
 /**
- * March one instance to expiry, returning the damage it deals to the target.
+ * The target's predicted path over one march, read once per `solve` and shared by every pellet of
+ * every quadrature node (they all march against the same `targetAt`). `poses[ahead]` and
+ * `hulls[ahead]` are indexed by ticks ahead, 1..`ticks`; index 0 is a placeholder. The bounding
+ * circle (`cx`, `cy`, `radius`) holds every pose centre, so a march can ask "could this shot ever
+ * come near the target at all" before it walks a single tick.
+ */
+interface TargetTrack {
+  ticks: number;
+  poses: readonly { x: number; y: number; angle: number }[];
+  hulls: readonly ReturnType<typeof carHullOf>[];
+  cx: number;
+  cy: number;
+  radius: number;
+  /** Half the hull's diagonal: the circle about a pose that holds its hull. */
+  hullRadius: number;
+}
+
+function trackOf(targetAt: PosePredictor, ticks: number): TargetTrack {
+  const poses: { x: number; y: number; angle: number }[] = [{ x: 0, y: 0, angle: 0 }];
+  const hulls: ReturnType<typeof carHullOf>[] = [carHullOf(0, 0, 0)];
+  for (let ahead = 1; ahead <= ticks; ahead++) {
+    const pose = targetAt(ahead);
+    poses.push(pose);
+    hulls.push(carHullOf(pose.x, pose.y, pose.angle));
+  }
+  // Centred on the first pose, radius to the farthest: not the tightest circle, but a circle that
+  // holds every pose is all the bound needs.
+  const cx = poses[1]?.x ?? 0;
+  const cy = poses[1]?.y ?? 0;
+  let radius = 0;
+  for (let ahead = 1; ahead <= ticks; ahead++) {
+    radius = Math.max(radius, Math.hypot(poses[ahead]!.x - cx, poses[ahead]!.y - cy));
+  }
+  const probe = hulls[0]!;
+  return { ticks, poses, hulls, cx, cy, radius, hullRadius: Math.hypot(probe.w, probe.h) / 2 };
+}
+
+/**
+ * March one projectile to expiry, returning the damage it deals to the target.
  *
- * A projectile stops at its first contact. A ticking beam damages on the first tick it covers the
- * target, then once per `weaponTicksOf(id).damageInterval` — the same cadence `resolveInstanceHits`
- * applies in the real sim, so lance and afterburner are not under-counted to a single pulse.
+ * A projectile stops at its first contact.
  *
  * SPLASH (Task 6, P12, CONTROLLER RULING R3): a projectile carrying `def.explosion` (only
  * `magmablast` today) detonates on death for any reason — the real sim spawns the burst as a
@@ -387,18 +431,26 @@ function obbShape(hull: ReturnType<typeof carHullOf>): WorldShape {
  *       the target does NOT trigger the blast next to the target — it detonates 900 units away. The
  *       explosion is credited here only if the target's hull is actually within the blast radius of
  *       the point where the shell stopped, per `splashAt`.
+ *
+ * COST (2026-10-10, solver cost). The sim's `stepInstance` copies the whole instance, a `Map` and a
+ * `Set` every tick; this march keeps one mutable motion record and steps it through the same
+ * `stepProjectileMotion` the sim's branch calls, so the arithmetic is identical and the allocation
+ * is gone. Pellets and nodes share the target's hulls through `track`. And a STRAIGHT-flying shot
+ * (no bounce, no homing, no detonation) whose whole flight line stays farther from every predicted
+ * pose than the broad phase's reach is not walked at all: every per-tick broad test below would have
+ * said no, so the march would have returned 0. Three of pepperbox's four muzzles point away from
+ * the target on most presses, and that one check retires them.
  */
-function marchOne(start: WeaponInstance, args: SolveArgs, heading: number): number {
-  const { shooter, target, targetAt, tick, arena } = args;
-  const def = weaponDefOf(start.weaponId);
-  const interval = def.kind === "beam" ? weaponTicksOf(start.weaponId).damageInterval : Infinity;
+function marchProjectile(
+  start: WeaponInstance,
+  args: SolveArgs,
+  track: TargetTrack,
+  heading: number,
+  def: WeaponDef,
+): number {
+  if (def.kind !== "projectile") throw new Error(`marchProjectile: ${def.id} is not a projectile`);
+  const { shooter, target, tick, arena } = args;
   const dt = 1 / TICK_RATE_HZ;
-  let instance = start;
-  // `undefined` while a projectile is outside the broad phase below: its shape is only built when
-  // the narrow test is going to read it.
-  let previous: WorldShape | undefined = shapeOf(instance);
-  let damage = 0;
-  let lastHitTick = -Infinity;
 
   // NOT `boundsOf(arena)`: `arena` here is a `BotArenaView`, which carries no `boundary` field (it
   // is a constructed projection, never a handle on the arena def — see that type's doc). `boundsOf`
@@ -406,87 +458,188 @@ function marchOne(start: WeaponInstance, args: SolveArgs, heading: number): numb
   // `.planes` the view actually carries, and the solver marches every shot through a rectangle
   // while the real sim simulates the octagon. Build the `Bounds` from the view's own pre-built
   // planes instead.
-  const bounds = { width: arena.width, height: arena.height, planes: arena.planes };
-  const ownerPose = { x: shooter.x, y: shooter.y, angle: heading };
+  const ctx: StepInstanceContext = {
+    dt, tick,
+    obstacles: arena.obstacles,
+    bounds: { width: arena.width, height: arena.height, planes: arena.planes },
+    ownerPose: { x: shooter.x, y: shooter.y, angle: heading },
+    homingTarget: { x: target.x, y: target.y },
+  };
 
-  // A beam's fast path. The owner pose is frozen for the whole march, so `stepInstance`'s beam
-  // branch re-anchors to the same origin and re-runs the same wall clip every tick — that raycast
-  // alone was over a third of a balance run's CPU (2026-10-09 profile). Resolve both once and step
-  // only the extent, which is all the beam branch changes. Once the beam stops growing its swept
-  // shape is identical tick to tick, so it is reused rather than re-hulled. Same result, bit for bit.
-  const beamOrigin = def.kind === "beam" ? beamOriginOf(start, def, ownerPose) : undefined;
-  const beamReach = beamOrigin ? beamReachOf(def, beamOrigin, arena.obstacles, bounds) : 0;
-  let steadySwept: WorldShape | undefined;
-
-  // A projectile's broad phase. Its swept shape this tick lies inside the capsule of radius
+  // The broad phase. The shot's swept shape this tick lies inside the capsule of radius
   // `shotRadius` around the segment its centre moved along (both end shapes do, and the capsule is
   // convex), and the target's hull lies inside a circle of `hullRadius` around its pose. Capsule
   // and circle apart means the exact test would say no, so the hull and the SAT are skipped — for a
   // shot nowhere near the target, which is most ticks of most marches. Exact: it only ever skips a
   // test that would have returned false.
-  const shotRadius = def.kind === "beam" ? 0 : radiusAbout(previous!, start.x, start.y);
-  const hullProbe = carHullOf(0, 0, 0);
-  const hullRadius = Math.hypot(hullProbe.w, hullProbe.h) / 2;
-  const reachSq = (shotRadius + hullRadius + BROAD_PHASE_SLACK) ** 2;
+  const startShape = projectileShapeAt(def.hitbox, start.x, start.y, start.angle);
+  const shotRadius = radiusAbout(startShape, start.x, start.y);
+  const reach = shotRadius + track.hullRadius + BROAD_PHASE_SLACK;
+  const reachSq = reach ** 2;
 
-  const marchTicks = marchTicksOf(start.weaponId);
-  for (let ahead = 1; ahead <= marchTicks; ahead++) {
+  // The whole-march version of the same test, for a shot that flies a straight line: every per-tick
+  // segment lies on the line from the muzzle to `track.ticks` steps out (the march never walks
+  // further), and every pose lies in the track's circle. Line and circle further apart than `reach`
+  // means no tick's test can pass. A bouncing or homing shot bends, and a detonating shell credits
+  // `splashAt` where it stops, so those walk the full march as before.
+  const straight = !def.bounces && !def.explosion && !(def.homing && start.homingTargetId !== "");
+  if (straight) {
+    const length = def.speed * dt * track.ticks;
+    const tipX = start.x + Math.cos(start.angle) * length;
+    const tipY = start.y + Math.sin(start.angle) * length;
+    const clearance = track.radius + reach + STRAIGHT_FLIGHT_SLACK;
+    if (segmentPointDistSq(start.x, start.y, tipX, tipY, track.cx, track.cy) > clearance ** 2) return 0;
+  }
+
+  const motion = {
+    x: start.x, y: start.y, angle: start.angle, distance: start.distance,
+    homingTargetId: start.homingTargetId, homingUntilTick: start.homingUntilTick,
+  };
+  // `undefined` while the shot is outside the broad phase: its shape is only built when the narrow
+  // test is going to read it.
+  let previous: WorldShape | undefined = startShape;
+  for (let ahead = 1; ahead <= track.ticks; ahead++) {
     const now = tick + ahead;
-    const pose = targetAt(ahead);
-    const hull = carHullOf(pose.x, pose.y, pose.angle);
-    let connects: boolean;
-    if (beamOrigin) {
-      const extent = Math.min(beamReach, instance.extent + def.speed * dt);
-      const unchanged = ahead > 1 && extent === instance.extent;
-      instance = { ...instance, x: beamOrigin.x, y: beamOrigin.y, angle: beamOrigin.angle, extent };
-      let swept: WorldShape;
-      if (unchanged) {
-        swept = steadySwept ??= smear(previous!, previous!);
-      } else {
-        const current = shapeOf(instance);
-        swept = smear(previous!, current);
-        previous = current;
-      }
-      connects = shapeHitsObb(swept, hull);
-    } else {
-      const before = instance;
-      instance = stepInstance(instance, {
-        dt, tick: now,
-        obstacles: arena.obstacles,
-        bounds,
-        ownerPose,
-        homingTarget: { x: target.x, y: target.y },
-      });
-      if (segmentPointDistSq(before.x, before.y, instance.x, instance.y, pose.x, pose.y) <= reachSq) {
-        const current = shapeOf(instance);
-        connects = shapeHitsObb(smear(previous ?? shapeOf(before), current), hull);
-        previous = current;
-      } else {
-        connects = false;
-        previous = undefined;
-      }
-    }
-    if (connects) {
-      if (!Number.isFinite(interval)) {
+    const pose = track.poses[ahead]!;
+    const beforeX = motion.x;
+    const beforeY = motion.y;
+    const beforeAngle = motion.angle;
+    ctx.tick = now;
+    const moved = stepProjectileMotion(motion, ctx, def);
+    motion.x = moved.x; motion.y = moved.y; motion.angle = moved.angle; motion.distance = moved.distance;
+
+    if (segmentPointDistSq(beforeX, beforeY, motion.x, motion.y, pose.x, pose.y) <= reachSq) {
+      const current = projectileShapeAt(def.hitbox, motion.x, motion.y, motion.angle);
+      const before = previous ?? projectileShapeAt(def.hitbox, beforeX, beforeY, beforeAngle);
+      if (shapeHitsObb(smear(before, current), track.hulls[ahead]!)) {
         // (a) Direct hit: the target is inside the blast by construction, no position check needed.
-        const explosionOnHit = def.kind === "projectile" && def.explosion ? def.explosion.damage : 0;
-        return damage + instance.damage + explosionOnHit;
+        return start.damage + (def.explosion ? def.explosion.damage : 0);
       }
-      if (now - lastHitTick >= interval) {
-        damage += instance.damage;
-        lastHitTick = now;
+      previous = current;
+    } else {
+      previous = undefined;
+    }
+    if (projectileExpired(motion.distance, start.expiresAtTick, now, def)) {
+      return splashAt(motion.x, motion.y, pose, def); // (b) natural expiry, position-gated.
+    }
+  }
+  return 0;
+}
+
+/**
+ * March one beam to expiry, returning the damage it deals to the target.
+ *
+ * A ticking beam damages on the first tick it covers the target, then once per
+ * `weaponTicksOf(id).damageInterval` — the same cadence `resolveInstanceHits` applies in the real
+ * sim, so lance and afterburner are not under-counted to a single pulse.
+ *
+ * The owner pose is frozen for the whole march, so `stepInstance`'s beam branch would re-anchor to
+ * the same origin and re-run the same wall clip every tick — that raycast alone was over a third of
+ * a balance run's CPU (2026-10-09 profile). Both are resolved once and only the extent is stepped,
+ * which is all the beam branch changes. Once the beam stops growing its swept shape is identical
+ * tick to tick, so it is reused rather than re-hulled. Same result, bit for bit.
+ *
+ * BROAD PHASE (2026-10-10, solver cost): every beam shape `beamShapeAt` builds lies within
+ * `beamHalfWidthAt` of its axis segment (a rect's long sides, a cone's tip corners, a disc's rim),
+ * and that half-width never shrinks as the extent grows, so the swept hull of two consecutive
+ * shapes lies within the capsule of the LONGER one's half-width about the longer axis. A pose
+ * further from the axis than that capsule plus the hull's radius cannot be covered — the capsule
+ * and the hull's circle are convex and apart — so the smear and the SAT are skipped for it. Exact:
+ * it only ever skips a test that would have said no. The shapes themselves are then built lazily,
+ * only on a tick the narrow test is going to read them.
+ */
+function marchBeam(
+  start: WeaponInstance,
+  args: SolveArgs,
+  track: TargetTrack,
+  heading: number,
+  def: WeaponDef,
+): number {
+  if (def.kind !== "beam") throw new Error(`marchBeam: ${def.id} is not a beam`);
+  const { shooter, tick, arena } = args;
+  const interval = weaponTicksOf(start.weaponId).damageInterval;
+  const dt = 1 / TICK_RATE_HZ;
+  // See `marchProjectile` on why the bounds are built from the view's planes.
+  const bounds = { width: arena.width, height: arena.height, planes: arena.planes };
+  const ownerPose = { x: shooter.x, y: shooter.y, angle: heading };
+  const origin = beamOriginOf(start, def, ownerPose);
+  const beamReach = beamReachOf(def, origin, arena.obstacles, bounds);
+  const dirX = Math.cos(origin.angle);
+  const dirY = Math.sin(origin.angle);
+  const shapeAt = (extent: number): WorldShape => beamShapeAt(def.hitbox, origin.x, origin.y, origin.angle, extent);
+
+  let extent = start.extent;
+  // The shape at `previousExtent`, built on demand. The spawned instance's own shape is the first
+  // `previous` (it is built at the owner's pose, which `beamOriginOf` re-anchors to the same origin
+  // on the first step — a zero-extent beam is an empty polygon wherever it sits).
+  let previousExtent = start.extent;
+  let previousShape: WorldShape | undefined = beamShapeAt(def.hitbox, start.x, start.y, start.angle, start.extent);
+  let steadySwept: WorldShape | undefined;
+  let damage = 0;
+  let lastHitTick = -Infinity;
+
+  for (let ahead = 1; ahead <= track.ticks; ahead++) {
+    const now = tick + ahead;
+    const next = Math.min(beamReach, extent + def.speed * dt);
+    const unchanged = ahead > 1 && next === extent;
+    extent = next;
+
+    const pose = track.poses[ahead]!;
+    const tipX = origin.x + dirX * extent;
+    const tipY = origin.y + dirY * extent;
+    const reach = beamHalfWidthAt(def.hitbox, extent) + track.hullRadius + BROAD_PHASE_SLACK;
+    let connects = false;
+    if (segmentPointDistSq(origin.x, origin.y, tipX, tipY, pose.x, pose.y) <= reach * reach) {
+      if (unchanged) {
+        steadySwept ??= smear(previousShape ??= shapeAt(previousExtent), previousShape);
+        connects = shapeHitsObb(steadySwept, track.hulls[ahead]!);
+      } else {
+        const current = shapeAt(extent);
+        connects = shapeHitsObb(smear(previousShape ?? shapeAt(previousExtent), current), track.hulls[ahead]!);
+        previousShape = current;
       }
+    } else if (!unchanged) {
+      previousShape = undefined;
     }
-    if (instanceExpired(instance, now)) {
-      damage += splashAt(instance, pose, def); // (b) natural expiry, position-gated.
-      break;
+    if (!unchanged) previousExtent = extent;
+
+    if (connects && now - lastHitTick >= interval) {
+      damage += start.damage;
+      lastHitTick = now;
     }
+    // A beam's expiry reads only its row, spawn tick and life offset — none of which the march
+    // moves — so the spawned instance stands in for the stepped one exactly.
+    if (instanceExpired(start, now)) break;
   }
   return damage;
 }
 
+/**
+ * How far from its axis segment (origin to tip) any point of `beamShapeAt(hitbox, …, extent)` can
+ * lie — the radius of the capsule that holds the shape. Mirrors that function case for case: a rect
+ * is `width / 2` wide throughout, a cone's tip corners sit `tan(half) * reach` off the axis, and a
+ * disc is a circle of radius `reach` about the origin (which the segment contains). Never decreases
+ * with `extent`, which is what lets one capsule hold two consecutive shapes.
+ */
+function beamHalfWidthAt(hitbox: Extract<WeaponDef, { kind: "beam" }>["hitbox"], extent: number): number {
+  const reach = Math.max(0, extent);
+  switch (hitbox.shape) {
+    case "rect": return hitbox.width / 2;
+    case "cone": return Math.tan((hitbox.angleDeg * Math.PI) / 360) * reach;
+    case "disc": return reach;
+  }
+}
+
 /** Headroom on the broad phase's reach, in world units, so float rounding can never skip a graze. */
 const BROAD_PHASE_SLACK = 1;
+
+/**
+ * Extra headroom on the whole-march straight-flight test: the march accumulates `cos(angle) * step`
+ * tick by tick while the test extrapolates the line in one multiply, and the two can disagree by
+ * rounding. A unit is many orders of magnitude more than that disagreement over the longest march.
+ */
+const STRAIGHT_FLIGHT_SLACK = 1;
+
 
 /** The radius of the smallest circle about (`x`, `y`) that holds `shape`. */
 function radiusAbout(shape: WorldShape, x: number, y: number): number {
@@ -508,7 +661,7 @@ function segmentPointDistSq(ax: number, ay: number, bx: number, by: number, px: 
 }
 
 /**
- * How many ticks `marchOne` walks one `weaponId`'s instance: its own longest clock — a beam's
+ * How many ticks a march walks one `weaponId`'s instance: its own longest clock — a beam's
  * extension plus linger, a projectile's flight, or a bouncing shot's `projectileLifetime` — plus a
  * little headroom, resolved from the ACTIVE mode's `weaponTicksOf` at call time. It was a typed
  * `MAX_MARCH_TICKS = 120` ("no shot stays alive longer than this"), which was 4 s at 30 Hz but only
@@ -530,22 +683,12 @@ const MARCH_HEADROOM_TICKS = 2;
  * honest test is "is the target's hull inside the blast radius of where the shell actually died".
  */
 function splashAt(
-  instance: WeaponInstance,
+  x: number,
+  y: number,
   pose: { x: number; y: number; angle: number },
   def: ReturnType<typeof weaponDefOf>,
 ): number {
   if (def.kind !== "projectile" || !def.explosion) return 0;
-  const blast: WorldShape = { kind: "circle", x: instance.x, y: instance.y, radius: def.explosion.radius };
+  const blast: WorldShape = { kind: "circle", x, y, radius: def.explosion.radius };
   return shapeHitsObb(blast, carHullOf(pose.x, pose.y, pose.angle)) ? def.explosion.damage : 0;
-}
-
-function shapeOf(instance: WeaponInstance): WorldShape {
-  const def = weaponDefOf(instance.weaponId);
-  if (def.kind === "projectile") {
-    return projectileShapeAt(def.hitbox, instance.x, instance.y, instance.angle);
-  }
-  if (def.kind === "beam") {
-    return beamShapeAt(def.hitbox, instance.x, instance.y, instance.angle, instance.extent);
-  }
-  throw new Error(`shapeOf: ${instance.weaponId} spawns no instance`);
 }
