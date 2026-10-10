@@ -18,5 +18,7 @@ export const CONQUER_OVERRIDES: ModeOverrides = {
     rotate: "teamFacing",
     // A wreck comes back, so it watches nobody and holds where it died.
     spectate: { target: "none" },
+    // arena-03 is 1280 × 2160: one screen wide at zoom 1, scrolling vertically. The base is 0.8.
+    zoom: 1,
   },
 };

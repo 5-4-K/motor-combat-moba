@@ -38,7 +38,7 @@ const DISC_MAX_SEGMENTS = 48;
 /**
  * Segments per world unit of radius. At 1.2 the rim's furthest departure from a true circle —
  * `r * (1 - cos(PI / n))` — stays under 0.3 units for every radius from 1 to 60 (the test sweeps them all),
- * which at the arena's fixed zoom of 1 is under a third of a pixel.
+ * which at zoom 1 is under a third of a pixel (at the base zoom of 0.8 it is smaller still, so 1.2 is conservative).
  */
 const DISC_SEGMENTS_PER_UNIT = 1.2;
 
