@@ -11,5 +11,5 @@
  * `sim/`, `rooms/`, `modes/`, `bot/` or `balance/` folder in shared or server. The cheap balance
  * harness tests (attribution, baseline, cli, fingerprint, report, stats) stay in the normal suite.
  */
-export const SLOW_TESTS: string[] = ["src/bot/**/*.test.ts", "balance/match.test.ts", "balance/runner.test.ts"];
+export const SLOW_TESTS: string[] = ["src/bot/**/*.test.ts", "balance/match.test.ts", "balance/runner.test.ts", "src/netsim/netsim.sweep.test.ts"];
 export const BENCH_TESTS: string[] = ["src/bot/brain/brain.bench.test.ts"];
