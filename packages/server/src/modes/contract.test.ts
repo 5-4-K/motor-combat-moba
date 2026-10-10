@@ -17,8 +17,8 @@ const allModes = Object.keys(MODE_TABLE).map(Number);
 /**
  * A fresh match: 2 cars on opposite teams, both alive, roster in sync with `state.players`, an
  * arena the mode actually plays (so a conquer-family controller finds a real zone), and every car
- * placed well outside that zone (arena-03's zone sits at its centre, radius 150 — (0, 0) never
- * overlaps it) so the zone reads uncontested/empty either way. Same construction shape as
+ * placed well outside that zone (arena-03's zone tiles sit at its centre — a car at (0, 0) never
+ * overlaps them) so the zone reads uncontested/empty either way. Same construction shape as
  * each mode's own `controller.test.ts` (e.g. `modes/last-standing/controller.test.ts`)'s own
  * `stateWith`/`viewOf` helpers.
  */

@@ -141,7 +141,7 @@ const seen = (c: { decoded: ArenaState }, id: string) => c.decoded.players.get(i
 const stocksOf = (c: { decoded: ArenaState }, id: string) => c.decoded.players.get(id)!.weapons[0]!.stocks;
 
 // Geometry on arena-03, default FOV (600 × 450 ellipse, 120° cone, blocked by obstacles):
-// the lane pillar at x 200–300, y 480–580 stands between (100, 530) and (400, 530).
+// the lane pillar at x 240–320, y 520–600 stands between (100, 560) and (400, 560).
 const OPEN_FRONT = { x: 400, y: 300 };
 const BEHIND = { x: -300, y: 300 };
 
@@ -320,9 +320,9 @@ describe("ViewManager — FFA with FOV on", () => {
 
   it("has an enemy in front in view and an enemy behind a wall out of it", () => {
     const r = room(config);
-    r.car("a", 100, 530);
+    r.car("a", 100, 560);
     r.car("front", OPEN_FRONT.x, OPEN_FRONT.y);
-    r.car("walled", 400, 530);
+    r.car("walled", 400, 560);
     const a = r.join("a");
     expect(sorted(r.vm.carsIn("a"))).toEqual(["a", "front"]);
     expect(seen(a, "front")).toBe(true);
@@ -339,10 +339,12 @@ describe("ViewManager — FFA with FOV on", () => {
 
   it("drops an enemy only when its centre AND every hull corner are blocked", () => {
     const r = room(config);
-    r.car("a", 100, 530);
-    // The line to its centre crosses the pillar (at x 200 it is at y 573, above the pillar's 580
-    // bottom edge); the line to its rear-lower corner (370, 680) passes under it: in.
-    r.car("peek", 400, 660);
+    r.car("a", 100, 560);
+    // Pillar x 240-320, y 520-600. Both cars face +x, so peek's hull spans x 370-430, y 620-660. The
+    // line from (100, 560) to its centre (400, 640) is at y 597 where it reaches x 240: inside the
+    // pillar, so the centre is blocked. The line to its rear-lower corner (370, 660) is at y 608 at
+    // x 240 and clears the pillar's bottom edge (600): that corner alone keeps it in.
+    r.car("peek", 400, 640);
     r.join("a");
     expect(r.vm.carsIn("a").has("peek")).toBe(true);
   });
@@ -383,13 +385,13 @@ describe("ViewManager — FFA with FOV on", () => {
 
   it("sends an enemy's shot only in vision, and the viewer's own shots — ended rows too — always", () => {
     const r = room(config);
-    r.car("a", 100, 530);
-    r.car("b", 400, 530); // behind the pillar
+    r.car("a", 100, 560);
+    r.car("b", 400, 560); // behind the pillar
     r.shot("own-ended", "a", BEHIND.x, BEHIND.y, false);
     r.shot("own-live", "a", BEHIND.x, BEHIND.y + 50);
     r.shot("enemy-front", "b", OPEN_FRONT.x, OPEN_FRONT.y);
     r.shot("enemy-ended-front", "b", OPEN_FRONT.x, OPEN_FRONT.y + 40, false);
-    r.shot("enemy-ended-hidden", "b", 450, 530, false);
+    r.shot("enemy-ended-hidden", "b", 450, 560, false);
     r.shot("enemy-hidden", "b", 450, 540);
     const a = r.join("a");
     const expected = ["enemy-ended-front", "enemy-front", "own-ended", "own-live"];
@@ -397,7 +399,7 @@ describe("ViewManager — FFA with FOV on", () => {
     expect([...a.decoded.weapons.keys()].sort()).toEqual(expected);
     expect(a.decoded.weapons.get("own-ended")!.alive).toBe(false);
     // Created after join: the same rule on the next update.
-    r.shot("enemy-late-hidden", "b", 460, 530);
+    r.shot("enemy-late-hidden", "b", 460, 560);
     r.shot("own-late-ended", "a", BEHIND.x, BEHIND.y, false);
     r.patch();
     expect([...a.decoded.weapons.keys()].sort()).toEqual([...expected, "own-late-ended"].sort());
@@ -405,7 +407,7 @@ describe("ViewManager — FFA with FOV on", () => {
     r.state.weapons.get("enemy-hidden")!.x = OPEN_FRONT.x;
     r.state.weapons.get("enemy-hidden")!.y = OPEN_FRONT.y - 40;
     r.state.weapons.get("enemy-front")!.x = 450;
-    r.state.weapons.get("enemy-front")!.y = 530;
+    r.state.weapons.get("enemy-front")!.y = 560;
     r.patch();
     expect(a.decoded.weapons.has("enemy-hidden")).toBe(true);
     expect(a.decoded.weapons.has("enemy-front")).toBe(true);
@@ -417,9 +419,9 @@ describe("ViewManager — FFA with FOV on", () => {
   it("puts everything in every view outside MATCH, even with FOV on (rule 2)", () => {
     const r = room(config);
     r.state.phase = RoomPhase.COUNTDOWN;
-    r.car("a", 100, 530);
-    r.car("walled", 400, 530);
-    r.shot("s", "walled", 450, 530);
+    r.car("a", 100, 560);
+    r.car("walled", 400, 560);
+    r.shot("s", "walled", 450, 560);
     const a = r.join("a");
     expect(seen(a, "walled")).toBe(true);
     expect(a.decoded.weapons.has("s")).toBe(true);
@@ -431,10 +433,10 @@ describe("ViewManager — FOV off (every shipped mode)", () => {
     const config = modeConfigOf(GameMode.FFA_LAST_STANDING);
     expect(config.camera.fov.enabled).toBe(false);
     const r = room(config);
-    r.car("a", 100, 530);
-    r.car("walled", 400, 530);
+    r.car("a", 100, 560);
+    r.car("walled", 400, 560);
     r.car("behind", BEHIND.x, BEHIND.y);
-    r.shot("s", "walled", 450, 530, false);
+    r.shot("s", "walled", 450, 560, false);
     const a = r.join("a");
     const b = r.join("walled");
     r.patch();
@@ -453,8 +455,8 @@ describe("ViewManager — team mode with FOV on", () => {
 
   it("keeps a teammate fully visible behind a wall — slot timers included — and its shots", () => {
     const r = room(config);
-    r.car("a", 100, 530, 0, 0);
-    r.car("mate", 400, 530, Math.PI, 0); // behind the pillar, looking back into it
+    r.car("a", 100, 560, 0, 0);
+    r.car("mate", 400, 560, Math.PI, 0); // behind the pillar, looking back into it
     r.car("enemy", 1100, 1900, 0, 1); // far from both
     r.shot("mate-shot", "mate", 1100, 1800);
     const a = r.join("a");
@@ -472,7 +474,7 @@ describe("ViewManager — team mode with FOV on", () => {
 
   it("shares a living teammate's vision (sharedVision)", () => {
     const r = room(config);
-    r.car("a", 100, 530, 0, 0);
+    r.car("a", 100, 560, 0, 0);
     r.car("mate", 600, 1700, 0, 0);
     r.car("enemy", 900, 1700, 0, 1); // in front of the mate, nowhere near a
     r.join("a");

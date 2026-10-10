@@ -1,12 +1,29 @@
 import {
+  type Aabb,
+  carHullOf,
+  conquer,
   conquerLeaveOutcome,
   derived,
   getArena,
+  zoneCoreOf,
   type ZonePresenceCar,
 } from "@motor-combat-moba/shared";
 import type { MatchOutcome, ModeController, ModeRoomView } from "../types.js";
 import { stampMatchClock } from "../match-clock.js";
 import { advanceConquer, resetZone } from "./zone-fields.js";
+
+const coreCache = new Map<string, Aabb[]>();
+
+/** `zoneCoreOf`, cached by (arena id, inset): the key carries the inset read at call time. */
+function coreOf(arenaId: string, rects: readonly Aabb[], inset: number): Aabb[] {
+  const key = `${arenaId}|${inset}`;
+  let core = coreCache.get(key);
+  if (!core) {
+    core = zoneCoreOf(rects, inset);
+    coreCache.set(key, core);
+  }
+  return core;
+}
 
 /**
  * Conquer (CQ44): the respawn-on-death flow of Deathmatch, but the win test is the zone's control
@@ -29,12 +46,20 @@ export const CONQUER_CONTROLLER: ModeController = {
   afterTick(room: ModeRoomView): MatchOutcome | undefined {
     const zone = getArena(room.state.arenaId).zone;
     if (!zone) return undefined; // unreachable: invariants.test.ts holds every conquer arena to a zone
+    // CT8, CT9: a car counts when its hull overlaps the zone eroded by the mode's inset. Read at call
+    // time (the inset is a mode accessor) and memoised per arena and inset.
+    const core = coreOf(room.state.arenaId, zone.rects, conquer().zoneEdgeInset);
     const cars: ZonePresenceCar[] = [];
     room.state.players.forEach((p) => {
-      cars.push({ x: p.x, y: p.y, team: p.team, alive: p.alive, inRoster: room.roster.has(p.sessionId) });
+      cars.push({
+        hull: carHullOf(p.x, p.y, p.angle),
+        team: p.team,
+        alive: p.alive,
+        inRoster: room.roster.has(p.sessionId),
+      });
     });
     const ticks = derived().conquerTicks;
-    const result = advanceConquer(room.state, zone, cars, ticks.captureDelay, ticks.controlTarget);
+    const result = advanceConquer(room.state, core, cars, ticks.captureDelay, ticks.controlTarget);
     if (!result.ended) return undefined;
     return { winnerSessionId: "", winnerTeam: result.winnerTeam };
   },

@@ -20,10 +20,13 @@ describe("ENVIRONMENT_FX", () => {
       // As tuned 2026-09-16: `saturate` -0.22 -> 0 (Phaser's parameter is a DELTA, so 0 is the
       // identity matrix and colours come through ungraded) and `brightness` 0.96 -> 1.5. The warm
       // R/B split is untouched, so the arena keeps its cast — it is just brighter and unmuted.
+      // As tuned 2026-10-10: `warmR` 1.07 -> 1, `warmB` 0.92 -> 1, `brightness` 1.5 -> 1. The grade
+      // is now the identity: tile art is already lit, and the 1.5 gain clipped its highlights and
+      // cast it sandy, so a PNG is drawn in the colours it was authored in.
       saturate: 0,
-      warmR: 1.07,
-      warmB: 0.92,
-      brightness: 1.5,
+      warmR: 1,
+      warmB: 1,
+      brightness: 1,
     });
     expect(ENVIRONMENT_FX.vignette).toEqual({ x: 0.5, y: 0.5, radius: 0.78, strength: 0 });
   });

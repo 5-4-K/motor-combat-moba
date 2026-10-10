@@ -1256,7 +1256,7 @@ delay being indefinite.
 
 `packages/shared/src/config/conquer-config.ts`, per mode through `conquer()` / `derived().conquerTicks`.
 Every mode carries a copy (CQ26), the same as `deathmatch()`, but only Conquer's controller ever
-reads `conquer()` — `teamSize` and `uniqueChassisPerTeam` are inert everywhere else, which is
+reads `conquer()` — `teamSize`, `uniqueChassisPerTeam` and `zoneEdgeInset` are inert everywhere else, which is
 how Team brawl keeps its 1v1-to-3v3 start rule untouched. Conquer's match clock, respawn delay and
 spawn-protection windows are **not** here: it reads those from its own `deathmatch()` table (CQ22),
 the "clock and respawn" table named for its first user.
@@ -1267,6 +1267,7 @@ the "clock and respawn" table named for its first user.
 | `controlTargetSeconds` | 60 | Accumulated control that fills a bar to 100% and wins outright |
 | `teamSize` | 3 | The exact number of ready players each team must have to start (CQ28) |
 | `uniqueChassisPerTeam` | true | A chassis a teammate has locked is refused (CQ4, CQ30) |
+| `zoneEdgeInset` | 20 | World units a car's hull must reach into the zone tiles to count as present: presence tests the hull against `zoneCoreOf(zone.rects, zoneEdgeInset)` (CT8, CT9). `>= 0` |
 
 `resolveConquerTicks` converts the two durations to whole ticks once per mode, at bundle assembly —
 `derived().conquerTicks.captureDelay` / `.controlTarget` — the same pattern as the weapon and
@@ -1275,8 +1276,9 @@ holds the pure zone-state machine (`stepZone`, `inControl`, `conquerOutcome`,
 `conquerLeaveOutcome`) that these ticks feed; it reads no config itself; the caller passes the ticks
 in.
 
-`ArenaDef.zone` (an `ArenaZone` — `x`, `y`, `radius`) is the capture circle a car's centre must sit
-inside to count as present; it is required on any arena a `"conquer"`-win-rule mode plays
+`ArenaDef.zone` (an `ArenaZone` — `rects`) is the capture patch as world rectangles, built by the
+tile compiler from the arena's capture cells (CT7). A car is present when its hull overlaps the
+counting core `zoneCoreOf(rects, zoneEdgeInset)` (CT8, CT9). The zone is required on any arena a `"conquer"`-win-rule mode plays
 (`modes/invariants.test.ts`). Team views (each team seeing its own base at the bottom, CQ46) now
 come from the mode's `camera.rotate: "teamFacing"`, derived from each team's spawn heading rather
 than an arena-authored flag — `ArenaDef.flipForTeamB` was deleted on 2026-09-28 (see
@@ -1529,11 +1531,11 @@ keep hand-in-sync as more arenas land.
 |---|---|---|---|---|
 | `arena-01` | 1280 × 720 (32 × 18 tiles) | 1200 × 640 rect (tile arena) | compiled from the grid (14 `kind: "spike"` runs set into the wall row) | `#3b4747` floor / `#4a5568` obstacle / `#2d3436` border |
 | `arena-02` | 1280 × 720 (32 × 18 tiles) | 1200 × 640 rect (tile arena) | compiled from the grid (4 `kind: "spike"` runs, one continuous ring) | `#9a7a58` floor / `#4a3e34` obstacle / `#2a2420` border |
-| `arena-03` | 1280 × 2160 | chamfered octagon (100 u chamfers) | 12 (2 `kind: "spike"`) | `#2b2f35` floor / `#4b5362` obstacle / `#1a1d22` border |
+| `arena-03` | 1360 × 2240 (34 × 56 tiles) | 1280 × 2160 rect (tile arena, square corners) | compiled from the grid: 18 (2 `kind: "spike"` runs on the side walls) | `#2b2f35` floor / `#4b5362` obstacle / `#1a1d22` border |
 
-`arena-01` is a **tile arena** as of 2026-10-09 (see [Tile arenas](#tile-arenas) below): a 32 × 18 grid compiled into ordinary `obstacles`, no `boundary`, playable floor **1200 × 640** (x 40..1240, y 40..680), square corners. `ArenaDef.boundary` — an optional convex polygon, wound clockwise, carried as inward half-planes and consumed by every boundary reader (`boundsOf(arena)` is the one place a `Bounds` is built from an arena) — remains the mechanism for a non-rectangular hand-written arena such as `arena-03`. Absent means the plain rectangle `0,0 → width,height`. `width`/`height` keep their meaning throughout: the image frame and the camera bounds, so on a one-screen arena like this one the camera clamp leaves no room to scroll (CB2).
+`arena-01` is a **tile arena** as of 2026-10-09 (see [Tile arenas](#tile-arenas) below): a 32 × 18 grid compiled into ordinary `obstacles`, no `boundary`, playable floor **1200 × 640** (x 40..1240, y 40..680), square corners. `ArenaDef.boundary` — an optional convex polygon, wound clockwise, carried as inward half-planes and consumed by every boundary reader (`boundsOf(arena)` is the one place a `Bounds` is built from an arena) — remains the mechanism for a non-rectangular hand-written arena; no shipped arena uses it. Absent means the plain rectangle `0,0 → width,height`. `width`/`height` keep their meaning throughout: the image frame and the camera bounds, so on a one-screen arena like this one the camera clamp leaves no room to scroll (CB2).
 
-`arena-01`'s spikes are `kind: "spike"` rectangles the compiler emits from the `^` cells, one `TILE_SIZE` (40) deep, in the innermost wall row (fourteen runs). The hand-written arenas' rule — spikes flush against a boundary plane, `SPIKE_CONFIG.depth` deep — applies to `arena-03` only (TA19). Absent `kind` still means an ordinary solid.
+`arena-01`'s spikes are `kind: "spike"` rectangles the compiler emits from the `^` cells, one `TILE_SIZE` (40) deep, in the innermost wall row (fourteen runs). The hand-written arenas' rule — spikes flush against a boundary plane, `SPIKE_CONFIG.depth` deep — guards no shipped arena (every shipped arena is a tile arena; TA19 holds for their spikes). Absent `kind` still means an ordinary solid.
 
 `arena-02` is a **tile arena** too, as of 2026-10-09: a 1280 × 720 dusty pit whose one-tile edge is a continuous ring of spikes around a playable **1200 × 640** floor (x 40..1240, y 40..680) — arena-01's floor, spiked the whole way round instead of in runs. Its four corners are wall, since a corner spike could face no floor. Its team spawns are at `y=200/360/520`, quartering the floor. The two arenas differ only in their legends: arena-01 is drawn metal, arena-02 drawn dirt with a wooden wall and wooden spike teeth (`overlayArt`, TC43). On both, each edge's wall art is turned with `artOrientation` so its grain runs along the wall. `arena.arena-02.floor` is still in the manifest but is no longer drawn.
 
@@ -1558,21 +1560,24 @@ Its 3 `teamASpawns` sit at `x=200` facing `0` and its 3 `teamBSpawns` at `x=1080
 - **Grid rules in `arena.test.ts`** — TA18: every floor cell belongs to some 2 × 2 block of non-solid cells (no passage narrower than a car). TA19: every spike tile has at least one damaging face (the faces it hurts from are authored, TC22) whose in-grid neighbour is non-solid, so a spike that can hurt nobody is an authoring error. TA20: every spawn sits on a floor cell and its hull is clear of every solid cell.
 - **Bounds** — `playableRectOf`, `playableExtentOf` (a tile arena's non-solid bounding box; the frame for a plain arena — the players' guide quotes weapon reach against it, TA30) and `playablePlanesOf` (what the bot's wall readings walk, TA31) live in `arena/bounds.ts`.
 
-### Hand-written arenas
+### Arena-03 (Conquer)
 
-`arena-03` is Conquer's own arena (CQ37–CQ40): a tall pitch, one screen wide and three tall, with the
-capture zone (`zone: { x: 640, y: 1080, radius: 150 }`) at its centre and each team's base at an end.
+`arena-03` is Conquer's own arena, a **tile arena** (spec Conquer on tiles, CT1–CT12): a tall pitch
+of 34 × 56 tiles (1360 × 2240), one screen wide and three tall, with a playable floor of
+1280 × 2160 (x 40..1320, y 40..2200) and square corners. A one-tile `wooden-wall` ring surrounds the
+floor, except for two side-wall spike runs, 16 tiles long (rows 20–35), level with the zone
+(`wooden-spike` teeth on the floor-facing side). Inside sit wall-tile lane pillars, midfield blocks and
+diagonal zone cover. The capture zone is a stepped patch of 76 `metal-floor-drawn` capture cells at
+the centre (680, 1120); the compiler merges them into `zone.rects` (CT7), and a car counts when its
+hull overlaps those rects eroded by `zoneEdgeInset` (CT8, CT9). Each team's base is at an end.
 Conquer's `camera.rotate: "teamFacing"` (CB9) is what turns team B's view 180° so it still sees the
-same map with its own base at the bottom; the arena itself is built symmetric about both centre
-lines specifically so that holds — team A spawns facing `-π/2` (rotation 0) and team B facing `+π/2`
-(rotation π), CB11. It carries no arena art and renders procedurally, spikes and chamfer corners included; its
-`boundary` is the frame itself with 100 u chamfers, since there is no painted wall band to inset. Of
-its 12 obstacles, 2 are `kind: "spike"` strips on the side walls level with the zone; the rest are
-plain lane pillars and zone-cover blocks. Its `teamASpawns`/`teamBSpawns` sit roughly 810 u from the
-zone edge (about 3 s for Mirage at top speed) — CQ42: that distance plus the 3 s `phaseMaxSeconds`
-ceiling is what keeps a freshly respawned (phased) car from contesting the zone while untouchable.
-Its `ffaSpawns` exist only to satisfy the type and the `≥ MAX_PLAYERS` invariant; Conquer is a team
-mode and never reads them.
+same map with its own base at the bottom; the grid maps onto itself under a 180° turn about
+(680, 1120) specifically so that holds — team A spawns facing `-π/2` (rotation 0) and team B facing
+`+π/2` (rotation π), CB11. The spawns sit at y 2120 (team A) and y 120 (team B), x 500 / 680 / 860,
+40 u further back than the pre-tile map, which puts the nearest one 820 u from the counting core —
+CQ42: that distance plus the 3 s `phaseMaxSeconds` ceiling is what keeps a freshly respawned
+(phased) car from contesting the zone while untouchable. Its `ffaSpawns` exist only to satisfy the
+type and the `≥ MAX_PLAYERS` invariant; Conquer is a team mode and never reads them.
 
 `getArena(id)` throws on an unknown id; it exists for the server's sim path, where an unresolvable
 arena is a programming error with no sane fallback. The client checks `isArenaId` first and shows a

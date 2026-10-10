@@ -224,10 +224,10 @@ export function captureChip(
 
 /** Muted chip grey: the roster's dead-name grey, so the gutter has one "not happening" colour. */
 export const CONQUER_MUTED_COLOR = 0x8d9096;
-/** The contested chip: plain white, like the zone ring's neutral tint. */
+/** The contested chip: plain white, like the zone's neutral tint. */
 export const CONQUER_NEUTRAL_COLOR = 0xffffff;
 
-/** A tone's colour — ally/enemy through `hpBarColor`, so the chip, bars and zone ring agree. */
+/** A tone's colour — ally/enemy through `hpBarColor`, so the chip, bars and zone tint agree. */
 export function chipToneColor(tone: ChipTone): number {
   if (tone === "ally" || tone === "enemy") return hpBarColor(tone);
   return tone === "neutral" ? CONQUER_NEUTRAL_COLOR : CONQUER_MUTED_COLOR;

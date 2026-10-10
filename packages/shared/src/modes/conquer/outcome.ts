@@ -1,4 +1,4 @@
-import type { ArenaZone } from "../../arena/types.js";
+import { aabbToObb, obbsOverlap, type Aabb, type Obb } from "../../sim/collide.js";
 
 /**
  * Conquer's zone rules (spec CQ18–CQ23), pure and tick-counted. The room calls these; nothing here
@@ -22,23 +22,26 @@ export const INITIAL_ZONE: ZoneState = Object.freeze({
 }) as ZoneState;
 
 export interface ZonePresenceCar {
-  readonly x: number;
-  readonly y: number;
+  /** The car's collision hull at its pose, as `carHullOf` builds it. */
+  readonly hull: Obb;
   readonly team: number;
   readonly alive: boolean;
   readonly inRoster: boolean;
 }
 
-/** Per-team count of living roster cars whose centre is inside the zone. Phased cars count (CQ10). */
-export function zonePresence(zone: ArenaZone, cars: readonly ZonePresenceCar[]): readonly [number, number] {
-  const r2 = zone.radius * zone.radius;
+/**
+ * Per-team count of living roster cars whose hull overlaps the zone's counting `core` (CT8) — the
+ * zone rects eroded by `zoneEdgeInset` (`zoneCoreOf`, CT9). Strict overlap: a hull merely touching
+ * the core does not count. Phased cars count (CQ10). The caller builds the hulls and the core, so
+ * this reads no config.
+ */
+export function zonePresence(core: readonly Aabb[], cars: readonly ZonePresenceCar[]): readonly [number, number] {
+  const boxes = core.map(aabbToObb);
   let a = 0;
   let b = 0;
   for (const car of cars) {
     if (!car.alive || !car.inRoster) continue;
-    const dx = car.x - zone.x;
-    const dy = car.y - zone.y;
-    if (dx * dx + dy * dy > r2) continue;
+    if (!boxes.some((box) => obbsOverlap(car.hull, box))) continue;
     if (car.team === 1) b += 1;
     else a += 1;
   }

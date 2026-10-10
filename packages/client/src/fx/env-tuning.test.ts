@@ -99,7 +99,7 @@ describe("envTableSource (EV33)", () => {
     const source = envTableSource({ [envKey("grade", "saturate")]: -0.5 });
     expect(source).toContain("grade: {");
     expect(source).toContain("saturate: -0.5");
-    expect(source).toContain("brightness: 1.5");
+    expect(source).toContain("brightness: 1,");
     expect(source).not.toContain("decals: {");
   });
 

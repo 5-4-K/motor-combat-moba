@@ -54,6 +54,8 @@ export interface TileDef {
   /** The art a cell draws when it names none (TC14). */
   readonly defaultArt?: string;
   readonly overlay?: TileOverlayRule;
+  /** Standing here counts toward the capture zone (CT7). Only a non-solid definition may. */
+  readonly capture?: true;
 }
 
 export const TILE_DEFS = {
@@ -66,6 +68,7 @@ export const TILE_DEFS = {
     hazard: { kind: "spike", sides: "all" },
     overlay: { art: "spike-teeth" },
   },
+  zone: { collision: "none", shape: "full", defaultArt: "metal-floor-drawn", capture: true },
   void: { collision: "solid", shape: "full", draw: "none" },
 } as const satisfies Record<string, TileDef>;
 

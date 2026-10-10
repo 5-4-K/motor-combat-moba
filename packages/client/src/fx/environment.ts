@@ -15,7 +15,10 @@
  * that agreement. The panel offers a preview-only reroll instead.
  */
 export interface EnvironmentFx {
-  /** The warm-desaturated `ColorMatrix` grade (VFX27). `warmG` is held at 1 and is not a field. */
+  /**
+   * The camera's `ColorMatrix` grade (VFX27). `warmG` is held at 1 and is not a field. Shipped as
+   * the identity (every field neutral), so arena art is drawn in its own colours.
+   */
   readonly grade: {
     readonly saturate: number;
     readonly warmR: number;
@@ -211,7 +214,7 @@ export interface EnvironmentFx {
 // (a plain assignment is silently a no-op in non-strict mode, which is worse: the mutation would look
 // like it worked) instead of quietly corrupting the shipped table for every later reader.
 export const ENVIRONMENT_FX: EnvironmentFx = {
-  grade: Object.freeze({ saturate: 0, warmR: 1.07, warmB: 0.92, brightness: 1.5 }),
+  grade: Object.freeze({ saturate: 0, warmR: 1, warmB: 1, brightness: 1 }),
   vignette: Object.freeze({ x: 0.5, y: 0.5, radius: 0.78, strength: 0 }),
   shake: Object.freeze({
     max: 0.02,
