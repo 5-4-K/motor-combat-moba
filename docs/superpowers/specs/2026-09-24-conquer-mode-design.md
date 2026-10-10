@@ -102,6 +102,7 @@ turned into rules.
   `zone?: { x, y, radius }` and `flipForTeamB?: boolean` (CQ46). A mode whose
   win rule is `"conquer"` may list only arenas that have a zone. `invariants.test.ts` enforces this.
   Arena-03's zone is `{ x: 640, y: 1080, radius: 150 }`.
+  **Superseded (2026-10-10):** see [Conquer on tiles](2026-10-10-conquer-tile-arena-design.md), CT7.
 
 ## 4. Rules — ending the match
 

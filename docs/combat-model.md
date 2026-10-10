@@ -1415,8 +1415,9 @@ for how long, and what that status does, derived from `STATUS_TABLE` itself so i
   - `"conquer"` (`CONQUER`, CQ18–CQ23) — a team mode that respawns, exactly like Deathmatch (it
     reads Deathmatch's own `deathmatch()` table for the clock, respawn delay and spawn-protection
     windows, CQ22), but decided by the capture zone rather than kills. Each tick,
-    `zonePresence(zone, roster)` counts each team's living, in-roster cars whose centre sits inside
-    `ArenaDef.zone`; `stepZone` turns that into a streak — uncontested presence for
+    `zonePresence(core, cars)` counts each team's living, in-roster cars whose hull overlaps the
+    counting core — `ArenaDef.zone.rects` eroded by `conquer().zoneEdgeInset` (`zoneCoreOf`, CT8,
+    CT9); `stepZone` turns that into a streak — uncontested presence for
     `derived().conquerTicks.captureDelay` (5 s) puts a team "in control" and starts filling its bar,
     a contested zone or an empty one freezes the streak, and a streak broken for even one tick resets
     it to zero. A full bar (`derived().conquerTicks.controlTarget`, 60 s of accumulated control) wins

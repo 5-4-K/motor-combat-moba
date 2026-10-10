@@ -412,7 +412,7 @@ const ARENA_DEPTH = -10;
 const ZONE_DEPTH = -9;
 /** The zone's fill alpha and outline width (CQ52, CT11). A wash, not a wall: the floor stays readable. */
 const ZONE_FILL_ALPHA = 0.14;
-const ZONE_RING_PX = 5;
+const ZONE_OUTLINE_PX = 5;
 /** The zone's colour while nobody holds it, or while it is contested. */
 const ZONE_NEUTRAL_COLOR = 0xffffff;
 
@@ -2289,7 +2289,7 @@ export class ArenaScene extends Phaser.Scene {
     gfx.clear();
     gfx.fillStyle(color, ZONE_FILL_ALPHA);
     for (const r of zone.rects) gfx.fillRect(r.x, r.y, r.w, r.h);
-    gfx.lineStyle(ZONE_RING_PX, color, 1);
+    gfx.lineStyle(ZONE_OUTLINE_PX, color, 1);
     if (arena.tiles) {
       for (const [x1, y1, x2, y2] of zoneOutlineSegments(arena.tiles)) gfx.lineBetween(x1, y1, x2, y2);
     } else {

@@ -1276,8 +1276,9 @@ holds the pure zone-state machine (`stepZone`, `inControl`, `conquerOutcome`,
 `conquerLeaveOutcome`) that these ticks feed; it reads no config itself; the caller passes the ticks
 in.
 
-`ArenaDef.zone` (an `ArenaZone` — `x`, `y`, `radius`) is the capture circle a car's centre must sit
-inside to count as present; it is required on any arena a `"conquer"`-win-rule mode plays
+`ArenaDef.zone` (an `ArenaZone` — `rects`) is the capture patch as world rectangles, built by the
+tile compiler from the arena's capture cells (CT7). A car is present when its hull overlaps the
+counting core `zoneCoreOf(rects, zoneEdgeInset)` (CT8, CT9). The zone is required on any arena a `"conquer"`-win-rule mode plays
 (`modes/invariants.test.ts`). Team views (each team seeing its own base at the bottom, CQ46) now
 come from the mode's `camera.rotate: "teamFacing"`, derived from each team's spawn heading rather
 than an arena-authored flag — `ArenaDef.flipForTeamB` was deleted on 2026-09-28 (see
@@ -1562,7 +1563,7 @@ Its 3 `teamASpawns` sit at `x=200` facing `0` and its 3 `teamBSpawns` at `x=1080
 ### Hand-written arenas
 
 `arena-03` is Conquer's own arena (CQ37–CQ40): a tall pitch, one screen wide and three tall, with the
-capture zone (`zone: { x: 640, y: 1080, radius: 150 }`) at its centre and each team's base at an end.
+capture zone (its capture cells, `zone.rects`, CT7) at its centre and each team's base at an end.
 Conquer's `camera.rotate: "teamFacing"` (CB9) is what turns team B's view 180° so it still sees the
 same map with its own base at the bottom; the arena itself is built symmetric about both centre
 lines specifically so that holds — team A spawns facing `-π/2` (rotation 0) and team B facing `+π/2`
