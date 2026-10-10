@@ -19,12 +19,11 @@ import {
   ram,
   forwardMaxSpeedOf,
   forwardOf,
-  lateralOf,
   speedOf,
   type CarId,
 } from "@motor-combat-moba/shared";
 import { installPlaytestMode } from "./mode.js";
-import { PlaytestWorld, ticksFor } from "./world.js";
+import { PlaytestWorld, statusesOf, ticksFor } from "./world.js";
 import { Reporter } from "./reporter.js";
 
 // Mode scope (MC12). `run-all.ts` spawns this file as its own one-shot process (one per probe), so
@@ -297,20 +296,19 @@ function outsideArena(px: number, py: number, b: ReturnType<typeof boundsOf>): b
  * port is why.** `authority` (degraded steering) now has a successor — `reeling` — but it is not a
  * lookalike: since the 2026-09-18 Unity ram port it is TOTAL control loss (`immobilised` and
  * `steeringLocked` on the victim's flags, not a worsened number), for `RAM_CONFIG.ramUncontrolMs`
- * (falloff-scaled). Line ~303's "victim steers to straighten out" literally does nothing for that
+ * (falloff-scaled). The "victim steers to straighten out" below literally does nothing for that
  * whole window — the input is blocked, not merely degraded — so part of what this probe calls "the
  * best escape a player could drive" is, for part of every run, no input reaching the car at all.
  * Whether the escape verdict below still holds under that is unmeasured; see the report string.
+ *
+ * Rams are counted as the attacker's `ramLock` onsets: the tick a live `ramLock` row appears on the
+ * attacker where the tick before had none. Every landed ram locks its attacker, and `ramLock` is
+ * `reapply: "ignore"` and blocks ramming while it runs, so one onset is exactly one ram.
  */
 function chaseRamLock(): void {
   const rows: string[] = [];
   let worstEscape = { escaped: true, gap: 0, phase: "", rams: 0 };
   let maxRams = 0;
-  // `authority` itself is gone for good, but it now has a real successor: `reeling`, total control
-  // loss plus `grip: 0.6` (see the doc comment above). The "deepest authority dip" measurement this
-  // probe used to report has no direct equivalent — `reeling` is boolean per tick, not a depth — so
-  // it stays dropped rather than replaced with a proxy number; see the `rams` counter below for the
-  // one substitute this probe already carries, and its own caveat.
   for (const offset of [0, 6, 12]) {
     let escapes = 0;
     let runs = 0;
@@ -333,7 +331,7 @@ function chaseRamLock(): void {
       const arena = getArena(w.state.arenaId);
       const runway = { ...boundsOf(arena), planes: playablePlanesOf(arena) };
       let rams = 0;
-      let prevShove = 0;
+      let wasLocked = false;
       let midGap = 0;
       // Eight seconds of chase (240 ticks as authored at 30 Hz); the far wall usually ends it sooner.
       const ticks = ticksFor(8);
@@ -346,27 +344,12 @@ function chaseRamLock(): void {
         w.input("atk", { throttle: 1 });
         w.input("vic", { throttle: 1, steer: v.angle > 0 ? -1 : v.angle < 0 ? 1 : 0 });
         w.tick();
-        // The victim drives here (unlike the other probes above), so its forward component is a mix
-        // of its own throttle and any ram push — they can no longer be told apart by reading
-        // velocity alone. The lateral component is the one part that is unambiguously external
-        // (steering grip keeps driven motion aligned with the nose), so it stands in for the old
-        // separate `shove` field. That undercounts a dead-centre rear ram (offset 0), which imparts
-        // little to no spin — this was already a diagnostic count only, not the probe's pass/fail
-        // verdict, before the Unity port.
-        //
-        // **THIS COUNTER IS NOW LIKELY DEAD, not just imprecise, and is reported as such rather than
-        // fixed here.** Two things changed under it: `reeling`'s `grip` multiplier (0.6, not the old
-        // `turnRate`/`accel` pair) scrubs the lateral shove SLOWER than an un-reeled car would, so a
-        // "rise" can read differently than it used to even with no second ram landing; and while
-        // `steeringLocked` holds, "steering grip keeps driven motion aligned with the nose" (the
-        // premise this comment states above) is false — there is no steering input to align to. Both
-        // push in the direction of a false reading, not a missed one, but which way and by how much
-        // is unmeasured. Fixing the diagnostic or retiring it is the user's call.
         const afterVic = w.get("vic");
-        const shove = Math.abs(lateralOf(afterVic.vx, afterVic.vy, afterVic.angle));
-        // Knock only decays between impacts, so any rise is a fresh ram landing.
-        if (shove > prevShove + 5) rams++;
-        prevShove = shove;
+        // A ram is the attacker's `ramLock` onset — an edge, so a lock held across ticks counts once.
+        const now = w.state.tick;
+        const locked = statusesOf(w.get("atk")).some((s) => s.statusId === "ramLock" && s.endsTick > now);
+        if (locked && !wasLocked) rams++;
+        wasLocked = locked;
         if (t === Math.floor(ticks / 2)) midGap = w.get("vic").x - w.get("atk").x - 48;
         // The runway ends where open space does: stop once the far wall is within one car length of
         // the victim's centre, judge what we have. Read from the arena's floor planes — the
@@ -402,10 +385,7 @@ function chaseRamLock(): void {
       `keeps chasing; the victim floors it and straightens out. 63 runs: approach gap 0-20 x ` +
       `lateral offset {0, 6, 12}.\n` +
       rows.join("\n") +
-      `\nmost rams landed in any single run: ${maxRams}, by a counter this report no longer trusts ` +
-      `(see the comment above the loop) — read it as "at least this many", not an exact count. The ` +
-      `"deepest authority dip" line this used to carry has no direct equivalent under \`reeling\` ` +
-      `(see the doc comment above this function).` +
+      `\nmost rams landed in any single run: ${maxRams} (counted as the attacker's \`ramLock\` onsets).` +
       (worstEscape.escaped
         ? `\nEvery phase escaped: the first knock is the attacker's whole payday — by the time ` +
           `\`reeling\` lapses the speed advantage has the gap opening, and the edge-triggered ram ` +

@@ -34,7 +34,7 @@ installPlaytestMode();
 
 const reporter = new Reporter(
   "geometry",
-  "arena-02 spike-lined pit: wedging, corners, walls, aim-assist LOS, spawn seats.",
+  "arena-02 spike-lined pit: wedging, corners, walls, spawn seats.",
 );
 const report = reporter.report.bind(reporter);
 const ARENA = getArena("arena-02");

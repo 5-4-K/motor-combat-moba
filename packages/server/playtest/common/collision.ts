@@ -19,11 +19,13 @@ import {
   getArena,
   msToTicks,
   playableRectOf,
+  ramTicks,
+  statusTable,
   NET_CONFIG,
   type CarId,
 } from "@motor-combat-moba/shared";
 import { installPlaytestMode } from "./mode.js";
-import { PlaytestWorld, overlapDepth, ticksFor } from "./world.js";
+import { PlaytestWorld, overlapDepth, statusesOf, ticksFor } from "./world.js";
 import { Reporter } from "./reporter.js";
 
 // Mode scope (MC12). `run-all.ts` spawns this file as its own one-shot process (one per probe), so
@@ -536,16 +538,32 @@ function glancingSignFlip(): void {
 }
 
 /* ------------------------------------------------------------ 9. ram chain / stun-lock */
-/** Edge-triggered rams should not stun-lock. Two attackers alternating on one victim is the stress. */
+/**
+ * Edge-triggered rams should not stun-lock. Two attackers alternating on one victim is the stress.
+ *
+ * The measurement is the victim's `reeling`: total control loss, read each tick as "does any live
+ * status row on the victim (`endsTick` past the current tick) carry the `steeringLocked` flag".
+ * Reported as the control-loss share of the run and the longest uninterrupted locked run. A chain
+ * may land a fresh ram the tick a reel lapses, but `reeling` is `reapply: "ignore"` and `ramBlocked`,
+ * so it can never extend a live lock: no run should outlast one full-strength `reeling` duration
+ * (`ramTicks().uncontrol`, the same tick count `ram-bridge.ts` applies) plus one tick of slack.
+ */
 function ramChain(): void {
   const w = new PlaytestWorld([
     { id: "atk1", carId: "bastion", x: 500, y: 320, angle: Math.PI / 2 },
     { id: "atk2", carId: "bastion", x: 500, y: 400, angle: -Math.PI / 2 },
     { id: "victim", carId: "bullseye", x: 500, y: 360, angle: 0 },
   ]);
+  const table = statusTable();
+  const locks = (statusId: string): boolean =>
+    (table[statusId as keyof typeof table]?.flags ?? []).includes("steeringLocked");
   // Ten seconds, pumping on a 2/3 s half-period (300 and 20 ticks as authored at 30 Hz).
   const chainTicks = ticksFor(10);
   const pump = ticksFor(2 / 3);
+  let lockedTicks = 0;
+  let run = 0;
+  let longest = 0;
+  let onsets = 0;
   for (let i = 0; i < chainTicks; i++) {
     // Both attackers pump the throttle so they separate and re-approach — a real chain attempt.
     const phase = Math.floor(i / pump) % 2;
@@ -553,23 +571,32 @@ function ramChain(): void {
     w.input("atk2", { throttle: phase === 1 ? 1 : -1 });
     w.input("victim", { throttle: 0 });
     w.tick();
+    const now = w.state.tick;
+    const locked = statusesOf(w.get("victim")).some((s) => s.endsTick > now && locks(s.statusId));
+    if (locked) {
+      if (run === 0) onsets++;
+      run++;
+      lockedTicks++;
+      longest = Math.max(longest, run);
+    } else {
+      run = 0;
+    }
   }
-  // This probe's entire measurement was `victim.authority` — how much of a coordinated 2v1's
-  // pressure showed up as degraded steering. `authority` had no successor when this comment last
-  // said "until stage 3b lands" — **that precondition has since been met**: the car-physics rework's
-  // stage 3b gave ramming `reeling` back, and the 2026-09-18 Unity ram port sharpened it further, to
-  // a TOTAL control loss (`immobilised`, `steeringLocked` — not degraded steering, no steering at
-  // all) plus `spinFree`, readable off `PlayerState.statuses` via `statusesOf` (`world.ts`) for
-  // exactly `victim` here. Writing that replacement measurement is a scenario change this task does
-  // not make on its own; the tick loop above is left in place so the scenario still exercises the
-  // ram-chain path, and the verdict below is still a placeholder pending that decision.
+  const reelTicks = ramTicks().uncontrol;
+  const ms = (ticks: number): string => ((ticks * 1000) / TICK_RATE_HZ).toFixed(0);
+  const share = (100 * lockedTicks) / chainTicks;
+  const ok = longest <= reelTicks + 1;
   report(
     `9. Two attackers chain-ramming one victim (${chainTicks} ticks = ${chainTicks / TICK_RATE_HZ} s)`,
-    "KNOWN-BY-DESIGN",
-    `Not measured — this probe read \`victim.authority\` to gauge anti-stun-lock pressure from a ` +
-      `coordinated 2v1. \`authority\` itself is gone for good, but a successor now exists: the ` +
-      `victim's \`reeling\` status (total control loss, readable via \`statusesOf\`). Re-deriving ` +
-      `this probe against it is a scenario-shape decision for the user, not made here.`,
+    ok ? "OK" : "FINDING",
+    `victim (bullseye) without steering (\`steeringLocked\`) on ${lockedTicks}/${chainTicks} ticks ` +
+      `= ${share.toFixed(1)}% of the run, across ${onsets} separate lock(s).\n` +
+      `longest uninterrupted lock: ${longest} ticks (${ms(longest)} ms); one full-strength ` +
+      `\`reeling\` is ${reelTicks} ticks (${ram().ramUncontrolMs} ms), bound ${reelTicks + 1} ticks.\n` +
+      (ok
+        ? `No lock outlasted one reel: the chain never refreshed the lock without a gap.`
+        : `A lock outlasted one reel by ${longest - reelTicks} tick(s): the chain kept the victim ` +
+          `locked past what \`reapply: "ignore"\` promises.`),
   );
 }
 
