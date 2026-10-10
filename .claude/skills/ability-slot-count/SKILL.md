@@ -30,8 +30,8 @@ a module-local `const` that `WEAPON_SLOT_CONFIG.maxAbilitySlots` is seeded from.
 that object is derived: `maxFireSlots` is `N + 1` and `basicAttackSlotIndex` is the literal `0`
 (the fire-slot array is `[basicAttack, ...kit]`, so nothing about `N` can move it).
 
-**Legal range: 1 to 4**, held by `weapon-slots.test.ts`'s "separates the structural ceiling from the
-tunable count" — `maxAbilitySlots >= 1` and `<= ABILITY_SLOT_CEILING`.
+**Legal range: 1 to 4**, held per mode by `packages/shared/src/modes/invariants.test.ts`'s "carries
+maxAbilitySlots within [1, ABILITY_SLOT_CEILING] (MC33)" — every mode's resolved bundle is checked.
 
 **`ABILITY_SLOT_CEILING` (4) is NOT the knob and is never edited by this skill.** It is structural:
 it sizes `SLOT_KEYS` (`ABILITY_SLOT_CEILING + 1` rows), bounds the wire mask's width, and is the
@@ -108,11 +108,13 @@ work itself did **not** change the draw count. `maxFireSlots` was `3 + 1` before
 after; what moved was which slot each drawn weight landed on. That was a re-weighting. Changing `N`
 is a re-seeding, and it is strictly the larger disturbance.
 
-Evidence, measured by setting `ABILITY_SLOTS = 4` and running `npm test` (2026-09-20): two seeded
-server tests that pass at `N = 3` failed at `N = 4` without any bot knob moving —
-`src/bot/brain/tiers.test.ts`'s H30 ult-discipline characterisation and `balance/match.test.ts`'s
-deathmatch-clock canary. Neither is a defect in the change; both are the shifted stream. Re-pin or
-re-seed them deliberately, and say which you did.
+No gating test pins a seeded bot outcome any more, so a shifted stream does not fail `npm test` or
+`npm run test:slow`: `balance/match.test.ts`'s deathmatch-clock check is seed-free, and the tier
+characterisation and reported-symptom checks report through `npm run bot:report`
+(`packages/server/playtest/bot/tiers.ts`) instead of asserting. Measured by setting
+`ABILITY_SLOTS = 4` (2026-10-10): the slow group passed and every `bot:report` check read `OK`. Run
+`npm run bot:report` after the change anyway and read it — a `FINDING` there is the shifted stream
+to explain, not a test to re-pin.
 
 ## 5. Raising `N` does nothing for a chassis whose kit is shorter
 
@@ -130,8 +132,8 @@ weapons without deleting them. Raise `N` back and they return, untouched.
 
 ## 6. Above 4 is refused, and the HUD has no room
 
-`weapon-slots.test.ts` fails on `N > ABILITY_SLOT_CEILING`, so the ceiling is enforced, not merely
-documented. The layout backs it up: `weapon-hud.test.ts`'s "fits four slots inside the view and
+`modes/invariants.test.ts` (MC33) fails on `N > ABILITY_SLOT_CEILING`, so the ceiling is enforced,
+not merely documented. The layout backs it up: `weapon-hud.test.ts`'s "fits four slots inside the view and
 would not fit five" asserts that at four boxes the last slot's name sits inside `VIEW_HEIGHT` and at
 five it does not.
 
@@ -171,7 +173,8 @@ fixtures are for. Almost every one of those failures pins the **three-weapon shi
 full kit's length, a three-bit fire mask, a three-box HUD stack, a three-row manual card, a
 three-entry playground loadout. Widening leaves all of that still true — a kit shorter than `N` is
 the designed case (section 5), so a three-weapon chassis in an `N = 4` build behaves exactly as it
-did, and only the handful of fixtures that assert `maxAbilitySlots === 3` or a four-bit mask move.
+did, and only the per-mode snapshots (which record `maxAbilitySlots`) and the handful of fixtures
+that pin a four-bit mask move.
 Narrowing falsifies every one of those roster expectations at once, because the shipped kits really
 are cut.
 
@@ -189,16 +192,22 @@ here (2026-09-20). The rows above are measured on the tree that shipped the vari
 including the VS34 stored-setup truncation; an earlier measurement taken before that fix read 6 / 16
 / 20 client failures, because an over-long stored loadout still discarded the whole blob.
 
-The `N = 4` set specifically, since it is the small one and the likely direction of travel:
+The `N = 4` set specifically, since it is the small one and the likely direction of travel
+(re-measured 2026-10-10):
 
-- shared: `src/config/weapon-slots.test.ts` — "derives the fire-slot constants from the ability
-  count (BA11, VS6)" asserts `maxAbilitySlots` is 3.
+- shared: `src/modes/snapshots.test.ts` — every mode's resolved snapshot moves, since
+  `slots.maxAbilitySlots`/`maxFireSlots` sit in each bundle. That is the change itself: re-snapshot
+  each moved file deliberately (`npx vitest run src/modes/snapshots.test.ts -u` from
+  `packages/shared`, then read the diff of every
+  `packages/shared/src/modes/__snapshots__/<slug>.tables.json` — only the two `slots` numbers may
+  move), never a blanket `-u`. Also `src/sim/weapons/turret.test.ts`'s "ignores a turret weapon
+  sitting past this build's fire-slot count", whose fixture assumes the fourth ability slot is past
+  `N`.
 - client: `src/config/slot-keys.test.ts` (the two mask-limit tests and both `hintSlotOrder` cases),
-  `src/dev/playground/ui-model.test.ts`'s add/remove control, and the manual/stamp pairing once the
-  page is rebuilt.
-- server: `src/sim/tick.test.ts`'s two fire-mask tests, plus the two seeded tests named in step 4
-  (`tiers.test.ts`'s H30 and `balance/match.test.ts`'s deathmatch-clock canary) — those two are the
-  shifted RNG stream, not a slot-count defect.
+  `src/scenes/movement-hint.test.ts`'s TR30 key row, `src/dev/playground/ui-model.test.ts`'s
+  add/remove control, and the manual/stamp pairing once the page is rebuilt.
+- server: `src/sim/tick.test.ts`'s two fire-mask tests. The slow group passes, and `bot:report`
+  reads all `OK` (step 4).
 
 Do not copy that list forward to another `N`. Run the suite and read it.
 
