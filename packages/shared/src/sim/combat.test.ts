@@ -2904,7 +2904,7 @@ describe("shot fast-forward (NR37, NR38)", () => {
   });
 
   it("a lifetimeMs projectile expires on exactly the tick the k-earlier shot does", () => {
-    // thumper: bastion fire slot 1, a bouncing shell on a 2900 ms flight clock.
+    // thumper: bastion fire slot 1, a bouncing shell on a 3000 ms flight clock.
     const run = (pressTick: number, untilTick: number, k?: number) =>
       shells(simulate({ pressTick, untilTick, mask: MAGMA, k, carId: "bastion" })).filter(
         (i) => i.weaponId === "thumper",

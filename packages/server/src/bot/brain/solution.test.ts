@@ -135,9 +135,9 @@ describe("solve — projectile", () => {
       target, targetAt: constantVelocityPredictor(target),
       aimSigmaRad: 0, tick: 0, arena,
     };
-    // predator: 30 damage on a 1000 ms cooldown. pepperbox: 45 per pellet on 1800 ms.
+    // predator: 30 damage on a 1300 ms cooldown. pepperbox: 45 per pellet on 1800 ms.
     const predator = solve({ ...common, slot: slotFor("predator") });
-    expect(predator.value).toBeCloseTo(predator.expectedDamage / 1, 5);
+    expect(predator.value).toBeCloseTo(predator.expectedDamage / (weaponDefOf("predator").cooldownMs / 1000), 5);
   });
 });
 
@@ -617,12 +617,12 @@ describe("solver determinism (P43)", () => {
 
 describe("marchTicksOf", () => {
   it("walks every row at least as long as that row can live, under the active mode", () => {
-    // The typed 120-tick cap this replaced was 2 s at 60 Hz, under thumper's 2900 ms lifetime.
+    // The typed 120-tick cap this replaced was 2 s at 60 Hz, under thumper's 3000 ms lifetime.
     for (const id of Object.keys(weapons()) as WeaponId[]) {
       const t = weaponTicksOf(id);
       expect(marchTicksOf(id), id).toBeGreaterThan(t.projectileLifetime);
       expect(marchTicksOf(id), id).toBeGreaterThan(t.flight + t.lifetime);
     }
-    expect(marchTicksOf("thumper")).toBeGreaterThan(msToTicks(2900));
+    expect(marchTicksOf("thumper")).toBeGreaterThan(msToTicks(3000));
   });
 });

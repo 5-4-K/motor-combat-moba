@@ -462,9 +462,9 @@ export interface ProjectileWeaponDef extends WeaponBase {
    */
   lifetimeMs?: number;
   /**
-   * Wall-bouncing flight: reflect off level geometry rather than dying on it. Requires `lifetimeMs`,
-   * and `weapon-config.test.ts` holds that lifetime strictly under `cooldownMs` so two bouncing
-   * instances of one weapon can never coexist. Absent is false.
+   * Wall-bouncing flight: reflect off level geometry rather than dying on it. Requires `lifetimeMs`.
+   * The lifetime may exceed `cooldownMs` (since 2026-10-10 `thumper`'s does), so several bouncing
+   * instances of one weapon can be in flight at once. Absent is false.
    */
   bounces?: boolean;
   /**

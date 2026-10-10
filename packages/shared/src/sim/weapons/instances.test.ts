@@ -451,7 +451,7 @@ describe("homing", () => {
   });
 });
 
-// `thumper` now ships `bounces: true` with `lifetimeMs: 2900` for real, so this exercises the real row.
+// `thumper` now ships `bounces: true` with `lifetimeMs: 3000` for real, so this exercises the real row.
 const bouncer = WEAPON_TABLE.thumper;
 const bounds = { width: 1000, height: 1000 };
 
@@ -474,7 +474,7 @@ describe("bounce", () => {
     const order = { weaponId: "thumper", slot: 0, finalVolley: true } as const;
     const { instances } = spawnInstances(order, owner, 100, 0, 1, "", bouncer);
     const shot = instances[0]!;
-    const life = (2900 * TICK_RATE_HZ) / 1000; // msToTicks(2900): 87 at 30 Hz, 174 at 60 Hz
+    const life = (3000 * TICK_RATE_HZ) / 1000; // msToTicks(3000): 90 at 30 Hz, 180 at 60 Hz
     expect(shot.expiresAtTick).toBe(100 + life);
     expect(instanceExpired({ ...shot, distance: 99999 }, 100 + life - 1, bouncer)).toBe(false); // range ignored
     expect(instanceExpired(shot, 100 + life, bouncer)).toBe(true);

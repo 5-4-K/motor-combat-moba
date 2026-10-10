@@ -545,7 +545,11 @@ describe("the turret Aim point (TR47)", () => {
         }
       }
     }
-    assert.ok(turretCards > 0 && fixedCards > 0, "the check saw only one kind of card");
+    // The turret system is switched off (2026-10-10: every row's `turret` is commented out), so the
+    // turret half is vacuous until a row carries one again; the fixed-muzzle half is not.
+    const anyTurretRow = Object.values(WEAPON_TABLE).some((def) => def.turret);
+    assert.ok(fixedCards > 0, "the check saw no fixed-muzzle card");
+    assert.ok(!anyTurretRow || turretCards > 0, "a row carries a turret but no turret card was checked");
   });
 
   it("folds the printed turn rate into the stamp", () => {

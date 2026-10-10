@@ -148,11 +148,14 @@ describe("WEAPON_TABLE", () => {
   });
 
   describe("new-mechanic guards (vacuous until plan 3's rows land — they gate authoring, not code)", () => {
-    it("bounds a BOUNCING row's lifetime under its own cooldown, so two never coexist", () => {
+    // The old "lifetime strictly under cooldown, so two bouncing instances never coexist" rule was
+    // dropped by the owner on 2026-10-10 (thumper: 3000 ms life on a 2000 ms cooldown). What stays
+    // is the part a bouncing shot cannot do without: a clock, since `range` stops meaning anything
+    // once it reflects.
+    it("gives every BOUNCING row a lifetime clock", () => {
       for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
         if (def.kind !== "projectile" || !def.bounces) continue;
         expect(def.lifetimeMs).toBeDefined();
-        expect(def.lifetimeMs!).toBeLessThan(def.cooldownMs);
       }
     });
 

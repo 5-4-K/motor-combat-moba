@@ -30,7 +30,7 @@ describe("effectiveReachOf (BB42)", () => {
     // Measured from the solver on the 13-sample grid (minEngageUnits..reach in 12 steps), shooter
     // mid-arena: a number moves only when a weapon row, a node weight or the grid does.
     expect(effectiveReachOf("predator", 0.035, 0.7)).toBeCloseTo(646.67, 1);
-    expect(effectiveReachOf("thumper", 0.035, 0.7)).toBeCloseTo(893.33, 1);
+    expect(effectiveReachOf("thumper", 0.035, 0.7)).toBeCloseTo(816.67, 1);
     expect(effectiveReachOf("magmablast", 0.035, 0.7)).toBeCloseTo(900, 1);
   });
 
