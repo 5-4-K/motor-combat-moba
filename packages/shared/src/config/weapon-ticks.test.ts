@@ -27,8 +27,8 @@ describe("msToTicks", () => {
 describe("WEAPON_TICKS", () => {
   it("derives magmablast's clocks from its milliseconds", () => {
     const ticks = weaponTicksOf("magmablast");
-    // 16000ms is exactly 16 s of ticks.
-    expect(ticks.cooldown).toBe((16000 * TICK_RATE_HZ) / 1000);
+    // 1600ms is exactly 1.6 s of ticks.
+    expect(ticks.cooldown).toBe((1600 * TICK_RATE_HZ) / 1000);
     expect(ticks.startUp).toBe(0);
     expect(ticks.recovery).toBe(0);
     expect(ticks.refireDelay).toBe(0); // no stock block
@@ -44,7 +44,7 @@ describe("WEAPON_TICKS", () => {
   });
 
   it("derives the roster's new-mechanic clocks for the rows that carry them (spec 2026-09-01)", () => {
-    expect(weaponTicksOf("thumper").projectileLifetime).toBe((2900 * TICK_RATE_HZ) / 1000);
+    expect(weaponTicksOf("thumper").projectileLifetime).toBe((3000 * TICK_RATE_HZ) / 1000);
     expect(weaponTicksOf("wildcharge").maneuverDuration).toBe((10000 * TICK_RATE_HZ) / 1000);
     expect(weaponTicksOf("predator").homingDuration).toBe((2000 * TICK_RATE_HZ) / 1000);
   });

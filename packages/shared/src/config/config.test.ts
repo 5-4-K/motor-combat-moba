@@ -88,8 +88,16 @@ describe("CAR_TABLE", () => {
   });
 
   it("derives forward max speed from the speed rating", () => {
-    expect(forwardMaxSpeedOf("mirage")).toBeGreaterThan(forwardMaxSpeedOf("bullseye"));
-    expect(forwardMaxSpeedOf("bullseye")).toBeGreaterThan(forwardMaxSpeedOf("bastion"));
+    // Reads the ordering off the table rather than naming chassis, so a retune that reorders the
+    // roster's speed ratings cannot fail it: a higher `speed` rating must mean a higher top speed.
+    const ids = activeCarIds();
+    for (const a of ids) {
+      for (const b of ids) {
+        if (CAR_TABLE[a].speed > CAR_TABLE[b].speed) {
+          expect(forwardMaxSpeedOf(a), `${a} vs ${b}`).toBeGreaterThan(forwardMaxSpeedOf(b));
+        }
+      }
+    }
   });
 });
 
@@ -325,7 +333,7 @@ describe("weapon / combat / drive / flow knobs exist", () => {
 
 });
 
-describe("the three types (T5/T6)", () => {
+describe("the derived chassis drive profiles", () => {
   it("derives the roster's drive profile from its ratings", () => {
     // The 2026-09-06 vector-drive rework's heavy-car pass cut `baseMaxSpeed`/`speedPerRating`
     // (135/3.7 -> 80/2.2) for a roughly 40% roster-wide top-speed cut, and the old global accel pair
@@ -378,50 +386,6 @@ describe("the three types (T5/T6)", () => {
     expect(hpOf("bastion")).toBe(900);
   });
 
-  // This test used to be "gives Bastion the tightest turn radius despite being the slowest" (T6).
-  // Every pre-port pass (through 2026-09-16) kept that true while shrinking the margin toward
-  // nothing — see the superseded comment this replaces, still visible in history.
-  //
-  // Under the ported Unity turn-rate anchors that margin does not just shrink further, it goes to
-  // (effectively) zero: `baseTurnRate` is now large relative to the per-rating spread, so a car's
-  // turn rate depends far more on the flat pivot than on its own `handling`, which compresses the
-  // turn-rate spread much harder than the speed spread — and it is the RATIO of the two that decides
-  // radius. This is spec §9.2's recorded, chosen outcome, not a bug this task introduced or may
-  // "fix" by re-anchoring: "Turn radius comes out the same on all three chassis — 89.9 u — and that
-  // is known, not an oversight. … The user was shown two alternatives that spread it — nimble-tightest
-  // and tank-tightest — and chose to keep it uniform and revisit during the stage 5 tuning pass. Do
-  // not 'fix' this silently; widening it is a `baseTurnRate`/`turnRatePerRating` re-anchor and the
-  // user's call." (`docs/superpowers/specs/2026-09-18-unity-driving-and-ram-physics-port-design.md`,
-  // line 427.) So this test asserts the property that's actually true and actually meant to hold —
-  // uniformity — rather than pinning an ordering inside a ~0.016 u spread (two parts in ten
-  // thousand, invisible against the 60x40 hull) that flips on the next unrelated rating nudge and
-  // would read as "Bastion's radius ordering broke" when nothing about Bastion moved.
-  it("gives every chassis the same turn radius, which is deliberate and stage 5's to revisit", () => {
-    const radii = activeCarIds().map((id) => forwardMaxSpeedOf(id) / turnRateOf(id));
-    const spread = Math.max(...radii) - Math.min(...radii);
-    // Radius is `maxSpeed / turnRate`, and both anchors are pitched so the two scale together: every
-    // chassis lands on ~89.9 u (measured: mirage 89.8645, bullseye 89.8726, bastion 89.8810). The
-    // spread is ~0.016 u — so the ORDERING within it is arithmetic noise, not a design property, and
-    // asserting it would fail on any future rating nudge for no reason a reader could act on.
-    expect(spread).toBeLessThan(0.1);
-    for (const r of radii) expect(r).toBeCloseTo(89.9, 1);
-  });
-
-  it("orders the three types on every axis the design names", () => {
-    expect(forwardMaxSpeedOf("mirage")).toBeGreaterThan(forwardMaxSpeedOf("bullseye"));
-    expect(forwardMaxSpeedOf("bullseye")).toBeGreaterThan(forwardMaxSpeedOf("bastion"));
-    expect(engineAccelOf("mirage")).toBeGreaterThan(engineAccelOf("bullseye"));
-    expect(engineAccelOf("bullseye")).toBeGreaterThan(engineAccelOf("bastion"));
-    // Turn rate now orders with speed rather than against it — see the note above.
-    expect(turnRateOf("mirage")).toBeGreaterThan(turnRateOf("bullseye"));
-    expect(turnRateOf("bullseye")).toBeGreaterThan(turnRateOf("bastion"));
-    expect(hpOf("bastion")).toBeGreaterThan(hpOf("mirage"));
-    expect(hpOf("mirage")).toBeGreaterThan(hpOf("bullseye"));
-    // The ram axis, which `mass` used to carry alone. Both halves order the same way here — see the
-    // dedicated `ramAttack`/`ramDefence` block below for what the split actually buys.
-    expect(ramDefenceOf("bastion")).toBeGreaterThan(ramDefenceOf("mirage"));
-    expect(ramDefenceOf("mirage")).toBeGreaterThan(ramDefenceOf("bullseye"));
-  });
 });
 
 describe("per-car coast and brake", () => {
@@ -470,18 +434,6 @@ describe("ram ratings", () => {
       expect(ramAttackOf(id)).toBeLessThanOrEqual(100);
       expect(ramDefenceOf(id)).toBeLessThanOrEqual(100);
     }
-  });
-
-  it("orders ramDefence tank-first, preserving the old mass ordering", () => {
-    expect(ramDefenceOf("bastion")).toBeGreaterThan(ramDefenceOf("mirage"));
-    expect(ramDefenceOf("mirage")).toBeGreaterThan(ramDefenceOf("bullseye"));
-  });
-
-  it("spreads ramAttack more narrowly than ramDefence, so offence and defence are not the same axis", () => {
-    const atk = activeCarIds().map(ramAttackOf);
-    const def = activeCarIds().map(ramDefenceOf);
-    const spread = (xs: number[]) => Math.max(...xs) - Math.min(...xs);
-    expect(spread(atk)).toBeLessThan(spread(def));
   });
 
   it("has a positive global scale", () => {

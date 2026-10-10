@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import {
   DRIVE_CONFIG, ManeuverKind, NEUTRAL_MODIFIERS, TICK_RATE_HZ, driveOf, forwardOf, speedOf, stepDrive,
-  turnRateOf, type SimBody,
+  activeCarIds, turnRateOf, type CarId, type SimBody,
 } from "@motor-combat-moba/shared";
 import { RESOLVED_BOT_PROFILES, BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
@@ -158,8 +158,8 @@ describe("rollForward", () => {
 });
 
 describe("steerFromObservedTurn", () => {
-  const fullLock = (carId: "mirage" | "bastion") => turnRateOf(carId);
-  const threshold = (carId: "mirage" | "bastion") =>
+  const fullLock = (carId: CarId) => turnRateOf(carId);
+  const threshold = (carId: CarId) =>
     turnRateOf(carId) * BRAIN_CONSTANTS.fullLockAngVelFraction;
 
   it("reads a car at full lock as steering, in both directions", () => {
@@ -183,12 +183,17 @@ describe("steerFromObservedTurn", () => {
   });
 
   it("keys the threshold to the chassis, so a slower-turning car clears it sooner", () => {
-    // Bastion's full lock (6.30 rad/s) is below Mirage's (8.19), so its threshold is lower too --
-    // one absolute rate would read a slow chassis's genuine full lock as noise.
-    expect(threshold("bastion")).toBeLessThan(threshold("mirage"));
-    const between = (threshold("bastion") + threshold("mirage")) / 2;
-    expect(steerFromObservedTurn(between, "bastion")).toBe(1);
-    expect(steerFromObservedTurn(between, "mirage")).toBe(0);
+    // The slowest- and fastest-turning active chassis are read off the table, not named, so a
+    // retune that reorders the roster's handling cannot fail this. A slower full lock means a lower
+    // threshold -- one absolute rate would read a slow chassis's genuine full lock as noise.
+    const byTurn = [...activeCarIds()].sort((a, b) => turnRateOf(a) - turnRateOf(b));
+    const slow = byTurn[0]!;
+    const fast = byTurn[byTurn.length - 1]!;
+    expect(turnRateOf(slow), "the roster needs two distinct turn rates").toBeLessThan(turnRateOf(fast));
+    expect(threshold(slow)).toBeLessThan(threshold(fast));
+    const between = (threshold(slow) + threshold(fast)) / 2;
+    expect(steerFromObservedTurn(between, slow)).toBe(1);
+    expect(steerFromObservedTurn(between, fast)).toBe(0);
   });
 
   it("reconstructing the input sustains a turn that a free-running angVel lets decay", () => {

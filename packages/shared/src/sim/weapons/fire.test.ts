@@ -7,7 +7,7 @@ import { WEAPON_SLOT_CONFIG } from "../../config/weapon-slots.js";
 import type { WeaponId } from "../../config/weapon-types.js";
 import { msToTicks } from "../../config/weapon-ticks.js";
 import { installMode } from "../../modes/active.js";
-import { assembleModeConfig } from "../../modes/build.js";
+import { assembleTurretRestored } from "../../modes/test-setup.js";
 import { BRAWL_TABLES } from "../../modes/brawl/index.js";
 import { beginFire, cancelPending, newFireState, releaseShots, tickRecharge, type FireState } from "./fire.js";
 import { spawnInstances, type ShotOrder } from "./instances.js";
@@ -28,6 +28,9 @@ const SLOT_2 = 0b010;
  */
 const ABILITY_1 = 0b010;
 
+/** Predator's cooldown in ticks, read from the table (a function: the table is per-mode, so never at module scope). */
+const predatorCooldownTicks = (): number => msToTicks(weaponDefOf("predator").cooldownMs);
+
 /**
  * Pins `slots().basicAttackEnabled` ON for the enclosing `describe`, restoring the ordinary
  * `BRAWL_TABLES` bundle afterwards — the same idiom `installBasicAttackEnabled` below uses for the
@@ -44,18 +47,18 @@ const ABILITY_1 = 0b010;
 function pinBasicAttackEnabled(): void {
   beforeEach(() => {
     installMode(
-      assembleModeConfig(DEFAULT_GAME_MODE, {
+      assembleTurretRestored(DEFAULT_GAME_MODE, {
         ...BRAWL_TABLES,
         slots: { ...BRAWL_TABLES.slots, basicAttackEnabled: true },
       }),
     );
   });
   afterEach(() => {
-    installMode(assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES));
+    installMode(assembleTurretRestored(DEFAULT_GAME_MODE, BRAWL_TABLES));
   });
 }
 
-beforeEach(() => installMode(assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES)));
+beforeEach(() => installMode(assembleTurretRestored(DEFAULT_GAME_MODE, BRAWL_TABLES)));
 
 /** Bullseye, as shipped since the 2026-09-02 loadout swap: slot 1 predator, slot 2 pepperbox, slot 3 lance. */
 const fresh = () => newFireState("bullseye", 1);
@@ -203,7 +206,7 @@ describe("releasing", () => {
       { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: 0 },
     ]);
     expect(state.pending).toBeNull();
-    expect(state.slots[1]!.rechargeEndsTick).toBe(100 + TICK_RATE_HZ); // 1000ms == one second of ticks
+    expect(state.slots[1]!.rechargeEndsTick).toBe(100 + predatorCooldownTicks()); // 1300ms of ticks
     expect(state.lastFiredSlot).toBe(1);
   });
 
@@ -316,7 +319,7 @@ describe("per-tick order", () => {
   }
 
   it("fires a zero-start-up weapon on the tick it is pressed, in the canonical recharge -> beginFire -> turnTurret -> releaseShots order", () => {
-    let state = fresh(); // predator: startUpMs 0, cooldownMs 1000ms == TICK_RATE_HZ ticks, single stock
+    let state = fresh(); // predator: startUpMs 0, cooldownMs 1300ms == predatorCooldownTicks(), single stock
     const seen: ShotOrder[] = [];
 
     // Tick 100: press and fire must both land on this SAME tick — not the next one. Under the
@@ -332,7 +335,7 @@ describe("per-tick order", () => {
     expect(state.slots[1]!.stocks).toBe(0);
 
     // Idle through the cooldown window: no stock yet, nothing fires.
-    for (let tick = 101; tick < 100 + TICK_RATE_HZ; tick++) {
+    for (let tick = 101; tick < 100 + predatorCooldownTicks(); tick++) {
       const idled = step(state, tick, 0);
       state = idled.state;
       seen.push(...idled.orders);
@@ -340,14 +343,14 @@ describe("per-tick order", () => {
     expect(seen).toHaveLength(1);
     expect(state.slots[1]!.stocks).toBe(0);
 
-    // The stock lands on this exact tick (100 + predator's 1000 ms cooldown). A second press must
+    // The stock lands on this exact tick (100 + predator's 1300 ms cooldown). A second press must
     // fire again, same tick, proving the cycle repeats rather than being a one-shot fluke.
-    const step2 = step(state, 100 + TICK_RATE_HZ, ABILITY_1);
+    const step2 = step(state, 100 + predatorCooldownTicks(), ABILITY_1);
     state = step2.state;
     seen.push(...step2.orders);
     expect(seen).toEqual([
       { weaponId: "predator", slot: 1, finalVolley: true, pressId: "p1#100#1", bearing: 0 },
-      { weaponId: "predator", slot: 1, finalVolley: true, pressId: `p1#${100 + TICK_RATE_HZ}#1`, bearing: 0 },
+      { weaponId: "predator", slot: 1, finalVolley: true, pressId: `p1#${100 + predatorCooldownTicks()}#1`, bearing: 0 },
     ]);
   });
 
@@ -588,14 +591,14 @@ describe("the basic-attack toggle (slots().basicAttackEnabled)", () => {
   // (what this file's own top-level `beforeEach` installs before every test) afterward.
   function installBasicAttackEnabled(enabled: boolean): void {
     installMode(
-      assembleModeConfig(DEFAULT_GAME_MODE, {
+      assembleTurretRestored(DEFAULT_GAME_MODE, {
         ...BRAWL_TABLES,
         slots: { ...BRAWL_TABLES.slots, basicAttackEnabled: enabled },
       }),
     );
   }
   afterEach(() => {
-    installMode(assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES));
+    installMode(assembleTurretRestored(DEFAULT_GAME_MODE, BRAWL_TABLES));
   });
 
   it("drops a basic-attack-only press when disabled — the key does nothing", () => {

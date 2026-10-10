@@ -1481,7 +1481,7 @@ const ROADBLOCK_PAINT = {
  * hitbox. `projectile-marks.test.ts` pins both.
  *
  * The hull/tip/band/disc/spikes primitives cannot describe a toothed bar, so every layer is a
- * `poly`. Cost: one `fillPoints` per layer per live roadblock; at 6 s cooldown a room has at most
+ * `poly`. Cost: one `fillPoints` per layer per live roadblock; at 8 s cooldown a room has at most
  * one per player.
  */
 function roadblockRollerLayers(): ProjectileLayer[] {

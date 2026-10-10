@@ -195,14 +195,16 @@ status never stacks with itself, and a flag-carrying debuff is forced to `reappl
   `beginFire` scans **descending** and takes the highest set bit, so on a same-tick tie the
   highest-indexed slot wins and the basic attack always loses. A menu opens on `P` (and `Esc`, via
   pointer-lock loss) in every room.
-- **Turret.** A weapon carrying `WeaponBase.turret` fires along the bearing the player clicked
-  (`InputFrame.aimAngle`), frozen at the press, clamped to `TURRET_CONFIG.maxSwingDeg` (60° arc). The
-  turret turns at `turnRateDegPerSec` before wind-up; the shot spawns from `turretPivotOf` plus
-  `defaultOffset`, clamped so it is never born through a wall. Turret rows today: the nine
-  basic-attack rows (inert while the flag is off) plus `predator`, `magmablast`, `thumper`,
-  `fury-horn` and `roadblock` — so **every active chassis aims with the mouse in every mode**, with
-  pointer lock and a crosshair. Brawl sets `turret.visible: false`: no turret drawn and an instant
-  turn, but mouse aim still applies. See [`docs/combat-model.md`](docs/combat-model.md#turret-muzzle)
+- **Turret.** The turret system is **switched off in every mode** by commenting out each row's
+  `turret: { additionalOffset: 0 }` in `weapon-config.ts` (`BASIC_ATTACK_BASE`, `predator`,
+  `magmablast`, `thumper`, `roadblock`, `fury-horn`): every weapon fires from its fixed front muzzle
+  along the heading, and **no chassis aims with the mouse**. The machinery stays intact — a weapon
+  carrying `WeaponBase.turret` fires along the clicked bearing (`InputFrame.aimAngle`), frozen at the
+  press, clamped to `TURRET_CONFIG.maxSwingDeg`, turned at `turnRateDegPerSec` before wind-up — and
+  its tests run on a test-only turret-restored bundle (`assembleTurretRestored`). Pointer lock is
+  still held whenever a car is driven (`ArenaScene.wantsPointerLock`); the crosshair and aim ring
+  draw only for a car with a turret weapon (`aimsTurret`), i.e. never today. Brawl's
+  `turret.visible: false` is inert. To bring it back, uncomment the rows. See [`docs/combat-model.md`](docs/combat-model.md#turret-muzzle)
   and [`docs/superpowers/specs/2026-09-21-mouse-aim-turret-design.md`](docs/superpowers/specs/2026-09-21-mouse-aim-turret-design.md).
 
 ### Notable weapon mechanics

@@ -175,13 +175,18 @@ describe("fullStatsFor", () => {
     expect(rows.find((r) => r.label === "Ram resistance")?.value).toBe(String(ramDefenceOf("bastion")));
   });
 
-  // The tank out-rams and out-resists the speedster on BOTH axes today, and the point of splitting
-  // one rating into two is that it need not stay that way: a future chassis may hit hard and shove
-  // easily. So this pins the shipped roster's ordering, not a rule the panel enforces.
-  it("shows the tank ahead of the speedster on both ram ratings", () => {
+  // The panel must rank cars the way the ratings do, on each ram axis independently. Which chassis
+  // is ahead is read off the table at run time, so retuning the roster cannot fail this.
+  it("orders the ram rows the same way the ram ratings order the cars", () => {
     const of = (id: CarId, label: string) => Number(fullStatsFor(id).find((r) => r.label === label)!.value);
-    expect(of("bastion", "Ram power")).toBeGreaterThan(of("mirage", "Ram power"));
-    expect(of("bastion", "Ram resistance")).toBeGreaterThan(of("mirage", "Ram resistance"));
+    const ids = activeCarIds();
+    for (const [label, rating] of [["Ram power", ramAttackOf], ["Ram resistance", ramDefenceOf]] as const) {
+      for (const a of ids) {
+        for (const b of ids) {
+          if (rating(a) > rating(b)) expect(of(a, label), `${label}: ${a} vs ${b}`).toBeGreaterThan(of(b, label));
+        }
+      }
+    }
   });
 });
 

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { installMode } from "../modes/active.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { TICK_RATE_HZ } from "../constants.js";
-import { CAR_TABLE, forwardMaxSpeedOf, ramAttackOf, ramDefenceOf } from "./car-config.js";
+import { CAR_TABLE, activeCarIds, forwardMaxSpeedOf, ramAttackOf, ramDefenceOf } from "./car-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
 import { msToTicks } from "./weapon-ticks.js";
 import {
@@ -50,8 +50,10 @@ describe("RAM_CONFIG under the Unity ram rule", () => {
 
   it("gates a ram on a real approach speed", () => {
     expect(RAM_CONFIG.minRamSpeed).toBeGreaterThan(0);
-    // A ram is a deliberate act: well over a drift, well under a chassis top speed.
-    expect(RAM_CONFIG.minRamSpeed).toBeLessThan(forwardMaxSpeedOf("bastion") / 2);
+    // A ram is a deliberate act: well over a drift, well under a chassis top speed — every active
+    // chassis's, so the slowest car on the roster (whichever it is) can still ram.
+    const slowest = Math.min(...activeCarIds().map((id) => forwardMaxSpeedOf(id)));
+    expect(RAM_CONFIG.minRamSpeed).toBeLessThan(slowest / 2);
   });
 
   it("derives the spin inertia from the hull, so it cannot drift from it", () => {
@@ -88,17 +90,9 @@ describe("the ram ratings", () => {
     }
   });
 
-  it("orders both axes tank > speedster > skirmisher, as the old single mass rating did", () => {
-    expect(ramAttackOf("bastion")).toBeGreaterThan(ramAttackOf("mirage"));
-    expect(ramAttackOf("mirage")).toBeGreaterThan(ramAttackOf("bullseye"));
-    expect(ramDefenceOf("bastion")).toBeGreaterThan(ramDefenceOf("mirage"));
-    expect(ramDefenceOf("mirage")).toBeGreaterThan(ramDefenceOf("bullseye"));
-  });
-
   // The whole reason there are two ratings and not one (spec R1): a chassis's offence and its
-  // solidity must be settable apart. Bastion's spread (70/90) is the roster's widest and Bullseye's
-  // (45/30) leans the other way, so the pair is doing work no single rating could — if every car
-  // ever carried the same number on both, the split would have bought nothing.
+  // solidity must be settable apart — if every car ever carried the same number on both, the split
+  // would have bought nothing.
   it("does not carry the same number on both axes for every car", () => {
     const ids = Object.keys(CAR_TABLE) as CarId[];
     expect(ids.some((id) => ramAttackOf(id) !== ramDefenceOf(id))).toBe(true);

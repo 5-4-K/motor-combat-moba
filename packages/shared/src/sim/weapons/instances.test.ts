@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { installMode } from "../../modes/active.js";
+import { cars, installMode } from "../../modes/active.js";
 import { applyOverrides } from "../../modes/overlay.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../../modes/registry.js";
+import { turretRestored } from "../../modes/test-setup.js";
 import { MS_PER_TICK, TICK_RATE_HZ } from "../../constants.js";
 import { TURRET_CONFIG } from "../../config/turret-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
-import { DEFAULT_CAR_ID } from "../../config/car-config.js";
+import { DEFAULT_CAR_ID, activeCarIds } from "../../config/car-config.js";
 import { WEAPON_TABLE } from "../../config/weapon-config.js";
 import { ARENA_01 } from "../../arena/arena-01.js";
 import { boundsOf, playableRectOf } from "../../arena/bounds.js";
@@ -23,7 +24,7 @@ import {
   type WeaponInstance,
 } from "./instances.js";
 
-beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+beforeEach(() => installMode(turretRestored(modeConfigOf(DEFAULT_GAME_MODE))));
 
 const DT = MS_PER_TICK / 1000;
 const BOUNDS = { width: 2000, height: 1200 };
@@ -76,15 +77,18 @@ describe("spawning", () => {
   });
 
   it("gives a harder-hitting chassis a harder-hitting shot from the same weapon", () => {
-    // T5 made mirage the roster's highest-attack chassis (63, above bullseye's 55 and bastion's
-    // 42), so it can no longer be the "softer" baseline this test compares against — bullseye vs
-    // bastion is the pair that still orders the way the test name says.
-    const softHitter = { ...owner, carId: "bastion" };
-    const hardHitter = { ...owner, carId: "bullseye" };
+    // The lowest- and highest-`attack` active chassis are read off the table, not named, so a
+    // retune that reorders the roster's attack ratings cannot fail this.
+    const byAttack = [...activeCarIds()].sort((a, b) => cars()[a].attack - cars()[b].attack);
+    const softId = byAttack[0]!;
+    const hardId = byAttack[byAttack.length - 1]!;
+    expect(cars()[softId].attack, "the roster needs two distinct attack ratings").toBeLessThan(cars()[hardId].attack);
+    const softHitter = { ...owner, carId: softId };
+    const hardHitter = { ...owner, carId: hardId };
     const soft = spawnInstances({ weaponId: "roadblock", slot: 0, finalVolley: true }, softHitter, 100, 0).instances[0]!;
     const hard = spawnInstances({ weaponId: "roadblock", slot: 0, finalVolley: true }, hardHitter, 100, 0).instances[0]!;
-    expect(hard.damage).toBe(weaponDamageOf("bullseye", "roadblock"));
-    expect(soft.damage).toBe(weaponDamageOf("bastion", "roadblock"));
+    expect(hard.damage).toBe(weaponDamageOf(hardId, "roadblock"));
+    expect(soft.damage).toBe(weaponDamageOf(softId, "roadblock"));
     expect(hard.damage).toBeGreaterThan(soft.damage);
   });
 
@@ -294,7 +298,7 @@ describe("turret spawn (TR18-TR19)", () => {
   const TURRET_ROW = "basic-attack-mirage" as const;
 
   // The bearings below sit outside the shipped swing arc; an unrestricted one keeps these about spawn.
-  beforeEach(() => installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.maxSwingDeg": 360 })));
+  beforeEach(() => installMode(applyOverrides(turretRestored(modeConfigOf(DEFAULT_GAME_MODE)), { "turret.maxSwingDeg": 360 })));
 
   it("spawns along the bearing from the pivot, not from the nose", () => {
     const order = { weaponId: TURRET_ROW, slot: 1, finalVolley: true, pressId: "p", bearing: Math.PI / 2 };
@@ -450,7 +454,7 @@ describe("homing", () => {
   });
 });
 
-// `thumper` now ships `bounces: true` with `lifetimeMs: 2900` for real, so this exercises the real row.
+// `thumper` now ships `bounces: true` with `lifetimeMs: 3000` for real, so this exercises the real row.
 const bouncer = WEAPON_TABLE.thumper;
 const bounds = { width: 1000, height: 1000 };
 
@@ -473,7 +477,7 @@ describe("bounce", () => {
     const order = { weaponId: "thumper", slot: 0, finalVolley: true } as const;
     const { instances } = spawnInstances(order, owner, 100, 0, 1, "", bouncer);
     const shot = instances[0]!;
-    const life = (2900 * TICK_RATE_HZ) / 1000; // msToTicks(2900): 87 at 30 Hz, 174 at 60 Hz
+    const life = (3000 * TICK_RATE_HZ) / 1000; // msToTicks(3000): 90 at 30 Hz, 180 at 60 Hz
     expect(shot.expiresAtTick).toBe(100 + life);
     expect(instanceExpired({ ...shot, distance: 99999 }, 100 + life - 1, bouncer)).toBe(false); // range ignored
     expect(instanceExpired(shot, 100 + life, bouncer)).toBe(true);

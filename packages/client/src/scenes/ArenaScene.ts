@@ -2631,13 +2631,13 @@ export class ArenaScene extends Phaser.Scene {
     const aim = local ? this.aimPointFor(this.localRenderPose(bodyOf(local))) : undefined;
     const show =
       aim !== undefined &&
+      this.aimsTurret(room) &&
       this.lock.locked &&
       local?.status === PlayerStatus.IN_MATCH &&
       local.alive &&
       !this.menuOpen(room);
-    // `this.lock.locked` already carries the turret gate — a turret-less car never acquires the lock
-    // and the release above gives one up the frame its last turret weapon goes — so the crosshair
-    // goes with the rest of its group without a second read of the loadout.
+    // The lock no longer carries the turret gate (it is held whenever a car is driven), so the
+    // crosshair reads `aimsTurret` itself: a turret-less car keeps the lock but draws no crosshair.
     gfx.setVisible(show);
     if (!show) return;
     const cam = this.cameras.main;
@@ -2726,32 +2726,32 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * Does the driven car have anything to aim? — the one predicate behind the whole turret half of
-   * mouse control (TR53).
-   *
-   * True when its current fire slots carry a weapon that fires from the turret, which is exactly
-   * what `drawCar` asks before it builds a turret at all. False and three things follow together,
-   * because they are one decision: the turret HUD is not drawn (the ring, the swing limits), the
-   * crosshair is not drawn, and the browser is never asked for pointer lock — a captured, invisible
-   * cursor buys a player nothing when there is no bearing to choose and nothing on screen tracking
-   * it.
-   *
-   * Firing does NOT follow. `fireButtons` takes this same answer and lets the mouse buttons through
-   * unlocked, which is how LMB and RMB worked before the turret existed: click anywhere at all, and
-   * the shot leaves the fixed muzzle it was always going to leave.
+   * Does the driven car have anything to aim? — the predicate behind the turret half of mouse control
+   * (TR53): the turret HUD (the ring, the swing limits) and the crosshair are drawn only when its
+   * current fire slots carry a weapon that fires from the turret, which is exactly what `drawCar` asks
+   * before it builds a turret at all.
    *
    * Read per frame off `PlayerState.weapons` rather than cached at match start, because a loadout
-   * changes under a live car in the playground and the lock must not outlive the turret.
+   * changes under a live car in the playground.
    *
-   * Nothing in the shipped roster makes this false today: every active chassis carries a turret
-   * ability (`magmablast`, `predator`, `thumper`) on top of a basic attack that is one, so it takes
-   * a hand-built turret-less loadout to reach. It is the rule the code should hold anyway, and the
-   * day a chassis ships without one it is already right.
+   * False for every shipped chassis while the turret system is switched off (2026-10-10: every
+   * weapon row's `turret` is commented out in shared's weapon config), so no crosshair is drawn.
    */
-  private wantsPointerLock(room: Room<ArenaState>): boolean {
+  private aimsTurret(room: Room<ArenaState>): boolean {
     const local = room.state.players.get(this.drivenSid(room));
     if (!local) return false;
     return carHasTurretWeapon(local.weapons.map((slot) => slot.weaponId));
+  }
+
+  /**
+   * Should the browser hold pointer lock for the driven car? Yes whenever there is one — no longer
+   * tied to the turret (2026-10-10). With the turret system switched off, the lock still keeps LMB
+   * and RMB from clicking out of the canvas mid-fight, and `Esc` still opens the menu through
+   * pointer-lock loss. `fireButtons` takes this same answer, so mouse buttons count only while
+   * locked, exactly as they did for every shipped chassis before.
+   */
+  private wantsPointerLock(room: Room<ArenaState>): boolean {
+    return room.state.players.get(this.drivenSid(room)) !== undefined;
   }
 
   /**
@@ -2884,9 +2884,8 @@ export class ArenaScene extends Phaser.Scene {
   /**
    * This tick's keys and buttons, as an input carrying `aimAngle`.
    *
-   * `usesLock` is `wantsPointerLock`: true for a car that aims a turret, so its mouse buttons count
-   * only while the cursor is captured (TR31); false for a turret-less car, whose buttons count
-   * always, since it never asks for the lock in the first place.
+   * `usesLock` is `wantsPointerLock`: true whenever a car is driven, so its mouse buttons count only
+   * while the cursor is captured (TR31); false only with no driven car.
    */
   private readInput(aimAngle: number, usesLock: boolean): InputKeys {
     return {
@@ -3902,7 +3901,7 @@ export class ArenaScene extends Phaser.Scene {
       // The turret group answers to the loadout as well as to the switch: a car with no turret
       // weapon draws no turret, so it gets no ring and no swing limits either (TR53). The crosshair,
       // the third member of that group, is hidden by `syncCrosshair` through the same gate.
-      showTurret: AIM_HUD_CONFIG.turretHud && this.wantsPointerLock(room),
+      showTurret: AIM_HUD_CONFIG.turretHud && this.aimsTurret(room),
       // The muzzle group answers to the switch alone. Every chassis has a heading.
       showMuzzle: AIM_HUD_CONFIG.muzzleHud,
       // The playground's own crosshair reach where one is set, the shipped value everywhere else —

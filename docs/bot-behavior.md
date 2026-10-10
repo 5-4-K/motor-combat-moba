@@ -100,7 +100,7 @@ press per decision, never inside `burstGapMs` of the last press or the bot's own
 2. else the kit's setup slot (the one that applies `stunned` to opponents) if it is pressable;
 3. else the pressable slot with the highest expected damage.
 
-Cooldown never enters the ranking and there is no ult holding: a 16 s weapon that will land fires
+Cooldown never enters the ranking and there is no ult holding: a long-cooldown weapon (wildcharge, 20 s) that will land fires
 like any other. A turret press aims at the solution's `turretBearingRad` plus the realised aim
 offset. A ready fixed-muzzle slot in reach but not pressable makes `fight` face `nose`, not orbit.
 `recover` keeps the shooter: a car under `reeling` or `ramLock` cannot drive but still fires, as a

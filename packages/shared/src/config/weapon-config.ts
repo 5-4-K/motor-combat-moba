@@ -36,12 +36,11 @@ const BASIC_ATTACK_BASE = {
   pierce: 0,
   volley: { volleys: 1, volleyIntervalMs: 0 },
   pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
-  // Kept on this build even though `slots().basicAttackEnabled` is `false` for every shipped mode
-  // and the three ability rows gave theirs back: the flag is what silences the weapon, and
-  // stripping the row as well would mean two edits to bring the basic attack back instead of one.
-  // It reaches nothing while the flag is off — `carHasTurretWeapon` skips fire slot 0 outright — so
-  // it costs a build nothing to leave authored.
-  turret: { additionalOffset: 0 },
+  // The turret system is switched off in every mode (2026-10-10): every turret row's `turret` is
+  // commented out rather than deleted, so each weapon fires from its fixed front muzzle along the
+  // heading. Uncomment to bring the turret back; the machinery (`TURRET_CONFIG`, aim input, turret
+  // drawing) is untouched and simply has no row to act on.
+  // turret: { additionalOffset: 0 },
 } as const;
 
 /**
@@ -83,11 +82,11 @@ export const WEAPON_TABLE = {
    * 900 u/s this arcs at 172 u — tight enough to convert a 200 u grab. The old 120 deg/s would arc
    * at 430 u and sail past everything it acquired. ⚙
    *
-   * 1.0 Hz makes it the
+   * 1300 ms (about 0.77 Hz, since 2026-10-10; was 1.0 Hz) still makes it the
    * tightest margin in the table, and this is the fastest aim-assisted row the roster carries. Do
    * not retune this cooldown toward 800 ms without re-reading that guard.
    *
-   * Its 2 s life on a 1000 ms cooldown means up to two in the air at once — which is why the
+   * Its 2 s life on a 1300 ms cooldown means up to two in the air at once — which is why the
    * two-instances guard is scoped to bouncing rows.
    */
   predator: {
@@ -103,8 +102,8 @@ export const WEAPON_TABLE = {
     speed: 900,
     range: 1800, // = speed x lifetimeMs; see the comment above for why this is authored at all
     startUpMs: 0,
-    cooldownMs: 1000,
-    turret: { additionalOffset: 0 },
+    cooldownMs: 1300,
+    // turret: { additionalOffset: 0 }, — turret system off (see BASIC_ATTACK_BASE); fixed front muzzle
     recoveryMs: 0,
     // 38 units long, of which the rear 10 are the exhaust plume the client draws (2026-09-04).
     // Grown from 14 deliberately and as a BUFF, not a wash: the plume was drawn first as art
@@ -232,8 +231,8 @@ export const WEAPON_TABLE = {
     speed: 600,
     range: 900,
     startUpMs: 0,
-    cooldownMs: 16000,
-    turret: { additionalOffset: 0 },
+    cooldownMs: 1600,
+    // turret: { additionalOffset: 0 }, — turret system off (see BASIC_ATTACK_BASE); fixed front muzzle
     recoveryMs: 0,
     hitbox: { shape: "circle", radius: 12 },
     pierce: 0,
@@ -355,7 +354,7 @@ export const WEAPON_TABLE = {
   /**
    * Bastion's slot 1, and after T16 the roster's CC engager, though as of the 2026-09-01 overhaul
    * the CC itself has moved on. A fat, slow slug: at 48 x 30 it is still the largest hitbox in the
-   * table and near-unmissable in a brawl, while 450 u/s over its 1305-unit bounce reach means a
+   * table and near-unmissable in a brawl, while 450 u/s over its 1350-unit bounce reach means a
    * genuinely dodgeable shot at range. It buys pressure, not a ranged win — but Bastion is 99 u/s
    * slower than Bullseye and 261 slower than Mirage, so without one weapon that reaches at all, the
    * slowest chassis has no answer to a patient opponent.
@@ -363,20 +362,20 @@ export const WEAPON_TABLE = {
    * **The stun's whole history paragraph is superseded (O16).** Hard CC now enters Bastion's kit
    * through `roadblock`, not this row.
    * Thumper is the bouncing pressure shot that spikes instead: `spiked` (0.6 topSpeed, no bleed) for
-   * 3 s, a slow that keeps a target inside the fight rather than a stop that takes the fight away.
+   * 1 s (was 3 s until 2026-10-10), a slow that keeps a target inside the fight rather than a stop that takes the fight away.
    *
    * `damage` drops 75 -> 60 to pay for it: 55 on Bastion's 0.92x attack, a shot that opens a fight
    * rather than one that wins an exchange on its own.
    *
-   * `bounces: true` with `lifetimeMs: 2900` — the shot expires on a wall-bouncing flight clock rather
-   * than at `range`, guarded strictly under the 3000 ms cooldown so two bouncing instances can never
-   * coexist. `range: 1305` is `450 u/s x 2.9 s`, the honest reach figure now that expiry is
-   * clock-based and `range` is otherwise unread by a bouncing shot. Read plainly, that makes 1305
+   * `bounces: true` with `lifetimeMs: 3000` — the shot expires on a wall-bouncing flight clock rather
+   * than at `range`. Since 2026-10-10 that clock runs longer than the 2000 ms cooldown, so one Thumper
+   * can have two bouncing shells out at once; the old "lifetime under cooldown" rule was dropped by
+   * the owner on purpose. `range: 1350` is `450 u/s x 3 s`, the honest reach figure now that expiry is
+   * clock-based and `range` is otherwise unread by a bouncing shot. Read plainly, that makes 1350
    * the largest `range` value in the whole roster — bigger than `lance`'s straight 1200 — even
-   * though it is a bounced total-path length, not a poke Bastion can threaten with;
-   * `weapon-config.test.ts`'s straight-line-reach guard excludes it for exactly that reason, and
-   * whether a bouncing 1305 should out-rank a straight 1200 in play is an open balance question,
-   * not settled here.
+   * though it is a bounced total-path length, not a poke Bastion can threaten with. Whether a
+   * bouncing 1350 should out-rank a straight 1200 in play is an open balance question, not settled
+   * here.
    *
    * The cooldown is still CONSTRAINED at the low end. The aim-assist cliff guard rejects any assisted
    * weapon whose `1000 / cooldownMs` sits where it does, which
@@ -392,18 +391,18 @@ export const WEAPON_TABLE = {
     damage: 60,
     damageFrequencyMs: 0,
     speed: 450,
-    range: 1305, // 450 u/s x 2.9 s — the honest reach figure now that expiry is clock-based
+    range: 1350, // 450 u/s x 3 s — the honest reach figure now that expiry is clock-based
     startUpMs: 0,
-    cooldownMs: 16000,
-    turret: { additionalOffset: 0 },
+    cooldownMs: 2000,
+    // turret: { additionalOffset: 0 }, — turret system off (see BASIC_ATTACK_BASE); fixed front muzzle
     recoveryMs: 0,
     hitbox: { shape: "capsule", radiusAlong: 24, radiusAcross: 15 },
     pierce: 0,
     bounces: true,
-    lifetimeMs: 2900, // just under the 3000ms cooldown — a second bouncing instance can never coexist
+    lifetimeMs: 3000, // longer than the 2000 ms cooldown: two shells may be out at once (2026-10-10)
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
-    applies: [{ statusId: "spiked", target: "opponents", durationMs: 3000 }],
+    applies: [{ statusId: "spiked", target: "opponents", durationMs: 1000 }],
   },
   /**
    * Bastion's slot 2: a wall that stops what it touches (O15). The bar is 120 wide by 12 thick,
@@ -428,14 +427,14 @@ export const WEAPON_TABLE = {
     speed: 600,
     range: 500,
     startUpMs: 0,
-    cooldownMs: 6000,
-    turret: { additionalOffset: 0 },
+    cooldownMs: 8000,
+    // turret: { additionalOffset: 0 }, — turret system off (see BASIC_ATTACK_BASE); fixed front muzzle
     recoveryMs: 200,
     hitbox: { shape: "bar", radiusAlong: 6, radiusAcross: 60 },
     pierce: 4,
     // The wall stops for nothing: cars are pierced (above) and level geometry too — the bar's 60u
     // wingtips otherwise killed it in `hitsWorld` the tick it spawned whenever Bastion fired
-    // within a wingtip of a wall, reading as a dud press that still spent the 6 s cooldown. Range
+    // within a wingtip of a wall, reading as a dud press that still spent the 8 s cooldown. Range
     // alone ends it, and a camper's cover is no cover from it.
     piercesWalls: true,
     volley: { volleys: 1, volleyIntervalMs: 0 },
@@ -492,8 +491,7 @@ export const WEAPON_TABLE = {
        * Still PROVISIONAL in one respect the arithmetic cannot settle (spec §9.3): under U31 the
        * 1.4 s of reeling below is a total loss of control with no lateral grip, so a 520 u/s punt
        * carries its victim into a wall — and often the spikes — far more reliably than the same
-       * number did before. Stage 5 confirms that in the playground with the user. If it comes down,
-       * it comes down as a fraction of `hardestOrdinaryRam()`, not to a freshly typed constant.
+       * number did before. Stage 5 confirms that in the playground with the user.
        */
       speed: 520,
       direction: "radial",
@@ -632,7 +630,7 @@ export const WEAPON_TABLE = {
     range: 900,
     startUpMs: 0,
     cooldownMs: 3000,
-    turret: { additionalOffset: 0 },
+    // turret: { additionalOffset: 0 }, — turret system off (see BASIC_ATTACK_BASE); fixed front muzzle
     recoveryMs: 0,
     hitbox: { shape: "ellipse", radiusAlong: 8, radiusAcross: 16 },
     pierce: 0,

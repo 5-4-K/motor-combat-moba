@@ -6,6 +6,7 @@ import { makeRng } from "../rng.js";
 import type { BotArenaView, BotCarView, BotSlotView } from "../types.js";
 import { physicsPredictor } from "./predict.js";
 import { constantVelocityPredictor, solve, type PosePredictor, type SolverShooter } from "./solution.js";
+import { turretRestored } from "./turret-restored.fixture.js";
 
 /**
  * THE SOLVER'S PINNED ANSWERS. Every row below records, to the last bit, what `solve()` returned on
@@ -194,11 +195,11 @@ function solvePin(pin: Pin) {
 }
 
 describe("solver pins (decision-neutral optimisation guard)", () => {
-  beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+  beforeEach(() => installMode(turretRestored(modeConfigOf(DEFAULT_GAME_MODE))));
 
   for (const pin of PINS) {
     it(pin.name, () => {
-      if (pin.overrides) installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), pin.overrides));
+      if (pin.overrides) installMode(applyOverrides(turretRestored(modeConfigOf(DEFAULT_GAME_MODE)), pin.overrides));
       const got = solvePin(pin);
       const printed = `{ hitChance: ${got.hitChance}, expectedDamage: ${got.expectedDamage}`
         + (got.turretBearingRad === undefined ? " }" : `, turretBearingRad: ${got.turretBearingRad} }`);

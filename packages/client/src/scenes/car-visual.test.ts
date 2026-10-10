@@ -1,6 +1,7 @@
 import { DEATH_FADE_MS, TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GAME_MODE, GameMode, applyOverrides, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import { turretRestored } from "./turret-restored.fixture.js";
 import { CAR_TABLE, COLOR_TABLE, DEFAULT_CAR_ID, DRIVE_CONFIG, activeCarIds } from "@motor-combat-moba/shared";
 import { setCarTintOverrides } from "../fx/car-tint.js";
 import {
@@ -15,7 +16,7 @@ import {
   weaponLoadoutSignature,
 } from "./car-visual.js";
 
-beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+beforeEach(() => installMode(turretRestored(modeConfigOf(DEFAULT_GAME_MODE))));
 
 describe("carShapeOf", () => {
   it("gives every SHIPPED chassis its own silhouette", () => {
@@ -227,20 +228,20 @@ describe("drawsTurret", () => {
   const NO_TURRET_KIT = ["basic-attack-mirage", "thunderclap", "afterburner"];
 
   it("draws a turret for a turret weapon while the mode shows turrets", () => {
-    installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.visible": true }));
+    installMode(applyOverrides(turretRestored(modeConfigOf(DEFAULT_GAME_MODE)), { "turret.visible": true }));
     expect(drawsTurret(TURRET_KIT)).toBe(true);
     expect(drawsTurret(NO_TURRET_KIT)).toBe(false);
   });
 
   it("draws none when the mode hides the turret, even with a turret weapon", () => {
-    installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.visible": false }));
+    installMode(applyOverrides(turretRestored(modeConfigOf(DEFAULT_GAME_MODE)), { "turret.visible": false }));
     expect(drawsTurret(TURRET_KIT)).toBe(false);
   });
 
   it("follows the installed mode: Brawl hides it, Deathmatch shows it", () => {
-    installMode(modeConfigOf(GameMode.FFA_LAST_STANDING));
+    installMode(turretRestored(modeConfigOf(GameMode.FFA_LAST_STANDING)));
     expect(drawsTurret(TURRET_KIT)).toBe(false);
-    installMode(modeConfigOf(GameMode.FFA_DEATHMATCH));
+    installMode(turretRestored(modeConfigOf(GameMode.FFA_DEATHMATCH)));
     expect(drawsTurret(TURRET_KIT)).toBe(true);
   });
 });

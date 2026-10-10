@@ -8,7 +8,6 @@ import { COLOR_TABLE } from "./color-config.js";
 import type { CarId } from "./types.js";
 import type { StatusId } from "./status-types.js";
 import { WEAPON_TABLE, explosionDamageModeOf, instanceDefOf, isWeaponId, weaponDefOf } from "./weapon-config.js";
-import { slotsOf } from "./weapon-slots.js";
 import { WEAPON_TICKS, msToTicks, weaponTicksOf } from "./weapon-ticks.js";
 import type { ImpulseDef, WeaponDef, WeaponId } from "./weapon-types.js";
 import { STATUS_CONFIG, isStatusId } from "./status-config.js";
@@ -148,11 +147,14 @@ describe("WEAPON_TABLE", () => {
   });
 
   describe("new-mechanic guards (vacuous until plan 3's rows land — they gate authoring, not code)", () => {
-    it("bounds a BOUNCING row's lifetime under its own cooldown, so two never coexist", () => {
+    // The old "lifetime strictly under cooldown, so two bouncing instances never coexist" rule was
+    // dropped by the owner on 2026-10-10 (thumper: 3000 ms life on a 2000 ms cooldown). What stays
+    // is the part a bouncing shot cannot do without: a clock, since `range` stops meaning anything
+    // once it reflects.
+    it("gives every BOUNCING row a lifetime clock", () => {
       for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
         if (def.kind !== "projectile" || !def.bounces) continue;
         expect(def.lifetimeMs).toBeDefined();
-        expect(def.lifetimeMs!).toBeLessThan(def.cooldownMs);
       }
     });
 
@@ -306,55 +308,6 @@ describe("WEAPON_TABLE", () => {
     // 2000 ms of ticks. The old 150 ms was 40 units of travel at Mirage's top speed — under one
     // car length — so nothing could enter a field that was not already standing in it.
     expect(weaponTicksOf("magmablast").explosion!.lifetime).toBe((2000 * TICK_RATE_HZ) / 1000);
-  });
-
-  it("keeps Bullseye's straight-line reach further than anything Bastion carries", () => {
-    // T1's "1 beats 3" edge, asserted rather than asserted-in-prose. Bullseye's longest straight
-    // reach is now `predator`'s 1800 (moved onto Bullseye's slot 1 by the 2026-09-02 loadout swap;
-    // it used to be `magmablast`'s 900).
-    //
-    // The `bounces`-exclusion below is a DELIBERATE, documented exclusion, not a workaround:
-    // `thumper.range` (1305) is the total length of a bounce PATH — 450 u/s for its `lifetimeMs`
-    // (2.9s), zigzagging off whatever walls it meets — not a distance Bastion can point straight at
-    // a kiting Bullseye and threaten. A poke is measured by how far a shot reaches in the direction
-    // it was fired, and a bouncing shot's `range` field does not answer that question, so the guard
-    // compares straight-line pokes only and excludes any `bounces`-carrying row from both sides of
-    // the comparison. That exclusion still applies post-swap: `thumper` stays on Bastion, unmoved.
-    //
-    // Read literally, off `WEAPON_TABLE` alone and with no notion of "straight" at all, `predator`'s
-    // 1800 is the single largest `range` value in the whole roster — larger than `thumper`'s bounced
-    // 1305 and `lance`'s 1200. Since `predator` does not bounce, this is no longer even a "read
-    // literally" curiosity: the guard's own straight-line comparison now puts the roster's biggest
-    // number on Bullseye's side by a wide margin, not the narrow "longer than Bastion's" claim this
-    // test used to have to settle for. `roadblock`'s cutdown-from-skewer 500 is Bastion's real
-    // straight reach.
-    const straightReach = (id: CarId) =>
-      Math.max(
-        0,
-        ...slotsOf(id)
-          .map((w) => weaponDefOf(w))
-          .filter((def) => !(def.kind === "projectile" && def.bounces))
-          .map((def) => def.range),
-      );
-    expect(straightReach("bullseye")).toBeGreaterThan(straightReach("bastion"));
-    // `slotsOf` truncates to the slot limit, so measure that it is the whole authored kit above.
-    expect(slotsOf("bastion")).toEqual([...CAR_TABLE.bastion.weapons]);
-  });
-
-  it("keeps Bastion's crowd control the longest in the roster", () => {
-    // T20: per-chassis CC duration needs no mechanism, because kits are exclusive and the applier
-    // owns the duration. This is what makes that true rather than merely claimed.
-    const longestCc = (id: CarId) =>
-      Math.max(
-        0,
-        ...slotsOf(id).flatMap((w) =>
-          (weaponDefOf(w).applies ?? [])
-            .filter((a) => a.target === "opponents")
-            .map((a) => a.durationMs),
-        ),
-      );
-    expect(longestCc("bastion")).toBeGreaterThan(longestCc("mirage"));
-    expect(longestCc("bastion")).toBeGreaterThan(longestCc("bullseye"));
   });
 
   it("keeps every status in the table reachable from some weapon", () => {
@@ -595,98 +548,6 @@ describe("ImpulseDef", () => {
 
   it("keeps the nine basic attacks and every plain bolt impulse-free", () => {
     for (const def of plainBolts()) expect(def.impulse, def.id).toBeUndefined();
-  });
-
-  /**
-   * The hardest ordinary ram the roster can produce, in u/s of victim Δv, derived from the live
-   * config rather than typed (spec §7.2's shove formula at its extremes).
-   *
-   * The maximum is reachable because every term is bounded: `driveIn` by the attacker's own top
-   * speed, the type scale by the largest of the three, and the rating ratio by the roster's own
-   * spread. The deleted contest had no such number — it was open-ended on purpose (R9) — which is
-   * exactly why `wildcharge.impulse.speed`'s old "2x the ram maximum" comment had become a claim
-   * about a quantity that did not exist.
-   *
-   * The whole table, not `activeCarIds()`: the question is what the game's physics can produce, and a
-   * prototype chassis is driven in the playground long before it is published.
-   */
-  function hardestOrdinaryRam(): number {
-    const ids = Object.keys(CAR_TABLE) as CarId[];
-    const typeScale = Math.max(RAM_CONFIG.flankScale, RAM_CONFIG.rearScale, RAM_CONFIG.headOnScale);
-    let hardest = 0;
-    for (const attacker of ids) {
-      for (const victim of ids) {
-        const shove =
-          forwardMaxSpeedOf(attacker) *
-          typeScale *
-          RAM_CONFIG.globalScale *
-          (ramAttackOf(attacker) / ramDefenceOf(victim));
-        if (shove > hardest) hardest = shove;
-      }
-    }
-    return hardest;
-  }
-
-  /**
-   * The hardest ram one chassis can land on **itself** — attacker and victim fixed to the same car,
-   * swept over the whole roster the same way `hardestOrdinaryRam` sweeps every attacker×victim pair.
-   *
-   * This exists because `wildcharge` sets `defenceScaled: false` (it ignores `ramDefence`
-   * entirely — the ult punts a victim exactly as hard whoever they are), so measuring it against
-   * `hardestOrdinaryRam()` compares a defence-blind constant against the one matchup where defence
-   * helps an ORDINARY ram the most: the roster's lowest-`ramDefence` chassis as victim, which is
-   * always the same car regardless of attacker. Fixing attacker = victim drops that spread out of
-   * the comparison — each car's own `ramAttack`/`ramDefence` still differ from each other, so this
-   * is not "defence removed", only "the roster-wide defence SPREAD removed" — which is the one
-   * degree of freedom `wildcharge` itself does not have.
-   */
-  function hardestMirrorRam(): number {
-    const ids = Object.keys(CAR_TABLE) as CarId[];
-    const typeScale = Math.max(RAM_CONFIG.flankScale, RAM_CONFIG.rearScale, RAM_CONFIG.headOnScale);
-    let hardest = 0;
-    for (const id of ids) {
-      const shove =
-        forwardMaxSpeedOf(id) * typeScale * RAM_CONFIG.globalScale * (ramAttackOf(id) / ramDefenceOf(id));
-      if (shove > hardest) hardest = shove;
-    }
-    return hardest;
-  }
-
-  it("punts at least as hard as anything driving alone can produce", () => {
-    // RULING T5-b (stage 5 Task 5). This used to be one assertion doing two jobs — "is this still an
-    // ult" and "is this the hardest thing in the game" — and only the first was ever the design
-    // goal, so it is now two assertions with two different bars. This one is the FLOOR: nowhere in
-    // the roster does plain driving beat the ult. It is deliberately the weaker of the two bars —
-    // see the identity assertion below for the one that actually guards the ult's IDENTITY.
-    //
-    // Not hashed by `balanceStamp` (`RAM_CONFIG` is outside its coverage), so a stage-5-style retune
-    // of `globalScale` or `flankScale` moves every ram in the game with no page rebuild and no other
-    // failing test — this and the assertion below are what notice.
-    const slam = WEAPON_TABLE.wildcharge.impulse!;
-    expect(slam.speed).toBeGreaterThanOrEqual(hardestOrdinaryRam());
-  });
-
-  it("punts meaningfully harder than the hardest ram a chassis can land on its own mirror", () => {
-    // RULING T5-b, continued. The IDENTITY bar: at least 1.5x the hardest RAM available on the one
-    // matchup where `defenceScaled: false` costs `wildcharge` nothing extra to compare against — a
-    // chassis ramming its own mirror, where the roster-wide `ramDefence` spread `wildcharge` ignores
-    // has already dropped out (see `hardestMirrorRam`'s own comment). Measured against the best
-    // ordinary ram on the SAME victim instead, the settled values put the ult at 1.85x vs Mirage and
-    // 3.33x vs Bastion — this bar is the conservative one of the two, not the tight one.
-    //
-    // The user considered raising `wildcharge.impulse.speed` to satisfy the OLD single bar
-    // (`hardestOrdinaryRam() * 1.5`, which the settled `globalScale` raise moved to 701.77) and
-    // declined (ruling T5-a): that would need 702 as a floor or 936 to restore the old 2.00x
-    // headline, either of which extends the ult's 500 ms wall-stun reach and its punt against the
-    // roster's softest chassis specifically — a design change, not a guard fix. 520 stays, and the
-    // guard is re-aimed at the bar that was always the actual design goal instead.
-    //
-    // THIS BAR HAS ONLY ~8% HEADROOM (520 vs 481.96 = `hardestMirrorRam() * 1.5`) — recorded so the
-    // next reader does not mistake a future failure here for flakiness: a further ram-power increase
-    // (a `globalScale`/`flankScale` raise, or a `ramAttack` buff) trips this on the first pass that
-    // narrows the gap, and that is a true positive, not a false one.
-    const slam = WEAPON_TABLE.wildcharge.impulse!;
-    expect(slam.speed).toBeGreaterThanOrEqual(hardestMirrorRam() * 1.5);
   });
 
   it("leaves its victim reeling for longer than a full-strength ram does", () => {

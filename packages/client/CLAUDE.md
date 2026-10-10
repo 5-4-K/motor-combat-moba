@@ -77,8 +77,9 @@ reader of a car's tagged fields goes through `net/in-view.ts`** (`carInView`, `i
 There is no target lock or aim assist of any kind. Two aiming paths, one per muzzle kind:
 
 - A **fixed-muzzle** shot leaves along the car's heading; the nose is its aiming HUD.
-- A **turret** shot (a row carrying `WeaponDef.turret` — today `predator`, `magmablast`, `thumper`,
-  `fury-horn`, `roadblock`, plus the nine inert basic-attack rows) leaves from the turret toward the
+- A **turret** shot (a row carrying `WeaponDef.turret` — **none today**: the turret system is switched
+  off by commenting out `turret` on `predator`, `magmablast`, `thumper`, `fury-horn`, `roadblock` and
+  `BASIC_ATTACK_BASE`, so the rest of this section describes dormant machinery) leaves from the turret toward the
   **crosshair** (`scenes/crosshair.ts`, `config/crosshair.ts`). The crosshair is a **world offset
   from the driven car's centre** (`input/aim-offset.ts`), not a screen cursor: it rides with the car,
   keeps its world direction as the car turns, and is clamped every frame to
@@ -87,21 +88,22 @@ There is no target lock or aim assist of any kind. Two aiming paths, one per muz
   at. The drawn turret (`scenes/turret-visual.ts`) requires `carHasTurretWeapon(...) &&
   turret().visible` (Brawl hides it). See [`docs/combat-model.md`](../../docs/combat-model.md#turret-muzzle).
 
-**Every active chassis has a turret weapon, so every one takes pointer lock in every mode.** A
-config test in `turret-config.test.ts` asserts the live roster's turret posture. The turret-less
-path is reachable only from a hand-built playground kit or a per-mode `replace()`, and it must keep
-working:
+**No active chassis has a turret weapon now, yet every one still takes pointer lock in every mode**:
+`ArenaScene.wantsPointerLock` is true whenever a car is driven, and the crosshair shows only when
+`aimsTurret` (`carHasTurretWeapon` over the live fire slots) is true. A config test in
+`turret-config.test.ts` asserts the live roster's turret posture. The turret-less path is therefore
+the shipped one, and it must keep working:
 
 - **The aim HUD** (`scenes/aim-hud.ts`, `config/aim-hud.ts`, at `AIM_HUD_DEPTH` under the driven car
   only, in its own frame) is drawn once and then MOVED each frame, re-filled only when
   `aimHudSignature` changes (Phaser re-tessellates a `Graphics` on every rebuild). Its TURRET group
-  (crosshair, ring, swing limits) is gated on `ArenaScene.wantsPointerLock` = `carHasTurretWeapon`
-  over the live fire slots, re-read every frame (a playground loadout swap can remove the turret
-  under a held lock); **a car with no turret weapon is never asked for pointer lock.** Its MUZZLE
+  (crosshair, ring, swing limits) is gated on `ArenaScene.aimsTurret` = `carHasTurretWeapon`
+  over the live fire slots, re-read every frame (a playground loadout swap can add or remove the
+  turret under a held lock); pointer lock does not depend on it. Its MUZZLE
   group (four arrows) is always drawn. `AIM_HUD_CONFIG.turretHud`/`.muzzleHud` hide a group;
   `turretHud` deliberately does not hide the crosshair.
 - **Dropping the lock must never drop firing.** `fireButtons` takes `usesLock`: false lets mouse
-  buttons through unlocked, so a turret-less car still fires on click from its fixed muzzle.
+  buttons through unlocked, so a turret-less car (every car today) still fires on click from its fixed muzzle.
 
 The weapon slot HUD (`scenes/weapon-hud.ts`, drawn by `ArenaScene.drawHudSlot`) reads
 `PlayerState.weapons` plus `level`, `switchLockUntilTick`, `pendingUntilTick` and `lastFiredSlot` —

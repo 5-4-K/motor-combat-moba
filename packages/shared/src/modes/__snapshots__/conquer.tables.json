@@ -527,9 +527,6 @@
       "recoveryMs": 0,
       "speed": 900,
       "startUpMs": 0,
-      "turret": {
-        "additionalOffset": 0
-      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
@@ -557,9 +554,6 @@
       "recoveryMs": 0,
       "speed": 900,
       "startUpMs": 0,
-      "turret": {
-        "additionalOffset": 0
-      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
@@ -587,9 +581,6 @@
       "recoveryMs": 0,
       "speed": 900,
       "startUpMs": 0,
-      "turret": {
-        "additionalOffset": 0
-      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
@@ -617,9 +608,6 @@
       "recoveryMs": 0,
       "speed": 900,
       "startUpMs": 0,
-      "turret": {
-        "additionalOffset": 0
-      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
@@ -647,9 +635,6 @@
       "recoveryMs": 0,
       "speed": 900,
       "startUpMs": 0,
-      "turret": {
-        "additionalOffset": 0
-      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
@@ -677,9 +662,6 @@
       "recoveryMs": 0,
       "speed": 900,
       "startUpMs": 0,
-      "turret": {
-        "additionalOffset": 0
-      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
@@ -707,9 +689,6 @@
       "recoveryMs": 0,
       "speed": 900,
       "startUpMs": 0,
-      "turret": {
-        "additionalOffset": 0
-      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
@@ -737,9 +716,6 @@
       "recoveryMs": 0,
       "speed": 900,
       "startUpMs": 0,
-      "turret": {
-        "additionalOffset": 0
-      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
@@ -767,9 +743,6 @@
       "recoveryMs": 0,
       "speed": 900,
       "startUpMs": 0,
-      "turret": {
-        "additionalOffset": 0
-      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
@@ -802,9 +775,6 @@
         "initial": 3,
         "max": 3,
         "refireDelayMs": 300
-      },
-      "turret": {
-        "additionalOffset": 0
       },
       "unlocksAt": 1,
       "volley": {
@@ -840,7 +810,7 @@
     },
     "magmablast": {
       "color": "#FF6000",
-      "cooldownMs": 16000,
+      "cooldownMs": 1600,
       "damage": 50,
       "damageFrequencyMs": 0,
       "explosion": {
@@ -872,9 +842,6 @@
       "recoveryMs": 0,
       "speed": 600,
       "startUpMs": 0,
-      "turret": {
-        "additionalOffset": 0
-      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
@@ -917,7 +884,7 @@
     },
     "predator": {
       "color": "#606060",
-      "cooldownMs": 1000,
+      "cooldownMs": 1300,
       "damage": 30,
       "damageFrequencyMs": 0,
       "hitbox": {
@@ -944,9 +911,6 @@
       "recoveryMs": 0,
       "speed": 900,
       "startUpMs": 0,
-      "turret": {
-        "additionalOffset": 0
-      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
@@ -962,7 +926,7 @@
         }
       ],
       "color": "#D89000",
-      "cooldownMs": 6000,
+      "cooldownMs": 8000,
       "damage": 100,
       "damageFrequencyMs": 0,
       "hitbox": {
@@ -983,9 +947,6 @@
       "recoveryMs": 200,
       "speed": 600,
       "startUpMs": 0,
-      "turret": {
-        "additionalOffset": 0
-      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,
@@ -1027,14 +988,14 @@
     "thumper": {
       "applies": [
         {
-          "durationMs": 3000,
+          "durationMs": 1000,
           "statusId": "spiked",
           "target": "opponents"
         }
       ],
       "bounces": true,
       "color": "#FFD800",
-      "cooldownMs": 16000,
+      "cooldownMs": 2000,
       "damage": 60,
       "damageFrequencyMs": 0,
       "hitbox": {
@@ -1044,20 +1005,17 @@
       },
       "id": "thumper",
       "kind": "projectile",
-      "lifetimeMs": 2900,
+      "lifetimeMs": 3000,
       "name": "Thumper",
       "pellets": {
         "pelletsPerVolley": 1,
         "spreadAngleDeg": 0
       },
       "pierce": 0,
-      "range": 1305,
+      "range": 1350,
       "recoveryMs": 0,
       "speed": 450,
       "startUpMs": 0,
-      "turret": {
-        "additionalOffset": 0
-      },
       "unlocksAt": 1,
       "volley": {
         "volleyIntervalMs": 0,

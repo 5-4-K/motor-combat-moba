@@ -18,8 +18,9 @@ import {
   AIM_QUADRATURE, constantVelocityPredictor, solve,
   marchTicksOf, turretTurnTicksOf, type PosePredictor, type SolverShooter,
 } from "./solution.js";
+import { turretRestored } from "./turret-restored.fixture.js";
 
-beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+beforeEach(() => installMode(turretRestored(modeConfigOf(DEFAULT_GAME_MODE))));
 
 /**
  * The default bundle with `roadblock`'s `turret` removed. The fixed-muzzle cases below test how the
@@ -29,7 +30,7 @@ beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
  * optional row field, so the row is otherwise exactly the shipped one.
  */
 function withFixedMuzzleRoadblock(): ModeConfig {
-  const base = modeConfigOf(DEFAULT_GAME_MODE);
+  const base = turretRestored(modeConfigOf(DEFAULT_GAME_MODE));
   const tables = structuredClone(base) as ModeTables & { weapons: Record<string, { turret?: unknown }> };
   delete tables.weapons.roadblock!.turret;
   return assembleModeConfig(base.id, tables);
@@ -37,7 +38,7 @@ function withFixedMuzzleRoadblock(): ModeConfig {
 // Also installed directly, synchronously, at module scope: fixture constants below (and
 // some describe bodies) read config during test COLLECTION, which happens once, before any
 // beforeEach hook ever fires.
-installMode(modeConfigOf(DEFAULT_GAME_MODE));
+installMode(turretRestored(modeConfigOf(DEFAULT_GAME_MODE)));
 
 const arena: BotArenaView = { width: 1280, height: 720, obstacles: [] };
 
@@ -134,9 +135,9 @@ describe("solve — projectile", () => {
       target, targetAt: constantVelocityPredictor(target),
       aimSigmaRad: 0, tick: 0, arena,
     };
-    // predator: 30 damage on a 1000 ms cooldown. pepperbox: 45 per pellet on 1800 ms.
+    // predator: 30 damage on a 1300 ms cooldown. pepperbox: 45 per pellet on 1800 ms.
     const predator = solve({ ...common, slot: slotFor("predator") });
-    expect(predator.value).toBeCloseTo(predator.expectedDamage / 1, 5);
+    expect(predator.value).toBeCloseTo(predator.expectedDamage / (weaponDefOf("predator").cooldownMs / 1000), 5);
   });
 });
 
@@ -329,7 +330,7 @@ describe("solve — turret (TR26)", () => {
   // the clamp.
   beforeEach(() =>
     installMode(
-      applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.visible": true, "turret.maxSwingDeg": 360 }),
+      applyOverrides(turretRestored(modeConfigOf(DEFAULT_GAME_MODE)), { "turret.visible": true, "turret.maxSwingDeg": 360 }),
     ),
   );
 
@@ -400,7 +401,7 @@ describe("solve — turret (TR26)", () => {
   });
 
   it("budgets no turn at all when the mode hides the turret (it snaps)", () => {
-    installMode(applyOverrides(modeConfigOf(DEFAULT_GAME_MODE), { "turret.visible": false }));
+    installMode(applyOverrides(turretRestored(modeConfigOf(DEFAULT_GAME_MODE)), { "turret.visible": false }));
     expect(turretTurnTicksOf({ ...shooter, turretAngle: 0 }, Math.PI / 2)).toBe(0);
   });
 
@@ -616,12 +617,12 @@ describe("solver determinism (P43)", () => {
 
 describe("marchTicksOf", () => {
   it("walks every row at least as long as that row can live, under the active mode", () => {
-    // The typed 120-tick cap this replaced was 2 s at 60 Hz, under thumper's 2900 ms lifetime.
+    // The typed 120-tick cap this replaced was 2 s at 60 Hz, under thumper's 3000 ms lifetime.
     for (const id of Object.keys(weapons()) as WeaponId[]) {
       const t = weaponTicksOf(id);
       expect(marchTicksOf(id), id).toBeGreaterThan(t.projectileLifetime);
       expect(marchTicksOf(id), id).toBeGreaterThan(t.flight + t.lifetime);
     }
-    expect(marchTicksOf("thumper")).toBeGreaterThan(msToTicks(2900));
+    expect(marchTicksOf("thumper")).toBeGreaterThan(msToTicks(3000));
   });
 });

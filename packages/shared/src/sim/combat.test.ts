@@ -10,7 +10,7 @@ import { NET_CONFIG } from "../config/net-config.js";
 import { TURRET_CONFIG, TURRET_TICKS } from "../config/turret-config.js";
 import { MS_PER_TICK, TICK_RATE_HZ } from "../constants.js";
 import { installMode } from "../modes/active.js";
-import { assembleModeConfig } from "../modes/build.js";
+import { assembleTurretRestored } from "../modes/test-setup.js";
 import { BRAWL_TABLES } from "../modes/brawl/index.js";
 import {
   clearManeuver,
@@ -40,13 +40,13 @@ import { msToTicks, weaponTicksOf } from "../config/weapon-ticks.js";
 
 const DT = MS_PER_TICK / 1000;
 
-beforeEach(() => installMode(assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES)));
+beforeEach(() => installMode(assembleTurretRestored(DEFAULT_GAME_MODE, BRAWL_TABLES)));
 
 // Also installed directly, synchronously, at module scope: `describe` bodies below run during test
 // COLLECTION, which happens once, before any `beforeEach` hook ever fires. Some of those bodies
 // build fixture constants that read config (`ramDefenceOf` below), so a mode must already be
 // installed at that point too.
-installMode(assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES));
+installMode(assembleTurretRestored(DEFAULT_GAME_MODE, BRAWL_TABLES));
 
 /** A y well inside the floor; the test worlds below carry `obstacles: []`, so nothing spans it. */
 const OPEN_Y = 150;
@@ -670,14 +670,14 @@ describe("dealDamageTo", () => {
 function pinBasicAttackEnabled(): void {
   beforeEach(() => {
     installMode(
-      assembleModeConfig(DEFAULT_GAME_MODE, {
+      assembleTurretRestored(DEFAULT_GAME_MODE, {
         ...BRAWL_TABLES,
         slots: { ...BRAWL_TABLES.slots, basicAttackEnabled: true },
       }),
     );
   });
   afterEach(() => {
-    installMode(assembleModeConfig(DEFAULT_GAME_MODE, BRAWL_TABLES));
+    installMode(assembleTurretRestored(DEFAULT_GAME_MODE, BRAWL_TABLES));
   });
 }
 
@@ -695,7 +695,7 @@ describe("chassis attack scales weapon damage through a real tick", () => {
     // qualifies as of this same task (2026-09-02): its splash would land on "b" a few ticks after
     // contact and add an attack-scaled number of its own, contaminating exactly the measurement
     // this test exists to isolate. `roadblock` has no explosion, no homing and no multi-pellet fan
-    // to complicate a single clean hit, and its 6000ms cooldown cannot recharge inside this test's
+    // to complicate a single clean hit, and its 8000ms cooldown cannot recharge inside this test's
     // 10-tick window the way magmablast's shorter one once did.
     const roadblockSlot1 = {
       ...newFireState(carId, 1),
@@ -715,7 +715,7 @@ describe("chassis attack scales weapon damage through a real tick", () => {
       ],
     });
     // The shot leaves the muzzle on tick 100 and covers the ~40 unit gap in about two ticks.
-    // Bounded at 110, well inside roadblock's 180-tick cooldown, so exactly one shot is measured.
+    // Bounded at 110, well inside roadblock's 480-tick cooldown, so exactly one shot is measured.
     for (let tick = 101; tick <= 110; tick++) {
       state = run({
         world: world({ tick }),
@@ -868,7 +868,7 @@ describe("turret press through a real tick (TR18-TR24)", () => {
   // Brawl hides its turret, which turns it instantly; these cases are about a turret that has to
   // swing, so they run on Brawl's tables with the turret shown.
   beforeEach(() =>
-    installMode(assembleModeConfig(DEFAULT_GAME_MODE, { ...BRAWL_TABLES, turret: { ...BRAWL_TABLES.turret, visible: true, maxSwingDeg: 360 } })),
+    installMode(assembleTurretRestored(DEFAULT_GAME_MODE, { ...BRAWL_TABLES, turret: { ...BRAWL_TABLES.turret, visible: true, maxSwingDeg: 360 } })),
   );
   it("waits for the turret to turn onto the aimed bearing before firing", () => {
     const shooter = turretPlayer("a", { x: 300, y: 300, angle: 0, fireMask: 1 << 1, aimBearing: Math.PI / 2 });
@@ -899,7 +899,7 @@ describe("TR15: a turret press's lifecycle at the runCombat level (final-fixes i
   // These presses aim 90 degrees off the nose; an unrestricted arc keeps them about the lifecycle,
   // not the shipped swing clamp.
   beforeEach(() =>
-    installMode(assembleModeConfig(DEFAULT_GAME_MODE, { ...BRAWL_TABLES, turret: { ...BRAWL_TABLES.turret, maxSwingDeg: 360 } })),
+    installMode(assembleTurretRestored(DEFAULT_GAME_MODE, { ...BRAWL_TABLES, turret: { ...BRAWL_TABLES.turret, maxSwingDeg: 360 } })),
   );
   it("(a) a car that becomes disarmed mid-turn still finishes the turn and fires", () => {
     // `stunned` (which carries the `disarmed` flag) has been running since tick 40 and is still
@@ -2904,7 +2904,7 @@ describe("shot fast-forward (NR37, NR38)", () => {
   });
 
   it("a lifetimeMs projectile expires on exactly the tick the k-earlier shot does", () => {
-    // thumper: bastion fire slot 1, a bouncing shell on a 2900 ms flight clock.
+    // thumper: bastion fire slot 1, a bouncing shell on a 3000 ms flight clock.
     const run = (pressTick: number, untilTick: number, k?: number) =>
       shells(simulate({ pressTick, untilTick, mask: MAGMA, k, carId: "bastion" })).filter(
         (i) => i.weaponId === "thumper",

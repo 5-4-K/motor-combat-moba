@@ -21,8 +21,9 @@ import { offerForTick } from "../net/offer-input.js";
 import { newCombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory } from "../sim/ram-bridge.js";
 import { runPipeline, type PipelineCtx } from "./tick-pipeline.js";
+import { turretRestored } from "../bot/brain/turret-restored.fixture.js";
 
-beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
+beforeEach(() => installMode(turretRestored(modeConfigOf(DEFAULT_GAME_MODE))));
 
 /**
  * `runPipeline` end to end for a turret press (TR7, TR10-TR24): the wire's `aimAngle` reaches
@@ -89,7 +90,7 @@ describe("runPipeline: a mouse-aimed turret press (TR7, TR10-TR24)", () => {
   // `slots().basicAttackEnabled` off the INSTALLED bundle, so writing the global reaches nothing
   // and this test failed with the shipped flag `false`. Same intent, carried to where the sim now
   // looks: assemble a sibling of the default bundle with the flag on and install it for these cases.
-  const SHIPPED = modeConfigOf(DEFAULT_GAME_MODE);
+  const SHIPPED = turretRestored(modeConfigOf(DEFAULT_GAME_MODE));
   const BASIC_ATTACK_ON = assembleModeConfig(DEFAULT_GAME_MODE, {
     ...(SHIPPED as unknown as ModeTables),
     slots: { ...SHIPPED.slots, basicAttackEnabled: true },
