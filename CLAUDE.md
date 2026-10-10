@@ -223,10 +223,13 @@ status never stacks with itself, and a flag-carrying debuff is forced to `reappl
   `arena.common.tile.<id>` and is baked into render-texture chunks at load. Specs:
   [tile arenas](docs/superpowers/specs/2026-10-09-tile-arenas-design.md) (TA), superseded in part by
   [tile cells](docs/superpowers/specs/2026-10-09-tile-cells-design.md) (TC).
-- `arena-03` (Conquer) is a hand-written chamfered polygon using `ArenaDef.boundary` — inward
-  half-planes through `Bounds`, resolved by a positional clamp; `boundsOf(arena)` is the one place a
-  `Bounds` is built.
-- `width`/`height` mean the image frame and camera bounds (1280 × 720), not the playable area.
+- `arena-03` (Conquer) is a tile arena too: 34 × 56 cells, 1360 × 2240, with a 76-cell `zone` patch
+  (the scoring zone is still a circle on its centre for now), spike runs on the side walls only, and
+  spawns at y 120 / 2120. No shipped arena uses `ArenaDef.boundary` now; the machinery (inward
+  half-planes through `Bounds`, a positional clamp, `boundsOf(arena)` the one place a `Bounds` is
+  built) remains for hand-written arenas.
+- `width`/`height` mean the image frame and camera bounds (1280 × 720 for arena-01/02, 1360 × 2240
+  for arena-03), not the playable area.
 - **Spikes** (`spike()`) are the only environmental damage: a flat hit gated on a fresh push into the
   surface above `triggerSpeed`, rate-limited by `retriggerMs`. Holding throttle into a wall does not
   re-trigger; only an externally shoved car keeps paying. Damage is credited to whoever shoved the

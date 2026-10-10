@@ -4,7 +4,59 @@ import { compileTileArena } from "./tiles/compile.js";
 import { TILE_SIZE } from "./tiles/tile-config.js";
 import { ARENA_01 } from "./arena-01.js";
 import { ARENA_02 } from "./arena-02.js";
-import { ARENA_03 } from "./arena-03.js";
+import type { ArenaDef } from "./types.js";
+
+/**
+ * Arena-03 as it stood before it became a tile arena (CQ37–CQ40): a hand-written 1280 × 2160 polygon
+ * with eight-point boundary (100 u chamfers) and two 20 u spike strips. Kept as a fixture so the
+ * polygon, chamfer and strip behaviour stays covered now that no shipped arena exercises it.
+ */
+const POLYGON_FIXTURE: ArenaDef = {
+  id: "arena-03",
+  displayName: "Polygon fixture",
+  width: 1280,
+  height: 2160,
+  palette: { floor: "#2b2f35", obstacle: "#4b5362", border: "#1a1d22" },
+  boundary: [
+    { x: 100, y: 0 },
+    { x: 1180, y: 0 },
+    { x: 1280, y: 100 },
+    { x: 1280, y: 2060 },
+    { x: 1180, y: 2160 },
+    { x: 100, y: 2160 },
+    { x: 0, y: 2060 },
+    { x: 0, y: 100 },
+  ],
+  zone: { x: 640, y: 1080, radius: 150 },
+  obstacles: [
+    { x: 200, y: 480, w: 100, h: 100 },
+    { x: 980, y: 480, w: 100, h: 100 },
+    { x: 200, y: 1580, w: 100, h: 100 },
+    { x: 980, y: 1580, w: 100, h: 100 },
+    { x: 590, y: 660, w: 100, h: 60 },
+    { x: 590, y: 1440, w: 100, h: 60 },
+    { x: 0, y: 760, w: 20, h: 640, kind: "spike" },
+    { x: 1260, y: 760, w: 20, h: 640, kind: "spike" },
+  ],
+  ffaSpawns: [
+    { x: 460, y: 2040, angle: -Math.PI / 2 },
+    { x: 640, y: 2040, angle: -Math.PI / 2 },
+    { x: 820, y: 2040, angle: -Math.PI / 2 },
+    { x: 460, y: 120, angle: Math.PI / 2 },
+    { x: 640, y: 120, angle: Math.PI / 2 },
+    { x: 820, y: 120, angle: Math.PI / 2 },
+  ],
+  teamASpawns: [
+    { x: 460, y: 2040, angle: -Math.PI / 2 },
+    { x: 640, y: 2040, angle: -Math.PI / 2 },
+    { x: 820, y: 2040, angle: -Math.PI / 2 },
+  ],
+  teamBSpawns: [
+    { x: 820, y: 120, angle: Math.PI / 2 },
+    { x: 640, y: 120, angle: Math.PI / 2 },
+    { x: 460, y: 120, angle: Math.PI / 2 },
+  ],
+};
 
 describe("boundsOf", () => {
   it("gives an arena with no polygon no planes at all", () => {
@@ -14,9 +66,9 @@ describe("boundsOf", () => {
   });
 
   it("carries the width and height of a polygon arena unchanged", () => {
-    const bounds = boundsOf(ARENA_03);
-    expect(bounds.width).toBe(ARENA_03.width);
-    expect(bounds.height).toBe(ARENA_03.height);
+    const bounds = boundsOf(POLYGON_FIXTURE);
+    expect(bounds.width).toBe(POLYGON_FIXTURE.width);
+    expect(bounds.height).toBe(POLYGON_FIXTURE.height);
   });
 });
 
@@ -72,7 +124,7 @@ describe("tile arenas (TA30, TA31)", () => {
 
   it("keeps a plain rectangle plane-less, and a polygon arena on its own planes", () => {
     expect(playablePlanesOf({ width: 100, height: 50 })).toBeUndefined();
-    expect(playablePlanesOf(ARENA_03)).toEqual(boundsOf(ARENA_03).planes);
+    expect(playablePlanesOf(POLYGON_FIXTURE)).toEqual(boundsOf(POLYGON_FIXTURE).planes);
     expect(playableRectOf({ width: 100, height: 50 })).toEqual({ x: 0, y: 0, w: 100, h: 50 });
   });
 });
