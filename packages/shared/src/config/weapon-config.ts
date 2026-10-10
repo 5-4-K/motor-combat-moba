@@ -82,11 +82,11 @@ export const WEAPON_TABLE = {
    * 900 u/s this arcs at 172 u — tight enough to convert a 200 u grab. The old 120 deg/s would arc
    * at 430 u and sail past everything it acquired. ⚙
    *
-   * 1.0 Hz makes it the
+   * 1300 ms (about 0.77 Hz, since 2026-10-10; was 1.0 Hz) still makes it the
    * tightest margin in the table, and this is the fastest aim-assisted row the roster carries. Do
    * not retune this cooldown toward 800 ms without re-reading that guard.
    *
-   * Its 2 s life on a 1000 ms cooldown means up to two in the air at once — which is why the
+   * Its 2 s life on a 1300 ms cooldown means up to two in the air at once — which is why the
    * two-instances guard is scoped to bouncing rows.
    */
   predator: {
@@ -102,7 +102,7 @@ export const WEAPON_TABLE = {
     speed: 900,
     range: 1800, // = speed x lifetimeMs; see the comment above for why this is authored at all
     startUpMs: 0,
-    cooldownMs: 1000,
+    cooldownMs: 1300,
     // turret: { additionalOffset: 0 }, — turret system off (see BASIC_ATTACK_BASE); fixed front muzzle
     recoveryMs: 0,
     // 38 units long, of which the rear 10 are the exhaust plume the client draws (2026-09-04).
@@ -231,7 +231,7 @@ export const WEAPON_TABLE = {
     speed: 600,
     range: 900,
     startUpMs: 0,
-    cooldownMs: 16000,
+    cooldownMs: 1600,
     // turret: { additionalOffset: 0 }, — turret system off (see BASIC_ATTACK_BASE); fixed front muzzle
     recoveryMs: 0,
     hitbox: { shape: "circle", radius: 12 },
@@ -393,7 +393,7 @@ export const WEAPON_TABLE = {
     speed: 450,
     range: 1305, // 450 u/s x 2.9 s — the honest reach figure now that expiry is clock-based
     startUpMs: 0,
-    cooldownMs: 16000,
+    cooldownMs: 1800,
     // turret: { additionalOffset: 0 }, — turret system off (see BASIC_ATTACK_BASE); fixed front muzzle
     recoveryMs: 0,
     hitbox: { shape: "capsule", radiusAlong: 24, radiusAcross: 15 },

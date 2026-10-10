@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { installMode, withMode } from "../modes/active.js";
+import { installMode, slots, withMode } from "../modes/active.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { GameMode, TICK_RATE_HZ } from "../constants.js";
 import { CAR_TABLE, activeCarIds, turretMountOf } from "./car-config.js";
@@ -41,6 +41,7 @@ describe("turret config (TR1-TR5)", () => {
   it("gives no active chassis a turret weapon in any mode (turret system off)", () => {
     for (const mode of [GameMode.FFA_LAST_STANDING, GameMode.TEAM, GameMode.FFA_DEATHMATCH, GameMode.CONQUER]) {
       withMode(modeConfigOf(mode), () => {
+        expect(slots().basicAttackEnabled, GameMode[mode]).toBe(false);
         for (const carId of activeCarIds()) {
           expect(carHasTurretWeapon(fireSlotsOf(carId)), `${GameMode[mode]} ${carId}`).toBe(false);
         }
