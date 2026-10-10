@@ -491,8 +491,7 @@ export const WEAPON_TABLE = {
        * Still PROVISIONAL in one respect the arithmetic cannot settle (spec §9.3): under U31 the
        * 1.4 s of reeling below is a total loss of control with no lateral grip, so a 520 u/s punt
        * carries its victim into a wall — and often the spikes — far more reliably than the same
-       * number did before. Stage 5 confirms that in the playground with the user. If it comes down,
-       * it comes down as a fraction of `hardestOrdinaryRam()`, not to a freshly typed constant.
+       * number did before. Stage 5 confirms that in the playground with the user.
        */
       speed: 520,
       direction: "radial",

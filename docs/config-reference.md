@@ -1059,8 +1059,9 @@ slot and was equally silent). **`corroded`'s only source in the game is now `mag
 overhaul, `stunned` sat on `thumper` alone and Bastion owned it outright; that overhaul gave `thumper`
 `spiked` instead (a slow, not a stop) and put `stunned` on three sources — Bastion's `roadblock`,
 Mirage's `thunderclap` (a dash lands its own stun on contact), and the wall-slam mechanic above.
-Bastion still carries the CC-focused *type*, but Mirage's dash is now a real second source of the
-same status.
+Crowd control is no longer any one chassis's identity: Bastion's kit is area pressure (bouncing
+`thumper` shells that slow, a `roadblock` stun, `tremor`'s inward pull), and Mirage's dash is a real
+second source of the same stun.
 
 **Per-chassis CC duration needs no mechanism.** A status does not own its duration, the applier does,
 and kits are exclusive — so each chassis's CC length falls straight out of authoring each weapon's

@@ -466,7 +466,7 @@ its chassis's **type**:
 |---|---|---|---|---|
 | **Bullseye** | moderate damage, long range | `predator` | `pepperbox` | `lance` |
 | **Mirage** | burst damage, high mobility | `magmablast` | `thunderclap` | `afterburner` |
-| **Bastion** | crowd control, slow and tanky | `thumper` | `roadblock` | `wildcharge` |
+| **Bastion** | area pressure, slow and tanky | `thumper` | `roadblock` | `tremor` |
 
 `fireball`, `needler`, `skewer` and `bulwark` were retired outright by the 2026-09-01 overhaul; their
 ids are gone from `WeaponId` and their comment history lives in git rather than here. `shockwave`
@@ -1180,8 +1180,9 @@ is now `magmablast`'s explosion**, nothing else authors it.
 weapon application), Mirage's `thunderclap` (a dash lands its own stun on contact), and the 500 ms
 wall-stun a Bastion `wildcharge` slam triggers through the contact pass rather than through
 `WeaponDef.applies` at all (see [Maneuvers and the contact pass](#maneuvers-and-the-contact-pass)
-above). Bastion still carries the CC-focused *type*, but Mirage's dash is a second real source of the
-same status.
+above). Crowd control is no longer any one chassis's identity: Bastion's kit is area pressure
+(bouncing `thumper` shells that slow, a `roadblock` stun, `tremor`'s inward pull), and Mirage's dash
+is a second real source of the same stun.
 
 ### `onWave` — a status that rides one wave of a press
 

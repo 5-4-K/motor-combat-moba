@@ -86,9 +86,9 @@ export const RAM_CONFIG = {
    * Raised to 0.6 on 2026-09-19 (stage 5 Task 5, this IS that re-measurement), from the user's own
    * hands-on playground pass — 0.5 read as too soft once ramming was actually played, rather than
    * only measured. Not hashed by `balanceStamp` (`RAM_CONFIG` is the one root the players' guide
-   * does not cover), so this move owes no `build:manual`. It does move `weapon-config.test.ts`'s
-   * `wildcharge.impulse.speed` guard, which stayed at 520 by the user's own ruling (T5-a) rather than
-   * following this raise — see that test's `hardestOrdinaryRam`/`hardestMirrorRam` split.
+   * does not cover), so this move owes no `build:manual`. `wildcharge.impulse.speed` stayed at 520
+   * by the user's own ruling (T5-a) rather than following this raise; nothing tests the slam against
+   * the hardest ram any more (that guard was dropped with the chassis-identity rules, 2026-10-10).
    */
   globalScale: 0.6,
 
