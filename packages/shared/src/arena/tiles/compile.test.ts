@@ -286,8 +286,8 @@ const frozen = JSON.parse(
   readFileSync(fileURLToPath(new URL("./__fixtures__/arena-01.obstacles.json", import.meta.url)), "utf8"),
 );
 
-describe("arena-01 migration", () => {
-  it("compiles arena-01 to exactly the pre-change obstacles (TC22, TC35)", () => {
+describe("arena-01 compile pin", () => {
+  it("compiles arena-01 to exactly the pinned obstacles (TC22, TC35; re-pinned at 40 x 22, BAR8–BAR9)", () => {
     expect(ARENA_01.obstacles).toEqual(frozen);
   });
 });

@@ -20,15 +20,15 @@ function sortedY(spawns: readonly Spawn[]): number[] {
 }
 
 describe("ARENA_02 grid", () => {
-  it("is a 32 x 18 tile arena with no polygon", () => {
-    expect(ARENA_02.tiles?.cols).toBe(32);
-    expect(ARENA_02.tiles?.rows).toBe(18);
+  it("is a 40 x 22 tile arena with no polygon", () => {
+    expect(ARENA_02.tiles?.cols).toBe(40);
+    expect(ARENA_02.tiles?.rows).toBe(22);
     expect(ARENA_02.boundary).toBeUndefined();
   });
 
-  it("plays on the 1200 x 640 floor inside a one-tile spike ring", () => {
-    expect(floor).toEqual({ x: TILE_SIZE, y: TILE_SIZE, w: 30 * TILE_SIZE, h: 16 * TILE_SIZE });
-    expect(playableExtentOf(ARENA_02)).toEqual({ width: 1200, height: 640 });
+  it("plays on the 1520 x 800 floor inside a one-tile spike ring", () => {
+    expect(floor).toEqual({ x: TILE_SIZE, y: TILE_SIZE, w: 38 * TILE_SIZE, h: 20 * TILE_SIZE });
+    expect(playableExtentOf(ARENA_02)).toEqual({ width: 1520, height: 800 });
   });
 
   it("is mirror-symmetric about both centre lines in behaviour, tile for tile", () => {
@@ -56,16 +56,16 @@ describe("ARENA_02 grid", () => {
 
   it("wears wooden spike teeth on every spike edge that faces the floor", () => {
     const teeth = ARENA_02.tiles!.cells.flatMap((cell) => cell.overlays.map((o) => o.art));
-    expect(teeth.length).toBe(2 * 30 + 2 * 16);
+    expect(teeth.length).toBe(2 * 38 + 2 * 20);
     expect(new Set(teeth)).toEqual(new Set(["wooden-spike"]));
   });
 });
 
 describe("ARENA_02 spike ring", () => {
   const top = spikes.filter((s) => s.y === 0 && s.h === TILE_SIZE);
-  const bottom = spikes.filter((s) => s.y === 17 * TILE_SIZE && s.h === TILE_SIZE);
+  const bottom = spikes.filter((s) => s.y === 21 * TILE_SIZE && s.h === TILE_SIZE);
   const left = spikes.filter((s) => s.x === 0 && s.w === TILE_SIZE);
-  const right = spikes.filter((s) => s.x === 31 * TILE_SIZE && s.w === TILE_SIZE);
+  const right = spikes.filter((s) => s.x === 39 * TILE_SIZE && s.w === TILE_SIZE);
 
   it("has four strips, one continuous run per wall", () => {
     expect(spikes).toHaveLength(4);
@@ -86,9 +86,9 @@ describe("ARENA_02 spike ring", () => {
 });
 
 describe("ARENA_02 shape", () => {
-  it("is 1280x720, the client's logical canvas", () => {
-    expect(ARENA_02.width).toBe(1280);
-    expect(ARENA_02.height).toBe(720);
+  it("is 1600x880, shown whole at zoom 0.8", () => {
+    expect(ARENA_02.width).toBe(1600);
+    expect(ARENA_02.height).toBe(880);
   });
 });
 
@@ -116,6 +116,21 @@ describe("ARENA_02 team spawns", () => {
       const spans = [ys[0]! - topY, ...gaps(ys), bottomY - ys[ys.length - 1]!];
       expect(new Set(spans).size).toBe(1);
     }
+  });
+});
+
+describe("ARENA_02 spawn table (BAR13)", () => {
+  it("scales the old spawns as they were, FFA ys deliberately not re-centred", () => {
+    expect(ARENA_02.ffaSpawns).toEqual([
+      { x: 243, y: 224, angle: 0 },
+      { x: 1357, y: 224, angle: Math.PI },
+      { x: 243, y: 669, angle: 0 },
+      { x: 1357, y: 669, angle: Math.PI },
+      { x: 800, y: 224, angle: Math.PI / 2 },
+      { x: 800, y: 669, angle: -Math.PI / 2 },
+    ]);
+    expect(ARENA_02.teamASpawns.map((s) => [s.x, s.y, s.angle])).toEqual([[243, 240, 0], [243, 440, 0], [243, 640, 0]]);
+    expect(ARENA_02.teamBSpawns.map((s) => [s.x, s.y, s.angle])).toEqual([[1357, 240, Math.PI], [1357, 440, Math.PI], [1357, 640, Math.PI]]);
   });
 });
 

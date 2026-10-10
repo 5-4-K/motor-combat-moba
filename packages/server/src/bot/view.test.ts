@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { ARENA_01, DEFAULT_GAME_MODE, TickInputBuffer, installMode, modeConfigOf, playablePlanesOf } from "@motor-combat-moba/shared";
+import { ARENA_01, ARENA_02, DEFAULT_GAME_MODE, TickInputBuffer, installMode, modeConfigOf, playablePlanesOf } from "@motor-combat-moba/shared";
 import {
   ArenaState,
   PlayerState,
@@ -194,19 +194,19 @@ describe("buildBotView viewport fairness (B17)", () => {
   it("arena-01 (the shipped arena) shows every car regardless of distance — it always fits", () => {
     const f = fixture();
     f.state.arenaId = "arena-01";
-    // Opposite corners of the 1280x720 arena: farther apart than the 1280x720 viewport rectangle
-    // would allow if a limit were (wrongly) applied here.
+    // Opposite corners of the arena: as far apart as two cars can be, which a limit (wrongly)
+    // applied here would cut off.
     f.state.players.get("bot")!.x = 40; f.state.players.get("bot")!.y = 40;
-    f.state.players.get("p2")!.x = 1240; f.state.players.get("p2")!.y = 680;
+    f.state.players.get("p2")!.x = ARENA_01.width - 40; f.state.players.get("p2")!.y = ARENA_01.height - 40;
     const view = buildBotView(f)!;
     expect(view.others.map((o) => o.sessionId)).toContain("p2");
   });
 
-  it("arena-02 (now 1280x720, same as the viewport) shows every car regardless of distance", () => {
+  it("arena-02 (fits the zoomed viewport) shows every car regardless of distance", () => {
     const f = fixture();
     f.state.arenaId = "arena-02";
     f.state.players.get("bot")!.x = 40; f.state.players.get("bot")!.y = 40;
-    f.state.players.get("p2")!.x = 1240; f.state.players.get("p2")!.y = 680;
+    f.state.players.get("p2")!.x = ARENA_02.width - 40; f.state.players.get("p2")!.y = ARENA_02.height - 40;
     const view = buildBotView(f)!;
     expect(view.others.map((o) => o.sessionId)).toContain("p2");
   });
@@ -214,7 +214,7 @@ describe("buildBotView viewport fairness (B17)", () => {
   it("on a fitting arena, a live instance is visible from any distance within the arena", () => {
     const f = fixture();
     f.state.arenaId = "arena-02";
-    f.combat.instances.set("far", fakeInstance({ id: "far", x: 1240, y: 680 }));
+    f.combat.instances.set("far", fakeInstance({ id: "far", x: ARENA_02.width - 40, y: ARENA_02.height - 40 }));
     f.combat.instances.set("near", fakeInstance({ id: "near", x: 150, y: 150 }));
     const view = buildBotView(f)!;
     const ids = view.instances.map((i) => i.id);
@@ -225,7 +225,7 @@ describe("buildBotView viewport fairness (B17)", () => {
   it("on the fitting arena, an instance is visible from any distance within the arena", () => {
     const f = fixture();
     f.state.arenaId = "arena-01";
-    f.combat.instances.set("corner", fakeInstance({ id: "corner", x: 1240, y: 680 }));
+    f.combat.instances.set("corner", fakeInstance({ id: "corner", x: ARENA_01.width - 40, y: ARENA_01.height - 40 }));
     const view = buildBotView(f)!;
     expect(view.instances.map((i) => i.id)).toContain("corner");
   });

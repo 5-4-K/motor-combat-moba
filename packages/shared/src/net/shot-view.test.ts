@@ -380,7 +380,7 @@ describe("ShotView against the server's own combat loop", () => {
   it("a shot into the arena wall disappears on the tick the server's wall test ends it", () => {
     const bounds = boundsOf(ARENA_01);
     const w = world(ARENA_01.obstacles, null, bounds);
-    const byTick = serverRun({ carId: "bullseye", slot: 2, pose: { x: 1000, y: 360, angle: 0 }, obstacles: ARENA_01.obstacles, bounds, until: T + 60 });
+    const byTick = serverRun({ carId: "bullseye", slot: 2, pose: { x: ARENA_01.width - 280, y: 360, angle: 0 }, obstacles: ARENA_01.obstacles, bounds, until: T + 60 });
     expect(expectParity(byTick, T, w)).toBeGreaterThan(0);
   });
 

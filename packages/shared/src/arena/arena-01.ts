@@ -6,13 +6,14 @@ import { compileTileArena } from "./tiles/compile.js";
  * enough that the whole of it is on screen. Authored as tiles since 2026-10-09 (spec tile arenas,
  * TA9): `#` wall, `^` spike, `.` floor — the walls and spikes are compiled into `obstacles`.
  *
- * 1280x720 (32 x 18 tiles) is not a taste call — it is the client's logical canvas, so at
- * `CAMERA_CONFIG.zoom` of 1 the camera covers the arena exactly and every car is always visible.
- * Rescaling this arena without rescaling the zoom to match breaks that.
+ * 1600x880 (40 x 22 tiles), sized so the default camera zoom of 0.8 (a 1600 x 900 view) shows it
+ * whole and every car is always visible. Rescaling this arena without rescaling the zoom to match
+ * breaks that.
  *
- * The playable floor is x 40..1240, y 40..680 (1200 x 640): a one-tile wall on every side. The
- * spike runs sit in the wall row, so they take no floor; they are the old strips' spans rounded to
- * the 40 u grid and are mirrored about both centre lines. The corners are square — the octagon's
+ * The playable floor is x 40..1560, y 40..840 (1520 x 800): a one-tile wall on every side. The
+ * spike runs sit in the wall row, so they take no floor; they are the old 32 x 18 strips' spans
+ * scaled by 1.25 across and 22/18 down, rounded to the 40 u grid, and mirrored about both centre
+ * lines. The corners are square — the octagon's
  * chamfers wait for diagonal tiles (TA2).
  *
  * The look is drawn metal (2026-10-09): the wall art is turned per side so its grain runs along the
@@ -25,11 +26,11 @@ import { compileTileArena } from "./tiles/compile.js";
  * only advantage a spawn can confer.
  */
 const WALL = "metal-wall-drawn";
-const EDGE = "###^^^^^###^^^####^^^###^^^^^###";
+const EDGE = "####^^^^^^####^^^^####^^^^####^^^^^^####";
 const TOP = EDGE.replace(/#/g, "T").replace(/\^/g, "t");
 const BOTTOM = EDGE.replace(/#/g, "B").replace(/\^/g, "b");
-const PLAIN = "#" + ".".repeat(30) + "R";
-const SPIKED = "^" + ".".repeat(30) + "r";
+const PLAIN = "#" + ".".repeat(38) + "R";
+const SPIKED = "^" + ".".repeat(38) + "r";
 
 export const ARENA_01: ArenaDef = compileTileArena({
   id: "arena-01",
@@ -47,38 +48,42 @@ export const ARENA_01: ArenaDef = compileTileArena({
   },
   rows: [
     TOP, //     0
-    PLAIN, //   1
-    PLAIN, //   2
-    SPIKED, //  3
-    SPIKED, //  4
-    PLAIN, //   5
-    PLAIN, //   6
-    PLAIN, //   7
-    SPIKED, //  8
-    SPIKED, //  9
-    PLAIN, //  10
-    PLAIN, //  11
-    PLAIN, //  12
-    SPIKED, // 13
-    SPIKED, // 14
-    PLAIN, //  15
-    PLAIN, //  16
-    BOTTOM, // 17
+    PLAIN, // 1
+    PLAIN, // 2
+    PLAIN, // 3
+    SPIKED, // 4
+    SPIKED, // 5
+    PLAIN, // 6
+    PLAIN, // 7
+    PLAIN, // 8
+    PLAIN, // 9
+    SPIKED, // 10
+    SPIKED, // 11
+    PLAIN, // 12
+    PLAIN, // 13
+    PLAIN, // 14
+    PLAIN, // 15
+    SPIKED, // 16
+    SPIKED, // 17
+    PLAIN, // 18
+    PLAIN, // 19
+    PLAIN, // 20
+    BOTTOM, // 21
   ],
   /** What the procedural fallback paints until tile art is imported, and the background beneath. */
   palette: { floor: "#3b4747", obstacle: "#4a5568", border: "#2d3436" },
   /**
    * The four corners and the midpoint of each long wall. Corner cars face across the arena and the
    * two midpoint cars face each other, so wherever `assignSpawns` puts you, you open the match looking
-   * at the fight. Every spawn sits at least 140 u off every wall.
+   * at the fight. Every spawn sits at least 175 u off every wall.
    */
   ffaSpawns: [
-    { x: 200, y: 180, angle: 0 },
-    { x: 1080, y: 180, angle: Math.PI },
-    { x: 200, y: 540, angle: 0 },
-    { x: 1080, y: 540, angle: Math.PI },
-    { x: 640, y: 180, angle: Math.PI / 2 },
-    { x: 640, y: 540, angle: -Math.PI / 2 },
+    { x: 243, y: 215, angle: 0 },
+    { x: 1357, y: 215, angle: Math.PI },
+    { x: 243, y: 665, angle: 0 },
+    { x: 1357, y: 665, angle: Math.PI },
+    { x: 800, y: 215, angle: Math.PI / 2 },
+    { x: 800, y: 665, angle: -Math.PI / 2 },
   ],
   /**
    * A line down each side, facing the other team. The y values divide the playable height (40..680)
@@ -86,13 +91,13 @@ export const ARENA_01: ArenaDef = compileTileArena({
    * wall — no seat on the line is more exposed than another.
    */
   teamASpawns: [
-    { x: 200, y: 200, angle: 0 },
-    { x: 200, y: 360, angle: 0 },
-    { x: 200, y: 520, angle: 0 },
+    { x: 243, y: 240, angle: 0 },
+    { x: 243, y: 440, angle: 0 },
+    { x: 243, y: 640, angle: 0 },
   ],
   teamBSpawns: [
-    { x: 1080, y: 200, angle: Math.PI },
-    { x: 1080, y: 360, angle: Math.PI },
-    { x: 1080, y: 520, angle: Math.PI },
+    { x: 1357, y: 240, angle: Math.PI },
+    { x: 1357, y: 440, angle: Math.PI },
+    { x: 1357, y: 640, angle: Math.PI },
   ],
 });

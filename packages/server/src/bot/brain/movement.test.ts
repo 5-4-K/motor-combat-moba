@@ -77,15 +77,15 @@ describe("wallAhead on a polygon arena", () => {
 
 describe("spikesAhead", () => {
   it("fires for a car approaching a strip", () => {
-    // Driving left toward the left wall, inside the y-span of the strip at 120-200. The strip spans
+    // Driving left toward the left wall, inside the y-span of the strip at 160-240. The strip spans
     // x 0-40 and is inflated by the 30 u hull margin, so the look-ahead point (210 - 150 = 60) sits
     // 10 u inside its near edge (70) rather than on it.
     expect(spikesAhead({ x: 210, y: 150, angle: Math.PI }, tileArena, 150)).toBe(true);
   });
 
   it("does not fire for a bare stretch of the same wall", () => {
-    // y = 260 sits in the gap between the strips at 120-200 and 320-400, on a plain wall tile.
-    expect(spikesAhead({ x: 200, y: 260, angle: Math.PI }, tileArena, 150)).toBe(false);
+    // y = 320 sits in the gap between the strips at 160-240 and 400-480, on a plain wall tile.
+    expect(spikesAhead({ x: 200, y: 320, angle: Math.PI }, tileArena, 150)).toBe(false);
   });
 
   it("does not fire in open floor", () => {
@@ -93,7 +93,7 @@ describe("spikesAhead", () => {
   });
 
   it("ignores an ordinary obstacle that is not a spike", () => {
-    // The y = 260 case above already drives at a plain wall tile, but this one isolates the
+    // The y = 320 case above already drives at a plain wall tile, but this one isolates the
     // question: an obstacle that is not a spike, with no spike anywhere near it, so it tells a
     // `kind`-aware implementation from one that fires on any nearby obstacle.
     // This is the same box and the same pose `wallAhead`'s own "fires on an obstacle" case uses
