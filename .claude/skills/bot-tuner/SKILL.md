@@ -11,7 +11,7 @@ description: >-
 
 # Bot tuner
 
-The game has **one brain** (`BOT_BRAIN_VERSION` 7.0.0). Easy / medium / hard are rows of
+The game has **one brain** (`BOT_BRAIN_VERSION` 7.1.0). Easy / medium / hard are rows of
 numbers in [`packages/server/src/config/bot-profiles.ts`](../../../packages/server/src/config/bot-profiles.ts):
 23 fields per tier, no coin flips. The practice bot and the balance harness's measurement pilot are
 the same code and the same rows, so a retune moves both. The cheat-sheet is
@@ -38,12 +38,14 @@ Weakness is worse use of the same facts, later reactions, and worse hands.
      `reset`, `ram`, `fight`, `close`, in priority order).
    - `range N facing` is the goal the navigator is driving: the range it holds and `nose`, `orbit`
      or `free` (`none` in `recover`).
-   - `slot K` is the pressed fire slot (index + 1); `slot -` means it held fire.
+   - `slot K` is the pressed fire slot itself: the abilities read 1/2/3 (LMB/RMB/SPACE), the basic
+     attack (Q) 0; `slot -` means it held fire.
    - **`hit BEST/BAR` answers every holds-fire complaint.** `BEST` is the best solved hit chance
      among ready slots; `BAR` is the tier's `hitChanceBar`. Below the bar with `slot -` is the bar
      working, and `hitChanceBar` is the tune. At or above it with `slot -`, check the burst gap,
-     the switch lock and the situation's fire column (`recover`, `waitOut`, `close` hold fire); if
-     none explains it, it is a bug — stop and say so.
+     the switch lock and the situation's fire column (`waitOut` and `close` hold fire; `recover`
+     holds only while dead, `phased` or `stunned`); if none explains it, it is a bug — stop and say
+     so.
    - `drive(steer,throttle)` is the navigator's output.
 3. Name the **factor**. Five, and four have knobs:
    - **judgment** — situations and ranges: `hitChanceBar`, `retreatHpFraction`,
@@ -70,7 +72,8 @@ Weakness is worse use of the same facts, later reactions, and worse hands.
 **Stop tuning and say so** when the overlay shows a brain bug:
 
 - the wrong **situation** for the moment (hard in `waitOut` while you are alive in front of it,
-  `fight` while you are phased, `ram` while a slot is ready);
+  `fight` while you are phased, `ram` while a slot is ready, `unpin` out in open floor);
+- a press (`slot K`) in `recover` while the bot is stunned or phased;
 - `hit` at or above the bar with `slot -` in a firing situation, outside the burst gap and switch
   lock;
 - `solve()` reporting a hit chance for a shot the weapon plainly cannot make;
@@ -93,10 +96,11 @@ Weakness is worse use of the same facts, later reactions, and worse hands.
 | "charges in / never closes" | judgment | `opponentRangeRespect` down to close. Ceiling: `fightRange = max(comfort, keep-out)`, so nothing in the profile puts a bot closer than its own comfort range (0.85 × its shortest ready gun's effective reach). A brawling bot is a new field, not a tune — say so |
 | "runs away when hurt" / "fights to the death" | judgment | `retreatHpFraction` (0 at easy: never resets) |
 | "doesn't finish me off" | judgment | `punishHpFraction` (0.4 on every tier; its `LADDER` entry is "equal", so move all three or change the test with them) |
-| "sits in a corner" / "drives into walls" | judgment | `wallLookaheadUnits` up: how far ahead `unpin` sees a wall. Overlay should read `unpin` |
+| "sits in a corner" / "drives into walls" | judgment | `wallLookaheadUnits` up: how early the reactive layer steers along a wall it is driving at. `unpin` is contact-only (a corner, or a wall or spike within `minEngageUnits`, every tier alike) and is not a knob |
+| "reverses into a wall" / "moonwalks" | read the overlay | `unpin` repeating: the stuck test (a corner or a contact it cannot drive out of) — a brain issue, stop and say so. `fight` with `drive(…,-1)`: the orbit weave backing out nose-on, by design; `rangeBandUnits` sets how far, for every tier. `evade` with no threat in sight: a held dodge; `dodgeDistanceUnits` sets how far, for every tier. Both are `BRAIN_CONSTANTS`, so not a one-tier fix. Nothing senses a wall behind the car |
 | "chases whoever shot it" / "ignores the wounded car" | judgment | `vengefulness` / `woundedBias`; `targetCommitMs` is how long it sticks |
 | "doesn't see me" | reaction | `awarenessRadiusUnits`, `rearBlindHalfAngleRad`, `memoryMs` |
-| "never rams" | **not a knob** | By design: `ram` is entered only when the kit is dry (no slot ready within `ramDryWindowMs`) and the target is within `ramRangeUnits` |
+| "never rams" | **not a knob** | By design: `ram` is entered only when the kit is dry (no slot ready within `ramDryWindowMs`) and the target is within `ramRangeUnits`; the target driving at it does not abort it, but a shot it dodges does |
 | "wastes ult" / "saves its big gun" | **not a concept** | There is no ult holding: every slot fires when its hit chance clears the bar, cooldown ignored |
 | "it weaves" | **by design** | `fight` (`orbit` facing, unless a fixed-muzzle slot wants the nose) weaves across the range band to keep the target inside the turret's ±30° half-arc. Not a knob |
 | "shots are all over the place" with a good `hit` | **not a knob** | The solver decides hit chance. If it presses shots it reports as landing and they miss, that is a solver bug |

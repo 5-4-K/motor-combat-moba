@@ -461,20 +461,22 @@ bestHitChance, hitChanceBar, steer, throttle }`. `personality`, `preferredRange`
 **BB54 `SituationId`** gains `"ram"`; shared's `SITUATIONS` list (the wire validator) gains it in the
 same change.
 
-**BB55 `BotDebugPayload`** becomes `{ tick, situation, goalRange, goalFacing, firedSlot,
-bestHitChance, hitChanceBar, steer, throttle }` with `isBotDebugPayload` updated. The playground
+**BB55 `BotDebugPayload`** becomes `{ tick, situation, targetSessionId, goalRange, goalFacing,
+firedSlot, bestHitChance, hitChanceBar, steer, throttle }` with `isBotDebugPayload` updated
+(`targetSessionId` stays: the overlay names the target the bot is fighting). The playground
 overlay prints one line:
 
 ```
 situation | range N facing | slot K | hit BEST/BAR | drive(+1,0)
 ```
 
-`slot -` means held fire; `hit` is the best solved hit chance against the bar, which is the whole
-holds-fire diagnostic now.
+`slot K` is the pressed fire slot itself, so the abilities read 1/2/3 (LMB/RMB/SPACE) and the basic
+attack 0 (7.1.0; 7.0.0 printed the index + 1). `slot -` means held fire; `hit` is the best solved
+hit chance against the bar, which is the whole holds-fire diagnostic now.
 
 ## 12. Harness and versioning
 
-**BB56** `BOT_BRAIN_VERSION = "7.0.0"`. `botFingerprint` keeps hashing `BOT_PROFILES` plus the
+**BB56** `BOT_BRAIN_VERSION = "7.0.0"`, then `"7.1.0"` for the final review's four behaviour fixes (§15). `botFingerprint` keeps hashing `BOT_PROFILES` plus the
 version, so every 6.x balance report becomes incomparable, which is correct.
 
 **BB57** The balance CLI does not change. `--skill` still maps to a tier and that tier is the
@@ -563,3 +565,41 @@ renumbered here.
 - **Timing (BB2, BB64).** The 30 s seed-7 hard deathmatch: 8.2 s on 6.8.0, 5.0 s on 7.0.0, wall
   time of `npm run balance` on the same machine, startup included. A hard `decide` costs ~0.55 ms
   of CPU, dominated by `solve()` (~1.47 ms per `pepperbox` solve).
+
+### 7.1.0 (final review, 2026-10-10)
+
+The whole-branch review measured four defects in real matches, each a spec gap rather than a slip,
+and `BOT_BRAIN_VERSION` went to 7.1.0 with these rulings:
+
+- **Fight while reloading (C1; BB15, BB23, BB43).** `fight` was "a slot ready now reaches", so a
+  kit on cooldown inside its reach fell to `close`, whose nose-only, no-reverse goal at
+  `0.9 × reach` sat behind the car and held the throttle at 0 for whole cooldowns. `fight` is now
+  raw reach of any usable slot, ready or not, and `close`'s range is `min(0.9 × reach,
+  distance)`. The BB60 "fires at its range" duel spent 37.5 % of its ticks at throttle 0 with a
+  target; it spends 0 %.
+- **Contact-only unpin (C2; BB32, BB33).** `pinned` used the reactive layer's own look-ahead, so
+  `unpin` pre-empted that layer everywhere but `evade` and hard bots shuttled forward and back at
+  walls. `pinned` is now a corner or `wallPush` at `minEngageUnits`, every tier alike.
+- **Fire under non-disarming control loss (I1; BB17, BB41).** `recover` coasts the drive but keeps
+  the shooter unless the bot is dead, `phased` or under a `disarmed` status (`stunned`).
+- **A ram ignores its own target's approach (I2; BB20, BB21).** While `ramReady` (kit dry, target
+  inside `ramRangeUnits`) the target is not an incoming car, so `evade` no longer aborts the ram.
+
+Occupancy, measured by `occupancy.test.ts` (hard Mirage vs Bullseye, arena-01, seed 7, 60 s,
+deathmatch; mirage / bullseye, 7.0.0 → 7.1.0): `unpin` 29.3 / 28.2 % → 8.4 / 6.8 %; `unpin`
+re-entries within 30 ticks 26 / 24 → 2 / 1; `fight` 2.7 / 3.9 % → 37.9 / 51.7 %; `close` 4.7 / 5.1 %
+→ 0 / 0 %; reverse 56.0 / 53.7 % → 55.3 / 45.6 %; stationary with a target (a lance HOLD excluded)
+5.1 / 4.4 % → 6.8 / 8.5 %. What reverses now is mostly the orbit weave's nose-on back-out (BB24),
+half of every weave by design, in the situation the bot now spends most of its time in; what stands
+still is in-band lift-off under a `nose` goal and reversing into an unseen wall (no rear sensing).
+Six-bot FFA (seed 7, 60 s, arena-01 / arena-02): hard `unpin` 11.9 / 17.3 % → 3.4 / 3.6 % with
+quick re-entries 54 / 40 → 7 / 3, and hard `ramLock`s landed 2 / 0 → 1 / 5; easy `unpin` rose
+11.2 / 8.6 % → 23.4 / 25.4 %, because easy's 40 u look-ahead lies inside the 70 u contact test.
+
+Calibration (BB50) re-checked: on seed 17 the hit rates read easy 4/5, medium 7/9, hard 9/12 and
+the open-loop presses over 300 ticks stay 5 / 11 / 35; hard kills the dummy at 2.10× its floor.
+Seed 17 is the one outlier of ten for easy (pooled over ten seeds: 0.456 / 0.667 / 0.744), so the
+P50 ladder now pools five seeds. "Easy closes on a visible target" runs on a widened awareness:
+every shipped kit reaches at least 900 u with some slot, past easy's 600 u sight. Timing (BB2): the
+30 s seed-7 run takes 5.1–5.2 s of wall time on 7.1.0 against 5.3–5.4 s on 7.0.0, measured the
+same session on the same machine.

@@ -4,7 +4,7 @@ One brain, three rows of numbers: easy, medium and hard are rows of `BOT_PROFILE
 [`packages/server/src/config/bot-profiles.ts`](../packages/server/src/config/bot-profiles.ts); no
 module branches on the tier name, and the practice bot and the balance pilot are the same bot.
 Design: [`2026-10-09-bot-brain-v7-design.md`](superpowers/specs/2026-10-09-bot-brain-v7-design.md)
-(BB1–BB70). **`BOT_BRAIN_VERSION` is `7.0.0`.** Feel complaints go through
+(BB1–BB70). **`BOT_BRAIN_VERSION` is `7.1.0`.** Feel complaints go through
 [`bot-tuner`](../.claude/skills/bot-tuner/SKILL.md). **Unlike `docs/turn-tuning.md`, nothing tests
 this page:** its tables copy `BOT_PROFILES` and `BRAIN_CONSTANTS`; re-copy a cell when code moves.
 
@@ -24,21 +24,21 @@ fixed order, so a seed replays exactly. No coin flips, blunders or personalities
 
 ## Situations
 
-Lowest number wins. A higher row cuts in at once; the same or a lower one waits out `situationCommitMs`;
-`recover` and `waitOut` end the moment their facts stop holding. `evade` and `unpin` outrank
+Lowest number wins. A lower-numbered situation cuts in at once; the same or a higher-numbered one
+waits out `situationCommitMs`; `recover` and `waitOut` end the moment their facts stop holding. `evade` and `unpin` outrank
 `waitOut`, so a hunting bot still dodges and un-pins.
 
 | # | Situation | When | Fires? |
 |---|---|---|---|
-| 0 | `recover` | self dead, or carrying `phased`, `stunned`, `reeling` or `ramLock` | no (coasts) |
-| 1 | `evade` | a reacted-to shot in flight, or the target bearing down inside `dodgeHorizonMs` | yes |
-| 2 | `unpin` | `wallPush` reports a wall, spike or corner within `wallLookaheadUnits` | yes |
+| 0 | `recover` | self dead, or carrying `phased`, `stunned`, `reeling` or `ramLock` | coasts; fires unless dead, `phased` or disarmed (`stunned`) |
+| 1 | `evade` | a reacted-to shot in flight, or the target bearing down inside `dodgeHorizonMs` (ignored while the bot's own ram is on: kit dry, target inside `ramRangeUnits`) | yes |
+| 2 | `unpin` | stuck: a corner, or a wall or spike in contact (`wallPush` at `minEngageUnits`, the same for every tier) | yes |
 | 3 | `waitOut` | no hittable target noticed (hittable: alive, not phased, on the other team) | no |
 | 4 | `punish` | target `stunned` or `reeling`, or target HP ≤ `punishHpFraction` | yes |
 | 5 | `reset` | own HP < `retreatHpFraction` (0 at easy: never) | yes |
 | 6 | `ram` | target within `ramRangeUnits` and the kit is dry (no slot ready within `ramDryWindowMs`) | yes |
-| 7 | `fight` | a slot that is ready now reaches the target | yes |
-| 8 | `close` | target hittable but out of reach | no |
+| 7 | `fight` | the target is within raw reach of a usable slot, ready or not | yes |
+| 8 | `close` | target hittable and out of reach of every usable slot, ready or not | no |
 
 ## Goals
 
@@ -56,10 +56,15 @@ facing, and whether it may reverse. `believed(t)` is the raw target prediction `
 | `reset` | `believed(lag)` | `max(fightRange × resetRangeMultiplier, minEngageUnits)` | nose | yes |
 | `ram` | target predicted at `min(distance / own top speed, horizon)` | 0 | nose | no, forward only |
 | `fight` | `believed(lag)` | `fightRange` | nose if the shooter wants it, else orbit | yes |
-| `close` | `believed(lag)` | 0.9 × longest raw reach among slots ready within `soonReadyMs` (else the kit's) | nose | no |
+| `close` | `believed(lag)` | `min(0.9 ×` longest raw reach among slots ready within `soonReadyMs` (else the kit's)`, distance)` | nose | no |
 
 Hunt heading: last-known pose, nearest heard shot, then four quadrant waypoints. Dodge direction:
 the summed away headings of reacted-to threats and an incoming car; a held `evade` keeps its last.
+
+A bot reloading inside its kit's reach is in `fight`, so its range is the comfort range's stand-off
+branch (below): it backs out to 0.85 × its longest effective reach while nothing is ready soon, and
+presses nothing until a slot is. `close` only ever drives in: its range is capped at the current
+distance.
 
 ## How it drives
 
@@ -78,9 +83,12 @@ Nothing rolls the drive model forward; there is no planner.
 - **The latch.** The wheel turns on past `steerDeadbandRad` (0.06), lets go under half of it, and in
   between holds only while the error keeps its sign. It stops wheel chatter.
 - **The reactive wall layer.** Outside `recover` and `unpin`, a forward-driving car facing a wall
-  push steers toward the push's side, reversing if the wall is nearly dead ahead. `wallPush` sums
-  unit vectors away from walls and obstacles at the look-ahead point, damaging spike faces at 1×
-  and 2× it, and a corner (two planes within `minEngageUnits`); any hit counts as pinned.
+  push at the tier's `wallLookaheadUnits` steers toward the push's side, reversing if the wall is
+  nearly dead ahead. `wallPush` sums unit vectors away from walls and obstacles at the look-ahead
+  point, samples the damaging spike faces at 1× and 2× the look-ahead, and adds a corner (two planes
+  within `minEngageUnits`); any hit counts. `unpin` reads the same sum at `minEngageUnits`
+  (contact), so the reactive layer acts first, except at easy, whose 40 u look-ahead sits inside the
+  70 u contact test.
 
 ## How it shoots
 
@@ -95,6 +103,8 @@ press per decision, never inside `burstGapMs` of the last press or the bot's own
 Cooldown never enters the ranking and there is no ult holding: a 16 s weapon that will land fires
 like any other. A turret press aims at the solution's `turretBearingRad` plus the realised aim
 offset. A ready fixed-muzzle slot in reach but not pressable makes `fight` face `nose`, not orbit.
+`recover` keeps the shooter: a car under `reeling` or `ramLock` cannot drive but still fires, as a
+player can; dead, `phased` and `stunned` (the one status that disarms) hold fire.
 
 ## Ranges
 
@@ -106,6 +116,14 @@ offset. A ready fixed-muzzle slot in reach but not pressable makes `fight` face 
   `soonReadyMs`, else × the kit's largest (stand off while reloading); floored at `minEngageUnits`.
 - **Keep-out** = the opponent's shortest known gun (chassis kit plus weapons seen fired) ×
   `opponentRangeRespect`. `fightRange = max(comfort, keep-out)`.
+- **Medium fights closest.** Medium's sigma (0.09) against its bar (0.5) collapses its effective
+  reaches: `predator` 214 against hard's 647 (raw 1800), `thumper` 276, `magmablast` 278, so a
+  loaded medium Bullseye or Bastion holds 182 or 234 u, against hard's 472 or 418 and easy's 510 or
+  418 (easy's 0.3 bar sits below the 0.457 centre node, so its effective reaches are the raw ones).
+- **The pilot mostly punishes.** In a 6-bot FFA (seed 7, 60 s, 7.1.0) `punish` takes 34–47 % of
+  alive time at hard and medium against 14–24 % for `fight`: `punishHpFraction` 0.4 plus
+  `woundedBias` make most engagements a wounded target, so a balance run mostly measures a bot
+  holding half its comfort range, nose-on. In a duel `fight` leads (38–52 %).
 
 ## Profile table
 
@@ -170,8 +188,9 @@ medium's 0.5 also needs one 1.15σ error to land, hard's 0.7 needs both.
 situation | range N facing | slot K | hit BEST/BAR | drive(+1,0)
 ```
 
-The committed situation; the goal's range and facing (`none` in `recover`); the pressed fire slot's
-index + 1 (`slot -` = held fire); the best solved hit chance among ready slots against the tier's
+The committed situation; the goal's range and facing (`none` in `recover`); the pressed fire slot
+itself, so the abilities read 1/2/3 (LMB/RMB/SPACE) and the basic attack (Q) 0 (`slot -` = held
+fire); the best solved hit chance among ready slots against the tier's
 `hitChanceBar`; the signed `steer` and `throttle`. **`hit` is the holds-fire diagnostic:** under
 the bar with `slot -` is the bar working; at or over it, the burst gap, the switch lock, a
 non-firing situation, or a bug. Read the line before naming a knob.
@@ -185,15 +204,23 @@ non-firing situation, or a bug. Read the line before naming a knob.
 | "sprays" | misses a straight driver too | `aimErrorSigmaRad` |
 | "never dodges" | `evade` never appears | `dodgeReactionMs` down (or `dodgeHorizonMs` up) |
 | "walks into fire" | `range N` sits inside your gun | `opponentRangeRespect` up |
-| "sits in a corner" | `unpin` never appears | `wallLookaheadUnits` up |
+| "drives into walls" | it reaches a wall before turning along it | `wallLookaheadUnits` up: how early the reactive layer steers along a wall. `unpin` is contact-only, not a knob |
+| "reverses into a wall" / "moonwalks" | `unpin` repeating | the stuck test: a corner or a contact the bot cannot drive out of; a brain issue, not a knob |
+| | `fight` with `drive(…,-1)` | the orbit weave backing out nose-on (by design); `rangeBandUnits` sets how far, for every tier |
+| | `evade` with no threat in sight | a held dodge (BB35); `dodgeDistanceUnits` sets how far, for every tier |
 | "never rams" | by design: `ram` only when the kit is dry | not a knob |
 | "feels robotic" | instant, steady reactions | `reactionDelayMs` up; `aimErrorDriftMs` (how fast the wobble wanders) |
 
 ## Known limitations
 
-1. **Orbit needs open floor.** Near a wall the reactive layer turns the weave and flips its side.
+1. **Walls are sensed ahead only.** The reactive layer turns the car along a wall it is driving at,
+   from the tier's look-ahead, and flips an orbit's side; `unpin` takes over only on contact or in
+   a corner. Nothing senses a wall behind the car, so a reverse (an orbit back-out, a `nose` goal
+   too close, a backing `evade` or `unpin`) can back into one, and on tile arenas the walls are
+   obstacles, which `inCorner` (boundary planes only) does not count. Easy's 40 u look-ahead lies
+   inside the 70 u contact test, so easy reaches `unpin` before its reactive layer turns it.
 2. **A beam is never dodged.** No travel speed means an ETA of 0; attached beams are tracked (they
    take a threat slot) but never reacted to.
 3. **ETA is measured at notice**, once. A shot is dodged when it lies in `(dodgeReactionTicks,
    dodgeHorizonTicks + ~3.5]` ticks: easy (24, 27.5], medium (16, 39.5], hard (4, 51.5]. Easy
-   practically never dodges (accepted; 6.x's 0.05 `dodgeChance` was the same in effect).
+   practically never dodges (accepted).
