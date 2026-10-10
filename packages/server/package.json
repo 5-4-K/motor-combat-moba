@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p playtest/tsconfig.json && tsc --noEmit -p balance/tsconfig.json",
     "test": "vitest run",
     "test:slow": "vitest run -c vitest.slow.config.ts --passWithNoTests",
+    "test:net": "vitest run -c vitest.net.config.ts",
     "test:bench": "vitest run -c vitest.bench.config.ts",
     "test:common": "vitest run --exclude \"**/modes/*/**\"",
     "test:mode": "vitest run",

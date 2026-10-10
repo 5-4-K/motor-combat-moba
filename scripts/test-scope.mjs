@@ -9,15 +9,25 @@
  *   - `"none"`     — nothing that owes a test moved (docs, READMEs outside packages/scripts).
  *   - `"mode"`     — every changed path sits inside one or more modes' own folders. Only those
  *                    modes' scoped tests and playtest runs are owed.
- *   - `"full"`     — at least one changed path is common code (or an untracked/unrecognised shape),
- *                    so nothing short of the whole suite can be trusted.
+ *   - `"packages"` — every non-mode path sits in `packages/server/**` and/or `packages/client/**`
+ *                    (playtest and balance count as server, `public/` as client). Only those
+ *                    packages' suites are owed (`npm run test:<pkg>`), plus `test:scripts` and the
+ *                    playtests the full scope emits; any mode paths append their mode commands.
+ *   - `"full"`     — at least one changed path is in shared (outside a mode folder), under
+ *                    `scripts/`, a build/test file (`package.json`, `package-lock.json`,
+ *                    `tsconfig*.json`, `vitest.*.ts`), or an unrecognised shape, so nothing short of
+ *                    the whole suite can be trusted.
+ *
+ * Independent of the scope, `owesSlowTests`, `owesNet`, `owesBench` and `owesBotReport` decide
+ * whether the gated groups outside `npm test` (`vitest.groups.ts` per package) and the non-gating
+ * bot report are owed too.
  *
  * A mode's own folder is `packages/{shared,client}/src/modes/<slug>/`, that mode's snapshot file,
  * or (via its RULE FAMILY — several slugs can share one controller/rules implementation, see
  * `MODE_FAMILY`) `packages/{server,shared,client}/src/modes/<family>/` and
  * `packages/server/playtest/modes/<family>/`. Anything else — including the `modes/` ROOT files
  * (`merge.ts`, `registry.ts`, `contract.test.ts`, …) which are common code sitting at that same
- * directory depth — is common, and common code anywhere in the diff promotes the whole diff to
+ * directory depth — is common, and common shared code anywhere in the diff promotes the whole diff to
  * `"full"`: a shared accessor or a rules-registry edit can change every mode's behaviour at once,
  * so scoping it to "whichever mode's folder happened to also be touched" would be a lie.
  *
@@ -29,11 +39,10 @@ import { execFileSync, execSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 // Static, like the other tooling scripts (`mode-rosters.mjs`) that read built shared: only the
-// `"full"` scope in `commandsFor` below actually calls these, but importing lazily would mean an
-// ESM/CJS interop dance for no benefit — every caller of this module already runs after
+// `"full"` and `"packages"` scopes in `commandsFor` below actually call these, but importing lazily
+// would mean an ESM/CJS interop dance for no benefit — every caller of this module already runs after
 // `npm run build -w @motor-combat-moba/shared` (the root `test:common`/`test:affected` scripts, and
-// the CLI entry point below), and the unit tests that exercise `scopeOf`/`commandsFor` never reach
-// the `"full"` branch of `commandsFor`.
+// the CLI entry point below), and the unit tests import built shared themselves.
 import { activeGameModes, modeSlug } from "../packages/shared/dist/index.js";
 
 /** Which modes share a rules/controller FAMILY (server `modes/<family>/`, and the mirror folders
@@ -118,22 +127,43 @@ function relevantPaths(paths) {
   });
 }
 
+/** Build and test files: a change to one can alter how every suite runs, so it owes `"full"`. */
+const BUILD_FILE = /(?:^|\/)(?:package\.json|package-lock\.json|tsconfig[^/]*\.json|vitest\.[^/]*\.ts)$/;
+
+/** The package a non-mode path's suite lives in (`"server"` / `"client"`), or `null` when the path
+ * owes the full suite. `packages/server/playtest/**` and `packages/server/balance/**` are server;
+ * `packages/client/public/**` is client — all fall under the plain prefix match. */
+function packageOf(path) {
+  if (BUILD_FILE.test(path)) return null;
+  const match = /^packages\/(server|client)\//.exec(path);
+  return match ? match[1] : null;
+}
+
 /**
  * Decide the test scope a set of changed paths owes.
  *
  * @param {string[]} changedPaths
- * @returns {{ scope: "none" } | { scope: "mode", modes: string[], commonProbes: boolean } | { scope: "full" }}
+ * @returns {{ scope: "none" }
+ *   | { scope: "mode", modes: string[], commonProbes: boolean }
+ *   | { scope: "packages", packages: ("server" | "client")[], modes: string[], commonProbes: boolean }
+ *   | { scope: "full" }}
  */
 export function scopeOf(changedPaths) {
   const kept = relevantPaths(changedPaths);
   if (kept.length === 0) return { scope: "none" };
 
   const modes = new Set();
+  const packages = new Set();
   let commonProbes = false;
 
   for (const path of kept) {
     const slugs = slugsForPath(path);
-    if (slugs === null) return { scope: "full" };
+    if (slugs === null) {
+      const pkg = packageOf(path);
+      if (pkg === null) return { scope: "full" };
+      packages.add(pkg);
+      continue;
+    }
     for (const slug of slugs) modes.add(slug);
 
     const isConfigFile = /^packages\/(?:shared|client)\/src\/modes\/[^/]+\/config\.ts$/.test(path);
@@ -141,58 +171,128 @@ export function scopeOf(changedPaths) {
     if (isConfigFile || isSnapshot) commonProbes = true;
   }
 
-  return { scope: "mode", modes: [...modes].sort(), commonProbes };
+  const modeList = [...modes].sort();
+  if (packages.size > 0) return { scope: "packages", packages: [...packages].sort(), modes: modeList, commonProbes };
+  return { scope: "mode", modes: modeList, commonProbes };
 }
 
+/** Whether any changed path matches any of `patterns`. */
+const matchesAny = (paths, patterns) => paths.some((path) => patterns.some((pattern) => pattern.test(path)));
+
 /**
- * What the SLOW server tests exercise (`packages/server/vitest.groups.ts`: the bot brain,
- * `balance/match.test.ts`, `balance/runner.test.ts`) — a `sim/`, `rooms/`, `modes/` or `bot/`
- * folder anywhere under shared's or server's `src/`, the server's `balance/` harness, or the
- * slow-test configs themselves. Client code never runs in those matches, so it never owes them,
- * and neither do the playtest probes (`server/playtest/`), which those tests do not import.
+ * What the SLOW group exercises (`vitest.groups.ts`: server's `balance/match.test.ts`,
+ * `balance/runner.test.ts` and `src/bot/brain/tiers.test.ts` — real headless matches and the bot
+ * brain over many ticks): a `sim/`, `rooms/`, `modes/`, `bot/` or `config/` folder anywhere under
+ * shared's or server's `src/`, shared's arenas, the server's `balance/` harness, or any vitest
+ * config/group file. Client code never runs in those matches, and neither do the playtest probes.
+ * The net paths owe the NET group instead (`owesNet`).
  */
 const SLOW_TEST_PATTERNS = [
-  /^packages\/(?:shared|server)\/src\/(?:[^/]+\/)*(?:sim|rooms|modes|bot)\//,
+  /^packages\/(?:shared|server)\/src\/(?:[^/]+\/)*(?:sim|rooms|modes|bot|config)\//,
+  /^packages\/shared\/src\/arena\//,
   /^packages\/server\/balance\//,
-  /^packages\/server\/vitest\.(?:groups|slow\.config)\.ts$/,
+  /^packages\/[^/]+\/vitest\.[^/]*\.ts$/,
 ];
 
-/** Whether a set of changed paths owes `npm run test:slow` — independent of the mode/full scope,
- * since a mode-scoped `config.ts` edit moves the matches those tests play just as a sim edit does. */
+/**
+ * What the NET group exercises (`vitest.groups.ts` NET_TESTS: shared's full input-scheduler grid
+ * and server's full netsim link sweep, `npm run test:net`): shared's and server's `net/`, server's
+ * `netsim/`, and the net configs and group lists.
+ */
+const NET_PATTERNS = [
+  /^packages\/(?:shared|server)\/src\/net\//,
+  /^packages\/server\/src\/netsim\//,
+  /^packages\/[^/]+\/vitest\.net\.config\.ts$/,
+  /^packages\/(?:shared|server)\/vitest\.groups\.ts$/,
+];
+
+/** What the BENCH group times (`brain.bench.test.ts`, client `fx/perf.test.ts`). */
+const BENCH_PATTERNS = [
+  /^packages\/[^/]+\/src\/bot\//,
+  /^packages\/server\/src\/config\/bot-profiles\.ts$/,
+  /^packages\/client\/src\/fx\//,
+  /^packages\/[^/]+\/vitest\.bench\.config\.ts$/,
+  /^packages\/(?:server|client)\/vitest\.groups\.ts$/,
+];
+
+/** What the bot calibration report (`npm run bot:report`, `playtest/bot/`) measures. */
+const BOT_REPORT_PATTERNS = [
+  /^packages\/[^/]+\/src\/bot\//,
+  /^packages\/server\/src\/config\/bot-profiles\.ts$/,
+  /^packages\/server\/balance\//,
+  /^packages\/server\/playtest\/bot\//,
+];
+
+/** Whether a set of changed paths owes `npm run test:slow` — independent of the scope, since a
+ * mode-scoped `config.ts` edit moves the matches those tests play just as a sim edit does. */
 export function owesSlowTests(changedPaths) {
-  return changedPaths.some((path) => SLOW_TEST_PATTERNS.some((pattern) => pattern.test(path)));
+  return matchesAny(changedPaths, SLOW_TEST_PATTERNS);
+}
+
+/** Whether a set of changed paths owes `npm run test:net`. */
+export function owesNet(changedPaths) {
+  return matchesAny(changedPaths, NET_PATTERNS);
+}
+
+/** Whether a set of changed paths owes `npm run test:bench`. */
+export function owesBench(changedPaths) {
+  return matchesAny(changedPaths, BENCH_PATTERNS);
+}
+
+/** Whether a set of changed paths owes `npm run bot:report` (report only — never gates). */
+export function owesBotReport(changedPaths) {
+  return matchesAny(changedPaths, BOT_REPORT_PATTERNS);
 }
 
 /** Shell commands (in order) for a resolved scope. Callers with `--run` execute these in order.
- * `slowTests` (from `owesSlowTests`) appends `npm run test:slow` after everything else. */
-export function commandsFor(scope, { slowTests = false } = {}) {
+ * Each owed extra is appended after the scope's commands, in this order: `test:slow`, `test:net`,
+ * `test:bench`, `bot:report`. */
+export function commandsFor(scope, { slowTests = false, net = false, bench = false, botReport = false } = {}) {
   const commands = scopeCommands(scope);
   if (slowTests) commands.push("npm run test:slow");
+  if (net) commands.push("npm run test:net");
+  if (bench) commands.push("npm run test:bench");
+  if (botReport) commands.push(BOT_REPORT_COMMAND);
+  return commands;
+}
+
+/** The one owed command whose failure never fails the run: it reports, it does not gate. */
+const BOT_REPORT_COMMAND = "npm run bot:report";
+
+/** `npm run playtest -- --scope=all` for every active mode — what the full and package scopes run. */
+function fullPlaytestCommands() {
+  return activeGameModes().map((mode) => `npm run playtest -- --mode=${modeSlug(mode)} --scope=all`);
+}
+
+function modeCommands(modes, commonProbes) {
+  const commands = [];
+  for (const slug of modes) {
+    commands.push(`npm run test:mode -- ${slug}`);
+    commands.push(`npm run playtest -- --mode=${slug} --scope=mode`);
+    if (commonProbes) commands.push(`npm run playtest -- --mode=${slug} --scope=common`);
+  }
+  // A `config.ts` or snapshot change also owes the tooling that reads the tables outside any
+  // test suite: the manual-page stamp and the turn-tuning doc, both `npm run test:scripts`.
+  if (commonProbes) commands.push("npm run test:scripts");
   return commands;
 }
 
 function scopeCommands(scope) {
   if (scope.scope === "none") return [];
+  if (scope.scope === "mode") return modeCommands(scope.modes, scope.commonProbes);
 
-  if (scope.scope === "mode") {
-    const commands = [];
-    for (const slug of scope.modes) {
-      commands.push(`npm run test:mode -- ${slug}`);
-      commands.push(`npm run playtest -- --mode=${slug} --scope=mode`);
-      if (scope.commonProbes) commands.push(`npm run playtest -- --mode=${slug} --scope=common`);
+  if (scope.scope === "packages") {
+    // `test:scripts` always: `scripts/` reads `packages/client/public/` and build paths, and 2 s is
+    // cheaper than proving a diff cannot reach it. Probe routing is not narrowed (TS16).
+    const commands = [...scope.packages.map((pkg) => `npm run test:${pkg}`), "npm run test:scripts", ...fullPlaytestCommands()];
+    for (const command of modeCommands(scope.modes, scope.commonProbes)) {
+      if (!commands.includes(command)) commands.push(command);
     }
-    // A `config.ts` or snapshot change also owes the tooling that reads the tables outside any
-    // test suite: the manual-page stamp and the turn-tuning doc, both `npm run test:scripts`.
-    if (scope.commonProbes) commands.push("npm run test:scripts");
     return commands;
   }
 
   // scope === "full"
-  const commands = ["npm test"];
-  for (const mode of activeGameModes()) {
-    commands.push(`npm run playtest -- --mode=${modeSlug(mode)} --scope=all`);
-  }
-  return commands;
+  return ["npm test", ...fullPlaytestCommands()];
 }
 
 function git(args) {
@@ -223,11 +323,19 @@ async function main() {
 
   const changedPaths = collectChangedPaths(base);
   const scope = scopeOf(changedPaths);
-  const slowTests = owesSlowTests(changedPaths);
-  const commands = commandsFor(scope, { slowTests });
+  const owed = {
+    slowTests: owesSlowTests(changedPaths),
+    net: owesNet(changedPaths),
+    bench: owesBench(changedPaths),
+    botReport: owesBotReport(changedPaths),
+  };
+  const commands = commandsFor(scope, owed);
 
-  console.log(`test-scope: ${JSON.stringify(scope)}${slowTests ? " + slow tests" : ""}`);
-  for (const command of commands) console.log(`  ${command}`);
+  const extras = [owed.slowTests && "slow", owed.net && "net", owed.bench && "bench", owed.botReport && "bot report"].filter(Boolean);
+  console.log(`test-scope: ${JSON.stringify(scope)}${extras.length > 0 ? ` + ${extras.join(", ")}` : ""}`);
+  for (const command of commands) {
+    console.log(`  ${command}${command === BOT_REPORT_COMMAND ? "   (report only)" : ""}`);
+  }
 
   if (!run) return;
 
@@ -236,6 +344,8 @@ async function main() {
     try {
       execSync(command, { stdio: "inherit" });
     } catch (error) {
+      // The bot report never gates: its findings are read, not enforced (TS18).
+      if (command === BOT_REPORT_COMMAND) continue;
       process.exitCode = typeof error.status === "number" ? error.status : 1;
       return;
     }

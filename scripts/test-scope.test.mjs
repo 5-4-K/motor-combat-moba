@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { scopeOf, commandsFor, owesSlowTests, MODE_FAMILY } from "./test-scope.mjs";
-import { MODE_TABLE, modeSlug } from "../packages/shared/dist/index.js";
+import { scopeOf, commandsFor, owesSlowTests, owesNet, owesBench, owesBotReport, MODE_FAMILY } from "./test-scope.mjs";
+import { MODE_TABLE, activeGameModes, modeSlug } from "../packages/shared/dist/index.js";
 
 test("docs-only is none", () => assert.deepEqual(scopeOf(["docs/roadmap.md", "README.md"]), { scope: "none" }));
 test("tested doc is full", () => assert.equal(scopeOf(["docs/turn-tuning.md"]).scope, "full"));
@@ -54,9 +54,10 @@ test("MODE_FAMILY covers exactly the slugs in MODE_TABLE", () =>
     Object.keys(MODE_TABLE).map((mode) => modeSlug(Number(mode))).sort(),
   ));
 
-// The slow server tests (bot brain, `balance/match`, `balance/runner` — `vitest.groups.ts`) are
-// out of `npm test` and owed only when the diff touches what they exercise: a `sim/`, `rooms/`,
-// `modes/`, `bot/` or `balance/` folder in shared or server. Client code never reaches them.
+// The slow tests (`balance/match`, `balance/runner`, the bot tiers — `vitest.groups.ts`) are out of
+// `npm test` and owed only when the diff touches what they exercise: a `sim/`, `rooms/`, `modes/`,
+// `bot/`, `config/` or `arena/` folder in shared or server, the `balance/` harness, or a vitest
+// config/group file. Client code never reaches them.
 test("shared sim owes the slow tests", () => assert.equal(owesSlowTests(["packages/shared/src/sim/drive.ts"]), true));
 test("server rooms owes the slow tests", () => assert.equal(owesSlowTests(["packages/server/src/rooms/ArenaRoom.ts"]), true));
 test("a mode folder owes the slow tests", () => assert.equal(owesSlowTests(["packages/shared/src/modes/conquer/config.ts"]), true));
@@ -69,7 +70,7 @@ test("client modes do not owe the slow tests", () => assert.equal(owesSlowTests(
 test("client sim-named folders do not owe the slow tests", () =>
   assert.equal(owesSlowTests(["packages/client/src/net/prediction.ts", "packages/client/src/sim/x.ts"]), false));
 test("other shared code does not owe the slow tests", () =>
-  assert.equal(owesSlowTests(["packages/shared/src/config/car-config.ts", "docs/testing.md"]), false));
+  assert.equal(owesSlowTests(["packages/shared/src/lobby/x.ts", "docs/testing.md"]), false));
 test("playtest probes do not owe the slow tests", () =>
   assert.equal(owesSlowTests(["packages/server/playtest/modes/conquer/zone.ts"]), false));
 test("slow tests append npm run test:slow", () =>
@@ -77,3 +78,56 @@ test("slow tests append npm run test:slow", () =>
     ["npm run test:mode -- conquer", "npm run playtest -- --mode=conquer --scope=mode", "npm run test:slow"]));
 test("no slowTests option leaves the commands as they were", () =>
   assert.deepEqual(commandsFor({ scope: "none" }), []));
+
+// TS15 — package scope: server/client-only diffs owe their own package suite, not shared's.
+const fullPlaytests = () => activeGameModes().map((mode) => `npm run playtest -- --mode=${modeSlug(mode)} --scope=all`);
+test("a client-only diff is client package scope", () =>
+  assert.deepEqual(scopeOf(["packages/client/src/scenes/hud.ts"]),
+    { scope: "packages", packages: ["client"], modes: [], commonProbes: false }));
+test("package scope commands: package suite, scripts, then every active mode's playtest", () =>
+  assert.deepEqual(commandsFor(scopeOf(["packages/client/src/scenes/hud.ts"])),
+    ["npm run test:client", "npm run test:scripts", ...fullPlaytests()]));
+test("a client-only diff owes no shared suite", () =>
+  assert.ok(!commandsFor(scopeOf(["packages/client/src/scenes/hud.ts"])).some((c) => c === "npm test" || c.includes("test:shared"))));
+test("server plus client is both packages, sorted", () =>
+  assert.deepEqual(scopeOf(["packages/server/src/rooms/x.ts", "packages/client/src/a.ts"]).packages, ["client", "server"]));
+test("playtest and balance count as server", () => {
+  assert.deepEqual(scopeOf(["packages/server/playtest/common/ram.ts"]).packages, ["server"]);
+  assert.deepEqual(scopeOf(["packages/server/balance/stats.ts"]).packages, ["server"]);
+});
+test("client public counts as client", () =>
+  assert.deepEqual(scopeOf(["packages/client/public/manual.html"]).packages, ["client"]));
+for (const path of ["packages/shared/src/sim/drive.ts", "scripts/ttk.mjs", "package.json", "packages/server/vitest.config.ts"]) {
+  test(`${path} is full`, () => assert.equal(scopeOf([path, "packages/client/src/a.ts"]).scope, "full"));
+}
+test("mode plus package is package scope with the mode commands appended", () => {
+  const scope = scopeOf(["packages/client/src/a.ts", "packages/client/src/modes/brawl/hud.ts"]);
+  assert.deepEqual(scope, { scope: "packages", packages: ["client"], modes: ["brawl"], commonProbes: false });
+  assert.ok(commandsFor(scope).includes("npm run test:mode -- brawl"));
+});
+
+// TS17 — the slow-trigger gap: config and arena edits change what a real match plays.
+test("bot profiles owe the slow tests", () => assert.equal(owesSlowTests(["packages/server/src/config/bot-profiles.ts"]), true));
+test("shared config owes the slow tests", () => assert.equal(owesSlowTests(["packages/shared/src/config/drive-config.ts"]), true));
+test("shared arena owes the slow tests", () => assert.equal(owesSlowTests(["packages/shared/src/arena/arena-01.ts"]), true));
+test("client code does not owe the slow tests", () => assert.equal(owesSlowTests(["packages/client/src/a.ts"]), false));
+
+// Controller ruling — the net group (netsim sweep, scheduler grid) is its own gate, not slow.
+test("shared net owes the net tests", () => assert.equal(owesNet(["packages/shared/src/net/clock-sync.ts"]), true));
+test("server net owes the net tests", () => assert.equal(owesNet(["packages/server/src/net/shot-comp.ts"]), true));
+test("server netsim owes the net tests", () => assert.equal(owesNet(["packages/server/src/netsim/run.ts"]), true));
+test("a net config owes the net tests", () => assert.equal(owesNet(["packages/server/vitest.net.config.ts"]), true));
+test("client net does not owe the net tests", () => assert.equal(owesNet(["packages/client/src/net/prediction.ts"]), false));
+test("net paths do not owe the slow tests", () =>
+  assert.equal(owesSlowTests(["packages/shared/src/net/clock-sync.ts", "packages/server/src/netsim/run.ts"]), false));
+
+// TS18 — bench and bot report.
+test("client fx owes the bench", () => assert.equal(owesBench(["packages/client/src/fx/emitters.ts"]), true));
+test("the bot owes the bench", () => assert.equal(owesBench(["packages/server/src/bot/brain/solution.ts"]), true));
+test("client hud does not owe the bench", () => assert.equal(owesBench(["packages/client/src/scenes/hud.ts"]), false));
+test("bot profiles owe the bot report", () => assert.equal(owesBotReport(["packages/server/src/config/bot-profiles.ts"]), true));
+test("playtest bot owes the bot report", () => assert.equal(owesBotReport(["packages/server/playtest/bot/report.ts"]), true));
+test("client code does not owe the bot report", () => assert.equal(owesBotReport(["packages/client/src/a.ts"]), false));
+test("extra commands append in order: slow, net, bench, bot report", () =>
+  assert.deepEqual(commandsFor({ scope: "none" }, { slowTests: true, net: true, bench: true, botReport: true }),
+    ["npm run test:slow", "npm run test:net", "npm run test:bench", "npm run bot:report"]));
