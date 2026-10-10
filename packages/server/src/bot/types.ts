@@ -143,7 +143,7 @@ export interface BotController {
   debug?(): BotDebug | undefined;
 }
 
-/** Tactical tasks the assess layer names (S13). */
+/** Tactical tasks the assess layer names, in `ALL_SITUATIONS`'s priority order (BB15). */
 export type SituationId =
   | "recover" | "waitOut" | "evade" | "unpin" | "punish" | "reset" | "ram" | "fight" | "close";
 

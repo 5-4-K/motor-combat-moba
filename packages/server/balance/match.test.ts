@@ -119,7 +119,8 @@ describe("runMatch", () => {
     //
     // 30 s, not the 10 s this originally used: since a range-0 weapon like `wildcharge` became
     // pressable at all (2026-09-04 — first the legacy bot's since-deleted `triggerRangeOf`, now the
-    // human-like brain's `BRAIN_CONSTANTS.contactTriggerUnits` gate in `bot/brain/firing.ts`),
+    // human-like brain's `BRAIN_CONSTANTS.contactTriggerUnits`, the reach `bot/brain/reach.ts` gives
+    // a range-0 weapon),
     // Bastion wears `fortified` for most of a ten-second window and Mirage's first kill lands at
     // ~15 s instead of inside 10 s — a killless window is a legitimate 0-0 draw,
     // which would fail this assertion without the clock defect having returned at all. The kills
@@ -484,8 +485,8 @@ describe("runMatch", () => {
     // at 60 s under that round's brain, leaving the non-vacuity assertion below with nothing
     // decisive to stand on. That was the symptom of the structural defect R-C9 fixes — an
     // anticipatory `evade` term with no refractory period occupying an event-priority slot for most
-    // of a fight, so the bots stopped resolving duels at all (see
-    // `BRAIN_CONSTANTS.dangerEvadeCooldownTicks`). With the refractory in place, 42, 44, 45 and 53
+    // of a fight, so the bots stopped resolving duels at all (the 6.x
+    // `BRAIN_CONSTANTS.dangerEvadeCooldownTicks`, deleted with that brain in v7). With the refractory in place, 42, 44, 45 and 53
     // are decisive again at 60 s and 1, 2, 65 and 68 still draw, so the original spread exercises
     // both branches exactly as it was written to. Re-checked seed by seed, not assumed.
     //

@@ -1,6 +1,6 @@
 import {
   DEFAULT_GAME_MODE, TICK_RATE_HZ, forwardMaxSpeedOf, hasStatus, statusTable, wrapAngle,
-  type BotDifficulty, type WeaponId,
+  type BotDifficulty,
 } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS, resolveBrainConstants, type BotProfile } from "../../config/bot-profiles.js";
 import { botConfigOf, type BotModeConfig } from "../../config/mode-bot.js";
@@ -11,7 +11,7 @@ import { inCorner, wallPush, type Push } from "./movement.js";
 import { avoidWalls, newNavState, steerToward, type Goal, type NavState } from "./navigate.js";
 import {
   activeThreats, acquiringUnnoticed, knownCars, lastKnownAnchor, nearestHeardShot, newPerception,
-  observedAngVelOf, perceive, searchWaypoint, type KnownThreat, type PerceptionState,
+  observedAngVelOf, perceive, searchWaypoint, seenWeapons, type KnownThreat, type PerceptionState,
 } from "./perception.js";
 import { physicsPredictor, type DriveAction } from "./predict.js";
 import { fightRangeOf, ownComfortOf, slotIsReady, usableSlots, type UsableSlot } from "./ranges.js";
@@ -206,8 +206,10 @@ export class HumanController implements BotController {
     );
 
     // --- solve + shoot ---
+    // Nothing is pressable in `waitOut` or `close` (BB41), so nothing is solved there (M8); their
+    // `bestHitChance` reads 0. `solve` draws no rng, so the stream is the same either way (BB14).
     const solutions = new Map<number, FiringSolution>();
-    if (target) {
+    if (target && sit !== "waitOut" && sit !== "close") {
       for (const { slot, index } of usable) {
         if (!slotIsReady(slot, tick)) continue;
         solutions.set(index, solve({
@@ -357,17 +359,6 @@ function awayFromCarHeading(self: { x: number; y: number }, car: BotCarView): nu
   const perp = Math.atan2(car.vy, car.vx) + Math.PI / 2;
   const cross = car.vx * (self.y - car.y) - car.vy * (self.x - car.x);
   return cross >= 0 ? perp : perp + Math.PI;
-}
-
-/** The opponent's weapons the bot has seen fired (`perception.firedSeenTick`, keyed `session:weapon`). */
-function seenWeapons(perception: PerceptionState, sessionId: string | undefined): WeaponId[] {
-  if (!sessionId) return [];
-  const prefix = `${sessionId}:`;
-  const out: WeaponId[] = [];
-  for (const key of perception.firedSeenTick.keys()) {
-    if (key.startsWith(prefix)) out.push(key.slice(prefix.length) as WeaponId);
-  }
-  return out;
 }
 
 export { inCorner } from "./movement.js";

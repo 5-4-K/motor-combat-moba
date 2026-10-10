@@ -4,7 +4,7 @@ import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba
 import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotCarView, BotView } from "../types.js";
-import { activeThreats, acquiringUnnoticed, knownCars, lastKnownAnchor, nearestHeardShot, newPerception, observedAngVelOf, perceive, predictedPose, readinessOf, searchWaypoint, threatEtaTicks, ultIsSpent } from "./perception.js";
+import { activeThreats, acquiringUnnoticed, knownCars, lastKnownAnchor, nearestHeardShot, newPerception, observedAngVelOf, perceive, predictedPose, readinessOf, searchWaypoint, seenWeapons, threatEtaTicks } from "./perception.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 
@@ -94,7 +94,7 @@ describe("perceive", () => {
     expect(state.threats.size).toBeLessThanOrEqual(1);
   });
 
-  it("remembers who fired what, so an ult can be tracked (H22)", () => {
+  it("remembers who fired what (H22, BB44)", () => {
     let state = newPerception();
     state = perceive(
       state,
@@ -107,8 +107,9 @@ describe("perceive", () => {
       }),
       RESOLVED_BOT_PROFILES.hard,
     );
-    expect(ultIsSpent(state, "them", "lance", 40, 480)).toBe(true);
-    expect(ultIsSpent(state, "them", "lance", 600, 480)).toBe(false);
+    expect(seenWeapons(state, "them")).toEqual(["lance"]);
+    expect(seenWeapons(state, "someone-else")).toEqual([]);
+    expect(seenWeapons(state, undefined)).toEqual([]);
   });
 
   it("marks a shot on a collision course as a threat", () => {

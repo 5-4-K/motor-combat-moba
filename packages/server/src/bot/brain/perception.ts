@@ -60,7 +60,7 @@ export interface PerceptionState {
    * `${sessionId}:${weaponId}` -> the tick that press was watched (H22, P21).
    *
    * EVERY weapon, not only ults — the old name `ultSeenTick` said otherwise and was wrong about its
-   * own contents. `ultIsSpent` is the ult-shaped query over it; `readinessOf` is the general one.
+   * own contents. `seenWeapons` lists a car's entries; `readinessOf` reads one weapon's age.
    */
   firedSeenTick: Map<string, number>;
   /** sessionId -> the last tick a shot of theirs was seen coming at us. Drives vengefulness (H23). */
@@ -256,19 +256,17 @@ export function activeThreats(state: PerceptionState, tick: number): KnownThreat
 }
 
 /**
- * Was this car seen spending this weapon inside the last `withinTicks`? (H22, consumed by G22)
- *
- * `perceive` fills `firedSeenTick` from `observedFires`. Assess reads this as a punish fact.
+ * The weapons this car has been seen firing (`firedSeenTick`, keyed `session:weapon`), which widen
+ * what the bot believes its kit reaches (BB44). Lives beside the map because it parses its key.
  */
-export function ultIsSpent(
-  state: PerceptionState,
-  sessionId: string,
-  weaponId: WeaponId,
-  tick: number,
-  withinTicks: number,
-): boolean {
-  const seen = state.firedSeenTick.get(`${sessionId}:${weaponId}`);
-  return seen !== undefined && tick - seen <= withinTicks;
+export function seenWeapons(state: PerceptionState, sessionId: string | undefined): WeaponId[] {
+  if (!sessionId) return [];
+  const prefix = `${sessionId}:`;
+  const out: WeaponId[] = [];
+  for (const key of state.firedSeenTick.keys()) {
+    if (key.startsWith(prefix)) out.push(key.slice(prefix.length) as WeaponId);
+  }
+  return out;
 }
 
 /** Ticks since this car was last seen shooting our way, or `Infinity`. */
@@ -342,7 +340,7 @@ function threatHeading(
  * What it is NOT is viewport-filtered. `buildBotView` applies the fairness filter to `others` and
  * `instances` only; `observedFires` passes through verbatim, and `perceive` records every non-self
  * fire unconditionally — so a press made across the map, out of sight, still reaches this function.
- * That leak predates this work: `ultIsSpent` reads the same unfiltered log. It is moot on both
+ * That leak predates this work: `seenWeapons` reads the same unfiltered log. It is moot on both
  * shipped arenas, which fit inside the viewport. Closing it means filtering at the seam, which is a
  * behaviour change, not a comment fix.
  */

@@ -71,6 +71,15 @@ describe("BOT_PROFILES", () => {
     for (const tier of TIERS) expect(RESOLVED_BOT_PROFILES[tier]).toBeDefined();
   });
 
+  it("keeps the burst gap longer than the recompute cadence (M9)", () => {
+    // The sim fires on rising edges (`clean & ~prev`) and a decided press is held for a whole
+    // recompute window. A gap no longer than the cadence would let two presses of one slot on
+    // consecutive recomputes merge into one held edge.
+    for (const tier of TIERS) {
+      expect(RESOLVED_BOT_PROFILES[tier].burstGapTicks).toBeGreaterThan(RESOLVED_BOT_PROFILES[tier].recomputeTicks);
+    }
+  });
+
   it("orders perceived latency easy > medium > hard", () => {
     const total = (t: (typeof TIERS)[number]) =>
       RESOLVED_BOT_PROFILES[t].viewStalenessTicks + RESOLVED_BOT_PROFILES[t].reactionDelayTicks;

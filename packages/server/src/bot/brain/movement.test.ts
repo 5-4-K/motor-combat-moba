@@ -10,9 +10,9 @@ const arena = { width: 1280, height: 720, obstacles: [] };
 
 /**
  * These three cases are the old `wallDesire` describe, re-pointed at `wallAhead` rather than
- * deleted with the rest of the desire model (P6). `wallDesire` was never anything but this
- * predicate wearing a heading, and `controller.ts` still reads the predicate for `pinned` — so the
- * scenes that pinned it are exactly the scenes that pin `unpin`'s trigger (R-O2).
+ * deleted with the rest of the desire model (P6). `wallAhead` is the boolean form of `wallPush`'s
+ * plane-and-obstacle accumulator, which the controller reads for the reactive layer and for the
+ * contact half of `pinned` (BB32, BB33), so these scenes pin that geometry.
  */
 describe("wallAhead", () => {
   it("is silent in open floor", () => {

@@ -3,8 +3,8 @@ import { TICK_RATE_HZ, type BotDifficulty } from "@motor-combat-moba/shared";
 /**
  * One difficulty's knobs (H44, BB49). Twenty-three of them, grouped: perception, aim, fire,
  * targets, positioning, reaction. The v7 brain is deterministic, so there is no coin flip here:
- * a tier differs from another by how late it sees, how well it aims, and how much it will spend a
- * shot on, never by a probability of doing the right thing.
+ * a tier differs from another by how late it sees, how well it aims, and how sure a shot must be
+ * before it presses, never by a probability of doing the right thing.
  *
  * Every field is a NUMBER, and no code outside this file branches on which tier it came from (H8).
  * That is the whole mechanism by which the tiers stay distinct as the brain grows: a behaviour is
@@ -132,17 +132,18 @@ export const BRAIN_CONSTANTS = Object.freeze({
    */
   interceptFixedPointRounds: 3,
   /**
-   * How far ahead a firing solution rolls a target (`predict.ts`'s `physicsPredictor` and
-   * `selfPredictor`). Not per-tier: this is how far a SHOT flies, not how far a bot thinks.
+   * How far ahead a firing solution rolls a target (`predict.ts`'s `physicsPredictor`; the `ram`
+   * goal's look-ahead is capped at it too). Not per-tier: this is how far a SHOT flies, not how far a
+   * bot thinks.
    *
    * VERIFIED against `weapons()` and `weaponTicksOf` (2026-09-06, task 4): the longest flight on
-   * the roster is `thumper`'s — 1305 u of range at 450 u/s is 2.9 s, and `weaponTicksOf("thumper")`
-   * reports `flight: 87` ticks at 30 Hz, the largest of any row (`predator` is next at 60, `magmablast`
-   * 45). 90 covers it with a little margin, and no firing solution needs to see past its own shot
-   * landing.
+   * the roster is `thumper`'s — 1305 u of range at 450 u/s is 2.9 s, the largest of any row
+   * (`predator` is next at 2.0 s, `magmablast` 1.5 s; re-checked 2026-10-10, `weaponTicksOf` flight
+   * 174 / 120 / 90 ticks at 60 Hz). 3 s covers it with a little margin, and no firing solution needs
+   * to see past its own shot landing.
    *
    * Authored in ms (NR14), so a `TICK_RATE_HZ` change rescales it; `resolveBrainConstants()` turns it
-   * into `predictionHorizonTicks`. 3000 ms is 90 ticks at 30 Hz.
+   * into `predictionHorizonTicks`. 3000 ms is 180 ticks at 60 Hz.
    */
   predictionHorizonMs: 3000,
   /**
@@ -150,7 +151,8 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * `controller.ts`'s goal for `punish`), floored at `minEngageUnits`.
    *
    * A HALF, because punish is the one play whose premise is that the opponent cannot answer: it
-   * fires on a stun, a spent ult, or a wounded target, and all three are windows that close.
+   * applies to a stunned or reeling target, or a wounded one (BB15), and all three are windows that
+   * close.
    * Standing off at the range that keeps a live opponent's guns honest wastes the window on travel
    * time, so the bot walks in to half of it and spends the window shooting. Expressed as a fraction
    * of the comfort range rather than its own unit count so a kit whose comfortable range moves

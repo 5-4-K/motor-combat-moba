@@ -474,10 +474,10 @@ describe("predicting an observed car, against an independent ground truth", () =
   // that is the exact condition `classifySituation` gates `punish` on.
   //
   // The REVERSING rows are the same question with the sign flipped (fix round 2, finding A), and
-  // they are not a corner case: `throttle: -1` is a third of `planner.ts`'s `ALL_ACTIONS` and is
-  // what the range term picks inside the bot's preferred standoff (the `panic-reverse` blunder this
-  // used to cite alongside it was deleted by P41), so both the target predictor and `selfPredictor`
-  // meet a car rolling backward constantly. `accelerateForward`'s
+  // they are not a corner case: the v7 steering law reverses nose-on whenever a `nose` goal is more
+  // than a band too close and backs out across the band on every orbit weave (BB24), and a human
+  // opponent reverses just as often, so the target predictor meets a car rolling backward
+  // constantly. `accelerateForward`'s
   // rolling-backward branch is `brakeDecel`, not `accel`, which is why zeroing one channel was not
   // enough -- see `OBSERVATION_MODIFIERS`.
   const SCENES: readonly { speed: number; steer: -1 | 0 | 1; label: string }[] = [
@@ -523,8 +523,9 @@ describe("predicting an observed car, against an independent ground truth", () =
 
   it("keeps a STATIONARY target inside its own hull, at every horizon", () => {
     // The regression this suite exists for. With the engine modelled on, a stunned car was
-    // predicted hundreds of units downrange: `marchOne` scored every slot against empty floor,
-    // `minShotValueFraction` declined the free shot, and `fight` steered the nose off the real car.
+    // predicted hundreds of units downrange: `marchOne` scored every slot against empty floor, the
+    // 6.x shot-value gate (since deleted) declined the free shot, and `fight` steered the nose off
+    // the real car.
     // A hull is the honest bar -- a shot aimed anywhere inside it hits.
     const hullRadius = Math.hypot(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight) / 2;
     for (const steer of [0, 1] as const) {

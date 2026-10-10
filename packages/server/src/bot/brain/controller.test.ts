@@ -3,13 +3,14 @@ import {
   DEFAULT_GAME_MODE, NEUTRAL_MODIFIERS, TICK_RATE_HZ, fireSlotsOf, installMode, modeConfigOf,
   weaponDefOf, wrapAngle,
 } from "@motor-combat-moba/shared";
-import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
+import { RESOLVED_BOT_PROFILES, resolveBrainConstants } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotCarView, BotIntent, BotView } from "../types.js";
 import { signedDelta } from "./aim.js";
 import { HumanController } from "./controller.js";
 import { searchWaypoint } from "./perception.js";
-import { bodyFromSelf, rollForward } from "./predict.js";
+import { bodyFromSelf, physicsPredictor, rollForward } from "./predict.js";
+import { solve } from "./solution.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
 // Also installed at module scope: the helpers below read config while the suite is collected.
@@ -274,14 +275,51 @@ describe("HumanController v7", () => {
     expect(Math.sign(bot.debug()!.steer)).toBe(Math.sign(dodging!.steer));
   });
 
-  it("draws rng only in the aim error and the predictor (BB14)", () => {
+  describe("draws rng only in the aim error and the predictor (BB14)", () => {
+    // 2 per tick (aim error, Box-Muller) + 4 per recompute (the predictor's two gaussians), in every
+    // branch: with a target in reach, with none (the predictor runs on `ABSENT_TARGET` at horizon 0),
+    // and in `close`, where no slot is solved (solving draws nothing either way).
+    const count = (situation: string, over: Partial<BotView>, profile = RESOLVED_BOT_PROFILES.hard) => {
+      const bot = new HumanController("hard", { profile });
+      let draws = 0;
+      const rng = () => { draws += 1; return 0.5; };
+      const cadence = profile.recomputeTicks;
+      const ticks = cadence * 30;
+      for (let tick = 0; tick < ticks; tick++) bot.decide(view(tick, { ...over, rng }));
+      expect(bot.debug()?.situation).toBe(situation);
+      expect(draws).toBe(2 * ticks + 4 * Math.ceil(ticks / cadence));
+    };
+    it("with a target in reach", () => count("fight", { others: [{ ...enemy, x: 450, vx: 0 }] }));
+    it("with no target", () => count("waitOut", { others: [] }));
+    it("in `close`, where nothing is solved (M8)", () => {
+      const profile = { ...RESOLVED_BOT_PROFILES.hard, awarenessRadiusUnits: 3000 };
+      count("close", { arena: { width: 4000, height: 720, obstacles: [] }, others: [{ ...enemy, x: 2200, vx: 0 }] }, profile);
+    });
+  });
+
+  it("aims a turret press at the solved bearing plus the realised aim offset (BB40)", () => {
+    // A constant stream makes both draws knowable: every Box-Muller sample is
+    // sqrt(-2 ln 0.5) * cos(pi), so the aim offset is that times sigma, and the predictor's noise is
+    // the same constant. The pose never moves, so every recompute solves the same shot.
+    const hard = RESOLVED_BOT_PROFILES.hard;
     const bot = new HumanController("hard");
-    let draws = 0;
-    const rng = () => { draws += 1; return 0.5; };
-    const cadence = RESOLVED_BOT_PROFILES.hard.recomputeTicks;
-    const ticks = cadence * 3;
-    for (let tick = 0; tick < ticks; tick++) bot.decide(view(tick, { others: [{ ...enemy, x: 450, vx: 0 }], rng }));
-    // 2 per tick (aim error, Box-Muller) + 4 per recompute (the predictor's two gaussians).
-    expect(draws).toBe(2 * ticks + 4 * Math.ceil(ticks / cadence));
+    const rng = () => 0.5;
+    const target = { ...enemy, x: 200 + Math.cos(0.35) * 250, y: 360 + Math.sin(0.35) * 250, vx: 0 };
+    let pressed: BotIntent | undefined;
+    for (let tick = 0; tick < 120 && pressed === undefined; tick++) {
+      const out = bot.decide(view(tick, { others: [target], rng }));
+      if (out.fireSlots !== 0) pressed = out;
+    }
+    expect(pressed).toBeDefined();
+    const slotIndex = Math.log2(pressed!.fireSlots);
+    const self = view(0).self;
+    const gaussian = Math.sqrt(-2 * Math.log(0.5)) * Math.cos(Math.PI);
+    const targetAt = physicsPredictor(target, 0, resolveBrainConstants().predictionHorizonTicks, hard.stateEstimationSigma, rng);
+    const solution = solve({
+      shooter: { sessionId: self.sessionId, carId: self.carId, team: self.team, x: self.x, y: self.y, angle: self.angle, vx: self.vx, vy: self.vy },
+      slot: self.slots[slotIndex]!, slotIndex, target, targetAt, aimSigmaRad: hard.aimErrorSigmaRad, tick: 0, arena: view(0).arena,
+    });
+    expect(solution.turretBearingRad).toBeDefined();
+    expect(pressed!.aimAngle).toBeCloseTo(wrapAngle(solution.turretBearingRad! + gaussian * hard.aimErrorSigmaRad), 9);
   });
 });

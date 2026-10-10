@@ -69,7 +69,7 @@ export function pickSituation(
   return cutsIn ? { current: next, sinceTick: tick } : state;
 }
 
-/** A car bearing down on us with an ETA inside the dodge horizon (BB20). Moved from the controller. */
+/** A car bearing down on us with an ETA inside the dodge horizon (BB20). Reads only the target. */
 export function isIncomingCar(
   self: { x: number; y: number },
   target: BotCarView,

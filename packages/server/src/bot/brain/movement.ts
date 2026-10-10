@@ -3,22 +3,18 @@ import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import type { BotArenaView } from "../types.js";
 
 /**
- * What is left of the movement layer after the planner took it over (spec P6, P27).
+ * Wall and hazard sensing for the bot (BB31): `wallPush` and the hit-count predicates over the same
+ * accumulators.
  *
- * This file used to hold the desire-vector model — `blendHeading`, `goalDesire`, `dodgeDesires`,
- * `wallDesire`, `reduceToIntent` — plus `compensateForLag`, `nearBound`, `openFloorHeading` and
- * `reverseWouldHitBound`. `planner.ts` emits `steer`/`throttle` directly now, so every one of them
- * lost its last production caller and went in phase D's task 4. Spec P6 is explicit that the
- * blend is not repairable — "the averaging IS spec section 1.1; there is no variant of it without
- * that failure mode" — so it was deleted rather than kept behind a flag.
+ * `controller.ts` reads `wallPush` twice per decision: at the tier's `wallLookaheadUnits` for the
+ * reactive wall layer (`navigate.ts`'s `avoidWalls`, BB32), and at `minEngageUnits` for the
+ * contact half of `pinned`, the stuck test the `unpin` situation is classified from (BB33);
+ * `inCorner` is the other half. `wallAhead` and `spikesAhead` answer the same accumulators as
+ * booleans; nothing in the brain calls them, and their tests pin the geometry.
  *
- * `wallAhead` is the survivor, and it is not a leftover: `controller.ts` reads it as the `pinned`
- * predicate the `unpin` situation is classified from. Since BB31 it is a thin wrapper over
- * `wallPush`'s accumulators, beside `spikesAhead` and `inCorner`. The FILE KEEPS ITS NAME on
- * purpose. It still answers exactly one question and that question is a movement question — may
- * the car go this way — and the name is what the R-O2 provenance comments in `controller.ts` and
- * `bot-profiles.ts` point at. Renaming it to `walls.ts` would buy accuracy today and cost that
- * thread, on a seam future movement helpers are expected to land on.
+ * The desire-vector model that used to live here (`blendHeading`, `wallDesire`, `reduceToIntent`
+ * and friends) and the 6.x planner that replaced it are both deleted: the steering law in
+ * `navigate.ts` turns a goal into `steer` and `throttle` directly.
  */
 
 export interface Push { x: number; y: number }
@@ -130,30 +126,21 @@ function cornerPush(self: { x: number; y: number }, arena: BotArenaView): Accum 
 }
 
 /**
- * Would the car reach a wall or an obstacle within `lookaheadUnits` (H39)?
- *
- * R-O2. `controller.ts`'s `pinned` — the input the `unpin` situation is classified from — used to
- * be `wallDesire(...) !== undefined`, which is a PREDICATE that happened to be spelled as a
- * heading. P27 deleted the heading half of the movement layer; the predicate is not part of that
- * and must keep answering on the same ticks, or `unpin` fires somewhere else than it used to and
- * `tiers.test.ts`'s H39 wall test is measuring a different bot.
+ * Would the car reach a wall or an obstacle within `lookaheadUnits` (H39)? The boolean form of
+ * `wallPush`'s plane-and-obstacle accumulator, with no spike strips and no corner.
  *
  * It is deliberately NOT a current-position bound test, which ignores which way the nose is
- * pointed — that would be a different predicate firing on different ticks.
+ * pointed.
  *
  * It answers `true` when ANY plane or obstacle is within reach (BB31), not when the summed push
  * vector is non-zero: two pushes that cancel (a car between two walls) are still a wall ahead.
- * Spike strips are no longer counted here — they belong to `spikesAhead` (`spikePush`) — so a
- * one-sided spike's safe face does not read as a wall.
+ * Spike strips are not counted here — they belong to `spikesAhead` (`spikePush`) — so a one-sided
+ * spike's safe face does not read as a wall.
  *
  * `arena-01` is a square-cornered tile arena whose walls are compiled into obstacles, with fourteen
  * `kind: "spike"` strips (it was a chamfered octagon until 2026-10-09 — the plane loop is what
  * makes a chamfer register as a wall rather than open floor, and is still exercised on a legacy
- * octagon fixture). This is no longer only about bounds and corners on the shipped arena. A short
- * look-ahead is not a bug: an easy bot at 40 units and 190-267 u/s (as of the 2026-09-06
- * heavy-car pass) pins itself on walls, which is free human-likeness. That is exactly why
- * `spikesAhead` (below) must fire earlier than this function does: pinning on a plain wall is free
- * human-likeness, pinning on a spiked one bleeds HP.
+ * octagon fixture).
  */
 export function wallAhead(
   self: Pose,
@@ -185,8 +172,9 @@ export function spikesAhead(
 /**
  * Is this car wedged where two walls meet? Counts the BOUNDARY PLANES the car sits within
  * `minEngageUnits` of (AS28); two or more is a corner. Moved here from `controller.ts` (BB31),
- * which re-exports it for its unit test. `pinned` ORs it with `wallAhead` and `spikesAhead`,
- * either of which would mask it in most corner poses, so test it directly.
+ * which re-exports it for its unit test. `pinned` ORs it with the contact `wallPush` (BB33), which
+ * already counts the corner, so `inCorner` never decides `pinned` alone; the rule names it
+ * explicitly, and it is tested directly.
  */
 export function inCorner(self: { x: number; y: number }, arena: BotArenaView): boolean {
   return cornerPush(self, arena).hits > 0;
