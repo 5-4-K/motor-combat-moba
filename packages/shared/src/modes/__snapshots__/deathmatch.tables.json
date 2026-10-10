@@ -927,7 +927,7 @@
         }
       ],
       "color": "#D89000",
-      "cooldownMs": 6000,
+      "cooldownMs": 8000,
       "damage": 100,
       "damageFrequencyMs": 0,
       "hitbox": {
@@ -989,7 +989,7 @@
     "thumper": {
       "applies": [
         {
-          "durationMs": 3000,
+          "durationMs": 1000,
           "statusId": "spiked",
           "target": "opponents"
         }

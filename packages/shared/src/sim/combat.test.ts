@@ -695,7 +695,7 @@ describe("chassis attack scales weapon damage through a real tick", () => {
     // qualifies as of this same task (2026-09-02): its splash would land on "b" a few ticks after
     // contact and add an attack-scaled number of its own, contaminating exactly the measurement
     // this test exists to isolate. `roadblock` has no explosion, no homing and no multi-pellet fan
-    // to complicate a single clean hit, and its 6000ms cooldown cannot recharge inside this test's
+    // to complicate a single clean hit, and its 8000ms cooldown cannot recharge inside this test's
     // 10-tick window the way magmablast's shorter one once did.
     const roadblockSlot1 = {
       ...newFireState(carId, 1),
@@ -715,7 +715,7 @@ describe("chassis attack scales weapon damage through a real tick", () => {
       ],
     });
     // The shot leaves the muzzle on tick 100 and covers the ~40 unit gap in about two ticks.
-    // Bounded at 110, well inside roadblock's 180-tick cooldown, so exactly one shot is measured.
+    // Bounded at 110, well inside roadblock's 480-tick cooldown, so exactly one shot is measured.
     for (let tick = 101; tick <= 110; tick++) {
       state = run({
         world: world({ tick }),

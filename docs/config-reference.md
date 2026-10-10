@@ -287,7 +287,7 @@ reads (`derived().weaponTicks`) — see "Authoring in milliseconds" below.
 | `pepperbox` | projectile | 45 (per pellet) | 0 | 800 | 600 | 1800 | 0 | 200 | — | 0 | 1 / 0 | 3 / 12 | — | — | ellipse, along 9 / across 3 (muzzles `[0, 90, 180, 270]`) | 1 | `#C04818` |
 | `lance` | beam | 43 (per pulse; 4 pulses == 172 full connect point-blank, 3 == 129 at the tip) | 500 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | 1 / 0 | — | true | 1500 | rect, width 57.5 (`holdsDuringFire`) | 1 | `#F0FF00` |
 | `thumper` | projectile | 60 | 0 | 450 | 1350 (bounce, 3000 ms lifetime) | 2000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 24 / across 15 (flat tail) | 1 | `#FFD800` |
-| `roadblock` | projectile | 100 | 0 | 600 | 500 | 6000 | 0 | 200 | — | 4 | 1 / 0 | 1 / 0 | — | — | bar, along 6 / across 60 (`piercesWalls`) | 1 | `#D89000` |
+| `roadblock` | projectile | 100 | 0 | 600 | 500 | 8000 | 0 | 200 | — | 4 | 1 / 0 | 1 / 0 | — | — | bar, along 6 / across 60 (`piercesWalls`) | 1 | `#D89000` |
 | `wildcharge` | maneuver (charge) | 250 | 0 | 0 | 0 | 20000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — (`isUnInterruptable`, 10 s window, `slamsStunned`) | 1 | `#F06000` |
 | `tremor` | beam | 25 (per tick; 10 ticks == 250 full connect) | 400 | 492 | 492 | 15000 | 0 | 200 | — | — | 1 / 0 | — | false | 2875 | cone, 60° | 1 | `#8A6D12` |
 | `shockwave` | beam | 30 (per ring, once per entry; 3 rings == 90 on a target that stays in all three) | 0 | 400 | 180 | 5000 | 0 | 0 | — | — | 3 / 500 | — | true | 0 (each ring expires the tick it reaches `range`) | disc (`origin: "center"`) | 1 | `#2F6BFF` |
@@ -1037,7 +1037,7 @@ many sources piling up, and a row that needs it to be legal is a row whose autho
 | `magmablast`'s explosion | Mirage | `corroded` | opponents | 2 s | all |
 | `roadblock` | Bastion | `stunned` | opponents | 1 s | all |
 | `thunderclap` | Mirage | `stunned` | opponents | 1 s | all |
-| `thumper` | Bastion | `spiked` | opponents | 3 s | all |
+| `thumper` | Bastion | `spiked` | opponents | 1 s | all |
 | `tremor` | — (uncarried) | `spiked` | opponents | 0.6 s, re-applied by every 400 ms damage tick — held while the target stands in the zone | all |
 | `wildcharge` | Bastion | `fortified` | **self** | 10 s, ended early with the charge | all |
 | `tremor` | — (uncarried) | `fortified` | **`ownerInside`** | 0.3 s, re-applied every tick the owner's hull stands inside the live zone | all |
@@ -1063,8 +1063,8 @@ Bastion still carries the CC-focused *type*, but Mirage's dash is now a real sec
 same status.
 
 **Per-chassis CC duration needs no mechanism.** A status does not own its duration, the applier does,
-and kits are exclusive — so "Mirage's CC is short, Bastion's is long" falls straight out of authoring
-each weapon's `durationMs`.
+and kits are exclusive — so each chassis's CC length falls straight out of authoring each weapon's
+`durationMs`. No test ranks one chassis's CC against another's.
 
 `onWave` is `"all" | "final"`, and **absent means `"all"`**, so every pre-existing row is unaffected.
 It existed for the old `shockwave`: `corroded` landed on the third of its three aura waves only,

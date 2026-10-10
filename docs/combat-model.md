@@ -1130,9 +1130,9 @@ misconfigured. And `startTick` is networked, because with the total no longer in
 only way a reader can know it: the HUD's drain bar is `(endsTick - tick) / (endsTick - startTick)`.
 
 A third consequence carries the roster's whole CC design. **Per-chassis CC duration needs no new
-mechanism** — the applier owns the duration and kits are exclusive, so "Mirage's CC is short,
-Bastion's is long" falls out of authoring each weapon's `durationMs`, with no `statusDuration`
-channel and no per-chassis resistance stat.
+mechanism** — the applier owns the duration and kits are exclusive, so how long each chassis's CC
+lasts is simply whatever its weapons' `durationMs` say, with no `statusDuration` channel and no
+per-chassis resistance stat. Nothing ranks one chassis's CC against another's; retune any row freely.
 
 ### Who applies what
 
@@ -1158,7 +1158,7 @@ exactly while a car stands in it:
 | `stunned` | `roadblock` | Bastion | 1 s |
 | `stunned` | `thunderclap` | Mirage | 1 s |
 | `stunned` | hard-slam wall impact (`wildcharge`'s contact-pass mechanic, not `applies`) | Bastion | 0.5 s |
-| `spiked` | `thumper` | Bastion | 3 s |
+| `spiked` | `thumper` | Bastion | 1 s |
 | `spiked` | `tremor` | — (uncarried) | 0.6 s per damage tick — held while the target stands in the zone |
 | `fortified` | `wildcharge`, **self** | Bastion | 10 s, ended early with the charge |
 | `fortified` | `tremor`, **`ownerInside`** | — (uncarried) | 0.3 s per covered tick — held while the OWNER stands in their own zone |

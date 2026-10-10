@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { installMode } from "../../modes/active.js";
+import { cars, installMode } from "../../modes/active.js";
 import { applyOverrides } from "../../modes/overlay.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../../modes/registry.js";
 import { turretRestored } from "../../modes/test-setup.js";
 import { MS_PER_TICK, TICK_RATE_HZ } from "../../constants.js";
 import { TURRET_CONFIG } from "../../config/turret-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
-import { DEFAULT_CAR_ID } from "../../config/car-config.js";
+import { DEFAULT_CAR_ID, activeCarIds } from "../../config/car-config.js";
 import { WEAPON_TABLE } from "../../config/weapon-config.js";
 import { ARENA_01 } from "../../arena/arena-01.js";
 import { boundsOf, playableRectOf } from "../../arena/bounds.js";
@@ -77,15 +77,18 @@ describe("spawning", () => {
   });
 
   it("gives a harder-hitting chassis a harder-hitting shot from the same weapon", () => {
-    // T5 made mirage the roster's highest-attack chassis (63, above bullseye's 55 and bastion's
-    // 42), so it can no longer be the "softer" baseline this test compares against — bullseye vs
-    // bastion is the pair that still orders the way the test name says.
-    const softHitter = { ...owner, carId: "bastion" };
-    const hardHitter = { ...owner, carId: "bullseye" };
+    // The lowest- and highest-`attack` active chassis are read off the table, not named, so a
+    // retune that reorders the roster's attack ratings cannot fail this.
+    const byAttack = [...activeCarIds()].sort((a, b) => cars()[a].attack - cars()[b].attack);
+    const softId = byAttack[0]!;
+    const hardId = byAttack[byAttack.length - 1]!;
+    expect(cars()[softId].attack, "the roster needs two distinct attack ratings").toBeLessThan(cars()[hardId].attack);
+    const softHitter = { ...owner, carId: softId };
+    const hardHitter = { ...owner, carId: hardId };
     const soft = spawnInstances({ weaponId: "roadblock", slot: 0, finalVolley: true }, softHitter, 100, 0).instances[0]!;
     const hard = spawnInstances({ weaponId: "roadblock", slot: 0, finalVolley: true }, hardHitter, 100, 0).instances[0]!;
-    expect(hard.damage).toBe(weaponDamageOf("bullseye", "roadblock"));
-    expect(soft.damage).toBe(weaponDamageOf("bastion", "roadblock"));
+    expect(hard.damage).toBe(weaponDamageOf(hardId, "roadblock"));
+    expect(soft.damage).toBe(weaponDamageOf(softId, "roadblock"));
     expect(hard.damage).toBeGreaterThan(soft.damage);
   });
 

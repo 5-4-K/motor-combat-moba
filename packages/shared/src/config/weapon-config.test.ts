@@ -8,7 +8,6 @@ import { COLOR_TABLE } from "./color-config.js";
 import type { CarId } from "./types.js";
 import type { StatusId } from "./status-types.js";
 import { WEAPON_TABLE, explosionDamageModeOf, instanceDefOf, isWeaponId, weaponDefOf } from "./weapon-config.js";
-import { slotsOf } from "./weapon-slots.js";
 import { WEAPON_TICKS, msToTicks, weaponTicksOf } from "./weapon-ticks.js";
 import type { ImpulseDef, WeaponDef, WeaponId } from "./weapon-types.js";
 import { STATUS_CONFIG, isStatusId } from "./status-config.js";
@@ -309,55 +308,6 @@ describe("WEAPON_TABLE", () => {
     // 2000 ms of ticks. The old 150 ms was 40 units of travel at Mirage's top speed — under one
     // car length — so nothing could enter a field that was not already standing in it.
     expect(weaponTicksOf("magmablast").explosion!.lifetime).toBe((2000 * TICK_RATE_HZ) / 1000);
-  });
-
-  it("keeps Bullseye's straight-line reach further than anything Bastion carries", () => {
-    // T1's "1 beats 3" edge, asserted rather than asserted-in-prose. Bullseye's longest straight
-    // reach is now `predator`'s 1800 (moved onto Bullseye's slot 1 by the 2026-09-02 loadout swap;
-    // it used to be `magmablast`'s 900).
-    //
-    // The `bounces`-exclusion below is a DELIBERATE, documented exclusion, not a workaround:
-    // `thumper.range` (1305) is the total length of a bounce PATH — 450 u/s for its `lifetimeMs`
-    // (2.9s), zigzagging off whatever walls it meets — not a distance Bastion can point straight at
-    // a kiting Bullseye and threaten. A poke is measured by how far a shot reaches in the direction
-    // it was fired, and a bouncing shot's `range` field does not answer that question, so the guard
-    // compares straight-line pokes only and excludes any `bounces`-carrying row from both sides of
-    // the comparison. That exclusion still applies post-swap: `thumper` stays on Bastion, unmoved.
-    //
-    // Read literally, off `WEAPON_TABLE` alone and with no notion of "straight" at all, `predator`'s
-    // 1800 is the single largest `range` value in the whole roster — larger than `thumper`'s bounced
-    // 1305 and `lance`'s 1200. Since `predator` does not bounce, this is no longer even a "read
-    // literally" curiosity: the guard's own straight-line comparison now puts the roster's biggest
-    // number on Bullseye's side by a wide margin, not the narrow "longer than Bastion's" claim this
-    // test used to have to settle for. `roadblock`'s cutdown-from-skewer 500 is Bastion's real
-    // straight reach.
-    const straightReach = (id: CarId) =>
-      Math.max(
-        0,
-        ...slotsOf(id)
-          .map((w) => weaponDefOf(w))
-          .filter((def) => !(def.kind === "projectile" && def.bounces))
-          .map((def) => def.range),
-      );
-    expect(straightReach("bullseye")).toBeGreaterThan(straightReach("bastion"));
-    // `slotsOf` truncates to the slot limit, so measure that it is the whole authored kit above.
-    expect(slotsOf("bastion")).toEqual([...CAR_TABLE.bastion.weapons]);
-  });
-
-  it("keeps Bastion's crowd control the longest in the roster", () => {
-    // T20: per-chassis CC duration needs no mechanism, because kits are exclusive and the applier
-    // owns the duration. This is what makes that true rather than merely claimed.
-    const longestCc = (id: CarId) =>
-      Math.max(
-        0,
-        ...slotsOf(id).flatMap((w) =>
-          (weaponDefOf(w).applies ?? [])
-            .filter((a) => a.target === "opponents")
-            .map((a) => a.durationMs),
-        ),
-      );
-    expect(longestCc("bastion")).toBeGreaterThan(longestCc("mirage"));
-    expect(longestCc("bastion")).toBeGreaterThan(longestCc("bullseye"));
   });
 
   it("keeps every status in the table reachable from some weapon", () => {

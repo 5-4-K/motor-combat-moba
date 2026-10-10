@@ -373,10 +373,9 @@ export const WEAPON_TABLE = {
    * the owner on purpose. `range: 1350` is `450 u/s x 3 s`, the honest reach figure now that expiry is
    * clock-based and `range` is otherwise unread by a bouncing shot. Read plainly, that makes 1350
    * the largest `range` value in the whole roster — bigger than `lance`'s straight 1200 — even
-   * though it is a bounced total-path length, not a poke Bastion can threaten with;
-   * `weapon-config.test.ts`'s straight-line-reach guard excludes it for exactly that reason, and
-   * whether a bouncing 1350 should out-rank a straight 1200 in play is an open balance question,
-   * not settled here.
+   * though it is a bounced total-path length, not a poke Bastion can threaten with. Whether a
+   * bouncing 1350 should out-rank a straight 1200 in play is an open balance question, not settled
+   * here.
    *
    * The cooldown is still CONSTRAINED at the low end. The aim-assist cliff guard rejects any assisted
    * weapon whose `1000 / cooldownMs` sits where it does, which
