@@ -13,8 +13,7 @@ import { compileTileArena } from "./tiles/compile.js";
  * The playable floor is x 40..1560, y 40..840 (1520 x 800): a one-tile wall on every side. The
  * spike runs sit in the wall row, so they take no floor; they are the old 32 x 18 strips' spans
  * scaled by 1.25 across and 22/18 down, rounded to the 40 u grid, and mirrored about both centre
- * lines. The corners are square — the octagon's
- * chamfers wait for diagonal tiles (TA2).
+ * lines. The corners are square — the octagon's chamfers wait for diagonal tiles (TA2).
  *
  * The look is drawn metal (2026-10-09): the wall art is turned per side so its grain runs along the
  * wall — top row (corners included) 90° clockwise, bottom row 90° counter-clockwise, right column
@@ -86,7 +85,7 @@ export const ARENA_01: ArenaDef = compileTileArena({
     { x: 800, y: 665, angle: -Math.PI / 2 },
   ],
   /**
-   * A line down each side, facing the other team. The y values divide the playable height (40..680)
+   * A line down each side, facing the other team. The y values divide the playable height (40..840)
    * into four equal parts, so the gap between two team-mates equals the gap from the end car to the
    * wall — no seat on the line is more exposed than another.
    */

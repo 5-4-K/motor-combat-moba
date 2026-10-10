@@ -62,7 +62,7 @@ export interface TyreMarkSteps {
  *
  * 4.5 units against a 5.4-unit dab, so consecutive marks overlap by about a sixth of their diameter
  * and the trail reads continuous. The trade-off is length: `maxTotal - maxScorch` marks laid two
- * at a time, so a lone car's trail runs 1080 world units — most of a crossing of a 1280-wide arena
+ * at a time, so a lone car's trail runs 1080 world units — most of a crossing of a 1600-wide default arena
  * — and six cars all skidding share that same pool. Widening the spacing buys length and breaks the
  * line back up; the cap itself is the rebuild budget (see `shouldRebuildDecals`) and is not the knob to reach for.
  *
