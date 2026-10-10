@@ -151,12 +151,15 @@ dodges nearly everything it sees coming. `trackedThreatLimit` still caps how man
 `dodgeChance`, `hearChance` and `incomingCarChance` are deleted.
 
 **BB20 Incoming car** keeps `isIncomingCar` (closing speed and an ETA inside `dodgeHorizonTicks`),
-and is always reacted to.
+and is always reacted to, except while the bot's own ram preconditions hold (BB21, 7.1.0).
 
 **BB21 Kit is dry** when no slot is ready now and none becomes ready within `ramDryWindowTicks`
 (`readyInTicksOf` on the bot's own slots); a kit with no usable slot is dry by definition. The ram
 also requires the bot not to be in `recover`
-(BB17 already guarantees it) and the target within `ramRangeUnits`.
+(BB17 already guarantees it) and the target within `ramRangeUnits`. While both hold (`ramReady`), the
+target's own approach is not an incoming car (BB20): `evade` outranks `ram`, and 7.0.0 let a target
+driving at a dry bot abort the ram into a dodge, so two dry bots ramming each other both evaded and
+hard landed almost no rams (final review I2). `isIncomingCar` still reads only the target.
 
 ## 5. Navigate: goals and the steering law
 

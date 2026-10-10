@@ -159,17 +159,20 @@ export class HumanController implements BotController {
     const pinned = inCorner(self, view.arena) || contactPush !== undefined;
     if (contactPush) this.lastPush = contactPush;
     const shotThreats = activeThreats(this.perception, tick);
-    const carIncoming = target ? isIncomingCar(self, target, profile) : false;
     const distance = target ? Math.hypot(target.x - self.x, target.y - self.y) : Infinity;
     const usable = usableSlots(self.slots);
+    // BB21: a car with nothing to fire is dry by definition.
+    const kitDry = usable.length === 0
+      || usable.every(({ slot }) => readyInTicksOf(slot, tick) > consts.ramDryWindowTicks);
+    // While its own ram preconditions hold, the bot ignores its target's approach: a dry kit closing
+    // on its target is the ram, and two dry bots ramming each other would otherwise both evade (I2).
+    const ramReady = kitDry && distance <= consts.ramRangeUnits;
+    const carIncoming = target && !ramReady ? isIncomingCar(self, target, profile) : false;
     // Raw reach of ANY usable slot, ready or not (BB15): a bot reloading inside its kit's reach is in
     // `fight`, whose goal reads `ownComfortOf`'s stand-off branch while nothing is soon-ready (BB43).
     // The shooter still presses nothing until a slot is ready.
     const inOwnReach = target !== undefined
       && usable.some(({ slot }) => distance <= weaponReachOf(slot.weaponId));
-    // BB21: a car with nothing to fire is dry by definition.
-    const kitDry = usable.length === 0
-      || usable.every(({ slot }) => readyInTicksOf(slot, tick) > consts.ramDryWindowTicks);
     const hpFraction = self.maxHp > 0 ? self.hp / self.maxHp : 1;
     const targetHpFraction = target && target.maxHp > 0 ? target.hp / target.maxHp : 1;
     const targetHeld = target !== undefined

@@ -141,6 +141,26 @@ describe("HumanController v7", () => {
     expect(out.throttle).toBe(1);
   });
 
+  it("a ram is not aborted by its own target driving at it; a ready kit still evades that car (I2, BB20)", () => {
+    // The target 300 u out closing at 300 u/s: an incoming car inside hard's dodge horizon.
+    const charging = { ...enemy, x: 500, vx: -300 };
+    const situationWith = (slots: BotView["self"]["slots"]) => {
+      const bot = new HumanController("hard");
+      const rng = makeRng(1);
+      const seen = new Set<string>();
+      for (let tick = 0; tick < 60; tick++) {
+        bot.decide(view(tick, { self: { ...view(0).self, slots }, others: [charging], rng }));
+        seen.add(bot.debug()!.situation);
+      }
+      return { last: bot.debug()!.situation, seen };
+    };
+    const dry = view(0).self.slots.map((s) => ({ ...s, stocks: 0, rechargeEndsTick: 10_000 }));
+    const rammer = situationWith(dry);
+    expect(rammer.last).toBe("ram");
+    expect(rammer.seen.has("evade")).toBe(false);
+    expect(situationWith(view(0).self.slots).last).toBe("evade");
+  });
+
   it("fights while reloading inside reach: never parks with the whole kit on cooldown (C1, BB15, BB43)", () => {
     // 450 u out with every slot recharging for the whole run: outside ram range (400), inside raw
     // reach of the kit. Reloading inside reach is `fight` (its stand-off branch), not `close`, whose

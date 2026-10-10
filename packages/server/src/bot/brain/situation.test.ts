@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GAME_MODE, installMode, modeConfigOf } from "@motor-combat-moba/shared";
+import { DEFAULT_GAME_MODE, TICK_RATE_HZ, installMode, modeConfigOf } from "@motor-combat-moba/shared";
 import { RESOLVED_BOT_PROFILES } from "../../config/bot-profiles.js";
 import { ALL_SITUATIONS, classifySituation, isIncomingCar, newSituationState, pickSituation, type SituationInputs } from "./situation.js";
 
@@ -55,5 +55,10 @@ describe("isIncomingCar (BB20)", () => {
   it("is true for a car closing fast and false for one driving away", () => {
     expect(isIncomingCar({ x: 0, y: 0 }, car(-400), hard)).toBe(true);
     expect(isIncomingCar({ x: 0, y: 0 }, car(400), hard)).toBe(false);
+  });
+  it("is false for a car closing too slowly to arrive inside the horizon", () => {
+    // 300 u out, contact at 150: 150 u to cover at 100 u/s is 1.5 s, past hard's 0.8 s horizon.
+    expect(hard.dodgeHorizonTicks / TICK_RATE_HZ).toBeLessThan(1.5);
+    expect(isIncomingCar({ x: 0, y: 0 }, car(-100), hard)).toBe(false);
   });
 });
