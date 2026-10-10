@@ -2,7 +2,7 @@ import { existsSync, globSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
-import { BENCH_TESTS, SLOW_TESTS } from "../vitest.groups.ts";
+import { BENCH_TESTS, SLOW_TESTS } from "../vitest.groups";
 
 // Guards the group lists in `vitest.groups.ts`: a typo in a path or glob would silently drop a test
 // from every run, so each entry must name something real and no file may sit in two groups.
