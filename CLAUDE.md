@@ -226,8 +226,8 @@ status never stacks with itself, and a flag-carrying debuff is forced to `reappl
   [tile arenas](docs/superpowers/specs/2026-10-09-tile-arenas-design.md) (TA), superseded in part by
   [tile cells](docs/superpowers/specs/2026-10-09-tile-cells-design.md) (TC).
 - `arena-03` (Conquer) is a tile arena too: 34 × 56 cells, 1360 × 2240, with a 76-cell `zone` patch
-  (the scoring zone is still a circle on its centre for now), spike runs on the side walls only, and
-  spawns at y 120 / 2120. No shipped arena uses `ArenaDef.boundary` now; the machinery (inward
+  (the scoring zone is those cells, `zone.rects`), spike runs on the side walls only, and spawns at
+  y 120 / 2120. No shipped arena uses `ArenaDef.boundary` now; the machinery (inward
   half-planes through `Bounds`, a positional clamp, `boundsOf(arena)` the one place a `Bounds` is
   built) remains for hand-written arenas.
 - `width`/`height` mean the image frame and camera bounds (1280 × 720 for arena-01/02, 1360 × 2240

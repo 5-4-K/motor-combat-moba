@@ -371,7 +371,7 @@ number exactly as `damageFor` does, so `applyDamage` still always subtracts an i
 
 ## Environmental hazards: wall spikes
 
-The `kind: "spike"` obstacles — `arena-01`'s fourteen (a tile arena since 2026-10-09; its spikes come from `^` tiles) and the hand-written arenas' strips, introduced by the 2026-09-11 arena-sprite-and-spike-hazard
+The `kind: "spike"` obstacles — `arena-01`'s fourteen runs, `arena-02`'s four and `arena-03`'s two (all tile arenas, their spikes compiled from spike tiles), a kind introduced by the 2026-09-11 arena-sprite-and-spike-hazard
 work — are the game's **first environmental damage source** — everything above this section, and
 everything in Ramming above, still holds: a spike is level geometry, not a car, so cars still never
 damage each other by contact.
@@ -394,7 +394,7 @@ damage each other by contact.
    weapon can be attributed to it, so it appears in the report's kill pace and per-car damage but in
    no per-weapon row.
 
-**Where a spike may sit.** AS13's "flush against a boundary plane, one depth deep" now holds only for hand-written arenas (`arena-02`, `arena-03`). A tile spike may sit anywhere in the grid, is one `TILE_SIZE` deep, and hurts from every open face (TA6, TA19); every tile spike must have at least one non-solid edge-neighbour.
+**Where a spike may sit.** AS13's "flush against a boundary plane, one depth deep" now holds only for hand-written arenas, and no shipped arena is hand-written. A tile spike may sit anywhere in the grid, is one `TILE_SIZE` deep, and hurts from every open face (TA6, TA19); every tile spike must have at least one non-solid edge-neighbour.
 
 **The trigger is a push, not contact.** Because the boundary stops a car at the notch face, "touching
 spikes" is a state a car can hold forever — someone who drove in and stopped is still touching them.
