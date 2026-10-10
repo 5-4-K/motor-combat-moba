@@ -112,7 +112,7 @@ whole-brain determinism test (old P51) stays and is the guard.
 |---|---|---|---|
 | 0 | `recover` | self dead, or carrying `phased`, `stunned`, `reeling` or `ramLock` | unless disarmed (BB41) |
 | 1 | `evade` | a reacted-to shot in flight (BB19), or an incoming car (BB20) | yes |
-| 2 | `unpin` | stuck: a corner, or `wallPush` at `minEngageUnits` reports a push (contact, every tier alike; BB33) | yes |
+| 2 | `unpin` | stuck: a corner, or `wallPush` at `min(minEngageUnits, wallLookaheadUnits)` reports a push (contact, capped at the tier's look-ahead; BB33) | yes |
 | 3 | `waitOut` | no hittable target noticed | no |
 | 4 | `punish` | target `stunned` or `reeling`, or target HP ≤ `punishHpFraction` | yes |
 | 5 | `reset` | own HP < `retreatHpFraction` (0 at easy: never) | yes |
@@ -278,9 +278,13 @@ driving into a wall it is not yet pinned on; `unpin` handles the pinned case wit
 defined pinned with the same look-ahead, so the state "near a wall, not pinned" never existed and
 this layer only ran under `evade`; 7.1.0 gave `pinned` its own, shorter test, BB33.)
 
-**BB33 `unpin`** is entered when the car is in a corner or `wallPush` at `minEngageUnits` reports a
-push (contact), independent of tier: walls hurt every tier equally, and the tier's look-ahead is the
-reactive layer's (BB32). Its goal is the CONTACT push's direction at `unpinDistanceUnits`, facing
+**BB33 `unpin`** is entered when the car is in a corner or `wallPush` at
+`min(minEngageUnits, wallLookaheadUnits)` reports a push (contact, never farther than the tier's own
+look-ahead): walls hurt every tier equally, so the contact distance is the hull's 70 u for every tier
+that looks at least that far (medium, hard), and the look-ahead itself for a tier that looks less far
+(easy, 40 u), so the reactive layer (BB32) always sees a wall before `pinned` does. (7.1.0 used
+`minEngageUnits` alone, and easy, whose look-ahead sat inside it, reached `unpin` before it could
+steer; 7.1.1.) Its goal is the CONTACT push's direction at `unpinDistanceUnits`, facing
 free, reverse allowed. It reads the last non-empty contact push (`lastPush`), never the look-ahead
 one, so an `unpin` held through its commit window keeps its direction after the push clears. A corner or a wall dead ahead therefore backs out, a wall off the nose turns away
 from it.
@@ -476,7 +480,7 @@ hit chance against the bar, which is the whole holds-fire diagnostic now.
 
 ## 12. Harness and versioning
 
-**BB56** `BOT_BRAIN_VERSION = "7.0.0"`, then `"7.1.0"` for the final review's four behaviour fixes (§15). `botFingerprint` keeps hashing `BOT_PROFILES` plus the
+**BB56** `BOT_BRAIN_VERSION = "7.0.0"`, then `"7.1.0"` for the final review's four behaviour fixes and `"7.1.1"` for the easy-tier contact cap (§15). `botFingerprint` keeps hashing `BOT_PROFILES` plus the
 version, so every 6.x balance report becomes incomparable, which is correct.
 
 **BB57** The balance CLI does not change. `--skill` still maps to a tier and that tier is the
@@ -579,7 +583,8 @@ and `BOT_BRAIN_VERSION` went to 7.1.0 with these rulings:
   target; it spends 0 %.
 - **Contact-only unpin (C2; BB32, BB33).** `pinned` used the reactive layer's own look-ahead, so
   `unpin` pre-empted that layer everywhere but `evade` and hard bots shuttled forward and back at
-  walls. `pinned` is now a corner or `wallPush` at `minEngageUnits`, every tier alike.
+  walls. `pinned` became a corner or `wallPush` at `minEngageUnits`, every tier alike (capped at the
+  tier's look-ahead since 7.1.1, below).
 - **Fire under non-disarming control loss (I1; BB17, BB41).** `recover` coasts the drive but keeps
   the shooter unless the bot is dead, `phased` or under a `disarmed` status (`stunned`).
 - **A ram ignores its own target's approach (I2; BB20, BB21).** While `ramReady` (kit dry, target
@@ -603,3 +608,19 @@ P50 ladder now pools five seeds. "Easy closes on a visible target" runs on a wid
 every shipped kit reaches at least 900 u with some slot, past easy's 600 u sight. Timing (BB2): the
 30 s seed-7 run takes 5.1–5.2 s of wall time on 7.1.0 against 5.3–5.4 s on 7.0.0, measured the
 same session on the same machine.
+
+### 7.1.1 (easy-tier contact cap, 2026-10-10)
+
+The re-review parked 7.1.0's easy regression as an Important residual, and the owner chose to fix it.
+`pinned` is now a corner or `wallPush` at `min(minEngageUnits, wallLookaheadUnits)` (BB33): medium
+(90 u) and hard (150 u) look past the 70 u hull contact and keep it; easy (40 u) is pinned only
+inside its own look-ahead, so its reactive layer (BB32) steers first, as it did on 7.0.0. The
+alternative, raising easy's `wallLookaheadUnits` to 75, was not needed. The controller test "nose
+40 u from a wall unpins at every tier" moved to 30 u, since easy's trigger now sits strictly under
+40 u off the nose, and a new one holds that a wall 55 u off the nose pins hard but not easy.
+
+Measured by `occupancy.test.ts`'s new six-bot easy FFA (two each of Mirage, Bullseye, Bastion, seed
+7, 60 s, deathmatch; arena-01 / arena-02, 7.1.0 → 7.1.1): `unpin` share 16.1 / 30.9 % → 13.2 /
+9.6 %, quick re-entries 9 / 9 → 5 / 1, roughly 7.0.0's 11.2 / 8.6 % and 4 / 2 (the review's
+composition differed, so the 7.1.0 starting points differ from the 23.4 / 25.4 % above). The hard
+duel block did not move. `BOT_BRAIN_VERSION` is 7.1.1; medium and hard behave exactly as on 7.1.0.

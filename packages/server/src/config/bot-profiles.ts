@@ -64,7 +64,11 @@ export interface BotProfile {
   readonly vengefulness: number;
 
   // --- Positioning --------------------------------------------------------------------------
-  /** How far ahead the bot looks for a wall or obstacle. */
+  /**
+   * How far ahead the bot looks for a wall or obstacle (the reactive layer, BB32). It also caps the
+   * contact test behind `unpin` (`min(minEngageUnits, this)`, BB33), so a tier that looks less than
+   * 70 u ahead is pinned only inside its own look-ahead and the reactive layer always steers first.
+   */
   readonly wallLookaheadUnits: number;
   /** Hp fraction below which the bot disengages. 0 means it fights to zero. */
   readonly retreatHpFraction: number;
@@ -187,8 +191,9 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * How much further ahead a bot looks for a spike strip than for a bare wall (Task 12, AS28):
    * `wallPush` samples damaging spike faces at `lookaheadUnits` and at `lookaheadUnits * this`. For
    * the reactive wall layer (BB32, the tier's `wallLookaheadUnits`) that means a spiked wall turns
-   * the car before a plain one does; the contact test behind `pinned` (BB33, `minEngageUnits`) reads
-   * the same two samples, so a spike strip within about two car lengths of the nose counts as contact.
+   * the car before a plain one does; the contact test behind `pinned` (BB33, `minEngageUnits` capped
+   * at the tier's look-ahead) reads the same two samples, so a spike strip within about two car
+   * lengths of the nose counts as contact at medium and hard, and about one at easy.
    *
    * Shared across every tier on purpose, not a per-profile knob: every bot understands that spikes
    * hurt equally, and the tiers already differ through their own `wallLookaheadUnits` and reaction
@@ -208,7 +213,8 @@ export const BRAIN_CONSTANTS = Object.freeze({
  */
 // BOT_BRAIN_VERSION 7.0.0 — the deterministic core (docs/superpowers/specs/2026-10-09-bot-brain-v7-design.md).
 // BOT_BRAIN_VERSION 7.1.0 — fight while reloading, contact-only unpin, fire under non-disarmed control loss, ram ignores its own target's approach.
-export const BOT_BRAIN_VERSION = "7.1.0";
+// BOT_BRAIN_VERSION 7.1.1 — the contact test behind `unpin` is capped at the tier's look-ahead (easy only moves).
+export const BOT_BRAIN_VERSION = "7.1.1";
 
 /**
  * The tick-valued knobs, authored in ms (NR14) and resolved to ticks at the build's tick rate.

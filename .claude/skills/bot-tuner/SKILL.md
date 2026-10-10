@@ -11,7 +11,7 @@ description: >-
 
 # Bot tuner
 
-The game has **one brain** (`BOT_BRAIN_VERSION` 7.1.0). Easy / medium / hard are rows of
+The game has **one brain** (`BOT_BRAIN_VERSION` 7.1.1). Easy / medium / hard are rows of
 numbers in [`packages/server/src/config/bot-profiles.ts`](../../../packages/server/src/config/bot-profiles.ts):
 23 fields per tier, no coin flips. The practice bot and the balance harness's measurement pilot are
 the same code and the same rows, so a retune moves both. The cheat-sheet is
@@ -96,7 +96,7 @@ Weakness is worse use of the same facts, later reactions, and worse hands.
 | "charges in / never closes" | judgment | `opponentRangeRespect` down to close. Ceiling: `fightRange = max(comfort, keep-out)`, so nothing in the profile puts a bot closer than its own comfort range (0.85 × its shortest ready gun's effective reach). A brawling bot is a new field, not a tune — say so |
 | "runs away when hurt" / "fights to the death" | judgment | `retreatHpFraction` (0 at easy: never resets) |
 | "doesn't finish me off" | judgment | `punishHpFraction` (0.4 on every tier; its `LADDER` entry is "equal", so move all three or change the test with them) |
-| "sits in a corner" / "drives into walls" | judgment | `wallLookaheadUnits` up: how early the reactive layer steers along a wall it is driving at. `unpin` is contact-only (a corner, or a wall or spike within `minEngageUnits`, every tier alike) and is not a knob |
+| "sits in a corner" / "drives into walls" | judgment | `wallLookaheadUnits` up: how early the reactive layer steers along a wall it is driving at. `unpin` is contact-only (a corner, or a wall or spike within `minEngageUnits` capped at the tier's `wallLookaheadUnits`: 40 u at easy, 70 u at medium and hard) and is not a knob — lowering a look-ahead under 70 also shortens that tier's contact |
 | "reverses into a wall" / "moonwalks" | read the overlay | `unpin` repeating: the stuck test (a corner or a contact it cannot drive out of) — a brain issue, stop and say so. `fight` with `drive(…,-1)`: the orbit weave backing out nose-on, by design; `rangeBandUnits` sets how far, for every tier. `evade` with no threat in sight: a held dodge; `dodgeDistanceUnits` sets how far, for every tier. Both are `BRAIN_CONSTANTS`, so not a one-tier fix. Nothing senses a wall behind the car |
 | "chases whoever shot it" / "ignores the wounded car" | judgment | `vengefulness` / `woundedBias`; `targetCommitMs` is how long it sticks |
 | "doesn't see me" | reaction | `awarenessRadiusUnits`, `rearBlindHalfAngleRad`, `memoryMs` |

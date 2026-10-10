@@ -152,10 +152,12 @@ export class HumanController implements BotController {
       || self.statuses.some((s) => s.endsTick > tick && (table[s.statusId]?.flags?.includes("disarmed") ?? false));
     // Two wall reads (BB32, BB33). The tier's look-ahead feeds the reactive layer, which steers along
     // a wall before the car reaches it. `pinned` is the STUCK test: a corner, or a push at
-    // `minEngageUnits` (hull contact), the same for every tier, since walls hurt everyone equally.
+    // `minEngageUnits` (hull contact), capped at the tier's look-ahead so the reactive layer always
+    // sees a wall first (7.1.1: easy's 40 u look-ahead sat inside the 70 u contact test, so easy
+    // reached `unpin` before it could steer). Medium and hard look past 70 u, so they keep contact.
     // `unpin` drives along the contact push, never the look-ahead one.
     const push = wallPush(self, view.arena, profile.wallLookaheadUnits);
-    const contactPush = wallPush(self, view.arena, consts.minEngageUnits);
+    const contactPush = wallPush(self, view.arena, Math.min(consts.minEngageUnits, profile.wallLookaheadUnits));
     const pinned = inCorner(self, view.arena) || contactPush !== undefined;
     if (contactPush) this.lastPush = contactPush;
     const shotThreats = activeThreats(this.perception, tick);

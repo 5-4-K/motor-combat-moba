@@ -4,7 +4,7 @@ One brain, three rows of numbers: easy, medium and hard are rows of `BOT_PROFILE
 [`packages/server/src/config/bot-profiles.ts`](../packages/server/src/config/bot-profiles.ts); no
 module branches on the tier name, and the practice bot and the balance pilot are the same bot.
 Design: [`2026-10-09-bot-brain-v7-design.md`](superpowers/specs/2026-10-09-bot-brain-v7-design.md)
-(BB1–BB70). **`BOT_BRAIN_VERSION` is `7.1.0`.** Feel complaints go through
+(BB1–BB70). **`BOT_BRAIN_VERSION` is `7.1.1`.** Feel complaints go through
 [`bot-tuner`](../.claude/skills/bot-tuner/SKILL.md). **Unlike `docs/turn-tuning.md`, nothing tests
 this page:** its tables copy `BOT_PROFILES` and `BRAIN_CONSTANTS`; re-copy a cell when code moves.
 
@@ -32,7 +32,7 @@ waits out `situationCommitMs`; `recover` and `waitOut` end the moment their fact
 |---|---|---|---|
 | 0 | `recover` | self dead, or carrying `phased`, `stunned`, `reeling` or `ramLock` | coasts; fires unless dead, `phased` or disarmed (`stunned`) |
 | 1 | `evade` | a reacted-to shot in flight, or the target bearing down inside `dodgeHorizonMs` (ignored while the bot's own ram is on: kit dry, target inside `ramRangeUnits`) | yes |
-| 2 | `unpin` | stuck: a corner, or a wall or spike in contact (`wallPush` at `minEngageUnits`, the same for every tier) | yes |
+| 2 | `unpin` | stuck: a corner, or a wall or spike in contact (`wallPush` at `minEngageUnits`, capped at the tier's `wallLookaheadUnits`: 40 u at easy, 70 u at medium and hard) | yes |
 | 3 | `waitOut` | no hittable target noticed (hittable: alive, not phased, on the other team) | no |
 | 4 | `punish` | target `stunned` or `reeling`, or target HP ≤ `punishHpFraction` | yes |
 | 5 | `reset` | own HP < `retreatHpFraction` (0 at easy: never) | yes |
@@ -86,9 +86,9 @@ Nothing rolls the drive model forward; there is no planner.
   push at the tier's `wallLookaheadUnits` steers toward the push's side, reversing if the wall is
   nearly dead ahead. `wallPush` sums unit vectors away from walls and obstacles at the look-ahead
   point, samples the damaging spike faces at 1× and 2× the look-ahead, and adds a corner (two planes
-  within `minEngageUnits`); any hit counts. `unpin` reads the same sum at `minEngageUnits`
-  (contact), so the reactive layer acts first, except at easy, whose 40 u look-ahead sits inside the
-  70 u contact test.
+  within `minEngageUnits`); any hit counts. `unpin` reads the same sum at `minEngageUnits` capped at
+  the tier's look-ahead (contact: 70 u at medium and hard, 40 u at easy), so the reactive layer
+  always acts first.
 
 ## How it shoots
 
@@ -204,7 +204,7 @@ non-firing situation, or a bug. Read the line before naming a knob.
 | "sprays" | misses a straight driver too | `aimErrorSigmaRad` |
 | "never dodges" | `evade` never appears | `dodgeReactionMs` down (or `dodgeHorizonMs` up) |
 | "walks into fire" | `range N` sits inside your gun | `opponentRangeRespect` up |
-| "drives into walls" | it reaches a wall before turning along it | `wallLookaheadUnits` up: how early the reactive layer steers along a wall. `unpin` is contact-only, not a knob |
+| "drives into walls" | it reaches a wall before turning along it | `wallLookaheadUnits` up: how early the reactive layer steers along a wall. `unpin` is contact-only, not a knob (below 70 u the look-ahead also caps the contact distance, so it never fires before the reactive layer) |
 | "reverses into a wall" / "moonwalks" | `unpin` repeating | the stuck test: a corner or a contact the bot cannot drive out of; a brain issue, not a knob |
 | | `fight` with `drive(…,-1)` | the orbit weave backing out nose-on (by design); `rangeBandUnits` sets how far, for every tier |
 | | `evade` with no threat in sight | a held dodge (BB35); `dodgeDistanceUnits` sets how far, for every tier |
@@ -217,8 +217,9 @@ non-firing situation, or a bug. Read the line before naming a knob.
    from the tier's look-ahead, and flips an orbit's side; `unpin` takes over only on contact or in
    a corner. Nothing senses a wall behind the car, so a reverse (an orbit back-out, a `nose` goal
    too close, a backing `evade` or `unpin`) can back into one, and on tile arenas the walls are
-   obstacles, which `inCorner` (boundary planes only) does not count. Easy's 40 u look-ahead lies
-   inside the 70 u contact test, so easy reaches `unpin` before its reactive layer turns it.
+   obstacles, which `inCorner` (boundary planes only) does not count. The contact test is capped at
+   the tier's look-ahead (7.1.1), so easy is pinned only inside its 40 u and its reactive layer
+   turns it first; the price is that easy drives 30 u closer to a wall before `unpin` backs it out.
 2. **A beam is never dodged.** No travel speed means an ETA of 0; attached beams are tracked (they
    take a threat slot) but never reacted to.
 3. **ETA is measured at notice**, once. A shot is dodged when it lies in `(dodgeReactionTicks,

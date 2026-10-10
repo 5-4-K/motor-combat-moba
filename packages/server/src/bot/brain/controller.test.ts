@@ -200,15 +200,31 @@ describe("HumanController v7", () => {
     }
   });
 
-  it("unpins a car whose nose is 40 u from a wall, at every tier (C2, BB33)", () => {
+  it("unpins a car whose nose is 30 u from a wall, at every tier (C2, BB33)", () => {
     for (const tier of ["easy", "medium", "hard"] as const) {
       const bot = new HumanController(tier);
       const rng = makeRng(1);
-      // Facing +x with the centre 70 u (half a hull length plus 40) from the right wall.
-      const self = { ...view(0).self, x: 1280 - 70, angle: 0 };
+      // Facing +x with the centre 60 u (half a hull length plus 30) from the right wall: inside
+      // easy's 40 u contact distance (its look-ahead), and inside medium's and hard's 70 u.
+      const self = { ...view(0).self, x: 1280 - 60, angle: 0 };
       bot.decide(view(0, { self, rng }));
       expect(bot.debug()?.situation).toBe("unpin");
     }
+  });
+
+  it("a wall 55 u off the nose pins hard but not easy (C2, BB33, 7.1.1)", () => {
+    // The contact test is `min(minEngageUnits, wallLookaheadUnits)`: 70 u at hard, 40 u at easy. A
+    // wall 55 u off the nose (centre 85 u from the right wall) is contact for hard and still the
+    // reactive layer's business for easy, whose look-ahead must get to steer before `unpin` can.
+    const runAt = (tier: "easy" | "hard") => {
+      const bot = new HumanController(tier);
+      const rng = makeRng(1);
+      const self = { ...view(0).self, x: 1280 - 85, angle: 0 };
+      bot.decide(view(0, { self, rng }));
+      return bot.debug()?.situation;
+    };
+    expect(runAt("hard")).toBe("unpin");
+    expect(runAt("easy")).not.toBe("unpin");
   });
 
   it("the reactive wall layer drives `fight` near a wall it is not pinned on (C2, BB32)", () => {

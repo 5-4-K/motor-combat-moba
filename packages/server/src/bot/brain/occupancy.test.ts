@@ -8,7 +8,9 @@ import { ALL_SITUATIONS } from "./situation.js";
 /**
  * Situation occupancy of a real match (the final review's measurement, kept as a slow test): one
  * 60 s, seed 7, hard Mirage-vs-Bullseye deathmatch duel on arena-01 through `balance/match.ts`'s
- * `runMatch`, with `HumanController.prototype.decide` wrapped to tally `debug()` per bot.
+ * `runMatch`, with `HumanController.prototype.decide` wrapped to tally `debug()` per bot. A second
+ * block runs the review's six-bot easy FFA on both tile arenas, the scene where 7.1.0's contact-only
+ * `unpin` regressed easy (7.1.1, C2).
  *
  * It catches what the per-module tests cannot: a bot that parks while reloading (C1), shuttles
  * forward and back at a wall (C2), or never lands a ram (I2). One seed, so read the numbers as a
@@ -62,7 +64,36 @@ function newTally(): Tally {
   };
 }
 
-function measure(): Map<string, Tally> {
+/** The duel the header describes: hard Mirage vs Bullseye, arena-01, seed 7, 60 s. */
+const DUEL: Parameters<typeof runMatch>[0] = {
+  seats: [
+    { sessionId: "mirage", carId: "mirage", team: 0 },
+    { sessionId: "bullseye", carId: "bullseye", team: 1 },
+  ],
+  mode: GameMode.FFA_DEATHMATCH,
+  arenaId: "arena-01",
+  difficulty: "hard",
+  seed: 7,
+  maxTicks: 60 * TICK_RATE_HZ,
+};
+
+/**
+ * The six-bot FFA of the 7.1.0 final review (seed 7, 60 s): two each of the type triangle, every
+ * seat on team 0 as the balance harness seats an FFA, at the given tier and arena.
+ */
+function sixBotFfa(difficulty: "easy" | "medium" | "hard", arenaId: string): Parameters<typeof runMatch>[0] {
+  const chassis = ["mirage", "bullseye", "bastion"] as const;
+  return {
+    seats: chassis.flatMap((carId) => [0, 1].map((i) => ({ sessionId: `${carId}-${i}`, carId, team: 0 as const }))),
+    mode: GameMode.FFA_DEATHMATCH,
+    arenaId,
+    difficulty,
+    seed: 7,
+    maxTicks: 60 * TICK_RATE_HZ,
+  };
+}
+
+function measure(setup: Parameters<typeof runMatch>[0] = DUEL): Map<string, Tally> {
   const tallies = new Map<string, Tally>();
   const original = HumanController.prototype.decide;
   const spy = vi.spyOn(HumanController.prototype, "decide").mockImplementation(function (this: HumanController, view: BotView): BotIntent {
@@ -91,17 +122,7 @@ function measure(): Map<string, Tally> {
     return out;
   });
   try {
-    runMatch({
-      seats: [
-        { sessionId: "mirage", carId: "mirage", team: 0 },
-        { sessionId: "bullseye", carId: "bullseye", team: 1 },
-      ],
-      mode: GameMode.FFA_DEATHMATCH,
-      arenaId: "arena-01",
-      difficulty: "hard",
-      seed: 7,
-      maxTicks: 60 * TICK_RATE_HZ,
-    });
+    runMatch(setup);
   } finally {
     spy.mockRestore();
   }
@@ -110,25 +131,40 @@ function measure(): Map<string, Tally> {
 
 const pct = (n: number, of: number) => (of > 0 ? (100 * n) / of : 0);
 
+function printTallies(tallies: Map<string, Tally>): void {
+  const rows: Record<string, Record<string, string | number>> = {};
+  for (const [id, t] of tallies) {
+    rows[id] = {
+      aliveTicks: t.alive,
+      ...Object.fromEntries(ALL_SITUATIONS.map((s) => [s, `${pct(t.situations[s], t.alive).toFixed(1)}%`])),
+      reverse: `${pct(t.reverse, t.alive).toFixed(1)}%`,
+      stationaryHittable: `${pct(t.stationaryHittable, t.alive).toFixed(1)}%`,
+      unpinEntries: t.unpinEntries,
+      unpinQuickReentries: t.unpinQuickReentries,
+      ramsLanded: t.ramsLanded,
+    };
+  }
+  console.table(rows);
+}
+
+/** Alive-tick-weighted `unpin` share and the summed quick re-entries across every seat. */
+function unpinSummary(tallies: Map<string, Tally>): { share: number; quickReentries: number } {
+  let unpin = 0, alive = 0, quickReentries = 0;
+  for (const t of tallies.values()) {
+    unpin += t.situations.unpin;
+    alive += t.alive;
+    quickReentries += t.unpinQuickReentries;
+  }
+  return { share: pct(unpin, alive), quickReentries };
+}
+
 describe("situation occupancy, hard Mirage vs Bullseye, arena-01, seed 7, 60 s", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("does not park, shuttle at walls or moonwalk", () => {
     installMode(modeConfigOf(GameMode.FFA_DEATHMATCH));
     const tallies = measure();
-    const rows: Record<string, Record<string, string | number>> = {};
-    for (const [id, t] of tallies) {
-      rows[id] = {
-        aliveTicks: t.alive,
-        ...Object.fromEntries(ALL_SITUATIONS.map((s) => [s, `${pct(t.situations[s], t.alive).toFixed(1)}%`])),
-        reverse: `${pct(t.reverse, t.alive).toFixed(1)}%`,
-        stationaryHittable: `${pct(t.stationaryHittable, t.alive).toFixed(1)}%`,
-        unpinEntries: t.unpinEntries,
-        unpinQuickReentries: t.unpinQuickReentries,
-        ramsLanded: t.ramsLanded,
-      };
-    }
-    console.table(rows);
+    printTallies(tallies);
 
     expect(tallies.size).toBe(2);
     for (const t of tallies.values()) {
@@ -140,4 +176,24 @@ describe("situation occupancy, hard Mirage vs Bullseye, arena-01, seed 7, 60 s",
       expect(pct(t.reverse, t.alive)).toBeLessThan(60);
     }
   });
+});
+
+describe("situation occupancy, easy six-bot FFA, seed 7, 60 s", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  for (const arenaId of ["arena-01", "arena-02"]) {
+    it(`does not reach unpin before its reactive wall layer on ${arenaId} (C2, BB33, 7.1.1)`, () => {
+      installMode(modeConfigOf(GameMode.FFA_DEATHMATCH));
+      const tallies = measure(sixBotFfa("easy", arenaId));
+      printTallies(tallies);
+      const { share, quickReentries } = unpinSummary(tallies);
+      console.log(`${arenaId}: easy unpin share ${share.toFixed(1)} %, quick re-entries ${quickReentries}`);
+
+      expect(tallies.size).toBe(6);
+      // Measured (arena-01 / arena-02; 7.1.0 -> 7.1.1): share 16.1 / 30.9 % -> 13.2 / 9.6 %, quick
+      // re-entries 9 / 9 -> 5 / 1. The bounds sit between the two: either 7.1.0 arena fails them.
+      expect(share).toBeLessThan(16);
+      expect(quickReentries).toBeLessThanOrEqual(8);
+    });
+  }
 });
