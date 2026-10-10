@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ARENA_02, type ArenaDef } from "@motor-combat-moba/shared";
+import { ARENA_02, compileTileArena, type ArenaDef } from "@motor-combat-moba/shared";
 import {
   ARENA_COLOR_DEFAULTS,
   arenaBorderRect,
@@ -9,6 +9,7 @@ import {
   drawableObstacles,
   markingsCircleVisible,
   spikeStrips,
+  zoneOutlineSegments,
 } from "./arena-visual.js";
 
 /**
@@ -32,7 +33,7 @@ const POLYGON_FIXTURE: ArenaDef = {
     { x: 0, y: 2060 },
     { x: 0, y: 100 },
   ],
-  zone: { x: 640, y: 1080, radius: 150 },
+  zone: { rects: [{ x: 490, y: 930, w: 300, h: 300 }] },
   obstacles: [
     { x: 200, y: 480, w: 100, h: 100 },
     { x: 980, y: 480, w: 100, h: 100 },
@@ -165,5 +166,29 @@ describe("art-less arena extras (CQ49–CQ51)", () => {
   it("skips the centre circle only when a zone exists", () => {
     expect(markingsCircleVisible(POLYGON_FIXTURE)).toBe(false);
     expect(markingsCircleVisible(ARENA_02)).toBe(true);
+  });
+});
+
+describe("zoneOutlineSegments (CT11)", () => {
+  it("outlines only the patch's outer edges", () => {
+    const spawn = { x: 20, y: 20, angle: 0 };
+    const grid = compileTileArena({
+      id: "outline-fixture",
+      displayName: "Outline fixture",
+      rows: ["....", ".zz.", ".zz.", "...."],
+      legend: { z: { tile: "zone" } },
+      ffaSpawns: [spawn],
+      teamASpawns: [spawn],
+      teamBSpawns: [spawn],
+    }).tiles!;
+    const key = (s: readonly number[]): string => s.join(",");
+    expect(zoneOutlineSegments(grid).map(key).sort()).toStrictEqual(
+      [
+        [40, 40, 80, 40], [80, 40, 120, 40], // top
+        [40, 120, 80, 120], [80, 120, 120, 120], // bottom
+        [40, 40, 40, 80], [40, 80, 40, 120], // left
+        [120, 40, 120, 80], [120, 80, 120, 120], // right
+      ].map(key).sort(),
+    );
   });
 });

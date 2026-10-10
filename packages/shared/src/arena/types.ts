@@ -1,4 +1,5 @@
 import type { WorldFace } from "./faces.js";
+import type { Aabb } from "../sim/collide.js";
 import type { TileRotation } from "./tiles/tile-config.js";
 
 /**
@@ -50,11 +51,14 @@ export interface ArenaPalette {
   readonly border: string;
 }
 
-/** A capture circle (Conquer, CQ20). A car is "in" it when its CENTRE is within `radius`. */
+/**
+ * The capture zone (Conquer, spec Conquer on tiles CT7): the patch as world rectangles. A tile
+ * arena's comes from its capture cells, merged by the compiler; a hand-written arena may author
+ * `rects` directly. No centre is stored — `zoneCentreOf` derives one where needed. A car is "in" it
+ * when its hull reaches `conquer().zoneEdgeInset` into the patch (CT8, CT9).
+ */
 export interface ArenaZone {
-  readonly x: number;
-  readonly y: number;
-  readonly radius: number;
+  readonly rects: readonly Aabb[];
 }
 
 /** One drawn piece of tile art: an art id (`arena.common.tile.<art>`) and its clockwise turn. */

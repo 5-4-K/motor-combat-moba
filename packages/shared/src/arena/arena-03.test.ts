@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { ARENA_03 } from "./arena-03.js";
 import { getArena } from "./registry.js";
+import { zoneCoreOf } from "./zone.js";
+import { CONQUER_CONFIG } from "../config/conquer-config.js";
 
 /** 180° about the arena centre. */
 function rot(x: number, y: number): { x: number; y: number } {
@@ -24,8 +26,13 @@ describe("arena-03 (Conquer, CT1–CT6, CT10)", () => {
     for (const c of capture) expect(c.base.art).toBe("metal-floor-drawn");
   });
 
-  it("keeps the zone a circle at the recentred middle until the scoring moves to tiles", () => {
-    expect(ARENA_03.zone).toStrictEqual({ x: 680, y: 1120, radius: 150 });
+  it("the zone is the 76 metal cells (CT7)", () => {
+    const area = ARENA_03.zone!.rects.reduce((sum, r) => sum + r.w * r.h, 0);
+    expect(area).toBe(76 * 1600);
+  });
+
+  it("the shipped inset leaves a core (CT9)", () => {
+    expect(zoneCoreOf(ARENA_03.zone!.rects, CONQUER_CONFIG.zoneEdgeInset).length).toBeGreaterThan(0);
   });
 
   it("puts spikes only on the side walls, rows 20–35", () => {
@@ -37,17 +44,21 @@ describe("arena-03 (Conquer, CT1–CT6, CT10)", () => {
     }
   });
 
-  it("maps onto itself under a 180° rotation (obstacles, spawns A<->B, zone)", () => {
+  it("maps onto itself under a 180° rotation (obstacles, zone cells, spawns A<->B)", () => {
     // The compiler merges cells into rectangles greedily, so the rectangle SET need not be
-    // symmetric even when the map is; compare the cells each kind of obstacle covers instead.
+    // symmetric even when the map is; compare the cells each kind of obstacle, and the zone, covers instead.
     const T = 40;
     const covered = (flip: boolean): Set<string> => {
       const out = new Set<string>();
-      for (const o of ARENA_03.obstacles) {
+      const boxes = [
+        ...ARENA_03.obstacles.map((o) => ({ ...o, label: o.kind ?? "wall" })),
+        ...ARENA_03.zone!.rects.map((r) => ({ ...r, label: "zone" })),
+      ];
+      for (const o of boxes) {
         for (let x = o.x; x < o.x + o.w; x += T) {
           for (let y = o.y; y < o.y + o.h; y += T) {
             const c = flip ? rot(x + T, y + T) : { x, y };
-            out.add(`${o.kind ?? "wall"}@${c.x},${c.y}`);
+            out.add(`${o.label}@${c.x},${c.y}`);
           }
         }
       }
@@ -56,8 +67,6 @@ describe("arena-03 (Conquer, CT1–CT6, CT10)", () => {
     expect(covered(true)).toStrictEqual(covered(false));
     const bFromA = ARENA_03.teamASpawns.map((s) => rot(s.x, s.y)).map((p) => `${p.x},${p.y}`);
     expect(new Set(bFromA)).toStrictEqual(new Set(ARENA_03.teamBSpawns.map((s) => `${s.x},${s.y}`)));
-    const z = rot(ARENA_03.zone!.x, ARENA_03.zone!.y);
-    expect([z.x, z.y]).toStrictEqual([ARENA_03.zone!.x, ARENA_03.zone!.y]);
   });
 
   it("spawns where CT10 puts them", () => {
@@ -85,10 +94,12 @@ describe("arena-03 (Conquer, CT1–CT6, CT10)", () => {
     }
   });
 
-  it("keeps every spawn at least ~800 u from the zone edge (CQ42's dependency)", () => {
-    const z = ARENA_03.zone!;
+  it("keeps every spawn more than 800 u from the counting core (CQ42)", () => {
+    const core = zoneCoreOf(ARENA_03.zone!.rects, CONQUER_CONFIG.zoneEdgeInset);
+    const toRect = (x: number, y: number, r: { x: number; y: number; w: number; h: number }): number =>
+      Math.hypot(Math.max(r.x - x, 0, x - (r.x + r.w)), Math.max(r.y - y, 0, y - (r.y + r.h)));
     for (const s of [...ARENA_03.teamASpawns, ...ARENA_03.teamBSpawns]) {
-      expect(Math.hypot(s.x - z.x, s.y - z.y) - z.radius).toBeGreaterThan(800);
+      expect(Math.min(...core.map((r) => toRect(s.x, s.y, r)))).toBeGreaterThan(800);
     }
   });
 });

@@ -1,7 +1,10 @@
 import {
+  carHullOf,
+  conquer,
   conquerLeaveOutcome,
   derived,
   getArena,
+  zoneCoreOf,
   type ZonePresenceCar,
 } from "@motor-combat-moba/shared";
 import type { MatchOutcome, ModeController, ModeRoomView } from "../types.js";
@@ -29,12 +32,20 @@ export const CONQUER_CONTROLLER: ModeController = {
   afterTick(room: ModeRoomView): MatchOutcome | undefined {
     const zone = getArena(room.state.arenaId).zone;
     if (!zone) return undefined; // unreachable: invariants.test.ts holds every conquer arena to a zone
+    // CT8, CT9: a car counts when its hull overlaps the zone eroded by the mode's inset. Built here,
+    // once per tick and at call time — the inset is a mode accessor read.
+    const core = zoneCoreOf(zone.rects, conquer().zoneEdgeInset);
     const cars: ZonePresenceCar[] = [];
     room.state.players.forEach((p) => {
-      cars.push({ x: p.x, y: p.y, team: p.team, alive: p.alive, inRoster: room.roster.has(p.sessionId) });
+      cars.push({
+        hull: carHullOf(p.x, p.y, p.angle),
+        team: p.team,
+        alive: p.alive,
+        inRoster: room.roster.has(p.sessionId),
+      });
     });
     const ticks = derived().conquerTicks;
-    const result = advanceConquer(room.state, zone, cars, ticks.captureDelay, ticks.controlTarget);
+    const result = advanceConquer(room.state, core, cars, ticks.captureDelay, ticks.controlTarget);
     if (!result.ended) return undefined;
     return { winnerSessionId: "", winnerTeam: result.winnerTeam };
   },

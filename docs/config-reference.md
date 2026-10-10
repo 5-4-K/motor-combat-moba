@@ -1256,7 +1256,7 @@ delay being indefinite.
 
 `packages/shared/src/config/conquer-config.ts`, per mode through `conquer()` / `derived().conquerTicks`.
 Every mode carries a copy (CQ26), the same as `deathmatch()`, but only Conquer's controller ever
-reads `conquer()` — `teamSize` and `uniqueChassisPerTeam` are inert everywhere else, which is
+reads `conquer()` — `teamSize`, `uniqueChassisPerTeam` and `zoneEdgeInset` are inert everywhere else, which is
 how Team brawl keeps its 1v1-to-3v3 start rule untouched. Conquer's match clock, respawn delay and
 spawn-protection windows are **not** here: it reads those from its own `deathmatch()` table (CQ22),
 the "clock and respawn" table named for its first user.
@@ -1267,6 +1267,7 @@ the "clock and respawn" table named for its first user.
 | `controlTargetSeconds` | 60 | Accumulated control that fills a bar to 100% and wins outright |
 | `teamSize` | 3 | The exact number of ready players each team must have to start (CQ28) |
 | `uniqueChassisPerTeam` | true | A chassis a teammate has locked is refused (CQ4, CQ30) |
+| `zoneEdgeInset` | 20 | World units a car's hull must reach into the zone tiles to count as present: presence tests the hull against `zoneCoreOf(zone.rects, zoneEdgeInset)` (CT8, CT9). `>= 0` |
 
 `resolveConquerTicks` converts the two durations to whole ticks once per mode, at bundle assembly —
 `derived().conquerTicks.captureDelay` / `.controlTarget` — the same pattern as the weapon and

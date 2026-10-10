@@ -52,7 +52,9 @@ the match"), and a client `ModeHud`. See
   the kills-then-deaths ranking in `deathmatchOutcome`.
 - **Conquer** shares Deathmatch's respawn flow and reads `deathmatch()` for clock/respawn/phase
   windows, but wins when a team fills a control bar by holding `ArenaDef.zone` uncontested
-  (`conquer()`: `captureDelaySeconds`, `controlTargetSeconds`, `teamSize`, `uniqueChassisPerTeam`).
+  (`conquer()`: `captureDelaySeconds`, `controlTargetSeconds`, `teamSize`, `uniqueChassisPerTeam`,
+  `zoneEdgeInset`). The zone is its capture tiles (`zone.rects`); a car is present when its hull
+  reaches `zoneEdgeInset` into them (`zoneCoreOf`).
   See [`docs/superpowers/specs/2026-09-24-conquer-mode-design.md`](docs/superpowers/specs/2026-09-24-conquer-mode-design.md).
 - **`isOnField` vs `isSolid`.** `isOnField` is the mover gate (may this car be simulated);
   `isSolid` (`isOnField && !phased`) gates contacts, rams and weapon targeting. A phased car is the

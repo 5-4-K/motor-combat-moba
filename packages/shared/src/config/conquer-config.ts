@@ -19,6 +19,12 @@ export interface ConquerConfig {
   readonly teamSize: number;
   /** A chassis a teammate has locked is refused (CQ4, CQ30). */
   readonly uniqueChassisPerTeam: boolean;
+  /**
+   * How far, in world units, a car's hull must reach into the zone tiles to count as present
+   * (spec Conquer on tiles CT8, CT9): presence tests the hull against the zone eroded by this much.
+   * `>= 0`; 0 counts any overlap. Every mode carries it; only Conquer reads it.
+   */
+  readonly zoneEdgeInset: number;
 }
 
 export const CONQUER_CONFIG: ConquerConfig = Object.freeze({
@@ -26,6 +32,7 @@ export const CONQUER_CONFIG: ConquerConfig = Object.freeze({
   controlTargetSeconds: 60,
   teamSize: 3,
   uniqueChassisPerTeam: true,
+  zoneEdgeInset: 20,
 });
 
 /** The two durations in the whole ticks the room counts. */

@@ -3,14 +3,14 @@
  *
  * Drives the real tick pipeline and `CONQUER_CONTROLLER.afterTick` (which steps the zone off the
  * poses the tick just produced) through `ModeWorld` (`../shared.ts`), on the arena the mode plays.
- * Cars are PLACED in and out of the zone with `teleport` — the zone reads centres, not routes, and
+ * Cars are PLACED in and out of the zone with `teleport` — the zone reads poses, not routes, and
  * a probe that drove there would be measuring the drive model.
  *
  * Vocabulary (spec CQ18–CQ23): the *holder* is the team whose unopposed streak is running (set on
  * the first tick of presence); a team is *in control* once that streak reaches `captureDelay`; the
  * bar fills one tick per tick after that.
  */
-import { derived, getArena } from "@motor-combat-moba/shared";
+import { derived, getArena, zoneCentreOf } from "@motor-combat-moba/shared";
 import { Reporter, VERDICT } from "../../common/reporter.js";
 import { ModeWorld, installFamilyMode, row } from "../shared.js";
 
@@ -25,12 +25,13 @@ const reporter = new Reporter(
 function spots(w: ModeWorld) {
   const zone = getArena(w.state.arenaId).zone;
   if (!zone) throw new Error(`arena ${w.state.arenaId} has no zone`);
+  const c = zoneCentreOf(zone.rects);
   return {
     zone,
-    inA: { x: zone.x, y: zone.y },
-    inB: { x: zone.x, y: zone.y - 90 }, // clear of the first car's hull, well inside the radius
-    outA: { x: zone.x, y: zone.y + 620 },
-    outB: { x: zone.x, y: zone.y - 620 },
+    inA: { x: c.x, y: c.y },
+    inB: { x: c.x, y: c.y - 90 }, // clear of the first car's hull, its hull still over the counting core
+    outA: { x: c.x, y: c.y + 620 },
+    outB: { x: c.x, y: c.y - 620 },
   };
 }
 

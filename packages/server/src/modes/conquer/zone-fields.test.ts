@@ -5,9 +5,10 @@ const fields = () => ({
   controlTicksA: 0, controlTicksB: 0, zoneHolder: -1, zoneStreakTicks: 0,
   zoneContested: false, overtime: false, tick: 0, matchEndsTick: 10_000,
 });
-const zone = { x: 0, y: 0, radius: 50 };
-const inA = { x: 0, y: 0, team: 0, alive: true, inRoster: true };
-const inB = { x: 1, y: 1, team: 1, alive: true, inRoster: true };
+const zone = [{ x: -50, y: -50, w: 100, h: 100 }];
+const hull = (x: number, y: number) => ({ x, y, angle: 0, w: 60, h: 40 });
+const inA = { hull: hull(0, 0), team: 0, alive: true, inRoster: true };
+const inB = { hull: hull(1, 1), team: 1, alive: true, inRoster: true };
 
 describe("advanceConquer (CQ44)", () => {
   it("writes the stepped zone back and fills after the delay", () => {

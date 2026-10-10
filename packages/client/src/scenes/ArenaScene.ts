@@ -158,6 +158,7 @@ import {
   SPIKE_STRIP_COLOR,
   SPIKE_TOOTH_COLOR,
   spikeStrips,
+  zoneOutlineSegments,
   type ArenaColors,
 } from "./arena-visual.js";
 import { zoneTint, type ZoneTint } from "./zone-visual.js";
@@ -404,14 +405,15 @@ const SHOT_DEPTH = -5;
 /** The floor everything else is drawn on. */
 const ARENA_DEPTH = -10;
 /**
- * The capture zone's ring (CQ52): over the floor, obstacles and markings (`ARENA_DEPTH`), under the
- * decals and everything else a car leaves on the ground, so a scorch mark still reads on top of it.
+ * The capture zone's tint and outline (CQ52, CT11): over the floor, obstacles and markings
+ * (`ARENA_DEPTH`), under the decals and everything else a car leaves on the ground, so a scorch mark
+ * still reads on top of it.
  */
 const ZONE_DEPTH = -9;
-/** The zone's fill alpha and ring width (CQ52). A wash, not a wall: the floor must stay readable. */
+/** The zone's fill alpha and outline width (CQ52, CT11). A wash, not a wall: the floor stays readable. */
 const ZONE_FILL_ALPHA = 0.14;
 const ZONE_RING_PX = 5;
-/** The ring's colour while nobody holds the zone, or while it is contested. */
+/** The zone's colour while nobody holds it, or while it is contested. */
 const ZONE_NEUTRAL_COLOR = 0xffffff;
 
 const HP_BAR_BACK = 0x22252b;
@@ -838,7 +840,7 @@ export class ArenaScene extends Phaser.Scene {
   private readonly turretShown = new Map<string, number>();
   private arenaGfx: Phaser.GameObjects.Graphics | undefined;
   /**
-   * The capture zone's ring (CQ52), created only for an arena with a `zone`. Its own object so it can
+   * The capture zone's tint and outline (CQ52, CT11), created only for an arena with a `zone`. Its own object so it can
    * be redrawn on a capture-state change without re-issuing the whole arena; `zoneTintDrawn` is the
    * tint it currently shows, so `renderZone` clears and redraws only when that changes.
    */
@@ -1735,7 +1737,7 @@ export class ArenaScene extends Phaser.Scene {
           Math.min(y + m.laneDash, arena.height - m.laneMargin),
         );
       }
-      // Not under a zone (CQ51): the zone's own ring sits there, and a second circle would read as
+      // Not under a zone (CQ51): the zone's own tint sits there, and a circle would read as
       // part of it.
       if (markingsCircleVisible(arena)) {
         gfx.lineStyle(m.circleWidth, m.laneColor, m.circleAlpha);
@@ -1888,7 +1890,7 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.floorImage ? [this.floorImage] : []),
       ...this.tileChunks,
       ...(this.arenaGfx ? [this.arenaGfx] : []),
-      // World space at `ZONE_DEPTH` — a zone ring drawn on the HUD camera too would float over the
+      // World space at `ZONE_DEPTH` — a zone outline drawn on the HUD camera too would float over the
       // gutter.
       ...(this.zoneGfx ? [this.zoneGfx] : []),
       // World space at `FOV_DIM_DEPTH` — the HUD camera drawing it too would darken the gutter.
@@ -2270,9 +2272,10 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * Tint the capture zone's ring for the local player's side (CQ52) — the local player's `team`, the
-   * same viewer `syncViewRotation` reads, so spectating an enemy does not swap the colours. Redrawn
-   * only when the tint changes; a circle needs no turning for team B's rotated view.
+   * Tint the capture zone for the local player's side (CQ52) — the local player's `team`, the same
+   * viewer `syncViewRotation` reads, so spectating an enemy does not swap the colours. Fills each zone
+   * rect and strokes the patch's outer edges (CT11); world-space, so it turns with team B's rotated
+   * camera. Redrawn only when the tint changes.
    */
   private renderZone(room: Room<ArenaState>, arena: ArenaDef): void {
     const gfx = this.zoneGfx;
@@ -2285,9 +2288,14 @@ export class ArenaScene extends Phaser.Scene {
     const color = tint === "neutral" ? ZONE_NEUTRAL_COLOR : hpBarColor(tint);
     gfx.clear();
     gfx.fillStyle(color, ZONE_FILL_ALPHA);
-    gfx.fillCircle(zone.x, zone.y, zone.radius);
+    for (const r of zone.rects) gfx.fillRect(r.x, r.y, r.w, r.h);
     gfx.lineStyle(ZONE_RING_PX, color, 1);
-    gfx.strokeCircle(zone.x, zone.y, zone.radius);
+    if (arena.tiles) {
+      for (const [x1, y1, x2, y2] of zoneOutlineSegments(arena.tiles)) gfx.lineBetween(x1, y1, x2, y2);
+    } else {
+      // A hand-written zone has no cells to trace; outline its rects as authored.
+      for (const r of zone.rects) gfx.strokeRect(r.x, r.y, r.w, r.h);
+    }
   }
 
   /** `carLook` turned for this view (CQ48), so the light stays on the same side of the screen. */

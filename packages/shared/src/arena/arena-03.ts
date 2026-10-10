@@ -15,12 +15,12 @@ import { compileTileArena } from "./tiles/compile.js";
  * floor is x 40..1320, y 40..2200.
  *
  * Spawns sit 40 u further back than the pre-tile map (y 2120 / 120, not 2040 / 120 around a 2160
- * frame), which keeps spawn-to-zone-edge at about 850 u. CQ42: that distance plus the 3 s
- * `phaseMaxSeconds` ceiling is what keeps a freshly respawned (phased) car from contesting the zone
- * while untouchable. Moving these spawns toward the zone weakens that.
+ * frame), which keeps every spawn more than 800 u from the zone's counting core. CQ42: that
+ * distance plus the 3 s `phaseMaxSeconds` ceiling is what keeps a freshly respawned (phased) car
+ * from contesting the zone while untouchable. Moving these spawns toward the zone weakens that.
  *
- * The scoring zone is still the CQ circle, recentred on the patch; a later step reads the capture
- * cells instead.
+ * The scoring zone is the `z` cells themselves (CT7): the compiler merges them into `zone.rects`,
+ * and a car counts once its hull reaches `zoneEdgeInset` into them (CT8, CT9).
  */
 const WALL = "wooden-wall";
 
@@ -93,7 +93,6 @@ export const ARENA_03: ArenaDef = compileTileArena({
     "##################################", // 55
   ],
   palette: { floor: "#2b2f35", obstacle: "#4b5362", border: "#1a1d22" },
-  zone: { x: 680, y: 1120, radius: 150 },
   /** Unused by Conquer (a team mode); required by the type and by the ≥ MAX_PLAYERS test. */
   ffaSpawns: [
     { x: 500, y: 2120, angle: -Math.PI / 2 },

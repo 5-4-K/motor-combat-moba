@@ -27,7 +27,7 @@ const POLYGON_FIXTURE: ArenaDef = {
     { x: 0, y: 2060 },
     { x: 0, y: 100 },
   ],
-  zone: { x: 640, y: 1080, radius: 150 },
+  zone: { rects: [{ x: 490, y: 930, w: 300, h: 300 }] },
   obstacles: [
     { x: 200, y: 480, w: 100, h: 100 },
     { x: 980, y: 480, w: 100, h: 100 },

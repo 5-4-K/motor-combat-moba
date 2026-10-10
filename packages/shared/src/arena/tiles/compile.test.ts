@@ -176,14 +176,22 @@ describe("compileTileArena", () => {
     expect(compileTileArena(source(MIXED)).obstacles).toEqual(compileTileArena(source(MIXED)).obstacles);
   });
 
-  it("passes spawns, palette and zone through", () => {
+  it("passes spawns and palette through", () => {
     const palette = { floor: "#111111", obstacle: "#222222", border: "#333333" };
-    const zone = { x: 200, y: 120, radius: 50 };
-    const arena = compileTileArena({ ...source(MIXED), palette, zone });
+    const arena = compileTileArena({ ...source(MIXED), palette });
     expect(arena.palette).toEqual(palette);
-    expect(arena.zone).toEqual(zone);
     expect(arena.ffaSpawns).toEqual([SPAWN]);
     expect(arena.id).toBe("test-arena");
+  });
+
+  it("builds the zone from capture cells (CT7)", () => {
+    const arena = compileTileArena(source(["zz.", "zz.", "..z"], { z: { tile: "zone" } }));
+    expect(arena.zone).toEqual({
+      rects: [
+        { x: 0, y: 0, w: 80, h: 80 },
+        { x: 80, y: 80, w: 40, h: 40 },
+      ],
+    });
   });
 
   it("leaves palette and zone absent when the source has none", () => {

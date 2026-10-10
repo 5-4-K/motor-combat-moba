@@ -1,13 +1,14 @@
 import type { WorldFace } from "../faces.js";
 import type { Aabb } from "../../sim/collide.js";
-import type { ArenaDef, ArenaPalette, ArenaZone, Obstacle, Spawn, TileCell, TileGrid, TileStamp } from "../types.js";
+import type { ArenaDef, ArenaPalette, Obstacle, Spawn, TileCell, TileGrid, TileStamp } from "../types.js";
 import { effectiveLegend, type TileCellSpec, type TileLegend } from "./legend.js";
 import { TILE_DEFS, TILE_SIZE, rotateSides, type TileDef, type TileRotation } from "./tile-config.js";
 
 /**
  * A tile arena as authored (spec tile arenas TA5, tile cells TC7, TC20): one string per row, one
  * character per cell, an optional legend for keys beyond the defaults, plus the things that are
- * points and circles rather than surfaces — spawns and the capture zone.
+ * points rather than surfaces — the spawns. The capture zone comes only from the cells (CT7), so
+ * art and zone cannot disagree.
  */
 export interface TileArenaSource {
   readonly id: string;
@@ -18,7 +19,6 @@ export interface TileArenaSource {
   readonly teamASpawns: readonly Spawn[];
   readonly teamBSpawns: readonly Spawn[];
   readonly palette?: ArenaPalette;
-  readonly zone?: ArenaZone;
 }
 
 type TileDefs = Readonly<Record<string, TileDef>>;
@@ -212,6 +212,7 @@ export function captureRectsOf(grid: TileGrid): Aabb[] {
  */
 export function compileTileArena(src: TileArenaSource, defs: TileDefs = TILE_DEFS): ArenaDef {
   const tiles = resolveGrid(src, defs);
+  const zoneRects = captureRectsOf(tiles);
   return {
     id: src.id,
     displayName: src.displayName,
@@ -222,7 +223,8 @@ export function compileTileArena(src: TileArenaSource, defs: TileDefs = TILE_DEF
     teamASpawns: src.teamASpawns,
     teamBSpawns: src.teamBSpawns,
     ...(src.palette ? { palette: src.palette } : {}),
-    ...(src.zone ? { zone: src.zone } : {}),
+    // CT7: the zone is its capture cells, present only when the grid has one.
+    ...(zoneRects.length > 0 ? { zone: { rects: zoneRects } } : {}),
     tiles,
   };
 }

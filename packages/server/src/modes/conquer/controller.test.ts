@@ -7,6 +7,7 @@ import {
   getArena,
   modeConfigOf,
   withMode,
+  zoneCentreOf,
 } from "@motor-combat-moba/shared";
 import { CONQUER_CONTROLLER } from "./controller.js";
 import type { ModeRoomView } from "../types.js";
@@ -83,8 +84,8 @@ describe("CONQUER_CONTROLLER", () => {
 
   it("one team-0 car in the zone for the capture delay then the control target wins team 0", () => {
     const arena = getArena(modeConfigOf(GameMode.CONQUER).arenas[0]);
-    const zone = arena.zone!;
-    const built = stateWith([{ sessionId: "a", team: 0, x: zone.x, y: zone.y }]);
+    const centre = zoneCentreOf(arena.zone!.rects);
+    const built = stateWith([{ sessionId: "a", team: 0, x: centre.x, y: centre.y }]);
     built.state.matchEndsTick = 1_000_000;
     withMode(modeConfigOf(GameMode.CONQUER), () => {
       const ticks = derived().conquerTicks;
