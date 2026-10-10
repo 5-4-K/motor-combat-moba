@@ -147,8 +147,11 @@ export class HumanController implements BotController {
     const carIncoming = target ? isIncomingCar(self, target, profile) : false;
     const distance = target ? Math.hypot(target.x - self.x, target.y - self.y) : Infinity;
     const usable = usableSlots(self.slots);
+    // Raw reach of ANY usable slot, ready or not (BB15): a bot reloading inside its kit's reach is in
+    // `fight`, whose goal reads `ownComfortOf`'s stand-off branch while nothing is soon-ready (BB43).
+    // The shooter still presses nothing until a slot is ready.
     const inOwnReach = target !== undefined
-      && usable.some(({ slot }) => slotIsReady(slot, tick) && distance <= weaponReachOf(slot.weaponId));
+      && usable.some(({ slot }) => distance <= weaponReachOf(slot.weaponId));
     // BB21: a car with nothing to fire is dry by definition.
     const kitDry = usable.length === 0
       || usable.every(({ slot }) => readyInTicksOf(slot, tick) > consts.ramDryWindowTicks);
@@ -292,7 +295,8 @@ export class HumanController implements BotController {
         const soon = f.usable.filter(({ slot }) => readyInTicksOf(slot, view.tick) <= consts.soonReadyTicks);
         const pool = soon.length > 0 ? soon : f.usable;
         const reach = pool.length > 0 ? Math.max(...pool.map(({ slot }) => weaponReachOf(slot.weaponId))) : c.minEngageUnits;
-        return { ...at(lag), range: 0.9 * reach, facing: "nose", reverseOk: false };
+        // Capped at the current distance: `close` never asks to be farther away than it is (BB23).
+        return { ...at(lag), range: Math.min(0.9 * reach, f.distance), facing: "nose", reverseOk: false };
       }
     }
   }

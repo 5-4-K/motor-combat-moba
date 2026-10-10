@@ -9,6 +9,8 @@ import type { BotIntent, BotView } from "../types.js";
 import { HumanController } from "./controller.js";
 import { bestSustainedDpsOf, pressCeilingOf, runDuel } from "./duel.fixture.js";
 import { enemy, fireSlotsFor, view } from "./fixtures.js";
+import { usableSlots } from "./ranges.js";
+import { weaponReachOf } from "./reach.js";
 import { constantVelocityPredictor, solve } from "./solution.js";
 
 beforeEach(() => installMode(modeConfigOf(DEFAULT_GAME_MODE)));
@@ -146,20 +148,25 @@ describe("tier characterisation (BB60)", () => {
   });
 
   it("easy closes on a visible target, throttle forward [S13]", () => {
-    // Visible means inside easy's `awarenessRadiusUnits` (600): a target 800 u out is never noticed
-    // and the bot only hunts. And a Bullseye is in its own raw reach of anything it can see (`lance`
-    // 1200, `predator` 1800), so it would `fight`, not close. A Mirage with `magmablast` spent has
-    // `thunderclap`'s 400 as its longest ready reach, so a target 550 u out is seen and out of reach:
-    // the `close` situation, arrive at 0.9 of that reach, nose first.
-    const self = {
-      ...view(0).self,
-      carId: "mirage" as const,
-      slots: fireSlotsFor("mirage").map((s) => (s.weaponId === "magmablast" ? { ...s, stocks: 0, rechargeEndsTick: 100_000 } : s)),
-    };
-    expect(RESOLVED_BOT_PROFILES.easy.awarenessRadiusUnits).toBeGreaterThan(550);
-    const { bot, out } = run("easy", 90, { self, others: [{ ...enemy(), x: 750, vx: 0 }] });
+    // `close` is "hittable and out of raw reach of every usable slot, ready or not" (BB15, 7.1.0).
+    // Every shipped kit reaches at least 900 u with some slot (Mirage's `magmablast`), past easy's
+    // 600 u awareness, so a stock easy bot reads `close` only on a car it remembers beyond what it
+    // can see. The scene widens awareness to isolate the rule: a Mirage 1000 u from its target is
+    // seen and out of reach, arrives at 0.9 of its longest reach, nose first.
+    const self = { ...view(0).self, carId: "mirage" as const, slots: fireSlotsFor("mirage") };
+    const distance = 1000;
+    const longest = Math.max(...usableSlots(self.slots).map(({ slot }) => weaponReachOf(slot.weaponId)));
+    expect(longest).toBeLessThan(distance); // the premise: out of reach of the whole kit
+    const profile = { ...RESOLVED_BOT_PROFILES.easy, awarenessRadiusUnits: 1500 };
+    const bot = new HumanController("easy", { profile });
+    const rng = makeRng(17);
+    const out: BotIntent[] = [];
+    for (let tick = 0; tick < 90; tick++) {
+      out.push(bot.decide(view(tick, { self, others: [{ ...enemy(), x: self.x + distance, vx: 0 }], rng })));
+    }
     expect(bot.debug()?.targetSessionId).toBe("them");
     expect(bot.debug()?.situation).toBe("close");
+    expect(bot.debug()?.goalRange).toBeCloseTo(0.9 * longest, 6);
     expect(out.slice(-30).filter((o) => o.throttle === 1).length).toBeGreaterThan(15);
   });
 
@@ -244,10 +251,11 @@ describe("tier characterisation (BB60)", () => {
  * the same window for every tier. The time-to-kill test obviously does not use it.
  */
 function duelAgainstDummy(tier: "easy" | "medium" | "hard", ticks = 600, immortalTarget = false) {
-  const { presses, hits, hitRate, ticks: elapsed, killed } = runDuel({
+  const { presses, hits, hitRate, ticks: elapsed, killed, hittableTicks, idleHittableTicks } = runDuel({
     tier, ticks, resolveCombat: true, immortalTarget, targetPos: { x: 600, y: 360 },
   });
-  return { fires: presses, hits, hitRate, ticks: elapsed, killed };
+  const idleShare = hittableTicks > 0 ? idleHittableTicks / hittableTicks : 0;
+  return { fires: presses, hits, hitRate, ticks: elapsed, killed, idleShare };
 }
 
 describe("the reported symptoms stay fixed (BB3)", () => {
@@ -271,7 +279,11 @@ describe("the reported symptoms stay fixed (BB3)", () => {
     // do — combat only scores a press that reached the dummy — and the hit-rate floor says the bot
     // presses from where its kit lands, not merely somewhere it occasionally does. Measured over ten
     // seeds (17, 3, 7, 42, 99, 1, 2, 5, 2026, 11): 6 presses each, 4-5 hits, rate 0.667-0.833.
-    const { fires, hits, hitRate } = duelAgainstDummy("hard", 300, true);
+    //
+    // Presses cannot see a bot that parks between them (C1, the final review): the share of ticks it
+    // held the throttle at 0 with a target in hand must stay small.
+    const { fires, hits, hitRate, idleShare } = duelAgainstDummy("hard", 300, true);
+    expect(idleShare).toBeLessThan(0.05);
     expect(fires).toBeGreaterThan(0);
     expect(fires).toBeGreaterThan(pressCeilingOf("bullseye", 300, RESOLVED_BOT_PROFILES.hard.burstGapTicks) / 4);
     expect(hits).toBeGreaterThan(0);

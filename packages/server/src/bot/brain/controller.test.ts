@@ -114,6 +114,48 @@ describe("HumanController v7", () => {
     expect(out.throttle).toBe(1);
   });
 
+  it("fights while reloading inside reach: never parks with the whole kit on cooldown (C1, BB15, BB43)", () => {
+    // 450 u out with every slot recharging for the whole run: outside ram range (400), inside raw
+    // reach of the kit. Reloading inside reach is `fight` (its stand-off branch), not `close`, whose
+    // nose-only, no-reverse goal far behind the car used to hold the throttle at 0 for seconds.
+    const hard = RESOLVED_BOT_PROFILES.hard;
+    const bot = new HumanController("hard");
+    const rng = makeRng(1);
+    const reloading = view(0).self.slots.map((s) => ({ ...s, stocks: 0, rechargeEndsTick: 100_000 }));
+    const target = { ...enemy, x: 650, vx: 0 };
+    let self = { ...view(0).self, slots: reloading };
+    let body = bodyFromSelf(self);
+    const start = { x: self.x, y: self.y };
+    const throttles = new Set<number>();
+    for (let tick = 0; tick < 2 * TICK_RATE_HZ; tick++) {
+      const out = bot.decide(view(tick, { self, others: [target], rng }));
+      if (tick >= hard.acquireTicks + hard.recomputeTicks) {
+        expect(bot.debug()?.situation).toBe("fight");
+        throttles.add(bot.debug()!.throttle);
+      }
+      body = rollForward(body, "bullseye", { steer: out.steer, throttle: out.throttle }, 1, NEUTRAL_MODIFIERS).at(-1)!;
+      self = { ...self, x: body.x, y: body.y, angle: body.angle, vx: body.vx, vy: body.vy };
+    }
+    expect([...throttles]).not.toEqual([0]);
+    expect(Math.hypot(self.x - start.x, self.y - start.y)).toBeGreaterThan(100);
+  });
+
+  it("closes from out of reach: `close` drives in (C1, BB23)", () => {
+    // 2000 u is past every Bullseye gun (`predator` 1800), so the situation is `close`; its range is
+    // capped at the current distance and the car drives in. A wider awareness and arena than the
+    // stock hard tier sees, or the car would never be noticed at this distance.
+    const profile = { ...RESOLVED_BOT_PROFILES.hard, awarenessRadiusUnits: 3000 };
+    const bot = new HumanController("hard", { profile });
+    const rng = makeRng(1);
+    const arena = { width: 4000, height: 720, obstacles: [] };
+    let out: BotIntent = COAST;
+    for (let tick = 0; tick < 60; tick++) out = bot.decide(view(tick, { arena, others: [{ ...enemy, x: 2200, vx: 0 }], rng }));
+    expect(bot.debug()?.situation).toBe("close");
+    expect(bot.debug()!.goalRange).toBeLessThanOrEqual(2000);
+    expect(bot.debug()!.throttle).toBe(1);
+    expect(out.throttle).toBe(1);
+  });
+
   it("holds a dodge's heading through the commit window after the shot is gone (BB35)", () => {
     const bot = new HumanController("hard");
     const rng = makeRng(1);

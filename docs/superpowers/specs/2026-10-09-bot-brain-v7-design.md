@@ -117,8 +117,8 @@ whole-brain determinism test (old P51) stays and is the guard.
 | 4 | `punish` | target `stunned` or `reeling`, or target HP ≤ `punishHpFraction` | yes |
 | 5 | `reset` | own HP < `retreatHpFraction` (0 at easy: never) | yes |
 | 6 | `ram` | target hittable, within `ramRangeUnits`, and the kit is dry (BB21) | yes |
-| 7 | `fight` | a slot that is ready now reaches the target | yes |
-| 8 | `close` | target hittable but out of reach | no |
+| 7 | `fight` | the target is within raw reach of a usable slot, ready or not (7.1.0) | yes |
+| 8 | `close` | target hittable and out of reach of every usable slot, ready or not | no |
 
 `ram` is new. `evade` and `unpin` outrank `waitOut` so a hunting bot still dodges and un-pins:
 `unpin` no longer needs a target and is no longer a coin flip. `punish` drops the "they just spent
@@ -184,7 +184,7 @@ law's `nose` term (BB24), so nothing is counted twice; `lag` is `reactionDelayTi
 | `reset` | `believed(lag)` | `max(fightRange × resetRangeMultiplier, minEngageUnits)` | nose | yes |
 | `ram` | target predicted at `min(d / own top speed, horizon)` ticks | 0 | nose | no, forwardOnly |
 | `fight` | `believed(lag)` | `fightRange` (BB44) | nose if the shooter wants it (BB47), else orbit | yes |
-| `close` | `believed(lag)` | `0.9 ×` longest reach among slots ready within `soonReadyTicks`, else the kit's longest | nose | no |
+| `close` | `believed(lag)` | `min(0.9 × reach, distance)`, where reach is the longest among slots ready within `soonReadyTicks`, else the kit's longest: never farther than the car already is (7.1.0) | nose | no |
 
 **BB24 The steering law** turns a `Goal` into `steer` and `throttle`, both in `{-1, 0, 1}`:
 
@@ -335,7 +335,9 @@ and a playground sibling bundle or a mode's weapon override never reads another 
 `soonReadyTicks`; when none is, `comfortFraction ×` the kit's largest effective reach (stand off
 while reloading). Standing where the shortest ready gun pays is what lets a kit fire all of itself,
 which is the property a balance run needs. (6.x's `preferredRangeOf` sampled a proxy and read a
-plateau edge; it is gone with the proxy.)
+plateau edge; it is gone with the proxy.) Since 7.1.0 a bot reloading inside its kit's reach is in
+`fight` (BB15), so `fight` is where the stand-off branch is read: it backs out to the kit's longest
+effective reach while nothing is soon-ready, and the shooter presses nothing until a slot is ready.
 
 **BB44 `theirKeepOut`** stays: the opponent's shortest known gun (chassis kit plus weapons seen
 fired) × `opponentRangeRespect`. **`fightRange = max(ownComfort, theirKeepOut)`.**

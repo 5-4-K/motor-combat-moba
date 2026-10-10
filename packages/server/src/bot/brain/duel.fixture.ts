@@ -119,6 +119,10 @@ export interface DuelResult {
   killed: boolean;
   /** Mean absolute heading error to the target over the last 100 ticks: is the body on the aim line. */
   meanOffset: number;
+  /** Ticks on which the bot's latest decision (`debug()`) had a target. */
+  hittableTicks: number;
+  /** Of those, ticks whose decided throttle was 0: the bot sitting still with someone to shoot (C1). */
+  idleHittableTicks: number;
   /** Every combat event the run produced, for a caller that wants a breakdown. Empty in open mode. */
   events: CombatEvents;
 }
@@ -204,6 +208,8 @@ export function runDuel(opts: DuelOptions): DuelResult {
   let fireTicks = 0;
   let intentPresses = 0;
   let previousMask = 0;
+  let hittableTicks = 0;
+  let idleHittableTicks = 0;
   const offsets: number[] = [];
 
   for (let tick = 0; tick < opts.ticks; tick++) {
@@ -241,6 +247,11 @@ export function runDuel(opts: DuelOptions): DuelResult {
     };
     const intent = bot.decide(view);
 
+    const decided = bot.debug();
+    if (decided?.targetSessionId !== undefined) {
+      hittableTicks += 1;
+      if (decided.throttle === 0) idleHittableTicks += 1;
+    }
     if (intent.fireSlots !== 0) fireTicks += 1;
     if (intent.fireSlots !== 0 && previousMask === 0) intentPresses += 1;
     previousMask = intent.fireSlots;
@@ -316,6 +327,8 @@ export function runDuel(opts: DuelOptions): DuelResult {
     ticks: killedAtTick >= 0 ? killedAtTick + 1 : opts.ticks,
     killed: killedAtTick >= 0,
     meanOffset: tail.length > 0 ? tail.reduce((a, b) => a + b, 0) / tail.length : 0,
+    hittableTicks,
+    idleHittableTicks,
     events,
   };
 }
