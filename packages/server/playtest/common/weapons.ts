@@ -767,9 +767,10 @@ function beamsThroughWalls(): void {
  * the burst radius, and since arena-01 and arena-02 became tile arenas (2026-10-09) no shipped
  * 1280x720 arena has one: every wall sits on the frame edge, so the "far-side" victim spawned off
  * the arena and was shoved back onto the floor — the verdict measured that shove, not the burst.
- * arena-03's interior boxes are thicker than the burst, so re-siting it there would read OK by
- * construction. The mechanism stays pinned by `combat.test.ts`'s P17 case; this scenario was
- * retired rather than rewritten into something it was never asked to check. The number is left as
+ * arena-03 (Conquer's tile map, CT5) does have one: its two midfield blocks are 2 × 1 tiles, 40 u
+ * thick north-south with floor on both sides, against the burst's 60 u radius. Its pillars and zone
+ * cover are 80 u thick, so only those two blocks qualify. W9 has not been re-sited there; the
+ * mechanism stays pinned by `combat.test.ts`'s P17 case. The number is left as
  * a hole on purpose, as G5 is: renumbering W10-W13 would silently invalidate every earlier report.
  */
 
