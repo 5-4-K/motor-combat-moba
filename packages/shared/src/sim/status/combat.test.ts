@@ -396,14 +396,3 @@ describe("weapons apply statuses", () => {
     expect(lapsed.instances).toHaveLength(1);
   });
 });
-
-// "the aura" describe block drove the OLD `shockwave` — Mirage's slot 2, a car-centred `disc`
-// hitbox at `origin: "center"`, three waves 500ms apart, `onWave: "final"` carrying `corroded` —
-// through this same real-row `runCombat` pipeline. As of the 2026-09-01 overhaul that row became a
-// single-volley projectile dart (`magmablast`, née `shockwave`) — which the 2026-09-02 loadout swap
-// then moved onto Mirage's own slot 1, and which is no longer a plain dart either, having since
-// gained an on-death explosion. mirage's old slot 2 is now `thunderclap`, a dash maneuver, so
-// nothing on this roster carries multi-wave volleys or `onWave` any more — those two stay dormant
-// machinery. The `disc`/`origin: "center"` aura itself is NOT dormant: `magmablast`'s explosion is a
-// real detached, centre-origin `disc` instance, synthesized by `instanceDefOf` and driven through
-// this same `runCombat` pipeline by `combat.test.ts`'s "magma blast detonation" describe block.

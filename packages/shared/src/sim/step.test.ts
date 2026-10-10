@@ -3,6 +3,7 @@ import { installMode } from "../modes/active.js";
 import { DEFAULT_GAME_MODE, modeConfigOf } from "../modes/registry.js";
 import { MS_PER_TICK, TICK_RATE_HZ } from "../constants.js";
 import { ramDefenceOf } from "../config/car-config.js";
+import { cars, weapons } from "../modes/active.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { RAM_CONFIG } from "../config/ram-config.js";
 import { obbCorners, obbsInContact, type Obb } from "./collide.js";
@@ -187,29 +188,33 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
     return depth;
   }
 
-  it("never ends the dasher past the car it dashed into, and bounds how far in it can end, at every real roster ramDefence pairing", () => {
-    // Production can never hand `resolveWorld` `selfRamDefence: 0` (share 1, the pre-split
-    // always-full-push rule) -- that rating does not exist on the roster. Sweep the ramDefence
-    // ratings a real dash can actually produce instead: all 9 ordered pairings of the three
-    // chassis' ratings, dasher and target independently, since the resolver does not care which
-    // side is doing the dashing. Renamed from a `mass` sweep in stage 3 Task 3; the roster's
-    // relative ordering (bullseye < mirage < bastion) is unchanged, but mirage's ratio to the other
-    // two shifted slightly (mass 480:300:900 vs ramDefence 50:30:90), so the worst-case figures
-    // below are re-measured, not merely relabelled.
+  it("never ends the dasher past the car it dashed into, and bounds how far in it can end, at every real dasher-versus-roster ramDefence pairing", () => {
+    // Production can never hand `resolveWorld` `selfRamDefence: 0` (that rating does not exist on
+    // the roster). The dasher axis is therefore the ramDefence of each chassis whose kit actually
+    // carries a dash maneuver, derived from the active mode's tables so a kit change moves the
+    // sweep with it; the target axis stays every roster chassis. Today only Mirage dashes
+    // (`thunderclap`; `wildcharge` is a `charge`, not a `dash`).
+    const DASHER_IDS = Object.values(cars())
+      .filter((car) =>
+        car.weapons.some((id) => {
+          const def = weapons()[id];
+          return def.kind === "maneuver" && def.maneuver.type === "dash";
+        }),
+      )
+      .map((car) => car.id);
+    expect(DASHER_IDS.length, "no chassis carries a dash; the sweep would be empty").toBeGreaterThan(0);
+    const DASHER_RAM_DEFENCES = DASHER_IDS.map((id) => ramDefenceOf(id));
     const ROSTER_RAM_DEFENCES = [ramDefenceOf("mirage"), ramDefenceOf("bullseye"), ramDefenceOf("bastion")];
 
     const pastFailures: string[] = [];
     let worstDepth = 0;
     let worstDepthLabel = "";
-    // `thunderclap` is the only dash in the game and it is Mirage-only (`wildcharge` is a `charge`,
-    // not a `dash`), so of the 9 pairings below only the 3 where `selfRamDefence` is Mirage's are
-    // ones a player can ever produce. Track those separately for a tighter bound than the full
-    // sweep needs.
+    // Every swept dasher is one a player can produce, so the reachable tracker equals the full one.
     const MIRAGE_RAM_DEFENCE = ramDefenceOf("mirage");
     let worstReachableDepth = 0;
     let worstReachableDepthLabel = "";
 
-    for (const selfRamDefence of ROSTER_RAM_DEFENCES) {
+    for (const selfRamDefence of DASHER_RAM_DEFENCES) {
       for (const otherRamDefence of ROSTER_RAM_DEFENCES) {
         for (let deg = 0; deg < 360; deg += 30) {
           const a = (deg * Math.PI) / 180;
@@ -244,7 +249,7 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
                 // the far side. This is the anti-tunnelling safety property dash substepping exists
                 // for (C1/C2); it is unaffected by the split (see the derivation on
                 // `shareOf` — `share` scales the push, not the contact normal) and holds exactly, in
-                // every one of the 9 ramDefence pairings below.
+                // every dasher-versus-roster ramDefence pairing swept below.
                 if (along >= 0) {
                   pastFailures.push(`${label}: ended ${along.toFixed(1)}u PAST the target centre`);
                 }
@@ -287,14 +292,11 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
     // following ticks once the target starts conceding its own share (see `shareOf`'s doc comment),
     // it just is not reproducible in a sweep that only steps one side.
     //
-    // Bound derived from this exact sweep: the worst of the 9 ordered pairings is bastion (ramDefence
-    // 90) dashing into bullseye (ramDefence 30) — the most-solid-into-least-solid pairing, share =
-    // 30/(90+30) = 0.25, so the dasher corrects only a quarter of the overlap on the contact tick.
-    // That share is UNCHANGED from the pre-Task-3 `mass` sweep (bastion 900 into bullseye 300 was also
-    // share 300/1200 = 0.25 — same ratio, just scaled 10x), so the measured worst depth is unchanged
-    // too: ~26.64u against the 60x40 hull (see `worstDepthLabel` below if this ever needs
-    // re-deriving). 34 leaves noticeable headroom above that without being loose enough to hide a
-    // doubled residual.
+    // Bound inherited from the earlier full 9-pairing sweep, whose worst case was bastion (ramDefence
+    // 90) dashing into bullseye (30), share 0.25: ~26.64u against the 60x40 hull. The sweep now
+    // covers only chassis that dash, so that pairing is no longer measured and this bound is looser
+    // than the dashers' own worst case (see `worstDepthLabel` if it ever needs re-deriving). 34 leaves noticeable
+    // headroom above that without being loose enough to hide a doubled residual.
     //
     // Re-measured 2026-09-16 for the 60x40 hull resize (spec BC11), same sweep and method: the worst
     // depth came back at 26.640625000000227, the pre-resize 48x32 measurement (26.640625) to within
@@ -308,10 +310,7 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
     expect(worstDepth, `worst penetration at [${worstDepthLabel}]`).toBeLessThan(MAX_PENETRATION);
 
     // Half 3 (reachable subset): the 34u bound above covers the resolver's full symmetric
-    // behaviour, including pairings (bastion dashing) that cannot happen in a real match — nothing
-    // in `WEAPON_TABLE` gives Bastion or Bullseye a `type: "dash"` maneuver, only Mirage's
-    // `thunderclap`. That headroom is real resolver coverage and stays, but it is nearly 2x looser
-    // than what a player can ever see, so a regression that doubled Mirage's actual worst case would
+    // behaviour and is about 1.4x looser than what a player can ever see, so a regression that doubled Mirage's actual worst case would
     // still pass it silently. Pin the Mirage-as-dasher subset separately, with headroom picked the
     // same way `MAX_PENETRATION` was: enough to absorb measurement noise across the phase/angle
     // sweep, not enough to hide a doubled residual.

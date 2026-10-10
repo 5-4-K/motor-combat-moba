@@ -392,13 +392,6 @@ describe("firing", () => {
     expect(hit.hp).toBe(hpOf("mirage") - weaponDamageOf("bullseye", "predator"));
   });
 
-  // A skipped "drives needler, the table's only multi-stock weapon, through a real tick" test lived
-  // here since 2026-08-30, when the 2026-08-30 tuning pass removed needler's `stock` block. The
-  // 2026-09-01 overhaul then retired the `needler` id itself, so there is no longer even a
-  // placeholder row this could point at end-to-end. Deleted rather than kept skipped: `StockDef`
-  // keeps its hand-built coverage in `fire.test.ts` ("stocks"/"refire delay"), which is the only
-  // coverage it needs while no shipped row banks stocks.
-
   it("does not mutate the caller's players or instances", () => {
     const fireState = newFireState("mirage", 1);
     const players = [player({ fireMask: 0b010, fireState })];
@@ -1554,12 +1547,12 @@ describe("real-row integration (2026-09-01 roster)", () => {
   });
 });
 
-describe("tremor (the unassigned row): presence effects", () => {
+describe("tremor (Bastion's slot 3): presence effects", () => {
   pinBasicAttackEnabled();
 
   /**
-   * No chassis carries `tremor`, so the real pipeline is reached the way any authored-but-uncarried
-   * row is testable: a hand-built fire state whose slot 1 holds it. `beginFire` reads the slot's
+   * Bastion carries `tremor`, but these cases drive it from a Mirage-built fire state whose slot 1
+   * holds it, so no kit lookup is involved. `beginFire` reads the slot's
    * weapon id, not the loadout, so everything downstream of the press is the production path.
    */
   const tremorState = () => ({

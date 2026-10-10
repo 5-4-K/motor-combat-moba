@@ -199,7 +199,7 @@ describe("WEAPON_TABLE", () => {
     expect(pellets * pepperbox.damage).toBe(135);
   });
 
-  it("ships afterburner as the table's first beam, attached and ticking", () => {
+  it("ships afterburner with a 2.2 s total beam life (flight plus lifetime)", () => {
     const afterburner = WEAPON_TABLE.afterburner;
     if (afterburner.kind !== "beam") throw new Error("afterburner must be a beam");
     // Total life is range/speed + lifetime == 200ms + 2000ms. At one pulse per 500ms that is 5
@@ -229,9 +229,6 @@ describe("WEAPON_TABLE", () => {
   it("ships roadblock piercing everything", () => {
     const roadblock = WEAPON_TABLE.roadblock;
     if (roadblock.kind !== "projectile") throw new Error("roadblock must be a projectile");
-    // pierce counts cars hit AFTER the first, so pierce: 4 reaches all 5 possible opponents in a
-    // 6-player game once the shooter is excluded — the wall passes through the whole lobby.
-    // (pierce: 5 would reach a sixth car, which cannot exist once the shooter is excluded.)
     // The wall stops for nothing — walls included. Without this the 60u wingtips killed the shot
     // in `hitsWorld` on its own spawn tick whenever Bastion fired within a wingtip of a wall.
     expect(roadblock.piercesWalls).toBe(true);
@@ -245,8 +242,8 @@ describe("WEAPON_TABLE", () => {
     // It ticks on contact rather than stamping 170 once, and on `afterburner`'s clock exactly, so
     // the roster's two ticking beams share one rhythm.
     expect(lance.damageFrequencyMs).toBe(WEAPON_TABLE.afterburner.damageFrequencyMs);
-    // The wind-up alone is not the whole cost: a missed lance also owes a second of silence, which
-    // is what makes it punishing on a 300 HP chassis (L5).
+    // The wind-up alone is not the whole cost: a missed lance also owes the longest recovery in the
+    // table, which is what makes it punishing (L5).
     const highest = Math.max(
       ...Object.values(WEAPON_TABLE).map((def) => def.recoveryMs),
     );
