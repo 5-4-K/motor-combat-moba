@@ -10,20 +10,15 @@
 // "GameMode.FOO" without becoming an offender), the walk is rooted at THIS FILE'S OWN LOCATION so it
 // is `cwd`-independent, and a `*.test.ts` file is never walked (a test fixture legitimately builds a
 // `GameMode.X` value to set up its scenario).
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { codeOf, readSource, toPosix, walkSource } from "../test-support/source-walk.js";
 
 const SHARED_SRC = fileURLToPath(new URL("..", import.meta.url)).replace(/[/\\]+$/, "");
 
-/**
- * Windows builds paths with backslashes; every path this file compares against (allow-list keys,
- * labels, expected fixture names) is written with "/". Normalise at each comparison point so the
- * guard reads the same on every OS - before this it failed on Windows for every file it walked.
- */
-const toPosix = (path: string): string => path.split("\\").join("/");
 const PACKAGES_ROOT = join(SHARED_SRC, "..", "..");
 
 const ROOTS: ReadonlyArray<{ label: string; dir: string }> = [
@@ -72,18 +67,12 @@ function isUnderModeOrFamilyDir(file: string): boolean {
   return modesIndex !== -1 && MODE_AND_FAMILY_FOLDERS.has(segments[modesIndex + 1] ?? "");
 }
 
-function walk(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
-    e.isDirectory() ? walk(join(dir, e.name))
-    : e.name.endsWith(".ts") && !e.name.includes(".test.") ? [join(dir, e.name)] : []);
-}
+/** Absolute paths of every non-test `.ts` file under `dir` (the shared walker, joined back to `dir`). */
+const walk = (dir: string): string[] => walkSource(dir).map((rel) => join(dir, rel));
 
 /** Comments and import statements stripped, same idiom as the raw-config guard's `harnessCode`. */
 function strippedCode(file: string): string {
-  return readFileSync(file, "utf8")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1")
-    .replace(/\bimport\s[\s\S]*?from\s*["'][^"']*["'];?/g, "");
+  return codeOf(readSource(file));
 }
 
 /** Every `file:line` where a stripped, non-import, non-comment line matches a banned pattern. */

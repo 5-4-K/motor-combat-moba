@@ -41,11 +41,12 @@
 // `slots.basicAttackEnabled` now, read through `slots()` everywhere — `bot/brain/firing.ts`,
 // `client/config/{aim-hud,slot-keys}.ts`, `client/scenes/movement-hint.ts` and
 // `client/scenes/ArenaScene.ts` all switched over. There is nothing left to ban or exempt.
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative as pathRelative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { codeOf, readSource, toPosix, walkSource } from "../test-support/source-walk.js";
 
 // Roots are resolved from THIS FILE'S OWN LOCATION, never `process.cwd()` — `npx vitest run
 // <path>` from the repo root and from `packages/shared` must walk the identical tree. `SHARED_SRC`
@@ -54,12 +55,8 @@ import { describe, expect, it } from "vitest";
 // file.slice(dir.length)` below reconstructs the separator correctly instead of eating it.
 const SHARED_SRC = fileURLToPath(new URL("..", import.meta.url)).replace(/[/\\]+$/, "");
 
-/**
- * Windows builds paths with backslashes; every path this file compares against (allow-list keys,
- * labels, expected fixture names) is written with "/". Normalise at each comparison point so the
- * guard reads the same on every OS - before this it failed on Windows for every file it walked.
- */
-const toPosix = (path: string): string => path.split("\\").join("/");
+// `toPosix` (from the shared walker): every path this file compares against (allow-list keys,
+// labels, expected fixture names) is written with "/", so normalise at each comparison point.
 const PACKAGES_ROOT = join(SHARED_SRC, "..", "..");
 const REPO_ROOT = join(PACKAGES_ROOT, "..");
 
@@ -84,25 +81,15 @@ const ALLOWED: Readonly<Record<string, string>> = {
     "sections) already go through cars().",
 };
 
-function walk(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
-    e.isDirectory() ? walk(join(dir, e.name))
-    : e.name.endsWith(".ts") && !e.name.includes(".test.") ? [join(dir, e.name)] : []);
-}
+/** Absolute paths of every non-test `.ts` file under `dir` (the shared walker, joined back to `dir`). */
+const walk = (dir: string): string[] => walkSource(dir).map((rel) => join(dir, rel));
 
 /** True if `file` mentions a banned identifier on any line that is not a type-only import. */
 function hasRawConfigReference(file: string): boolean {
-  return readFileSync(file, "utf8")
+  return readSource(file)
     .split("\n")
     .some((line) => !IMPORT_TYPE_LINE.test(line) && BANNED.test(line));
 }
-
-describe("sim reads config only through the bundle (MC13)", () => {
-  it("has no raw config table reference — dotted, bracketed, destructured, or bare", () => {
-    const offenders = walk(join(SHARED_SRC, "sim")).filter(hasRawConfigReference);
-    expect(offenders).toEqual([]);
-  });
-});
 
 describe("client and server read config only through the bundle (MC13, task 5b)", () => {
   it("has no raw config table reference outside the judged dev/playground/ allow-list", () => {
@@ -139,8 +126,8 @@ describe("client and server read config only through the bundle (MC13, task 5b)"
  * `respawnPlayer` correctly read `derived().deathmatchTicks` two calls away (2026-09-22 final
  * review). Widened here to walk ALL of `packages/shared/src`, `sim/` included — re-covering `sim/`
  * is harmless (it stays clean) and keeps this block a true "everything" sweep rather than one with
- * its own silent gap; the older `sim`-only describe above stays too, since a `sim/` regression
- * failing there gives a narrower, faster-to-read message than the whole-package one below — except
+ * its own silent gap; there is no separate `sim`-only walk any more (it was a strict subset of this
+ * one, since `sim` is not in `ALLOWED_DIRS`) — except
  * the directories in `ALLOWED_DIRS`, each with the one reason its files may legitimately name a raw
  * identifier: the config layer that OWNS these tables, the mode-assembly layer that reads them to
  * BUILD a bundle in the first place, and doc-comment-only mentions in the schema and arena layers.
@@ -299,10 +286,7 @@ const HULL_DESTRUCTURE = /\{\s*car(?:Width|Height)[^}]*\}\s*=\s*DRIVE_CONFIG\b/g
  * string is not mistaken for one), import statements gone, and MC35's hull reads gone.
  */
 function harnessCode(file: string): string {
-  return readFileSync(file, "utf8")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1")
-    .replace(/\bimport\s[\s\S]*?from\s*["'][^"']*["'];?/g, "");
+  return codeOf(readSource(file));
 }
 
 function mentionsBanned(code: string): boolean {

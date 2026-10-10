@@ -24,12 +24,13 @@
 //
 // Mechanism follows `modes/no-raw-config-in-sim.test.ts` (directory walk over labelled roots,
 // comments and imports stripped before the match, a temp-root tripwire proving the walk really
-// walks) rather than inventing a third source-scanning idiom.
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+// walks); the walk and the stripping are the shared `test-support/source-walk.ts`.
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { codeOf, readSource, toPosix, walkSource } from "../test-support/source-walk.js";
 
 // Roots are resolved from THIS FILE'S OWN LOCATION, never `process.cwd()` — `npx vitest run
 // <path>` from the repo root and from `packages/shared` must walk the identical tree. `SHARED_SRC`
@@ -39,12 +40,6 @@ import { describe, expect, it } from "vitest";
 // of eating it.
 const SHARED_SRC = fileURLToPath(new URL("..", import.meta.url)).replace(/[/\\]+$/, "");
 
-/**
- * Windows builds paths with backslashes; every path this file compares against (allow-list keys,
- * labels, expected fixture names) is written with "/". Normalise at each comparison point so the
- * guard reads the same on every OS - before this it failed on Windows for every file it walked.
- */
-const toPosix = (path: string): string => path.split("\\").join("/");
 const PACKAGES_ROOT = join(SHARED_SRC, "..", "..");
 const REPO_ROOT = join(PACKAGES_ROOT, "..");
 
@@ -71,8 +66,7 @@ const ROOTS: ReadonlyArray<{ label: string; dir: string }> = [
   { label: "scripts", dir: join(REPO_ROOT, "scripts") },
 ];
 
-const SKIP_DIRS = new Set(["node_modules", "dist", "reports"]);
-const SOURCE_FILE = /\.(?:ts|mts|mjs|js)$/;
+const READER_EXTS = [".ts", ".mts", ".mjs", ".js"];
 
 /**
  * Source files under `dir`. Tests are excluded on purpose: `fireSlotsOf`'s own unit test calls it,
@@ -83,11 +77,7 @@ const SOURCE_FILE = /\.(?:ts|mts|mjs|js)$/;
  * question.
  */
 function walk(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
-    e.isDirectory() ? (SKIP_DIRS.has(e.name) ? [] : walk(join(dir, e.name)))
-    : SOURCE_FILE.test(e.name) && !e.name.includes(".test.") && !e.name.endsWith(".d.ts")
-      ? [join(dir, e.name)]
-      : []);
+  return walkSource(dir, { exts: READER_EXTS }).map((rel) => join(dir, rel));
 }
 
 /**
@@ -99,10 +89,7 @@ function walk(dir: string): string[] {
  * a string is not mistaken for a comment.
  */
 function code(file: string): string {
-  return readFileSync(file, "utf8")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1")
-    .replace(/\bimport\s[\s\S]*?from\s*["'][^"']*["'];?/g, "");
+  return codeOf(readSource(file));
 }
 
 /** A CALL, not a mention: the identifier followed by an open paren. A re-export cannot match. */
