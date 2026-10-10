@@ -2722,8 +2722,9 @@ const DOME_SEGMENTS = 14;
  * The widest a bolt layer's edge must be able to move, in world units, before it is drawn torn.
  *
  * A layer's edge moves by at most `half * crackle`, and its centreline by less (`wander` is bounded
- * by what the tear frees). The arena camera sits at zoom 1 (Conquer) or 0.8 (the base) on a fixed backing store, so a world unit
- * is one pixel or 0.8 of one: under half of one the tear cannot be seen (at 0.8 this threshold is conservative), and the layer is drawn with straight edges
+ * by what the tear frees). The arena camera sits at zoom 1 (Conquer) or 0.8 (the base) on a fixed
+ * backing store, so a world unit is one pixel or 0.8 of one: under half of one the tear cannot be
+ * seen (at 0.8 this threshold is conservative), and the layer is drawn with straight edges
  * instead of `BOLT_STATIONS` of them. On `lance` that is the three innermost layers (0.31, 0.09
  * and 0 units) — three-eighths of the beam's vertices, spent moving nothing visible, on the one
  * weapon whose single instance measured more per frame than the rest of the scene put together.

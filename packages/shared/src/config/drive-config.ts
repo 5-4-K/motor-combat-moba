@@ -343,8 +343,11 @@ export const DRIVE_CONFIG = {
  * be; the price is a 640x360 world-unit view at 1280x720. 1 shows the full 1280x720 world-unit
  * view, with the 2x textures drawn at half size. The base default is 0.8 (BAR5): a 1600x900
  * world-unit view, which is what lets the default 1600 × 880 arenas show whole, at the cost of
- * textures drawn at 0.4 of their stored size. Conquer overrides it back to 1 (`arena-03` is
- * 1280 × 2160, one screen wide at zoom 1, scrolling vertically).
+ * textures drawn at 0.4 of their stored size. That is below the 0.5 the importer's `SUPERSAMPLE = 2`
+ * was tuned for, so car and turret textures may shimmer as cars move: a known, accepted trade-off
+ * pending the owner's in-browser art check (a re-bake at `SUPERSAMPLE` 1.6, or mipmaps, is the fix
+ * if it shows). Conquer overrides it back to 1 (`arena-03` is 1280 × 2160, one screen wide at zoom
+ * 1, scrolling vertically).
  *
  * `freeRoamSpeed` is how fast a spectator's free-look camera pans, in world units per **second**, so
  * the pan covers the same ground on a 60 Hz and a 144 Hz display. It is pitched a little above the
@@ -440,9 +443,8 @@ export const CAMERA_CONFIG: CameraConfig = {
  *
  * `buildBotView` (B17) is that consumer. A bot's fairness rests on "a human sees every car" being
  * true, which only holds while the arena fits inside this rectangle (divided by `CAMERA_CONFIG.zoom`
- * — the default arenas, 1600 × 880, fit at the base zoom of 0.8; Conquer's `arena-03` is taller than
- * the view and does not). Once an arena is larger
- * than this, "could a human see this car" stops being "yes, always" and becomes a real question the
+ * — the default arenas, 1600 × 880, fit at the base zoom of 0.8; Conquer's `arena-03` is taller
+ * than the view and does not). Once an arena is larger than this, "could a human see this car" stops being "yes, always" and becomes a real question the
  * server has to answer, and this is the fact it answers it with. Named and pulled from config
  * instead of a literal 1280/720 inside `buildBotView` because invariant 2 (no magic numbers in
  * logic) does not stop applying just because the number in question happens to be about rendering
