@@ -45,8 +45,8 @@ function validateLegend(id: string, legend: TileLegend, defs: TileDefs): void {
     if (spec.orientation !== undefined && !isRotation(spec.orientation)) {
       throw new Error(`${where} has orientation ${spec.orientation}; expected 0, 90, 180 or 270`);
     }
-    if (spec.artOrientation !== undefined && !isRotation(spec.artOrientation)) {
-      throw new Error(`${where} has artOrientation ${spec.artOrientation}; expected 0, 90, 180 or 270`);
+    if (spec.artOrientation !== undefined && spec.artOrientation !== "random" && !isRotation(spec.artOrientation)) {
+      throw new Error(`${where} has artOrientation ${spec.artOrientation}; expected 0, 90, 180, 270 or "random"`);
     }
     if (spec.overlay !== undefined && spec.overlay !== "none" && !isRotation(spec.overlay.orientation)) {
       throw new Error(`${where} has an overlay orientation ${spec.overlay.orientation}; expected 0, 90, 180 or 270`);
@@ -91,13 +91,35 @@ function specsOf(id: string, rows: readonly string[], legend: TileLegend): { col
  * Expand the authored rows into the fully resolved grid (TC9, TC17). Two passes: behaviour and base
  * art per cell, then overlays, which need every neighbour's `solid`.
  */
+/**
+ * A cell's art turn. `"random"` picks one of the four quarter turns from a hash of the arena id and
+ * the cell's row-major index, so every client and every build bakes the same floor: random to the
+ * eye, fixed in the data. FNV-1a over the id, then the index mixed in.
+ */
+function artRotationOf(
+  arenaId: string,
+  index: number,
+  artOrientation: TileRotation | "random" | undefined,
+  orientation: TileRotation,
+): TileRotation {
+  if (artOrientation === undefined) return orientation;
+  if (artOrientation !== "random") return artOrientation;
+  let h = 0x811c9dc5;
+  for (let k = 0; k < arenaId.length; k += 1) h = Math.imul(h ^ arenaId.charCodeAt(k), 0x01000193);
+  h = Math.imul(h ^ index, 0x01000193);
+  h ^= h >>> 15;
+  h = Math.imul(h, 0x2c1b3c6d);
+  h ^= h >>> 12;
+  return ((((h >>> 0) % 4) * 90) as TileRotation);
+}
+
 function resolveGrid(src: TileArenaSource, defs: TileDefs): TileGrid {
   const legend = effectiveLegend(src.id, src.legend);
   validateLegend(src.id, legend, defs);
   const { cols, specs } = specsOf(src.id, src.rows, legend);
   const rows = src.rows.length;
 
-  const first = specs.map((spec) => {
+  const first = specs.map((spec, i) => {
     const def = defs[spec.tile]!;
     const orientation = spec.orientation ?? 0;
     const drawn = def.draw !== "none";
@@ -109,7 +131,7 @@ function resolveGrid(src: TileArenaSource, defs: TileDefs): TileGrid {
       faces: def.hazard ? rotateSides(def.hazard.sides, orientation) : [],
       drawn,
       capture: def.capture === true,
-      base: drawn && art !== undefined ? { art, rotation: spec.artOrientation ?? orientation } : null,
+      base: drawn && art !== undefined ? { art, rotation: artRotationOf(src.id, i, spec.artOrientation, orientation) } : null,
     };
   });
 
