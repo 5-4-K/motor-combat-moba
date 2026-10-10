@@ -1,4 +1,5 @@
 import type { WorldFace } from "../faces.js";
+import type { Aabb } from "../../sim/collide.js";
 import type { ArenaDef, ArenaPalette, ArenaZone, Obstacle, Spawn, TileCell, TileGrid, TileStamp } from "../types.js";
 import { effectiveLegend, type TileCellSpec, type TileLegend } from "./legend.js";
 import { TILE_DEFS, TILE_SIZE, rotateSides, type TileDef, type TileRotation } from "./tile-config.js";
@@ -107,6 +108,7 @@ function resolveGrid(src: TileArenaSource, defs: TileDefs): TileGrid {
       hazard: def.hazard?.kind ?? null,
       faces: def.hazard ? rotateSides(def.hazard.sides, orientation) : [],
       drawn,
+      capture: def.capture === true,
       base: drawn && art !== undefined ? { art, rotation: spec.artOrientation ?? orientation } : null,
     };
   });
@@ -147,15 +149,21 @@ function classOf(cell: TileCell): string | null {
 }
 
 /**
- * Greedy rectangle merge (TA15): scan row-major; at the first unclaimed solid cell take the widest
- * run of its class to the right, then grow it downward while the next row's same span is that class
- * and unclaimed. Exact cover of the solid cells (TA16), and deterministic.
+ * Greedy rectangle merge (TA15): scan row-major; at the first unclaimed cell with a class take the
+ * widest run of that class to the right, then grow it downward while the next row's same span is
+ * that class and unclaimed. Exact cover of the classed cells (TA16), and deterministic. `classOf`
+ * answers `null` for a cell that merges into nothing; `emit` receives each rect in world units and
+ * its top-left cell.
  */
-function mergeSolids(grid: TileGrid): Obstacle[] {
+function mergeCells<T>(
+  grid: TileGrid,
+  classOf: (cell: TileCell) => string | null,
+  emit: (rect: Aabb, cell: TileCell) => T,
+): T[] {
   const { cols, rows, cells } = grid;
   const claimed = new Uint8Array(cols * rows);
   const free = (i: number, cls: string): boolean => claimed[i] === 0 && classOf(cells[i]!) === cls;
-  const out: Obstacle[] = [];
+  const out: T[] = [];
   for (let r = 0; r < rows; r += 1) {
     for (let c = 0; c < cols; c += 1) {
       const start = r * cols + c;
@@ -172,14 +180,28 @@ function mergeSolids(grid: TileGrid): Obstacle[] {
       for (let dr = 0; dr < h; dr += 1) {
         for (let k = 0; k < w; k += 1) claimed[(r + dr) * cols + c + k] = 1;
       }
-      const rect = { x: c * TILE_SIZE, y: r * TILE_SIZE, w: w * TILE_SIZE, h: h * TILE_SIZE };
-      if (cell.hazard !== "spike") out.push(rect);
-      // TC22: all four faces is the absent default, so a `sides: "all"` spike compiles as before.
-      else if (cell.faces.length < 4) out.push({ ...rect, kind: "spike", damageFaces: cell.faces });
-      else out.push({ ...rect, kind: "spike" });
+      out.push(emit({ x: c * TILE_SIZE, y: r * TILE_SIZE, w: w * TILE_SIZE, h: h * TILE_SIZE }, cell));
     }
   }
   return out;
+}
+
+/** The solid cells merged into obstacles (TA15). */
+function mergeSolids(grid: TileGrid): Obstacle[] {
+  return mergeCells(grid, classOf, (rect, cell) => {
+    if (cell.hazard !== "spike") return rect;
+    // TC22: all four faces is the absent default, so a `sides: "all"` spike compiles as before.
+    if (cell.faces.length < 4) return { ...rect, kind: "spike", damageFaces: cell.faces };
+    return { ...rect, kind: "spike" };
+  });
+}
+
+/**
+ * The capture cells merged into maximal rectangles in world units, by the same greedy merge as the
+ * obstacles (CT7). `[]` when the grid has none.
+ */
+export function captureRectsOf(grid: TileGrid): Aabb[] {
+  return mergeCells(grid, (cell) => (cell.capture ? "capture" : null), (rect) => rect);
 }
 
 /**

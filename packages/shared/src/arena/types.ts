@@ -78,6 +78,8 @@ export interface TileCell {
   readonly faces: readonly WorldFace[];
   /** `def.draw !== "none"`. */
   readonly drawn: boolean;
+  /** `def.capture === true`: the cell is part of the capture zone (CT7). */
+  readonly capture: boolean;
   /** `null` when not drawn, or drawn with no art (the bake then draws the behaviour fallback). */
   readonly base: TileStamp | null;
   /** Resolved, edge-rotated, in draw order. */

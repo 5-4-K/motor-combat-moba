@@ -356,7 +356,7 @@ export type {
 } from "./arena/tiles/tile-config.js";
 export { DEFAULT_LEGEND, effectiveLegend } from "./arena/tiles/legend.js";
 export type { TileCellSpec, TileLegend } from "./arena/tiles/legend.js";
-export { compileTileArena } from "./arena/tiles/compile.js";
+export { compileTileArena, captureRectsOf } from "./arena/tiles/compile.js";
 export type { TileArenaSource } from "./arena/tiles/compile.js";
 export { overlayArtIds, referencedTileArtIds } from "./arena/tiles/art-ids.js";
 export { ARENA_01 } from "./arena/arena-01.js";

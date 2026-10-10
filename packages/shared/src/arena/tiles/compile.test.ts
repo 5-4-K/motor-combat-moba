@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { ARENA_01 } from "../arena-01.js";
 import type { Obstacle } from "../types.js";
-import { compileTileArena, type TileArenaSource } from "./compile.js";
+import { captureRectsOf, compileTileArena, type TileArenaSource } from "./compile.js";
 import type { TileLegend } from "./legend.js";
 import { TILE_DEFS, TILE_SIZE, type TileDef } from "./tile-config.js";
 
@@ -128,6 +128,23 @@ describe("compileTileArena", () => {
     expect(cells[1]!.base).toEqual({ art: "metal-plate", rotation: 0 });
     expect(cells[2]!.faces).toEqual(["n", "e", "s", "w"]);
     expect(cells[0]!.faces).toEqual([]);
+  });
+
+  it("flags capture cells (CT7)", () => {
+    const cells = compileTileArena(source(["...", ".z.", "..."], { z: { tile: "zone" } })).tiles!.cells;
+    expect(cells.map((c) => c.capture)).toEqual([false, false, false, false, true, false, false, false, false]);
+  });
+
+  it("merges capture cells into rects (CT7)", () => {
+    const grid = compileTileArena(source(["zz.", "zz.", "..z"], { z: { tile: "zone" } })).tiles!;
+    expect(captureRectsOf(grid)).toEqual([
+      { x: 0, y: 0, w: 80, h: 80 },
+      { x: 80, y: 80, w: 40, h: 40 },
+    ]);
+  });
+
+  it("a grid without capture cells has no capture rects (CT7)", () => {
+    expect(captureRectsOf(compileTileArena(source(["...", "..."])).tiles!)).toEqual([]);
   });
 
   it("covers every solid cell exactly once and no floor cell (TA16)", () => {
