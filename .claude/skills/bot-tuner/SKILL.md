@@ -104,7 +104,7 @@ Weakness is worse use of the same facts, later reactions, and worse hands.
 | "wastes ult" / "saves its big gun" | **not a concept** | There is no ult holding: every slot fires when its hit chance clears the bar, cooldown ignored |
 | "it weaves" | **by design** | `fight` (`orbit` facing, unless a fixed-muzzle slot wants the nose) weaves across the range band to keep the target inside the turret's ±30° half-arc. Not a knob |
 | "shots are all over the place" with a good `hit` | **not a knob** | The solver decides hit chance. If it presses shots it reports as landing and they miss, that is a solver bug |
-| "easy and hard feel the same" | not a single knob | Read `packages/server/src/bot/brain/tiers.test.ts`. If green, the values are too close — move several judgment, hands and reaction knobs apart, still no `if (hard)` |
+| "easy and hard feel the same" | not a single knob | Run `npm run bot:report` and read the tier rows in `bot.md`. If they read `OK`, the values are too close — move several judgment, hands and reaction knobs apart, still no `if (hard)` |
 
 `stateEstimationSigma` and `aimErrorSigmaRad` are not probabilities; a value above 1 is a wild
 misread, not an invalid one. Do not add either to `bot-profiles.test.ts`'s `PROBABILITY_FIELDS`.
@@ -114,11 +114,16 @@ misread, not an invalid one. Do not add either to `bot-profiles.test.ts`'s `PROB
 Edit only `bot-profiles.ts` (and the `docs/bot-behavior.md` cells). Then, from `packages/server`:
 
 ```
-npx vitest run src/config/bot-profiles.test.ts
-npx vitest run -c vitest.slow.config.ts src/bot/brain/tiers.test.ts src/bot/brain/controller.test.ts
+npx vitest run src/config/bot-profiles.test.ts src/bot/brain/controller.test.ts
+npx vitest run -c vitest.slow.config.ts src/bot/brain/tiers.test.ts
 ```
 
-Bot tests live in the slow suite (`npm run test:slow` runs them all). Recommend they try it in
+then, from the root, `npm run bot:report`. The bot unit tests are in `npm test`; `npm run test:slow`
+holds the whole-brain determinism check (`tiers.test.ts`, BB63); `npm run test:bench` the brain's
+timing. The tier characterisation (BB60), the reported symptoms (BB3, P50 included) and situation
+occupancy are not tests: they read `OK`/`FINDING` against their old bounds in
+`packages/server/playtest/reports/<date-NN>-bot/bot.md` and never fail. Name any `FINDING` the
+retune caused. Recommend they try it in
 Practice or `?dev=playground`, and `npm run balance` only if they want a new win-rate baseline —
 the bot fingerprint will have moved.
 

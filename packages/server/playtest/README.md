@@ -211,6 +211,30 @@ processes mean one can never leave state behind that changes the next one's numb
 
 ---
 
+## Bot report
+
+`npm run bot:report` (`playtest/bot/run.ts`, one process) measures what the bot brain does and writes
+one report, `reports/<yyyy-MM-dd-NN>-bot/bot.md`. It holds the bot's **calibration** checks — what a
+particular seed, tier or tuned bot happens to do — which are not tests (see
+[`docs/testing.md`](../../../docs/testing.md#7-calibration-is-report-only)). It is not part of
+`npm run playtest`/`run-all.ts`; it takes about 20 s.
+
+| Module | Scenarios |
+|---|---|
+| `bot/occupancy.ts` | situation occupancy in real matches: the 60 s seed-7 hard Mirage-vs-Bullseye deathmatch duel on `arena-01` (`unpin` share, quick re-entries, stationary-while-hittable and reverse shares, rams landed), and the six-bot easy FFA on both tile arenas (`unpin` share and quick re-entries summed over every seat) |
+| `bot/tiers.ts` | one row per former `tiers.test.ts` case: the tier characterisation (BB60, 8 rows) and the reported symptoms that must stay fixed (BB3, 3 rows, P50 included), in fixed open-loop scenes |
+| `bot/placement.ts` | hard Mirage vs Bastion, 30 s deathmatch on `arena-01`, over seeds 1, 2, 3, 4, 22, 41, 42, 43: the ranking rule holds on every outcome and at least one seed is decisive |
+
+**The bounds are the former test assertions, unchanged** — each check prints the measured value
+against the bound the test used, so a breach reads `FINDING` naming both. Each module runs in its own
+`try/catch`, so one that throws becomes a `FINDING` row and the others still report. **It never
+fails**: the exit code is always 0, and `scripts/test-scope.mjs --run` lists it as `(report only)`
+and ignores its exit code. It is owed (`owesBotReport`) by a change under any `src/bot/`,
+`src/config/bot-profiles.ts`, `balance/` or `playtest/bot/`; read its `FINDING`s before a bot or
+balance change lands.
+
+---
+
 ## Editing a probe
 
 Probes are updated when the sim changes; **new scenarios are added only when explicitly asked for.**

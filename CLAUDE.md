@@ -359,16 +359,27 @@ Mode-specific tests and probes live in their mode's own folders (`packages/*/src
   `npm run test:mode -- <slug>` (for shared it always also runs `modes/snapshots.test.ts` and
   `modes/invariants.test.ts`) plus `npm run playtest -- --mode=<slug> --scope=mode`. If that mode's
   `config.ts` moved, add `--scope=common` and `npm run test:scripts` (manual stamp, turn-tuning doc).
-- **Any other path under `packages/` or `scripts/`** — including the `modes/` root files → full
-  scope: `npm test` plus `npm run playtest -- --scope=all` for every active mode.
-- **Slow tests are not in `npm test`.** The bot tests (`packages/server/src/bot/**`) and
-  `balance/match.test.ts` / `balance/runner.test.ts` run under `npm run test:slow`
-  (`packages/server/vitest.slow-tests.ts`). They are owed **on top of** the scope above when the diff
-  touches `sim/`, `rooms/`, `modes/` or `bot/` in shared or server, or `packages/server/balance/`.
+- **Every non-mode path in `packages/server/**` and/or `packages/client/**` → package scope:**
+  `npm run test:server` / `test:client` per package, `npm run test:scripts`, and
+  `npm run playtest -- --scope=all` for every active mode (plus the mode commands if mode folders
+  moved too).
+- **Anything else** — shared outside a mode folder (the `modes/` root files included), `scripts/`, a
+  `package.json`/`tsconfig*.json`/`vitest.*.ts` → full scope: `npm test` plus
+  `npm run playtest -- --scope=all` for every active mode.
+- **Three gated groups and the bot report sit outside `npm test`** (group lists in each package's
+  `vitest.groups.ts`), owed **on top of** the scope by path: `npm run test:slow` (real headless matches and BB63 determinism) for
+  `sim/`, `rooms/`, `modes/`, `bot/`, `config/` in shared or server, shared `arena/`, server
+  `balance/`; `npm run test:net` (full scheduler grid and netsim sweep, ~2 min) for `net/`,
+  `netsim/`, `net-config.ts`, `tick-pipeline.ts`, `snapshot-cadence.ts`; `npm run test:bench`
+  (timing) for `bot/`, `bot-profiles.ts`, client `fx/`; and `npm run bot:report` for `bot/`,
+  `bot-profiles.ts`, `balance/`, `playtest/bot/`.
+- **Calibration is report-only.** What a seed, tier or tuned bot happens to do (who wins, a hit-rate
+  ordering, an occupancy share) is not a test: it lives in `npm run bot:report`, which writes
+  `OK`/`FINDING` verdicts against the former test bounds and never fails. Only invariants gate.
 - Docs-only changes owe nothing, except `docs/turn-tuning.md`, which a test reads.
 
 `node scripts/test-scope.mjs` prints the scope a diff owes; `npm run test:affected` runs it. See
-[`docs/testing.md`](docs/testing.md) for the layout, contract tests and snapshots.
+[`docs/testing.md`](docs/testing.md) for the layout, groups, examples, contract tests and snapshots.
 
 ## Shared `dist` gotcha
 
@@ -514,10 +525,14 @@ npm run dev            # shared watch + server :2567 + Vite client :5173; sets D
                        #   DEPLOY_MODE=lan, CLIENT_ORIGIN=http://localhost:5173
                        #   -- http://localhost:5173/?dev=playground opens the dev-only playground
 npm run build          # shared -> server -> client, in that order (never --workspaces)
-npm test               # build shared, typecheck, all workspace suites, scripts tests
+npm test               # build shared, typecheck, every package's fast group, scripts tests
+npm run test:shared    # one package's typecheck + fast group (also test:server, test:client)
 npm run test:mode -- <slug>  # one mode's tests (+ snapshots/invariants for shared)
 npm run test:affected  # run the scope this diff owes (scripts/test-scope.mjs)
-npm run test:slow      # bot + real-match balance tests, excluded from npm test
+npm run test:slow      # real-match balance tests + bot determinism, excluded from npm test
+npm run test:net       # full input-scheduler grid + netsim link sweep (~2 min)
+npm run test:bench     # wall-clock timing checks (brain bench, client fx perf)
+npm run bot:report     # bot calibration report (report only, never fails)
 npm run test:scripts   # scripts/*.test.mjs only (manual stamp, turn-tuning doc, art)
 npm run build:release  # dist-release/motor-combat-moba/ + zip; --port <n> bakes the port
 npm run install-build  # build a release into the folder named in .install-target; --port <n>

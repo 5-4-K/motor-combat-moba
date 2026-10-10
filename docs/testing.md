@@ -4,7 +4,9 @@ How this repo's tests and playtest probes are laid out, the mechanical rule for 
 what it owes, and the commands that implement it. See the root `CLAUDE.md`'s "Which tests to run"
 section for the short version, and
 [`docs/superpowers/specs/2026-09-25-game-mode-layer-design.md`](superpowers/specs/2026-09-25-game-mode-layer-design.md)
-(GM27–GM36) for the design this page documents.
+(GM27–GM36) and
+[`docs/superpowers/specs/2026-10-10-test-suite-optimization-design.md`](superpowers/specs/2026-10-10-test-suite-optimization-design.md)
+(TS1–TS40) for the designs this page documents.
 
 ## 1. Layout: common, mode folders, family folders, contract tests
 
@@ -57,35 +59,76 @@ description and its behaviour ever disagree.
   is exactly what the common probes measure differently. A `config.ts` or snapshot change also owes
   `npm run test:scripts` (the manual-page stamp and the turn-tuning doc), which `commandsFor` emits
   whenever `commonProbes` is true.
-- Any other changed path under `packages/` or `scripts/` — including a `modes/` ROOT file — →
-  **full scope**: `npm test` plus `playtest --scope=all` for every active mode.
+- Every non-mode path sits in `packages/server/**` and/or `packages/client/**` (outside mode
+  folders; `packages/server/playtest/**` and `packages/server/balance/**` count as server,
+  `packages/client/public/**` as client) → **package scope**. You owe `npm run test:<pkg>` for each
+  package touched, then `npm run test:scripts` (`scripts/` reads `packages/client/public/` and build
+  paths, and it costs 2 s), then the same `playtest --scope=all` runs the full scope emits — probe
+  routing is not narrowed by package. A diff that mixes mode folders with package paths is package
+  scope with the mode commands appended.
+- Any other changed path — anything in `packages/shared/**` outside a mode folder (including a
+  `modes/` ROOT file), anything under `scripts/`, a build or test file (`package.json`,
+  `package-lock.json`, `tsconfig*.json`, any `vitest.*.ts`), or an unrecognised shape → **full
+  scope**: `npm test` plus `playtest --scope=all` for every active mode.
 - Docs-only changes → nothing to run, except `docs/turn-tuning.md`, which
   `scripts/turn-tuning-doc.test.mjs` reads values out of — a change there is full scope, not none.
-- **Independently of the scope**, a changed path under a `sim/`, `rooms/`, `modes/` or `bot/` folder
-  in `packages/{shared,server}/src/`, or under `packages/server/balance/`, also owes the **slow
-  tests** — `npm run test:slow`, which `commandsFor` appends last when `owesSlowTests` says so. They
-  are the server's bot tests (`src/bot/**`) and the two balance tests that play real headless matches
-  (`balance/match.test.ts`, `balance/runner.test.ts`), listed in `packages/server/vitest.slow-tests.ts`
-  and excluded from the server's normal vitest config, so **`npm test` never runs them**. The cheap
-  balance harness tests (attribution, baseline, cli, fingerprint, report, stats) stay in the normal
-  suite. Client code never owes them: none of it runs in those matches.
+
+**Independently of the scope**, four extras are owed by path (§3 says what each group holds).
+`commandsFor` appends them after the scope's commands, in this order:
+
+| Extra | Owed when a changed path is under (`scripts/test-scope.mjs`) |
+|---|---|
+| `npm run test:slow` (`owesSlowTests`) | a `sim/`, `rooms/`, `modes/`, `bot/` or `config/` folder anywhere in `packages/{shared,server}/src/`; `packages/shared/src/arena/`; `packages/server/balance/`; any `packages/*/vitest.*.ts` |
+| `npm run test:net` (`owesNet`) | `packages/{shared,server}/src/net/`; `packages/server/src/netsim/`; `packages/shared/src/config/net-config.ts`; `packages/server/src/rooms/tick-pipeline.ts` or `snapshot-cadence.ts` (the two room modules the sweep imports, not the rest of `rooms/`); a `vitest.net.config.ts`; shared's or server's `vitest.groups.ts`. Not `sim/`: the 3 s netsim smoke in `npm test` covers the sim |
+| `npm run test:bench` (`owesBench`) | any `packages/*/src/bot/`; `packages/server/src/config/bot-profiles.ts`; `packages/client/src/fx/`; a `vitest.bench.config.ts`; server's or client's `vitest.groups.ts` |
+| `npm run bot:report` (`owesBotReport`) — **report only** | any `packages/*/src/bot/`; `bot-profiles.ts`; `packages/server/balance/`; `packages/server/playtest/bot/` |
+
+`test-scope.mjs` prints the report with `(report only)` beside it, and `--run` never fails on it.
+Client code owes no slow or net group: none of it runs in those matches or sweeps.
 
 | Example diff | Scope | Commands |
 |---|---|---|
 | `packages/shared/src/modes/conquer/config.ts` | mode: `conquer` | `test:mode -- conquer`; `playtest --mode=conquer --scope=mode`; `playtest --mode=conquer --scope=common` (config changed); `npm run test:scripts` (config changed); `npm run test:slow` |
 | `packages/client/src/modes/brawl/hud.ts` | mode: `brawl` | `test:mode -- brawl`; `playtest --mode=brawl --scope=mode` |
 | `packages/server/src/modes/last-standing/controller.ts` | mode: `brawl` **and** `team-brawl` (the family) | `test:mode -- brawl`; `test:mode -- team-brawl`; a `--scope=mode` playtest run for each; `npm run test:slow` |
+| `packages/client/src/scenes/ArenaScene.ts` | packages: client | `npm run test:client`; `npm run test:scripts`; `playtest --scope=all` for every active mode |
+| `packages/client/src/fx/decals.ts` | packages: client | as above, then `npm run test:bench` |
+| `packages/server/src/config/bot-profiles.ts` | packages: server | `npm run test:server`; `npm run test:scripts`; `playtest --scope=all`; `npm run test:slow`; `npm run test:bench`; `npm run bot:report` (report only) |
+| `packages/server/src/netsim/link.ts` | packages: server | `npm run test:server`; `npm run test:scripts`; `playtest --scope=all`; `npm run test:net` |
+| `packages/server/src/rooms/ArenaRoom.ts` + `packages/client/src/modes/conquer/hud.ts` | packages: server (+ mode `conquer`) | `npm run test:server`; `npm run test:scripts`; `playtest --scope=all`; `test:mode -- conquer`; `playtest --mode=conquer --scope=mode`; `npm run test:slow` |
 | `packages/shared/src/modes/registry.ts` | full (a `modes/` root file) | `npm test`; `playtest --scope=all` for every active mode; `npm run test:slow` |
-| `packages/shared/src/sim/drive.ts` | full (common sim code) | `npm test`; `playtest --scope=all`; `npm run test:slow` |
-| `packages/client/src/scenes/ArenaScene.ts` | full (common client code) | `npm test`; `playtest --scope=all` — no slow tests |
+| `packages/shared/src/sim/drive.ts` | full (common shared code) | `npm test`; `playtest --scope=all`; `npm run test:slow` |
+| `packages/shared/src/net/input-scheduler.ts` | full | `npm test`; `playtest --scope=all`; `npm run test:net` |
 | `docs/turn-tuning.md` | full (a tested doc) | `npm test` |
 | `docs/config-reference.md` | none | — |
 
-## 3. Commands
+## 3. Test groups and commands
+
+Each package's `vitest.groups.ts` holds its group lists (`SLOW_TESTS`, `NET_TESTS`,
+`BENCH_TESTS`). The default `vitest.config.ts` excludes every list; `vitest.slow.config.ts`,
+`vitest.net.config.ts` and `vitest.bench.config.ts` each include only their own. One list read by
+both sides, so a file can never be in neither group or in two. `src/vitest-groups.test.ts` (one per
+package, in the fast group) fails if an entry names no real file or a file sits in two lists.
+
+| Group | Command | Gates? | What is in it |
+|---|---|---|---|
+| **fast** | `npm test`, or one package: `npm run test:shared` / `test:server` / `test:client` | yes | every other test, the pure bot unit tests and `bot/brain/controller.test.ts` included; netsim's 3 s smoke (`netsim.test.ts`) and the scheduler's corner cases (`input-scheduler.test.ts`) |
+| **slow** | `npm run test:slow` | yes | server only: `balance/match.test.ts`, `balance/runner.test.ts` (real headless matches) and `src/bot/brain/tiers.test.ts` (whole-brain determinism, BB63). Shared's list is empty |
+| **net** | `npm run test:net` (~2 min) | yes | shared's full input-scheduler grid (`src/net/input-scheduler.envelope.test.ts`) and server's full netsim link sweep (`src/netsim/netsim.sweep.test.ts`) |
+| **bench** | `npm run test:bench` | yes, on a ratio or budget | wall-clock timing checks: server `src/bot/brain/brain.bench.test.ts`, client `src/fx/perf.test.ts` |
+| **bot report** | `npm run bot:report` | **no — report only** | the bot calibration checks (§7), written to `packages/server/playtest/reports/<yyyy-MM-dd-NN>-bot/bot.md` |
+| scripts | `npm run test:scripts` | yes | `scripts/*.test.mjs` (manual stamp, turn-tuning doc, art, test scope); also the last step of `npm test` |
+| playtest / balance / ttk | `npm run playtest` / `balance` / `ttk` | no | measurement harnesses, unchanged |
 
 ```bash
-npm test                    # shared build, typecheck, every package's suite (minus the slow tests), scripts
-npm run test:slow           # ONLY the slow server tests: src/bot/**, balance/match + balance/runner
+npm test                    # shared build, typecheck, every package's fast group, test:scripts
+npm run test:shared         # shared build, then typecheck + fast group of that one package
+npm run test:server         #   (likewise; each builds shared first, since server and client read its dist)
+npm run test:client
+npm run test:slow           # balance/match, balance/runner, bot/brain/tiers (BB63)
+npm run test:net            # full scheduler grid + full netsim link sweep (~2 min)
+npm run test:bench          # timing checks (brain bench, client fx perf)
+npm run bot:report          # bot calibration report; always exits 0
 npm run test:common         # every package's common tests + contract tests (excludes **/modes/*/**)
 npm run test:mode -- <slug> # that mode's folders (+ its family's) in every package, + contract tests
 npm run test:affected       # scripts/test-scope.mjs --run: prints the scope for the current diff, then runs it
@@ -132,3 +175,29 @@ automatically a failure to fix by regenerating it:
   means you edited the base when you meant to write an override.
 - **Never run a blanket `vitest -u` across the whole repo to make a snapshot mismatch go away.**
   Regenerate only the file(s) the diff should have moved, and read what changed before committing.
+
+## 7. Calibration is report-only
+
+An assertion is **calibration** when it pins what a particular seed, tier or tuned bot happens to do
+— who wins, a hit-rate ordering, an occupancy share held to "measured worst plus a margin". It is an
+**invariant** when it would be a bug on any seed — determinism, a ranking rule, a clock firing, a
+status gate. Invariants are tests and gate; calibration lives in `npm run bot:report`
+(`packages/server/playtest/bot/`), which follows the probe rules: report, never assert, one
+scenario's surprise never stops the next, exit code always 0. Each verdict compares the measurement
+with the bound the test used to assert, so a former failure reads `FINDING` naming the number and the
+bound. Do not write a new seed-pinned outcome as a test; write it as a bot-report scenario (when the
+user asks for one).
+
+Where the checks that left the suites live now:
+
+| Check | Now |
+|---|---|
+| `bot/brain/occupancy.test.ts` (hard duel; six-bot easy FFA on both tile arenas) | bot report, `playtest/bot/occupancy.ts` |
+| `tiers.test.ts` "tier characterisation (BB60)" (8 cases) and "the reported symptoms stay fixed (BB3)" (3 cases, P50 included) | bot report, `playtest/bot/tiers.ts`, one row per former `it` |
+| `balance/match.test.ts`'s 8-seed deathmatch placement spread | bot report, `playtest/bot/placement.ts` (`OK` needs the rule to hold and at least one decisive seed) |
+| the deathmatch ranking rule | fast group: a seed-free unit test of `rankDeathmatch` in `balance/match.test.ts` |
+| "shortening matchSeconds still lets the deathmatch clock fire" | slow group, seed-free: a 30 s deathmatch concludes within one tick of its clock |
+| `tiers.test.ts` whole-brain determinism (BB63) | slow group |
+| `bot/brain/controller.test.ts` and every other `src/bot/**` unit test | fast group |
+| the full netsim link sweep and the full input-scheduler grid | net group; a 3 s netsim smoke and the scheduler's corners stay fast |
+| `brain.bench.test.ts`, client `fx/perf.test.ts` | bench group |

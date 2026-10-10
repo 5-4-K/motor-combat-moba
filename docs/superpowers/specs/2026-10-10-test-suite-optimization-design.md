@@ -34,6 +34,20 @@ FOV run at 3 s has 24 car reveals and 19 shot endings; the G5 run (seed 2) has 1
 **Targets:** `npm test` ≤ 90 s on this box (≈ −50 %); `test:slow` ≤ 30 s; nothing that gates today
 stops gating except what §5 names as calibration.
 
+**After** (2026-10-10, one box, `nproc` 4, wall time of the root command including its shared build,
+run back to back: the branch point `882d4e6` in a fresh worktree after `npm ci`, then this branch's
+head; every run passed, `bot:report` 15 `OK` and no `FINDING`):
+
+| Command | Before (`882d4e6`) | After | Notes |
+|---|---|---|---|
+| `npm test` | 192 s | 111 s | vitest per package before → after: client 28.1 → 24.2 s, server 106.1 → 27.6 s, shared 23.8 → 24.1 s; the rest is build, typecheck and scripts |
+| `npm run test:slow` | 57 s | 18 s | before: 23 files (bot tests included); after: 3 files, 37 tests |
+| `npm run test:net` | — | 108 s | new group: shared grid 5.1 s, server netsim sweep 96.5 s |
+| `npm run test:bench` | — (in `test:slow`) | 16 s | brain bench 6.8 s, client fx perf 3.6 s |
+| `npm run bot:report` | — (in `test:slow`) | 21 s | report only; never fails |
+
+`npm test` misses the ≤ 90 s target by 21 s on this 4-core box; `test:slow` meets its ≤ 30 s target.
+
 ## 3. Test groups after this change
 
 | Group | Command | Gates? | What is in it |
